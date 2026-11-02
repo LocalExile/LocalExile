@@ -16,9 +16,17 @@ $pythonSha = '4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3'
 $nodeVersion = '24.19.0'
 $nodeUrl = "https://nodejs.org/dist/v$nodeVersion/node-v$nodeVersion-win-x64.zip"
 $nodeSha = '57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73'
+# Run under pwsh on Linux this builds the linux-x64 package: native servers, Node from its own archive and the system's
+# Python, with the client under Proton (src/LocalExile/ClientLaunch.cs). Windows PowerShell has no $IsLinux.
+$runtime = if ($IsLinux) { 'linux-x64' } else { 'win-x64' }
+$shell = if ($IsLinux) { 'pwsh' } else { 'powershell' }
+if ($IsLinux) {
+    $nodeUrl = "https://nodejs.org/dist/v$nodeVersion/node-v$nodeVersion-linux-x64.tar.xz"
+    $nodeSha = '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647'
+}
 
 $out = Join-Path $repo 'artifacts\release'
-$name = "LocalExile-v$Version-win-x64"
+$name = "LocalExile-v$Version-$runtime"
 # The zip's one folder has no version in its name: extracting a new zip beside the old folder updates it.
 $package = Join-Path $out 'LocalExile'
 $downloads = Join-Path $out 'downloads'
@@ -59,23 +67,25 @@ $app = Join-Path $package 'app'
 foreach ($project in 'src\GameServer.Patch', 'src\GameServer.Auth', 'src\GameServer.Gateway',
     'Tools\PoEDataExtractor', 'scripts\re\atlas', 'scripts\re\passive-graphs', 'scripts\re\game-pack', 'scripts\re\ggdump') {
     Step "publishing $project ..."
-    dotnet publish $project @properties -r win-x64 --self-contained true -o $app
+    dotnet publish $project.Replace('\', [IO.Path]::DirectorySeparatorChar) @properties -r $runtime --self-contained true -o $app
     Check-Exit "dotnet publish $project"
 }
 
 Step 'publishing LocalExile.exe ...'
-dotnet publish src\LocalExile @properties -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=embedded -o $package
+dotnet publish (Join-Path $repo 'src\LocalExile') @properties -r $runtime --self-contained true -p:PublishSingleFile=true -p:DebugType=embedded -o $package
 Check-Exit 'dotnet publish src\LocalExile'
 
 # The window over LocalExile.exe --json, with Windows' own .NET Framework compiler: no runtime of its own to ship.
-Step 'building LocalExileGUI.exe ...'
-& powershell -NoProfile -ExecutionPolicy Bypass -File src\LocalExileGui\build.ps1 -Out (Join-Path $package 'LocalExileGUI.exe')
-Check-Exit 'src\LocalExileGui\build.ps1'
+if (-not $IsLinux) {
+    Step 'building LocalExileGUI.exe ...'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File src\LocalExileGui\build.ps1 -Out (Join-Path $package 'LocalExileGUI.exe')
+    Check-Exit 'src\LocalExileGui\build.ps1'
+}
 
 # The modules as the Gateway loads them: each one's manifest and other files, and its bin\ without the build's leftovers.
 Step 'copying modules, mods and leagues ...'
 Get-ChildItem Modules -Recurse -File | Where-Object {
-    $relative = $_.FullName.Substring($repo.Length + 1)
+    $relative = $_.FullName.Substring($repo.Length + 1).Replace('/', '\')
     $relative -notmatch '\\obj\\' -and $_.Extension -notin '.cs', '.csproj', '.props'
 } | ForEach-Object { Copy-Into $_.FullName $_.FullName.Substring($repo.Length + 1) }
 Copy-Into 'Mods\Binaries' 'Mods\Binaries'
@@ -89,6 +99,16 @@ Copy-Into 'Agents\docs\re\components.json' 'Agents\docs\re\components.json'
 
 # The bundled runtimes of the extraction, and the manifest with each entry's program.
 Step 'bundling Python and Node ...'
+if ($IsLinux) {
+    $unpacked = Join-Path $downloads 'node'
+    if (Test-Path $unpacked) { Remove-Item $unpacked -Recurse -Force }
+    New-Item -ItemType Directory -Force $unpacked | Out-Null
+    & tar -xJf (Get-Pinned $nodeUrl $nodeSha "node-$nodeVersion-linux-x64.tar.xz") -C $unpacked --strip-components=1
+    Check-Exit 'tar'
+    Copy-Into (Join-Path $unpacked 'bin/node') 'Tools/node/node'
+    Copy-Into (Join-Path $unpacked 'LICENSE') 'licenses/node-LICENSE.txt'
+}
+else {
 Expand-Archive (Get-Pinned $pythonUrl $pythonSha "python-$pythonVersion.zip") (Join-Path $package 'Tools\python')
 # Only these two: the rest is npm, with paths too long for Expand-Archive in Windows PowerShell.
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -101,6 +121,7 @@ try {
     }
 }
 finally { $nodeZip.Dispose() }
+}
 Push-Location Tools\ooz
 npm ci --omit=dev --no-audit --no-fund
 Check-Exit 'npm ci'
@@ -110,7 +131,7 @@ Copy-Into 'Tools\ooz\package.json' 'Tools\ooz\package.json'
 Copy-Into 'Tools\ooz\node_modules' 'Tools\ooz\node_modules'
 
 $exported = Join-Path $out 'extract-manifest.exported.json'
-& powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev\extract-data.ps1 -ExportManifest $exported
+& $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\dev\extract-data.ps1') -ExportManifest $exported
 Check-Exit 'extract-data.ps1 -ExportManifest'
 # Parsed first: Windows PowerShell's ConvertFrom-Json passes a whole array down a pipeline as one object.
 $parsed = Get-Content $exported -Raw | ConvertFrom-Json
@@ -122,7 +143,7 @@ $entries = @(foreach ($entry in $parsed) {
         $folder = $arguments[2]
         $project = @(Get-ChildItem $folder -Filter *.csproj)
         if ($project.Count -ne 1) { throw "$($entry.Name): no single project in $folder" }
-        $exe = "app\$($project[0].BaseName).exe"
+        $exe = if ($IsLinux) { "app/$($project[0].BaseName)" } else { "app\$($project[0].BaseName).exe" }
         if (-not (Test-Path (Join-Path $package $exe))) { throw "$($entry.Name): $exe was not published" }
         $arguments = @($arguments | Select-Object -Skip 4)
     }
@@ -141,21 +162,21 @@ Copy-Into 'LICENSE' 'licenses\LICENSE.txt'
 Copy-Into 'THIRD-PARTY-NOTICES.md' 'licenses\THIRD-PARTY-NOTICES.md'
 Copy-Into 'data\schema\LICENSE' 'licenses\dat-schema-LICENSE.txt'
 Copy-Into 'Tools\ooz\node_modules\ooz-wasm\LICENSE' 'licenses\ooz-wasm-LICENSE.txt'
-Copy-Item (Join-Path $package 'Tools\python\LICENSE.txt') (Join-Path $package 'licenses\python-LICENSE.txt')
+if (-not $IsLinux) { Copy-Item (Join-Path $package 'Tools\python\LICENSE.txt') (Join-Path $package 'licenses\python-LICENSE.txt') }
 Set-Content (Join-Path $package 'licenses\SOURCE.txt') "LocalExile $Version is built from https://github.com/LocalExile/LocalExile/tree/$commit" -Encoding ascii
-Copy-Into 'scripts\release\README-player.txt' 'README.txt'
-[ordered]@{ version = $Version; commit = $commit; client = '3.29.3b'; runtime = 'win-x64' } | ConvertTo-Json |
+Copy-Into $(if ($IsLinux) { 'scripts\release\README-player-linux.txt' } else { 'scripts\release\README-player.txt' }) 'README.txt'
+[ordered]@{ version = $Version; commit = $commit; client = '3.29.3b'; runtime = $runtime } | ConvertTo-Json |
     Set-Content (Join-Path $package 'release.json') -Encoding ascii
 
 # What must hold before anything goes out.
 Step 'checking the package ...'
-$launcher = Join-Path $package 'LocalExile.exe'
+$launcher = Join-Path $package $(if ($IsLinux) { 'LocalExile' } else { 'LocalExile.exe' })
 $reported = (& $launcher version).Trim()
 if ($reported -ne "$Version+$commit") { throw "LocalExile.exe reports version '$reported'" }
 $command = (& $launcher client-command).Trim()
-if ($command -cne 'Client\Game.patched.exe --patching-server 127.0.0.1:12995') { throw "the client would start as: $command" }
+if ($command -cne ('Client\Game.patched.exe --patching-server 127.0.0.1:12995'.Replace('\', [IO.Path]::DirectorySeparatorChar))) { throw "the client would start as: $command" }
 $bad = @(Get-ChildItem $package -Recurse -File | Where-Object {
-    $relative = $_.FullName.Substring($package.Length + 1)
+    $relative = $_.FullName.Substring($package.Length + 1).Replace('/', '\')
     $_.Extension -in '.ggpk', '.bin', '.dat', '.dat64', '.datc64', '.pfx', '.key', '.pem', '.db' -or
     $_.Name -like 'PathOfExile*.exe' -or $_.Name -in 'Game.exe', 'Game.patched.exe', 'Game_x64.exe' -or ($_.Name -like '*secret*' -and $_.Extension -ne '.dll') -or $_.Name -like 'login-keys*' -or
     ($relative -like 'data\*' -and $relative -notlike 'data\schema\*') -or $relative -like 'Client\*'
@@ -163,7 +184,9 @@ $bad = @(Get-ChildItem $package -Recurse -File | Where-Object {
 if ($bad.Count) { throw "the package must not hold: $(($bad | Select-Object -First 10 | ForEach-Object { $_.FullName.Substring($package.Length + 1) }) -join ', ')" }
 foreach ($required in 'LocalExileGUI.exe', 'app\GameServer.Gateway.exe', 'app\GameServer.Auth.exe', 'app\GameServer.Patch.exe', 'app\GgDump.exe', 'Tools\python\python.exe',
     'Tools\node\node.exe', 'Tools\ooz\node_modules\ooz-wasm\package.json', 'Modules\Core\Game\bin\game.dll', 'scripts\re\levelgen\gate-baseline.json', 'data\schema\schema.min.json') {
-    if (-not (Test-Path (Join-Path $package $required))) { throw "the package misses $required" }
+    if ($IsLinux -and $required -in 'LocalExileGUI.exe', 'Tools\python\python.exe') { continue }
+    $relative = if ($IsLinux) { $required -replace '\.exe$', '' } else { $required }
+    if (-not (Test-Path (Join-Path $package $relative))) { throw "the package misses $required" }
 }
 
 Step 'compressing ...'

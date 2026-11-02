@@ -49,7 +49,7 @@ sealed class Servers : IDisposable
         string lower = name.ToLowerInvariant();
         var output = new StreamWriter(Path.Combine("logs", $"live-{lower}.log")) { AutoFlush = true };
         _logs.Add(output);
-        var start = new ProcessStartInfo(Path.GetFullPath(Path.Combine(Tools.App, $"GameServer.{name}.exe")))
+        var start = new ProcessStartInfo(Path.GetFullPath(Path.Combine(Tools.App, Platform.Program($"GameServer.{name}"))))
         {
             WorkingDirectory = Directory.GetCurrentDirectory(), UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true,
@@ -61,7 +61,7 @@ sealed class Servers : IDisposable
         {
             ["Game_GATEWAY_ENTER"] = "1", ["Game_PATCH_TCP_PORT"] = $"{ports.Patch}", ["Game_LOGIN_PORT"] = $"{ports.Login}",
             ["Game_AUTH_CONTROL_PORT"] = $"{ports.Control}", ["Game_GATEWAY_PORT"] = $"{ports.Gateway}",
-            ["Game_PATCH_URL"] = $"http://127.0.0.1:{ports.PatchWeb}", ["Game_PACKET_DUMPS"] = @"logs\packets",
+            ["Game_PATCH_URL"] = $"http://127.0.0.1:{ports.PatchWeb}", ["Game_PACKET_DUMPS"] = Path.Combine("logs", "packets"),
         }) start.Environment[key] = value;
         var process = new Process { StartInfo = start };
         void Write(string? line) { if (line is not null) lock (output) output.WriteLine(line); }
@@ -72,6 +72,7 @@ sealed class Servers : IDisposable
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         _running.Add(process);
+        if (!OperatingSystem.IsWindows()) EndWithThisProcess.Add(process);
     }
 
     async Task WaitForListenerAsync(string name, int port, int seconds, Output log)
@@ -130,6 +131,15 @@ sealed class Servers : IDisposable
                 process.Kill(entireProcessTree: true);
                 stopped++;
             }
+        if (!OperatingSystem.IsWindows())
+            foreach (var (pid, folder) in Platform.WineClients().Where(c => c.Folder == Path.TrimEndingDirectorySeparator(client)).ToList())
+                try
+                {
+                    using var game = Process.GetProcessById(pid);
+                    game.Kill();
+                    stopped++;
+                }
+                catch (Exception e) when (e is ArgumentException or InvalidOperationException) { }
         log.Done(stopped == 0 ? "nothing was running" : $"stopped {stopped} process(es)");
     }
 
@@ -170,6 +180,11 @@ static class KillOnExitJob
 
     public static void AddCurrentProcess()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            EndWithThisProcess.Arrange();
+            return;
+        }
         nint job = CreateJobObject(0, null);
         var limits = new ExtendedLimits { Basic = new BasicLimits { LimitFlags = KillOnJobClose } };
         if (job == 0 || !SetInformationJobObject(job, ExtendedLimitInformation, ref limits, (uint)Marshal.SizeOf<ExtendedLimits>())
