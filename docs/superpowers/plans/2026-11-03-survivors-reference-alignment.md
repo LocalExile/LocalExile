@@ -11,7 +11,7 @@ reference's fast refill, the horde capped at 120 instead of 220, the boss ladder
 level-up window ignored the reference's weighted offer. This change puts the numbers back on the reference and makes
 them testable.
 
-Reference: <https://github.com/OutThisLife/azeroth-survivors-re> (`crates/benilla-app/src/survivors/{data,enemies,hud}.rs`),
+Reference: `OutThisLife/azeroth-survivors-re` (`crates/benilla-app/src/survivors/{data,enemies,hud}.rs`),
 read 2026-11-03. PoE formulas still come from the pinned Path of Building snapshot (issue #503's port) and the
 reference library; nothing is copied from either project.
 

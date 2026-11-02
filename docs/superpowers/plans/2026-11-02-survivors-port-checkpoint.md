@@ -99,8 +99,8 @@ damage number:
 
 ## Update: reference alignment (2026-11-03, late)
 
-The gameplay was brought back onto Azeroth Survivors' mechanics and curves
-(<https://github.com/OutThisLife/azeroth-survivors-re>, `data.rs` / `enemies.rs` / `hud.rs`, read 2026-11-03):
+The gameplay was brought back onto Azeroth Survivors' mechanics and curves (`OutThisLife/azeroth-survivors-re`,
+`data.rs` / `enemies.rs` / `hud.rs`, read 2026-11-03):
 
 - **Horde**: 14 → 220 alive (was capped at 120), refilled every 0.12 s by `ceil(gap/6)` bodies, at most four a tick
   (was 0.5 s and `min(4, gap)`), drawn from a sliding pool of three consecutive tiers over thirty steps of the run
