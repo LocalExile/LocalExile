@@ -1,7 +1,7 @@
 # Survivors: reference alignment (Azeroth Survivors)
 
 Date: 2026-11-03
-Status: implementing
+Status: done (implemented, tested and live-verified; see `survivors-mode.md` "Reference alignment")
 
 ## Why
 
