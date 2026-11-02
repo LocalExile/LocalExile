@@ -6,6 +6,7 @@
 sealed class LeechRecoveryState
 {
     public readonly record struct Settings(double TotalMultiplier, double MaximumPerSecond, double RecoveryMultiplier);
+    public readonly record struct DisplayState(int PerMinute, double Expiry);
     readonly record struct Instance(double Rate, bool Attack);
     readonly PriorityQueue<Instance, double> expiries = new();
     Settings settings;
@@ -50,6 +51,20 @@ sealed class LeechRecoveryState
         double value = pending;
         pending = 0;
         return value;
+    }
+
+    /// <summary>The full current recovery rate and the last instance's expiry, for the invisible leech buff. The
+    /// rate is not reduced by Petrified Blood's Low Life cap: the client shows the leech's full potential while the
+    /// server caps the actual pool update.</summary>
+    public DisplayState Display(double now)
+    {
+        Settle(now);
+        if (expiries.Count == 0) return new(0, now);
+        double rate = Math.Min(baseRate * settings.TotalMultiplier, settings.MaximumPerSecond)
+            * settings.RecoveryMultiplier;
+        int perMinute = (int)Math.Clamp(Math.Round(rate * 60), 0, int.MaxValue);
+        double expiry = expiries.UnorderedItems.Max(instance => instance.Priority);
+        return new(perMinute, expiry);
     }
 
     public void Clear(double now)

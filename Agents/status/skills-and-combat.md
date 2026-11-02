@@ -694,7 +694,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   the client's leech display keep the full maximum-unreserved-Life cap; they are not removed at Low Life, but their
   actual recovery is capped like regeneration and Recoup. Recoup is based on the hit before Petrified Blood and its
   four-second instance also keeps running at Low Life; a level-21/20-quality gem's 30% deferred share is offset by 30%
-  Recoup as Life over the same four seconds.
+  Recoup as Life over the same four seconds. The invisible life/mana/energy-shield leech buffs are presented with the
+  full per-minute rate, so the client can draw the leech overlay; only the actual pool update is capped.
   Low Life uses the shared 50% default (`low_life_threshold_%_override` then `low_life_threshold_%`), not a fixed
   half of maximum Life; the 3.29.3b Life mastery `Life4` sets the override to 55%. The client's own
   `life_recovery_per_minute` is published as 0 while the cap blocks recovery and restored below it, so its pool

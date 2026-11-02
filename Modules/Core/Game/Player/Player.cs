@@ -106,6 +106,7 @@ static partial class Game
             petrifiedEnded = conn.PetrifiedBlood.Active || conn.PetrifiedBlood.PresentedBuff != 0;
             conn.Auras.Clear();
             conn.PetrifiedBlood.Clear();
+            conn.LeechDisplay.Clear();
             conn.Lifetap.Clear();
             conn.AuraStatsDirty = ended.Count > 0 || petrifiedEnded || conn.AuraStatsDirty;
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
@@ -494,6 +495,7 @@ static partial class Game
             if (conn.FlaskGrounds.StartTickerIfConfigured()) _ = RunFlaskGrounds(remote, stream, ciphers, conn);
             await SendAttackerSlows(remote, stream, ciphers, conn);
             await SendLifetap(remote, stream, ciphers, conn);
+            await SendLeechBuffs(remote, stream, ciphers, conn);
             await TickPassiveAuras(remote, stream, ciphers, conn);
             await PushOutOfCollision(remote, stream, ciphers, conn);
             await BurnIgnited(remote, stream, ciphers, conn);
@@ -1100,6 +1102,7 @@ static partial class Game
                         foreach (var budget in player.Souls ?? [])
                             conn.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
                         conn.PresentedAuras.Clear();
+                        conn.LeechDisplay.Clear();
                         conn.Lifetap.PresentedBuff = 0;
                         conn.Lifetap.RefreshPresented = false;
                         conn.AuraStatsDirty = false;

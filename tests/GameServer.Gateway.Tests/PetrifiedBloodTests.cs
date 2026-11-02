@@ -101,6 +101,10 @@ public sealed class PetrifiedBloodTests
         Assert.Equal(1, Game.LeechOf(retained).Life.Count);
         double leechCarry = 0;
         Assert.Equal(800u, PetrifiedBlood.RecoverLife(retained, 800, 50, ref leechCarry));
+        // The orb display keeps the full leech rate while PB caps the actual pool update.
+        var display = Game.LeechOf(retained).Display(0);
+        Assert.Equal(1200, display.Life.PerMinute);
+        Assert.True(display.Life.Expiry > 0);
 
         // Recoup uses the pre-PB hit and keeps its own four-second rate at Low Life; only the actual recovery is
         // capped. 30% of a 1000 hit is 300, paid as 75 per second, and 450 + 75 stops at the 500 Low Life boundary.

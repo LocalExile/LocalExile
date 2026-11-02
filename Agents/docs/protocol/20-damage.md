@@ -1069,6 +1069,12 @@ live owner state, overriding forged raw condition values. Reading these conditio
 draining pending recovery. Instant-only grants leave no timed instance. The normal player tick republishes player
 and selected skill stats when these conditions change; pause keeps their game-clock lifetime fixed.
 
+The invisible BuffDefinitions rows 39/38/40 (`life_leech`, `mana_leech`, `energy_shield_leech`) are presented on the
+player while the matching timed instance runs. Each `0x1c1` carries the two GrantedStats values: the full
+`*_recovery_per_minute_from_leech` (flat per minute, the current rate after its total cap and recovery modifiers) and
+`is_*_leeching` 1. Its duration is the last instance's remaining time. The client draws the leech overlay on that
+resource orb from these values. Petrified Blood caps the actual pool update, not the displayed leech rate.
+
 The hit resolver now adds general/resource leeching damage, attack-only leeching damage, physical damage while
 Life leeching and full-ES damage to their proper increased buckets. Physical increases follow conversion history
 once. Energy Leech's full-ES MORE modifier is separate from its quality's increased damage while ES leeching;
