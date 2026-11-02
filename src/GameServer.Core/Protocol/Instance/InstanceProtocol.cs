@@ -225,10 +225,10 @@ public static class InstanceProtocol
     public static byte[] ActionEnded(uint objectId) => new LoginWriter().U16(0x1ac).U32(objectId).U32(0).U16(0).ToArray();
 
     public static byte[] ActionStarted(uint objectId, int posX, int posY, int targetX, int targetY, ushort skillId, ushort sequence, ushort flags,
-        uint? targetObjectId = null)
+        uint? targetObjectId = null, ushort header = 0)
     {
         // Flags bit 0x80: a u32 target object id follows the flags (an action aimed at an object, like C→S 0x24).
-        var w = new LoginWriter().U16(ActionStartedId).U32(objectId).U32(0).U16(0)
+        var w = new LoginWriter().U16(ActionStartedId).U32(objectId).U32(0).U16(header)
             .U16((ushort)(targetObjectId is null ? flags & 0xff7f : flags | 0x80));
         if (targetObjectId is { } t) w.U32(t);
         CompactInt(w, posX); CompactInt(w, posY); CompactInt(w, targetX); CompactInt(w, targetY);
