@@ -62,7 +62,8 @@ static partial class Game
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
         }
-        return lifeDamage;
+        // Petrified Blood sees the life loss after Ward and Energy Shield: it protects Life, not the other pools.
+        return PetrifiedBlood.PreventHitLifeLoss(conn, lifeDamage, now);
     }
 
     internal static void ClearAntiquarianOnDeath(ClientState conn)

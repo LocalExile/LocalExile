@@ -49,7 +49,7 @@ static partial class Game
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
             conn.PlayerMana = Math.Min(conn.PlayerMana,
-                (uint)AuraCatalog.UnreservedMana(conn.Pools, conn.Auras.Values));
+                (uint)UnreservedMana(conn));
             Console.WriteLine($"[gateway] {CharacterName(conn)}: restored saved auras: {string.Join(", ", restored.Select(a => a.EffectId))}");
         }
         return restored;
@@ -97,18 +97,22 @@ static partial class Game
         conn.AuraDeathHandled = true;
         await EndGracePeriod(remote, stream, ciphers, conn, action: true);
         CharacterSaves.ClearActiveAuras(CharacterName(conn));
+        CharacterSaves.SetPetrifiedBlood(CharacterName(conn), false);
         List<AuraCatalog.Aura> ended;
+        bool petrifiedEnded;
         lock (conn.Monsters)
         {
             ended = [.. conn.Auras.Values];
+            petrifiedEnded = conn.PetrifiedBlood.Active || conn.PetrifiedBlood.PresentedBuff != 0;
             conn.Auras.Clear();
+            conn.PetrifiedBlood.Clear();
             conn.Lifetap.Clear();
-            conn.AuraStatsDirty = ended.Count > 0 || conn.AuraStatsDirty;
+            conn.AuraStatsDirty = ended.Count > 0 || petrifiedEnded || conn.AuraStatsDirty;
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
         }
         await SendOwnAuraChanges(remote, stream, ciphers, conn);
-        if (ended.Count > 0)
+        if (ended.Count > 0 || petrifiedEnded)
         {
             await SendCharacterStats(remote, stream, ciphers, conn, "auras cleared on death");
             await SendPlayerMana(remote, stream, ciphers, conn, "aura reservation cleared on death");
@@ -165,7 +169,8 @@ static partial class Game
         lock (conn.Monsters)
         {
             EnsureOwnAuraPools(conn);
-            return AuraCatalog.ReservedMana(conn.Pools, conn.Auras.Values);
+            return Math.Min((int)conn.Pools.Mana, AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values)
+                + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood));
         }
     }
 
@@ -194,8 +199,8 @@ static partial class Game
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
     }
 
-    // A paid skill's Life cost, then its mana update. Lifetap's cost changes the life pool at once and the client must
-    // see it before its own prediction does anything with the new value.
+    // A paid skill's Life cost, then its mana update. Petrified Blood's and Lifetap's life costs change the life pool
+    // at once and the client must see it before its own prediction does anything with the new value.
     internal static async Task SendSkillCost(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint lifeCost, string? log)
     {
@@ -217,6 +222,21 @@ static partial class Game
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired
                     || (!conn.PlayerObjectCreated && !conn.PlayerSent)) return null;
                 return Lifetap.Presentation(conn);
+            }
+        });
+
+    // The client's Life step reads life_recovery_per_minute and cannot know Petrified Blood's Low Life cap. Send 0
+    // while the pool is at or above the boundary and the real modelled rate once it is below, so the local prediction
+    // and the server agree. Pool updates themselves remain authoritative whole points.
+    internal static Task SendPetrifiedBloodRecoveryRate(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, bool blocked) => Send(remote, stream, ciphers, [], null, atGate: () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
+                if (Stats.Key("life_recovery_per_minute") is not uint key) return null;
+                int value = blocked ? 0 : CharacterPlayerStats(conn).GetValueOrDefault(key);
+                return InstanceEntities.StatsUpdate(PlayerId, [(key, value)]);
             }
         });
 
@@ -255,8 +275,9 @@ static partial class Game
     internal static uint ManaCost(StatCatalog stats, SkillCatalog skills, int effect, int level, int quality) =>
         stats.Key("mana_cost") is uint k ? (uint)skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
 
-    // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts. Lifetap Support
-    // replaces the whole cost with Life. False when the player lacks the pool it actually uses.
+    // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts, plus Petrified
+    // Blood's base life cost while it runs and the player is not on Low Life. Lifetap Support replaces the whole
+    // mana cost with Life. False when the player lacks the pool it actually uses.
     internal static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost)
     {
         var own = SupportedSkill(conn, skillId).Stats;
@@ -271,10 +292,12 @@ static partial class Game
             int life;
             if (Lifetap.ConvertsCostToLife(own))
             {
+                // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
+                // therefore zero: the two conversions do not stack into 140%.
                 life = (int)Math.Min(cost, int.MaxValue);
                 cost = 0;
             }
-            else life = 0;
+            else life = PetrifiedBlood.LifeCost(conn, (int)Math.Min(cost, int.MaxValue));
             if (conn.PlayerMana < cost || life > 0 && conn.PlayerLife <= (uint)life) return false;
             conn.PlayerMana -= cost;
             if (life > 0)
@@ -543,7 +566,7 @@ static partial class Game
     // The game clock excludes pause; scheduling/network delays change the step size, never the per-second rate.
     internal static async Task RunResourceRecovery(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        double lifeCarry = 0, manaCarry = 0, burnCarry = 0, last = conn.Clock.Elapsed.TotalSeconds;
+        double lifeCarry = 0, manaCarry = 0, burnCarry = 0, flaskCarry = 0, last = conn.Clock.Elapsed.TotalSeconds;
         double ratesAt = double.NegativeInfinity, lifeRate = 0, manaRate = 0, burnPerSecond = 0;
         bool zealotsOath = false, convertLifeRegen = false;
         double nextVitalsSave = last + 5;
@@ -561,6 +584,7 @@ static partial class Game
             List<Flasks.Effect> ended;
             double now;
             int? ailmentDeathEpoch = null;
+            bool pbDeath = false, pbRateChanged = false, pbRateBlocked = false;
             using (ProjectileMutation(conn))
             {
                 // Commit earlier projectile hits before advancing leech/recovery to this resource boundary.
@@ -588,6 +612,7 @@ static partial class Game
                     recoveryStats = CharacterPlayerStatsCore(conn, out lifeRate);
                     manaRate = PanelStats.ManaPerMinute(
                         PanelStats.WhileMoving(RecoveryStat, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds)), conn.Pools.Mana) / 60;
+                    conn.PetrifiedBlood.RefreshThreshold(LowLifeThresholdPct(recoveryStats));
                     zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
                     convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
                     burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
@@ -608,7 +633,7 @@ static partial class Game
                 dead = lifeBefore == 0;
                 if (dead)
                 {
-                    lifeCarry = manaCarry = burnCarry = 0;
+                    lifeCarry = manaCarry = burnCarry = flaskCarry = 0;
                     FortificationOf(conn).Clear();
                     leech.Clear(now);
                     conn.LifeRecoup.Clear();
@@ -633,19 +658,46 @@ static partial class Game
                     if (convertLifeRegen) conn.EnergyShield.Gain(antiquarianLife);
                     double enduringCryLife = conn.EnduringCryRecovery.Take(now);
                     if (convertLifeRegen) conn.EnergyShield.Gain(enduringCryLife);
-                    conn.PlayerLife = lifeAfter = RecoveryPool.Advance(lifeBefore, conn.PlayerMaxLife,
-                        life + (zealotsOath ? 0 : lifeRate * seconds) + (zealotsOath ? 0 : fortificationLife) + leeched.Life
-                            + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife) - lifeBurn
-                            + conn.LifeRecoup.Take(now),
-                        ref lifeCarry, minimum: 1);
+                    double recoupLife = conn.LifeRecoup.Take(now);
+                    // Flask recovery alone may pass Low Life under Petrified Blood; every other source stops at half.
+                    double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds) + (zealotsOath ? 0 : fortificationLife)
+                        + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife) + recoupLife;
+                    uint afterNonFlask = PetrifiedBlood.RecoverLife(conn, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
+                    uint afterBurn = (uint)Math.Max(1, (long)afterNonFlask - lifeBurn);
+                    conn.PlayerLife = lifeAfter = RecoveryPool.Advance(afterBurn, conn.PlayerMaxLife, life, ref flaskCarry);
+                    // Petrified Blood's own life loss is not damage and cannot be mitigated; it may kill.
+                    double pbLoss = conn.PetrifiedBlood.Take(now);
+                    if (InGracePeriod(conn)) pbLoss = 0;
+                    if (pbLoss > 0 && lifeAfter > 0)
+                    {
+                        lifeAfter = (uint)Math.Max(0, lifeAfter - (long)Math.Round(pbLoss, MidpointRounding.AwayFromZero));
+                        pbDeath = lifeAfter == 0;
+                        conn.PlayerLife = lifeAfter;
+                    }
                     AdvancePlayerAilmentsLocked(conn, recoveryFrom, now, recoveryStats);
                     lifeAfter = conn.PlayerLife;
-                    if (lifeAfter == 0) ailmentDeathEpoch = conn.IncomingHitEpoch;
+                    if (lifeAfter == 0 && !pbDeath) ailmentDeathEpoch = conn.IncomingHitEpoch;
+                    // The client's own Life step must stop at the same Low Life boundary. Publish the real recovery
+                    // rate when the pool is below it and 0 at or above it.
+                    bool recoveryBlocked = conn.PetrifiedBlood.Active && lifeAfter > 0
+                        && lifeAfter >= (uint)((long)conn.PlayerMaxLife * LowLifeThresholdPct(recoveryStats) / 100);
+                    if (recoveryBlocked != conn.PetrifiedBlood.SentRecoveryBlocked)
+                    {
+                        conn.PetrifiedBlood.SentRecoveryBlocked = recoveryBlocked;
+                        (pbRateChanged, pbRateBlocked) = (true, recoveryBlocked);
+                    }
                     conn.PlayerMana = manaAfter = RecoveryPool.Advance(manaBefore, manaCap,
                         mana + manaRate * seconds + leeched.Mana, ref manaCarry);
                     leech.ClearFull(now, lifeAfter >= conn.PlayerMaxLife, manaAfter >= manaCap,
                         conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
                 }
+            }
+            if (pbRateChanged && !pbDeath)
+                await SendPetrifiedBloodRecoveryRate(remote, stream, ciphers, conn, pbRateBlocked);
+            if (pbDeath)
+            {
+                await PlayerDied(remote, stream, ciphers, conn, "0x0055 Petrified Blood life loss");
+                dead = true;
             }
             if (ailmentDeathEpoch is int lethalEpoch)
                 await PlayerDiedAtEpoch(remote, stream, ciphers, conn, "0x0055 lethal elemental ailment", lethalEpoch);

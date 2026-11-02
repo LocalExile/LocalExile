@@ -35,7 +35,7 @@ static partial class Game
             // Instant recovery, sent with the next vitals update like instant leech.
             var leech = LeechOf(conn);
             uint before = conn.PlayerLife;
-            conn.PlayerLife = RecoveryPool.Advance(before, conn.PlayerMaxLife, conn.PlayerMaxLife * cull.RecoverLifePct / 100d,
+            conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, before, conn.PlayerMaxLife * cull.RecoverLifePct / 100d,
                 ref leech.LifeInstantCarry, minimum: 1);
             leech.InstantLifeChanged |= before != conn.PlayerLife;
         }

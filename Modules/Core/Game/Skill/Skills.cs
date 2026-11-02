@@ -1094,7 +1094,23 @@ static partial class Game
                 };
                 conn.AuraStatsDirty |= before != conn.Auras[id];
             }
-            if (conn.Auras.Count > 0)
+            if (conn.PetrifiedBlood.Active)
+            {
+                var id = conn.PetrifiedBlood.SkillId;
+                var gem = SupportedSkill(conn, id);
+                if (gem.Effect < 0 || SkillsFor(conn).EffectId(gem.Effect) != PetrifiedBlood.EffectId
+                    || SupportedReservation(conn, id) is not { } reservation) conn.PetrifiedBlood.Suspend();
+                else
+                {
+                    var stats = PetrifiedBloodEffectStats(conn, gem.Effect, gem.Level, gem.Quality);
+                    conn.PetrifiedBlood.Refresh(gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
+                        Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
+                        reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(conn)));
+                    conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+                    conn.AuraStatsDirty = true;
+                }
+            }
+            if (conn.Auras.Count > 0 || conn.PetrifiedBlood.Active)
             {
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
@@ -1130,22 +1146,28 @@ static partial class Game
     internal static async Task EndSkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlyCollection<ushort> gone)
     {
         List<AuraCatalog.Aura> ended;
+        bool petrifiedEnded;
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return;
             ended = [.. conn.Auras.Values.Where(a => gone.Contains(a.SkillId))];
             foreach (var aura in ended) conn.Auras.Remove(aura.SkillId);
-            if (ended.Count > 0)
+            petrifiedEnded = conn.PetrifiedBlood.Active && gone.Contains(conn.PetrifiedBlood.SkillId);
+            if (petrifiedEnded) conn.PetrifiedBlood.Suspend();
+            if (ended.Count > 0 || petrifiedEnded)
             {
                 conn.AuraStatsDirty = true;
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
             }
         }
-        if (ended.Count > 0)
+        if (ended.Count > 0 || petrifiedEnded)
         {
             await SendOwnAuraChanges(remote, stream, ciphers, conn);
-            await SendCharacterStats(remote, stream, ciphers, conn, $"aura {string.Join(", ", ended.Select(a => a.Name))} off (gem left)");
+            string why = ended.Count > 0
+                ? $"aura {string.Join(", ", ended.Select(a => a.Name))} off (gem left)"
+                : "Petrified Blood off (gem left)";
+            await SendCharacterStats(remote, stream, ciphers, conn, why);
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         }
         if (conn.RighteousFire is { } rf && gone.Contains(rf.Skill)) await EndRighteousFire(remote, stream, ciphers, conn, "its gem left");

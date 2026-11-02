@@ -60,8 +60,8 @@ static class CharacterSaves
         List<string>? QuestFlags = null, ushort? ExtraPassivePoints = null,
         Dictionary<ushort, ushort>? MasteryEffects = null, uint? Gold = null, ushort? RefundPoints = null,
         SavedItem? StartWeapon = null, ushort? PortalCosmetic = null, Dictionary<byte, SavedCosmetic>? Cosmetics = null,
-        Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, string? SelectedHideout = null,
-        OpeningTutorial? Tutorial = null, AscendancyProgress? MainAscendancy = null,
+        Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, bool? PetrifiedBlood = null,
+        string? SelectedHideout = null, OpeningTutorial? Tutorial = null, AscendancyProgress? MainAscendancy = null,
         Dictionary<string, Dictionary<string, HideoutPlacement>>? HideoutPlacements = null,
         Dictionary<string, List<SavedMonsterStatue>>? MonsterStatues = null,
         uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null, List<ushort>? ClusterPassives = null,
@@ -195,6 +195,11 @@ static class CharacterSaves
         if (active) auras.Add(effect);
         return save with { ActiveAuras = auras };
     });
+
+    /// <summary>Whether Petrified Blood should be running after entering an area (its own intent; it is not an
+    /// aura).</summary>
+    public static void SetPetrifiedBlood(string character, bool active) =>
+        Update(character, save => save with { PetrifiedBlood = active });
 
     /// <summary>Records what a skill bar slot holds (see <see cref="Save.SkillBar"/>), keeping the saved items.</summary>
     public static void SetSkillBar(string character, byte slot, string entry) => Update(character, save =>

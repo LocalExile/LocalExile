@@ -604,6 +604,9 @@ static partial class Game
         if (gem.Name is not null && SupportedReservation(conn, skillId) is { } reservation)
         {
             if (!Current()) return false;
+            if (SkillsFor(conn).EffectId(gem.Effect) == PetrifiedBlood.EffectId)
+                return await TogglePetrifiedBlood(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Name, reservation,
+                    SupportedSkill(conn, skillId).Level, SupportedSkill(conn, skillId).Quality);
             return await ToggleAura(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Name, reservation,
                 SupportedSkill(conn, skillId).Level, SupportedSkill(conn, skillId).Quality);
         }
@@ -810,7 +813,7 @@ static partial class Game
                 var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
                     AuraCatalog.BuffRow(effectId), reservation.Flat, reservation.Percent, level, quality, SourceBuff: conn.NextBuff++);
                 conn.Auras[skillId] = aura;
-                int reserved = AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values);
+                int reserved = RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent);
                 if (reserved > conn.Pools.Mana)
                 {
                     conn.Auras.Remove(skillId);

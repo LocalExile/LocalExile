@@ -1503,3 +1503,46 @@ freeze is not sent there (−100 would divide the native clip by zero); the serv
 Not modelled: the shatter visual, unique and boss thresholds and their reduced effects, immunities from the monster's
 variety (.ot), Glacial Wave's chill reflected onto the player by Mirrored (wiki: it then acts on the player too), and the
 client's frozen animation (not checked live).
+
+## 2i. Petrified Blood
+
+Petrified Blood is a 35% Mana reservation buff (`GrantedEffects` `PetrifiedBlood`, BuffDefinitions row 1819), not an
+aura: the own-aura restriction does not touch it and its reservation is added beside the ordinary auras. Its three
+Stats.dat inputs are `petrified_blood_%_life_loss_below_half_from_hit_to_prevent` (constant 40),
+`petrified_blood_%_prevented_life_loss_to_lose_over_time` (granted per gem level: 100 at level 1, 81 at level 20, and
+quality lowers it by up to 5) and `skill_grants_life_cost_%_mana_cost_while_not_on_low_life` (constant 40).
+
+A hit's Life loss, after Ward and Energy Shield, is split at half maximum Life:
+
+```
+above half = min(loss, max(0, life - maxLife / 2))       taken at once
+below half = loss - above half
+prevented  = below half * 40%                            not taken at once
+deferred   = prevented * loseOverTimePct                 lost over 4 seconds
+```
+
+The immediate part is rounded to a whole Life point, the life-loss over time keeps its fraction in the state, and the
+un-deferred remainder of `prevented` is permanent mitigation (19% of the protected part at level 20). Each hit's
+`deferred` amount is its own four-second segment at `deferred / 4` Life per second, so overlapping hits add their rates
+rather than refreshing one pool. The loss is not damage, ignores Energy Shield and damage immunity, and can kill; the
+3.22 Grace Period rule suppresses it while entry protection runs. Hits only: damage over time and the loss already owed
+are not protected, and killing blow overkill is split like any other Life loss.
+
+While the buff runs, Life recovery from every source except flasks stops at the Low Life boundary
+(`cannot_recover_above_low_life_except_flasks`); a flask may still fill the pool above it. Low Life is 50% of maximum
+Life or less by default (the 3.29.3b `ReminderTextLowLife` text); a positive `low_life_threshold_%_override` replaces
+that boundary, then `low_life_threshold_%` (the shared `LowLife` rule used by the critical policy). The 3.29.3b Life
+Mastery `Life4` (`PassiveSkillMasteryEffects` row 190) is the current override source: it grants
+`low_life_threshold_%_override` 55 ("You count as on Low Life while at 55% of maximum Life or below"). Above Low Life
+every paid skill gains a base Life cost of 40% of its base Mana cost; paying it cannot reduce Life to 0, and at Low Life
+the extra cost disappears.
+
+The client steps its own Life pool from `life_recovery_per_minute` and only clamps to the maximum pool, so it does not
+know this buff's boundary by itself. While the buff blocks recovery the server publishes that rate as 0, and publishes
+the real modelled rate again once Life is below the boundary; the Defence panel's
+`total_life_recovery_per_minute_from_regeneration` keeps the real value. The transition is sent when it changes, not
+on every recovery step.
+
+The generic reservation-efficiency pool applies to the 35%. The buff-specific `petrified_blood_reservation_+%` and
+`petrified_blood_mana_reservation_efficiency_+%` rows are not read yet, and neither is the client tooltip's Life cost.
+Tests: `PetrifiedBloodTests`.

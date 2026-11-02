@@ -750,8 +750,9 @@ static partial class Game
         if (conn.PlayerLife == 0 || conn.PlayerLife >= conn.PlayerMaxLife
             || Stats.Key("missing_unreserved_life_%_gained_as_life_before_hit") is not uint key
             || stats.GetValueOrDefault(key) is not (> 0 and var pct)) return;
-        conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife,
-            conn.PlayerLife + (long)(conn.PlayerMaxLife - conn.PlayerLife) * pct / 100);
+        var leech = LeechOf(conn);
+        conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, conn.PlayerLife,
+            (conn.PlayerMaxLife - conn.PlayerLife) * (double)pct / 100.0, ref leech.LifeInstantCarry, minimum: 1);
     }
 
     internal static async Task MonsterSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
@@ -965,7 +966,10 @@ static partial class Game
         if (!blocked) RecoupHitLocked(conn, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), now, stats);
         long lifeBefore = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats);
-        conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, lifeBefore - lifeDamage + gainedLife));
+        uint afterDamage = (uint)Math.Max(0, lifeBefore - lifeDamage);
+        conn.PlayerLife = gainedLife > 0
+            ? PetrifiedBlood.RecoverLife(conn, afterDamage, gainedLife, ref LeechOf(conn).LifeInstantCarry, minimum: 1)
+            : afterDamage;
         conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
         conn.EnergyShield.Recover(onBlock.EnergyShield);
         if (lifeBefore > conn.PlayerLife && (lifeBefore - conn.PlayerLife) * 100 >= (long)conn.PlayerMaxLife * 15)

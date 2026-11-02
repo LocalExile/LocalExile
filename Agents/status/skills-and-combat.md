@@ -689,6 +689,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `GatewayProjectileSkillProfiles.cs`, `ProjectileStages.cs`, `ProjectileTypes.cs`, `Projectiles.cs`;
   wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
+- Petrified Blood: the 35% Mana reservation buff, its hit-only Life-loss split at half Life, the four-second deferred
+  loss, the non-flask recovery cap at Low Life and the Life cost above it are implemented.
+  Low Life uses the shared 50% default (`low_life_threshold_%_override` then `low_life_threshold_%`), not a fixed
+  half of maximum Life; the 3.29.3b Life mastery `Life4` sets the override to 55%. The client's own
+  `life_recovery_per_minute` is published as 0 while the cap blocks recovery and restored below it, so its pool
+  prediction cannot pass the boundary.
+  Activation, deactivation, saved intent across areas, death cleanup and the own-aura/received-buff presentation share
+  the existing aura send gate; the buff is not an aura and the aura restriction leaves it alone.
+  Not implemented: the buff-specific reservation-efficiency rows, the client tooltip's Life cost, and any non-hit
+  Life loss (damage over time and the already-deferred loss are not protected).
+  Automated tests cover the split, level-1/level-20 deferral, the threshold and recovery cap, and the Life cost; no
+  native check yet. Code: `Combat/PetrifiedBlood.cs`, `Combat/LowLife.cs`,
+  `Modules/Core/Game/Combat/PetrifiedBlood.cs`; docs: [20](../docs/protocol/20-damage.md) section 2i.
 
 - Selected supported-spell panel: final linked-support damage replaces both spell and inherited hand ranges,
   clearing removed types and updating pre-critical average/DPS from the supported cast time.

@@ -79,7 +79,7 @@ static partial class Game
         uint life = conn.PlayerLife, mana = conn.PlayerMana;
         // Instant portions and the gain per enemy hit resolve in this hit transaction, so a later enemy hit sees the
         // recovered resource. Keep sub-point recovery between hits, and discard overflow at a full pool.
-        conn.PlayerLife = RecoveryPool.Advance(life, conn.PlayerMaxLife,
+        conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, life,
             instant.Life + (session.RecoversLife ? gain.Life : 0), ref session.LifeInstantCarry, minimum: 1);
         conn.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(conn), instant.Mana + gain.Mana,
             ref session.ManaInstantCarry);
