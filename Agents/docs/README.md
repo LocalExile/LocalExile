@@ -82,6 +82,7 @@ This research does not change the production simulator or certify native/officia
 | [game/fortification.md](game/fortification.md) | melee-hit protection and the explicit server model |
 | [game/arcane-might.md](game/arcane-might.md) | spell increased/reduced transfer to attacks, source inventory and implementation boundaries |
 | [game/maps.md](game/maps.md) | 3.29 maps and the Atlas: the 20 generic map bases, tiers, drops, Voidstones (rules to build to) |
+| [game/king-in-the-mists.md](game/king-in-the-mists.md) | The King in the Mists: Crux entry, both forms, phase data, skills, loot and implementation boundaries |
 | [game/gambler.md](game/gambler.md) | Gambler node checklist, incoming elemental ailments and read-only opt-in |
 | [game/aristocrat.md](game/aristocrat.md) | Aristocrat node checklist: gem levels/quality, attribute requirements and conditional immunities |
 | [game/ancestral-commander.md](game/ancestral-commander.md) | Ancestral Commander node checklist: every node but Spirit of Rakiata has a consumer (Deathrattle, the strike nodes, the four Spirits and Forest of Ancestors partly); read-only opt-in |

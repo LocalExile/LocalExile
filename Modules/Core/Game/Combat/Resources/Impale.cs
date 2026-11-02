@@ -11,6 +11,7 @@ static partial class Game
         int directDamage, DamagePacket rolled, bool critical, int sourceCriticalMultiplier,
         ImpaleStats.Settings settings, double hitMore = 1)
     {
+        if (target.Invulnerable) return (directDamage, 0, false);
         double physical = rolled[DamageType.Physical].Min
             * (critical ? Math.Max(0, sourceCriticalMultiplier) / 100.0 : 1) * Math.Max(0, hitMore);
         var (stored, applied) = target.Impale.OnHit(physical, conn.Clock.Elapsed.TotalSeconds, settings, Random.Shared,
