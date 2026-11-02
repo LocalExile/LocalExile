@@ -33,6 +33,8 @@ static class ServerLevels
         /// <summary>The server objects of the placed rooms and the objects their point lists name (AreaObjects.RoomObjects):
         /// the quest engine's places for room objects data/room-points.json does not keep (QuestObjectTypes.AreaPlacements).</summary>
         public IReadOnlyList<PlacedTileObject> RoomObjects { get; init; } = [];
+        /// <summary>The rooms' links between <see cref="RoomObjects"/> (indexes in it): the Labyrinth's puzzle wiring.</summary>
+        public IReadOnlyList<PlacedLink> RoomLinks { get; init; } = [];
         public long Milliseconds { get; init; }
         /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
         public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
@@ -239,13 +241,15 @@ static class ServerLevels
             Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} level {areaLevel} ({walk.Width}x{walk.Height} cells, " +
                 $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads) in {clock.ElapsedMilliseconds} ms");
             ConnectionPerformance.Server("LevelGen", clock.Elapsed, areaId);
+            var roomLinks = new List<PlacedLink>();
             return new Level(walk.Width, walk.Height, walk.Walk, heights, objects, doodads.Placed, AreaObjects.Rooms(result),
                 AreaObjects.QuestObjects(files, result), walk.Projectile)
             {
                 TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
                 Exits = exits.Exits, Entrances = exits.Entrances,
                 TileQuestObjects = AreaObjects.TileObjects(files, result, QuestObjectTypes.IsTileQuestObject),
-                RoomObjects = AreaObjects.RoomObjects(result, points: true),
+                RoomObjects = AreaObjects.RoomObjects(result, points: true, links: roomLinks),
+                RoomLinks = roomLinks,
             };
         }
         catch (Exception ex)

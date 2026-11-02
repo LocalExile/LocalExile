@@ -3,6 +3,7 @@ using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
+using GameServer.Data.Terrain.Generation;
 
 static partial class QuestobjectsRules
 {
@@ -11,8 +12,9 @@ static partial class QuestobjectsRules
     // instance transitioned stays so (InstanceState.Transition); the plaque and the portal are lit once the character
     // has the trial's flag. A closed door closes its line across the way between the area's spawn and the plaque on the
     // server's walk estimate (QuestBarriers), as the client's TriggerableBlockage does on its side.
-    // The Labyrinth's own rooms (LabyrinthTrials.InLabyrinth) have the same traps, levers and doors, run the same way; their
-    // objects are the Gateway's generated rooms' (data/room-points.json keeps only the Labyrinth's rooms with points).
+    // The Labyrinth's own rooms (LabyrinthTrials.InLabyrinth) have the same traps, levers and doors, run the same way. The
+    // objects are the Gateway's generated rooms' with their links (LabyrinthWiring), for a trial too when the Gateway
+    // generates its area (else data/room-points.json's, unlinked; it keeps only the Labyrinth's rooms with points).
     internal static async Task SpawnTrialObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var trial = LabyrinthTrials.For(conn.Layout.Id);
@@ -20,7 +22,10 @@ static partial class QuestobjectsRules
         if (trial is null && !labyrinth) return;
         string what = trial is null ? $"Labyrinth room {conn.Layout.Id}" : $"trial {trial.Flag}";
         var notes = new List<string>();
-        var all = labyrinth ? LabyrinthRoomObjects(conn, notes) : AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes);
+        var links = new List<PlacedLink>();
+        var all = LabyrinthRoomObjects(conn, notes, links);
+        if (all.Count == 0 && !labyrinth) all = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes);
+        var wiring = WireRoomObjects(conn, all, links);
         SetSwapLevers(conn, all);
         await SpawnTrialTraps(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsSpikeTrap(o.Type))],
             [.. all.Where(o => o.Type == LabyrinthTrials.Lever).Select(o => (o.X, o.Y))],
@@ -53,6 +58,7 @@ static partial class QuestobjectsRules
             else Console.WriteLine($"[gateway] {remote} trial monograph {glyph.Type}: unknown or unsupported NPC");
         }
         var objects = all.Where(o => LabyrinthTrials.Handles(o.Type)).ToList();
+        Console.WriteLine($"[gateway] {remote} {what}: {links.Count} room link(s), {Enumerable.Range(0, all.Count).Count(wiring.Graph.Wired)} wired object(s)");
         if (objects.Count == 0)
         {
             Console.WriteLine($"[gateway] {remote} {what}: no trial objects in {conn.Layout.Id} seed {conn.Seed} ({string.Join("; ", notes)})");
@@ -65,14 +71,22 @@ static partial class QuestobjectsRules
         if (plaque is not null && trial is not null && ClientHasQuestFlag(conn, trial.Flag)) conn.Instance.Transition(plaque.Type, plaque.X, plaque.Y);
         var from = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         List<(int X, int Y)> guarded = plaque is null ? [] : [conn.Layout.Near((plaque.X, plaque.Y))];
-        foreach (var o in objects)
+        for (int index = 0; index < all.Count; index++)
         {
+            var o = all[index];
+            if (!LabyrinthTrials.Handles(o.Type)) continue;
             bool open = conn.Instance.Transitioned(o.Type, o.X, o.Y);
             if (open && o.Type == LabyrinthTrials.Door) continue;   // an opened Locked Door is gone (RemoveOpenedDoor)
             uint id = conn.NextObjectId++;
-            lock (conn.Monsters) conn.TrialObjects[id] = o;
+            lock (conn.Monsters)
+            {
+                conn.TrialObjects[id] = o;
+                wiring.Ids[index] = id;
+            }
+            // A disabled lever shows pulled (it cannot be used), a spent crank down for good.
             byte state = o.Type == LabyrinthTrials.RailSwitchSwapped ? LabyrinthTrials.SwapClientState(o.Mirrored, open)
-                : open ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
+                : wiring.Graph.IsSpent(index) ? LabyrinthTrials.Spent
+                : open || wiring.Graph.IsDisabled(index) ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
                     LabyrinthTrials.Blob(o.Type, o.Model, o.X, o.Y, o.Angle, o.Scale, state, LabyrinthTrials.IsHotPlate(o.Type) ? o.Height : null)),
                 $"0x02b9 trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, state {state}");
@@ -82,7 +96,7 @@ static partial class QuestobjectsRules
                 if (open) BarCage(conn, id, o, true);
                 continue;
             }
-            if (open || o.Type is not (LabyrinthTrials.IntroDoor or LabyrinthTrials.Door or LabyrinthTrials.BarDoor)) continue;
+            if (open || !LabyrinthTrials.IsDoor(o.Type)) continue;
             var cells = conn.Layout.Walkable is { } walkable
                 ? QuestBarriers.Cells(walkable, conn.Layout.GridW, conn.Layout.GridH, (o.X, o.Y), o.Angle, from, guarded)
                 : [];
@@ -120,16 +134,94 @@ static partial class QuestobjectsRules
             .Where(d => d.Model.Contains("LabyrinthRoombaKit/R_scratch", StringComparison.OrdinalIgnoreCase)).Select(d => (d.X, d.Y))];
 
     // A Labyrinth room area's server objects, as the Gateway generated its rooms (ServerLevels: the area is in the levelgen
-    // gate's baseline), with each line's scale and fixed height.
-    static List<AreaPopulation.RoomObject> LabyrinthRoomObjects(ClientState conn, List<string> notes)
+    // gate's baseline), with each line's scale and fixed height, and their links (indexes in the list returned).
+    static List<AreaPopulation.RoomObject> LabyrinthRoomObjects(ClientState conn, List<string> notes, List<PlacedLink> links)
     {
         if (ServerLevels.For(conn.Layout.Id, conn.Seed) is not { } level)
         {
             notes.Add(ServerLevels.Error(conn.Layout.Id, conn.Seed)?.Split('\n')[0] ?? $"{conn.Layout.Id} is not generated by the Gateway");
             return [];
         }
+        links.AddRange(level.RoomLinks);
         return [.. level.RoomObjects.Select(o => new AreaPopulation.RoomObject(o.Type, o.Model, o.X, o.Y,
             LabyrinthTrials.PlacedAngle(o.Model, o.Rotation, o.Code), o.Scale, float.IsNaN(o.Z) ? null : o.Z, o.Code is >= 4 and < 8))];
+    }
+
+    // A room area's wiring on this connection: its objects' links, and the ids its placed objects have.
+    sealed class RoomWiring(LabyrinthWiring graph, List<AreaPopulation.RoomObject> all)
+    {
+        public readonly LabyrinthWiring Graph = graph;
+        public readonly List<AreaPopulation.RoomObject> All = all;
+        public readonly Dictionary<int, uint> Ids = [];
+
+        public int? IndexOf(uint id)
+        {
+            foreach (var (index, placed) in Ids) if (placed == id) return index;
+            return null;
+        }
+    }
+
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, RoomWiring> Wirings = new();
+
+    // The room objects' wiring as this instance left it: what it turned on is on again (passing it on sets the counters,
+    // the disabled levers and the spent cranks), and a crank still down comes back up (its timer ran on this connection).
+    static RoomWiring WireRoomObjects(ClientState conn, List<AreaPopulation.RoomObject> all, List<PlacedLink> links)
+    {
+        var wiring = new RoomWiring(new LabyrinthWiring([.. all.Select(o => o.Type)], links), all);
+        for (int i = 0; i < all.Count; i++)
+            if (wiring.Graph.Wired(i) && conn.Instance.Transitioned(all[i].Type, all[i].X, all[i].Y)) wiring.Graph.Turn(i, true);
+        for (int i = 0; i < all.Count; i++)
+            if (LabyrinthWiring.IsCrank(all[i].Type) && wiring.Graph.IsOn(i) && !wiring.Graph.IsSpent(i))
+                foreach (var (k, _) in wiring.Graph.Turn(i, false)) conn.Instance.SetTransitioned(all[k].Type, all[k].X, all[k].Y, false);
+        Wirings.AddOrUpdate(conn, wiring);
+        return wiring;
+    }
+
+    // A wired lever, Switch_Once_Multi or crank used: it turns on and passes it on (LabyrinthWiring); a crank comes back up
+    // after its seconds unless a counter spent it meanwhile. A used, disabled or spent one does nothing.
+    static async Task PullWired(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RoomWiring wiring, int index)
+    {
+        if (wiring.Graph.IsOn(index) || wiring.Graph.IsDisabled(index) || wiring.Graph.IsSpent(index)) return;
+        await ApplyWiring(remote, stream, ciphers, conn, wiring, wiring.Graph.Turn(index, true));
+        var o = wiring.All[index];
+        if (LabyrinthWiring.CrankSeconds(o.Type) is not double seconds) return;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(seconds));
+            if (conn.Closed || !Wirings.TryGetValue(conn, out var now) || now != wiring) return;
+            try { await ApplyWiring(remote, stream, ciphers, conn, wiring, wiring.Graph.Turn(index, false)); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+            { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} crank at ({o.X}, {o.Y}) not reset: {ServerLog.Describe(ex)}"); }
+        });
+    }
+
+    // The wiring's changes in this instance and on the client: a door opens (OpenTrialObject), anything else takes its
+    // Transitionable state (on 2, off 1, a disabled lever 2, a spent crank 3).
+    static async Task ApplyWiring(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RoomWiring wiring,
+        List<(int Index, LabyrinthWiring.Change Change)> changes)
+    {
+        foreach (var (index, change) in changes)
+        {
+            var o = wiring.All[index];
+            uint? id;
+            lock (conn.Monsters) id = wiring.Ids.TryGetValue(index, out uint placed) && conn.TrialObjects.ContainsKey(placed) ? placed : null;
+            if (change == LabyrinthWiring.Change.On && LabyrinthTrials.IsDoor(o.Type) && id is uint door)
+            {
+                await OpenTrialObject(remote, stream, ciphers, conn, door, o);
+                continue;
+            }
+            if (change is LabyrinthWiring.Change.On or LabyrinthWiring.Change.Off)
+                conn.Instance.SetTransitioned(o.Type, o.X, o.Y, change == LabyrinthWiring.Change.On);
+            if (id is not uint at || !LabyrinthTrials.Handles(o.Type)) continue;
+            byte state = change switch
+            {
+                LabyrinthWiring.Change.Off => LabyrinthTrials.Closed,
+                LabyrinthWiring.Change.Spent => LabyrinthTrials.Spent,
+                _ => LabyrinthTrials.Open,
+            };
+            await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(at, LabyrinthTrials.TransitionableIndex(o.Type), state),
+                $"0x02ba wired {o.Type.Split('/')[^1]} 0x{at:x} at ({o.X}, {o.Y}): {change}");
+        }
     }
 
     // A Labyrinth spinner room's swap piece (Rail_Visible_Swap_Anims10) and the levers that turn it: each Switch whose
@@ -257,6 +349,9 @@ static partial class QuestobjectsRules
         if (conn.ActionCount != action || conn.Closed) return true;
         if (!GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (o.X, o.Y), size))
             Console.WriteLine($"[gateway] {remote} trial object 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
+        else if ((o.Type is LabyrinthTrials.Lever or LabyrinthWiring.OnceMultiSwitch || LabyrinthWiring.IsCrank(o.Type))
+                 && Wirings.TryGetValue(conn, out var wiring) && wiring.IndexOf(use.TargetId) is int wired && wiring.Graph.Wired(wired))
+            await PullWired(remote, stream, ciphers, conn, wiring, wired);
         else switch (o.Type)
         {
             case LabyrinthTrials.IntroDoor or LabyrinthTrials.BarDoor:
@@ -322,7 +417,7 @@ static partial class QuestobjectsRules
         if (!conn.Instance.Transition(o.Type, o.X, o.Y)) return false;
         await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type), LabyrinthTrials.Open),
             $"0x02ba trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}) opens");
-        if (o.Type is not (LabyrinthTrials.IntroDoor or LabyrinthTrials.Door or LabyrinthTrials.BarDoor)) return true;
+        if (!LabyrinthTrials.IsDoor(o.Type)) return true;
         await Send(remote, stream, ciphers, InstanceEntities.BlockageUpdate(id, false), $"0x01c6 trial door 0x{id:x} unblocked");
         lock (conn.Monsters)
         {

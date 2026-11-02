@@ -10,6 +10,10 @@ public sealed record PlacedTileObject(string Type, string Model, int X, int Y, f
 /// cells, and its orientation code.</summary>
 public sealed record PlacedArmRoom(string Path, int X, int Y, int Width, int Height, int Code);
 
+/// <summary>A room link (<see cref="RoomLink"/>) between two placed room objects, by their indexes in the list
+/// <see cref="AreaObjects.RoomObjects"/> returns.</summary>
+public sealed record PlacedLink(int From, int To, string Name);
+
 /// <summary>The area transitions and waypoints of a generated grid, placed as <see cref="DoodadStage"/>'s tile lines
 /// place tile objects (<c>0x142041200</c>): row by row, every tile origin's objects (the record master's Reskin copy
 /// when there is one; per sub-tile for a tile made of them), then the .tmd the .tdt names (+0x180), turned by the
@@ -65,7 +69,10 @@ public static class AreaObjects
     /// <c>BlackFlagChest</c>, "x y angle "type""). The quest engine's fallback for rooms data/room-points.json does not keep
     /// (The Ascent's Resonator in ascent_summit_01.arm, Kitava's socket in bossentry.arm: their objects are not QuestObjects).
     /// A point has no model and no fixed height (NaN).</summary>
-    public static List<PlacedTileObject> RoomObjects(GenerationResult result, Func<string, bool>? keep = null, bool points = false)
+    /// <remarks>With <paramref name="links"/>, the room links (<see cref="RoomFile.Links"/>) between two kept lines are
+    /// added to it, as indexes in the list returned.</remarks>
+    public static List<PlacedTileObject> RoomObjects(GenerationResult result, Func<string, bool>? keep = null, bool points = false,
+        List<PlacedLink>? links = null)
     {
         keep ??= t => t != DoodadType;
         var placed = new List<PlacedTileObject>();
@@ -73,19 +80,26 @@ public static class AreaObjects
             foreach (var room in record.Rooms)
             {
                 int code = room.Orientation;
-                void Add(string type, string model, float x, float y, float rawAngle, float z, float scale = 1)
+                int Add(string type, string model, float x, float y, float rawAngle, float z, float scale = 1)
                 {
                     var (cx, cy) = Orientation.Map(code, (int)x, (int)y, room.Room.Width * 23, room.Room.Height * 23);
                     float angle = code is >= 4 and < 8 ? MathF.PI * 2 - rawAngle : rawAngle;
                     angle = (angle + (code & 3) * (MathF.PI / 2)) % (MathF.PI * 2);
                     var o = new PlacedTileObject(type, model, room.X * 23 + cx, room.Y * 23 + cy, angle, z, code, scale);
-                    if (!placed.Contains(o)) placed.Add(o);
+                    int at = placed.IndexOf(o);
+                    if (at >= 0) return at;
+                    placed.Add(o);
+                    return placed.Count - 1;
                 }
-                foreach (var d in room.Room.Doodads)
-                    if (keep(d.Type)) Add(d.Type, d.Model, d.X, d.Y, d.Angle, d.FixedHeight ?? float.NaN, d.Scale);
+                var lines = new Dictionary<int, int>();
+                for (int i = 0; i < room.Room.Doodads.Count; i++)
+                    if (room.Room.Doodads[i] is var d && keep(d.Type)) lines[i] = Add(d.Type, d.Model, d.X, d.Y, d.Angle, d.FixedHeight ?? float.NaN, d.Scale);
                 if (points)
                     foreach (var p in room.Room.Points)
                         if (p.Name.StartsWith("Metadata/", StringComparison.Ordinal) && keep(p.Name)) Add(p.Name, "", p.X, p.Y, p.Angle, float.NaN);
+                if (links is not null)
+                    foreach (var l in room.Room.Links)
+                        if (lines.TryGetValue(l.From, out int from) && lines.TryGetValue(l.To, out int to)) links.Add(new PlacedLink(from, to, l.Name));
             }
         return placed;
     }

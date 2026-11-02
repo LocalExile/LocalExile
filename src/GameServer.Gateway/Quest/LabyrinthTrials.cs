@@ -1072,6 +1072,8 @@ static class LabyrinthTrials
         "doorbar_prison.ao" => (2, 5.5),
         "thinwallbar_door.ao" => (2.3, 5.5),
         "doorbar_ruinedtemple.ao" => (2.2, 8),
+        // A Door_Counter gate in a fence line, a tile wide (our estimate from the fence pieces a tile apart).
+        "ruinedtemple_smallgate.ao" => (11.5, 3),
         _ => (14, 6),
     };
 
@@ -1153,11 +1155,23 @@ static class LabyrinthTrials
         [PressurePlatePrefix] = ["Positioned", "Transitionable", "BaseEvents", "Animated"],
         [PressurePlatePrefix + "_4"] = ["Positioned", "Transitionable", "BaseEvents", "Animated"],
         [PressurePlatePrefix + "Multi_4"] = ["Positioned", "Transitionable", "BaseEvents", "Animated"],
+        [LabyrinthWiring.CounterDoor] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage", "MinimapIcon"],
+        [LabyrinthWiring.OnceMultiSwitch] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
+        [LabyrinthWiring.CrankPrefix] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
+        [LabyrinthWiring.CrankPrefix + "_10"] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
+        [LabyrinthWiring.CrankPrefix + "_16"] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
     };
 
     /// <summary>Transitionable states: 1 runs create_untransitioned (closed, unpulled, dark), 2 the transition (num_states 2).
     /// A Door_Open is the other way round: 1 open, 2 closed (its .ot's <c>create_state_1</c> plays the open bars).</summary>
     public const byte Closed = 1, Open = 2;
+
+    /// <summary>A crank's (Switch_Reset*, num_states 3) third state: down for good, its minimap icon hidden.</summary>
+    public const byte Spent = 3;
+
+    /// <summary>Whether it is a door a lever or a counter opens (Door_Closed, Door_Counter), or the trial's own door or a
+    /// plain one.</summary>
+    public static bool IsDoor(string type) => type is IntroDoor or Door or BarDoor or LabyrinthWiring.CounterDoor;
 
     /// <summary>Whether a door in this Transitionable state blocks the way.</summary>
     public static bool Blocks(string type, byte state) => type == OpenDoor ? state == Open : state == Closed;

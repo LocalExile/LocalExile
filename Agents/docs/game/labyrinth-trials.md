@@ -65,7 +65,8 @@ TriggerableBlockage is u8 blocked, then while blocked a u8 count of sections (no
 - on entering a trial's area it creates these objects; a door also closes its line across the way between the
   area's spawn and the plaque on the server's walk estimate (`QuestBarriers`, `ClientState.DoorBarriers`);
 - using the trial's door opens it (0x2ba state 2, then 0x1c6 unblocked);
-- a lever opens itself and the nearest Locked Door that is still closed (our rule: no file links a lever to its door);
+- a lever opens itself and what its room links turn on (below); unlinked (room-points.json's objects), the nearest
+  Locked Door that is still closed;
 - the plaque sets the trial's quest flag, opens the portal and opens the Trial Plaque window; a done trial's plaque
   is lit when the player comes, but its portal is closed until the plaque is used (live 2026-10-31, the original: in
   every trial), and using the plaque again only opens the window;
@@ -88,6 +89,29 @@ and stops or starts its sawblades; a later entry of the instance finds them as t
 The Crypt's `Switch_Multi` (`num_states = 3`: `create_state_1` and `on_untransition_to_1` play clip 3, state 2 clip 1,
 state 3 disables it) goes both ways as `Switch` does, state 3 unused. Both levers there move the rail switches nearest
 them ([Spinners](#spinners)).
+
+## Room links
+
+An `.arm` room file ends, after its doodad lines, with a count and one line `from to "name"` per link, `from` and
+`to` being indexes of its doodad lines (plain doodads count). The Labyrinth's rooms, the trials' too, wire their
+puzzles and traps there (`RoomFile.Links`, `ServerLevels.Level.RoomLinks`):
+
+| Name | From → to |
+|---|---|
+| `next` | lever → door, gears; gear → gear; door → door; rail → rail; spike → spike; `Trigger_*` → spike; plate → `_Triggered` dart |
+| `counter` | lever, crank, gear → `Counter_Handler`, `Counter_Handler_Any`, `Door_Counter` |
+| `transition1`–`4` | `Counter_Handler(_Any)`, `Switch_Once_Multi`, `Switch_Multi`, `PressurePlate_ResetMulti_4` → doors, cranks, rail switches, darts |
+| `disable`, `disable1`–`3` | door → its levers; lever → the other lever of a pair |
+| `previous`, `left`, `right`, `teleport` | rails and swap pieces |
+| `reset`, `reset1`, `reset2` | plate → roomba, roomba → rail |
+| `delay`, `delayed` | dart → dart |
+| `pause` | `Switch`, `Switch_Reset` → spinner, sawblade |
+| `tracks1`–`8` | `PressurePlate_Multi` → rails |
+
+`Counter_Handler` and `Counter_Handler_Any` are server-only lines with a stand-in model (a palm tree): nothing to
+send. The links give the wiring only; the timings are the `.ot`s', the names' (`Switch_Reset_16`: a crank that
+comes back up after 16 s, our reading) or fitted live. `LabyrinthWiring` follows `next`, `counter`, `transitionN`
+and `disable`.
 
 ## Unblocking a door
 
