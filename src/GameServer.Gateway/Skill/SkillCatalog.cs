@@ -132,6 +132,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Put("virtual_base_spell_cast_time_ms", e.CastTime);
             Put("hundred_times_casts_per_second", (int)Math.Round(100_000.0 / e.CastTime));
         }
+        if (Value(stats, "volley_additional_projectiles_fire_parallel_x_dist", "greater_volley_additional_projectiles_fire_parallel_x_dist") is int parallelDist and > 0)
+            Put("virtual_additional_projectiles_fire_parallel_x_dist", parallelDist);
         if (gepl >= 0 && t.RageCost[gepl] > 0) { Put("base_rage_cost", t.RageCost[gepl]); Put("total_base_rage_cost", t.RageCost[gepl]); }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
