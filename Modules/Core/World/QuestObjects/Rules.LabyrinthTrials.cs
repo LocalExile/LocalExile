@@ -26,11 +26,11 @@ static partial class QuestobjectsRules
         var all = LabyrinthRoomObjects(conn, notes, links);
         if (all.Count == 0 && !labyrinth) all = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes);
         var wiring = WireRoomObjects(conn, all, links);
-        SetSwapLevers(conn, all);
+        SetSwapLevers(conn, all, links);
         await SpawnTrialTraps(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsSpikeTrap(o.Type))],
             [.. all.Where(o => o.Type == LabyrinthTrials.Lever).Select(o => (o.X, o.Y))],
             [.. all.Where(o => o.Type is LabyrinthTrials.Door or LabyrinthTrials.IntroDoor).Select(o => (o.X, o.Y))],
-            [.. all.Where(o => LabyrinthTrials.Trigger(o.Type) is not null)]);
+            [.. all.Where(o => LabyrinthTrials.Trigger(o.Type) is not null)], all, links);
         await SpawnArrowTraps(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsArrowTrap(o.Type))]);
         await SpawnEdgeBlades(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsEdgeBlade(o.Type))]);
         // The Chamber of Sins and Crypt trials' track pieces: server objects the client shows.
@@ -46,7 +46,7 @@ static partial class QuestobjectsRules
             [.. all.Where(o => o.Type is LabyrinthTrials.Rail or LabyrinthTrials.VisibleRail || LabyrinthTrials.IsRailSwitch(o.Type))],
             [.. all.Where(o => o.Type == LabyrinthTrials.Switch).Select(o => (o.X, o.Y))],
             all.FirstOrDefault(o => o.Type == LabyrinthTrials.IntroDoor) is { } entrance ? (entrance.X, entrance.Y) : default,
-            labyrinth ? LabyrinthScratches(conn) : null);
+            labyrinth ? LabyrinthScratches(conn) : null, all, links);
         // The Bronze Monograph at the trial's door: an NPCs.dat row on StoryGlyphBase, read like any NPC (its NPCTalk
         // "Read" row), with the room line's StoryGlyph.ao.
         var glyphs = all.Where(o => o.Type.StartsWith(LabyrinthTrials.GlyphPrefix, StringComparison.Ordinal)).ToList();
@@ -148,10 +148,11 @@ static partial class QuestobjectsRules
     }
 
     // A room area's wiring on this connection: its objects' links, and the ids its placed objects have.
-    sealed class RoomWiring(LabyrinthWiring graph, List<AreaPopulation.RoomObject> all)
+    sealed class RoomWiring(LabyrinthWiring graph, List<AreaPopulation.RoomObject> all, List<PlacedLink> links)
     {
         public readonly LabyrinthWiring Graph = graph;
         public readonly List<AreaPopulation.RoomObject> All = all;
+        public readonly List<PlacedLink> Links = links;
         public readonly Dictionary<int, uint> Ids = [];
 
         public int? IndexOf(uint id)
@@ -167,7 +168,7 @@ static partial class QuestobjectsRules
     // the disabled levers and the spent cranks), and a crank still down comes back up (its timer ran on this connection).
     static RoomWiring WireRoomObjects(ClientState conn, List<AreaPopulation.RoomObject> all, List<PlacedLink> links)
     {
-        var wiring = new RoomWiring(new LabyrinthWiring([.. all.Select(o => o.Type)], links), all);
+        var wiring = new RoomWiring(new LabyrinthWiring([.. all.Select(o => o.Type)], links), all, links);
         for (int i = 0; i < all.Count; i++)
             if (wiring.Graph.Wired(i) && conn.Instance.Transitioned(all[i].Type, all[i].X, all[i].Y)) wiring.Graph.Turn(i, true);
         for (int i = 0; i < all.Count; i++)
@@ -175,6 +176,33 @@ static partial class QuestobjectsRules
                 foreach (var (k, _) in wiring.Graph.Turn(i, false)) conn.Instance.SetTransitioned(all[k].Type, all[k].X, all[k].Y, false);
         Wirings.AddOrUpdate(conn, wiring);
         return wiring;
+    }
+
+    // The room objects one links to by these names (its indexes in the room's objects); none when it has no links.
+    static List<int> LinkedFrom(RoomWiring wiring, AreaPopulation.RoomObject from, Func<string, bool> name) =>
+        wiring.All.IndexOf(from) is int at and >= 0 ? [.. wiring.Links.Where(l => l.From == at && name(l.Name)).Select(l => l.To)] : [];
+
+    // Whether the room links say what this object drives.
+    static bool HasLinks(RoomWiring wiring, AreaPopulation.RoomObject from) => LinkedFrom(wiring, from, _ => true).Count > 0;
+
+    // The placed objects of these room indexes.
+    static List<(uint Id, AreaPopulation.RoomObject Object)> Placed(ClientState conn, RoomWiring wiring, IEnumerable<int> indexes)
+    {
+        lock (conn.Monsters)
+            return [.. indexes.Where(i => wiring.Ids.TryGetValue(i, out uint id) && conn.TrialObjects.ContainsKey(id)).Select(i => (wiring.Ids[i], wiring.All[i]))];
+    }
+
+    // The sawblades the pulled levers stop by the room links (live 2026-11-01, the original: the Chamber of Sins trial's
+    // as its links say): each pulled lever's pause, and on along each stopped sawblade's own pause.
+    static HashSet<int> PausedSaws(ClientState conn, RoomWiring wiring)
+    {
+        var stopped = new HashSet<int>();
+        var todo = new Stack<int>(wiring.Links.Where(l => l.Name == "pause" && wiring.All[l.From].Type is LabyrinthTrials.Switch
+            && conn.Instance.Transitioned(wiring.All[l.From].Type, wiring.All[l.From].X, wiring.All[l.From].Y)).Select(l => l.To));
+        while (todo.TryPop(out int saw))
+            if (stopped.Add(saw))
+                foreach (var l in wiring.Links.Where(l => l.Name == "pause" && l.From == saw)) todo.Push(l.To);
+        return stopped;
     }
 
     // A wired lever, Switch_Once_Multi or crank used: it turns on and passes it on (LabyrinthWiring); a crank comes back up
@@ -226,9 +254,30 @@ static partial class QuestobjectsRules
 
     // A Labyrinth spinner room's swap piece (Rail_Visible_Swap_Anims10) and the levers that turn it: each Switch whose
     // nearest rail switch it is, with the lever's gears (each with its nearest lever).
+    // With the room links, a lever is the swap piece's when its next links reach the piece, through its gears.
     static List<(AreaPopulation.RoomObject Lever, List<AreaPopulation.RoomObject> Gears)> SwapLevers(
-        IReadOnlyCollection<AreaPopulation.RoomObject> all, AreaPopulation.RoomObject swap)
+        IReadOnlyList<AreaPopulation.RoomObject> all, AreaPopulation.RoomObject swap, IReadOnlyList<PlacedLink>? links = null)
     {
+        if (links is { Count: > 0 } && all.ToList().IndexOf(swap) is int piece and >= 0)
+        {
+            var found = new List<(AreaPopulation.RoomObject, List<AreaPopulation.RoomObject>)>();
+            for (int lever = 0; lever < all.Count; lever++)
+            {
+                if (all[lever].Type != LabyrinthTrials.Switch) continue;
+                var gears = new List<int>();
+                bool reaches = false;
+                var todo = new Stack<int>([lever]);
+                var seen = new HashSet<int> { lever };
+                while (todo.TryPop(out int at))
+                    foreach (var l in links.Where(l => l.From == at && l.Name == "next"))
+                    {
+                        if (l.To == piece) reaches = true;
+                        else if (all[l.To].Type == LabyrinthTrials.Gears && seen.Add(l.To)) { gears.Add(l.To); todo.Push(l.To); }
+                    }
+                if (reaches) found.Add((all[lever], [.. gears.Select(g => all[g])]));
+            }
+            if (found.Count > 0) return found;
+        }
         static long Distance(AreaPopulation.RoomObject a, AreaPopulation.RoomObject b) => (long)(a.X - b.X) * (a.X - b.X) + (long)(a.Y - b.Y) * (a.Y - b.Y);
         var railSwitches = all.Where(o => LabyrinthTrials.IsRailSwitch(o.Type)).ToList();
         var levers = all.Where(o => o.Type is LabyrinthTrials.Switch or LabyrinthTrials.MultiSwitch or LabyrinthTrials.Lever).ToList();
@@ -238,12 +287,12 @@ static partial class QuestobjectsRules
 
     // Each swap piece's levers as the piece stands in this instance (LabyrinthTrials.OnFirstArm): the one by the part of
     // the track the spinner does not run is pulled, its gears turning.
-    static void SetSwapLevers(ClientState conn, IReadOnlyCollection<AreaPopulation.RoomObject> all)
+    static void SetSwapLevers(ClientState conn, IReadOnlyList<AreaPopulation.RoomObject> all, IReadOnlyList<PlacedLink> links)
     {
         foreach (var swap in all.Where(o => o.Type == LabyrinthTrials.RailSwitchSwapped))
         {
             bool other = conn.Instance.Transitioned(swap.Type, swap.X, swap.Y);
-            foreach (var (lever, gears) in SwapLevers(all, swap))
+            foreach (var (lever, gears) in SwapLevers(all, swap, links))
             {
                 bool pulled = LabyrinthTrials.OnFirstArm((lever.X, lever.Y), (swap.X, swap.Y), swap.Angle, swap.Mirrored) == other;
                 foreach (var o in gears.Prepend(lever)) conn.Instance.SetTransitioned(o.Type, o.X, o.Y, pulled);
@@ -264,14 +313,16 @@ static partial class QuestobjectsRules
             LabyrinthTrials.SwapClientState(swap.Mirrored, other)), $"0x02ba swap piece 0x{swapId:x} at ({swap.X}, {swap.Y}) to its {(other ? "other" : "first")} arm");
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> placed;
         lock (conn.Monsters) placed = [.. conn.TrialObjects];
-        foreach (var (l, gears) in SwapLevers([.. placed.Select(p => p.Value)], swap))
+        var levers = Wirings.TryGetValue(conn, out var wiring) ? SwapLevers(wiring.All, swap, wiring.Links) : SwapLevers([.. placed.Select(p => p.Value)], swap);
+        foreach (var (l, gears) in levers)
         {
             bool pulled = LabyrinthTrials.OnFirstArm((l.X, l.Y), (swap.X, swap.Y), swap.Angle, swap.Mirrored) == other;
             foreach (var o in gears.Prepend(l))
             {
                 if (conn.Instance.Transitioned(o.Type, o.X, o.Y) == pulled) continue;
                 conn.Instance.SetTransitioned(o.Type, o.X, o.Y, pulled);
-                uint id = placed.First(p => p.Value == o).Key;
+                if (placed.FirstOrDefault(p => p.Value == o) is not { Value: not null } at) continue;
+                uint id = at.Key;
                 await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type),
                     pulled ? LabyrinthTrials.Open : LabyrinthTrials.Closed), $"0x02ba swap {o.Type.Split('/')[^1]} 0x{id:x} {(pulled ? "on" : "off")}");
             }
@@ -450,9 +501,20 @@ static partial class QuestobjectsRules
     static async Task ToggleTrialSwitch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         AreaPopulation.RoomObject o)
     {
+        // With the room links, what the lever drives is theirs (its next, transitionN and pause links); without, the nearest.
+        var wiring = Wirings.TryGetValue(conn, out var w) && HasLinks(w, o) ? w : null;
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> railSwitches;
         lock (conn.Monsters) railSwitches = [.. conn.TrialObjects.Where(t => LabyrinthTrials.IsRailSwitch(t.Value.Type))];
-        if (o.Type == LabyrinthTrials.Switch && railSwitches.Count > 0
+        if (wiring is not null && o.Type == LabyrinthTrials.Switch)
+        {
+            if (wiring.All.FirstOrDefault(s => s.Type == LabyrinthTrials.RailSwitchSwapped && SwapLevers(wiring.All, s, wiring.Links).Any(l => l.Lever == o)) is { } swap
+                && railSwitches.FirstOrDefault(r => r.Value == swap) is { Value: not null } placedSwap)
+            {
+                await TurnSwap(remote, stream, ciphers, conn, o, placedSwap.Key, placedSwap.Value);
+                return;
+            }
+        }
+        else if (o.Type == LabyrinthTrials.Switch && railSwitches.Count > 0
             && railSwitches.MinBy(r => (long)(r.Value.X - o.X) * (r.Value.X - o.X) + (long)(r.Value.Y - o.Y) * (r.Value.Y - o.Y)) is var nearest
             && nearest.Value.Type == LabyrinthTrials.RailSwitchSwapped)
         {
@@ -464,29 +526,49 @@ static partial class QuestobjectsRules
         byte state = pulled ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
         await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type), state),
             $"0x02ba trial switch 0x{id:x} at ({o.X}, {o.Y}) {(pulled ? "pulled" : "pulled back")}");
-        if (NearestTrialObject(conn, LabyrinthTrials.OpenDoor, (o.X, o.Y), closed: false) is { } cage)
+        // Its cages (Door_Open) go the other way, each as it stands (several levers may share one: the Labyrinth's Prison
+        // bottleneck_01); its Locked Doors (Door_Closed, a Switch_Multi's transitionN) open for good.
+        var linked = wiring is null ? [] : Placed(conn, wiring, LinkedFrom(wiring, o, n => n == "next" || n.StartsWith("transition", StringComparison.Ordinal)));
+        var cages = wiring is not null
+            ? linked.Where(t => t.Object.Type == LabyrinthTrials.OpenDoor).ToList()
+            : NearestTrialObject(conn, LabyrinthTrials.OpenDoor, (o.X, o.Y), closed: false) is { } nearestCage ? [nearestCage] : [];
+        foreach (var cage in cages)
         {
-            conn.Instance.SetTransitioned(cage.Object.Type, cage.Object.X, cage.Object.Y, pulled);
-            await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(cage.Id, LabyrinthTrials.TransitionableIndex(cage.Object.Type), state),
-                $"0x02ba trial cage 0x{cage.Id:x} at ({cage.Object.X}, {cage.Object.Y}) {(pulled ? "shuts" : "opens")}");
-            BarCage(conn, cage.Id, cage.Object, pulled);
-            await Send(remote, stream, ciphers, InstanceEntities.BlockageUpdate(cage.Id, pulled), null);
+            bool shut = wiring is null ? pulled : !conn.Instance.Transitioned(cage.Object.Type, cage.Object.X, cage.Object.Y);
+            conn.Instance.SetTransitioned(cage.Object.Type, cage.Object.X, cage.Object.Y, shut);
+            await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(cage.Id, LabyrinthTrials.TransitionableIndex(cage.Object.Type),
+                    shut ? LabyrinthTrials.Open : LabyrinthTrials.Closed),
+                $"0x02ba trial cage 0x{cage.Id:x} at ({cage.Object.X}, {cage.Object.Y}) {(shut ? "shuts" : "opens")}");
+            BarCage(conn, cage.Id, cage.Object, shut);
+            await Send(remote, stream, ciphers, InstanceEntities.BlockageUpdate(cage.Id, shut), null);
         }
+        foreach (var (doorId, door) in linked.Where(t => t.Object.Type == LabyrinthTrials.Door))
+            await OpenTrialObject(remote, stream, ciphers, conn, doorId, door);
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> rails, levers;
         lock (conn.Monsters)
         {
             rails = [.. conn.TrialObjects.Where(t => LabyrinthTrials.IsRailSwitch(t.Value.Type))];
             levers = [.. conn.TrialObjects.Where(t => t.Value.Type is LabyrinthTrials.Switch or LabyrinthTrials.MultiSwitch)];
         }
-        foreach (int i in LabyrinthTrials.SwitchedRails([.. rails.Select(r => (r.Value.X, r.Value.Y))],
-                     [.. levers.Select(l => (l.Value.X, l.Value.Y))], levers.FindIndex(l => l.Key == id)))
+        var moved = wiring is not null
+            ? Placed(conn, wiring, LinkedFrom(wiring, o, n => n == "next" || n.StartsWith("transition", StringComparison.Ordinal)))
+                .Where(t => t.Object.Type == LabyrinthTrials.RailSwitch).ToList()
+            : [.. LabyrinthTrials.SwitchedRails([.. rails.Select(r => (r.Value.X, r.Value.Y))], [.. levers.Select(l => (l.Value.X, l.Value.Y))],
+                levers.FindIndex(l => l.Key == id)).Select(i => (rails[i].Key, rails[i].Value))];
+        foreach (var (railId, rail) in moved)
         {
-            var (railId, rail) = rails[i];
             conn.Instance.SetTransitioned(rail.Type, rail.X, rail.Y, pulled);
             await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(railId, LabyrinthTrials.TransitionableIndex(rail.Type), state),
                 $"0x02ba trial rail switch 0x{railId:x} at ({rail.X}, {rail.Y}) to state {state}");
         }
-        if (TrapRuns.TryGetValue(conn, out var runs))
+        if (TrapRuns.TryGetValue(conn, out var linkedRuns) && wiring is not null && wiring.Links.Any(l => l.Name == "pause"))
+        {
+            var paused = PausedSaws(conn, wiring);
+            foreach (var r in linkedRuns.Where(r => LabyrinthTrials.IsSawblade(r.Roomba.Type))) r.Halted = paused.Contains(wiring.All.IndexOf(r.Roomba));
+            Console.WriteLine($"[gateway] {remote} trial switch at ({o.X}, {o.Y}) {(pulled ? "pulled" : "pulled back")}: sawblades stopped now " +
+                string.Join(", ", paused.Select(i => $"({wiring.All[i].X}, {wiring.All[i].Y})")));
+        }
+        else if (TrapRuns.TryGetValue(conn, out var runs))
         {
             var saws = runs.Where(r => LabyrinthTrials.IsSawblade(r.Roomba.Type)).ToList();
             List<(int X, int Y)> switches;
@@ -515,10 +597,12 @@ static partial class QuestobjectsRules
     }
 
     // A trial's spike traps (LabyrinthTrials.SpikeTrap): created at rest, then fired in waves for as long as the player
-    // is in the area (RunSpikeTraps). The traps a room's Trigger_* line takes fire on its timer (LabyrinthTrials.TriggeredSpikes),
-    // the others as the trials' chains.
+    // is in the area (RunSpikeTraps). Their chains and triggers are the room links' (LabyrinthTrials.LinkedSpikes); without
+    // links (room-points.json's objects) the traps a room's Trigger_* line takes fire on its timer
+    // (LabyrinthTrials.TriggeredSpikes), the others as the trials' chains (LabyrinthTrials.SpikeChains).
     static async Task SpawnTrialTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        List<AreaPopulation.RoomObject> traps, List<(int X, int Y)> levers, List<(int X, int Y)> doors, List<AreaPopulation.RoomObject> triggers)
+        List<AreaPopulation.RoomObject> traps, List<(int X, int Y)> levers, List<(int X, int Y)> doors, List<AreaPopulation.RoomObject> triggers,
+        List<AreaPopulation.RoomObject> all, List<PlacedLink> links)
     {
         if (traps.Count == 0) return;
         // A step fires a pressure spike trap: it is in no chain.
@@ -526,7 +610,22 @@ static partial class QuestobjectsRules
         traps = [.. traps.Except(pressure)];
         var chains = LabyrinthTrials.SpikeChains([.. traps.Select(t => (t.X, t.Y))], levers, doors);
         var triggered = LabyrinthTrials.TriggeredSpikes([.. traps.Select(t => (t.X, t.Y, t.Angle))], [.. triggers.Select(t => (t.X, t.Y))]);
-        int firstTriggered = chains.Length == 0 ? 0 : chains.Max(c => c.Chain) + 1;
+        // The room links' chains, when the traps have them: a room index to the trap's or trigger's own.
+        var trapAt = new Dictionary<int, int>();
+        var triggerAt = new Dictionary<int, int>();
+        for (int i = 0; i < traps.Count; i++) trapAt.TryAdd(all.IndexOf(traps[i]), i);
+        for (int i = 0; i < triggers.Count; i++) triggerAt.TryAdd(all.IndexOf(triggers[i]), i);
+        var trapLinks = links.Where(l => l.Name == "next" && trapAt.ContainsKey(l.From) && trapAt.ContainsKey(l.To)).Select(l => (trapAt[l.From], trapAt[l.To])).ToList();
+        if (trapLinks.Count > 0)
+        {
+            var linked = LabyrinthTrials.LinkedSpikes([.. traps.Select(t => (t.X, t.Y))], trapLinks,
+                [.. links.Where(l => l.Name == "next" && triggerAt.ContainsKey(l.From) && trapAt.ContainsKey(l.To)).Select(l => (triggerAt[l.From], trapAt[l.To]))],
+                [.. triggered.Select(t => t.Trigger)]);
+            chains = [.. linked.Select(c => (c.Chain, c.Order, c.Checker))];
+            triggered = [.. linked.Select(c => (c.Trigger, c.Order))];
+        }
+        // Triggered chains numbered past the others (a linked chain's number is below the count of traps).
+        int firstTriggered = trapLinks.Count > 0 ? traps.Count : chains.Length == 0 ? 0 : chains.Max(c => c.Chain) + 1;
         var placed = new List<SpikeTrap>();
         for (int i = 0; i < traps.Count; i++)
         {
@@ -984,7 +1083,9 @@ static partial class QuestobjectsRules
                         {
                             (down, at, left) = (true, now, false);
                             int room = RoomOf(plate.X, plate.Y);
-                            var fired = triggered.Where(t => RoomOf(t.Trap.X, t.Trap.Y) == room).ToList();
+                            var fired = Wirings.TryGetValue(conn, out var wiring) && LinkedDarts(wiring, plate) is { Count: > 0 } linked
+                                ? triggered.Where(t => linked.Contains(wiring.All.IndexOf(t.Trap))).ToList()
+                                : triggered.Where(t => RoomOf(t.Trap.X, t.Trap.Y) == room).ToList();
                             await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Open),
                                 $"0x02ba pressure plate 0x{id:x} at ({plate.X}, {plate.Y}) pressed: {fired.Count} wall dart(s) fire");
                             foreach (var (dart, trap) in fired) await Fire(dart, trap, [(0, 0)]);
@@ -997,6 +1098,19 @@ static partial class QuestobjectsRules
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial dart traps stopped: {ServerLog.Describe(ex)}"); }
+    }
+
+    // The darts a pressure plate fires by the room links: its next (a ResetMulti_4 plate's transitionN), and on along each
+    // dart's next, delay and delayed (var_3_1_trap: the plate's dart, then the other three in a row). All fire at once
+    // (our reading: the links' delay has no time of its own in the data). None without links.
+    static HashSet<int> LinkedDarts(RoomWiring wiring, AreaPopulation.RoomObject plate)
+    {
+        var darts = new HashSet<int>();
+        var todo = new Stack<int>(LinkedFrom(wiring, plate, n => n == "next" || n.StartsWith("transition", StringComparison.Ordinal)));
+        while (todo.TryPop(out int at))
+            if (wiring.All[at].Type == LabyrinthTrials.TriggeredArrowTrap && darts.Add(at))
+                foreach (int to in LinkedFrom(wiring, wiring.All[at], n => n is "next" or "delay" or "delayed")) todo.Push(to);
+        return darts;
     }
 
     static ProjectileHitResult ArrowHit(ProjectileSession session, ProjectileDamage contact, uint id, AreaPopulation.RoomObject trap)
@@ -1167,17 +1281,29 @@ static partial class QuestobjectsRules
     // its run of rails (LabyrinthTrials.RoombaPaths; a sawblade heads for its track's nearer end first): created where the
     // room puts them, then driven along their rails for as long as the player is in the area (RunRoombas). A sawblade a
     // pulled lever (Switch) stops in this instance starts stopped (LabyrinthTrials.SwitchedSaws: the levers and the
-    // trial's door).
+    // trial's door). With the room links, the rails join as they link (next, previous, teleport), and a roomba with a
+    // reset rail goes its links' way from there (LabyrinthTrials.LinkedPath).
     static async Task SpawnRoombas(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         List<AreaPopulation.RoomObject> roombas, List<AreaPopulation.RoomObject> rails, List<(int X, int Y)> switches, (int X, int Y) entrance,
-        List<(int X, int Y)>? scratches)
+        List<(int X, int Y)>? scratches, List<AreaPopulation.RoomObject> all, List<PlacedLink> links)
     {
         if (roombas.Count == 0) return;
         // A visible rail is a track piece, joined along its angle only; the Labyrinth's rooms' runs follow their scratches.
         var invisible = rails.Where(r => r.Type == LabyrinthTrials.Rail).ToList();
+        var railAt = new Dictionary<int, int>();
+        for (int i = 0; i < rails.Count; i++) railAt.TryAdd(all.IndexOf(rails[i]), i);
+        var railLinks = links.Where(l => l.Name is "next" or "previous" or "teleport" && railAt.ContainsKey(l.From) && railAt.ContainsKey(l.To))
+            .Select(l => (From: railAt[l.From], To: railAt[l.To], Jump: l.Name == "teleport")).ToList();
         var paths = LabyrinthTrials.RoombaPaths([.. rails.Select(r => (r.X, r.Y))], [.. roombas.Select(r => (r.X, r.Y, r.Angle))],
-            [.. rails.Select(r => r.Type == LabyrinthTrials.VisibleRail ? r.Angle : float.NaN)]);
-        if (scratches is not null && invisible.Count > 0)
+            [.. rails.Select(r => r.Type == LabyrinthTrials.VisibleRail ? r.Angle : float.NaN)],
+            joins: railLinks.Count == 0 ? null : [.. railLinks.Select(l => (l.From, l.To))],
+            jumps: [.. railLinks.Where(l => l.Jump).Select(l => (l.From, l.To))]);
+        if (railLinks.Count > 0)
+            for (int i = 0; i < roombas.Count; i++)
+                if (links.FirstOrDefault(l => l.Name == "reset" && l.From == all.IndexOf(roombas[i]) && railAt.ContainsKey(l.To)) is { } reset)
+                    paths[i] = LabyrinthTrials.LinkedPath([.. rails.Select(r => (r.X, r.Y))], [.. railLinks.Where(l => l.Jump || links.Any(k =>
+                        k.Name == "next" && railAt.GetValueOrDefault(k.From, -1) == l.From && railAt.GetValueOrDefault(k.To, -1) == l.To))], railAt[reset.To]);
+        if (railLinks.Count == 0 && scratches is not null && invisible.Count > 0)
         {
             var scratched = LabyrinthTrials.RoombaPaths([.. invisible.Select(r => (r.X, r.Y))], [.. roombas.Select(r => (r.X, r.Y, r.Angle))],
                 null, scratches, [.. roombas.Select(r => r.Type == LabyrinthTrials.FlyingRoomba)]);
@@ -1185,10 +1311,12 @@ static partial class QuestobjectsRules
                 if (roombas[i].Type is LabyrinthTrials.Roomba or LabyrinthTrials.FlyingRoomba) paths[i] = scratched[i];
         }
         var saws = Enumerable.Range(0, roombas.Count).Where(i => LabyrinthTrials.IsSawblade(roombas[i].Type)).ToList();
-        var halted = Enumerable.Range(0, switches.Count)
-            .Where(k => conn.Instance.Transitioned(LabyrinthTrials.Switch, switches[k].X, switches[k].Y))
-            .SelectMany(k => LabyrinthTrials.SwitchedSaws([.. saws.Select(i => (roombas[i].X, roombas[i].Y))], switches, k, entrance))
-            .Select(k => saws[k]).ToHashSet();
+        var halted = Wirings.TryGetValue(conn, out var wiring) && links.Any(l => l.Name == "pause")
+            ? PausedSaws(conn, wiring).Select(i => roombas.IndexOf(all[i])).Where(i => i >= 0).ToHashSet()
+            : Enumerable.Range(0, switches.Count)
+                .Where(k => conn.Instance.Transitioned(LabyrinthTrials.Switch, switches[k].X, switches[k].Y))
+                .SelectMany(k => LabyrinthTrials.SwitchedSaws([.. saws.Select(i => (roombas[i].X, roombas[i].Y))], switches, k, entrance))
+                .Select(k => saws[k]).ToHashSet();
         // The Crypt trial's spinners go piece to piece on their track, which its rail switches change as they stand in
         // this instance.
         var track = roombas.Any(r => r.Type == LabyrinthTrials.Spinner)
@@ -1244,7 +1372,8 @@ static partial class QuestobjectsRules
             // It heads first for the far rail of the run it stands on: the path's order is the way it faces.
             var rails = path.Rails;
             int legs = path.Ring ? rails.Count : rails.Count - 1;
-            Target = (Enumerable.Range(0, legs).MinBy(i => Distance((roomba.X, roomba.Y), rails[i], rails[(i + 1) % rails.Count])) + 1) % rails.Count;
+            Target = path.FromFirst ? 0
+                : (Enumerable.Range(0, legs).MinBy(i => Distance((roomba.X, roomba.Y), rails[i], rails[(i + 1) % rails.Count])) + 1) % rails.Count;
         }
 
         public RoombaRun(uint id, AreaPopulation.RoomObject spinner, LabyrinthTrials.SpinnerTrack track, (int From, int To) run, Func<int, bool> lifted) =>
@@ -1269,7 +1398,7 @@ static partial class QuestobjectsRules
                 (Previous, Target) = (Target, next);
                 return;
             }
-            if (Path!.Ring) { Target = (Target + 1) % Path.Rails.Count; return; }
+            if (Path!.Ring) { Target = Target + 1 < Path.Rails.Count ? Target + 1 : Path.Loop; return; }
             if (Target + Step < 0 || Target + Step >= Path.Rails.Count) Step = -Step;
             Target += Step;
         }
@@ -1320,6 +1449,14 @@ static partial class QuestobjectsRules
                     }
                     if (r.Stopped || now < r.LegEnd + LabyrinthTrials.RoombaPauseSeconds(r.Roomba.Type)) continue;
                     if (double.IsFinite(r.LegEnd)) { r.From = r.To; r.Next(); }
+                    // A teleport leg (the room links'): there at once.
+                    if (r.Path is { } jumping && jumping.Jumps.Contains((((int)r.From.X, (int)r.From.Y), ((int)r.To.X, (int)r.To.Y))))
+                    {
+                        (r.From, r.LegStart, r.LegEnd) = (r.To, now, now);
+                        await Send(remote, stream, ciphers, InstanceProtocol.Teleport(r.Id, (int)r.To.X, (int)r.To.Y),
+                            $"0x01b7 trial roomba 0x{r.Id:x} jumps to ({r.To.X}, {r.To.Y})");
+                        continue;
+                    }
                     double dx = r.To.X - r.From.X, dy = r.To.Y - r.From.Y;
                     double seconds = Math.Max(0.05, Math.Sqrt(dx * dx + dy * dy) / LabyrinthTrials.RoombaSpeed(r.Roomba.Type));
                     (r.LegStart, r.LegEnd) = (now, now + seconds);

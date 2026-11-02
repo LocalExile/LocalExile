@@ -275,8 +275,16 @@ static class LabyrinthTrials
     }
 
     /// <summary>A roomba's way along the trial's invisible rails: its rails in order, and whether they close a ring.</summary>
+    /// <remarks>A ring goes on from its rail <see cref="Loop"/> after its last (the rails before it are a way in, run
+    /// once); <see cref="Jumps"/> are its legs a roomba teleports along (the room links' <c>teleport</c>); with
+    /// <see cref="FromFirst"/> it heads for its first rail first (its <c>reset</c> rail), else for the far rail of the run
+    /// it stands on.</remarks>
     public sealed record RoombaPath(IReadOnlyList<(int X, int Y)> Rails, bool Ring)
     {
+        public int Loop { get; init; }
+        public IReadOnlySet<((int X, int Y) From, (int X, int Y) To)> Jumps { get; init; } = new HashSet<((int, int), (int, int))>();
+        public bool FromFirst { get; init; }
+
         /// <summary>A chain turned so that it ends at its end nearer this cell, which a sawblade heads for first: the
         /// Chamber of Sins trial's first two, each nearer one end of their track, part from its middle (live 2026-11-01,
         /// the original), and each pair goes together. A sawblade's room line angle lies along its track either way
@@ -299,8 +307,12 @@ static class LabyrinthTrials
     /// joins along its own piece only, so the ends of a track's two lanes, 9 cells apart, do not close a ring.
     /// In the Labyrinth's own rooms (<paramref name="scratches"/>, the rooms' roomba scratch decals) the runs go any way:
     /// a roomba takes the nearest run of its kind (<see cref="ScratchedRuns"/>), not only one under it.</remarks>
+    /// <remarks>With <paramref name="joins"/> (the room links between the rails, either way) the rails join so, and
+    /// nothing else (no scratches, no angles); a <c>teleport</c> join (<paramref name="jumps"/>) is a leg the roomba jumps.
+    /// </remarks>
     public static RoombaPath?[] RoombaPaths(IReadOnlyList<(int X, int Y)> rails, IReadOnlyList<(int X, int Y, float Angle)> roombas,
-        IReadOnlyList<float>? railAngles = null, IReadOnlyList<(int X, int Y)>? scratches = null, IReadOnlyList<bool>? flying = null)
+        IReadOnlyList<float>? railAngles = null, IReadOnlyList<(int X, int Y)>? scratches = null, IReadOnlyList<bool>? flying = null,
+        IReadOnlyList<(int A, int B)>? joins = null, IReadOnlyList<(int A, int B)>? jumps = null)
     {
         const double MaxDeviation = 6 * Math.PI / 180, OnRail = 4;
         (int X, int Y)[] axes = [(1, 0), (-1, 0), (0, 1), (0, -1)];
@@ -324,13 +336,23 @@ static class LabyrinthTrials
             return best;
         }
         var joined = Enumerable.Range(0, rails.Count).Select(_ => new List<int>()).ToArray();
-        for (int i = 0; i < rails.Count; i++)
-            foreach (var d in axes)
-                if (Best(i, d) is int j && Best(j, (-d.X, -d.Y)) == i && !joined[i].Contains(j))
-                {
-                    joined[i].Add(j);
-                    joined[j].Add(i);
-                }
+        void Join(int i, int j)
+        {
+            if (i == j || joined[i].Contains(j)) return;
+            joined[i].Add(j);
+            joined[j].Add(i);
+        }
+        if (joins is not null)
+        {
+            foreach (var (a, b) in joins) Join(a, b);
+            scratches = null;
+        }
+        else
+            for (int i = 0; i < rails.Count; i++)
+                foreach (var d in axes)
+                    if (Best(i, d) is int j && Best(j, (-d.X, -d.Y)) == i) Join(i, j);
+        var leaps = new HashSet<((int, int), (int, int))>();
+        foreach (var (a, b) in jumps ?? []) { leaps.Add((rails[a], rails[b])); leaps.Add((rails[b], rails[a])); }
         static double ToSegment((int X, int Y) p, (int X, int Y) a, (int X, int Y) b) => OnSegment(p, a, b).Distance;
         var runs = scratches is null ? default : ScratchedRuns(rails, scratches);
         var paths = new RoombaPath?[roombas.Count];
@@ -372,9 +394,31 @@ static class LabyrinthTrials
                 (at, back) = (back, prev);
             }
             bool ring = order.Count > 2 && network[order[0]].Contains(order[^1]);
-            paths[r] = new RoombaPath([.. order.Select(i => rails[i])], ring);
+            paths[r] = new RoombaPath([.. order.Select(i => rails[i])], ring) { Jumps = leaps };
         }
         return paths;
+    }
+
+    /// <summary>A Labyrinth room's roomba's way by the room links: from its <c>reset</c> rail along each rail's <c>next</c>
+    /// (else its <c>teleport</c>, a jump) until a rail comes again, where it goes round from then on, or none follows,
+    /// where it goes back (<c>reverse_when_path_ends</c>). The links are its way: indoor_trap_var2_2's ground roomba comes
+    /// in from its rail to a ring of three, one side slanting, and its flying one to the same three the other way round;
+    /// 2x2_trap_05's ring of four jumps from its third rail back to its first.</summary>
+    public static RoombaPath LinkedPath(IReadOnlyList<(int X, int Y)> rails, IReadOnlyList<(int From, int To, bool Jump)> links, int start)
+    {
+        var order = new List<int> { start };
+        var jumps = new HashSet<((int, int), (int, int))>();
+        for (int at = start; ;)
+        {
+            var steps = links.Where(l => l.From == at && l.To != at).OrderBy(l => l.Jump).ToList();
+            if (steps.Count == 0) return new RoombaPath([.. order.Select(i => rails[i])], false) { Jumps = jumps, FromFirst = true };
+            var step = steps[0];
+            if (step.Jump) jumps.Add((rails[at], rails[step.To]));
+            if (order.IndexOf(step.To) is int seen and >= 0)
+                return new RoombaPath([.. order.Select(i => rails[i])], true) { Loop = seen, Jumps = jumps, FromFirst = true };
+            order.Add(step.To);
+            at = step.To;
+        }
     }
 
     /// <summary>How far from its run a Labyrinth room's roomba may stand (its room line is placed roughly: the
@@ -733,6 +777,58 @@ static class LabyrinthTrials
             foreach (int i in members)
                 placed[i] = (chain, (Tile(traps[i].X - traps[start].X) + Tile(traps[i].Y - traps[start].Y)) & 1, true);
             chain++;
+        }
+        return placed;
+    }
+
+    /// <summary>Each spike trap's chain, place in it and trigger (−1: none) by the room links: a trap's <c>next</c> is the
+    /// trap after it, a <c>Trigger_*</c> line's <c>next</c> its chain's first. A chain without a trigger fires as a wave
+    /// along its links (the Lower Prison trial's ring of 16: from beside its door round to beside its lever); side by side
+    /// with another (its traps a tile from the other's), the two are a checkerboard's colours, each rising at once,
+    /// <see cref="SpikeCheckerSeconds"/> apart (the same trial's two zigzag chains; live 2026-10-31: they rise together).
+    /// A trigger that is one of the room's points (the <c>…WG</c> lines: no links) takes the chains whose traps it would
+    /// take by place (<paramref name="nearTrigger"/>, <see cref="TriggeredSpikes"/>).
+    /// </summary>
+    public static (int Chain, int Order, bool Checker, int Trigger)[] LinkedSpikes(IReadOnlyList<(int X, int Y)> traps,
+        IReadOnlyList<(int From, int To)> next, IReadOnlyList<(int Trigger, int Trap)> triggered, IReadOnlyList<int>? nearTrigger = null)
+    {
+        var after = new int[traps.Count];
+        var before = new bool[traps.Count];
+        Array.Fill(after, -1);
+        foreach (var (from, to) in next)
+            if (after[from] < 0 && from != to) (after[from], before[to]) = (to, true);
+        var placed = new (int Chain, int Order, bool Checker, int Trigger)[traps.Count];
+        var chainOf = new int[traps.Count];
+        Array.Fill(chainOf, -1);
+        var chains = new List<(List<int> Traps, int Trigger)>();
+        var starts = triggered.Select(t => (t.Trap, t.Trigger))
+            .Concat(Enumerable.Range(0, traps.Count).Where(i => !before[i]).Select(i => (Trap: i, Trigger: -1)))
+            .Concat(Enumerable.Range(0, traps.Count).Select(i => (Trap: i, Trigger: -1)));
+        foreach (var (start, trigger) in starts)
+        {
+            if (chainOf[start] >= 0) continue;
+            var members = new List<int>();
+            for (int at = start; at >= 0 && chainOf[at] < 0; at = after[at])
+            {
+                chainOf[at] = chains.Count;
+                members.Add(at);
+            }
+            int own = trigger < 0 && nearTrigger is not null ? members.Select(i => nearTrigger[i]).FirstOrDefault(t => t >= 0, -1) : trigger;
+            chains.Add((members, own));
+        }
+        static bool Near((int X, int Y) a, (int X, int Y) b) => Math.Abs(a.X - b.X) <= SpikeHalf * 2 + 2 && Math.Abs(a.Y - b.Y) <= SpikeHalf * 2 + 2;
+        var group = Enumerable.Range(0, chains.Count).ToArray();
+        int Root(int c) => group[c] == c ? c : group[c] = Root(group[c]);
+        for (int a = 0; a < chains.Count; a++)
+            for (int b = a + 1; b < chains.Count; b++)
+                if (chains[a].Trigger < 0 && chains[b].Trigger < 0
+                    && chains[a].Traps.Any(i => chains[b].Traps.Any(j => Near(traps[i], traps[j])))) group[Root(b)] = Root(a);
+        for (int c = 0; c < chains.Count; c++)
+        {
+            var colours = Enumerable.Range(0, chains.Count).Where(k => Root(k) == Root(c)).ToList();
+            bool checker = colours.Count > 1;
+            for (int k = 0; k < chains[c].Traps.Count; k++)
+                placed[chains[c].Traps[k]] = (Root(c), checker ? colours.IndexOf(c) : k, checker, chains[c].Trigger);
         }
         return placed;
     }

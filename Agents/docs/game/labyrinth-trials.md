@@ -77,12 +77,10 @@ TriggerableBlockage is u8 blocked, then while blocked a u8 count of sections (no
 (`on_transition_to_2`, `on_untransition_to_1` play the lever both ways), 3 spent (not used). `Door_Open` has
 `num_states = 2` the other way round from `Door_Closed`: state 1 is open (`create_state_1` plays the lifted bars), 2
 closed (`on_transition_to_2` lowers them, `on_untransition_to_1` lifts them), and it starts unblocked
-(`start_blocked = false`). In the original (live 2026-11-01) a lever shuts the cage round its own room and stops one
-sawblade of each of the three pairs round the lever rooms, and pulled again opens it and they run on: with the player
-inside, the cage shuts them in. The lever nearer the trial's door stops the pairs' inner lanes (nearer the lever
-rooms), the other the outer lanes; the first track's two and the lone one are on no lever. No file links a lever to its
-sawblades, so `LabyrinthTrials.SwitchedSaws` fits this: levers ranked by their distance from the trial's door, each
-pair's lanes by theirs from the levers' middle.
+(`start_blocked = false`). A lever shuts the cage its `next` links (round its own room) and stops the sawblade its
+`pause` links, and that sawblade's own `pause` stops the lone pair's one by the lever rooms; pulled again, the cage
+opens and they run on (live 2026-11-01, the original: as the links say). Without links (`room-points.json`'s objects)
+`LabyrinthTrials.SwitchedSaws` fits it by distance.
 The Gateway pulls the lever both ways (`InstanceState.SetTransitioned`), shuts or opens the nearest `Door_Open` with
 it (0x2ba state 2 or 1, 0x1c6, and its Hull `doorbar_ruinedtemple.ao` ±2.2 × ±8 cells on the server's walk estimate)
 and stops or starts its sawblades; a later entry of the instance finds them as they were left.
@@ -365,8 +363,8 @@ order): two spinners side by side in the way up from the Locked Door run to thei
 screen; one runs a U to and fro, two the diagonals of an X, two straight lanes; the upper room's two go round the two
 small rings of its square (its middle, from the crossing to the TriCorner) until its `Switch` sets the TriCorner
 straight, then round the square. The `Switch_Once` opens the `Door_Closed`, as in the other trials, while the spinners
-run on. No file links a lever to its switches: each rail switch goes with the nearest `Switch` or `Switch_Multi`
-(`LabyrinthTrials.SwitchedRails`).
+run on. A lever moves the rail switches its links name (`Switch` `next`, `Switch_Multi` `transition1`, `2`); without
+links, the nearest (`LabyrinthTrials.SwitchedRails`).
 The original has a second gate at the crossing, which the room file has no switch object for.
 Between the upper spinner room and the plaque room stands a plain `Metadata/MiscellaneousObjects/Door`
 (`thinwallbar_door.ao`, `start_blocked`, opened by a click; the only room of the data with one). The Gateway places it
@@ -467,12 +465,16 @@ matches.
 180° at once, Three three over 180° in 1024 ms). `_Triggered`'s .ot reads Animated before Transitionable.
 The periods are the server's: the trial's 1.5 s, the slow ones 3 s, a delayed or offset one half a period later.
 The `PressurePlate_Reset*` plates (`dryGardenPlate_01.ao`; Positioned, Transitionable 1 up / 2 down, BaseEvents,
-Animated) name nothing they fire: a player stepping on one presses it and every `_Triggered` of its room fires;
+Animated): a player stepping on one presses it and the `_Triggered` darts it links fire (its `next`, a
+`_ResetMulti_4`'s `transition1`, `2`, and on along each dart's `next`, `delay`, `delayed`, all at once); unlinked, every
+`_Triggered` of its room;
 `Reset` comes up when the player steps off, `_4` 4 s after, `_ResetMulti_4` pressing again while they stay.
 Live (2026-11-01, `1_Labyrinth_DG_end` seed 1): all as the original.
 
-**Roomba runs** (`LabyrinthTrials.ScratchedRuns`): the rooms' invisible rails run any way, diagonals too, and no file
-links them. The rooms' scratch decals (`LabyrinthRoombaKit/R_scratch_*`) lie along every ground roomba's run: a run
+**Roomba runs**: a roomba's `reset` link names its first rail, and it follows the rails' `next` (a `teleport`, a jump)
+until a rail comes again, then goes round from there (`LabyrinthTrials.LinkedPath`): `indoor_trap_var2_2`'s ground
+roomba comes in to a ring of three and its flying one goes round the same three the other way; a roomba without one
+runs the linked rails it stands on. Without links (`LabyrinthTrials.ScratchedRuns`) the rooms' scratch decals (`LabyrinthRoombaKit/R_scratch_*`) lie along every ground roomba's run: a run
 joins two rails at most 100 cells apart with no rail between them and a scratch along it, the most scratched first and
 none crossing another (a run across a ring's slant passes one of its scratches). A flying roomba scratches nothing:
 the rails left join shortest first, at most two runs a rail. A roomba takes the nearest run of its kind (its room line
