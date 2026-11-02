@@ -37,15 +37,21 @@ The server applies linked area modifiers, added attack/spell damage, selected un
 conversion/gain-as-extra, damage prohibitions, attack/cast/projectile speed, critical modifiers and mana costs.
 Reservation uses support cost multipliers; changing links refreshes active aura reservation values.
 AttackSpeedMultiplier is an increased percentage: Cyclone 200 means three times base attack speed.
+Lifetap Support turns the supported skill's whole Mana cost into Life (`base_skill_cost_life_instead_of_mana`, with
+its 300% cost multiplier), counts the Life paid against `support_lifetap_spent_life_threshold`, and grants the Lifetap
+buff (BuffDefinitions 1846) for the support's 4000 ms base plus 100 ms per 1% quality. While it runs, supported hits
+take `support_lifetap_damage_+%_final_while_buffed` and flasks recover 20% increased Life. A paid Vaal use follows the
+same Life cost.
 Physical more damage is applied before conversion; elemental and chaos modifiers apply to their resulting damage.
 Conditional modifiers are not treated as unconditional bonuses.
 Skill panel values and ordinary hit execution use the same supported-skill calculation.
 The Delve socketed attack/spell more-damage effects multiply the matching hit once through this calculation.
 Awakened Increased Area of Effect's `inc_aoe_plus_more_area_damage_+%_final` is one of those unconditional keys.
-Three supports' more damage depends on the hit's target or the player, so `WithConditionalSupportDamageLocked`
+Four supports' more damage depends on the hit's target or the player, so `WithConditionalSupportDamageLocked`
 scales each target's roll after the outgoing-damage hooks, on the area and projectile hit paths:
 Hypothermia against a chilled enemy, Behead against an enemy at half its maximum Life or less (PoB
-`LowPoolThreshold`), and Damage on Full Life for an attack while the player's Life is full.
+`LowPoolThreshold`), Damage on Full Life for an attack while the player's Life is full, and Lifetap while the player
+has its buff.
 The ailment share of "Hits and Ailments" follows the hit for chill, freeze and shock; ignite still takes its damage
 from the skill's ailment rows, without these multipliers.
 Channelled attacks pay the supported cost on subsequent channel hits.
@@ -91,5 +97,7 @@ still require their own execution paths.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
 Only the unconditional damage keys listed by GemSupportDamage and the three target conditions above receive
 multiplicative processing.
+Lifetap's spent-Life counter and buff are server state: the hidden `lifetap_life_spent` buff is not sent, minions do
+not gain the buff, and its more damage does not reach damage over time.
 The native catalogue includes historical and placeholder variants; their presence does not make them obtainable.
 Do not describe the entire support catalogue as mechanically complete.

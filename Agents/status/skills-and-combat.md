@@ -18,7 +18,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Shield Charge's charge (verified live 2026-11-01): it ends and plays its end effect (the shield's off-hand attack time
   from the gem's `AttackTime`), runs at its own speed (`movement_velocity_+%` 22 → 112 → 22 while charging), and hits
   along its path (within 8 cells about every 100 ms, each monster once) and where it ends (within 16 cells).
-  Its damage is still the ordinary weapon hit: the shield's added damage and the distance scaling are not applied.
+  Its hits and Offence tab use the shield's damage (the gem's added damage plus its damage per 15 shield armour and
+  evasion, at the gem's attack time), up to 100% more by distance charged, the charge capped at 75 cells (verified live
+  2026-11-01). The stun scaling and `shield_charge_extra_distance` are not applied.
   Code: `WeaponTypeStats.cs`, `Skills.cs` (`FinalPlayerStatsFrom`, `GemSkills`), `ShieldCharge.cs`, `SkillCatalog.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §10a and §10k, [13](../docs/protocol/13-items.md) "Client weapon-type stats".
 - Antiquarian's real selected nodes now drive Ward absorption/restoration and Runic Tablet's pausable Adrenaline.
@@ -348,6 +350,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   and Scion with a one-handed sword, mace or axe and a shield; the server assumes the combo alternates on every throw,
   and when the client starts it over is not known. A wall stops the weapon without a return. The transfigured and Vaal
   versions are not mapped.
+  after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); the
+  terminal secondary group is in Partly working.
   Projectiles spawn at the captured terrain height + the releasing clip's keyframe height (the bow 16 steps, a wand
   12, the Sand Spitter's spit 9; `Game_PROJECTILE_HEIGHT`, 5 steps, without rig data) on natural ground; without a
   capture they use the bare offset.
@@ -656,6 +660,40 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §9.
 
 ## Partly working
+
+- Attack-speed admission: gem attacks now use the supported attack speed (gem and support stats plus the inherent
+  GrantedEffectsPerLevel multiplier) for both the admission gate and the swing interval, instead of mixing it with
+  `SkillAttackSeconds`. Tornado Shot's -20% and player/bow attack speed apply. Projectile speed adds the player's
+  `projectile_speed_+%` to the skill's `base_projectile_speed_+%`. Automated pace and projectile-speed checks pass;
+  no native check yet. Code: `GemSupports.Rules.cs`, `Combat.cs`, `ProjectileSpeed.cs`.
+- Lifetap Support: supported skills pay their whole Mana cost as Life, including the 300% cost multiplier; the paid
+  Life is accumulated against `support_lifetap_spent_life_threshold`. Reaching it grants the 4 s (plus quality) Lifetap
+  buff, whose more damage applies to supported hits and whose 20% increased Life recovery applies to flasks.
+  Vaal uses pay the same Life cost. The buff is presented through the own-aura send gate; the hidden spent-Life buff
+  and minion buffs are not sent, and damage over time does not receive the more multiplier.
+  Automated test covers Tornado Shot with level-1 Lifetap: 9 Mana becomes 27 Life, the first use grants the buff,
+  and the hit and flask bonuses apply. Code: `Combat/Lifetap.cs`, `Player.cs`, `ConditionalSupportDamage.cs`;
+  docs: [25](../docs/protocol/25-gem-supports.md).
+- Bow projectile counts: actual bow attacks now read `number_of_additional_arrows` and
+  `number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more` on top of the generic projectile additions, so
+  bow/quiver modifiers and passives such as Master Fletcher add primary arrows. The arrow inputs are gated to a real
+  bow and do not reach wand, spell or melee projectiles; the selected-skill panel also publishes the arrow total.
+  The terminal secondary group is a separate change (implemented in #549).
+  Automated tests cover the bow/wand separation and the panel rows; no native check yet.
+  Code: `GatewayProjectileModifiers.cs`, `GatewayProjectileDefaults.cs`, `ProjectilePanel.cs`;
+  [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) section 3.
+- Tornado Shot terminal secondaries: each primary arrow pierces its contacts and emits three
+  `TornadoShotSecondaryArrow` flights at its endpoint, spaced around the client's native terminal RNG ray
+  (`[sequence, mother-derived byte, owner, repeats]`). The client predicts the primary and secondary arrows itself
+  (Frida: seven local and seven server `TornadoShotArrow` objects for one use), so the server hides both and only
+  simulates their damage; one secondary per set can hit an enemy, and the children keep
+  support Pierce/Fork/Chain. Their range uses the client's 0.3 s secondary action lifetime (a Frida trace caps the
+  final callback at 300 ms), so projectile speed scales it, and Point Blank/Far Shot distance includes the primary
+  leg. Tests cover the profile, the client RNG vector, the 300 ms lifetime and the continued PB/Far Shot distance; the
+  2026-11-02 live check confirmed the single primary origin, the fan and the damage.
+  Code: `GatewayProjectileSkillProfiles.cs`, `ProjectileStages.cs`, `ProjectileTypes.cs`, `Projectiles.cs`;
+  wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
+  [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
 
 - Selected supported-spell panel: final linked-support damage replaces both spell and inherited hand ranges,
   clearing removed types and updating pre-critical average/DPS from the supported cast time.

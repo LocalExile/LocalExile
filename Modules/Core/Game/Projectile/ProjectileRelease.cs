@@ -5,6 +5,40 @@ using GameServer.Core.World;
 
 static partial class Game
 {
+    /// <summary>ItemClasses row 13 is Bow. A gem skill fires arrows only while the active main hand is a bow; its
+    /// additional-arrow stats use the native arrow alias rather than the generic projectile count alone.</summary>
+    internal const int BowClassRow = 13;
+
+    internal static bool ArrowsFor(ClientState conn, int effect) =>
+        SkillsFor(conn).IsAttack(effect) && WeaponProfileFor(conn, activeSet: true).Bow;
+
+    internal static bool ArrowsForSkill(int effect) =>
+        Skills.IsAttack(effect) && Skills.WeaponRestrictions(effect).Contains(BowClassRow);
+
+    /// <summary>Tornado Shot's primary arrow travels only to the targeted location, then releases its child group;
+    /// it must not keep flying to the generic projectile range. Other projectiles keep their full range.</summary>
+    internal static double PrimaryRange(string? effect, double range, double targetDistance) =>
+        effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
+            ? Math.Min(range, Math.Max(.001, targetDistance)) : range;
+
+    /// <summary>The shared client fan for a multi-arrow use. Attack gems and ordinary bow shots otherwise used the
+    /// fixed 30-degree server spread, which could send an arrow past the point where the client's own arrow burst.</summary>
+    internal static ProjectileProfile NativeVolley(ProjectileProfile profile, Func<string, int> get)
+    {
+        if (get("support_parallel_projectile_number_of_points_per_side") != 0) return profile;
+        return profile with
+        {
+            NativeVolley = new()
+            {
+                Width = get("total_projectile_spread_angle_override") is > 0 and var width
+                    ? width / 10.869565 : 60 / 10.869565,
+                FixedDegrees = get("projectile_remove_default_spread") != 0 ? -1 : get("fixed_projectile_spread"),
+                SpreadPercent = get("multiple_projectiles_projectile_spread_+%"),
+                Nova = get("projectiles_nova") != 0
+            }
+        };
+    }
+
     internal static bool UsesProjectileRuntime(int effect) => Skills.IsProjectile(effect)
         || ProjectileDefinition(Skills.EffectId(effect) ?? "") is not null;
 
@@ -22,7 +56,7 @@ static partial class Game
                 throw new InvalidOperationException("no supported projectile damage plan");
             var resolved = MergeSkillStats(CharacterPlayerStats(conn), SupportedSkill(conn, skillId).Stats);
             int Get(string name) => Stats.Key(name) is uint key ? resolved.GetValueOrDefault(key) : 0;
-            _ = definition.Parameters.Resolve(Get, 1);
+            _ = definition.Parameters.Resolve(Get, 1, ArrowsFor(conn, effect));
             var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
                 throw new InvalidOperationException("Projectile recipe requires a projectile terrain mask");
@@ -74,7 +108,8 @@ static partial class Game
             int left = repeats - repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + repeat * cast.Value / 1000d + delay), Valid,
                 () => ClientDrawnVolley(conn, session, skillId, gem,
-                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll), sequence, (uint)left));
+                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left),
+                    sequence, (uint)left));
         }
         return Task.CompletedTask;
     }
@@ -185,7 +220,8 @@ static partial class Game
     }
 
     internal static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
-        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim, SkillCriticalRoll criticalRoll)
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
+        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0)
     {
         var player = CharacterPlayerStats(conn);
         var own = SupportedSkill(conn, skillId).Stats;
@@ -200,7 +236,7 @@ static partial class Game
         double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Player, Own, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
-        var profile = definition.Parameters.Resolve(Get, speed);
+        var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(conn, gem.Effect));
         var at = conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
         var origin = ProjectileSession.Vector(at);
         if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
@@ -217,6 +253,9 @@ static partial class Game
         double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
         // A point closer than the muzzle must not end up behind the released projectile.
         origin += direction * Math.Min(ahead, (target - origin).Length / 2);
+        profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range,
+            (target - origin).Length) };
+        if (!spell) profile = NativeVolley(profile, Get);
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         var local = spell ? null : WeaponFor(conn).LocalSources;
@@ -253,7 +292,7 @@ static partial class Game
             Presentation = release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };
         var use = new ProjectileUse(profile, new(PlayerId, conn.ProjectileEpoch), new(PlayerId, conn.ProjectileEpoch), 1, origin, target)
-            { Payload = shot, ReturnAnchor = new(PlayerId, conn.ProjectileEpoch) };
+            { Payload = shot, ReturnAnchor = new(PlayerId, conn.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
         var context = new ProjectileReleaseContext(conn, session, skillId, gem, variation, Get, Player, Own);
         return definition.SpecializeRelease?.Invoke(context, use) ?? use;
     }

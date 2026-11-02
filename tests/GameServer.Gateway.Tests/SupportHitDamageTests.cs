@@ -22,12 +22,12 @@ public sealed class SupportHitDamageTests
             var skill = With(("support_hypothermia_damage_+%_vs_chilled_enemies_final", 29),
                 ("support_executioner_damage_vs_enemies_on_low_life_+%_final", 49),
                 ("support_damage_while_on_full_life_+%_final", 34));
-            Assert.Equal(1, Game.ConditionalSupportMore(skill, attack: true, chilled: false, lowLife: false, fullLife: false));
-            Assert.Equal(1.29, Game.ConditionalSupportMore(skill, attack: true, chilled: true, lowLife: false, fullLife: false), 9);
-            Assert.Equal(1.49, Game.ConditionalSupportMore(skill, attack: false, chilled: false, lowLife: true, fullLife: false), 9);
-            Assert.Equal(1.34, Game.ConditionalSupportMore(skill, attack: true, chilled: false, lowLife: false, fullLife: true), 9);
-            Assert.Equal(1, Game.ConditionalSupportMore(skill, attack: false, chilled: false, lowLife: false, fullLife: true));
-            Assert.Equal(1.29 * 1.49 * 1.34, Game.ConditionalSupportMore(skill, true, true, true, true), 9);
+            Assert.Equal(1, Game.ConditionalSupportMore(skill, attack: true, chilled: false, lowLife: false, fullLife: false, lifetap: false));
+            Assert.Equal(1.29, Game.ConditionalSupportMore(skill, attack: true, chilled: true, lowLife: false, fullLife: false, lifetap: false), 9);
+            Assert.Equal(1.49, Game.ConditionalSupportMore(skill, attack: false, chilled: false, lowLife: true, fullLife: false, lifetap: false), 9);
+            Assert.Equal(1.34, Game.ConditionalSupportMore(skill, attack: true, chilled: false, lowLife: false, fullLife: true, lifetap: false), 9);
+            Assert.Equal(1, Game.ConditionalSupportMore(skill, attack: false, chilled: false, lowLife: false, fullLife: true, lifetap: false));
+            Assert.Equal(1.29 * 1.49 * 1.34, Game.ConditionalSupportMore(skill, true, true, true, true, false), 9);
             // Awakened Increased Area of Effect: more damage for area skills only.
             var awakened = new[] { ("inc_aoe_plus_more_area_damage_+%_final", 24) };
             Assert.Equal(1.24, GemSupportDamage.Multipliers(DamageTypeHistory.Physical, awakened, new HashSet<int> { 0, 7 }).GeneralOrPhysical, 9);

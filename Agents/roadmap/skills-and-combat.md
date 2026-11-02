@@ -489,14 +489,6 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Validate the [modular Behemoth candidate](../docs/game/behemoth.md) with current full suites and the native client.
   Other executors and official distribution/capacity parity remain separate; unsupported casts stay refused.
 
-### Shield Charge damage
-- **Known:** the charge is usable, ends, runs at its speed and hits along its path and at its end
-  ([11](../docs/protocol/11-skills.md) §10k); every hit is the ordinary weapon hit.
-- **Start:** the gem's shield damage (`off_hand_local_minimum/maximum_added_physical_damage`, the added damage per 15
-  shield armour and evasion) and `shield_charge_damage_+%_maximum` by distance travelled; the client's maximum range
-  comes from its setup `0x141a6bae0` (`shield_charge_range_+%`, `shield_charge_extra_distance`).
-- **Done when:** a level 20 Shield Charge's hits match its tooltip and grow with the distance charged.
-
 ### Death screen variants
 
 - **Known:** S→C 0x55 flags bit0/2/3 are mapped ([11](../docs/protocol/11-skills.md) §7);
