@@ -340,7 +340,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   2026-10-29, [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named
   after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); it is the
-  basic straight-flight arrow only: the secondary arrows from the target point are not modelled yet.
+  basic straight-flight arrow only.
   Projectiles spawn at the captured terrain height + the releasing clip's keyframe height (the bow 16 steps, a wand
   12, the Sand Spitter's spit 9; `Game_PROJECTILE_HEIGHT`, 5 steps, without rig data) on natural ground; without a
   capture they use the bare offset.
@@ -649,6 +649,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §9.
 
 ## Partly working
+
+- Bow projectile counts: actual bow attacks now read `number_of_additional_arrows` and
+  `number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more` on top of the generic projectile additions, so
+  bow/quiver modifiers and passives such as Master Fletcher add primary arrows. The arrow inputs are gated to a real
+  bow and do not reach wand, spell or melee projectiles; the selected-skill panel also publishes the arrow total.
+  Tornado Shot still emits only its straight primary arrows: the terminal secondary arrow group is not modelled yet.
+  Automated tests cover the bow/wand separation and the panel rows; no native check yet.
+  Code: `GatewayProjectileModifiers.cs`, `GatewayProjectileDefaults.cs`, `ProjectilePanel.cs`;
+  [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) section 3.
 
 - Selected supported-spell panel: final linked-support damage replaces both spell and inherited hand ranges,
   clearing removed types and updating pre-critical average/DPS from the supported cast time.
