@@ -104,6 +104,21 @@ public sealed class SurvivorsSupportMatrixTests
             Assert.Empty(tooFew);
             Assert.True(pairs > 150, $"only {pairs} legal skill/support pairs");
             Assert.Equal(0, unimplemented);
+
+            // The named cases the live matrix prints: an attack refuses the spell-only and area-only supports, while a
+            // spell accepts Faster Casting and refuses Area when the skill has no area type; Added Fire is legal on any
+            // damaging attack or spell even when its physical base is empty.
+            int tornado = catalog.ToList().FindIndex(s => s.Name == "Tornado Shot");
+            int knives = catalog.ToList().FindIndex(s => s.Name == "Ethereal Knives");
+            int fire = supports.ToList().FindIndex(s => s.Support == SurvivorsSupport.AddedFire);
+            int fasterCast = supports.ToList().FindIndex(s => s.Support == SurvivorsSupport.FasterCasting);
+            int area = supports.ToList().FindIndex(s => s.Support == SurvivorsSupport.Area);
+            Assert.True(tornado >= 0 && knives >= 0 && fire >= 0 && fasterCast >= 0 && area >= 0);
+            Assert.True(Game.SurvivorsCanSupport(conn, tornado, fire));
+            Assert.False(Game.SurvivorsCanSupport(conn, tornado, fasterCast));
+            Assert.False(Game.SurvivorsCanSupport(conn, tornado, area));
+            Assert.True(Game.SurvivorsCanSupport(conn, knives, fasterCast));
+            Assert.False(Game.SurvivorsCanSupport(conn, knives, area));
         }
         finally
         {

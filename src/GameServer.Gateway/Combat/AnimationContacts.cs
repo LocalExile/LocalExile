@@ -90,7 +90,7 @@ sealed class AnimationContacts(string folder = "data")
     {
         if (!_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
         if (kind == CastAnimationKind.Attack)
-            return AttackClip(animatedObject, weapon) is { } found
+            return AttackClip(animatedObject, weapon) is { } found && found.Clip.Index != uint.MaxValue
                 ? new(found.Name, found.Clip.Index, found.Clip.Length) : null;
         string main = WeaponSuffix(weapon) ?? "unarmed";
         string[] names = kind switch
