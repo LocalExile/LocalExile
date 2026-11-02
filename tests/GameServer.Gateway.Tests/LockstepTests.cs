@@ -14,15 +14,24 @@ public class LockstepTests
     [Fact]
     public void Only_a_connection_confirmed_as_local_is_served()
     {
-        Assert.True(LockstepLink.Confirmed(true, Local, Local, GivenLocal));
-        Assert.True(LockstepLink.Confirmed(true, LocalV6, LocalV6, GivenLocal));
-        Assert.False(LockstepLink.Confirmed(false, Local, Local, GivenLocal));
-        Assert.False(LockstepLink.Confirmed(true, Lan, Local, GivenLocal));
-        Assert.False(LockstepLink.Confirmed(true, Local, Lan, GivenLocal));
-        Assert.False(LockstepLink.Confirmed(true, Lan, Lan, GivenPublic));
+        Assert.Equal(LockstepMode.Local, LockstepLink.ModeOf("1"));
+        Assert.Equal(LockstepMode.Network, LockstepLink.ModeOf("network"));
+        Assert.Equal(LockstepMode.Off, LockstepLink.ModeOf("0"));
+        Assert.Equal(LockstepMode.Off, LockstepLink.ModeOf(null));
+        Assert.True(LockstepLink.Confirmed(LockstepMode.Local, Local, Local, GivenLocal));
+        Assert.True(LockstepLink.Confirmed(LockstepMode.Local, LocalV6, LocalV6, GivenLocal));
+        Assert.False(LockstepLink.Confirmed(LockstepMode.Off, Local, Local, GivenLocal));
+        Assert.False(LockstepLink.Confirmed(LockstepMode.Local, Lan, Local, GivenLocal));
+        Assert.False(LockstepLink.Confirmed(LockstepMode.Local, Local, Lan, GivenLocal));
+        Assert.False(LockstepLink.Confirmed(LockstepMode.Local, Lan, Lan, GivenPublic));
         // A tunnel on the server's side: from 127.0.0.1, but the client was told another address.
-        Assert.False(LockstepLink.Confirmed(true, Local, Local, GivenPublic));
-        Assert.False(LockstepLink.Confirmed(true, null, Local, GivenLocal));
+        Assert.False(LockstepLink.Confirmed(LockstepMode.Local, Local, Local, GivenPublic));
+        Assert.False(LockstepLink.Confirmed(LockstepMode.Local, null, Local, GivenLocal));
+        Assert.True(LockstepLink.Confirmed(LockstepMode.Network, Lan, Lan, GivenPublic));
+        Assert.False(LockstepLink.Confirmed(LockstepMode.Off, Lan, Lan, GivenPublic));
+        var network = LockstepLatency.Unconditional();
+        for (int i = 0; i < LockstepLatency.Window; i++) network.Add(300);
+        Assert.True(network.Confirmed && !network.Refused && network.Settled);
 
         // A tunnel on both ends: the lowest round trip decides, by the client's own 70 and 90 ms, and only with enough of them.
         var fast = LockstepLatency.For("fast");

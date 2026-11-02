@@ -783,6 +783,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // The real round trip (LockstepLatency), its probe in flight (Stopwatch timestamp, 0 for none) and the next one's time.
     public LockstepLatency LockstepLatency = null!;
     public long LockstepProbeSentAt;
+    // Where the player was at each recent frame start (Game.LockstepClientCell).
+    public readonly Queue<(double At, (int X, int Y) Cell)> LockstepTrail = new();
     public double LockstepNextProbeAt;
     public readonly GameServer.Core.World.LockstepHold LockstepHold = new();
     public ushort LockstepSequence;

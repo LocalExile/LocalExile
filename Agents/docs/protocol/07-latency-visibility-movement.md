@@ -381,12 +381,14 @@ Everything above is the client's **Predictive** network mode (Options → Game �
 "Auto" starts at lockstep (`0x14449e7f0` holds 2), drops to predictive when connecting took over 90 ms and returns under
 70 ms (`0x142148880`), so it picks lockstep on localhost. A fourth value, `hybrid`, is disabled in the client.
 
-The Gateway serves a lockstep client only on a connection confirmed as local, with `Game_LOCKSTEP=1` (`LockstepLink`),
-and all its actions. Any other connection gets a message box asking for Predictive (once per connection).
+`Game_LOCKSTEP` decides who is served: `1` a connection confirmed as local, `network` any connection, unset nobody
+(`LockstepLink`). A client not served gets a message box asking for Predictive (once per connection). A predictive client
+plays predictive whatever the setting. Latency adds input delay, not position error: both sides count the same frames,
+so a client on a slower link plays the same frames later.
 
 A tick's u8 tells the modes apart early: only a lockstep world counts frames behind, so a predictive client's is always 0
 and a lockstep one's turns nonzero within seconds, idle or not. Addresses cannot tell a tunnel on both ends from loopback,
-so a client in lockstep is also timed (`LockstepLatency`). S→C **0x194** (id only, handled on arrival) tells a client to go
+so with `1` a client in lockstep is also timed (`LockstepLatency`), and with `network` it is timed for aiming only. S→C **0x194** (id only, handled on arrival) tells a client to go
 AFK: it answers at once with C→S 0x16 command 36 and the text "This player is AFK.", and nothing else changes until a
 server replies. The client reads its socket once per update, so one round trip says little on a slow client (about 100 ms
 on loopback with the window in the background), and the lowest of the last 16 is the network's. The bar is the client's
@@ -433,7 +435,8 @@ Actor `+0x1c8` is set only outside lockstep (`0x142156d80`). What else changes i
 - A skill's pay check runs for every actor (`0x141e9d930`, `0x141e9dc10`), not only the local one.
 
 **What GGG sends a lockstep client.** What it sends a predictive one, including 0x1ac and 0x128, which do nothing here;
-no 0x2b6. A click gets its 0x1ab with key 0 at the next frame start, target = the reported cell + (dx, dy). 0x192 only
+no 0x2b6. A click gets its 0x1ab with key 0 at the next frame start. Its target is the client's cell when it clicked plus
+(dx, dy), that is, where the cursor was, not the server's cell by then. 0x192 only
 updates a held target: the player's own tick starts the Move (key = the player, u16 0x9001), about one per 0x192 while
 walking and one per frame from the same cell while blocked. 0x195 gets no answer and does not cancel a target not yet
 started. Sequences go up by one, top bit set. A click during a swing waits (it comes with flags 0x0001, u8 3), and the
@@ -447,7 +450,8 @@ and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0
 | Here | GGG | Why |
 |---|---|---|
 | Client and server can differ between action starts | Never: its server is the client's simulation | The server is a port |
-| Only confirmed local connections, opted in | Any connection, any latency | A port's corrections are only worth the delay when it is a frame or two |
+| Off unless `Game_LOCKSTEP` asks, and local only with `1` | Any connection, any latency | A port corrects the client at each action start, so serving a network is the server owner's choice |
+| The client's cell for a target is estimated: the lowest round trip and two frames ago | Its frames say which it was | A lockstep request carries no frame |
 | Sends 0x194 to time a lockstep client | Not seen in any session; by its handler, an idle timeout | It is the one message found that the client answers by itself, and nothing else tells a tunnel from loopback |
 | Frames laid over a clock, late ones sent at once | Frames are ticks of its world | The walks run on the clock |
 | Sends 0x2b6 | Never | The client's default is not traced |

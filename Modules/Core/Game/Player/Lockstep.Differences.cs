@@ -86,6 +86,22 @@ static partial class Game
         });
     }
 
+    // Differs from GGG: its server steps by frames and so can know the frame the client was on; a lockstep request carries
+    // no frame here, so this estimates it. The client runs a round trip and about two frames behind the server (160 to
+    // 220 ms at 100 ms, 66 to 100 ms on loopback), and its offsets are from the cell it had then. Called under conn.Monsters.
+    internal static (int X, int Y) LockstepClientCell(ClientState conn, double now)
+    {
+        double lowest = conn.LockstepLatency.Lowest;
+        double when = now - ((double.IsNaN(lowest) ? 0 : lowest / 1000) + 2d * FrameMs / 1000);
+        (int X, int Y)? cell = null;
+        foreach (var (at, past) in conn.LockstepTrail)
+        {
+            if (at > when) break;
+            cell = past;
+        }
+        return cell ?? conn.Walk.Position(now);
+    }
+
     // Differs from GGG: 0x194 was in none of its sessions here, and the handler reads as an idle timeout (the client runs
     // /afk with its default text); here it times the client. Nothing else a server can read tells a
     // tunnel on both ends from loopback: both socket ends and the given address are local, and the lag byte reads the same
@@ -97,7 +113,8 @@ static partial class Game
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (!conn.LockstepClient || now < conn.LockstepNextProbeAt) return;
-        conn.LockstepNextProbeAt = now + (conn.LockstepLatency.Confirmed || conn.LockstepLatency.Refused ? 2 : .07) + Random.Shared.NextDouble() * .05;
+        conn.LockstepNextProbeAt = now + (conn.LockstepLatency.Settled && (conn.LockstepLatency.Confirmed || conn.LockstepLatency.Refused) ? 2 : .07)
+            + Random.Shared.NextDouble() * .05;
         long sent = Interlocked.Exchange(ref conn.LockstepProbeSentAt, 0);
         if (sent != 0 && Stopwatch.GetElapsedTime(sent).TotalMilliseconds < LockstepLatency.Lost)
         {

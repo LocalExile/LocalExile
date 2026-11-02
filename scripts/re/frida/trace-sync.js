@@ -56,7 +56,7 @@ Interceptor.attach(at('0x141e30c90'), {
     if (pos.equals(player ?? ptr(0)) && type === 0x1b7) send({q: q(), tp: [msg.add(0x20).readS32(), msg.add(0x24).readS32()], client: cell(pos)});
   }
 });
-Interceptor.attach(at('0x14215f700'), {onEnter() { send({q: q(), click: 1}); }});
+Interceptor.attach(at('0x14215f700'), {onEnter(a) { send({q: q(), click: a[3].isNull() ? null : [a[3].readS32(), a[3].add(4).readS32()]}); }});
 
 Interceptor.attach(at('0x142166300'), {
   onEnter(a) {

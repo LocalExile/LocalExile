@@ -8,15 +8,15 @@ static partial class Game
 {
     // C→S 0x18e, 0x18f, 0x192, 0x195 and 0x196 on a connection that serves lockstep. They only change what the player asks
     // for: everything starts in the frame pass, as on GGG's server, which answers a click at the next frame start and the
-    // rest from the player's own tick. The offsets are from the client's cell; GGG's target is the cell it reports plus the
-    // offset (94 of 95 clicks), so the server's cell is the one to use. The newest request wins. A request made during a
+    // rest from the player's own tick. The offsets are from the client's cell, and GGG's target is that cell plus the
+    // offset: where the cursor is (median 0.8 cells off over 5 300 requests, moving or not). The newest request wins. A request made during a
     // swing comes with flags 0x0001 and u8 3, and is served like any other.
     internal static void OnLockstepRequest(string remote, ClientState conn, ushort id, byte[] bytes)
     {
         lock (conn.Monsters)
         {
             conn.LockstepClient = true;
-            var here = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            var here = LockstepClientCell(conn, conn.Clock.Elapsed.TotalSeconds);
             if (id == InstanceProtocol.LockstepMoveStartId)
             {
                 var click = InstanceProtocol.ReadLockstepMoveStart(bytes);
@@ -101,6 +101,8 @@ static partial class Game
             if (!conn.LockstepLatency.Confirmed) return;
             at = Math.Max(frameStart, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
             StepWalkers(conn, at);
+            conn.LockstepTrail.Enqueue((at, conn.Walk.Position(at)));
+            if (conn.LockstepTrail.Count > 150) conn.LockstepTrail.Dequeue();
             if (conn.LockstepSkill.ChannelReleased() is { } channel)
             {
                 ended = channel;
