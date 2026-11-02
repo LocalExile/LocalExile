@@ -29,7 +29,7 @@ public sealed class TornadoShotSecondaryTests
         Assert.Equal(3, profile.EndEmission.Child.Count);
         Assert.Equal("Metadata/Projectiles/TornadoShotSecondaryArrow", profile.EndEmission.Child.Id);
         Assert.True(profile.EndEmission.Child.HideVisual);
-        Assert.True(profile.EndEmission.Child.Lifetime > 0);
+        Assert.Equal(ProjectileRuntime.Time(.3), profile.EndEmission.Child.Lifetime);
         Assert.Equal(ProjectileHitScope.Emission, profile.EndEmission.Child.HitRule.Scope);
         Assert.Equal(ProjectileRepeat.Once, profile.EndEmission.Child.HitRule.Repeat);
         Assert.Null(profile.EndEmission.Child.EndEmission);
@@ -52,10 +52,10 @@ public sealed class TornadoShotSecondaryTests
         runtime.Release(new ProjectileUse(profile, new(999), new(999), 1, new(0, 0), new(100, 0))
             { Sequence = 1 });
 
-        runtime.AdvanceTo(ProjectileRuntime.Time(.75));
+        runtime.AdvanceTo(ProjectileRuntime.Time(.65));
 
         var children = runtime.Projectiles.Where(p => p.ParentId != 0).ToArray();
         Assert.Equal(3, children.Length);
-        Assert.All(children, child => Assert.InRange(child.Distance, 149.9, 150.1));
+        Assert.All(children, child => Assert.InRange(child.Distance, 129.9, 130.1));
     }
 }

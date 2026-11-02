@@ -80,8 +80,8 @@ static class GatewayProjectileSkillProfiles
             SpreadRadians = 0,
             AimSpreadDistance = 0,
             Range = SystemSettings.Default.ProjectileMaximumRangeCells,
-            // The client's secondary arrows fade over a short fixed time, so projectile speed sets their range.
-            Lifetime = ProjectileRuntime.Time(.5),
+            // Client trace: the secondary action's final callback caps at 300 ms, so projectile speed sets the range.
+            Lifetime = ProjectileRuntime.Time(.3),
             SequentialDelay = 0,
             CountConsumer = ProjectileCountConsumer.Primary,
             Pierce = parent.Pierce, Fork = parent.Fork, Chain = parent.Chain, Split = 0,
