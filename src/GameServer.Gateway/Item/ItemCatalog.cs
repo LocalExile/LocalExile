@@ -422,7 +422,9 @@ sealed class ItemCatalog
         {
             bool vaal = r.GetProperty("IsVaalVariant").GetBoolean();
             int expType = Row(r, "ItemExperienceType");
-            bool awakened = Row(r, "RegularVariant") >= 0
+            // RegularVariant also links these ordinary upgrades to their lesser support; both were captured for sale.
+            bool ordinaryUpgrade = baseName is "Greater Multiple Projectiles Support" or "Greater Volley Support";
+            bool awakened = !ordinaryUpgrade && Row(r, "RegularVariant") >= 0
                 && (expType < 0 || xt.RootElement[expType].GetProperty("Id").GetString() != "GemProgressionExceptionalPlus");
             bool rowCreatable = !baseName.StartsWith('[') && !baseName.StartsWith("WIP") && !awakened;
             var variants = new List<GemVariant>();
@@ -441,7 +443,7 @@ sealed class ItemCatalog
             result.TryAdd(baseRow, new GemType(baseRow, r.GetProperty("IsSupport").GetBoolean(), variants,
                 thresholds.GetValueOrDefault(expType) ?? [])
             {
-                Colour = Row(r, "GemColour"), IsVaalOrAwakened = vaal || Row(r, "RegularVariant") >= 0,
+                Colour = Row(r, "GemColour"), IsVaalOrAwakened = vaal || (!ordinaryUpgrade && Row(r, "RegularVariant") >= 0),
                 MtxSlotTypes = r.TryGetProperty("MtxSlotTypes", out var st) ? [.. st.EnumerateArray().Select(t => t.GetInt32())] : [],
                 StrengthPercent = Row(r, "StrengthRequirementPercent"), DexterityPercent = Row(r, "DexterityRequirementPercent"),
                 IntelligencePercent = Row(r, "IntelligenceRequirementPercent"),

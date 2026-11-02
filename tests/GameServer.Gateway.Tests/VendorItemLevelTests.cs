@@ -1,0 +1,110 @@
+using System.Text.Json;
+using GameServer.Core.Protocol.Instance;
+using GameServer.Modding;
+
+namespace GameServer.Gateway.Tests;
+
+public class VendorItemLevelTests
+{
+    [Fact]
+    public void Vendor_membership_prices_and_generated_requirements_follow_the_reviewed_rules()
+    {
+        var catalog = new ItemCatalog("data");
+        var rewards = QuestRewardCatalog.Load();
+        var gems = new GemVendorStock(catalog,rewards,NpcCatalog.Load(),new SkillCatalog());
+        var flags = rewards.Offers.Where(o => o.TakenFlag is not null).Select(o => o.TakenFlag!).ToHashSet();
+        flags.Add(GemVendorStock.LillyUnlock); flags.Add(GemVendorStock.SiosaUnlock);
+        foreach (var (npc,normal,count) in new[] { ("Act1/Nessa",15,156), ("Act2/Yeena",25,71),
+            ("Act3/ClarissaTown",35,90), ("Act4/PetarusVanja",42,61) })
+        {
+            Assert.Equal(normal,NpcShops.CampaignItemLevel("Metadata/NPC/"+npc,ItemRarity.Normal));
+            Assert.Equal(normal-1,NpcShops.CampaignItemLevel("Metadata/NPC/"+npc,ItemRarity.Magic));
+            Assert.Equal(normal-2,NpcShops.CampaignItemLevel("Metadata/NPC/"+npc,ItemRarity.Rare));
+            Assert.Equal(count,gems.Stock("Metadata/NPC/"+npc,2,flags).Count);
+            Assert.Empty(gems.Stock("Metadata/NPC/"+npc,2,new HashSet<string>()));
+        }
+        Assert.Empty(gems.Stock("Metadata/NPC/Act3/Siosa",2,new HashSet<string>()));
+        Assert.NotEmpty(gems.Stock("Metadata/NPC/Act3/Siosa",2,new HashSet<string>{GemVendorStock.SiosaUnlock}));
+        Assert.Empty(gems.Stock("Metadata/NPC/Epilogue/Lilly",2,new HashSet<string>()));
+        Assert.Equal(459,gems.Stock("Metadata/NPC/Epilogue/Lilly",2,flags).Count);
+        Assert.False(LeagueRules.Standard.FullGemStock);
+        var prices = new VendorPrices(catalog);
+        var portal = prices.Price(ItemCatalog.Create(catalog.Find("Portal Scroll")!))!;
+        Assert.Equal((catalog.Find("Scroll of Wisdom")!.Hash,3u),Assert.Single(portal.Price));
+        var map = prices.Price(ItemCatalog.Create(catalog.Find("Metadata/Items/Maps/MapKeyTier15")!)
+            with { ItemLevel=82,Rarity=ItemRarity.Rare,Identified=false })!;
+        Assert.Contains((catalog.Find("Gold")!.Hash,8000u),map.Price);
+        Assert.Contains((catalog.Find("Orb of Chance")!.Hash,4u),map.Price);
+        Assert.Equal(82,NpcShops.CampaignItemLevel("Metadata/NPC/Epilogue/KiracHideout",ItemRarity.Rare,82));
+    }
+
+    [Fact]
+    public void Stock_survives_reopening_purchases_and_reload_and_rotates_partially_with_atomic_multicurrency_payment()
+    {
+        Saves.Open(Path.Combine(Path.GetTempPath(),"LocalExile-vendors-"+Guid.NewGuid().ToString("N")+".db"));
+        var catalog = new ItemCatalog("data"); var skills = new SkillCatalog();
+        string name = "Vendor"+Guid.NewGuid().ToString("N");
+        var items = PlayerInventories.For(name,catalog); var stash = AccountStash.For(name,catalog);
+        var notes = new List<string>();
+        VendorStock.Window Open(int level) => VendorStock.Open(name,"Standard","Metadata/NPC/Act1/Tarkleigh",level,
+            catalog,skills,[],items.NewItemId,LeagueRules.Standard,false,notes,random:new Random(7401));
+        var first = Open(91); Assert.Empty(notes); Assert.Equal(60,first.Finite.Count);
+        string saved = CharacterSaves.ModuleData(name,first.Key)!;
+        var again = Open(91); Assert.Equal(saved,CharacterSaves.ModuleData(name,first.Key));
+        Assert.Equal(first.Finite.Values.Order(),again.Finite.Values.Order());
+        var generated = first.Tabs.SelectMany(t => t.Items).Where(i => first.Finite.ContainsKey(i.Id)).ToArray();
+        Assert.Contains(generated,i => i.Item.Rarity==ItemRarity.Magic);
+        Assert.True(generated.Select(i => i.Item.Sockets.Count).Distinct().Count()>1);
+        Assert.All(generated,i => { Assert.Equal(15-(int)i.Item.Rarity,i.Item.ItemLevel); Assert.NotEmpty(i.Item.Price); });
+        var token = first.Finite.First().Value;
+        var wisdom = catalog.Find("Scroll of Wisdom")!; var chance = catalog.Find("Orb of Chance")!;
+        var gold = catalog.Find(ItemDrops.GoldId)!;
+        items.Add(0,0,0,ItemCatalog.Create(wisdom) with { StackSize=5 });
+        stash.AddGold(100);
+        var offer = ItemCatalog.Create(catalog.Find("Iron Ring")!) with {
+            Price=[(wisdom.Hash,2),(chance.Hash,1),(gold.Hash,50)] };
+        PlayerInventories.Shape? Shape(Item i) => catalog.ByHash(i.TypeHash) is { } t ? new(t.Width,t.Height,t.Class,t.MaxStack) : null;
+        bool Consume() => VendorStock.Consume(name,first.Key,token);
+        Assert.Null(ItemMoves.PurchaseVendor(items,stash,stash,offer,catalog,Shape,Consume));
+        Assert.Equal(5,items.Count(0,wisdom.Hash)); Assert.Equal(100u,stash.Gold);
+        Assert.Equal(saved,CharacterSaves.ModuleData(name,first.Key));
+        items.Add(0,1,0,ItemCatalog.Create(chance));
+        Assert.Null(ItemMoves.PurchaseVendor(items,stash,stash,offer,catalog,Shape,Consume,0,0,0));
+        Saves.FailWrite = key => key == name;
+        try { Assert.Throws<IOException>(() => ItemMoves.PurchaseVendor(items,stash,stash,offer,catalog,Shape,Consume)); }
+        finally { Saves.FailWrite = null; }
+        PlayerInventories.Forget(name); AccountStash.Forget(name);
+        items=PlayerInventories.For(name,catalog); stash=AccountStash.For(name,catalog);
+        Assert.Equal(saved,CharacterSaves.ModuleData(name,first.Key));
+        Assert.NotNull(ItemMoves.PurchaseVendor(items,stash,stash,offer,catalog,Shape,Consume));
+        Assert.Equal(3,items.Count(0,wisdom.Hash)); Assert.Equal(0,items.Count(0,chance.Hash)); Assert.Equal(50u,stash.Gold);
+        Assert.Null(ItemMoves.PurchaseVendor(items,stash,stash,offer,catalog,Shape,Consume));
+        Assert.DoesNotContain(token,Open(91).Finite.Values);
+        PlayerInventories.Forget(name); items=PlayerInventories.For(name,catalog);
+        Assert.DoesNotContain(token,Open(91).Finite.Values);
+        var rotated=Open(92);
+        Assert.InRange(first.Finite.Values.Intersect(rotated.Finite.Values).Count(),39,40);
+        var allNew=Open(94); Assert.Empty(first.Finite.Values.Intersect(allNew.Finite.Values));
+        VendorStock.Window Kirac(string character) => VendorStock.Open(character,"Standard","Metadata/NPC/Epilogue/KiracHideout",91,
+            catalog,skills,[],items.NewItemId,LeagueRules.Standard,false,notes,random:new Random(2),account:stash);
+        var kirac=Kirac(name);
+        Assert.Equal(18,kirac.Finite.Count);
+        Assert.All(kirac.Tabs.SelectMany(t=>t.Items).Where(i=>catalog.ByHash(i.Item.TypeHash)!.Class=="MapKey"),
+            i=>Assert.Equal("Metadata/Items/Maps/MapKeyTier1",catalog.ByHash(i.Item.TypeHash)!.Id));
+        Assert.Equal(1000,KiracProgress.For(stash).ShopRerollCost);
+        Assert.Equal(kirac.Finite.Values.Order(),Kirac("AnotherCharacter").Finite.Values.Order());
+        Assert.True(KiracProgress.Complete(stash,"MapWorldsBeach",1));
+        Assert.False(KiracProgress.Complete(stash,"MapWorldsBeach",5));
+        Assert.Equal("5",stash.ModuleData("vendors.highestTier"));
+        Assert.Equal(2,KiracProgress.For(stash).Tier);
+        Assert.Equal(1500,KiracProgress.For(stash).ShopRerollCost);
+        Assert.Empty(kirac.Finite.Values.Intersect(Kirac(name).Finite.Values));
+        Assert.True(KiracProgress.Complete(stash,"MapWorldsStrand",2));
+        Assert.Equal(2,KiracProgress.For(stash).Tier);
+        Assert.True(KiracProgress.Complete(stash,"MapWorldsDunes",2));
+        Assert.Equal(3,KiracProgress.For(stash).Tier);
+        AccountStash.Forget(name); stash=AccountStash.For(name,catalog);
+        Assert.Equal(3,KiracProgress.Completed(stash).Count);
+        Assert.Equal("5",stash.ModuleData("vendors.highestTier"));
+    }
+}

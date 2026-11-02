@@ -6,8 +6,6 @@ using static Program;
 
 static class VendorsFeature
 {
-    // C→S 0x88: finite goods move with their id. Nessa's gems are permanent shop templates: each paid purchase
-    // creates a fresh inventory id, while a manager-1 update refreshes the original template in its shop cell.
     internal static async Task BuyFromShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceNpcs.Buy buy)
     {
         if (conn.NpcRewardOffer is not null)
@@ -16,125 +14,42 @@ static class VendorsFeature
                 await ClaimNpcReward(remote, stream, ciphers, conn, buy.ItemId);
             return;
         }
-        OpenShop? shop;
-        uint tab = 0;
-        InventoryItem? item = null;
-        bool replenish = false;
-        lock (conn.Npcs)
-        {
-            shop = conn.Shop;
-            if (shop is not null && shop.Items.TryGetValue(buy.ItemId, out var found))
-            {
-                (tab, item) = found;
-                replenish = NpcShops.ReplenishesGem(shop.Npc.Npc.Id, item.Item);
-                if (!replenish) shop.Items.Remove(buy.ItemId);
-            }
-        }
-        if (shop is null || item is null || PlayerInventories.Row(buy.InventoryId) is not byte row)
-        {
-            Console.WriteLine($"[gateway] {remote} <= 0x0088 buy {buy}: {(shop is null ? "no shop open" : item is null ? "not in the shop" : "unknown inventory")}");
-            if (shop is not null && item is not null) lock (conn.Npcs) shop.Items[item.Id] = (tab, item);
-            return;
-        }
-        var items = ItemsOf(conn);
-        var stash = StashOf(conn);
-        // The price: the item's price list (its first entry), paid from the main inventory and then the stash, together with
-        // the item's arrival (one transaction). Not enough: nothing happens (the client shows the price in red).
-        (uint Currency, int Amount)? price = item.Item.Price is [var (currency, amount), ..] ? (currency, (int)amount) : null;
-        (ItemMoves.Price? Paid, InventoryItem Bought)? purchase;
-        try
-        {
-            purchase = ItemMoves.Buy(items, stash, row, item with
-            {
-                Id = replenish ? items.NewItemId() : item.Id,
-                X = buy.X, Y = buy.Y, Item = item.Item with { Price = [] }
-            }, price);
-        }
-        catch
-        {
-            lock (conn.Npcs) shop.Items[item.Id] = (tab, item);
-            throw;
-        }
-        if (purchase is not var (paid, bought))
-        {
-            lock (conn.Npcs) shop.Items[item.Id] = (tab, item);
-            Console.WriteLine($"[gateway] {remote} <= 0x0088 buy item {item.Id}: costs {price!.Value.Amount} × {Items.ByHash(price.Value.Currency)?.Name ?? $"0x{price.Value.Currency:x8}"}, not enough in the inventory and the stash");
-            return;
-        }
-        if (paid?.Inventory is { } fromInventory)
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
-                items.NextRevision(PlayerInventories.MainInventory), [.. fromInventory.Removed, .. fromInventory.Changed.Select(c => c.Id)], fromInventory.Changed),
-                $"0x00bf inventory 1: paid (stacks emptied [{string.Join(", ", fromInventory.Removed)}], changed [{string.Join(", ", fromInventory.Changed.Select(c => $"{c.Id}={c.Item.StackSize}"))}])");
-        await SendStashPayment(remote, stream, ciphers, conn, stash, paid?.Stash);
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(tab, shop.NextRevision(tab), [item.Id],
-                replenish ? [item] : [], NpcShops.Manager),
-            $"0x00bf shop tab {tab}: item {item.Id} {(replenish ? "replenished" : "sold")}");
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(buy.InventoryId, items.NextRevision(row), [], [bought]),
-            $"0x00bf inventory {buy.InventoryId}: bought item {bought.Id} from {shop.Npc.Npc.Name}, offer {item.Id}, at ({buy.X}, {buy.Y}) ({buy})");
+        if (PlayerInventories.Row(buy.InventoryId) is byte row)
+            await Purchase(remote,stream,ciphers,conn,buy.ItemId,row,buy.X,buy.Y);
     }
 
-    // C→S 0x8a: Ctrl + click on an item in the open shop tab: bought into the main inventory (a stack onto stacks of its type,
-    // then the first free cell), the price paid from the inventory and then the stash in the same transaction
-    // (ItemMoves.BuyToInventory). Without room or enough to pay, nothing happens.
     internal static async Task CtrlBuyFromShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceNpcs.CtrlBuy buy)
     {
-        if (conn.NpcRewardOffer is not null)
-        {
-            await ClaimNpcReward(remote, stream, ciphers, conn, buy.ItemId);
-            return;
-        }
-        OpenShop? shop;
-        uint tab = 0;
-        InventoryItem? item = null;
-        bool replenish = false;
-        lock (conn.Npcs)
-        {
-            shop = conn.Shop;
-            if (shop is not null && shop.Items.TryGetValue(buy.ItemId, out var found))
-            {
-                (tab, item) = found;
-                replenish = NpcShops.ReplenishesGem(shop.Npc.Npc.Id, item.Item);
-                if (!replenish) shop.Items.Remove(buy.ItemId);
-            }
-        }
-        if (shop is null || item is null)
-        {
-            Console.WriteLine($"[gateway] {remote} <= 0x008a Ctrl + click buy {buy}: {(shop is null ? "no shop open" : "not in the shop")}");
-            return;
-        }
+        if (conn.NpcRewardOffer is not null) { await ClaimNpcReward(remote,stream,ciphers,conn,buy.ItemId); return; }
+        await Purchase(remote,stream,ciphers,conn,buy.ItemId);
+    }
+
+    static async Task Purchase(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint id, byte? row = null, byte x = 0, byte y = 0)
+    {
+        var shop = conn.Shop;
+        if (shop is null || !shop.Items.TryGetValue(id,out var offer)) return;
         var items = ItemsOf(conn);
         var stash = StashOf(conn);
-        (uint Currency, int Amount)? price = item.Item.Price is [var (currency, amount), ..] ? (currency, (int)amount) : null;
-        (ItemMoves.Price? Paid, PlayerInventories.Stacking Into)? purchase;
-        string why;
-        try
-        {
-            purchase = ItemMoves.BuyToInventory(items, stash, item.Item with { Price = [] }, price, ShapeOf, out why);
-        }
-        catch
-        {
-            lock (conn.Npcs) shop.Items[item.Id] = (tab, item);
-            throw;
-        }
-        if (purchase is not var (paid, into))
-        {
-            lock (conn.Npcs) shop.Items[item.Id] = (tab, item);
-            Console.WriteLine($"[gateway] {remote} <= 0x008a Ctrl + click buy item {item.Id}: refused ({why})");
-            return;
-        }
-        // The payment and the item land in the same inventory: one 0xbf with every stack that shrank, emptied, grew or arrived.
-        var fromInventory = paid?.Inventory;
-        var gone = new List<uint>([.. fromInventory?.Removed ?? [], .. fromInventory?.Changed.Select(c => c.Id) ?? [], .. into.Changed.Select(c => c.Id)]);
-        var now = new Dictionary<uint, InventoryItem>();
-        foreach (var i in (IEnumerable<InventoryItem>)[.. fromInventory?.Changed ?? [], .. into.Changed, .. into.Added]) now[i.Id] = i;
-        foreach (var removed in fromInventory?.Removed ?? []) now.Remove(removed);
-        await SendStashPayment(remote, stream, ciphers, conn, stash, paid?.Stash);
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(tab, shop.NextRevision(tab), [item.Id],
-                replenish ? [item] : [], NpcShops.Manager),
-            $"0x00bf shop tab {tab}: item {item.Id} {(replenish ? "replenished" : "sold")}");
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
-            items.NextRevision(PlayerInventories.MainInventory), [.. gone.Distinct()], [.. now.Values]),
-            $"0x00bf inventory 1: bought item {item.Id} from {shop.Npc.Npc.Name} with Ctrl + click" + (price is var (_, a) ? $" for {a}" : ""));
+        var catalog = ItemsFor(conn);
+        var before = items.Items(PlayerInventories.MainInventory).Select(i => i.Id).ToArray();
+        bool finite = shop.Finite.TryGetValue(id,out var token);
+        bool Consume() => !finite || shop.StockKey is { } key && VendorStock.Consume(CharacterName(conn),key,token,PersonalStashOf(conn));
+        var purchase = ItemMoves.PurchaseVendor(items,
+            shop.Npc.Npc.Id.EndsWith("/Siosa",StringComparison.Ordinal) ? null : stash, PersonalStashOf(conn),
+            offer.Item.Item,catalog,ShapeOf,Consume,row,x,y);
+        if (purchase is null) { await conn.Commands!.Reply("Unable to buy: check the price, inventory space and available stock."); return; }
+        if (finite) shop.Items.Remove(id);
+        foreach (var payment in purchase.Payments) await SendStashPayment(remote,stream,ciphers,conn,stash,payment.Stash);
+        await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+            items.NextRevision(PlayerInventories.MainInventory),before,items.Items(PlayerInventories.MainInventory)),"0x00bf vendor payment and purchase");
+        if (row is byte destination && destination != PlayerInventories.MainInventory)
+            await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(destination),
+                items.NextRevision(destination),[],purchase.Bought),"0x00bf vendor item to cursor");
+        await Send(remote,stream,ciphers,InstanceItems.InventoryChange(offer.Tab,shop.NextRevision(offer.Tab),[id],
+            finite ? [] : [offer.Item],NpcShops.Manager),"0x00bf vendor offer updated");
+        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02a9 vendor gold balance");
+        Console.WriteLine($"[gateway] {remote} vendor purchased {id} from {shop.Npc.Npc.Name}; finite={finite}");
     }
 
     // An item goes into the sell offer (C→S 0xb2, or 0x2a on the offer inventory) from the inventory it is in (the cursor, or
@@ -297,6 +212,7 @@ static class VendorsFeature
     // (an NPC sale) opens the sell window. Being tested.
     internal static async Task OpenNpcSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedNpc npc)
     {
+        conn.Shop = null;
         if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);
         uint mine = NpcShops.FirstTabId + 0x10, theirs = mine + 1;
         ItemsOf(conn).CancelOffers();   // none should be left; a new sale must not count them
@@ -309,7 +225,7 @@ static class VendorsFeature
     }
 
     // Purchase Items: the NPC's stock as one shop tab (S→C 0xc0, inventory manager 1), then S→C 0x8c opens the buy window on it.
-    internal static async Task OpenNpcShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcObject, SpawnedNpc npc)
+    internal static async Task OpenNpcShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcObject, SpawnedNpc npc, VendorStock.Window? prepared = null)
     {
         if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);
         await RefreshBenchBalance(remote, stream, ciphers, conn, clear: true);
@@ -317,22 +233,12 @@ static class VendorsFeature
         conn.ModuleWindow = null;
         if (Items.Error is { } error) { Console.WriteLine($"[gateway] {remote} shop: {error}"); return; }
         var notes = new List<string>();
-        var items = ItemsOf(conn);
-        // A gem vendor's stock follows the character's completed quests, class and Siosa/Lilly (GemVendorStock), and its
-        // gems cost the currency of their level-1 requirement tier. The local Nessa shop overrides progression
-        // with the complete creatable assortment, including variants in ordinary mode; other vendors retain normal progression.
-        var catalog = ItemsFor(conn);
-        var gemVendor = GemVendorStock.Sells(npc.Npc.Id)
-            ? new GemVendorStock(catalog, QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards), Npcs.Value, SkillsFor(conn))
-            : null;
-        var gemStock = gemVendor?.Stock(npc.Npc.Id, conn.ClassRow, conn.QuestFlagsSnapshot(), LeagueFor(conn).HardMode, conn.Pools.Level, LeagueFor(conn).Rules);
-        var tabs = NpcShops.Tabs(npc.Npc.Id, catalog, items.NewItemId, notes, gemStock: gemStock,
-            gemPrice: gemVendor is null ? null : gemVendor.Price, hardMode: LeagueFor(conn).HardMode, rules: LeagueFor(conn).Rules,
-            fullGemStock: npc.Npc.Id.Equals("Metadata/NPC/Act1/Nessa", StringComparison.OrdinalIgnoreCase));
+        var window = prepared ?? BuildWindow(conn,npc,notes);
+        var tabs = window.Tabs;
         foreach (var n in notes) Console.WriteLine($"[gateway] {remote} shop {npc.Npc.Name}: {n}");
         // One manager-1 inventory per tab (S→C 0xc0), then 0x8c lists them with their names.
         var ids = tabs.Select((_, i) => NpcShops.FirstTabId + (uint)i).ToList();
-        lock (conn.Npcs) conn.Shop = new OpenShop(npc, tabs.SelectMany((t, i) => t.Items.Select(item => (Tab: ids[i], Item: item))).ToDictionary(p => p.Item.Id));
+        lock (conn.Npcs) conn.Shop = new OpenShop(npc, tabs.SelectMany((t, i) => t.Items.Select(item => (Tab: ids[i], Item: item))).ToDictionary(p => p.Item.Id)) { StockKey = window.Key, Finite = window.Finite };
         for (int i = 0; i < tabs.Count; i++)
             await Send(remote, stream, ciphers, InstanceInventories.AddInventory(ids[i], NpcShops.Tab, NpcShops.Manager, tabs[i].Items),
                 $"0x00c0 shop tab {ids[i]} \"{tabs[i].Name}\" (manager {NpcShops.Manager}) of {npc.Npc.Name}: {tabs[i].Items.Count} items");
@@ -343,6 +249,37 @@ static class VendorsFeature
         await Send(remote, stream, ciphers, InstanceNpcs.Dialogue(npcObject, 0, false, ids,
             [.. tabs.Select(t => new InstanceNpcs.Choice(unchecked((int)t.TabColour), t.Name))]),
             $"0x008c open the buy window of {npc.Npc.Name} with tabs {string.Join(", ", tabs.Select(t => t.Name))}");
+    }
+
+    static VendorStock.Window BuildWindow(ClientState conn, SpawnedNpc npc, List<string> notes, bool refresh = false)
+    {
+        var catalog = ItemsFor(conn);
+        var league = LeagueFor(conn);
+        var gems = new GemVendorStock(catalog,QuestRewardCatalog.Load(hardMode:league.HardMode,
+            supportGems:league.Rules.SupportGemRewards),Npcs.Value,SkillsFor(conn));
+        var stock = GemVendorStock.Sells(npc.Npc.Id)
+            ? gems.Stock(npc.Npc.Id,conn.ClassRow,conn.QuestFlagsSnapshot(),league.HardMode,conn.Pools.Level,league.Rules) : [];
+        if (league.Rules.FullGemStock && npc.Npc.Id == "Metadata/NPC/Act1/Nessa")
+            return new(NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(conn).NewItemId,notes,gemStock:stock,
+                gemPrice:gems.Price,fullGemStock:true,hardMode:league.HardMode,rules:league.Rules),"",[]);
+        return VendorStock.Open(CharacterName(conn),conn.League ?? "Standard",npc.Npc.Id,conn.Pools.Level,
+            catalog,SkillsFor(conn),stock,ItemsOf(conn).NewItemId,league.Rules,league.HardMode,notes,refresh,account:PersonalStashOf(conn));
+    }
+
+    internal static async Task RefreshKirac(ClientState conn)
+    {
+        if (conn.Shop is not { } shop || VendorCatalog.Default.Find(shop.Npc.Npc.Id)?.Kind != "Kirac")
+        { await conn.Commands!.Reply("Open Kirac's shop first."); return; }
+        var window = Saves.Atomically(() =>
+        {
+            if (PersonalStashOf(conn).TrySpendGold(KiracProgress.For(PersonalStashOf(conn)).ShopRerollCost) is null) return null;
+            return BuildWindow(conn,shop.Npc,[],refresh:true);
+        });
+        if (window is null) { await conn.Commands!.Reply($"Kirac's refresh costs {KiracProgress.For(PersonalStashOf(conn)).ShopRerollCost} Gold."); return; }
+        var (remote,stream,ciphers) = conn.Wire;
+        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02a9 Kirac refresh");
+        uint npcObject = conn.Npcs.FirstOrDefault(p => p.Value == shop.Npc).Key;
+        await OpenNpcShop(remote,stream,ciphers,conn,npcObject,shop.Npc,window);
     }
 
 }

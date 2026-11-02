@@ -309,3 +309,192 @@ enabling her prison reward; claiming sets `a1q2-NessaRewardTaken`. Tarkleigh's H
 check and rollback on failure/full inventory. The server removes all choices and ends dialogue after claiming.
 Live verified with OfflineWitch: Combustion Support from Nessa and Freezing Pulse from Tarkleigh, including the saved
 completion flags. Other quest scripts are not thereby implemented.
+
+## Community stock cross-check (2026-11-02)
+
+Research snapshot: [community-stock.json](../../../scripts/re/vendor-stock/community-stock.json).
+Each row identifies vendor, quest, class and gem, with separate source-presence flags.
+These are factual community observations, not runtime configuration or verified 3.29.3b behavior.
+Sources: [PoE Wiki vendor rewards](https://www.poewiki.net/wiki/List_of_vendor_rewards) and
+[PoEDB Quest Vendor Rewards](https://poedb.tw/us/QuestRewards).
+PoEDB has quest/class columns but no NPC column; vendor names come only from the wiki.
+Counts below count gem/class entries, not distinct gems. Disputed means present in only one source.
+Not covered means PoEDB has no matching quest/class group; it is not evidence of unavailability.
+
+| Vendor | Quest condition reported by wiki | Agree | Disputed | Not covered |
+|---|---|---:|---:|---:|
+| Clarissa | Lost in Love | 155 | 26 | 0 |
+| Clarissa | Sever the Right Hand | 214 | 22 | 0 |
+| Lilly Roth | Fallen from Grace | 0 | 0 | 3038 |
+| Nessa | Breaking Some Eggs | 108 | 14 | 0 |
+| Nessa | Enemy at the Gate | 133 | 8 | 0 |
+| Nessa | Mercy Mission | 57 | 8 | 0 |
+| Nessa | The Caged Brute | 215 | 15 | 0 |
+| Nessa | The Siren's Cadence | 183 | 11 | 0 |
+| Petarus and Vanja | Breaking the Seal | 104 | 4 | 0 |
+| Petarus and Vanja | The Eternal Nightmare | 192 | 4 | 0 |
+| Siosa | A Fixture of Fate | 215 | 2530 | 0 |
+| Yeena | Intruders in Black | 93 | 68 | 0 |
+| Yeena | Sharp and Cruel | 165 | 11 | 0 |
+| Yeena | The Root of the Problem | 1 | 205 | 0 |
+
+Total: 7,799 entries covering 468 gem names; 1,835 agree, 2,926 differ, 3,038 lack a PoEDB comparison.
+An agreement covers membership only, not quest timing, price, gem level, NPC identity or client-version compatibility.
+
+| Condition | Finding | Confidence / remaining check |
+|---|---|---|
+| Ordinary campaign gems | Class and quest progression determine stock; quantity is unlimited. | Both stock tables distinguish classes; wiki describes replenishment. |
+| Town gem levels | Acts 1–4 scale gem level with character level; wiki gives an approximate required-level ceiling of 50–54. | Approximation only; no exact XP formula established. |
+| Siosa | A Fixture of Fate unlocks all-class stock, at gem level 1. | His page says completed-quest stock; Gem page instead describes required level at most 31. Resolve before implementation. |
+| Lilly | Fallen from Grace unlocks her gem shop, including hideout access. | Exact exceptional/drop-only exclusions require per-gem review. |
+| Equipment stock | Wiki describes item level as player level + 1, capped. | Cap and generation distributions not established here. |
+| Equipment refresh | Since 3.21, old items rotate out and new ones arrive on level-up; stock persists for multiple levels. | Do not implement a full reroll on every level-up from older guidance. |
+| Purchase versus use | Stock eligibility and item level/attribute requirements are separate concepts. | No blanket attribute-based purchase restriction established by these sources. |
+| Prices | Existing flat goods prices and gem tiers are not certified by this stock comparison. | Exact price/level matrix remains unverified. |
+
+Condition sources: [Vendor](https://www.poewiki.net/wiki/Vendor),
+[Gem](https://www.poewiki.net/wiki/Gem), [Siosa](https://www.poewiki.net/wiki/Siosa),
+[Lilly Roth](https://www.poewiki.net/wiki/Lilly_Roth).
+Siosa’s page also says inventory-only payment; this needs version-specific review against local stash-payment behavior.
+
+Reproduce with `python scripts/re/vendor-stock/snapshot.py` from the repository root
+(Python packages: requests, beautifulsoup4). The script reads public HTML and writes only the research snapshot.
+No extracted game assets, runtime data, quest flags or client archives are changed.
+The snapshot is standard campaign research; Ruthless, league vendors and random equipment inventories are not enumerated.
+
+### Official-session inventory observations (2026-11-02)
+
+One level-91 character, user-reported Luminary; native Ascendancy.Name maps it to Characters row 2, Scion.
+Exact league name/mode remains unconfirmed.
+The user initially reported all quests completed, then clarified Siosa was not unlocked; no Siosa capture exists.
+The official-install executable matched the local reference SHA-256 before attachment.
+`scripts/re/vendor-stock/capture.py` records 0xc0 and 0x8c reads; `decode.py` validates saved snapshots offline.
+The message readers use stream `0x140dfb630`, not the component reader's data/size/position structure.
+Discard attempts with stream `+0x252` set: a short read retries the message and its partial buffer is not stock.
+Incomplete stream read attempts occur before a successful retry; the final selected payloads passed framing checks.
+
+| Vendor | Items per tab, in received order | Gems |
+|---|---|---:|
+| Nessa, Act 1 | 44, 108, 48 | 156 |
+| Tarkleigh, Act 1 | 18, 27, 16 | 0 |
+| Yeena, Act 2 | 45, 71 | 71 |
+| Clarissa, Act 3 | 50, 90 | 90 |
+| Petarus and Vanja, Act 4 | 50, 61 | 61 |
+| Lilly, hideout | 79, 54, 92, 53, 103, 10, 66, 2 | 459 |
+| Kirac, hideout | 19 | 0 |
+
+All 21 tabs were sent without selecting each tab: manager 1, inventory kind 71, row 117, grid 12 x 11, flags 0x60.
+All seven 0x8c messages have an empty custom-name list; displayed tab labels are not established by that list.
+All 1,106 item records passed length, item-count, type-hash, grid-bound and non-overlap checks.
+All 837 gem components decoded fully: Lilly's are level 1; campaign gems have nonzero experience and higher levels.
+Only one item has explicit Base prices: Kirac's Kalguuran Scarab costs 4 Chaos Orbs.
+The other 1,105 prices are not explicit in these payloads; absence of an explicit price does not mean free.
+All item components now decode to their exact payload boundaries, including modifiers, rarity, sockets and links.
+Equipment records are generated instances, not fixed vendor templates: their bases, rolls and placement are observations.
+Their derived prices and requirements describe those rolls; a newly generated item needs its own calculation.
+Unlock/refresh behavior remains unverified.
+Raw captures and decoded item tables remain under ignored `Tools/re/out/vendor-research/live-2026-11-02/`.
+`compare.py` lists differences against every candidate class; membership alone cannot resolve quest or league rules.
+
+Default price resolver `0x1421e8f80` first accepts an explicit Base list, then considers native table costs.
+`0x1421e8d70` selects the highest ItemCostPerLevel.Level no greater than Mods item level, or 1 without Mods.
+Gems have no Mods component, so their cost row uses level 1 even when the offered gem has experience.
+`0x1421ea0b0` selects Cost1/2/3/4 for normal/magic/rare/unique; `0x1421e9fd0` multiplies positive amounts by
+stack count, while negative amounts contribute their absolute value without multiplication.
+An unidentified magic item adds one Wisdom; an unidentified rare item adds one Chance (`0x1421e9129` onward).
+Stack getter `0x1401a3840` resolves the Stack component; all captured non-explicit currency stacks are size 1,
+below their CurrencyItems.StackSize, so the full-stack conversion branch does not apply to this sample.
+All non-explicit captured items resolve a nonempty ItemCostPerLevel cost; none needs the map fallback.
+`prices.py` derives normal-mode prices for 837 captured gems and 268 other items, including the unidentified map.
+Full-stack conversion and map fallback behavior remain outside this offline decoder's supported cases.
+These prices have static native evidence, but no tooltip or purchase verification in this session.
+
+The captured Scion stock contains every wiki-listed gem for all four campaign gem vendors.
+Additional observations: Nessa has Volcanic Fissure; Yeena has Mana-Infused Staff;
+Clarissa has Conflagration and Holy Hammers; Petarus and Vanja match the wiki's 61 gems exactly.
+These are observed membership differences, not evidence of when each gem unlocks.
+`requirements.py` joins every captured item to its use requirements, price evidence and community quest candidates.
+809 gem entries have a candidate quest row; 28 have none. Neither case proves an unlock condition.
+
+### Generated equipment and refresh evidence
+
+[Official 3.21 notes](https://www.pathofexile.com/forum/view-thread/3361403) establish partial rotation on level-up:
+some older items leave, new items enter, and surviving items remain for multiple levels; rare stock is possible.
+This supports retaining generated item instances across openings/partial refreshes, not rerolling every shop open.
+Exact retention age, replacement count, base weights, rarity odds and socket/link distributions are not established.
+Kirac's refresh policy is separate and was not measured in this session.
+
+All 220 captured campaign equipment/flask items match `item level = town level + 2 - rarity`,
+with normal=0, magic=1, rare=2. This is a high-level-character observation, not a verified low-level formula.
+The user approved this as the local campaign item-level rule; ordinary generated shop goods now use it.
+Explicit templates retain their levels; generated stock applies the local rule in both league modes.
+Nessa/Tarkleigh use town level 13; Yeena 23; Clarissa 33; Petarus/Vanja 40 (WorldAreas rows).
+Normal items are respectively level 15, 25, 35 and 42; magic items are one lower.
+Tarkleigh's and Yeena's one rare item each are level 13 and 23.
+This contradicts treating the wiki's town-level cap as a strict cap on every generated item regardless of rarity.
+`equipment.py` records counts as sample observations only; none is a configured probability or guaranteed stock size.
+The captured roll values must not be imported as permanent shop definitions.
+
+### Client generation helpers versus received stock
+
+Static inspection of the captured 3.29.3b executable found a real mod-value roller at `0x14242e480`.
+It counts the selected Mods row's stats through `0x142430710`, gets each min/max pair through `0x142430860`,
+and calls inclusive integer RNG helper `0x1404d03d0` with the RNG pointer at context `+0x20` when the bounds differ.
+Equal bounds use the fixed value without drawing. The context's byte `+0x18` selects alternate range handling.
+The diagnostic at `0x143635840` is "Rolling mod values for mod \"{}\" which is meant to be disabled!".
+Direct call instructions were verified at `0x14016e76d`, `0x141d5d7af` and `0x141ea79c1`;
+the last is in a function referencing DelveBiomes and biome tags, so this helper is not specific to vendor items.
+The caller at `0x141d5ccb0` inspects an existing item's Mods, prefix/suffix parameters and candidate mod rows.
+Its full operation and the callers' RNG initialization remain unverified; these are not a recovered vendor generator.
+
+In contrast, received mod instances use `0x142430380`: it reads a 16-bit mod hash, resolves the row,
+then reads each rolled value with signed compact reader `0x141e490e0` at `0x1424304d3`.
+The official vendor captures contain rarity, item level, visible mod values, socket colours and link groups directly.
+They do not require the client to roll those properties from a vendor seed; unidentified hidden affixes are omitted.
+This establishes server-supplied item state, not the official server's internal generation implementation.
+The selected inventory bodies total 37,539 bytes for 1,106 items across 21 tabs; Tarkleigh's 61 items use 2,464 bytes.
+These are decoded message-body sizes, excluding message IDs and transport overhead, not measured network bandwidth.
+Base/mod hashes refer to installed data instead of transmitting art, descriptions or full table rows.
+
+The mod-value helper is a reference for porting and differential checks; direct invocation needs native table handles,
+allocator-owned output and initialized RNG/context. No headless native ABI or complete vendor-generation path is verified.
+Keep vendor authority in the server; do not substitute this helper for unknown base-selection, rarity or refresh policies.
+
+### Local ordinary-vendor policy (3.29.3b)
+
+`vendor-stock.json` joins the reviewed wiki snapshot to native quest offers and NPC shop sets.
+Captured Scion membership resolves four missing wiki entries, but their unlocks are assumptions:
+Volcanic Fissure at The Caged Brute, Mana-Infused Staff at Sharp and Cruel,
+Conflagration and Holy Hammers at Sever the Right Hand.
+The captured 459-gem Lilly list is treated as all-class after Fallen from Grace; Siosa uses A Fixture of Fate.
+Later campaign gem vendors use the union of the first four acts' unlocked class stock.
+Act 1–4 vendors level gems against character level capped at 52; Siosa/Lilly sell level-one gems.
+These later-vendor and gem-level policies have not been measured across progression.
+Buying does not require the attributes/level needed to equip or use the item.
+
+Unmeasured generation choices are local policy: weapon vendors have 60 finite slots, magic vendors 40;
+normal/magic/rare odds are 68/30/2%, with no rare flasks. Classes rotate through eligible native bases,
+then a base is selected within 15 drop levels of that class's highest eligible base.
+The low-level extension is `max(1, min(character level, town level) + 2 - rarity)`.
+Quality has a 10% chance of a uniform 1–20 roll. Socket weights are 50/120/100/30/1 for 1/2/3/4/6,
+subject to the existing item socket cap; each neighboring link has 50% chance.
+Affixes, implicit ranges and socket colours use the existing server item generator and native data.
+One third of finite slots expires per level, retaining each offer for three levels after replacement.
+Purchases remain sold until that slot expires. Reopening/relogging does not reroll surviving instances.
+Currency and gem offers replenish; Siosa accepts inventory currency only.
+Prices come from native item costs, including all currencies and unidentified surcharges, with explicit prices first.
+Tabs use the existing generic vendor grid; precise official placement is not reproduced.
+
+KiracLevels.dat contains 16 progression rows: MapAreaLevelOffered, MapCompletion, ShopRerollCost.
+The first rows are (68,0,1000), (69,1,1500), (70,3,2000), (71,6,2500), (72,12,3000).
+This supports native thresholds and costs rather than an assumed highest-tier ±1 rule.
+Interpreting MapCompletion as distinct completed layouts is a local assumption, not a recovered server algorithm.
+Account/league storage records those layouts and highest completed tier independently; pre-existing character Atlas
+records do not contain reliable tier history and are not migrated into the new progression record.
+Completion currently follows the local unique-monster approximation in the owner's active map.
+Kirac starts with tier-one maps and refreshes when a completion threshold unlocks a higher offered tier.
+Stock is shared per account/league: 17 maps (at least one of each unlocked tier), the captured four-Chaos
+Kalguuran Scarab and replenishing Unmaking orbs. Map item level 82 comes from the capture.
+The map assortment/automatic threshold refresh are assumptions; exact official weights remain unknown.
+`/vendor_refresh` while Kirac's shop is open charges the native progression-based Gold cost atomically.
+The native refresh-button packet is not mapped yet; the command is the local entry point.
