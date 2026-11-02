@@ -9,7 +9,7 @@ The mode lives in the `game` module (`Modules/Core/Game/Survivors/Survivors.cs`,
 model is `src/GameServer.Core/World/SurvivorsMode.cs`, and per-connection state is
 `src/GameServer.Gateway/Connection/ClientState.Survivors.cs`.
 
-The structure follows [Azeroth Survivors](https://github.com/OutThisLife/azeroth-survivors-re)'s rules (wave clock,
+The structure follows Azeroth Survivors's rules (wave clock,
 auto-cast skills, a choice on every level). No code from it, or from any other project, was copied.
 
 ## Commands
