@@ -570,7 +570,9 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x14219f820` | Fn | S→C 0x55 death screen read |
 | `0x14028fc80` | Fn | `death_screen` panel ctor (setup `0x140290820`, buttons `0x140290bf0` → C→S 0x54 / 0x153) |
 | `0x140d86180` | Fn | HUD vtable +0x4d0: show/hide the death screen |
-| `0x1435dc4c0` (read `0x14219f600`) | Cls | S→C 0x53 skill bar: 13 × u16 skill ids (LE), u16, u16 |
+| `0x1435dc4c0` (read `0x14219f600`) | Cls | S→C 0x53 skill bar: 13 × u16 skill ids (LE), u16 slot masks → instance +0xcfd0, +0xcfd2 |
+| `0x1435bf968` | Cls | C→S 0x4f "Always Attack Without Moving" / 0x52 (u8 slot, u8 on; bit slot of instance +0xcfd0 / +0xcfd2) |
+| `0x140aed580` | Fn | skill bar slot option box: toggles instance +0xcfd0 bit slot, sends C→S 0x4f |
 | `0x1435bfc58` | Cls | C→S 0x4e bind a skill to a skill bar slot (u8 slot, u16 skill id) |
 | `0x140aecab0` | Fn | skill bar UI: put a skill in a slot (`0x140ae16b0`) or clear it (`0x140ae1fd0`), then send C→S 0x4e |
 | `0x14319d870` | VT | skill bar UI (13 slots; `0x140ae04b0` subscribes it to instance +0xaf78 and +0xad78) |

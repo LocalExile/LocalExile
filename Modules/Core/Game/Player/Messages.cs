@@ -224,6 +224,14 @@ static partial class Game
                 Console.WriteLine($"[gateway] {remote} <= 0x004e bind skill 0x{skill:x4} ({(entry is null ? "unknown, not saved" : entry == "" ? "empty" : entry)}) to slot {slot}: {Convert.ToHexString(bytes)}");
                 if (entry is not null) CharacterSaves.SetSkillBar(CharacterName(conn), slot, entry);
             }
+            else if (id is InstanceProtocol.AttackInPlaceId or InstanceProtocol.SlotMask52Id)
+            {
+                // A slot option the client already applied (its bit of instance +0xcfd0 / +0xcfd2); saved so the next
+                // 0x53 sends it back instead of clearing it.
+                var (slot, on) = InstanceProtocol.ReadSlotOption(bytes);
+                Console.WriteLine($"[gateway] {remote} <= 0x{id:x4} {(id == InstanceProtocol.AttackInPlaceId ? "always attack without moving" : "slot option 0x52")} slot {slot} {(on ? "on" : "off")}");
+                if (slot < 16) CharacterSaves.SetSkillBarOption(CharacterName(conn), id == InstanceProtocol.AttackInPlaceId, slot, on);
+            }
             else if (id == InstanceEntities.AllocatePassiveId)
             {
                 var (u2, node, u6) = InstanceEntities.ReadAllocatePassive(bytes);

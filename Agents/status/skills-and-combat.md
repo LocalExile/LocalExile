@@ -1081,6 +1081,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Frostblink damage, chilled ground, enemy-dependent recovery and shared Blink cooldown groups remain unsupported.
   The skill bar keeps its slots when skills are re-sent or a gem is socketed again (the saved bar goes out as 0x53)
   ([11](../docs/protocol/11-skills.md) §9, §11).
+  A slot's "Always Attack Without Moving" (C→S 0x4f) is saved and goes back in 0x53, so it stays ticked.
 - **Auras (the simple set is verified live).** Reservation is read from GrantedEffectsPerLevel (`ManaReservationFlat`
   / `ManaReservationPercent`), reduced by the passive/mastery reservation efficiency and sent as the Life pool's
   reserved mana (and in every 0x1b1 mana update).

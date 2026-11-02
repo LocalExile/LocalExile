@@ -690,13 +690,15 @@ static partial class Game
     internal static string? SkillBarEntry(ClientState conn, ushort skillId) =>
         skillId == 0 ? "" : SkillEffectId(conn, skillId) ?? (SkillsFor(conn).ActionName(skillId) is { } a ? "Action/" + a : null);
 
-    // The saved skill bar as the player's current skill ids, sent with Sâ†’C 0x53. The default attack goes on slot 0 (left
+    // The saved skill bar as the player's current skill ids, sent with S→C 0x53 together with the saved per-slot option
+    // masks (0x53 sets them, so 0 would clear "Always Attack Without Moving"). The default attack goes on slot 0 (left
     // mouse button) only when nothing at all was saved for that slot; nothing is sent without a saved bar, so the client
     // keeps its own default.
     internal static async Task SendSkillBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         FillSkillBar(conn);
-        if (CharacterSaves.Load(CharacterName(conn))?.SkillBar is not { Count: > 0 } bar) return;
+        var save = CharacterSaves.Load(CharacterName(conn));
+        if (save?.SkillBar is not { Count: > 0 } bar) return;
         var ids = new ushort[InstanceProtocol.SkillBarSlots];
         var byEffect = GemSkillEffects(conn).Select(g => (g.Id, Effect: SkillsFor(conn).EffectId(g.Effect)))
             .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(conn, SkillCatalog.FirstSkillId)))
@@ -708,8 +710,10 @@ static partial class Game
             else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
         }
         if (!bar.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
-        await Send(remote, stream, ciphers, InstanceProtocol.SkillBar(ids),
-            $"0x0053 skill bar: {string.Join(", ", ids.Select((id, i) => id == 0 ? null : $"slot {i} 0x{id:x4}").OfType<string>())}");
+        ushort attackInPlace = save.AttackInPlaceSlots ?? 0, mask52 = save.SkillBarMask52 ?? 0;
+        await Send(remote, stream, ciphers, InstanceProtocol.SkillBar(ids, attackInPlace, mask52),
+            $"0x0053 skill bar: {string.Join(", ", ids.Select((id, i) => id == 0 ? null : $"slot {i} 0x{id:x4}").OfType<string>())}" +
+            $", attack in place 0x{attackInPlace:x4}, 0x52 mask 0x{mask52:x4}");
     }
 
     // Puts the skills that are nowhere on the saved bar into its empty slots (SkillBarLayout), leaving every other slot as
