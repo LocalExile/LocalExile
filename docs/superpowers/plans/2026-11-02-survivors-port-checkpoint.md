@@ -108,6 +108,9 @@ damage number:
 ## Commits (port branch, newest first)
 
 ```
+3c3c1474 fix: herald pulses use their gem's elemental hit code
+a75689ae test: walk the support matrix at ranks 1 and 8
+183daf95 docs: record the support matrix and animation pass in the checkpoint
 168881f4 test: pin support eligibility and guard a cast clip without a rig index
 14bfbaf7 feat: survivors support matrix and cast/impact animations
 8f961b59 docs: checkpoint commit list through the weapon pass
@@ -172,9 +175,9 @@ de07fbd6 merge: upstream main into the survivors port
 
 ```
 dotnet build GameServer.slnx          # 0 errors, 0 warnings
-dotnet test tests/GameServer.Core.Tests       # 455 passed
+dotnet test tests/GameServer.Core.Tests       # 462 passed
 dotnet test tests/GameServer.Data.Tests       # 45 passed
-dotnet test tests/GameServer.Gateway.Tests    # 73 passed
+dotnet test tests/GameServer.Gateway.Tests    # 76 passed
 ```
 
 ## Environment (worktree setup, one-time, already done)
