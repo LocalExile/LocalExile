@@ -1231,8 +1231,15 @@ static partial class Game
     {
         var (life, stageStarts) = hit;
         if (life == 0)
+        {
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
                 !log ? null : $"0x01b3 monster 0x{id:x} hide_mini_life_bar = 1");
+            if (m.Poisons.Buff is ushort pbuff)
+            {
+                await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, pbuff), null);
+                m.Poisons.Buff = null;
+            }
+        }
         // The hit result for the client's damage/effect pipeline (0x1af): a melee hit plays the target's blood and the weapon
         // impact sound "bonk" locally, 0x1b1 stays authoritative on life. Spells and projectiles have their own impact and skip it.
         if (melee)

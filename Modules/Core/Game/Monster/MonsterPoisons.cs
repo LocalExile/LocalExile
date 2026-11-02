@@ -67,31 +67,35 @@ static partial class Game
                 int damage = 0;
                 if (m.Dead || m.Life == 0) m.Poisons.Clear();
                 else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
-                int stacks = m.Poisons.Stacks(now);
-                if (!m.Poisons.Poisoned && m.Poisons.Buff is ushort gone)
+                if (damage > 0)
                 {
-                    ended.Add((id, gone));
-                    m.Poisons.Buff = null;
+                    (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
+                    m.Aggro = m.Life > 0;
+                    if (m.Life == 0)
+                    {
+                        m.Dead = true;
+                        CollectVaalSoulAtDeathLocked(conn, m);
+                        m.Poisons.Clear();
+                    }
+                    hits.Add((id, m, m.Life, damage));
+                    if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
                 }
-                else if (m.Poisons.Poisoned)
+                if (m.Dead || m.Life == 0 || !m.Poisons.Poisoned)
+                {
+                    if (m.Poisons.Buff is ushort gone)
+                    {
+                        ended.Add((id, gone));
+                        m.Poisons.Buff = null;
+                    }
+                }
+                else
                 {
                     if (m.Poisons.Buff is ushort old) ended.Add((id, old));
+                    int stacks = m.Poisons.Stacks(now);
                     ushort next = conn.NextBuff++;
                     m.Poisons.Buff = next;
                     updated.Add((id, next, stacks, m.Poisons.Until - now));
                 }
-                if (damage == 0) continue;
-                (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
-                m.Aggro = m.Life > 0;
-                if (m.Life == 0)
-                {
-                    m.Dead = true;
-                    CollectVaalSoulAtDeathLocked(conn, m);
-                    m.Poisons.Clear();
-                    if (m.Poisons.Buff is ushort buff) { ended.Add((id, buff)); m.Poisons.Buff = null; }
-                }
-                hits.Add((id, m, m.Life, damage));
-                if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
             }
         }
         foreach (var (id, buff) in ended)
