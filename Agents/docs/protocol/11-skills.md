@@ -1065,7 +1065,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
 - **Casting.** At the ground: C→S 0x25 with the gem skill's id. A **spell** stops where it stands and the server echoes
   0x1ab from there (no walk). An **attack** (ActiveSkillType Attack: Holy Strike, Ground Slam …) follows bit 0 of the
   message's flags, the client's **"Always Attack Without Moving"** setting (live 2026-10-25: 0x400 with it off, 0x401
-  with it on; the game option arrives as C→S 0x16 command 8, a skill bar slot's own as C→S 0x4f, §11):
+  with it on; a skill bar slot's setting arrives as C→S 0x4f, §11):
   - bit 0 set: the player swings from where it stands; the server echoes 0x1ab there and pays at the swing.
   - bit 0 clear: a point **within the weapon's reach** is a swing at the ground, even with nothing standing there (live
     2026-10-26: standing and swinging at empty ground must cost the skill's mana, as it does on the client); the server
@@ -2592,6 +2592,8 @@ failed I/O, allocation limits, actual official values and every skill's successf
 - **C→S 0x4f "Always Attack Without Moving"** (4 bytes, class `0x1435bf968`, writer `0x141f93160`, sender
   `0x140aed580`): `u8 slot, u8 on` (live 2026-11-02: `004F0301`, slot 3 on). The sender itself sets or clears bit
   `slot` of instance +0xcfd0, which the skill use reads (`0x14216ac84`) and the slot's option box shows (`0x140ae6cfe`).
+  The use reads the bit of the first slot holding its skill id (`0x14216ac30` searches the bar's ids at instance
+  +0xc7d8), so two slots with the same skill both follow the first one's setting (live 2026-11-02, slots 2 and 3).
   C→S **0x52** is the same class for a second mask at +0xcfd2 (senders `0x142165750`, and the bind `0x140ade430`, which
   clears the slot's bit; read by `0x140123b33` indexed by input key − 7); its option is not identified. Case 0x13 copies
   0x53's +0x2a to +0xcfd0 and +0x2c to +0xcfd2 after the rebuild, so every 0x53 replaces both masks: a bar sent with 0
