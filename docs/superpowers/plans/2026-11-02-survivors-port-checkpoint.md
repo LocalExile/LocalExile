@@ -107,6 +107,9 @@ damage number:
 ## Commits (port branch, newest first)
 
 ```
+168881f4 test: pin support eligibility and guard a cast clip without a rig index
+14bfbaf7 feat: survivors support matrix and cast/impact animations
+8f961b59 docs: checkpoint commit list through the weapon pass
 4349fe13 refactor: name the survivors ring cadence after the ring wave
 6378079b feat: survivors attacks use the equipped weapon's local damage and crit
 6a9680e1 feat: seal each survivors stage behind its lore boss; run casts read unique stats
