@@ -74,7 +74,8 @@ static partial class Game
     /// ones. Callers apply this once, not the two sets separately.</summary>
     internal static IReadOnlyList<(string Stat, int Value)> UtilityStats(ClientState conn, Func<string, int> character,
         int? playerLevel = null) =>
-        CombineUtilitySources(conn.UtilityFlaskEffects.Sources(), MagebloodSources(conn, character, playerLevel));
+        CombineUtilitySources(conn.UtilityFlaskEffects.Sources().Concat(KillOnslaughtSources(conn, character)),
+            MagebloodSources(conn, character, playerLevel));
 
     /// <summary>Whether Mageblood forbids using this flask: magic utility flasks cannot be used while it is worn (normal and
     /// unique ones still can).</summary>

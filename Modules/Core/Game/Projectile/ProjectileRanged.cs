@@ -60,6 +60,7 @@ static partial class Game
                     CriticalRoll = criticalRoll, Leech = captured.Leech,
                     AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
                     AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
+                    PointBlank = Get("keystone_point_blank") != 0,
                     ReturnMultiplier = ProjectileReturn.DamageMore(Get),
                     // The object flies at the height the clip releases it (the bow's nock, the wand's tip).
                     Presentation = (wand ? OrdinaryWandPresentation : OrdinaryArrowPresentation) with { LaunchHeight = release?.HeightSteps },
@@ -68,7 +69,9 @@ static partial class Game
                 var ranged = SkillsFor(conn).Projectile(projectileId);
                 double speed = ProjectileSpeed.CellsPerSecond(ranged?.Speed ?? 3260, Get, _ => 0,
                     Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
-                var profile = GatewayProjectileDefaults.Resolve(ranged?.Id ?? projectileId, Get, speed, attack: true);
+                var profile = GatewayProjectileDefaults.Resolve(ranged?.Id ?? projectileId, Get, speed, attack: true,
+                    arrows: weapon.Bow);
+                profile = NativeVolley(profile, Get);
                 var origin = ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
                 var target = ProjectileSession.Vector(aim);
                 // The shot leaves from the clip's contact keyframe, in front of the body along the aim (the Ranger's bow

@@ -98,8 +98,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [league modes](../docs/game/league-modes.md).
 - **Predictive actor collision.** Player paths include living monsters and published players in the same instance.
   Monster paths use their `MonsterVarieties.ObjectSize` clearance and avoid other living bodies, including friendlies.
-  A 50 ms correction loop sweeps monster movement and separates overlaps in the server's estimate only (no packets:
-  the client paths around bodies itself); death releases the occupied space and the corpse stays in the area.
+  A 50 ms pass steps the estimates as the client does (no packets): a step blocked by terrain or a body ends the walk, a
+  path cut short paths again from its end, and an attack does not stop the walk; death releases the occupied space and
+  the corpse stays in the area.
   Chasers spread around the player on rings (`MonsterSurround`); the AI decides every 100 ms.
   Automated regressions cover direct chases for negative footprints and player-body clearance for new and reused slots.
   Further automated checks cover short attack reach, stationary-blocked slots, bounded crowd escape and queued

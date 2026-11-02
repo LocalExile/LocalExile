@@ -130,8 +130,7 @@ static partial class Game
     // (until Walk.ArrivesAt; a movement skill's blink is no walk) at the walk's speed over the base speed, so movement speed
     // and chill change the step rate (the wiki: movement speed raises the frequency). It starts over when the walk ends, as
     // the run animation does.
-    // shortcut: Shield Charge blinks here, so it takes no steps (the wiki: it triggers footsteps); advance this clock
-    // during its charge once Shield Charge moves like a walk.
+    // Shield Charge walks its charge (ShieldCharge.cs), so it takes steps at the charge speed, as the wiki says.
     internal static int FootstepsDue(ClientState conn, ref double run, double from, double now)
     {
         double before = run, until = Math.Min(now, conn.Walk.ArrivesAt);
@@ -245,7 +244,7 @@ static partial class Game
                 // Stop the sweep, but not the kills it already queued.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused) break;
                 if (m.Dead || m.Life == 0 || MonsterBlocks(m, Random.Shared, spell: true)) continue;
-                var rolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared);
+                var rolled = (gambler with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(hit, Random.Shared);
                 critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded, vsProfane), own, attack: false);
                 double hitAt = ProjectileWorldTime(conn);
                 (damage, _, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,

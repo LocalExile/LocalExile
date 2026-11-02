@@ -44,7 +44,7 @@ static class StatKeys
     /// <summary>The main-hand flag the character panel checks before drawing the MH_* damage rows.</summary>
     public const uint SkillUsesMainHand = 0x1e70;
     /// <summary>main_hand_weapon_type (Stats.dat row 2): the client's native weapon enum. A bow is 9 - its ItemClasses
-    /// row + 1 is 14 and its model stance is another enum again (13-items.md "Client quiver eligibility").</summary>
+    /// row + 1 is 14 and its model stance is another enum again (13-items.md "Client weapon-type stats").</summary>
     public const uint MainHandWeaponType = 0x3;
     // "Increased damage" stats that apply to an unarmed melee attack's physical damage (damage × (1 + sum / 100)):
     // damage_+%, physical_damage_+%, melee_damage_+%, melee_physical_damage_+% (strength's 1% per 5).

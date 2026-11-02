@@ -75,10 +75,10 @@ static partial class Game
     /// <summary>A monster's resistance to one type of the player's hit: base and mod resistance compose before
     /// Monster.ot's 75% cap; penetration subtracts once after that cap.</summary>
     internal static DamageModel.ResistanceValue MonsterHitResistance(SpawnedMonster m, DamageType type,
-        Penetration.PerType pen)
+        Penetration.PerType pen, double now = double.NaN)
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
-        return resistance with { Value = resistance.Value + m.Mods.Effects.Resistance(type),
+        return resistance with { Value = resistance.Value + m.Mods.Effects.Resistance(type) + MonsterExposure(m, type, now),
             Maximum = MonsterModEffects.MaxResistance, Penetration = pen.Of(type) };
     }
 
@@ -89,7 +89,7 @@ static partial class Game
     /// <summary>
     /// The damage a resisted hit of the player deals to a monster: the physical part less its physical damage reduction,
     /// then its damage taken (Berserking's reduction, Spell Resistant's less spell damage, its shock and Glacial Wave's
-    /// chill at <paramref name="now"/>; without a time those two do not count). Blocking is rolled before
+    /// chill, the Intimidate or Unnerve on it at <paramref name="now"/>; without a time those do not count). Blocking is rolled before
     /// (<see cref="MonsterBlocks"/>).
     /// </summary>
     internal static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN)
@@ -99,12 +99,16 @@ static partial class Game
         double physicalTaken = physical * Math.Max(0, 1 - e.PhysicalReduction / 100.0);
         double total = mitigated.MinTotal - physical + physicalTaken;
         // The player's debuffs on it add to its own increased damage taken (MonsterDamageTaken): his enemy auras' elemental
-        // increase on fire, cold and lightning only, and Pride's more Physical Damage on the physical part.
-        double factor = MonsterDamageTaken(m, spell, now);
+        // increase on fire, cold and lightning only, his Withered on chaos only, and Pride's more Physical Damage on the
+        // physical part.
+        double factor = MonsterDamageTaken(m, spell, now, hit: true);
+        double withered = m.Withered.Count == 0 ? 0
+            : mitigated[DamageType.Chaos].Min * (MonsterDamageTaken(m, spell, now, hit: true, chaos: true) - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
-        double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor : MonsterDamageTaken(m, spell, now, elemental: true);
+        double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
+            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true);
         double physicalFactor = 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
-        return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor
+        return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
             + physicalTaken * factor * (physicalFactor - 1));
     }
 
@@ -147,9 +151,10 @@ static partial class Game
     /// description saying it covers damage over time.</summary>
     internal static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN)
     {
-        var resistance = MonsterHitResistance(m, type, default);
+        var resistance = MonsterHitResistance(m, type, default, now);
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
-            * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type));
+            * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type),
+                chaos: type == DamageType.Chaos);
         if (type == DamageType.Physical) factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
         return factor;
     }

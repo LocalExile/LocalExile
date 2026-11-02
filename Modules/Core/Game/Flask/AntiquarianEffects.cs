@@ -25,6 +25,11 @@ static class AntiquarianEffects
     public static double FarShot(double distance) => distance <= 10 ? .8 : distance < 25
         ? .8 + (distance - 10) * .2 / 15 : distance < 70 ? 1 + (distance - 25) * .6 / 45 : 1.6;
 
+    // PoB CalcOffence: the Point Blank keystone's 30% more, ramped {{10,1},{35,0},{120,-1}} over the same travel; it
+    // multiplies with Far Shot when both apply.
+    public static double PointBlank(double distance) => distance <= 10 ? 1.3 : distance < 35
+        ? 1.3 - (distance - 10) * .3 / 25 : distance < 120 ? 1 - (distance - 35) * .3 / 85 : .7;
+
     public static int RangedPhysical(int mitigated, bool rangedAttack, Func<string, int> get) =>
         rangedAttack ? (int)Math.Clamp((long)mitigated + get("physical_ranged_attack_damage_taken_+"), 0, int.MaxValue)
             : mitigated;

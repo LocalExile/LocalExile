@@ -324,7 +324,7 @@ static partial class Game
                     {
                         m.BusyUntil = now + ma.Seconds;
                         m.LastTarget = null;
-                        m.Walk.Order(mx, my, now);
+                        // The walk goes on, as for a hostile swing below (0x141e90740).
                         plan.MinionSwings.Add((id, m, (mx, my), target));
                     }
                     // A new path when the target moved, else again after arriving short, at most twice a second.
@@ -347,7 +347,9 @@ static partial class Game
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action;
                     m.LastTarget = null;
-                    m.Walk.Order(mx, my, now);
+                    // The walk goes on: starting a non-pathing action ends the Move with DestroyPathingAction(…, 0)
+                    // (0x141e90740), which hands the Move's target to the pathing component and does not stop it, so the
+                    // client swings while it walks to that target (live 2026-11-01: 273 of 273 attacks on walking monsters).
                     m.SwingGeneration = ++m.ActionGeneration;
                     cadence.BeginSwing(m, m.ActionGeneration);
                     plan.Swings.Add((id, m, m.ActionGeneration));
@@ -749,6 +751,8 @@ static partial class Game
         var onBlock = blocked ? BlockRecovery(conn, stats) : default;
         int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock + onBlock.Life : 0;
         int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock + onBlock.Mana : 0;
+        if (!blocked) RecoupHitLocked(conn, ailmentTaken.Select((_, r) =>
+            new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), now, stats);
         long lifeBefore = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats);
         conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, lifeBefore - lifeDamage + gainedLife));
         conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);

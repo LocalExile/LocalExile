@@ -32,6 +32,7 @@ sealed class ItemCatalog
         _defences = new(() => LoadDefences(folder));
         _flasks = new(() => LoadFlasks(folder, _rows.Value.Rows, hardMode));
         _utilityFlasks = new(() => UtilityFlasks.Load(folder, _rows.Value.Rows, hardMode));
+        _onslaught = new(() => _utilityFlasks.Value.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null));
         _visualsById = new(() => LoadVisualsById(folder));
     }
 
@@ -345,6 +346,12 @@ sealed class ItemCatalog
 
     /// <summary>A utility flask's use (<see cref="UtilityFlasks"/>), or null for other types.</summary>
     public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.Value.GetValueOrDefault(t.Row);
+
+    private readonly Lazy<UtilityFlasks.ExtraBuff?> _onslaught;
+
+    /// <summary>The Onslaught buff with the player's values, as the Silver Flask grants it (the only flask extra buff);
+    /// null without the tables.</summary>
+    public UtilityFlasks.ExtraBuff? Onslaught => _onslaught.Value;
 
     /// <summary>Any flask's charges (life, mana or utility, usable or not), for refills; null for other types.</summary>
     public Flasks.Flask? FlaskChargesOf(BaseType t) => FlaskOf(t) ?? UtilityFlaskOf(t)?.Charges;

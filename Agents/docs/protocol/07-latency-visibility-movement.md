@@ -173,7 +173,9 @@ object's size + 3 and tolerance = its size (an NPC, size 4: 7 and 4; the stash, 
 between waypoints is a Bresenham line of cells; one step takes `(√(dx² + dy²) / speed) / max(|dx|, |dy|)` seconds,
 and the grid cell (`+0x294`) only changes a step at a time. Each frame adds its time to the accumulator (`+0x244`, a
 whole number of milliseconds on the client's clock) and steps while it holds a whole step time (`+0x240`); before every
-step the next cell is checked again (terrain, objects) and a blocked step ends the walk. A new segment, including the
+step the next cell is checked again (terrain, objects) and a blocked step ends the walk: the player then stands, with no
+re-path and no message (live 2026-11-01: 2 of 20 single clicks stopped 30 and 60 cells short next to a monster).
+The Gateway steps `PlayerWalk` with the monsters' estimates in one time-ordered pass (`CorrectMonsterCollisions`). A new segment, including the
 first one of a new order, rescales the accumulator to its own step time (`A × s_new / s_old`), so a re-order keeps the
 elapsed fraction of the step in progress. A stop (`0x141e350e0`) takes effect in the next tick, after that tick's
 steps, and keeps the accumulator. Verified on a capture (2026-10-21): the per-tick rule held in 55,915 of 56,069 player
@@ -191,8 +193,16 @@ still differ by one cell.
 
 **Monsters on the client.** A monster's 0x1ab is applied when the client next reads packets, 5–50 ms after the
 server sent it (median 17 ms), and the client paths it at once (1,235 of 1,235 recorded monster paths match
-`ClientPathfinder` with `SearchLimit.Expansions100`, all other objects as blockers and the size's walk threshold). When a
-walk ends short of the target the client paths again on its own, and monsters far from the player keep their walk but do
+`ClientPathfinder` with `SearchLimit.Expansions100`, all other objects as blockers and the size's walk threshold). Each
+step is checked like the player's (terrain, then every body within reach, `0x141e47ca0`); a blocked step ends the walk with
+no new path. A path that began on a blocked cell steps through bodies until its first free step (`0x141e4d890`'s out flag
+→ Positioned `+0x1e5 & 4`). A path the expansion limit cut short (42% of them) is walked to its end and then paths again
+from there at once (`0x141e7bec0` → `0x141e7b920`; 213 of 213 live). Starting a non-pathing action (an attack) ends the
+Move with `0x141e90740(…, 0)`, which hands its target to the pathing component without stopping it: the monster swings
+while it walks on to that target (live: 273 of 273 attacks on walking monsters). A higher collision level (Positioned
+`+0x158 → +0x58`) would shove a lower one aside (`0x141e32dc0` → `0x141e33f80`, up to 12 cells at 40 cells/s), but every
+object in The Twilight Strand has level 3, which never shoves (0 of 28 objects, live 2026-11-01). Monsters far from the
+player keep their walk but do and monsters far from the player keep their walk but do
 not tick. Their speeds vary by a few percent (7.60–8.40 for a base of 8): the Actor's run-speed roll `+0x1a8`. Actor
 setup `0x141e9ca20` seeds a TinyMT32 state (`0x1413cbe50`, init_by_array) with the key [object id, the object type's
 u32 at its data +8] and, when the MonsterVarieties row's two unnamed i32 columns before `AilmentThreshold` (`__col75`,
@@ -348,9 +358,10 @@ frames (the tick rules above) and sending the start of each action in the frame 
 - The meaning of 0x1ba's +0x28 and u8. Moving other (non-predicted) objects works with 0x1ab and the Move skill
   0x2909 (monsters, [10](10-chat-and-commands.md) §5); 0x1ba's float is distance per second (duration = distance / value).
 - 0x0099 and 0x004e.
-- Monsters on the server still walk on `WalkEstimator`. `ClientPathfinder` paths them as the client does (§5) and the
-  estimate walks at the client's rolled speed, but the client's monster controller (its own re-paths, frozen far
-  monsters) and the 5–50 ms until the client applies an order are not reproduced; their estimated positions are what
-  the player's path avoids.
+- Monsters on the server walk on `WalkEstimator`: `ClientPathfinder` paths, the client's rolled speed and Bresenham
+  steps, the step's fraction kept across re-orders, and (`CorrectMonsterCollisions`, every 50 ms) each step checked in time
+  order against the other bodies, ending the walk or re-pathing a short path as above. Not reproduced: frozen far
+  monsters, the 5–50 ms until the client applies an order, and the client's frame timing; their estimated positions are
+  what the player's path avoids.
 - The client's walk-up arguments for melee attacks, item pickups and the map device (`Approach`).
 - Lockstep (§6): the action sequence for 0x1ad, the object-use path (0x018f) and server frame stepping.

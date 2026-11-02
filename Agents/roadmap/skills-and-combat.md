@@ -380,8 +380,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Critical elemental ignore and non-critical penetration now compose with it on the same rolled packet.
   Rerun critical ignore against a rebuilt final DLL: the previous combined run used the preceding #225 artifact.
   Recheck the resolved bow-contact and target-modifier composition natively before claiming new combined proof.
-  Special ES mechanics, conditional penetration, exposure, damaging and alternative ailments on monsters (beyond the
-  player's ignites) and further added-damage/support effects remain open.
+  Special ES mechanics, conditional penetration, skill Exposure, damaging and alternative ailments on monsters
+  (beyond the player's ignites) and further added-damage/support effects remain open.
   The player's ignites on monsters exist (`MonsterIgnites`), but only Abberath's Fury's footstep hits call them: the
   default attack, gems, projectiles and bows need their flat (pre-increase) fire packet passed to `IgniteFromHit` next
   ([20](../docs/protocol/20-damage.md) §3).
@@ -398,7 +398,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Production use during an active walk still needs measurement; native manual walk-stop experiments passed.
   Its departure/arrival damage, chilled ground, enemy-dependent recovery and shared Blink groups remain open.
   Extend terrain and movement restrictions from native evidence before accepting other instant movement skills.
-- **Start:** special ES mechanics, exposure, conditional penetration and the remaining critical strike stats
+- **Start:** special ES mechanics, skill Exposure, conditional penetration and the remaining critical strike stats
   from the stats both sides already carry; monster skills beyond the first granted effect (ranged, spells).
   Extend player stun rules to ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
   Spell base critical chance now comes from each skill's level and shares its panel/combat calculation.

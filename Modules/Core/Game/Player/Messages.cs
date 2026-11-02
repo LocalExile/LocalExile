@@ -117,7 +117,7 @@ static partial class Game
                 // An attack gem swings with the weapon's attack time, while the client keeps aiming it for as long as the
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
                 // (its pending hit), pay its cost or get a 0x1ab (live 2026-10-25).
-                if (attack && !AttackReady(conn, gem.Effect, gem.Level, out double attackSeconds))
+                if (attack && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                     continue;
@@ -125,14 +125,17 @@ static partial class Game
                 int action = 0;
                 (int px, int py) = (0, 0);
                 CooldownUseTicket? cooldownUse = null;
+                int chargeBonus = cast && gem.Name is not null ? ShieldChargeBonusPct(conn, use.SkillId, gem.Effect) : 0, chargeToken = 0;
                 void StartAction()
                 {
                     at = Math.Max(at, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
                     action = Interlocked.Increment(ref conn.ActionCount);
                     (px, py) = cast ? conn.Walk.Position(at) : conn.Walk.Order(use.X, use.Y, at);
                     if (cast) conn.Walk.Order(px, py, at);
-                    // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway.
-                    if (gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect)
+                    // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
+                    // there at its own speed instead (ShieldCharge.cs).
+                    if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
+                    else if (gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect)
                         && (conn.Layout.Walkable is not { } canWalk || canWalk(use.X, use.Y)))
                         conn.Walk.Teleport(use.X, use.Y, at);
                     conn.ChannelSkill = cast ? use.SkillId : (ushort)0;
@@ -152,6 +155,8 @@ static partial class Game
                         StartAction();
                     }
                 }
+                if (chargeToken != 0) _ = RunShieldCharge(remote, stream, ciphers, conn, chargeToken, conn.Walk.ArrivesAt,
+                    use.SkillId, use.Slot, cooldownUse?.ActionToken ?? action, cooldownUse);
                 bool projectileRuntime = cast && gem.Name is not null && UsesProjectileRuntime(gem.Effect);
                 if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId,
                     (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);

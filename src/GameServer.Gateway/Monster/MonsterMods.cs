@@ -179,7 +179,7 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         "cannot_have_energy_shield_leeched_from", "base_self_ignite_duration_-%",
         "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%",
         "shocked_effect_on_self_+%", "action_speed_cannot_be_reduced_below_base", "movement_speed_cannot_be_reduced_below_base",
-        "reflect_non_damaging_ailments_%_chance", "monster_chance_to_not_flee_%",
+        "reflect_non_damaging_ailments_%_chance", "monster_chance_to_not_flee_%", "immune_to_culling_strike",
     };
 
     /// <summary>Stats that only stop something the server does not do to monsters yet (curses, wither): true as they

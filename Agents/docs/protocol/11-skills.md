@@ -1583,7 +1583,7 @@ use) with and without the stat is not checked live yet; the Gateway log's 0x01ab
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
 cell when the skill starts (`SkillCatalog.IsMovement`); it kept the starting cell before, and a later resync pulled the
-player back there (live 2026-10-23).
+player back there (live 2026-10-23). Shield Charge instead walks there at its charge speed and hits on the way (§10k).
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y, the player's cell) every few frames while the button is held, and **C→S 0x199** (2 bytes) when it is let go
@@ -2097,6 +2097,19 @@ passive or another item changes which weapons qualify. Because the client still 
 (the effect's ActiveSkills `WeaponRestriction_ItemClassesKeys`) against the active hands' ItemClasses rows, an empty or
 inactive main hand counting as Unarmed (row 36), either hand fitting. Automated coverage only; awaiting a native check.
 
+The rest of `FUN_141ee7fb0` (Frida 2026-11-01, `scripts/re/frida/trace-skill-usable.js` and
+`trace-skill-usable-stats.js`), with ebp the main and esi the off hand's type, every test reading the skill's stats:
++0xb0 starts at 1 and is cleared by `skill_number_of_triggers` over 1, `skill_disabled_by_stat`, an Attack (type 1)
+with `disable_skill_if_melee_attack` (unless the main hand is 14 or 9) or `disable_skill_if_weapon_not_bow`,
+RequiresShield (type 10) without an off-hand 0x1b, RequiresStaff (0x86) without a main-hand 0xf or 0x3a, and
+RequiresOffHandNotWeapon (0x6a). DualWieldOnly (4) needs both hands fitting and, with DualWieldRequiresDifferentTypes
+(0x77), different types (Varunastra's stats 0x1066/0x1067 excepted). Then neither hand fitting clears it, and so does
+**`is_dual_wielding` (0xf6) with the main hand not fitting**, unless the off hand is 0x68, 0x1b or 0x15 and the main
+hand fits. Shield Charge's only class is Shield, so the main hand never fits it: with `is_dual_wielding` 1, which the
+client held because the server never sent it (stats from the network run no calculators,
+[13](13-items.md) "Client weapon-type stats"), it stayed greyed out beside a sceptre (live 2026-11-01). The Gateway now
+sends `is_dual_wielding` with both hands' weapon types, and the skill is usable.
+
 ## 10b. Actor restriction: warcry skills disabled
 
 `your_warcry_skills_are_disabled` is Stats row 5408, wire key 5409 in 3.29.3b.
@@ -2441,6 +2454,66 @@ A Righteous Fire already burning keeps burning: it deals the enemies no damage (
 handling of an aura that is running when the restriction starts is unverified.
 Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
 
+## 10k. Shield Charge: the charge action
+
+Found with Frida on 2026-11-01 (`scripts/re/frida/trace-action-state.js`, `trace-call-stats.js`, `trace-stat-source.js`,
+`trace-charge-hits.js`); usability (the shield beside a one-handed weapon) is §10a.
+
+**The action.** The client creates the local player's actions in `0x141ee97f0` (manager, &action, skill id) and starts
+them in `0x141e8cf10`; an action's +0x118 is its type HASH16 and +0x11a the use's sequence (the skill id is not stored
+there; older notes had the two swapped). Shield Charge is type 0x2bc0, vtable `0x143324da8`, constructor `0x1413c6d80`.
+It derives from a moving-attack class (`0x141a6b7d0`) whose per-frame update `0x141a6c060` has three phases:
+
+- **Travel** (+0x3e5 and +0x3e8 set): the setup `0x141a6bae0` reads `shield_charge_range_+%`,
+  `shield_charge_extra_distance` and `global_knockback` and lays out the path; the update moves the player at its
+  mover's speed (float +0x240 of `[[action+0xe8]+8]+0x98`) and calls the action's hit function (vtable +0x550,
+  `0x1413c79d0`, which forwards to `0x141a6d7c0`) with kind 0 along the way.
+- **Arrival**: `0x141a6ca30` stops the mover and calls vtable +0x530. The parent's `0x141a6cb60` would start the end
+  phase at once (kind 2); Shield Charge overrides it with `0x1413c7780`, which tail-calls `0x141a6df00`: the final hit
+  (kind 1), then the end-of-charge attack's animation (`0x141e9a3c0`), reading `shield_charge_attack_time_+30%_if_no_charge`.
+- **End phase** (+0x3f8): only `0x141a6d7c0` with kind 2 sets it, from that animation's completion; it runs the scheduled
+  events (count +0x3fc, next +0x400, elapsed +0x404 against duration +0x420) and ends the action.
+
+**The end attack swings the shield.** It reads `off_hand_total_base_weapon_attack_duration_ms`, which the Gateway sent
+only for an off-hand weapon (`SkillCatalog.Unarmed.OffStats`). At 0 the animation started but never completed: the
+end phase never began, the player kept running in place after arriving and no other skill could be used until a walk.
+A shield skill with a shield in the off hand now carries the gem's own GrantedEffectsPerLevel `AttackTime` (Shield
+Charge 500 ms) as `off_hand_base_weapon_attack_duration_ms` and `off_hand_total_base_weapon_attack_duration_ms`
+(`SkillCatalog.AttackTimeMs`, `RequiresShield`); the client adds the +30% itself. Verified live: the charge stops and
+plays its end effect.
+
+**Speed.** The mover's speed comes from `0x141e7c0b0`: base (+0x548) × (1 + `movement_velocity_+%` / 100) ×
+(1 + `virtual_action_speed_+%` / 100), capped by `movement_velocity_cap`, all read from the player's own Stats component
+(the network getter `0x1424cfa40`: sorted (key, value) pairs at +0xf0..+0xf8, then the provider at +0xe0), not the
+skill's record. The game adds the gem's `base_movement_velocity_+%` (+90 at level 1) through the invisible buff
+`shield_charge_movement_speed_while_charging` (BuffDefinitions 1352); network stats run no calculators, so the Gateway
+adds it to the pools' movement speed from the use until its own walk arrives (`ShieldCharge.cs`, `Progression.cs`) and
+sends the player stats at both ends. Its walk estimate goes to the aimed cell at that speed instead of the generic
+movement skill's teleport (§9a). Verified live: `movement_velocity_+%` 22 → 112 → 22, the charge twice as fast; the
+first stats update arrives after the client has started the charge, and the client takes it up mid-charge.
+
+**Hits.** The client's (`trace-charge-hits.js`, four charges): kind 0 at its position as it starts and then about every
+100 ms (every ~8 cells at charge speed) within 8 cells (`0x141a6d760` returns the range), kind 1 within 16 cells where
+it arrives, and kind 2 (range 28) as the end phase starts. The Gateway lands kind 0 and 1 on its own walk
+(`RunShieldCharge`): path hits every 100 ms within 8 cells, each monster at most once per charge (neighbouring path
+areas overlap), and a final hit within 16 cells reaching every monster there. The generic area hit, which landed once
+around the starting cell, skips Shield Charge. Verified live: path and arrival hits land.
+
+**Maximum distance.** The setup stops a charge aimed further away at 75 cells × (1 + `shield_charge_range_+%` / 100)
+(integer, `(100 + range) * 75 / 100`) along the aim; the Gateway clamps its walk the same way. The setup also adds
+`shield_charge_extra_distance` past the aim, and uses 14 cells instead while its +0x2d0 is below +0x2d4 (not read).
+
+**Damage.** A shield skill (Shield Charge, Shield Crush) swings the shield, which has no weapon damage: its base is the
+gem's `off_hand_local_minimum/maximum_added_physical_damage` plus its added damage per 15 of the shield's own
+(local) armour and evasion rating, at the gem's `AttackTime` (`ShieldWeapon`); hits and the Offence tab use it, the tab
+at the off hand's speed. Shield Charge's description of `shield_charge_damage_+%_maximum` (skill_stat_descriptions.txt)
+is "{0}% more Damage with Hits at Maximum Charge Distance": the Gateway scales each hit linearly by the distance from
+the start over the maximum (a guess; the client's ramp is not read). Verified live: level 1 with a 219-armour shield,
+base 51–83, panel 79–136 and 2.1 attacks per second, hits ×1.00 at the start up to ×1.83 at 62 cells.
+
+**Not modelled yet:** the stun and knockback scaling, `shield_charge_extra_distance`, and the end phase's kind-2
+effects.
+
 ## 10f. Synthetic action instructions (S→C 0x1ce / 0x1cf)
 
 These are action instructions, distinct from per-target hit results or C→S collision reports.
@@ -2572,7 +2645,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
   each living hostile monster within the radius of the living player with 0x1c1 and takes it off with 0x1c2 when it
   leaves, the player dies or the node is refunded; a vanished monster is forgotten without a message
   (`PassiveBuffAuras.BlindState`). The invisible aura buff on the player is not sent: nothing on the client reads it
-  that we know of. `Game.Blinded` (smoke cloud or aura) is the one Blind condition the hits read: 20% less monster
+  that we know of. `Game.Blinded` (smoke cloud, aura or a hit's Blind, below) is the one Blind condition the hits read: 20% less monster
   accuracy and evasion, `critical_strike_chance_+%_vs_blinded_enemies` in the player's increased critical chance
   against the target, `damage_taken_+%_from_blinded_enemies` on its hits ([Polytheist](../game/polytheist.md)).
 - **Passive-granted skills** (`PassiveGrantedSkills.cs`, §10f): a passive's PassiveSkills `GrantedEffectsPerLevel`
@@ -2584,7 +2657,8 @@ failed I/O, allocation limits, actual official values and every skill's successf
   restarts it when the walk ends. The Templar rig's 18 run clips loop in 800 ms with footstepright at 233 ms and
   footstepleft at 633 ms, so each passed event is one trigger. A movement skill teleports the walk, so it takes no
   steps (the wiki: movement skills do not trigger it). The wiki's exception, Shield Charge (the player still walks,
-  faster), is a known gap: it is a Movement skill here and blinks too, so it triggers nothing. `TriggerFootstepSkill`
+  faster), now walks its charge (§10k), so the clock advances during it at the charge speed; not checked live yet.
+  `TriggerFootstepSkill`
   sends the explosion where the player
   stands: an `EffectObject` with SkillArtVariations `repeating_shockwave`'s default (MiscAnimated 1173
   `AbberathsHoovesImpact`, `Abberaths_Hooves_fireimpact.ao`, whose own SoundEvent is the step sound), its wake zone, and
@@ -2730,6 +2804,35 @@ failed I/O, allocation limits, actual official values and every skill's successf
   Taunt), raised by `taunt_duration_+%`; a new taunt replaces the player's older one; a death of the monster or the
   player ends it. BuffDefinitions 408 `taunted` shows it with its time left (flags bit1). The row is IsRecovery
   (+0x7c), so its 0x1c1 carries its two GrantedStats values: `taunt_target_id` (the player) and `is_taunted` 1.
+- **Intimidate and Unnerve** (`HitDebuffs`). A player hit that lands on a living monster rolls
+  `chance_to_intimidate_on_hit_%` (plus `attacks_intimidate_on_hit_%` for an attack) and `chance_to_unnerve_on_hit_%`
+  (plus `chance_to_unnerve_on_hit_with_spells_%` for a spell), with `Random.Shared`; Grattus Signet's
+  `spells_inflict_intimidate_on_crit` and `attacks_inflict_unnerve_on_crit` inflict them on a critical strike. Each lasts
+  4 s from the latest hit that inflicts it (poedb: "Intimidate Enemies for 4 seconds on Hit"). `intimidated` (733) and
+  `unnerved` (1412) show them with their time left, like the taunt; neither row is IsRecovery, so they carry no values.
+  An intimidated monster takes 10% increased damage from attack hits and an unnerved one from spell hits (poedb), added
+  to its `base_damage_taken_+%` in `MonsterTakesMitigated` and the hit's ailment damage, not in burns. Not read: the
+  weapon-local chance, "Nearby Enemies are Intimidated" auras, the full-life, curse, block and warcry sources, minions'
+  chances and Intimidate's stun duration stat.
+- **Blind on hit** (`HitDebuffs.BlindRoll`). The same hit makes one roll for the sum of `global_chance_to_blind_on_hit_%`
+  (the Blind support's 10%), `attacks_chance_to_blind_on_hit_%` for an attack and
+  `%_chance_to_blind_on_critical_strike` on a critical strike. Blind lasts 4 s (poedb: "base duration of Blind is 4
+  seconds") × (1 + `blind_duration_+%`/100) from the latest hit that inflicts it (`SpawnedMonster.BlindedUntil`), and
+  `EnemyDebuffsTick` shows it with the `blinded` buff (179) and its time left, like Intimidate. `Game.Blinded` counts
+  it, so it has the aura's effects above. Not read: `blind_effect_+%`, the weapon-local chance
+  (`local_chance_to_blind_on_hit_%`, on the panel only), `cannot_be_blinded` and `avoid_blind_%` on monsters (no
+  Blind source checks them), the conditional chances and minions' chances.
+- **Withered on hit** (`HitDebuffs.WitherRoll`). The same hit makes one roll for `withered_on_hit_for_2_seconds_%_chance`
+  (items, the weapon tree) plus Withering Touch's `withered_on_hit_chance_%`. A stack lasts the support's
+  `support_withered_base_duration_ms` or else 2 s, divided by (1 + `wither_expire_speed_+%`/100) for the Eldritch gloves'
+  "expires slower". Each gives 6% increased chaos damage taken × (1 + `withered_effect_+%`/100), up to 15 stacks with
+  their own ends; a 16th replaces the one ending first (poedb Withered: 6%, "stacking up to 15 times"; the replacement is
+  not checked). It adds to the monster's increased damage taken on the chaos part of a hit in `MonsterTakesMitigated`
+  and on chaos damage over time in `MonsterDotTaken`. `EnemyDebuffsTick` shows the `withered` buff (506, IsRecovery:
+  `chaos_damage_taken_+%` and `is_withered`, sent as one stack's value and 1) once, with the stack count and the time
+  the last stack has left, again when either changes. Whether the client wants one instance per stack instead is not
+  checked. A monster with `immune_to_wither` takes none. Not read: the weapon-local chance, the target's
+  `withered_effect_on_self_+%`, Wither the skill, the auras and the conditional sources.
 - **Where it runs.** The player tick (`RunPlayerTick`, 250 ms, not while paused) calls `TickPassiveAuras`, which
   does `EnemyDebuffsTick`; the step works at the send gate, so a removed monster gets no buff. The auras come from
   the allocated nodes at each step, `taunted_enemies_damage_taken_+%` from the stats last sent
