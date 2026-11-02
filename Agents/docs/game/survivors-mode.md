@@ -175,8 +175,8 @@ name. Heralds take no supports: the real gem is a buff (its damage is the buff's
 damage supports have nothing to modify; the run's aura pulse is the mode's own effect.
 
 The full matrix over the run's projectile skills: every one has 6-8 compatible supports (Faster Casting is spell-only,
-Increased Area needs an area skill), and `SurvivorsSupportMatrixTests` walks every skill x every support through the
-same `SurvivorsComputeCast` the live cast uses, asserting the support's own number moves:
+Increased Area needs an area skill), and `SurvivorsSupportMatrixTests` walks every skill x every support at rank 1 and
+rank 8 through the same `SurvivorsComputeCast` the live cast uses, asserting the support's own number moves:
 
 | Support | Gem stat (level 1) | What the matrix sees |
 |---|---|---|

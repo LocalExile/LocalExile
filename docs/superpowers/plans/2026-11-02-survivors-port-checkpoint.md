@@ -62,11 +62,11 @@ damage number:
   run skill; the level-up offer only pairs legal links and `/survivors link` refuses an illegal one by name. Heralds
   take no supports (the real gem is a buff, not the run's pulse).
 - **The full matrix is tested.** `SurvivorsComputeCast` is the pure half of the live cast (stats, interval, profile,
-  hit, crit, leech, herald pulse); `SurvivorsSupportMatrixTests` walks every run skill x every support through it and
-  asserts each support's own number moves: Added Fire 25% of physical as fire, Added Cold 4-6 x effectiveness,
-  Added Lightning 1-8 x effectiveness, Faster Casting interval, Increased Area radius, Increased Critical +2% base and
-  +60%, Faster Projectiles 50% speed + 20% damage, Life Leech 200 permyriad. Every projectile skill has 6-8 compatible
-  supports, and the test fails if one drops below five.
+  hit, crit, leech, herald pulse); `SurvivorsSupportMatrixTests` walks every run skill x every support at rank 1 and
+  rank 8 through it and asserts each support's own number moves: Added Fire 25% of physical as fire, Added Cold 4-6 x
+  effectiveness, Added Lightning 1-8 x effectiveness, Faster Casting interval, Increased Area radius, Increased
+  Critical +2% base and +60%, Faster Projectiles 50% speed + 20% damage, Life Leech 200 permyriad. Every projectile
+  skill has 6-8 compatible supports, and the test fails if one drops below five.
 - **Live matrix evidence** (`/survivors matrix`): Ethereal Knives `Physical 7-11` -> Added Fire `Fire 1.75-2.75`, Added
   Cold `Cold 8.4-12.6`, Added Lightning `Lightning 2.1-16.8`, crit `10 -> 19.2%`, Faster Projectiles speed `257.6 ->
   386.4` and hit `7-11 -> 8.4-13.2`, Life Leech `0 -> 1000`; Fireball `Fire 9-14` -> Added Cold `12-18`, Added

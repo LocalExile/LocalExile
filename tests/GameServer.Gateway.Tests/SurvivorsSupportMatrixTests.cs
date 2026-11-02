@@ -47,8 +47,6 @@ public sealed class SurvivorsSupportMatrixTests
             foreach (int skillIndex in Enumerable.Range(0, catalog.Count))
             {
                 var skill = catalog[skillIndex];
-                var bare = Game.SurvivorsComputeCast(conn, RunFor(skillIndex), skill, 1, skillIndex, roster);
-                if (bare is null) continue;
                 if (skill.Kind == SurvivorsSkillKind.Herald)
                 {
                     // The real gem is a buff: these damage supports have no pulse hit to modify, so the offer never
@@ -57,49 +55,55 @@ public sealed class SurvivorsSupportMatrixTests
                         support => Assert.False(Game.SurvivorsCanSupport(conn, skillIndex, support)));
                     continue;
                 }
-                int known = 0;
-                for (int supportIndex = 0; supportIndex < supports.Count; supportIndex++)
+                // Rank 1 and the max rank 8: the support's per-level stats scale with the gem level it supports.
+                foreach (int rank in new[] { 1, 8 })
                 {
-                    bool legal = Game.SurvivorsCanSupport(conn, skillIndex, supportIndex);
-                    var with = Game.SurvivorsComputeCast(conn, RunFor(skillIndex, supportIndex), skill, 1, skillIndex, roster);
-                    if (!legal)
+                    var bare = Game.SurvivorsComputeCast(conn, RunFor(skillIndex), skill, rank, skillIndex, roster);
+                    Assert.True(bare is not null, $"{skill.Name} rank {rank}: no cast");
+                    int known = 0;
+                    for (int supportIndex = 0; supportIndex < supports.Count; supportIndex++)
                     {
-                        // The offer never pairs these; the matrix must not accidentally claim they work.
+                        bool legal = Game.SurvivorsCanSupport(conn, skillIndex, supportIndex);
+                        var with = Game.SurvivorsComputeCast(conn, RunFor(skillIndex, supportIndex), skill, rank, skillIndex, roster);
+                        if (!legal)
+                        {
+                            // The offer never pairs these; the matrix must not accidentally claim they work.
+                            Assert.NotNull(with);
+                            continue;
+                        }
+                        known++;
+                        pairs++;
+                        var name = supports[supportIndex].Support;
                         Assert.NotNull(with);
-                        continue;
+                        bool moved = name switch
+                        {
+                            SurvivorsSupport.AddedFire => bare!.Raw![DamageType.Physical].Max > 0
+                                ? with!.Shot!.Hit[DamageType.Fire].Max > bare.Shot!.Hit[DamageType.Fire].Max
+                                : with!.Shot!.Hit[DamageType.Fire].Max == bare.Shot!.Hit[DamageType.Fire].Max,
+                            SurvivorsSupport.AddedCold => with!.Shot!.Hit[DamageType.Cold].Max > bare!.Shot!.Hit[DamageType.Cold].Max,
+                            SurvivorsSupport.AddedLightning => with!.Shot!.Hit[DamageType.Lightning].Max > bare!.Shot!.Hit[DamageType.Lightning].Max,
+                            SurvivorsSupport.FasterCasting => with!.Interval < bare!.Interval || bare.Interval <= 0.2000001,
+                            SurvivorsSupport.Area => with!.Profile!.Radius > bare!.Profile!.Radius,
+                            SurvivorsSupport.Critical => with!.Shot!.CriticalChance > bare!.Shot!.CriticalChance,
+                            SurvivorsSupport.FasterProjectiles => with!.Profile!.Speed > bare!.Profile!.Speed
+                                && with.Shot!.Hit.MaxTotal > bare.Shot!.Hit.MaxTotal,
+                            SurvivorsSupport.LifeLeech => with!.Shot!.Leech.Life.MinTotal > 0,
+                            _ => false,
+                        };
+                        if (!moved)
+                        {
+                            unimplemented++;
+                            Assert.Fail($"{supports[supportIndex].Name} -> {skill.Name} rank {rank}: the support moved none of its numbers " +
+                                $"(interval {bare!.Interval}->{with.Interval}, radius {bare.Profile?.Radius}->{with.Profile?.Radius}, " +
+                                $"crit {bare.Shot?.CriticalChance}->{with.Shot?.CriticalChance}, fire {bare.Shot?.Hit[DamageType.Fire]}->" +
+                                $"{with.Shot?.Hit[DamageType.Fire]}, cold {bare.Shot?.Hit[DamageType.Cold]}->{with.Shot?.Hit[DamageType.Cold]}, " +
+                                $"lightning {bare.Shot?.Hit[DamageType.Lightning]}->{with.Shot?.Hit[DamageType.Lightning]}, " +
+                                $"speed {bare.Profile?.Speed}->{with.Profile?.Speed}, leech {bare.Shot?.Leech.Life.MinTotal}->" +
+                                $"{with.Shot?.Leech.Life.MinTotal}).");
+                        }
                     }
-                    known++;
-                    pairs++;
-                    var name = supports[supportIndex].Support;
-                    Assert.NotNull(with);
-                    bool moved = name switch
-                    {
-                        SurvivorsSupport.AddedFire => bare.Raw![DamageType.Physical].Max > 0
-                            ? with!.Shot!.Hit[DamageType.Fire].Max > bare.Shot!.Hit[DamageType.Fire].Max
-                            : with!.Shot!.Hit[DamageType.Fire].Max == bare.Shot!.Hit[DamageType.Fire].Max,
-                        SurvivorsSupport.AddedCold => with!.Shot!.Hit[DamageType.Cold].Max > bare.Shot!.Hit[DamageType.Cold].Max,
-                        SurvivorsSupport.AddedLightning => with!.Shot!.Hit[DamageType.Lightning].Max > bare.Shot!.Hit[DamageType.Lightning].Max,
-                        SurvivorsSupport.FasterCasting => with!.Interval < bare.Interval || bare.Interval <= 0.2000001,
-                        SurvivorsSupport.Area => with!.Profile!.Radius > bare.Profile!.Radius,
-                        SurvivorsSupport.Critical => with!.Shot!.CriticalChance > bare.Shot!.CriticalChance,
-                        SurvivorsSupport.FasterProjectiles => with!.Profile!.Speed > bare.Profile!.Speed
-                            && with.Shot!.Hit.MaxTotal > bare.Shot!.Hit.MaxTotal,
-                        SurvivorsSupport.LifeLeech => with!.Shot!.Leech.Life.MinTotal > 0,
-                        _ => false,
-                    };
-                    if (!moved)
-                    {
-                        unimplemented++;
-                        Assert.Fail($"{supports[supportIndex].Name} -> {skill.Name}: the support moved none of its numbers " +
-                            $"(interval {bare.Interval}->{with.Interval}, radius {bare.Profile?.Radius}->{with.Profile?.Radius}, " +
-                            $"crit {bare.Shot?.CriticalChance}->{with.Shot?.CriticalChance}, fire {bare.Shot?.Hit[DamageType.Fire]}->" +
-                            $"{with.Shot?.Hit[DamageType.Fire]}, cold {bare.Shot?.Hit[DamageType.Cold]}->{with.Shot?.Hit[DamageType.Cold]}, " +
-                            $"lightning {bare.Shot?.Hit[DamageType.Lightning]}->{with.Shot?.Hit[DamageType.Lightning]}, " +
-                            $"speed {bare.Profile?.Speed}->{with.Profile?.Speed}, leech {bare.Shot?.Leech.Life.MinTotal}->" +
-                            $"{with.Shot?.Leech.Life.MinTotal}).");
-                    }
+                    if (rank == 1 && known < 5) tooFew.Add($"{skill.Name} ({known})");
                 }
-                if (known < 5) tooFew.Add($"{skill.Name} ({known})");
             }
             Assert.Empty(tooFew);
             Assert.True(pairs > 150, $"only {pairs} legal skill/support pairs");
