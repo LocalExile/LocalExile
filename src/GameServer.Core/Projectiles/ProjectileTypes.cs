@@ -46,7 +46,7 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
 }
 public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
-    bool RandomDirections = false);
+    bool RandomDirections = false, bool RandomPhase = false);
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);
 public sealed record ProjectileSplitFormRecipe(double SpeedMultiplier, int Pierce);
@@ -184,6 +184,9 @@ public sealed record ProjectileProfile(string Id)
     public Func<int, IProjectileLegs>? Legs { get; init; }
     /// <summary>A legged flight ends this far from where it started; zero has no limit.</summary>
     public double LegLeash { get; init; }
+    /// <summary>The server simulates this flight for damage but sends no object: the client draws it itself (Tornado
+    /// Shot's terminal secondary arrows).</summary>
+    public bool HideVisual { get; init; }
 }
 
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,

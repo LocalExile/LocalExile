@@ -57,9 +57,49 @@ static class GatewayProjectileSkillProfiles
             p = p with { HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(0.66)) };
 
         p = GatewayProjectileModifiers.Resolve(p, get, attack);
+        if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
+    }
+
+    static bool IsTornadoShot(string effect) => effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY";
+
+    // The client's primary arrow pierces enemies and, at its terminal point, generates an ordinary secondary group:
+    // three TornadoShotSecondaryArrow flights spaced around a random base ray. The server simulates that group for
+    // damage but hides its objects because the client draws the same arrows itself. The client's own random aim
+    // derivation is not ported; this uses a uniform random phase instead.
+    static ProjectileProfile TornadoShotChildren(ProjectileProfile parent, Func<string, int> get)
+    {
+        int count = Math.Clamp(get("tornado_shot_num_of_secondary_projectiles") is > 0 and var n ? n : 3, 1, 256);
+        var child = parent with
+        {
+            Id = "Metadata/Projectiles/TornadoShotSecondaryArrow",
+            Count = count,
+            NativeVolley = null,
+            SpreadRadians = 0,
+            AimSpreadDistance = 0,
+            Range = SystemSettings.Default.ProjectileMaximumRangeCells,
+            // The client's secondary arrows fade over a short fixed time, so projectile speed sets their range.
+            Lifetime = ProjectileRuntime.Time(.5),
+            SequentialDelay = 0,
+            CountConsumer = ProjectileCountConsumer.Primary,
+            Pierce = parent.Pierce, Fork = parent.Fork, Chain = parent.Chain, Split = 0,
+            CannotPierce = parent.CannotPierce, CannotFork = parent.CannotFork, CannotChain = parent.CannotChain,
+            CannotSplit = true,
+            Returns = false, ReturnChancePercent = 0, ReturnRolls = null, CannotReturn = true,
+            EndEmission = null, TravelEmission = null, Pulse = null,
+            EndArea = null, EndAreaReasons = null, EndAreaOnReturnTurnaround = false, ContactArea = null,
+            ContactTargets = null, Lobbed = false, Legs = null, LegLeash = 0, GroundChains = 0,
+            FormChange = null, SplitForm = null, SplitOnTerrain = false,
+            HideVisual = true
+        };
+        return parent with
+        {
+            // Client +0x330 bit 0x4: the ordinary primary arrow pierces before its terminal child group.
+            Pierce = Math.Max(parent.Pierce, 1_000_000), CannotPierce = false,
+            EndEmission = new(child, Radial: true, RandomPhase: true)
+        };
     }
 
     public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<string, int> get, bool spell)

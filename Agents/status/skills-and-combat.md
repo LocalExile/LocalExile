@@ -339,8 +339,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   GGG's server sends no object for ordinary bow arrows either, so the live client draws them itself (live capture
   2026-10-29, [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named
-  after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); it is the
-  basic straight-flight arrow only: the secondary arrows from the target point are not modelled yet.
+  after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); the
+  terminal secondary group is in Partly working.
   Projectiles spawn at the captured terrain height + the releasing clip's keyframe height (the bow 16 steps, a wand
   12, the Sand Spitter's spit 9; `Game_PROJECTILE_HEIGHT`, 5 steps, without rig data) on natural ground; without a
   capture they use the bare offset.
@@ -649,6 +649,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §9.
 
 ## Partly working
+
+- Tornado Shot terminal secondaries: each primary arrow pierces its contacts and emits three
+  `TornadoShotSecondaryArrow` flights at its endpoint, spaced around a uniform random group phase. The server
+  simulates their damage but hides their objects because the client draws the same arrows itself; one secondary per
+  set can hit an enemy, and the children keep support Pierce/Fork/Chain. Their range uses a provisional 0.5 s
+  fade/lifetime, so projectile speed scales it, and Point Blank/Far Shot distance includes the primary leg. The
+  client's native aim/phase derivation and exact secondary range are not ported; profile tests cover the setup, but
+  live damage and visuals are not checked yet.
+  Code: `GatewayProjectileSkillProfiles.cs`, `ProjectileStages.cs`, `ProjectileTypes.cs`, `Projectiles.cs`;
+  wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
+  [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
 
 - Selected supported-spell panel: final linked-support damage replaces both spell and inherited hand ranges,
   clearing removed types and updating pre-critical average/DPS from the supported cast time.

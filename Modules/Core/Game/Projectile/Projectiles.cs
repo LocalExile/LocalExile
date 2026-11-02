@@ -319,6 +319,7 @@ static partial class Game
                     value.Kind == ProjectileEventKind.Area ? value.Radius : null);
             // The client draws its own primary projectiles of a skill use; the server still simulates them (contacts,
             // areas and continuation children, which do get objects).
+            if (value.Kind == ProjectileEventKind.Spawn && p.Profile.HideVisual) return;
             if (value.Kind == ProjectileEventKind.Spawn && p.ParentId == 0
                 && p.Use.Payload is ProjectileOffense { ClientPredicted: true }) return;
             if (value.Kind == ProjectileEventKind.Spawn)
