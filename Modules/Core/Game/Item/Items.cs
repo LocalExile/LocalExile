@@ -510,6 +510,8 @@ static partial class Game
     // The instance's items on the ground, where they were left (InstanceStore): dropped or looted on an earlier connection.
     internal static async Task SendGroundItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        // A survivors run keeps the ground clear: no loot reaches the client at all.
+        if (conn.Survivors is not null) return;
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),

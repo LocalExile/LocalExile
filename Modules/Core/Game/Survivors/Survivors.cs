@@ -254,6 +254,9 @@ static partial class Game
         Console.WriteLine($"[gateway] {remote} survivors run started in {conn.Layout.Id} at level {roster.Level}: " +
             $"{roster.Varieties.Count} varieties, {roster.Bosses.Count} boss(es), {run.MaxAlive} alive at most, " +
             $"base damage {roster.WeaponDamage}, {catalog.Count} skills, {SurvivorsBlessingsFor(conn).Count} blessings");
+        // The run hides the loot already lying in the area: the client forgets the objects (the instance keeps them).
+        foreach (var (id, _) in conn.Instance.Ground.All())
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb survivors hide world item 0x{id:x}");
         // The run's skills go out as Actor skills, which puts their gems and cooldowns on the skill bar.
         await SendSkills(remote, stream, ciphers, conn);
         _ = RunSurvivors(remote, stream, ciphers, conn, run, roster, catalog, stage: 0);
@@ -325,6 +328,15 @@ static partial class Game
         var args = command.Args;
         string what = args.Count == 0 ? "status" : args[0].ToLowerInvariant();
         if (what == "start") { await StartSurvivors(remote, stream, ciphers, conn); return; }
+        // Dev: bank a level without waiting for the horde to die, so the choice window can be tested at once.
+        if (what == "level")
+        {
+            if (conn.Survivors is not { } levelling) { await conn.Commands!.Reply("No survivors run is active."); return; }
+            int before = levelling.Level;
+            for (int i = 0; i < 4; i++) levelling.RecordKill(MonsterRarity.Unique);
+            await conn.Commands!.Reply($"Run level {before} -> {levelling.Level} (dev).");
+            return;
+        }
         if (what == "stop")
         {
             if (conn.Survivors is null) { await conn.Commands!.Reply("No survivors run is active."); return; }
