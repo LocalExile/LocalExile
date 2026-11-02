@@ -34,8 +34,10 @@ A run also ends on death, on victory at 15:00, or when the area changes.
 ## Run skills
 
 The run starts with the first skill the item catalogue resolves (normally **Fireball**). Each level-up opens the client's
-own reward window with three items: a new skill while a slot is free (four slots), a support for a learned skill, a new
-blessing while one is free (six), the next rank of a skill or blessing, and — every third run level — a unique item.
+own reward window with three choices drawn from the reference's weighted pool: a skill rank (1.2), a new skill (1.0),
+a support (0.9), a blessing rank (0.8), a new blessing (0.5) and — every third run level — a unique item (0.4). With
+everything mastered the window offers the reference's **Healthstone**, a full heal. There are six skill slots (six
+blessings, five supports a skill), matching Azeroth Survivors' `MAX_ABILITIES` / `MAX_PASSIVES`.
 Clicking an item sends the window's normal C→S `0x88`; the server maps the item id to the choice, clears the window and
 applies it.
 
@@ -61,16 +63,16 @@ its own), and the cast pipeline reads them exactly as Path of Building does:
 
 **Blessings** are run-local passives shown as support gems, mirroring Azeroth Survivors' passives:
 
-| Blessing | Item | Effect per level |
-|---|---|---|
-| Might | Added Fire Damage Support | +12% increased damage |
-| Haste | Faster Casting Support | +10% increased cast speed |
-| Area | Increased Area of Effect Support | +10% increased area (radius × √1.1) |
-| Critical | Increased Critical Strikes Support | +20% increased critical chance |
-| Leech | Life Leech Support | 0.2% of damage leeched as life |
-| Wisdom | Enlighten Support | +10% run experience |
-| Fortitude | Fortify Support | monster hits deal 2% less (25% base) |
-| Swiftness | Faster Projectiles Support | +10% increased projectile speed |
+| Blessing | Item | Effect per level | Reference passive |
+|---|---|---|---|
+| Might | Added Fire Damage Support | +10% increased damage | Might +10% |
+| Haste | Faster Casting Support | +8% increased cast speed | Arcane Intellect +8% |
+| Area | Increased Area of Effect Support | +10% increased area (radius × √1.1) | Amplify Magic +10% |
+| Critical | Increased Critical Strikes Support | +5 percentage points of base critical chance | Blessing of Kings +5% |
+| Leech | Life Leech Support | 0.2% of damage leeched as life | (PoE addition) |
+| Wisdom | Enlighten Support | +8% run experience | Blessing of Wisdom +8% |
+| Fortitude | Fortify Support | 1/1.2 less damage taken a level (25% → 10.1%) | Power Word: Fortitude +20% life |
+| Swiftness | Faster Projectiles Support | +10% increased projectile speed | Aspect of the Pack +10% speed |
 
 Neither the character's stats nor its save change: every blessing and support is read by the run's own calculation.
 The supports and blessings are summed into the same stat dictionary the gem uses, so one source cannot mean one thing
@@ -81,7 +83,7 @@ to the flight and another to the hit.
 A run skill is the gem at **gem level = run rank** (1-8). The cast reads the gem's own rows, not a hand-written table:
 
 - **Base hit**: `spell_minimum/maximum_base_*_damage` from `GrantedEffectStatSetsPerLevel` (`HitDamage`). An attack gem
-  uses a nominal weapon of 45-90% of the area's median monster life, scaled by the gem's `DamageEffectiveness`
+  uses a nominal weapon of 45-90% of the starting tier pool's median life, scaled by the gem's `DamageEffectiveness`
   (`10000 + offset`, e.g. Burning Arrow 280%); Poisonous Concoction uses its own added chaos damage instead.
 - **Damage**: the Gateway's Path of Building port (`PlayerHitDamage.Resolve`, pinned PoB 16de4b82 `calcDamage`):
   conversion and gain, `increased` buckets (generic, spell/attack, projectile, area, elemental, typed) and each
@@ -93,8 +95,12 @@ A run skill is the gem at **gem level = run rank** (1-8). The cast reads the gem
 - **Ailments**: the hit's fire portion can ignite (`base_chance_to_ignite_%`, 90% of the fire damage a second for 4 s,
   +50% multiplier on a critical hit); cold and lightning hits chill/freeze/shock through the normal monster-ailment
   thresholds. Poison is not simulated (the monster poison DOT has no server model yet).
-- **Damage anchor**: the catalogue's median rank-1 spell hit lands for the area's median monster life, so each area
-  stays playable while the gems keep their relative strength and their own gem-level curves.
+- **Rank curve**: a run skill's base is the gem's own first-level row (its identity: base damage, effectiveness,
+  conversion, crit), and the run then applies the reference's **+30% damage a rank** (3.1× at rank 8), with the
+  gem-level crit/effectiveness and each support layered on top.
+- **Damage anchor**: the catalogue's median rank-1 spell hit lands for the **starting tier pool's** median monster
+  life (the three weakest varieties), not the area's whole-roster median: the opening kill takes one or two hits, and
+  the tier ladder plus the rank curve carry the rest.
 
 Per-gem mechanics the shared projectile rules carry: Fireball explodes in an area, Kinetic Blast's impact blooms into
 four cluster explosions, Tornado Shot's arrow fires three secondary arrows, Spark wanders on its native seeded legs and
@@ -146,14 +152,48 @@ nominal weapon. Only items
 that fit an equipment row are offered: a jewel or flask has nowhere to go in a character whose inventory is emptied at
 the start, so it would be a wasted reward.
 
+## Difficulty and power curve
+
+The numbers follow Azeroth Survivors' `data.rs` / `enemies.rs` / `hud.rs` (read 2026-11-03); `/survivors curve` prints
+the table in game.
+
+| Time | Horde alive | Monster life | Monster damage | Boss life (× the tier pool top) | Boss XP |
+|---|---|---|---|---|---|
+| 0:00 | 14 | ×1.00 | ×1.00 | ×26.92 | 60 |
+| 2:08 | 43 | ×1.11 | ×1.13 | ×25.71 | 120 |
+| 4:17 | 73 | ×1.21 | ×1.26 | ×49.41 | 200 |
+| 6:25 | 102 | ×1.32 | ×1.39 | ×31.82 | 300 |
+| 8:34 | 132 | ×1.43 | ×1.51 | ×50.00 | 400 |
+| 10:42 | 161 | ×1.54 | ×1.64 | ×47.62 | 500 |
+| 12:51 | 191 | ×1.64 | ×1.77 | ×60.00 | 600 |
+| 15:00 | 220 | ×1.75 | ×1.90 | ×60.00 | 600 |
+
+- **Horde**: 14 → 220 alive (`SurvivorsRules.TargetAlive`), refilled every 0.12 s with `ceil(gap/6)` bodies, at most
+  four a tick (`SpawnRefill`). The spawner draws from a sliding pool of three consecutive tiers over thirty steps of
+  the run (`WavePool`) — the area's own varieties, weakest first.
+- **Surround wave**: 28 + 60·progress bodies on a 26-cell ring at 67.5 s into each area.
+- **Clock**: +75% monster life and +90% monster damage over the run, applied as `maximum_life_+%` / `damage_+%` on
+  every horde spawn (normal, magic, rare and boss alike).
+- **Power**: six skill slots, eight ranks; +30% damage and ×0.93 interval a rank; one more projectile at ranks 3, 5
+  and 7; +8% radius a rank; six blessings at the reference's per-level values. A mastered build is roughly 20× its
+  starting damage per skill, which keeps pace with the tier ladder the way the reference's six abilities do.
+
+**Mapping deviations.** The mode fights real PoE monsters with a real character, so absolute numbers cannot be copied:
+the boss ladder is a ratio over the area's top tier, and Fortitude's +20% life becomes 1/1.2 less damage taken. The
+reference's ground XP gems and magnet passive have no counterpart (experience is paid on the kill, and the instance's
+loot sweep stays off), movement speed is client-owned, and the reward window is the client's quest-reward window, so
+card rarity colours are not reproduced.
+
 ## Boss gate
 
 Each stage is one area with its lore boss. The boss is the area's own unique from `MonsterPacks` (the same one the
-normal area spawns), arrives 15 run-seconds into the stage, and announces itself with the area's name. The 120-second
-timer no longer opens the way by itself: when it runs out and the boss still lives, the run stays in the area and says
-"The way is sealed until <boss> falls." Killing the boss marks the stage cleared; the next area opens at the next
-tick, with the run level, skills, blessings and uniques carried over. An area with no boss (a town-like layout) has no
-gate.
+normal area spawns), arrives 15 run-seconds into the stage, and announces itself with the area's name. Its life is the
+**tier pool the area is drawing from at that stage** × the reference's ladder `[26.92, 25.71, 49.41, 31.82, 50, 47.62,
+60]` × the clock's life scale, and its kill pays the reference's boss experience `60, 120, 200, 300, 400, 500, 600`
+(the ordinary unique kill's 50 XP is part of that total). The 120-second timer no longer opens the way by itself: when
+it runs out and the boss still lives, the run stays in the area and says "The way is sealed until <boss> falls."
+Killing the boss marks the stage cleared; the next area opens at the next tick, with the run level, skills, blessings
+and uniques carried over. An area with no boss (a town-like layout) has no gate.
 
 `Game_SURVIVORS_STAGE_SECONDS` (at least 15) shortens the stage for verification; the default is 120.
 
@@ -236,22 +276,22 @@ inventory row), so nothing from an earlier run carries in.
 |---|---|
 | Run length | 900 s |
 | Levels (areas) | the run moves to the next area every 120 s, but **only after that area's lore boss falls**; the boss is the area's own `MonsterPacks` unique (e.g. Hillock in the Twilight Strand), arrives 15 s into the stage and holds the way sealed while alive |
-| Monsters kept alive | 14 at the start growing to the cap (120) at the end |
-| Spawn cadence | every 0.5 s, at most 4 per step, on a 30-38 cell ring around the player |
-| Roster | the area's own `MonsterPacks`, deduplicated, ordered by the life the client gives the variety at the area level; the last four unlocked varieties are drawn from |
+| Monsters kept alive | 14 at the start growing to the cap (220) at the end |
+| Spawn cadence | every 0.12 s, `ceil(gap/6)` at most 4 per step, on a 30-38 cell ring around the player |
+| Roster | the area's own `MonsterPacks`, deduplicated, ordered by the life the client gives the variety at the area level; a sliding pool of three consecutive tiers over thirty steps of the run is drawn from |
 | Rarity | 15% magic after 20% of the run, 3% rare after 50% |
-| Boss | the area's own `WorldAreas` unique boss, once per stage, 15 s in; while it lives the way onward stays sealed |
-| Ring wave | halfway through the stage (67.5 s), a closing ring of the weakest variety: 28 bodies at the start, 88 by the end |
+| Boss | the area's own `WorldAreas` unique boss, once per stage, 15 s in; its life is the current tier pool top × 26.92/25.71/49.41/31.82/50/47.62/60 × the clock's life scale; while it lives the way onward stays sealed |
+| Ring wave | halfway through the stage (67.5 s), a closing ring of the weakest pool tier: 28 bodies at the start, 88 by the end |
 | Monster scaling | life ×(1 + 0.75 × progress), damage ×(1 + 0.9 × progress) |
 | Cast | each learned skill casts on the gem's own cast time, 7% shorter per rank, divided by increased cast speed (floor 200 ms); an empty cast retries in 200 ms |
 | Targets | one projectile per target in 34 cells: the nearest, or the toughest for Pyroblast, Aimed Shot, Exorcism and Starfire, up to the gem's projectile count |
-| Projectiles | the gem's own count, pierce, chain, fork and split; extra bodies come from the gem's stats, not from the rank |
-| Damage | PoB calcDamage: the gem's base (rank = gem level) + added × effectiveness, converted, increased/more; the catalogue's median rank-1 hit equals the area's median monster life |
+| Projectiles | the gem's own count, pierce, chain, fork and split; one more target at ranks 3, 5 and 7 |
+| Damage | PoB calcDamage: the gem's first-level base + added × effectiveness, converted, increased/more, then the reference's +30% a rank; the catalogue's median rank-1 hit equals the starting tier pool's median monster life |
 | Radius | the gem's area radius × √(1 + increased area); the rank still grows a Herald's aura 8% per rank |
 | Critical | (base + additional base) × (1 + increased), capped at 100%, ×1.5 damage |
-| Run experience | 2 normal, 4 magic, 10 rare, 50 unique |
+| Run experience | 2 normal, 4 magic, 10 rare, 50 unique; a boss pays 60/120/200/300/400/500/600 instead |
 | Level curve | `5 + 10 × (level − 1)` below 20, then `195 + 13 × (level − 20)`, then `455 + 16 × (level − 40)` |
-| Incoming hits | monster hits on the player deal 25% of their damage during a run |
+| Incoming hits | monster hits on the player deal 25% of their damage during a run; Fortitude reduces that by 1/1.2 a level |
 
 ## Packets
 
@@ -383,6 +423,20 @@ damage). The character's `FinalPlayerStats` is merged into every cast, so a uniq
 projectile speed, penetration, leech and ailment mods all reach the run. A regression test (`UniqueCatalogueTests`) now
 checks the whole catalogue in CI.
 
+## Reference alignment (2026-11-03)
+
+The mode's difficulty and power curves were put back on Azeroth Survivors' numbers and checked live with
+`Game_SURVIVORS_STAGE_SECONDS=30`, `Game_SURVIVORS_MAX_ALIVE=220`:
+
+- `/survivors curve` printed the 14 → 220 horde, ×1.00 → ×1.75 life, ×1.00 → ×1.90 damage and the boss ladder.
+- The area's opening anchor and boss target: The Twilight Strand, 7 tiers, anchor 23 life, boss 0 **619** life; The
+  Coast, 15 tiers, anchor 18, top 37.
+- The live boss spawned with **625** life (Hillock, stage 0, summoned at 15 s), and the second with **532** (Fire Fury,
+  stage 1); their deaths printed `+60` and `+120 run experience`, and the way opened to The Coast at the stage tick.
+- The level-up window offered a mix of new skills, skill ranks, supports and blessings; six skills were learned and
+  `/survivors rank 8` put Fireball at `Fire 43.67-67.93` with the 200 ms floor, exactly 3.1× its rank-1 anchor.
+- The cast animation stayed `spell_projectile_unarmed` index 386 and the Herald pulse `spell_buff_unarmed` 367.
+
 ## Needs testing
 
 - **DOT gems**: Caustic Arrow, Vaal Caustic Arrow, Soulrend and poison builds need a monster ground/DOT model before
@@ -393,11 +447,12 @@ checks the whole catalogue in CI.
   character stats, but conditional lines (per charge, at full life, on block, "while you have…") are only as good as
   `PlayerHitDamage`/`FinalPlayerStats` model them; each such unique still deserves its own live check. An equipped
   weapon's local damage, local added damage, attack time and local critical chance are used by attack gems.
-- **Boss balance**: the gate is verified, but the boss's life and the stage length have not been tuned together on a
-  fresh character; a weak build can hold a stage open indefinitely (which is the intended gate, not a bug).
+- **Boss balance on a fresh character**: the boss ladder and its experience are live-verified, but the whole 15-minute
+  run has not been played end to end on a level-appropriate character; a weak build can hold a stage open indefinitely
+  (which is the intended gate, not a bug).
 
 ## Tuning
 
-`Game_SURVIVORS_MAX_ALIVE` (10-400, default 120) changes how many monsters a run keeps alive.
+`Game_SURVIVORS_MAX_ALIVE` (10-400, default 220) changes how many monsters a run keeps alive.
 `Game_SURVIVORS_STAGE_SECONDS` (at least 15, default 120) shortens the stage timer for a verification run.
 `Game_SURVIVORS_TRACE=1` prints one line per cast with the mechanics, damage, critical chance and interval it used.

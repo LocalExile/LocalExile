@@ -97,6 +97,36 @@ damage number:
 - **New dev command** `/survivors matrix [gem]` prints every support's effect through the live cast's computation.
 - Build 0/0; Core 462, Data 45, Gateway 77 tests pass.
 
+## Update: reference alignment (2026-11-03, late)
+
+The gameplay was brought back onto Azeroth Survivors' mechanics and curves
+(<https://github.com/OutThisLife/azeroth-survivors-re>, `data.rs` / `enemies.rs` / `hud.rs`, read 2026-11-03):
+
+- **Horde**: 14 → 220 alive (was capped at 120), refilled every 0.12 s by `ceil(gap/6)` bodies, at most four a tick
+  (was 0.5 s and `min(4, gap)`), drawn from a sliding pool of three consecutive tiers over thirty steps of the run
+  (`WavePool`, the reference's `wave_pool`) instead of "last three of the unlocked prefix".
+- **Power**: the rank curve is the reference's +30% damage a rank (3.1× at rank 8), applied to the gem's first-level
+  row; six skill slots (was four). Six blessings at the reference's values: Might 10% (was 12), Haste 8% (was 10),
+  Critical +5 base points (was +20% increased), Wisdom 8% (was 10), Fortitude 1/1.2 less damage taken a level
+  (was −2 points), Area 10%, Leech 0.2%, Swiftness 10%.
+- **Anchor**: the catalogue's median rank-1 spell now equals the **starting tier pool's** median life, not the whole
+  area roster's, so the opening kill is one or two hits like the reference's.
+- **Bosses**: the lore gate stays. Each boss's life is the area's current tier pool top × the reference's ladder
+  `[26.92, 25.71, 49.41, 31.82, 50, 47.62, 60]` × the clock's life scale, solved through the rolled unique's rarity
+  factor; its kill pays `60/120/200/300/400/500/600` run XP (the unique's own 50 is part of that).
+- **Offer**: the reference's weighted three-pick pool (rank 1.2, new skill 1.0, support 0.9, blessing rank 0.8, new
+  blessing 0.5, unique 0.4 every third level) with a **Healthstone** full-heal fallback when every slot is mastered.
+- **Horde scaling fix**: the clock's `maximum_life_+%`/`damage_+%` now merges into magic/rare monsters' rolled mods
+  (`SpawnMonster(extraMods:)` + `MonsterModEffects.Plus`); before, the roll replaced the scale for every non-normal.
+- **Live** (`Game_SURVIVORS_STAGE_SECONDS=30`, `Game_SURVIVORS_MAX_ALIVE=220`): the curve command printed the whole
+  table; The Twilight Strand anchor 23 / boss 619, The Coast anchor 18 / top 37; Hillock spawned at **625** life and
+  paid `+60`, Fire Fury at **532** and `+120`, and the way opened; the level-up window mixed skills, ranks, supports
+  and blessings; six skills at rank 8 gave Fireball `Fire 43.67-67.93` at the 200 ms floor (3.1× its rank-1 anchor).
+- **Tests**: `SurvivorsRunTests` pins the horde, refill, tier pool, rank curve, boss ladder/XP, six slots, blessing
+  values, Fortitude mapping, weighted-offer legality/caps and the heal fallback; `MonsterModEffectsTests` pins the
+  mod merge; the matrix test pins the 3.1× rank ratio through `SurvivorsComputeCast`.
+- Build 0/0; Core 466, Data 45, Gateway 81 tests pass. New dev command `/survivors curve`.
+
 ## Where everything is
 
 | What | Where |
@@ -258,8 +288,10 @@ python scripts\dev\client_control.py command "/survivors status"
    need a monster ground-DOT model; their hit portions already work on the gem's real numbers.
 2. **Conditional unique mechanics** (per charge, at full life, on block, "while you have..."): the catalogue and stats
    are verified, but each such unique still needs its own live check.
-3. **PR #502**: head `c976b7ab` (the checkpoint docs commit follows), `mergeable=true`, `mergeable_state=clean`,
-   docs-scan green. Merge it when the maintainer is ready; the preview label stays in the title.
+3. **PR #502**: head follows the last commit of this pass; `mergeable=true`, `mergeable_state=clean`, docs-scan green.
+   Merge it when the maintainer is ready; the preview label stays in the title.
 4. Port the status entry: `Agents/status/skills-and-combat.md` still describes the old branch; update it on the port
    branch (the docs file is already ported).
 5. Optional: more blessings; more herald variants; a DOT ground model for the herald/ailment pass.
+6. Optional: play a full 15-minute run on a level-appropriate character to tune the anchor/boss ratios against the
+   reference's felt pacing (the numbers are pinned and live-verified, but a fresh-character run has not happened).
