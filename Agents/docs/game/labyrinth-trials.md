@@ -146,7 +146,8 @@ Its Hull (±11.27) is one tile: the traps stand 23 cells apart, so each trap's s
 The Emerge action (0x1ab, basic action 0x0101) played the plain clip, and the spikes showed about a second after it.
 **S→C 0x1d1** with Animation.dat `Emerge` (row 43) stretched over 2000 ms matches the original: four traps of the
 cascade stand up at once and lower slowly.
-The spikes are up from about 100 ms to 1000 ms (the stretched clip's half), and lowering until 2000 ms.
+The spikes show risen from about 400 ms (live 2026-11-01: a hit from 100 ms came before them) to 1000 ms (the
+stretched clip's half), and lowering until 2000 ms.
 
 **The pattern.** The real timers are the rooms' `Trigger_*` lines (`WG` is the line's flags, not the type): server
 objects with no model whose `.ot` (BaseEvents `server_only`, `no_serialise`) has a LabyrinthTrigger component,
@@ -419,6 +420,13 @@ room's piece is sent the other state.
 plates with their own `hotplate*_EH.ao`; the Gateway runs them as the Crematorium's (`LabyrinthTrials.Plate`). Live
 (2026-11-01, the original): a room's plates all heat together, with the Crematorium's timings and burn.
 
+**Pressure spike traps** (`LabyrinthSpikeTrap_Pressure`, `_EH_Pressure`; Positioned, Animated, Transitionable,
+TriggerableBlockage, then as the cascade trap): one tile, `spike_fast` as the cascade's. Their `object_size` 11 made
+the client wall the player off round them until Positioned flags1 0x08 (blocks no walker, as the doors). Live
+(2026-11-01, the original): a step on one clicks (`spiketrap_trigger.ao`, played as an effect object on it) and it
+rises about 1 s later, on its own; it fires again only after the player steps off it and on again.
+`LabyrinthCascadeSpikeTrap_EH` (`spiketrap_house.ao`) is the trial's cascade trap.
+
 **Dart traps** (`LabyrinthTrials.Volley`). The rooms' wall darts (`walldart_*.ao`: `LabyrinthArrowTrap_Single`,
 `_SingleSlow`, `_SingleSlowOffset`, `_Delayed`, `_Triggered`) shoot one dart ahead (`projectiles_nova 0`); the
 `AlternateArrowTraps/` turrets a spiral nova (`base_number_of_projectiles_in_spiral_nova` darts over
@@ -522,6 +530,6 @@ trial, before the player object is sent; which event sets it in the real game is
 ## Not built yet
 
 - The step-triggered spikes of Izaro's rooms, and the hot plates' Cruel and Merciless rooms.
-- The Labyrinth's `LabyrinthSpikeTrap_Pressure` spikes, `LabyrinthAbyssEdgeBlade` blades, `Door_Counter`
+- The Labyrinth's `LabyrinthAbyssEdgeBlade` blades, `Door_Counter`
   puzzles and its rooms' monsters (the ElegantHouse rooms' Immolators among them).
 - The Eternal trials' plaques drop an Offering to the Goddess.

@@ -30,6 +30,21 @@ static class LabyrinthTrials
         // …Catacombs), placed as NPCs.
         GlyphPrefix = "Metadata/NPC/Labyrinth/LabyrinthTrialGlyph";
 
+    /// <summary>The Labyrinth's rooms' spike traps: the ElegantHouse cascade (<c>_EH</c>, <c>spiketrap_house.ao</c>,
+    /// the trial's otherwise) and the ones a step fires (<c>LabyrinthSpikeTrap_Pressure</c>, <c>_EH_Pressure</c>:
+    /// <c>Spikes02_Pressure</c>'s one tile and <c>spike_fast</c>, with <c>spiketrap_trigger.ao</c>'s click).</summary>
+    public static bool IsSpikeTrap(string type) => type is SpikeTrap or SpikeTrap + "_EH" || IsPressureSpikeTrap(type);
+
+    public static bool IsPressureSpikeTrap(string type) => type is "Metadata/Terrain/Labyrinth/Traps/LabyrinthSpikeTrap_Pressure"
+        or "Metadata/Terrain/Labyrinth/Traps/LabyrinthSpikeTrap_EH_Pressure";
+
+    /// <summary>How long after a step a pressure spike trap fires. Live (2026-11-01, the original): a step on one
+    /// clicks (<c>spiketrap_trigger.ao</c>'s <c>Trigger</c> sound) and it rises about 1 s later, the others of its room
+    /// on their own steps; it fires again only once the player has stepped off it and on again.</summary>
+    public static double PressureSpikeDelaySeconds = 1;
+
+    public const string PressureSpikeClick = "Metadata/Terrain/Labyrinth/Traps/spiketrap_trigger.ao";
+
     public const string Roomba = "Metadata/Terrain/Labyrinth/Traps/LabyrinthRoomba",
         FlyingRoomba = "Metadata/Terrain/Labyrinth/Traps/LabyrinthFlyingRoomba",
         Rail = "Metadata/Terrain/Labyrinth/Traps/Rail_Invisible",
@@ -635,10 +650,11 @@ static class LabyrinthTrials
     /// <summary>Animation.dat row <c>Emerge</c>.</summary>
     public const byte EmergeAnimation = 43;
 
-    /// <summary>When after its firing (seconds) the spikes are up: a player in the square then is hit, once. Up from about the start of the stretched clip until it starts them down, at its half (live
-    /// 2026-10-31: a hit only at 1200–1300 ms, fitted to the late action, missed a player who ran in while they were up).
-    /// <c>/trial_spike_hit</c> (dev) moves it.</summary>
-    public static (double From, double To) SpikeHitWindow = (0.1, 1.0);
+    /// <summary>When after its firing (seconds) the spikes are up: a player in the square then is hit, once. Up from when
+    /// the client shows them risen until the stretched clip starts them down, at its half (live 2026-11-01: from 100 ms
+    /// the hit came before the spikes showed; 400 ms matched. 2026-10-31: a hit only at 1200–1300 ms missed a player who
+    /// ran in while they were up). <c>/trial_spike_hit</c> (dev) moves it.</summary>
+    public static (double From, double To) SpikeHitWindow = (0.4, 1.0);
 
     /// <summary>When after its firing (seconds) the square is impassable: from the spikes' rise until the stretched clip has
     /// lowered them (live 2026-10-31: the wall stands while any spike shows, lowering ones too).</summary>
@@ -888,13 +904,19 @@ static class LabyrinthTrials
     /// TriggerableBlockage, Transitionable, Stats, Buffs, Life, Actor), as a monster writes these components: the .ot's
     /// team 14, its own model, unblocked, state 1, one life, and no skills (it fires with the Emerge basic action, whose
     /// clip is its <c>spike_fast</c>).</summary>
-    public static byte[] SpikeTrapBlob(int x, int y)
+    /// <remarks>A pressure spike trap (<see cref="IsPressureSpikeTrap"/>) reads Transitionable before
+    /// TriggerableBlockage.</remarks>
+    public static byte[] SpikeTrapBlob(int x, int y, string? type = null)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(x).I32(y).U32(0).U16(14).U8(0).U8(0x02).U8(0).U8(1);     // Positioned
+        bool pressure = type is not null && IsPressureSpikeTrap(type);
+        // A pressure trap's object_size 11 made it a wall round its tile (live 2026-11-01): flags1 0x08 with its u8, blocks
+        // no walker (the doors' too, Blob).
+        w.I32(x).I32(y).U32(0).U16(14).U8(0).U8((byte)(pressure ? 0x0a : 0x02)).U8(0).U8(1); // Positioned
+        if (pressure) w.U8(1);
         w.U8(0);                                                        // Animated: the .ot's
-        w.U8(0);                                                        // TriggerableBlockage: unblocked
-        w.U8(1);                                                        // Transitionable
+        if (pressure) w.U8(1).U8(0);                                    // Transitionable, TriggerableBlockage: unblocked
+        else w.U8(0).U8(1);                                             // TriggerableBlockage: unblocked, Transitionable
         w.Stats(null).U32(0).U32(0).U8(0);                              // Stats
         w.U16(0);                                                       // Buffs
         foreach (uint pool in new uint[] { 1, 0, 0 }) w.U32(pool).U32(0).U16(0).U32(0).U32(0);

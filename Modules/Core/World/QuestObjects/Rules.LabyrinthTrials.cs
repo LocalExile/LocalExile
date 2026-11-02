@@ -22,7 +22,7 @@ static partial class QuestobjectsRules
         var notes = new List<string>();
         var all = labyrinth ? LabyrinthRoomObjects(conn, notes) : AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes);
         SetSwapLevers(conn, all);
-        await SpawnTrialTraps(remote, stream, ciphers, conn, [.. all.Where(o => o.Type == LabyrinthTrials.SpikeTrap)],
+        await SpawnTrialTraps(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsSpikeTrap(o.Type))],
             [.. all.Where(o => o.Type == LabyrinthTrials.Lever).Select(o => (o.X, o.Y))],
             [.. all.Where(o => o.Type is LabyrinthTrials.Door or LabyrinthTrials.IntroDoor).Select(o => (o.X, o.Y))],
             [.. all.Where(o => LabyrinthTrials.Trigger(o.Type) is not null)]);
@@ -425,9 +425,12 @@ static partial class QuestobjectsRules
         List<AreaPopulation.RoomObject> traps, List<(int X, int Y)> levers, List<(int X, int Y)> doors, List<AreaPopulation.RoomObject> triggers)
     {
         if (traps.Count == 0) return;
+        // A step fires a pressure spike trap: it is in no chain.
+        var pressure = traps.Where(t => LabyrinthTrials.IsPressureSpikeTrap(t.Type)).ToList();
+        traps = [.. traps.Except(pressure)];
         var chains = LabyrinthTrials.SpikeChains([.. traps.Select(t => (t.X, t.Y))], levers, doors);
         var triggered = LabyrinthTrials.TriggeredSpikes([.. traps.Select(t => (t.X, t.Y, t.Angle))], [.. triggers.Select(t => (t.X, t.Y))]);
-        int firstTriggered = chains.Max(c => c.Chain) + 1;
+        int firstTriggered = chains.Length == 0 ? 0 : chains.Max(c => c.Chain) + 1;
         var placed = new List<SpikeTrap>();
         for (int i = 0; i < traps.Count; i++)
         {
@@ -439,15 +442,25 @@ static partial class QuestobjectsRules
                 ? new(id, traps[i], firstTriggered + t, triggered[i].Order, false) { Trigger = LabyrinthTrials.Trigger(triggers[t].Type) }
                 : new(id, traps[i], chains[i].Chain, chains[i].Order, chains[i].Checker));
         }
+        foreach (var trap in pressure)
+        {
+            uint id = conn.NextObjectId++;
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
+                LabyrinthTrials.SpikeTrapBlob(trap.X, trap.Y, trap.Type)), null);
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            placed.Add(new(id, trap, -1, 0, false));
+        }
         Console.WriteLine($"[gateway] {remote} trial spike traps: {placed.Count} placed in {placed.Select(p => p.Chain).Distinct().Count()} chain(s), " +
-            $"{placed.Count(p => p.Trigger is not null)} on {triggers.Count} trigger(s)");
+            $"{placed.Count(p => p.Trigger is not null)} on {triggers.Count} trigger(s), {pressure.Count} a step fires");
         _ = RunSpikeTraps(remote, stream, ciphers, conn, placed);
     }
 
     sealed record SpikeTrap(uint Id, AreaPopulation.RoomObject Trap, int Chain, int Order, bool Checker)
     {
-        // The room's Trigger_* line that fires it, if one does.
+        // The room's Trigger_* line that fires it, if one does. A pressure trap: whether a step has it about to fire, and
+        // whether a step on it may (the player stepped off since it last fired).
         public LabyrinthTrials.SpikeTrigger? Trigger { get; init; }
+        public bool Stepped, Armed = true;
         // When its last clip started (Clock seconds), and whether that clip has hit.
         public double Fired = double.NegativeInfinity;
         public bool HasHit;
@@ -468,12 +481,12 @@ static partial class QuestobjectsRules
         const int Wave = 0, Block = 1, Unblock = 2, Fired = 3;
         // A chain's wave takes its step when it starts (so /trial_spike_step applies to whole waves).
         var due = new PriorityQueue<(SpikeTrap Trap, int Stage), double>();
-        var chains = traps.GroupBy(t => t.Chain).ToDictionary(g => g.Key, g => g.ToList());
+        var chains = traps.Where(t => t.Chain >= 0).GroupBy(t => t.Chain).ToDictionary(g => g.Key, g => g.ToList());
         double start = conn.Clock.Elapsed.TotalSeconds + 1;
         foreach (var chain in chains.Values) due.Enqueue((chain[0], Wave), start + (chain[0].Trigger?.Delay ?? 0));
         async Task Fire(SpikeTrap t, double at)
         {
-            (t.Fired, t.HasHit) = (at, false);
+            (t.Fired, t.HasHit, t.Stepped) = (at, false, false);
             (int X, int Y) player;
             lock (conn.Monsters) player = conn.Walk.Position(at);
             // Logged only near the player (about two tiles), to line a hit up with the spikes the client shows.
@@ -509,6 +522,17 @@ static partial class QuestobjectsRules
                 }
                 (int X, int Y) here;
                 lock (conn.Monsters) here = conn.Walk.Position(now);
+                // A step on a pressure trap at rest clicks, and it fires a while later.
+                foreach (var t in traps)
+                {
+                    if (t.Chain >= 0) continue;
+                    if (!t.Holds(here)) { t.Armed = true; continue; }
+                    if (!t.Armed || t.Stepped || now < t.Fired + LabyrinthTrials.SpikeAnimationSeconds) continue;
+                    (t.Armed, t.Stepped) = (false, true);
+                    due.Enqueue((t, Fired), now + LabyrinthTrials.PressureSpikeDelaySeconds);
+                    _ = PressureClick(remote, stream, ciphers, conn, t.Trap);
+                    Console.WriteLine($"[gateway] {remote} pressure spike trap 0x{t.Id:x} at ({t.Trap.X}, {t.Trap.Y}) stepped on: fires in {LabyrinthTrials.PressureSpikeDelaySeconds} s");
+                }
                 foreach (var t in traps)
                     if (!t.HasHit && t.Up(now) && t.Holds(here))
                     {
@@ -520,6 +544,18 @@ static partial class QuestobjectsRules
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial spike traps stopped: {ServerLog.Describe(ex)}"); }
+    }
+
+    // A pressure spike trap's click: spiketrap_trigger.ao, whose default clip plays the Trigger sound, as an effect object
+    // on the trap for as long as it plays.
+    static async Task PressureClick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AreaPopulation.RoomObject trap)
+    {
+        uint id = conn.NextObjectId++;
+        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            new EffectObject(trap.X, trap.Y, LabyrinthTrials.PressureSpikeClick).Blob()), null);
+        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        await Task.Delay(TimeSpan.FromSeconds(LabyrinthTrials.PressureSpikeDelaySeconds));
+        if (!conn.Closed) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
     }
 
     // Risen spikes are impassable (wiki: "Spike traps are impassable and block movement while they are out"): the trap's
