@@ -480,7 +480,7 @@ static partial class Game
             }
             if (Stats.Key("virtual_extra_critical_rolls") is uint criticalRolls)
                 stats[criticalRolls] = CriticalExtraRollsFor(conn, playerStats, own);
-            if (singleSources.Contains(effect) && SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, playerStats, own) is { } cooldown
+            if (singleSources.Contains(effect) && WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, playerStats, own)) is { } cooldown
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
                 stats[recoveryKey] = cooldown.RecoveryPercent;
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);
@@ -498,6 +498,18 @@ static partial class Game
                     .All(n => Stats.Key(n) is uint k && stats.GetValueOrDefault(k) != 0)
                 && Stats.Key("virtual_self_targeted_skills_target_location_instead") is uint novaKey)
                 stats[novaKey] = 1;
+            // Parallel volley (0x141bb89d0): the client reads virtual_additional_projectiles_fire_parallel_x_dist;
+            // without it the distance is zero and parallel projectiles collapse onto each other.
+            if (Stats.Key("virtual_additional_projectiles_fire_parallel_x_dist") is uint virtualParallelXKey
+                && !stats.ContainsKey(virtualParallelXKey))
+            {
+                int parallelX = 0;
+                if (Stats.Key("volley_additional_projectiles_fire_parallel_x_dist") is uint volleyX && stats.TryGetValue(volleyX, out int vx) && vx > 0)
+                    parallelX = vx;
+                else if (Stats.Key("greater_volley_additional_projectiles_fire_parallel_x_dist") is uint gVolleyX && stats.TryGetValue(gVolleyX, out int gvx) && gvx > 0)
+                    parallelX = gvx;
+                if (parallelX > 0) stats[virtualParallelXKey] = parallelX;
+            }
             if (SkillsFor(conn).IsSpell(effect) && !SkillsFor(conn).IsAttack(effect) && Stats.Key("spell_critical_strike_chance") is uint critKey)
                 stats[critKey] = SupportedCriticalChance(conn, id);
             // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.
@@ -566,11 +578,16 @@ static partial class Game
                 // Reap's more damage per Blood Charge held scales the hit itself, as AreaSkillHit does, so the damage
                 // ranges, the ailment rows and the per-use/per-second rows agree.
                 double bloodMore = BloodChargeDamageMore(conn, name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0);
-                var inputs = SupportedHitInputsFor(conn, id);
+                // A shield skill's rows are the shield's hit and swing (ShieldWeapon), as its hits are: the gem's own
+                // AttackTime at the off hand's speed, without the main weapon's local attack speed.
+                var shieldWeapon = ShieldWeapon(conn, id);
+                var inputs = SupportedHitInputsFor(conn, id, weapon: shieldWeapon);
                 SupportedHitInputs? offInputs = null;
                 if (inputs is not null && bloodMore != 1) inputs = inputs with { Raw = inputs.Raw.Scale(bloodMore) };
                 var supportedHit = inputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(inputs, suppress: true);
-                double seconds = SkillsFor(conn).IsAttack(effect) ? SupportedAttackSeconds(conn, id) : Math.Max(.001, (CastMs(conn, effect, id) ?? 0) / 1000.0);
+                double seconds = SkillsFor(conn).IsAttack(effect)
+                    ? shieldWeapon is null ? SupportedAttackSeconds(conn, id) : SupportedOffHandAttackSeconds(conn, id, shieldWeapon)
+                    : Math.Max(.001, (CastMs(conn, effect, id) ?? 0) / 1000.0);
                 var finalPlan = SkillHitPlan.ForSkill(SkillsFor(conn), effect, supported.Level, supported.Quality);
                 int criticalChance = SupportedCriticalChance(conn, id);
                 int criticalMultiplier = SupportedCriticalMultiplier(conn, id);
@@ -587,7 +604,7 @@ static partial class Game
                     if (Stats.Key(key) is uint statKey) stats[statKey] = value;
                 if (SkillsFor(conn).IsAttack(effect))
                 {
-                    stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round((WeaponFor(conn).AttackMs / (seconds * 1000) - 1) * 100);
+                    stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round(((shieldWeapon ?? WeaponFor(conn)).AttackMs / (seconds * 1000) - 1) * 100);
                     stats[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
                     foreach (var (field, value) in new[]
                     {

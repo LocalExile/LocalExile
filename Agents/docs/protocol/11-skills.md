@@ -883,6 +883,11 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   which drops a server-driven monster's queued attack in the same frame (traced: created, queued, both checks passed,
   then neither current nor queued). The server walks the monster itself, so the skill is non-pathing. Only on the
   skill: on the monster's Stats component it also stops its Move action from pathing (the monsters stood still).
+- **A monster's spell skills carry cast-time stats, not the attack duration.** `MonsterAttack.Spell` sends
+  `base_spell_cast_time_ms` (0x2a9), `virtual_base_spell_cast_time_ms` (0x24b9), `hundred_times_casts_per_second`
+  (0x2aa) and `casting_spell` (0x1b6); only attacks send `main_hand_attack_duration_ms`. The client's cast-duration
+  path reads the virtual base when the action starts; a utility spell sent with only attack stats crashed the client in
+  that path (`0xc0000005` at `0x19e0daf`, live 2026-10-31, the King's hex/teleport actions).
 - **AI** (`RunMonsterAi`, `MonsterAiCadence`): decisions run at 50 ms intervals of elapsed game time.
   A late wake runs one decision and schedules the next from the current time; it never replays missed steps.
   Pause freezes game time, and disabled AI or a dead player does not accumulate work to replay afterward.
@@ -1721,13 +1726,24 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
   Animated, BaseEvents and Projectile, so the blob is Positioned, one Animated byte and the tasks byte
   (`ProjectileObject`; the Animated component is index 1), then 0x1a9 (wake zone). The real link between a skill and
-  its projectile is unknown; the Gateway matches the Id. Multiple projectiles are one object each, spread around the
+  its projectile is unknown; the Gateway matches the Id, then the Id with a `Royale`, `AltX`, `AltY` or `AltZ` suffix
+  removed: 3.29 files the Royale and transfigured duplicates of a skill under its own name plus a suffix, and those
+  duplicates fire the base skill's row (the Lightning Arrow gem grants `LightningArrowRoyale`, whose row is
+  `Metadata/Projectiles/LightningArrow`). `ProjectileFallbacks` covers the effects no suffix rule reaches, because their
+  row is named otherwise (Elemental Hit's `ElementalHitArrowCombined`). Multiple projectiles are one object each, spread around the
   aim (`ProjectileSpread`: `number_of_additional_projectiles`, `projectile_spread_radius` or 10°,
   `Game_PROJECTILE_SPREAD`); the client also spawns its own copies of a gem use's volley (above), so those objects
   are no longer sent. Kinetic Blast's effect is ClusterBurst, which names no
   Projectiles row, so it falls back to the wand attack's `Metadata/Projectiles/WandProjectile` (3260) and plays
   `Metadata/Effects/Spells/cluster_burst/big.ao` where it lands; a landing on bare ground runs one area hit of the
-  skill's radius (its secondary explosions are not modelled).
+  skill's radius (its secondary explosions are not modelled). Rolling Magma (once Magma Orb) creates
+  `Metadata/Projectiles/MagmaOrbShort`, one client object per cast (Frida 2026-11-01, `trace-projectile-create.js`).
+  Its ground bounces are the shared terminal `0x141ba68c0` with no contact, once per impact: the action's chain budget
+  (`0x141bb6530`, vtable +0x638) is the skill record's `virtual_number_of_chains_for_projectiles`, and the executed
+  count +0x458 goes 0, 1, 2 across the impacts, 375 ms apart; the enemy search `0x141baea60` never runs, so the orb
+  bounces straight on even beside monsters (`trace-chain-decisions.js`). The client reads the budget from the skill
+  record it holds, which is only resent with the skill list: with 0 there (the server's ground chains are not
+  `Chain`) the orb stopped at its first impact, and after the fix it bounced only once the gem was socketed again.
 - **Pierce.** Pierce Support's `projectile_base_number_of_targets_to_pierce` (2 at level 1, 4 at level 20) and the other
   pierce stats give a hit budget of 1 + pierce: the projectile passes through that many monsters, each hit landing as
   the glide reaches its cell; the support's more Projectile Damage is part of `SupportedHit`. `always_pierce` is
@@ -2494,10 +2510,10 @@ sends the player stats at both ends. Its walk estimate goes to the aimed cell at
 movement skill's teleport (§9a). Verified live: `movement_velocity_+%` 22 → 112 → 22, the charge twice as fast; the
 first stats update arrives after the client has started the charge, and the client takes it up mid-charge.
 
-**Route.** The charge runs no path search. The setup lays a straight line to the aim, cut to 75 cells ×
-(1 + `shield_charge_range_+%` / 100); an aim off the floor moves back along the line to the first cell the mover can
-stand on. Each step is checked as a walk's is ([07](07-latency-visibility-movement.md) §5), so the first blocked step
-ends the run, on a body as on a wall. A charge from inside a ring does not move at all (`PlayerWalk.Charge`).
+**Route.** The charge runs no path search. The setup lays a straight line to the aim, up to its maximum distance
+(below); an aim off the floor moves back along the line to the first cell the mover can stand on. Each step is checked
+as a walk's is ([07](07-latency-visibility-movement.md) §5), so the first blocked step ends the run, on a body as on a
+wall. A charge from inside a ring does not move at all (`PlayerWalk.Charge`).
 
 **Hits.** The client's (`trace-charge-hits.js`, four charges): kind 0 at its position as it starts and then about every
 100 ms (every ~8 cells at charge speed) within 8 cells (`0x141a6d760` returns the range), kind 1 within 16 cells where
@@ -2506,9 +2522,20 @@ it arrives, and kind 2 (range 28) as the end phase starts. The Gateway lands kin
 areas overlap), and a final hit within 16 cells reaching every monster there. The generic area hit, which landed once
 around the starting cell, skips Shield Charge. Verified live: path and arrival hits land.
 
-**Not modelled yet:** the gem's shield damage (`off_hand_local_minimum/maximum_added_physical_damage`, the added damage
-per 15 shield armour and evasion), `shield_charge_damage_+%_maximum` by distance, the stun and knockback scaling, and
-the end phase's kind-2 effects; the hits deal the ordinary weapon hit.
+**Maximum distance.** The setup stops a charge aimed further away at 75 cells × (1 + `shield_charge_range_+%` / 100)
+(integer, `(100 + range) * 75 / 100`) along the aim; the Gateway clamps its walk the same way. The setup also adds
+`shield_charge_extra_distance` past the aim, and uses 14 cells instead while its +0x2d0 is below +0x2d4 (not read).
+
+**Damage.** A shield skill (Shield Charge, Shield Crush) swings the shield, which has no weapon damage: its base is the
+gem's `off_hand_local_minimum/maximum_added_physical_damage` plus its added damage per 15 of the shield's own
+(local) armour and evasion rating, at the gem's `AttackTime` (`ShieldWeapon`); hits and the Offence tab use it, the tab
+at the off hand's speed. Shield Charge's description of `shield_charge_damage_+%_maximum` (skill_stat_descriptions.txt)
+is "{0}% more Damage with Hits at Maximum Charge Distance": the Gateway scales each hit linearly by the distance from
+the start over the maximum (a guess; the client's ramp is not read). Verified live: level 1 with a 219-armour shield,
+base 51–83, panel 79–136 and 2.1 attacks per second, hits ×1.00 at the start up to ×1.83 at 62 cells.
+
+**Not modelled yet:** the stun and knockback scaling, `shield_charge_extra_distance`, and the end phase's kind-2
+effects.
 
 ## 10f. Synthetic action instructions (S→C 0x1ce / 0x1cf)
 

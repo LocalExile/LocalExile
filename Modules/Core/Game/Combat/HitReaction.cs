@@ -20,8 +20,8 @@ static class HitReaction
     /// </summary>
     public static HitAnimation? TryFlinch(SpawnedMonster m, int damage, double now, Random random)
     {
-        if (damage <= 0 || m.Life == 0 || m.Dead || m.HitAnimations is not { Count: > 0 } clips) return null;
-        if (m.Mods.Effects.CannotBeStunned) return null;   // Unwavering: the flinch is the hit's stun
+        if (damage <= 0 || m.Life == 0 || m.Dead || m.Invulnerable || m.HitAnimations is not { Count: > 0 } clips) return null;
+        if (m.CannotBeStunned || m.Mods.Effects.CannotBeStunned) return null;   // Unwavering: the flinch is the hit's stun
         if (damage < m.MaxLife * DamageFraction) return null;
         if (now < m.FlinchUntil) return null;
         var clip = clips[random.Next(clips.Count)];

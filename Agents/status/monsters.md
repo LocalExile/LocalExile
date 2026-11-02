@@ -28,6 +28,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   `CampaignBossPlacementTests` (`Game_BOSS_CHECK=1`) checks every boss of the act 1–10 areas the Gateway generates.
   Code: `MonsterPacks.cs`, Gateway (`PopulateArea`), `scripts/walkmaps`, `scripts/re/atlas room-points`.
   Docs: [14](../docs/protocol/14-monster-packs.md).
+- Unique map bosses get the map tables' life and damage increases: `MonsterMapBossDifficulty` plus
+  `MonsterMapDifficulty`, added as percentages (level 83: ×20.73 life, ×1.15 damage). The King in the Mists' humanoid
+  form therefore has 45,614,731 life at level 83, matching poedb's display.
+  Code: `MonsterCatalog.MapBossScaling`, `SpawnMonster`.
+  Docs: [king-in-the-mists](../docs/game/king-in-the-mists.md).
 - Emerge monsters (Gravel Eaters, Dripping Dead, the Twilight Strand's Drowned …) are created buried, cannot be hit
   while buried, and rise when the player comes within 24 cells: the client plays their emerge clip (Emerge action
   0x0101, then Transitionable 2), and they fight, die and give experience like other monsters.
@@ -99,6 +104,56 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- The King in the Mists' Crux of Nothingness encounter: `An Audience With The King` alone opens the area in the map
+  device; the humanoid form fights with the default attack, spell projectile, Vine Slam and Vine Cascade, spawns the three
+  Mystic Fetishes as visible shrines, teleports next to them and runs the ritual server-side (the fetish is immune
+  through the whole ritual animation and becomes attackable at `call_end_01`; the King is immune throughout) with the
+  official `call_start_01`/`call_loop_01`/`call_end_01`
+  rig clips, then returns to the centre (Portent Vapors stacks), summons Plagued Rats and an effigy. The client
+  `0x400e` channel and the fetish/shrine StateMachine `active` update are withheld until their StartChannelling action
+  contract is known (`0xc0000005` at `0x19e0daf`); the central `RitualPillar2` shrine is created but its
+  `active_pillars` animation is not advanced yet.
+  Fetish rituals are life-gated at 92/73/55% (one ritual per hit, immunity for the channel); the humanoid is
+  phase-locked at 50%, slams its staff and teleports the player into the same-area hedge maze (wisps, exit portal and
+  Branching Affliction). On the return the husk is set to the official 25% life and becomes the treant
+  (`VoodooKingBoss3`, full 25.2M life) with a 7 s emergence grace, Treant Slam, Bug Bomb, Bugrend, effigy summons and a
+  walk that follows a kiting player. The kill
+  rolls the guaranteed unique (with That Which Was Taken paired with The Light of Meaning), Hextoad/Hexpass and The
+  Endless Darkness.
+  The 2026-10-31 official 3.29.3b capture (docs, "Official 3.29.3b capture") showed the real fight differs. The
+  fetish ritual now uses the official `call_start_01`/`call_loop_01`/`call_end_01` rig clips and server-side hazards;
+  the raw `GSVoodooKingRitual` `0x400e` channel and the fetish/shrine StateMachine `active` update are withheld because
+  they enter the `StartChannelling` crash path. The fetishes are hostile and destructible (no experience or loot); the
+  central shrine object exists but its `active_pillars` animation is not advanced yet; the maze uses a room-graph route
+  with real `GuidingLightDaemonMaze_` actors plus a werewolf and spider; the treant uses Meditation/Dance/Punishment;
+  BugRend is the official `VoodooKingBugRend`/`BugRendSingle` + `BugSoulrend` with six projectiles; the emergence grace
+  is 7 s and the morph waits for the full clip. Teleport and return actions move the object at departure and end before
+  the next action, so the model is not left in a teleport/channel pose. The official bark pools are wired to their skills
+  (Vine Cascade/Thorngrip, Vine Slam/Sprout-Invasive growth-Grow, effigy/Agrik armach-Dark effigy, the two hexes, the
+  ritual line at `call_start_01`, the maze lines); the dash/strafe settle now uses a 0.1 s `0x1ba` with the
+  follow-terrain marker instead of 5000 s, which the client had silently ignored (the cause of the 2026-11-01 position
+  drift). The dash clips move 24 cells (not 19) and the strafe direction now follows the clip's own convention
+  (`move_left` = `(dy, -dx)`, `move_right` = `(-dy, dx)` relative to the player-to-King vector), with a `0x1b9`
+  facing the player before each clip so a leftover cast facing cannot skew it, and both the facing and the landing
+  cell are computed at the send gate from the player cell the action carries (a fast player dash during the 120 ms
+  action-end settle otherwise made the clip and settle disagree). The spell projectile's cast step (~12 cells toward
+  the target) is adopted on the server too, so the next dash starts from the model's cell instead of 12+ cells behind.
+  The dash/strafe action now holds 0.65 s before its settle (the client starts the 0.5 s clip late), and the previous
+  action ends 220 ms earlier, so the clip is not cut at a fraction of its move. An approach blink jump is capped at 24
+  cells instead of teleporting 34+ cells from a 50-cell gap.
+  The `0x2909` step
+  glides both sides with `0x1ba` instead of teleporting only the server. The blink-away now fires after two dashes
+  instead of waiting behind a ready strafe, and the spell projectile is checked before movement, so the King keeps
+  casting between the escapes. A re-entered kept instance puts the phase-1 humanoid back on the mapboss point before
+  the intro (it used to start on its saved cell, e.g. 45 cells south of the centre). The generic monster collision
+  estimate no longer moves either King form: it changed only the server cell without a packet, so a strafe settle near
+  a melee player was reverted and the model snapped back to the ramp start. Some backward dashes still settle with
+  20-41-cell corrections when the client cuts its move clip; the measured table is in PR #425.
+  Not yet: blood/caustic ground objects, the Ritual imprisonment/maim movement rule, the phase-trigger confirmation,
+  ground hazards, monster energy shield, Shadow Surge/Mystic Miasma damage over time, corpse items, the Unlight
+  Altar/Bloodline and the remaining native animation captures.
+  Code: `Modules/Core/Game/Monster/KingInMists.cs`, `ItemDrops.KingInMists`, `MapDevice`.
+  Docs: [king-in-the-mists](../docs/game/king-in-the-mists.md).
 - Inherited Life corpse eligibility and sinking flags flow from object-types manifest v4 through `MonsterCatalog`
   into ordinary monster creation.
   The combined object-types format retains the stationary collision footprints and models alongside Life data.

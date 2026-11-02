@@ -62,9 +62,11 @@ static partial class Game
         Math.Max(TickSeconds, SkillAttackTiming.ForSkill(SkillsFor(conn), effect, level, WeaponFor(conn),
             CharacterPlayerStats(conn)) / PlayerActionFactor(conn));
 
-    internal static bool AttackReady(ClientState conn, int effect, int level, out double seconds)
+    internal static bool AttackReady(ClientState conn, ushort skillId, int effect, int level, out double seconds)
     {
-        seconds = SkillAttackSeconds(conn, effect, level);
+        // The supported skill's own speed includes its gem/support inputs; the generic fallback is for callers without
+        // a skill id (ordinary weapon timing). Keep the gate and the interval CastGemSkill reserves on the same value.
+        seconds = skillId != 0 ? SupportedAttackSeconds(conn, skillId) : SkillAttackSeconds(conn, effect, level);
         double now = conn.Clock.Elapsed.TotalSeconds;
         lock (conn.Monsters) return AttackTiming.Ready(now, conn.NextAttackAt, seconds);
     }
@@ -404,7 +406,7 @@ static partial class Game
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
         if (gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
         {
-            if (!AttackReady(conn, gem.Effect, gem.Level, out double attackSeconds))
+            if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                 return;
@@ -608,12 +610,12 @@ static partial class Game
         SkillCriticalRoll? criticalRoll = vaalUse?.CriticalRoll;
         if (gem.Name is not null && !vaalCast)
         {
-            uint cost;
+            uint cost, lifeCost;
             bool paid;
             lock (conn.Monsters)
             {
                 if (!Current()) return false;
-                paid = PayMana(conn, skillId, out cost);
+                paid = PayMana(conn, skillId, out cost, out lifeCost);
                 if (paid) criticalRoll = CaptureSkillCriticalRoll(conn, skillId);
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
                 {
@@ -627,15 +629,16 @@ static partial class Game
             }
             if (!paid)
             {
-                Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: not enough mana ({conn.PlayerMana} < {cost})");
+                Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: not enough mana or life " +
+                    $"({conn.PlayerMana} < {cost}, {conn.PlayerLife} life for {lifeCost})");
                 return false;
             }
-            if (cost > 0)
+            if (cost > 0 || lifeCost > 0)
             {
                 if (UsesProjectileRuntime(gem.Effect)) ProjectilesFor(remote, stream, ciphers, conn)
-                    .Enqueue(() => SendPlayerMana(remote, stream, ciphers, conn, $"projectile mana paid: {gem.Name}"));
-                else await SendPlayerMana(remote, stream, ciphers, conn,
-                    $"0x01b1 player mana {conn.PlayerMana} (-{cost} for {gem.Name}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                    .Enqueue(() => SendSkillCost(remote, stream, ciphers, conn, lifeCost, $"projectile cost paid: {gem.Name}"));
+                else await SendSkillCost(remote, stream, ciphers, conn, lifeCost,
+                    $"0x01b1 player cost {conn.PlayerMana} mana, {conn.PlayerLife} life (-{cost} mana, -{lifeCost} life for {gem.Name}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
             }
         }
         if (vaalCast)
@@ -881,7 +884,7 @@ static partial class Game
                 await WhilePaused(conn);
                 if (!Running()) return;
                 double now = conn.Clock.Elapsed.TotalSeconds;
-                uint cost;
+                uint cost, lifeCost;
                 using (conn.Performance.Lock(conn.Monsters, "channel"))
                 {
                     if (!Running() || conn.Paused || now < conn.NextChannelHitAt) continue;
@@ -896,10 +899,10 @@ static partial class Game
                     conn.Performance.RecordMilliseconds(LatencyPhase.ChannelLate, (now - conn.NextChannelHitAt) * 1000);
                     conn.NextChannelHitAt = Math.Max(conn.NextChannelHitAt, now - 0.05) + SupportedChannelSeconds(conn, skillId);
                     // Payment and admission share the channel's generation check.
-                    if (!PayMana(conn, skillId, out cost)) { conn.ChannelSkill = 0; conn.ChannelGeneration++; }
+                    if (!PayMana(conn, skillId, out cost, out lifeCost)) { conn.ChannelSkill = 0; conn.ChannelGeneration++; }
                 }
                 if (!Running()) { await SendPlayerMana(remote, stream, ciphers, conn, "channel stopped"); return; }
-                if (cost > 0) await SendPlayerMana(remote, stream, ciphers, conn, $"channel cost {cost}");
+                if (cost > 0 || lifeCost > 0) await SendSkillCost(remote, stream, ciphers, conn, lifeCost, $"channel cost {cost} mana, {lifeCost} life");
                 if (!Running()) return;
                 var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                 await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at,
@@ -1081,10 +1084,12 @@ static partial class Game
                 if (player is null)
                 {
                     player = CharacterPlayerStats(conn);
-                    var local = spell ? null : MainHandLocalSources(conn);
+                    // A shield skill swings the shield (ShieldWeapon), which carries no local modifiers of the main hand.
+                    var shield = spell ? null : ShieldWeapon(conn, skillId);
+                    var local = spell || shield is not null ? null : MainHandLocalSources(conn);
                     pen = Penetration.Of(player, Stats, attack: !spell, skillStats, local);
                     mods = HitResistMods(player, skillStats);
-                    sweepHit = SupportedHit(conn, skillId);
+                    sweepHit = shield is null ? SupportedHit(conn, skillId) : SupportedHitFor(conn, skillId, suppress: true, weapon: shield);
                     if (ruthless != 1) sweepHit = sweepHit.Scale(ruthless);
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                     if (!spell) accuracy = SupportedAccuracy(conn, skillId);
@@ -1382,8 +1387,14 @@ static partial class Game
     // (BossFights; the stage is then taken, so it runs once).
     internal static (uint Life, bool StageStarts) TakeDamageLocked(SpawnedMonster m, int damage)
     {
-        // While the stage runs the boss cannot die: its life fills up at the end anyway.
-        if (m.StageRunning) return ((uint)Math.Max(1, (long)m.Life - damage), false);
+        // While the stage runs the boss cannot die: its life fills up at the end anyway. The humanoid King also waits for
+        // the maze/treant phase before the treant form takes over; a burst cannot skip it. Its floor is 50% life (the
+        // phase 2 trigger), while the treant's emergence grace refuses all damage. A Mystic Fetish is immune until the
+        // King's ritual reaches it.
+        if (m.Invulnerable) return (m.Life, false);
+        if (m.StageRunning || m.KingPhaseLocked)
+            return ((uint)Math.Max(m.KingPhaseLocked ? (long)m.MaxLife * 50 / 100 : 1,
+                (long)m.Life - damage), false);
         // A quest threshold (Kitava): the hit that reaches it leaves the monster alive; it never dies.
         if (m.Threshold is { } threshold)
         {
@@ -1465,6 +1476,9 @@ static partial class Game
         await SendVaalSouls(remote, stream, ciphers, conn);
         // A dead Hardcore character's kills (an ignite still burning) make no progress, as a projectile's (CommitProjectileKill).
         if (blocked || m.Variety is not { } variety || !m.Hostile) return;
+        // A Mystic Fetish is a destructible arena object: breaking it interrupts the King's ritual and gives no
+        // experience, loot or quest progress of its own.
+        if (KingInMists.IsFetish(variety)) return;
         var killer = PlayerOf(conn);
         var monster = ModMonster(m, at);
         if (playerKill)
@@ -1504,6 +1518,10 @@ static partial class Game
         // The mods' changes (Program.Mods.cs): their multipliers on top of the league's, their own items besides.
         var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(m, at));
         List<ItemDrops.Drop> drops = [];
+        // The King in the Mists always drops one of four uniques, plus its support gems and card. Its humanoid form is
+        // removed without a death, so only the treant (Boss3) reaches here.
+        if (KingInMists.IsBoss3(m.Variety))
+            drops.AddRange(DropsFor(conn).KingInMists(m.Level, Random.Shared));
         if (modded is not { Cancel: true })
         {
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),
@@ -1515,6 +1533,7 @@ static partial class Game
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
+            drops.AddRange(ExtraDropsFromMap(conn, m.Rarity, Random.Shared));
         }
         foreach (string query in modded?.Items ?? [])
         {

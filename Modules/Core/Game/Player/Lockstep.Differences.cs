@@ -148,7 +148,7 @@ static partial class Game
         if (GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem)
         {
             if (SkillsFor(conn).IsChannelled(gem.Effect)) return 0;
-            return SkillsFor(conn).IsAttack(gem.Effect) ? SkillAttackSeconds(conn, gem.Effect, gem.Level)
+            return SkillsFor(conn).IsAttack(gem.Effect) ? SupportedAttackSeconds(conn, skill)
                 : SkillsFor(conn).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(conn);
         }
         return WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn));

@@ -170,6 +170,13 @@ static int Dispatch(string[] args)
                     Console.WriteLine($"{found} with a vertex block, {missing} without");
                 }
                 break;
+            case "questobjects" when args.Length > 1:
+                // questobjects <area regex> [seed] [--rooms]: per generated area, every placed room's server object
+                // lines (types other than plain doodads) and every tile's .tmd records whose type is not a doodad, with
+                // their grid cells (which quest objects, NPCs, chests and spawners a layout holds).
+                // --rooms also prints every placed .arm room (AreaObjects.Rooms).
+                QuestObjectsList(args[1], args.Length > 2 && args[2] != "--rooms" ? uint.Parse(args[2]) : 1, args.Contains("--rooms"));
+                break;
             case "generate":
                 // generate <area id> <seed> [trace.gen.json]: the server's generation, compared with a client trace when given.
                 Generate(args[1], uint.Parse(args[2]), args.Length > 3 ? args[3] : null);
@@ -208,7 +215,7 @@ static int Dispatch(string[] args)
                 Oracle(args.Length > 1 ? args[1] : ".");
                 break;
             default:
-                Console.WriteLine("usage: levelgen hash <trace.gen.json>… | cat <game path>… | tile <.tdt>… | generate <area> <seed> [trace] | oracle [area regex]");
+                Console.WriteLine("usage: levelgen hash <trace.gen.json>… | cat <game path>… | tile <.tdt>… | generate <area> <seed> [trace] | oracle [area regex] | questobjects <area regex> [seed] [--rooms]");
                 break;
         }
     }
@@ -371,6 +378,56 @@ static void Rooms(string filter)
     }
     Console.WriteLine($"rooms: {loads} loads with a rooms capture, {same} the same, {wrong} different ({rooms} captured rooms)");
     Console.WriteLine($"quest objects: {questLoads} loads with an objects capture, {questSame} the same ({quests} captured objects)");
+}
+
+// The quest-relevant objects of a generated layout: room server object lines and tile records whose type is not a plain
+// doodad (NPCs, quest objects, chests, spawners, blockers), with their grid cells (room ones before the room's turn:
+// room cell + origin, good enough to tell which rooms and tiles an area has).
+static void QuestObjectsList(string filter, uint seed, bool rooms = false)
+{
+    var fs = OpenGame();
+    var files = Files();
+    string root = Root();
+    var levels = new Dictionary<string, int>(StringComparer.Ordinal);
+    using (var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json"))))
+        foreach (var row in doc.RootElement.EnumerateArray())
+            if (row.GetProperty("Id").GetString() is { } id) levels.TryAdd(id, row.GetProperty("AreaLevel").GetInt32());
+    static bool Plain(string type) => type.Length == 0 || type == "Metadata/MiscellaneousObjects/Doodad"
+        || type.StartsWith("Metadata/MiscellaneousObjects/Environment/", StringComparison.Ordinal)
+        || type.StartsWith("Metadata/Effects/", StringComparison.Ordinal)
+        || type.EndsWith("/AnimatedTileDoodad", StringComparison.Ordinal)
+        || type.StartsWith("Metadata/Terrain/Tools/AudioTools/", StringComparison.Ordinal);
+    foreach (var areaId in levels.Keys.Where(a => System.Text.RegularExpressions.Regex.IsMatch(a, filter)).Order())
+    {
+        GenerationResult result;
+        try { result = LevelGenerator.Generate(files, AreaInfo.Load(p => fs.TryReadFile(p, out var d) ? d : null, areaId, Math.Max(1, levels[areaId])), seed); }
+        catch (Exception ex) { Console.WriteLine($"== {areaId} seed {seed}: {ex.GetType().Name}: {ex.Message}"); continue; }
+        finally { ResetHooks(); }
+        Console.WriteLine($"== {areaId} seed {seed}: {result.Grid.Width}x{result.Grid.Height} tiles");
+        // type -> (count, first source and cell)
+        var found = new SortedDictionary<string, (int Count, string First)>(StringComparer.Ordinal);
+        void Add(string type, string where)
+        {
+            found[type] = found.TryGetValue(type, out var f) ? (f.Count + 1, f.First) : (1, where);
+        }
+        var seen = new HashSet<string>();
+        foreach (var record in result.Records)
+            foreach (var r in record.Rooms)
+                foreach (var d in r.Room.Doodads.Where(d => !Plain(d.Type)))
+                    if (seen.Add($"{r.Room.Path} {r.X} {r.Y} {d.Type} {d.X} {d.Y}"))
+                        Add(d.Type, $"room {r.Room.Path} @({r.X * 23},{r.Y * 23}) o{r.Orientation} room cell ({d.X:F0}, {d.Y:F0})");
+        var grid = result.Grid;
+        for (int y = 0; y < grid.Height; y++)
+            for (int x = 0; x < grid.Width; x++)
+            {
+                if (grid[x, y] is not { IsOrigin: true } e) continue;
+                foreach (var o in files.TileObjects(e.Tile).Concat(files.SecondObjects(e.Tile)).Where(o => !Plain(o.Type)))
+                    Add(o.Type, $"tile {e.Tile.Path} @({x * 23},{y * 23}) o{e.Orientation} record '{o.Name}' tile cell ({o.CellX}, {o.CellY})");
+            }
+        foreach (var (type, (count, first)) in found) Console.WriteLine($"  {type} x{count}: {first}");
+        if (rooms)
+            foreach (var room in AreaObjects.Rooms(result)) Console.WriteLine($"  placed room {room.Path} @({room.X},{room.Y}) o{room.Code}");
+    }
 }
 
 static void Objects(string filter)
