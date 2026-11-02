@@ -117,7 +117,7 @@ static partial class Game
                 // An attack gem swings with the weapon's attack time, while the client keeps aiming it for as long as the
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
                 // (its pending hit), pay its cost or get a 0x1ab (live 2026-10-25).
-                if (attack && !AttackReady(conn, gem.Effect, gem.Level, out double attackSeconds))
+                if (attack && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                     continue;
@@ -134,7 +134,7 @@ static partial class Game
                     if (cast) conn.Walk.Order(px, py, at);
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
                     // there at its own speed instead (ShieldCharge.cs).
-                    if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, chargeBonus, use.X, use.Y, at);
+                    if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
                     else if (gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect)
                         && (conn.Layout.Walkable is not { } canWalk || canWalk(use.X, use.Y)))
                         conn.Walk.Teleport(use.X, use.Y, at);

@@ -69,7 +69,9 @@ static partial class Game
                 var ranged = SkillsFor(conn).Projectile(projectileId);
                 double speed = ProjectileSpeed.CellsPerSecond(ranged?.Speed ?? 3260, Get, _ => 0,
                     Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
-                var profile = GatewayProjectileDefaults.Resolve(ranged?.Id ?? projectileId, Get, speed, attack: true);
+                var profile = GatewayProjectileDefaults.Resolve(ranged?.Id ?? projectileId, Get, speed, attack: true,
+                    arrows: weapon.Bow);
+                profile = NativeVolley(profile, Get);
                 var origin = ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
                 var target = ProjectileSession.Vector(aim);
                 // The shot leaves from the clip's contact keyframe, in front of the body along the aim (the Ranger's bow

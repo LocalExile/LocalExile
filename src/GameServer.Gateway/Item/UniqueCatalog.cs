@@ -31,7 +31,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
         ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0);
 
-    /// <summary>The entries whose curated 3.29 data differs from the PoB export used for the full catalogue.</summary>
+    /// <summary>The curated entries whose 3.29 data differs from the PoB export used for the full catalogue.</summary>
     static readonly Definition[] Curated =
     [
         // Mageblood (Heavy Belt): the +25-35 Strength is the Heavy Belt implicit; the rest are the unique's mods.
@@ -57,6 +57,33 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         .. UniqueItemSeed.All.Where(entry => Curated.All(curated =>
             !curated.Name.Equals(entry.Name, StringComparison.OrdinalIgnoreCase))),
     ];
+
+    /// <summary>Hidden mods that the Path of Building export does not carry, keyed by <c>name|base type</c>. They are
+    /// sent in the item's hidden list. The level overrides are the game's generic LevelRequirementOverrideUnique__N
+    /// rows: poedb's item cards give each unique's own requirement, which can be lower than the base type's level
+    /// (Seven-League Step on Rawhide Boots, drop level 3, is "Requires Level 1, 11 Dex"). The table is the place for
+    /// other hidden mods PoB omits as they are identified.</summary>
+    static readonly Dictionary<string, string[]> HiddenMods = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Araku Tiki|Metadata/Items/Amulets/Amulet2"] = ["LevelRequirementOverrideUnique__1"],
+        ["Blackheart|Metadata/Items/Rings/Ring1"] = ["LevelRequirementOverrideUnique__1"],
+        ["Cragfall|Metadata/Items/Quivers/Quiver6"] = ["LevelRequirementOverrideUnique__4"],
+        ["Craghead|Metadata/Items/Quivers/Quiver6"] = ["LevelRequirementOverrideUnique__4"],
+        ["Doedre's Damning|Metadata/Items/Rings/Ring3"] = ["LevelRequirementOverrideUnique__1"],
+        ["Kalandra's Touch|Metadata/Items/Rings/MirrorRing"] = ["LevelRequirementOverrideUnique__1"],
+        ["Kaom's Sign|Metadata/Items/Rings/Ring2"] = ["LevelRequirementOverrideUnique__1"],
+        ["Karui Ward|Metadata/Items/Amulets/Amulet4"] = ["LevelRequirementOverrideUnique__5"],
+        ["Malachai's Artifice|Metadata/Items/Rings/Ring15"] = ["LevelRequirementOverrideUnique__5"],
+        ["Perandus Signet|Metadata/Items/Rings/Ring3"] = ["LevelRequirementOverrideUnique__1"],
+        ["Replica Doedre's Damning|Metadata/Items/Rings/Ring3"] = ["LevelRequirementOverrideUnique__1"],
+        ["Replica Karui Ward|Metadata/Items/Amulets/Amulet4"] = ["LevelRequirementOverrideUnique__5"],
+        ["Replica Malachai's Artifice|Metadata/Items/Rings/Ring15"] = ["LevelRequirementOverrideUnique__5"],
+        ["Seven-League Step|Metadata/Items/Armours/Boots/BootsDex1"] = ["LevelRequirementOverrideUnique__1"],
+        ["Sidhebreath|Metadata/Items/Amulets/Amulet1"] = ["LevelRequirementOverrideUnique__1"],
+        ["Stone of Lazhwar|Metadata/Items/Amulets/Amulet5"] = ["LevelRequirementOverrideUnique__5"],
+        ["Sudden Dawn|Metadata/Items/Armours/Helmets/HelmetInt7"] = ["LevelRequirementOverrideUnique__3"],
+        ["Tear of Purity|Metadata/Items/Amulets/Amulet5"] = ["LevelRequirementOverrideUnique__5"],
+    };
 
     readonly Lazy<Dictionary<string, UniqueName>> _names = new(() => LoadNames(folder));
 
@@ -126,6 +153,8 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             mods.AddRange(Rolled(definition, implicits, ModSection.Implicit, random));
         }
         mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
+        if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
+            mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
         return item with { Mods = mods };
     }
 

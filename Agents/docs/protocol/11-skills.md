@@ -1724,7 +1724,11 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
   Animated, BaseEvents and Projectile, so the blob is Positioned, one Animated byte and the tasks byte
   (`ProjectileObject`; the Animated component is index 1), then 0x1a9 (wake zone). The real link between a skill and
-  its projectile is unknown; the Gateway matches the Id. Multiple projectiles are one object each, spread around the
+  its projectile is unknown; the Gateway matches the Id, then the Id with a `Royale`, `AltX`, `AltY` or `AltZ` suffix
+  removed: 3.29 files the Royale and transfigured duplicates of a skill under its own name plus a suffix, and those
+  duplicates fire the base skill's row (the Lightning Arrow gem grants `LightningArrowRoyale`, whose row is
+  `Metadata/Projectiles/LightningArrow`). `ProjectileFallbacks` covers the effects no suffix rule reaches, because their
+  row is named otherwise (Elemental Hit's `ElementalHitArrowCombined`). Multiple projectiles are one object each, spread around the
   aim (`ProjectileSpread`: `number_of_additional_projectiles`, `projectile_spread_radius` or 10°,
   `Game_PROJECTILE_SPREAD`); the client also spawns its own copies of a gem use's volley (above), so those objects
   are no longer sent. Kinetic Blast's effect is ClusterBurst, which names no
@@ -2504,9 +2508,20 @@ it arrives, and kind 2 (range 28) as the end phase starts. The Gateway lands kin
 areas overlap), and a final hit within 16 cells reaching every monster there. The generic area hit, which landed once
 around the starting cell, skips Shield Charge. Verified live: path and arrival hits land.
 
-**Not modelled yet:** the gem's shield damage (`off_hand_local_minimum/maximum_added_physical_damage`, the added damage
-per 15 shield armour and evasion), `shield_charge_damage_+%_maximum` by distance, the stun and knockback scaling, and
-the end phase's kind-2 effects; the hits deal the ordinary weapon hit.
+**Maximum distance.** The setup stops a charge aimed further away at 75 cells × (1 + `shield_charge_range_+%` / 100)
+(integer, `(100 + range) * 75 / 100`) along the aim; the Gateway clamps its walk the same way. The setup also adds
+`shield_charge_extra_distance` past the aim, and uses 14 cells instead while its +0x2d0 is below +0x2d4 (not read).
+
+**Damage.** A shield skill (Shield Charge, Shield Crush) swings the shield, which has no weapon damage: its base is the
+gem's `off_hand_local_minimum/maximum_added_physical_damage` plus its added damage per 15 of the shield's own
+(local) armour and evasion rating, at the gem's `AttackTime` (`ShieldWeapon`); hits and the Offence tab use it, the tab
+at the off hand's speed. Shield Charge's description of `shield_charge_damage_+%_maximum` (skill_stat_descriptions.txt)
+is "{0}% more Damage with Hits at Maximum Charge Distance": the Gateway scales each hit linearly by the distance from
+the start over the maximum (a guess; the client's ramp is not read). Verified live: level 1 with a 219-armour shield,
+base 51–83, panel 79–136 and 2.1 attacks per second, hits ×1.00 at the start up to ×1.83 at 62 cells.
+
+**Not modelled yet:** the stun and knockback scaling, `shield_charge_extra_distance`, and the end phase's kind-2
+effects.
 
 ## 10f. Synthetic action instructions (S→C 0x1ce / 0x1cf)
 
