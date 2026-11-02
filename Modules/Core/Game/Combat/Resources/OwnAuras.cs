@@ -121,6 +121,7 @@ static partial class Game
             packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana,
                 (uint)ReservedMana(conn), pool: ManaPool));
         }
+        if (Lifetap.Presentation(conn) is { } lifetap) packets.Add(lifetap);
         packets.Add(snapshot());
         return [.. packets.SelectMany(p => p)];
     }

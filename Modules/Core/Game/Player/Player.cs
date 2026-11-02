@@ -102,6 +102,7 @@ static partial class Game
         {
             ended = [.. conn.Auras.Values];
             conn.Auras.Clear();
+            conn.Lifetap.Clear();
             conn.AuraStatsDirty = ended.Count > 0 || conn.AuraStatsDirty;
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
@@ -193,6 +194,32 @@ static partial class Game
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
     }
 
+    // A paid skill's Life cost, then its mana update. Lifetap's cost changes the life pool at once and the client must
+    // see it before its own prediction does anything with the new value.
+    internal static async Task SendSkillCost(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint lifeCost, string? log)
+    {
+        if (lifeCost > 0)
+            await Send(remote, stream, ciphers, [], log, atGate: () =>
+            {
+                lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife);
+            });
+        await SendPlayerMana(remote, stream, ciphers, conn, log);
+    }
+
+    // The Lifetap buff's client instance: it is added by the mana publication after a supported skill's cost (the
+    // same send gate as the other own buffs) and is removed here when its countdown runs out.
+    internal static Task SendLifetap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        Send(remote, stream, ciphers, [], null, atGate: () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (conn.Closed || conn.LeavingArea || conn.RageRetired
+                    || (!conn.PlayerObjectCreated && !conn.PlayerSent)) return null;
+                return Lifetap.Presentation(conn);
+            }
+        });
+
     internal static Task SendPlayerEnergyShield(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         Send(remote, stream, ciphers, [], "0x01b1 player energy shield", atGate: () =>
         {
@@ -228,20 +255,34 @@ static partial class Game
     internal static uint ManaCost(StatCatalog stats, SkillCatalog skills, int effect, int level, int quality) =>
         stats.Key("mana_cost") is uint k ? (uint)skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
 
-    // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts. False when the player lacks
-    // the mana.
-    internal static bool PayMana(ClientState conn, ushort skillId, out uint cost)
+    // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts. Lifetap Support
+    // replaces the whole cost with Life. False when the player lacks the pool it actually uses.
+    internal static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost)
     {
         var own = SupportedSkill(conn, skillId).Stats;
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         cost = (uint)Math.Max(0, Own("mana_cost"));
+        lifeCost = 0;
         lock (conn.Monsters)
         {
             // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
             if (cost > 0 && BloodCharges.Uses(Own))
                 cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
-            if (conn.PlayerMana < cost) return false;
+            int life;
+            if (Lifetap.ConvertsCostToLife(own))
+            {
+                life = (int)Math.Min(cost, int.MaxValue);
+                cost = 0;
+            }
+            else life = 0;
+            if (conn.PlayerMana < cost || life > 0 && conn.PlayerLife <= (uint)life) return false;
             conn.PlayerMana -= cost;
+            if (life > 0)
+            {
+                conn.PlayerLife -= (uint)life;
+                lifeCost = (uint)life;
+                Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
+            }
             return true;
         }
     }
@@ -429,6 +470,7 @@ static partial class Game
             await SendRecentEnemyHits(remote, stream, ciphers, conn);
             if (conn.FlaskGrounds.StartTickerIfConfigured()) _ = RunFlaskGrounds(remote, stream, ciphers, conn);
             await SendAttackerSlows(remote, stream, ciphers, conn);
+            await SendLifetap(remote, stream, ciphers, conn);
             await TickPassiveAuras(remote, stream, ciphers, conn);
             await PushOutOfCollision(remote, stream, ciphers, conn);
             await BurnIgnited(remote, stream, ciphers, conn);
@@ -1004,6 +1046,8 @@ static partial class Game
                         foreach (var budget in player.Souls ?? [])
                             conn.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
                         conn.PresentedAuras.Clear();
+                        conn.Lifetap.PresentedBuff = 0;
+                        conn.Lifetap.RefreshPresented = false;
                         conn.AuraStatsDirty = false;
                         conn.PlayerObjectCreated = true;
                         return InstanceEntities.CreateObject(PlayerId, conn.PeerType, player.Blob());

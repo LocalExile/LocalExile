@@ -657,6 +657,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   `SkillAttackSeconds`. Tornado Shot's -20% and player/bow attack speed apply. Projectile speed adds the player's
   `projectile_speed_+%` to the skill's `base_projectile_speed_+%`. Automated pace and projectile-speed checks pass;
   no native check yet. Code: `GemSupports.Rules.cs`, `Combat.cs`, `ProjectileSpeed.cs`.
+- Lifetap Support: supported skills pay their whole Mana cost as Life, including the 300% cost multiplier; the paid
+  Life is accumulated against `support_lifetap_spent_life_threshold`. Reaching it grants the 4 s (plus quality) Lifetap
+  buff, whose more damage applies to supported hits and whose 20% increased Life recovery applies to flasks.
+  Vaal uses pay the same Life cost. The buff is presented through the own-aura send gate; the hidden spent-Life buff
+  and minion buffs are not sent, and damage over time does not receive the more multiplier.
+  Automated test covers Tornado Shot with level-1 Lifetap: 9 Mana becomes 27 Life, the first use grants the buff,
+  and the hit and flask bonuses apply. Code: `Combat/Lifetap.cs`, `Player.cs`, `ConditionalSupportDamage.cs`;
+  docs: [25](../docs/protocol/25-gem-supports.md).
 - Tornado Shot terminal secondaries: each primary arrow pierces its contacts and emits three
   `TornadoShotSecondaryArrow` flights at its endpoint, spaced around the client's native terminal RNG ray
   (`[sequence, mother-derived byte, owner, repeats]`). The client predicts the primary and secondary arrows itself
