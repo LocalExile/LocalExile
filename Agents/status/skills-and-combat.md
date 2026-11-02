@@ -652,6 +652,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Attack-speed admission: gem attacks now use the supported attack speed (gem and support stats plus the inherent
+  GrantedEffectsPerLevel multiplier) for both the admission gate and the swing interval, instead of mixing it with
+  `SkillAttackSeconds`. Tornado Shot's -20% and player/bow attack speed apply. Projectile speed adds the player's
+  `projectile_speed_+%` to the skill's `base_projectile_speed_+%`. Automated pace and projectile-speed checks pass;
+  no native check yet. Code: `GemSupports.Rules.cs`, `Combat.cs`, `ProjectileSpeed.cs`.
 - Lifetap Support: supported skills pay their whole Mana cost as Life, including the 300% cost multiplier; the paid
   Life is accumulated against `support_lifetap_spent_life_threshold`. Reaching it grants the 4 s (plus quality) Lifetap
   buff, whose more damage applies to supported hits and whose 20% increased Life recovery applies to flasks.
