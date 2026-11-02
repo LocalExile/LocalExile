@@ -4,6 +4,17 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>Native ItemCosts, selected by item level and rarity; explicit prices remain authoritative.</summary>
 sealed class VendorPrices
 {
+    sealed class Modes(ItemCatalog items)
+    {
+        public readonly Lazy<VendorPrices> Normal = new(() => new(items));
+        public readonly Lazy<VendorPrices> Hard = new(() => new(items,true));
+    }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemCatalog,Modes> Cache = new();
+    public static VendorPrices For(ItemCatalog items, bool hardMode = false)
+    {
+        var modes = Cache.GetValue(items, static catalog => new(catalog));
+        return (hardMode ? modes.Hard : modes.Normal).Value;
+    }
     readonly Dictionary<int, List<(int Level, int Cost)>> levels = [];
     readonly Dictionary<int, int> mapCosts = [];
     readonly List<(uint Currency, int Amount)[][]> costs = [];
@@ -25,6 +36,7 @@ sealed class VendorPrices
             if (!levels.TryGetValue(b, out var entries)) levels[b] = entries = [];
             entries.Add((row.GetProperty("Level").GetInt32(), cost));
         }
+        foreach (var entries in levels.Values) entries.Sort((a,b) => b.Level.CompareTo(a.Level));
         using var m = GameTables.Open(Path.Combine(folder, "tables/MapPurchaseCosts.json"));
         foreach (var row in m.RootElement.EnumerateArray())
             mapCosts[row.GetProperty("Tier").GetInt32()] = row.GetProperty(hardMode ? "CostHardmode" : "Cost").GetInt32();
@@ -35,8 +47,10 @@ sealed class VendorPrices
         if (item.Price.Count > 0) return item;
         if (catalog.ByHash(item.TypeHash) is not { } type) return null;
         int level = item.Components.Contains("Mods") ? item.ItemLevel : 1;
-        int cost = levels.GetValueOrDefault(type.Row)?.Where(e => e.Level <= level)
-            .OrderByDescending(e => e.Level).Select(e => (int?)e.Cost).FirstOrDefault() ?? -1;
+        int cost = -1;
+        if (levels.TryGetValue(type.Row,out var entries))
+            foreach (var entry in entries)
+                if (entry.Level <= level) { cost = entry.Cost; break; }
         int rarity = (int)item.Rarity;
         (uint Currency, int Amount)[] raw = cost >= 0 && cost < costs.Count ? costs[cost][rarity] : [];
         if (raw.Length == 0 && type.Id.StartsWith("Metadata/Items/Maps/MapKeyTier")

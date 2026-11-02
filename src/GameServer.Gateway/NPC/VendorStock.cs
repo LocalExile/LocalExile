@@ -34,12 +34,12 @@ static class VendorStock
         random ??= Random.Shared;
         var profile = VendorCatalog.Default.Find(npc);
         if (profile is null) return new([], "", []);
-        var price = new VendorPrices(items, hardMode);
+        var price = VendorPrices.For(items, hardMode);
         string key = Key(npc, league);
         bool shared = profile.Kind == "Kirac" && account is not null;
-        int offeredTier = KiracProgress.For(account).Tier;
+        int offeredTier = shared ? KiracProgress.For(account).Tier : 1;
         int count = profile.Kind switch { "Weapons" => 60, "Magic" => 40, "Kirac" => 18, _ => 0 };
-        var rolls = new ItemRolls(items);
+        var rolls = new Lazy<ItemRolls>(() => new(items));
         bool Eligible(ItemCatalog.BaseType t) => t.Supported && t.DropLevel > 0
             && t.Components.Contains("Mods") && !rules.ShopExcludedClasses.Contains(t.Class)
             && !t.Name.StartsWith('[') && !t.Id.Contains("Royale") && t.ModDomain == 1;
@@ -48,11 +48,15 @@ static class VendorStock
                 "OneHandMace", "TwoHandMace", "Dagger", "RuneDagger", "Claw", "Bow", "Staff", "Warstaff",
                 "Sceptre", "Shield", "BodyArmour", "Helmet", "Gloves", "Boots", "Quiver" }
             : new[] { "Wand", "Ring", "Amulet", "Belt", "LifeFlask", "ManaFlask", "HybridFlask", "UtilityFlask", "Tincture" };
-        var pool = items.All.Where(t => Eligible(t) && classes.Contains(t.Class)).ToList();
-        // Flasks have their own ModDomain, but are ordinary magic-vendor stock.
-        if (profile.Kind == "Magic") pool.AddRange(items.All.Where(t => t.Supported && t.DropLevel > 0
-            && !t.Id.Contains("Royale") && t.Components.Contains("Flask") && !rules.ShopExcludedClasses.Contains(t.Class)));
-        pool = pool.DistinctBy(t => t.Row).ToList();
+        var pool = new Lazy<List<ItemCatalog.BaseType>>(() =>
+        {
+            var selected = items.All.Where(t => Eligible(t) && classes.Contains(t.Class)).ToList();
+            // Flasks have their own ModDomain.
+            if (profile.Kind == "Magic") selected.AddRange(items.All.Where(t => t.Supported && t.DropLevel > 0
+                && !t.Id.Contains("Royale") && t.Components.Contains("Flask") && !rules.ShopExcludedClasses.Contains(t.Class)));
+            return selected.DistinctBy(t => t.Row).ToList();
+        });
+        var candidatesByRarity = new Dictionary<ItemRarity,ItemCatalog.BaseType[][]>();
         Item? Generate(int slot)
         {
             if (profile.Kind == "Kirac" && slot == 17)
@@ -76,15 +80,18 @@ static class VendorStock
             else
             {
                 itemLevel = Math.Max(1, Math.Min(level, profile.TownLevel) + 2 - (int)rarity);
-                var candidates = pool.Where(t => t.DropLevel <= itemLevel
-                    && price.Price(new Item(t.Hash,t.Components,t.VisualIdentity)
-                        { ItemLevel=(byte)itemLevel, Rarity=rarity }) is not null).GroupBy(t => t.Class)
-                    .OrderBy(g => g.Key, StringComparer.Ordinal).ToArray();
+                if (!candidatesByRarity.TryGetValue(rarity,out var candidates))
+                {
+                    candidates = pool.Value.Where(t => t.DropLevel <= itemLevel
+                        && price.Price(new Item(t.Hash,t.Components,t.VisualIdentity)
+                            { ItemLevel=(byte)itemLevel, Rarity=rarity }) is not null)
+                        .GroupBy(t => t.Class).OrderBy(g => g.Key,StringComparer.Ordinal)
+                        .Select(g => { int top = g.Max(t => t.DropLevel); return g.Where(t => t.DropLevel >= top-15).ToArray(); })
+                        .ToArray();
+                    candidatesByRarity[rarity] = candidates;
+                }
                 if (candidates.Length == 0) return null;
-                // Rotate classes through the assortment, then choose among bases from the last 15 levels.
-                var group = candidates[slot % candidates.Length].ToArray();
-                int top = group.Max(t => t.DropLevel);
-                var bases = group.Where(t => t.DropLevel >= top - 15).ToArray();
+                var bases = candidates[slot % candidates.Length];
                 type = bases[random.Next(bases.Length)];
                 if (type.Components.Contains("Flask") && rarity == ItemRarity.Rare) rarity = ItemRarity.Magic;
                 itemLevel = Math.Max(1, Math.Min(level, profile.TownLevel) + 2 - (int)rarity);
@@ -92,7 +99,7 @@ static class VendorStock
             if (type is not { Supported: true }) return null;
             var item = ItemCatalog.Create(type, random: random) with { ItemLevel = (byte)itemLevel,
                 Quality = type.Components.Contains("Quality") && random.Next(10) == 0 ? (byte)random.Next(1,21) : (byte)0 };
-            item = rolls.Roll(item, rarity, random);
+            item = rolls.Value.Roll(item, rarity, random);
             int max = CurrencyEffects.MaximumSockets(item, type);
             if (max > 0)
             {

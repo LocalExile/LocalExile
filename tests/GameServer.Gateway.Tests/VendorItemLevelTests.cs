@@ -29,7 +29,10 @@ public class VendorItemLevelTests
         Assert.Empty(gems.Stock("Metadata/NPC/Epilogue/Lilly",2,new HashSet<string>()));
         Assert.Equal(459,gems.Stock("Metadata/NPC/Epilogue/Lilly",2,flags).Count);
         Assert.False(LeagueRules.Standard.FullGemStock);
-        var prices = new VendorPrices(catalog);
+        var prices = VendorPrices.For(catalog);
+        Assert.Same(prices,VendorPrices.For(catalog));
+        Assert.NotSame(prices,VendorPrices.For(catalog,true));
+        Assert.NotSame(prices,VendorPrices.For(new ItemCatalog("data")));
         var portal = prices.Price(ItemCatalog.Create(catalog.Find("Portal Scroll")!))!;
         Assert.Equal((catalog.Find("Scroll of Wisdom")!.Hash,3u),Assert.Single(portal.Price));
         var map = prices.Price(ItemCatalog.Create(catalog.Find("Metadata/Items/Maps/MapKeyTier15")!)
