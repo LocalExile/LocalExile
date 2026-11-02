@@ -134,7 +134,7 @@ static partial class Game
                     if (cast) conn.Walk.Order(px, py, at);
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
                     // there at its own speed instead (ShieldCharge.cs).
-                    if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, chargeBonus, use.X, use.Y, at);
+                    if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
                     else if (gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect)
                         && (conn.Layout.Walkable is not { } canWalk || canWalk(use.X, use.Y)))
                         conn.Walk.Teleport(use.X, use.Y, at);

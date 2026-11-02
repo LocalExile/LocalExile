@@ -566,11 +566,16 @@ static partial class Game
                 // Reap's more damage per Blood Charge held scales the hit itself, as AreaSkillHit does, so the damage
                 // ranges, the ailment rows and the per-use/per-second rows agree.
                 double bloodMore = BloodChargeDamageMore(conn, name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0);
-                var inputs = SupportedHitInputsFor(conn, id);
+                // A shield skill's rows are the shield's hit and swing (ShieldWeapon), as its hits are: the gem's own
+                // AttackTime at the off hand's speed, without the main weapon's local attack speed.
+                var shieldWeapon = ShieldWeapon(conn, id);
+                var inputs = SupportedHitInputsFor(conn, id, weapon: shieldWeapon);
                 SupportedHitInputs? offInputs = null;
                 if (inputs is not null && bloodMore != 1) inputs = inputs with { Raw = inputs.Raw.Scale(bloodMore) };
                 var supportedHit = inputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(inputs, suppress: true);
-                double seconds = SkillsFor(conn).IsAttack(effect) ? SupportedAttackSeconds(conn, id) : Math.Max(.001, (CastMs(conn, effect, id) ?? 0) / 1000.0);
+                double seconds = SkillsFor(conn).IsAttack(effect)
+                    ? shieldWeapon is null ? SupportedAttackSeconds(conn, id) : SupportedOffHandAttackSeconds(conn, id, shieldWeapon)
+                    : Math.Max(.001, (CastMs(conn, effect, id) ?? 0) / 1000.0);
                 var finalPlan = SkillHitPlan.ForSkill(SkillsFor(conn), effect, supported.Level, supported.Quality);
                 int criticalChance = SupportedCriticalChance(conn, id);
                 int criticalMultiplier = SupportedCriticalMultiplier(conn, id);
@@ -587,7 +592,7 @@ static partial class Game
                     if (Stats.Key(key) is uint statKey) stats[statKey] = value;
                 if (SkillsFor(conn).IsAttack(effect))
                 {
-                    stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round((WeaponFor(conn).AttackMs / (seconds * 1000) - 1) * 100);
+                    stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round(((shieldWeapon ?? WeaponFor(conn)).AttackMs / (seconds * 1000) - 1) * 100);
                     stats[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
                     foreach (var (field, value) in new[]
                     {

@@ -1020,10 +1020,12 @@ static partial class Game
                 if (player is null)
                 {
                     player = CharacterPlayerStats(conn);
-                    var local = spell ? null : MainHandLocalSources(conn);
+                    // A shield skill swings the shield (ShieldWeapon), which carries no local modifiers of the main hand.
+                    var shield = spell ? null : ShieldWeapon(conn, skillId);
+                    var local = spell || shield is not null ? null : MainHandLocalSources(conn);
                     pen = Penetration.Of(player, Stats, attack: !spell, skillStats, local);
                     mods = HitResistMods(player, skillStats);
-                    sweepHit = SupportedHit(conn, skillId);
+                    sweepHit = shield is null ? SupportedHit(conn, skillId) : SupportedHitFor(conn, skillId, suppress: true, weapon: shield);
                     if (ruthless != 1) sweepHit = sweepHit.Scale(ruthless);
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                     if (!spell) accuracy = SupportedAccuracy(conn, skillId);

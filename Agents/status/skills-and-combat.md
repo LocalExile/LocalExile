@@ -18,7 +18,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Shield Charge's charge (verified live 2026-11-01): it ends and plays its end effect (the shield's off-hand attack time
   from the gem's `AttackTime`), runs at its own speed (`movement_velocity_+%` 22 → 112 → 22 while charging), and hits
   along its path (within 8 cells about every 100 ms, each monster once) and where it ends (within 16 cells).
-  Its damage is still the ordinary weapon hit: the shield's added damage and the distance scaling are not applied.
+  Its hits and Offence tab use the shield's damage (the gem's added damage plus its damage per 15 shield armour and
+  evasion, at the gem's attack time), up to 100% more by distance charged, the charge capped at 75 cells (verified live
+  2026-11-01). The stun scaling and `shield_charge_extra_distance` are not applied.
   Code: `WeaponTypeStats.cs`, `Skills.cs` (`FinalPlayerStatsFrom`, `GemSkills`), `ShieldCharge.cs`, `SkillCatalog.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §10a and §10k, [13](../docs/protocol/13-items.md) "Client weapon-type stats".
 - Antiquarian's real selected nodes now drive Ward absorption/restoration and Runic Tablet's pausable Adrenaline.
