@@ -17,7 +17,7 @@ The feature was originally built on the pre-refactor Gateway, then ported to the
 | What | Where |
 |---|---|
 | Port worktree | `E:\LocalExile-port` (git worktree), branch `port/survivors-mode` |
-| Ported branch on the fork | `GafGafGaf5612/LocalExile:feat/survivors-mode-preview` (head `a6acfbe9`) |
+| Ported branch on the fork | `GafGafGaf5612/LocalExile:feat/survivors-mode-preview` (head `35eb8214`) |
 | Original (pre-refactor) work | `E:\LocalExile`, branch `feat/survivors-mode` — kept as reference, do not delete |
 | PR | https://github.com/LocalExile/LocalExile/pull/502 |
 | Follow-up issue | https://github.com/LocalExile/LocalExile/issues/503 |
@@ -30,15 +30,18 @@ The feature was originally built on the pre-refactor Gateway, then ported to the
 ## Commits (port branch, newest first)
 
 ```
+35eb8214 docs: full survivors port checkpoint for the next session
 a6acfbe9 fix: closing the survivors window takes the first reward instead of reopening
 be57c615 feat: the survivors level-up window reopens instead of hanging the run
+af566a76 docs: drop the external reference link flagged by docs-scan
+76926637 docs: strip hidden control characters and the BOM flagged by docs-scan
 ceecd25e fix: survivors projectiles are server-drawn; herald auras and hit effects
 71f25849 feat: herald aura skills and an empty character at every survivors start
-76926637 docs: strip hidden control characters and the BOM flagged by docs-scan
-af566a76 docs: drop the external reference link flagged by docs-scan
-71f25849 ... (heralds, inventory reset)
-de07fbd6 merge: upstream main into the survivors port
+f59aa07b docs: survivors checkpoint - unique stats and ground sweep
 0fb344c8 fix: survivors unique stats reach the character; sweep the ground every run second
+c92079b7 docs: survivors port checkpoint - kills and clean merge
+0c073203 fix: survivors projectile profile after the upstream arrow parameter
+de07fbd6 merge: upstream main into the survivors port
 ...
 ```
 `git log --oneline -15` in `E:\LocalExile-port` for the full list.
