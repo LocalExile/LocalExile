@@ -27,8 +27,7 @@ public sealed class SurvivorsSupportMatrixTests
     }
 
     [Fact]
-    public void Every_support_moves_its_own_number_on_every_skill_it_can_support()
-    {
+    public void Every_support_moves_its_own_number_on_every_skill_it_can_support()    {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-matrix-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
@@ -41,7 +40,7 @@ public sealed class SurvivorsSupportMatrixTests
             conn.SurvivorsCatalog = catalog;
             conn.SurvivorsSupports = supports;
             Assert.Equal(8, supports.Count);
-            var roster = new Game.SurvivorsRoster([], [], 1, 20);
+            var roster = new Game.SurvivorsRoster([], [], 1, 20, 40);
             int pairs = 0, unimplemented = 0;
             var tooFew = new List<string>();
             foreach (int skillIndex in Enumerable.Range(0, catalog.Count))
@@ -133,6 +132,44 @@ public sealed class SurvivorsSupportMatrixTests
             Assert.False(Game.SurvivorsCanSupport(conn, tornado, area));
             Assert.True(Game.SurvivorsCanSupport(conn, knives, fasterCast));
             Assert.False(Game.SurvivorsCanSupport(conn, knives, area));
+        }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!);
+            Program.SetGameLogic(previousLogic!);
+            Saves.Db.Dispose();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
+    public void A_run_skill_uses_the_reference_s_thirty_percent_a_rank()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-rank-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        Saves.Open(path);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = Connection("SurvivorsRank");
+        try
+        {
+            var catalog = Game.SurvivorsCatalogFor(conn);
+            int index = catalog.ToList().FindIndex(s => s.Name == "Fireball");
+            Assert.True(index >= 0);
+            var skill = catalog[index];
+            var roster = new Game.SurvivorsRoster([], [], 1, 20, 40);
+            var run = new SurvivorsRun();
+            run.Learn(index);
+
+            var rank1 = Game.SurvivorsComputeCast(conn, run, skill, 1, index, roster);
+            var rank8 = Game.SurvivorsComputeCast(conn, run, skill, 8, index, roster);
+            Assert.NotNull(rank1);
+            Assert.NotNull(rank8);
+            // The reference's Owned::damage_mult: 1 + 0.30 × (rank − 1), so rank 8 is 3.1× rank 1.
+            double ratio = rank8!.Shot!.Hit.AverageTotal / rank1!.Shot!.Hit.AverageTotal;
+            Assert.InRange(ratio, 3.05, 3.15);
+            // The interval is ×0.93 a rank, never below the 200 ms floor.
+            Assert.Equal(rank1.Interval * Math.Pow(0.93, 7), rank8.Interval, 4);
+            Assert.True(rank8.Interval < rank1.Interval);
         }
         finally
         {

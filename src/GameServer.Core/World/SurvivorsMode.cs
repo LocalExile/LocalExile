@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Core.World;
 
-public enum SurvivorsChoiceKind { NewSkill, SkillRank, Blessing, Support, Item }
+public enum SurvivorsChoiceKind { NewSkill, SkillRank, Blessing, Support, Item, Heal }
 
 /// <summary>What a run skill does when it fires: a projectile at a target, or a herald's aura pulse around the player.</summary>
 public enum SurvivorsSkillKind { Projectile, Herald }
@@ -35,16 +35,42 @@ public enum SurvivorsSupport { AddedFire, AddedCold, AddedLightning, FasterCasti
 
 public static class SurvivorsRules
 {
+    // The reference mode's clock and horde (Azeroth Survivors, crates/benilla-app/src/survivors/data.rs, enemies.rs,
+    // read 2026-11-03): a 15-minute run, a boss every 135 s, a 14 → 220 horde refilled every 0.12 s, +75% monster life
+    // and +90% monster damage over the run. The lore-boss gate keeps one boss per 120 s area; the ladder, not the wall
+    // clock, carries the pressure curve.
     public const double VictorySeconds = 900;
-    public const double SpawnIntervalSeconds = 0.5;
-    public const int DefaultMaxAlive = 120;
+    public const double BossEverySeconds = 135;
+    public const double SpawnIntervalSeconds = 0.12;
+    public const int DefaultMaxAlive = 220;
     public const int MaxSpawnPerStep = 4;
-    public const int MaxSkills = 4;
+    public const int SpawnDivisor = 6;
+    public const int MaxSkills = 6;
     public const int MaxRank = 8;
     public const int MaxBlessings = 6;
     public const int MaxBlessingLevel = 5;
     public const int MaxSupportsPerSkill = 5;
     public const double LevelSeconds = 120;
+
+    // The reference's passive values (data.rs PASSIVES): Might +10% damage, Intellect +8% cast speed, Amplify +10%
+    // area, Kings +5 percentage points of base crit, Wisdom +8% experience. Detect (+40% pickup radius), Renew
+    // (+0.5 life a second), Wild (+1 armour) and Pack (+10% movement) do not map onto a server-owned PoE character;
+    // Fortitude's +20% maximum life a level is mapped to 1/1.2 less damage taken a level.
+    public const int MightPerLevel = 10;
+    public const int HastePerLevel = 8;
+    public const int AreaPerLevel = 10;
+    public const int CriticalPerLevelPermyriad = 500;
+    public const int WisdomPerLevel = 8;
+    public const int LeechPerLevel = 20;
+    public const int SwiftnessPerLevel = 10;
+
+    /// <summary>The reference's boss ladder, measured against the tier pool the player actually faces at that boss:
+    /// 700 HP over the 26 HP top of the 135 s pool (26.92×), then 25.71, 49.41, 31.82, 50, 47.62 (data.rs BOSSES
+    /// over wave_pool at 135 s steps). The seventh area extends it at 60×, a fight before the bell.</summary>
+    static readonly double[] BossRatios = [26.92, 25.71, 49.41, 31.82, 50.0, 47.62, 60.0];
+
+    /// <summary>The reference's boss experience (60, 120, 200, 300, 400, 500; the seventh area 600).</summary>
+    static readonly int[] BossExperienceTable = [60, 120, 200, 300, 400, 500, 600];
 
     /// <summary>The current stage's length: <see cref="LevelSeconds"/>, or Game_SURVIVORS_STAGE_SECONDS (at least 15 s)
     /// for a verification run that does not wait two minutes per area.</summary>
@@ -54,19 +80,51 @@ public static class SurvivorsRules
 
     public static double Progress(double elapsed) => Math.Clamp(elapsed / VictorySeconds, 0, 1);
 
-    /// <summary>The horde: 14 alive at the start, the cap by the end (Azeroth Survivors' 14 → 220 curve).</summary>
+    /// <summary>The horde: 14 alive at the start, 220 by the end (the reference's 14 → 220 curve).</summary>
     public static int TargetAlive(double elapsed, int maxAlive = DefaultMaxAlive) =>
         Math.Clamp((int)Math.Round(14 + Progress(elapsed) * (Math.Max(14, maxAlive) - 14)), 1, Math.Max(14, maxAlive));
+
+    /// <summary>How many bodies the spawner adds this tick: a sixth of the gap, at most four (the reference's refill
+    /// every 0.12 s).</summary>
+    public static int SpawnRefill(int missing) =>
+        Math.Clamp((int)Math.Ceiling(Math.Max(0, missing) / (double)SpawnDivisor), 0, MaxSpawnPerStep);
 
     public static int UnlockedCount(double elapsed, int rosterCount) =>
         rosterCount <= 0 ? 0 : Math.Clamp(1 + (int)(Progress(elapsed) * rosterCount), 1, rosterCount);
 
+    /// <summary>
+    /// The reference's sliding tier pool: the roster laid over thirty steps of the run, the spawner drawing from three
+    /// consecutive tiers (data.rs <c>wave_pool</c>). The first three at the start, the last three at the bell. Each
+    /// index is clamped into the roster, so a short area swims through all of its varieties instead of overrunning.
+    /// </summary>
+    public static int[] WavePool(double elapsed, int rosterCount)
+    {
+        if (rosterCount <= 0) return [];
+        if (rosterCount <= 3) return [.. Enumerable.Range(0, rosterCount)];
+        int step = Math.Clamp((int)(Progress(elapsed) * 30.0), 0, 30);
+        int span = rosterCount - 3;
+        int first = step <= 1 ? 0 : (step - 1) * span / 27;
+        first = Math.Clamp(first, 0, span);
+        return [first, first + 1, first + 2];
+    }
+
     /// <summary>A run skill's interval: 1.2 s, 7% shorter per rank, floored at 200 ms.</summary>
     public static double SkillInterval(int rank) => Math.Max(0.2, 1.2 * Math.Pow(0.93, Math.Max(0, rank - 1)));
 
+    /// <summary>The reference's rank curve: +30% damage a rank above the first (3.1× at rank 8).</summary>
+    public static double SkillDamageMultiplier(int rank) => 1 + 0.30 * Math.Max(0, rank - 1);
+
     /// <summary>A run skill's hit: the area's base damage, +30% per rank above the first.</summary>
     public static int SkillDamage(int baseDamage, int rank) =>
-        Math.Max(1, (int)(Math.Max(1, baseDamage) * (1 + 0.30 * Math.Max(0, rank - 1))));
+        Math.Max(1, (int)(Math.Max(1, baseDamage) * SkillDamageMultiplier(rank)));
+
+    /// <summary>The life of the area's boss at <paramref name="index"/>, as a ratio of the tier pool's top at that stage.</summary>
+    public static double BossLifeRatio(int index) =>
+        BossRatios[Math.Clamp(index, 0, BossRatios.Length - 1)];
+
+    /// <summary>The experience a boss kill pays on top of its ordinary unique kill.</summary>
+    public static int BossExperience(int index) =>
+        BossExperienceTable[Math.Clamp(index, 0, BossExperienceTable.Length - 1)];
 
     /// <summary>A run skill's reach: +8% radius per rank, before the run's area blessings and supports.</summary>
     public static double SkillRadius(int rank) => 1 + 0.08 * (Math.Max(1, rank) - 1);
@@ -98,6 +156,11 @@ public static class SurvivorsRules
     }
 
     public const int IncomingDamagePercent = 25;
+
+    /// <summary>Fortitude's mapping of the reference's +20% maximum life a level: 1/1.2 less damage taken a level
+    /// (25% → 20.8 → 17.4 → 14.5 → 12.1 → 10.1).</summary>
+    public static int FortitudeIncomingPercent(int level) =>
+        (int)Math.Round(IncomingDamagePercent / Math.Pow(1.2, Math.Clamp(level, 0, MaxBlessingLevel)));
 
     /// <summary>The next area opens only once the stage's lore boss has fallen; an area with no boss never seals.</summary>
     public static bool WaySealed(int bossCount, bool bossDefeated) => bossCount > 0 && !bossDefeated;
@@ -196,21 +259,21 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
     public int RankOf(int skill) { lock (_gate) return _skills.GetValueOrDefault(skill); }
 
     /// <summary>The run's increased damage (Might), added to the gem's and its supports' own increases.</summary>
-    public int DamageIncreasedPercent => 12 * BlessingLevel(SurvivorsBlessing.Might);
+    public int DamageIncreasedPercent => SurvivorsRules.MightPerLevel * BlessingLevel(SurvivorsBlessing.Might);
     public double DamageMultiplier => 1 + DamageIncreasedPercent / 100.0;
-    public int CastSpeedIncreasedPercent => 10 * BlessingLevel(SurvivorsBlessing.Haste);
+    public int CastSpeedIncreasedPercent => SurvivorsRules.HastePerLevel * BlessingLevel(SurvivorsBlessing.Haste);
     public double CastSpeedMultiplier => 1 + CastSpeedIncreasedPercent / 100.0;
-    public int AreaIncreasedPercent => 10 * BlessingLevel(SurvivorsBlessing.Area);
+    public int AreaIncreasedPercent => SurvivorsRules.AreaPerLevel * BlessingLevel(SurvivorsBlessing.Area);
     public double AreaMultiplier => 1 + AreaIncreasedPercent / 100.0;
-    public int ProjectileSpeedIncreasedPercent => 10 * BlessingLevel(SurvivorsBlessing.Swiftness);
+    public int ProjectileSpeedIncreasedPercent => SurvivorsRules.SwiftnessPerLevel * BlessingLevel(SurvivorsBlessing.Swiftness);
     public double ProjectileSpeedMultiplier => 1 + ProjectileSpeedIncreasedPercent / 100.0;
-    /// <summary>Increased critical strike chance (the run's own; the gem and supports add more).</summary>
-    public int CriticalChanceIncreasedPercent => 20 * BlessingLevel(SurvivorsBlessing.Critical);
+    /// <summary>Added base critical strike chance in permyriad (the reference's Kings: +5 percentage points a level).</summary>
+    public int CriticalChanceAddedPermyriad => SurvivorsRules.CriticalPerLevelPermyriad * BlessingLevel(SurvivorsBlessing.Critical);
     /// <summary>Life leeched per 10 000 damage of a hit, from the Leech blessing (0.2% a level).</summary>
-    public int LeechPermyriad => 20 * BlessingLevel(SurvivorsBlessing.Leech);
-    public int ExperiencePercent => 100 + 10 * BlessingLevel(SurvivorsBlessing.Wisdom);
+    public int LeechPermyriad => SurvivorsRules.LeechPerLevel * BlessingLevel(SurvivorsBlessing.Leech);
+    public int ExperiencePercent => 100 + SurvivorsRules.WisdomPerLevel * BlessingLevel(SurvivorsBlessing.Wisdom);
     public int IncomingDamagePercent =>
-        Math.Max(5, SurvivorsRules.IncomingDamagePercent - 2 * BlessingLevel(SurvivorsBlessing.Fortitude));
+        SurvivorsRules.FortitudeIncomingPercent(BlessingLevel(SurvivorsBlessing.Fortitude));
 
     public void Advance(double seconds)
     {
@@ -220,10 +283,17 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
 
     public int RecordKill(MonsterRarity rarity)
     {
+        lock (_gate) Kills++;
+        return RecordExperience(SurvivorsRules.ExperienceForKill(rarity) * ExperiencePercent / 100);
+    }
+
+    /// <summary>Adds run experience (a kill, a boss bonus) and returns the pending choices after any level-ups.</summary>
+    public int RecordExperience(int amount)
+    {
         lock (_gate)
         {
-            Kills++;
-            Experience += SurvivorsRules.ExperienceForKill(rarity) * ExperiencePercent / 100;
+            if (amount <= 0) return PendingChoices;
+            Experience += amount;
             while (Experience >= SurvivorsRules.LevelRequirement(Level))
             {
                 Experience -= SurvivorsRules.LevelRequirement(Level);
@@ -250,6 +320,11 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
         }
     }
 
+    /// <summary>
+    /// The reference's weighted offer (hud.rs <c>choices_for</c>): three picks from a pool weighted by category — a
+    /// skill rank 1.2, a new skill 1.0, a support 0.9, a blessing rank 0.8, a new blessing 0.5 and (every third run
+    /// level) a unique 0.4. When every slot is mastered the window offers a full heal instead, as the reference does.
+    /// </summary>
     public IReadOnlyList<SurvivorsChoice> DealOffer(Random random, int skillCatalog, int blessingCatalog, int supportCatalog,
         IReadOnlyList<int>? itemPool = null, Func<int, int, bool>? linkable = null)
     {
@@ -257,38 +332,51 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
         {
             if (PendingChoices <= 0) return [];
             if (Offer.Count > 0) return Offer;
-            var offer = new List<SurvivorsChoice>();
-            void Add(IEnumerable<SurvivorsChoice> pool)
+            var pool = new List<(SurvivorsChoice Choice, double Weight)>();
+            void Add(SurvivorsChoice choice, double weight)
             {
-                var list = pool.ToList();
-                for (int i = list.Count - 1; i > 0; i--)
-                {
-                    int j = random.Next(i + 1);
-                    (list[i], list[j]) = (list[j], list[i]);
-                }
-                foreach (var choice in list)
-                {
-                    if (offer.Count >= 3) return;
-                    if (offer.Contains(choice)) continue;
-                    offer.Add(choice);
-                }
+                if (!pool.Any(p => p.Choice == choice)) pool.Add((choice, weight));
             }
-            // A unique item every third run level, before the rest: the reference mode's gear choice.
-            if (Level % 3 == 0 && itemPool is { Count: > 0 })
-                Add([new SurvivorsChoice(itemPool[random.Next(itemPool.Count)], SurvivorsChoiceKind.Item)]);
+            foreach (var (skill, rank) in _skills.OrderBy(e => e.Key))
+                if (rank < SurvivorsRules.MaxRank) Add(new SurvivorsChoice(skill, SurvivorsChoiceKind.SkillRank), 1.2);
             if (_skills.Count < Math.Min(SurvivorsRules.MaxSkills, skillCatalog))
-                Add(Enumerable.Range(0, skillCatalog).Where(s => !_skills.ContainsKey(s))
-                    .Select(s => new SurvivorsChoice(s, SurvivorsChoiceKind.NewSkill)));
-            Add(SupportCandidates(supportCatalog, linkable));
+                foreach (int skill in Enumerable.Range(0, skillCatalog))
+                    if (!_skills.ContainsKey(skill)) Add(new SurvivorsChoice(skill, SurvivorsChoiceKind.NewSkill), 1.0);
+            // Supports and uniques are the mode's additions to the reference's pool: three support candidates at the
+            // reference's "extra category" weight (so a maxed bar still fills the window) and one unique, so they do
+            // not crowd the four reference categories out.
+            var supports = SupportCandidates(supportCatalog, linkable).ToList();
+            for (int i = supports.Count - 1; i > 0; i--)
+            {
+                int j = random.Next(i + 1);
+                (supports[i], supports[j]) = (supports[j], supports[i]);
+            }
+            foreach (var support in supports.Take(3)) Add(support, 0.9);
+            foreach (var (blessing, level) in _blessings.OrderBy(e => e.Key))
+                if (level < SurvivorsRules.MaxBlessingLevel)
+                    Add(new SurvivorsChoice((int)blessing, SurvivorsChoiceKind.Blessing), 0.8);
             if (_blessings.Count < Math.Min(SurvivorsRules.MaxBlessings, blessingCatalog))
-                Add(Enumerable.Range(0, blessingCatalog).Where(b => !_blessings.ContainsKey((SurvivorsBlessing)b))
-                    .Select(b => new SurvivorsChoice(b, SurvivorsChoiceKind.Blessing)));
-            if (offer.Count < 3)
-                Add(_skills.Where(e => e.Value < SurvivorsRules.MaxRank).Select(e => e.Key)
-                    .Select(s => new SurvivorsChoice(s, SurvivorsChoiceKind.SkillRank)));
-            if (offer.Count < 3)
-                Add(_blessings.Where(e => e.Value < SurvivorsRules.MaxBlessingLevel).Select(e => (int)e.Key)
-                    .Select(b => new SurvivorsChoice(b, SurvivorsChoiceKind.Blessing)));
+                foreach (int blessing in Enumerable.Range(0, blessingCatalog))
+                    if (!_blessings.ContainsKey((SurvivorsBlessing)blessing))
+                        Add(new SurvivorsChoice(blessing, SurvivorsChoiceKind.Blessing), 0.5);
+            if (Level % 3 == 0 && itemPool is { Count: > 0 })
+                Add(new SurvivorsChoice(itemPool[random.Next(itemPool.Count)], SurvivorsChoiceKind.Item), 0.4);
+            var offer = new List<SurvivorsChoice>();
+            while (offer.Count < 3 && pool.Count > 0)
+            {
+                double total = pool.Sum(p => p.Weight);
+                double roll = random.NextDouble() * total;
+                int pick = pool.Count - 1;
+                for (int i = 0; i < pool.Count; i++)
+                {
+                    if (roll < pool[i].Weight) { pick = i; break; }
+                    roll -= pool[i].Weight;
+                }
+                offer.Add(pool[pick].Choice);
+                pool.RemoveAt(pick);
+            }
+            // Nothing left to learn or master: the reference's Healthstone.
+            if (offer.Count == 0) offer.Add(new SurvivorsChoice(0, SurvivorsChoiceKind.Heal));
             Offer = offer;
             return offer;
         }
@@ -331,6 +419,9 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
                 case SurvivorsChoiceKind.Item:
                     // The Gateway creates and equips the unique; the run only remembers which one it took.
                     if (!_items.Add(choice.Index)) return false;
+                    break;
+                case SurvivorsChoiceKind.Heal:
+                    // The Gateway restores the character's life; the run only spends the choice.
                     break;
                 default:
                     var blessing = (SurvivorsBlessing)choice.Index;

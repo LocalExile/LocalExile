@@ -58,7 +58,7 @@ static partial class Game
     internal static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, IReadOnlyList<(uint Key, int Value)>? extraStats = null,
-        Action<uint, SpawnedMonster>? owned = null)
+        Action<uint, SpawnedMonster>? owned = null, MonsterModSet? extraMods = null)
     {
         uint id;
         // Under the lock the projectile visuals and ground art take ids under: minions spawn from their own loop.
@@ -75,6 +75,8 @@ static partial class Game
         bool waits = emerge != EmergeKind.None && (unrisen ?? true);
         // Its mods (MonsterMods.cs): the kept ones, else rolled for its rarity. They set its life, hit, speed and defences.
         mods = MonsterModsFor(conn, variety, level, rarity, mods, alone);
+        // A mode's own clock scale goes on top of the rarity's roll (the survivors run's +75% life / +90% damage).
+        if (extraMods is not null) mods = mods with { Effects = mods.Effects.Plus(extraMods.Effects) };
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         int baseLife = Monsters.BaseLife(variety, level) ?? 100;
         uint life = (uint)mods.Effects.MaxLife(baseLife);

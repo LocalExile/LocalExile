@@ -158,9 +158,11 @@ static partial class Game
         return false;
     }
 
-    /// <summary>The monsters the current area can draw a horde from, weakest first, and the run skills' base damage.</summary>
+    /// <summary>The monsters the current area can draw a horde from, weakest first, and the run skills' base damage:
+    /// <see cref="WeaponDamage"/> is the starting tier pool's median life (one rank-1 cast ≈ one starting hit), and
+    /// <see cref="TopLife"/> is the roster's strongest variety, for reporting.</summary>
     internal sealed record SurvivorsRoster(IReadOnlyList<MonsterCatalog.Variety> Varieties,
-        IReadOnlyList<MonsterCatalog.Variety> Bosses, byte Level, int WeaponDamage, double SkillScale = 1);
+        IReadOnlyList<MonsterCatalog.Variety> Bosses, byte Level, int WeaponDamage, int TopLife, double SkillScale = 1);
 
     /// <summary>A run that changed area: the run continues on the next connection.</summary>
     internal sealed record SurvivorsCarry(SurvivorsRun Run, int Stage, DateTime At, IReadOnlyCollection<uint>? ItemIds = null);
@@ -187,8 +189,13 @@ static partial class Game
         var bosses = area.Bosses.Select(r => Monsters.Find(r.ToString())).OfType<MonsterCatalog.Variety>()
             .Where(v => v.Supported).GroupBy(v => v.Row).Select(g => g.First()).ToList();
         var lives = varieties.Select(v => Monsters.BaseLife(v, level) ?? 0).Where(l => l > 0).OrderBy(l => l).ToList();
-        int median = lives.Count == 0 ? 20 : lives[lives.Count / 2];
-        return new(varieties, bosses, level, Math.Max(1, median));
+        // The rank-1 anchor is the starting three-tier pool, not the whole roster: the reference opens against its
+        // weakest tiers, so the first cast kills in one or two hits and the tier ladder carries the rest.
+        var start = SurvivorsRules.WavePool(0, varieties.Count)
+            .Select(i => Monsters.BaseLife(varieties[i], level) ?? 0).Where(l => l > 0).OrderBy(l => l).ToList();
+        int startLife = start.Count == 0 ? (lives.Count == 0 ? 20 : lives[lives.Count / 2]) : start[start.Count / 2];
+        int topLife = lives.Count == 0 ? startLife : lives[^1];
+        return new(varieties, bosses, level, Math.Max(1, startLife), Math.Max(1, topLife));
     }
 
     /// <summary>
@@ -375,8 +382,9 @@ static partial class Game
             $"Survive {SurvivorsRules.VictorySeconds / 60:0} minutes. Your skills cast themselves at the nearest monster. " +
             $"Every {SurvivorsRules.StageSeconds / 60:0.#} minutes the run moves to the next area, but only after the " +
             $"area's lore boss falls.\n" +
-            $"Start: {catalog[0].Name}. Each level opens the reward window with three upgrades; /survivors stop ends " +
-            "the run. The run's skills and their cooldowns are on your skill bar.");
+            $"Start: {catalog[0].Name}. Each level opens the reward window with three upgrades (six skill slots, six " +
+            "blessings, supports and uniques); /survivors stop ends the run. The run's skills and their cooldowns are " +
+            "on your skill bar. /survivors curve prints the difficulty and power curve.");
         Console.WriteLine($"[gateway] {remote} survivors run started in {conn.Layout.Id} at level {roster.Level}: " +
             $"{roster.Varieties.Count} varieties, {roster.Bosses.Count} boss(es), {run.MaxAlive} alive at most, " +
             $"base damage {roster.WeaponDamage} (skill scale {roster.SkillScale:0.###}), {catalog.Count} skills, " +
@@ -478,6 +486,33 @@ static partial class Game
             await conn.Commands!.Reply($"Test run: {known[index].Name} only (dev).");
             return;
         }
+        // Dev: print the reference's difficulty and power curve, for eyeballing a run's pacing without waiting 15 min.
+        if (what == "curve")
+        {
+            var roster = SurvivorsRosterFor(conn);
+            var lines = new List<string>
+            {
+                "--- Survivors curve (Azeroth Survivors: 14 -> 220 horde, +75% life, +90% damage, 6 bosses) ---:",
+                " time   horde  monster life  monster damage  boss life  boss xp  rank damage",
+            };
+            for (int step = 0; step <= 7; step++)
+            {
+                double t = step * SurvivorsRules.VictorySeconds / 7;
+                int stage = Math.Clamp(step, 0, SurvivorsLevels.Length - 1);
+                string rank = step switch
+                {
+                    0 => "1 x1.00", <= 2 => "4 x1.90", <= 4 => "6 x2.50", _ => "8 x3.10",
+                };
+                lines.Add($"{SurvivorsClock(t)}  {SurvivorsRules.TargetAlive(t),5}  " +
+                    $"x{SurvivorsRules.MonsterLifeScale(t):0.00}          x{SurvivorsRules.MonsterDamageScale(t):0.00}          " +
+                    $"x{SurvivorsRules.BossLifeRatio(stage),5:0.00}  +{SurvivorsRules.BossExperience(stage),4}  {rank}");
+            }
+            if (roster is { } area)
+                lines.Add($"Area {SurvivorsAreaName(conn.Layout.Id)}: tiers {area.Varieties.Count}, opening anchor " +
+                    $"{area.WeaponDamage} life, top {area.TopLife} life, boss 0 {Math.Round(SurvivorsPoolTop(area, 0) * SurvivorsRules.BossLifeRatio(0))} life.");
+            await conn.Commands!.Reply(string.Join('\n', lines));
+            return;
+        }
         // Dev: set every learned skill's rank, for the verification pass. (A "learn everything" command is not kept:
         // the client's bar holds only a few run skills, and 30 of them close the client.)
         if (what == "rank")
@@ -577,7 +612,7 @@ static partial class Game
             conn.SurvivorsCatalog ??= matrixCatalog;
             conn.SurvivorsSupports ??= SurvivorsSupportsFor(conn);
             var matrixSupports = conn.SurvivorsSupports!;
-            var roster = SurvivorsRosterFor(conn) ?? new SurvivorsRoster([], [], 1, 20);
+            var roster = SurvivorsRosterFor(conn) ?? new SurvivorsRoster([], [], 1, 20, 40);
             var skill = matrixCatalog[index];
             SurvivorsRun Bare()
             {
@@ -711,7 +746,10 @@ static partial class Game
                     if (dead)
                     {
                         bossDefeated = true;
-                        await conn.Commands!.Reply($"{bossName} falls. The way onward opens.");
+                        int bonus = SurvivorsRules.BossExperience(stage) - SurvivorsRules.ExperienceForKill(MonsterRarity.Unique);
+                        if (bonus > 0) run.RecordExperience(bonus);
+                        await conn.Commands!.Reply($"{bossName} falls. The way onward opens. " +
+                            $"+{SurvivorsRules.BossExperience(stage)} run experience.");
                     }
                 }
                 if (run.Elapsed >= (stage + 1) * SurvivorsRules.StageSeconds && stage + 1 < SurvivorsLevels.Length)
@@ -749,7 +787,7 @@ static partial class Game
                 }
                 if (roster.Bosses.Count > 0 && !bossSpawned && run.Elapsed >= nextBoss)
                 {
-                    stageBoss = await SpawnSurvivorsBoss(remote, stream, ciphers, conn, roster, 0, horde);
+                    stageBoss = await SpawnSurvivorsBoss(remote, stream, ciphers, conn, roster, run, stage, horde);
                     if (stageBoss != 0) bossSpawned = true;
                     else nextBoss = run.Elapsed + 5;
                 }
@@ -815,15 +853,15 @@ static partial class Game
             alive = horde.Count(id => conn.Monsters.GetValueOrDefault(id) is { Dead: false, Life: > 0 });
         int missing = run.TargetAlive - alive;
         if (missing <= 0) return;
-        int spawn = Math.Min(SurvivorsRules.MaxSpawnPerStep, missing);
-        int unlocked = run.UnlockedCount(roster.Varieties.Count);
-        int from = Math.Max(0, unlocked - 3);
+        int spawn = SurvivorsRules.SpawnRefill(missing);
+        var pool = SurvivorsRules.WavePool(run.Elapsed, roster.Varieties.Count);
+        if (pool.Length == 0) return;
         for (int i = 0; i < spawn; i++)
         {
-            var variety = roster.Varieties[Random.Shared.Next(from, unlocked)];
+            var variety = roster.Varieties[pool[Random.Shared.Next(pool.Length)]];
             if (SurvivorsSpawnCell(conn, 30) is not { } cell) continue;
             horde.Add(await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, SurvivorsRarity(run), cell.X, cell.Y,
-                log: false, mods: SurvivorsMonsterMods(run.Elapsed)));
+                log: false, extraMods: SurvivorsMonsterMods(run.Elapsed)));
         }
     }
 
@@ -836,7 +874,8 @@ static partial class Game
     {
         if (roster.Varieties.Count == 0) return;
         var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        var variety = roster.Varieties[0];
+        var pool = SurvivorsRules.WavePool(run.Elapsed, roster.Varieties.Count);
+        var variety = roster.Varieties[pool.Length == 0 ? 0 : pool[0]];
         int count = 28 + (int)(SurvivorsRules.Progress(run.Elapsed) * 60);
         int spawned = 0;
         for (int i = 0; i < count; i++)
@@ -846,7 +885,7 @@ static partial class Game
             if (conn.Layout.GridW > 0 && (x < 0 || y < 0 || x >= conn.Layout.GridW || y >= conn.Layout.GridH)) continue;
             if (!conn.Layout.WalkableFor(x, y, 0) || conn.Barrier.Contains((x, y))) continue;
             horde.Add(await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, MonsterRarity.Normal, x, y,
-                log: false, mods: SurvivorsMonsterMods(run.Elapsed)));
+                log: false, extraMods: SurvivorsMonsterMods(run.Elapsed)));
             spawned++;
         }
         Console.WriteLine($"[gateway] {remote} survivors ring wave at {SurvivorsClock(run.Elapsed)}: {spawned} of {count} spawned");
@@ -854,18 +893,56 @@ static partial class Game
     }
 
     static async Task<uint> SpawnSurvivorsBoss(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        SurvivorsRoster roster, int index, HashSet<uint> horde)
+        SurvivorsRoster roster, SurvivorsRun run, int stage, HashSet<uint> horde)
     {
+        if (roster.Bosses.Count == 0) return 0;
+        var boss = roster.Bosses[0];
         if (SurvivorsSpawnCell(conn, 24) is not { } cell)
         {
-            Console.WriteLine($"[gateway] {remote} survivors: no cell for boss {roster.Bosses[index].Name}");
+            Console.WriteLine($"[gateway] {remote} survivors: no cell for boss {boss.Name}");
             return 0;
         }
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, roster.Bosses[index], roster.Level, MonsterRarity.Unique, cell.X, cell.Y);
+        uint id = await SpawnMonster(remote, stream, ciphers, conn, boss, roster.Level, MonsterRarity.Unique, cell.X, cell.Y,
+            mods: SurvivorsBossMods(roster, boss, run, stage));
         horde.Add(id);
         string area = SurvivorsAreaName(conn.Layout.Id);
-        await conn.Commands!.Reply($"{roster.Bosses[index].Name} guards {area}. Defeat it to open the way onward.");
+        await conn.Commands!.Reply($"{boss.Name} guards {area}. Defeat it to open the way onward.");
         return id;
+    }
+
+    /// <summary>The strongest variety in the tier pool the area is drawing from at <paramref name="stage"/>: the boss's
+    /// ladder is measured against it (the reference's 700 HP boss over the 26 HP top of its 135 s pool).</summary>
+    internal static int SurvivorsPoolTop(SurvivorsRoster roster, int stage)
+    {
+        if (roster.Varieties.Count == 0) return Math.Max(1, roster.TopLife);
+        var pool = SurvivorsRules.WavePool(stage * SurvivorsRules.StageSeconds, roster.Varieties.Count);
+        int top = 0;
+        foreach (int index in pool)
+            top = Math.Max(top, Monsters.BaseLife(roster.Varieties[index], roster.Level) ?? 0);
+        return top > 0 ? top : Math.Max(1, roster.TopLife);
+    }
+
+    /// <summary>
+    /// The lore boss's life and damage for the run's clock: the area's current tier pool top × the reference's boss
+    /// ladder at <paramref name="stage"/> (26.92×, 25.71×, 49.41×, 31.82×, 50×, 47.62×, 60×) × the clock's life scale.
+    /// The rolled unique mods are kept (their rarity life factor is solved out), so a boss is still the area's own unique.
+    /// </summary>
+    static MonsterModSet SurvivorsBossMods(SurvivorsRoster roster, MonsterCatalog.Variety boss, SurvivorsRun run, int stage)
+    {
+        var rolled = MonsterModRolls.Value.Roll(boss, roster.Level, MonsterRarity.Unique, Random.Shared, alone: true);
+        int baseLife = Math.Max(1, Monsters.BaseLife(boss, roster.Level) ?? 100);
+        double target = SurvivorsPoolTop(roster, stage) * SurvivorsRules.BossLifeRatio(stage)
+            * SurvivorsRules.MonsterLifeScale(run.Elapsed);
+        // MaxLife applies the rarity's own factor after maximum_life_+%, so solve the percentage for the target.
+        double factor = (1 + rolled.Effects["monster_life_+%_final_from_rarity"] / 100.0)
+            * (1 + rolled.Effects["monster_life_+%_final_from_rarity_table"] / 100.0);
+        int lifePct = (int)Math.Round((target / (baseLife * Math.Max(0.01, factor)) - 1) * 100);
+        lifePct = Math.Clamp(lifePct, -99, 1_000_000);
+        int damagePct = (int)Math.Round((SurvivorsRules.MonsterDamageScale(run.Elapsed) - 1) * 100);
+        return rolled with
+        {
+            Effects = rolled.Effects.Plus("maximum_life_+%", lifePct).Plus("damage_+%", damagePct),
+        };
     }
 
     /// <summary>The client's own name for an area id, or the id when the atlas has none.</summary>
@@ -1133,7 +1210,9 @@ static partial class Game
         DamagePacket raw;
         if (spell)
         {
-            raw = SkillsFor(conn).HitDamage(skill.Effect, rank);
+            // The gem's first-level row is its identity; the run's rank curve (the reference's +30% a rank) is applied
+            // once, below, to the whole hit, so the power curve is the reference's and the gem stays itself.
+            raw = SkillsFor(conn).HitDamage(skill.Effect, 1);
             raw = DamageStats.RawAdded(raw, Get, spell: true, effectiveness / 10_000.0);
             raw = SurvivorsGlobalAdded(raw, Get, effectiveness);
             raw = raw.Scale(roster.SkillScale);
@@ -1156,6 +1235,9 @@ static partial class Game
             raw = SpellDamage.WithEffectiveness(nominal, effectiveness)
                 .Add(added.Scale(roster.SkillScale));
         }
+        // The reference's power curve: every run skill deals 30% more a rank above the first (3.1× at rank 8), on top
+        // of the gem's own effectiveness, supports and the character's stats.
+        raw = raw.Scale(SurvivorsRules.SkillDamageMultiplier(rank));
         if (raw.IsZero) return null;
 
         var mergedKeys = SurvivorsKeyStats(merged);
@@ -1284,7 +1366,7 @@ static partial class Game
         Add("damage_+%", run.DamageIncreasedPercent);
         Add("cast_speed_+%", run.CastSpeedIncreasedPercent);
         Add("base_skill_area_of_effect_+%", run.AreaIncreasedPercent);
-        Add("critical_strike_chance_+%", run.CriticalChanceIncreasedPercent);
+        Add("additional_base_critical_strike_chance", run.CriticalChanceAddedPermyriad);
         Add("life_leech_from_any_damage_permyriad", run.LeechPermyriad);
         Add("base_projectile_speed_+%", run.ProjectileSpeedIncreasedPercent);
         // Gems whose signature mechanic lives in a stat the generic profile does not read.
@@ -1590,6 +1672,15 @@ static partial class Game
                 // A run's unique is worn whatever the character's level: the level requirement is a byte we send.
                 created = unique with { RequiredLevel = 0 };
             }
+            else if (choice.Kind == SurvivorsChoiceKind.Heal)
+            {
+                // The reference's Healthstone: shown as a life flask, restores all life when picked.
+                var flask = ItemsFor(conn).All.FirstOrDefault(t => t.Supported && t.Class == "LifeFlask");
+                if (flask is null) continue;
+                path = flask.Id;
+                name = "Healthstone";
+                created = ItemCatalog.Create(flask);
+            }
             else
             {
                 path = choice.Kind switch
@@ -1678,11 +1769,18 @@ static partial class Game
         string target = chosen.Target >= 0 && chosen.Target < catalog.Count ? catalog[chosen.Target].Name : "the skill";
         // A unique item goes straight onto the character: the run's gear choice.
         bool equipped = unique is not null && await SurvivorsEquip(remote, stream, ciphers, conn, unique);
+        if (chosen.Kind == SurvivorsChoiceKind.Heal)
+        {
+            lock (conn.Monsters) conn.PlayerLife = conn.PlayerMaxLife;
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),
+                "survivors healthstone restores life");
+        }
         await conn.Commands!.Reply(chosen.Kind switch
         {
             SurvivorsChoiceKind.Blessing => $"Took {name}, level {run.BlessingLevel((SurvivorsBlessing)chosen.Index)}.",
             SurvivorsChoiceKind.Support => $"Linked {name} to {target}.",
             SurvivorsChoiceKind.Item => equipped ? $"Equipped {name}." : $"Took {name}, but no equipment slot or inventory room was free.",
+            SurvivorsChoiceKind.Heal => "The Healthstone restores all your life.",
             _ => $"Learned {name}, rank {run.RankOf(chosen.Index)}.",
         });
         // A new skill or rank changes the Actor's skills and the bar: the client draws the new gem and its cooldown.

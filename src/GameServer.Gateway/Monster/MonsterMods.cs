@@ -43,6 +43,24 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 
     public int this[string stat] => stats.GetValueOrDefault(stat);
 
+    /// <summary>These effects with another set's stats added on top (the survivors run's clock scale over a rolled
+    /// rarity's mods); a stat neither set has stays absent.</summary>
+    public MonsterModEffects Plus(MonsterModEffects other)
+    {
+        if (other.Stats.Count == 0) return this;
+        var sum = new Dictionary<string, int>(Stats, StringComparer.Ordinal);
+        foreach (var (name, value) in other.Stats) sum[name] = sum.GetValueOrDefault(name) + value;
+        return new MonsterModEffects(sum);
+    }
+
+    /// <summary>These effects with one stat added (the survivors boss's life solved for its ladder target).</summary>
+    public MonsterModEffects Plus(string stat, int value)
+    {
+        if (value == 0) return this;
+        var sum = new Dictionary<string, int>(Stats, StringComparer.Ordinal) { [stat] = this[stat] + value };
+        return new MonsterModEffects(sum);
+    }
+
     /// <summary>Maximum life: the base for the level and variety × (1 + maximum_life_+%) × (1 +
     /// monster_life_+%_final_from_rarity) × (1 + monster_life_+%_final_from_rarity_table).</summary>
     public int MaxLife(int baseLife) => Math.Max(1, (int)Math.Floor(baseLife * (1 + this["maximum_life_+%"] / 100.0)
