@@ -377,9 +377,12 @@ Native checks: normal zombie clearance 4 cells, unique Hillock clearance 5 cells
 
 Everything above is the client's **Predictive** network mode (Options → Game → Network Mode;
 `[NETWORKING] networking_type=predictive` in `Documents\My Games\Path of Exile\production_Config.ini`; the mode is
-`+0x984` of the world: 0 predictive, 2 lockstep, 3 auto). "Auto" picks lockstep when connecting took under 70 ms and
-predictive over 90 ms (`0x142148880`), so it picks lockstep on localhost. The Gateway answers lockstep's moves with a
-message box asking for Predictive (once per connection).
+`+0x984` of the world: 0 predictive, 2 lockstep, 3 auto). The client alone chooses it: no message sets or reports it.
+"Auto" starts at lockstep (`0x14449e7f0` holds 2), drops to predictive when connecting took over 90 ms and returns under
+70 ms (`0x142148880`), so it picks lockstep on localhost. A fourth value, `hybrid`, is disabled in the client.
+
+The Gateway serves a lockstep client only on a connection confirmed as local, with `Game_LOCKSTEP=1` (`LockstepLink`),
+and so far only its walking. Any other connection gets a message box asking for Predictive (once per connection).
 
 **Server frames.** In lockstep the client's world does not run on its own clock: it runs **server frames**. S→C
 **0x2b6** (u8) sets the frame length in ms (`0x141645fa0` stores the zero-extended byte as u32 at world `+0x11c`);
@@ -404,18 +407,42 @@ a lockstep client is then drawn and its world runs. Found with hardware watchpoi
 | Id | Bytes | Fields |
 |---|---|---|
 | 0x018e | 15 | use a skill at a location: i32 dx, i32 dy (the target relative to the player's cell), u16 skill id, u16 action flags, u8 (`018E 00000029 FFFFFFEF 2909 0402 00`) |
-| 0x018f | 13 | use a skill on an object: u32 object id, u16 skill id, u16 flags, u8 (instead of predictive 0x24) |
-| 0x0192 | 10 | the held skill's new target: i32 dx, i32 dy |
+| 0x018f | 11 | use a skill on an object: u32 object id, u16 skill id, u16 flags, u8 (instead of predictive 0x24) |
+| 0x0192 | 10 | the held skill's new target, every 69 ms while the button is down: i32 dx, i32 dy |
 | 0x0195 | 2 | release |
 | 0x0196 | 4 | u16 skill id: release that skill |
 
-The client still creates the action itself, with its sequence number's top bit set (`| 0x8000`), and waits for the
-server. Answering a click with a non-predicted 0x1ab (sequence 0xffff) made the player walk (live 2026-10-21);
-answering held-mouse updates with S→C **0x1ad** (object header, u16 sequence, i32 x, i32 y: a new target for the action
-in progress, `InstanceProtocol.ActionTarget`) did nothing, presumably because the sequence must match the client's own
-action number, which the lockstep messages do not carry. Serving lockstep means: that sequence, every action through
-the lockstep messages (0x018f for NPCs, stashes, transitions, items), and the server stepping every object by its
-frames (the tick rules above) and sending the start of each action in the frame it belongs to.
+The client creates no action of its own: nothing moves until a 0x1ab comes, for the player as for a monster, because
+Actor `+0x1c8` is set only outside lockstep (`0x142156d80`). What else changes in the client:
+
+- Each action start puts the actor on the 0x1ab's position pair at any distance (`0x141e8e7e0`; predictive: 46+ cells).
+  That is what holds the two copies together; between action starts the client still walks its own.
+- 0x1ac does nothing (the handler returns unless `0x14164dc70` gives 1), and a queued action starts without waiting
+  for one (`0x141e94720`). 0x128 is skipped (case 0x50 of `0x14214a190`).
+- S→C **0x1ad** (object header, u16 sequence, i32 x, i32 y, `InstanceProtocol.ActionTarget`) reaches only an active
+  channelled action with that sequence. The sequence is the server's own, so a walk gets a new 0x1ab instead.
+- A skill's pay check runs for every actor (`0x141e9d930`, `0x141e9dc10`), not only the local one.
+
+**What GGG sends a lockstep client.** What it sends a predictive one, including 0x1ac and 0x128, which do nothing here;
+no 0x2b6. A click gets its 0x1ab with key 0 at the next frame start, target = the reported cell + (dx, dy). 0x192 only
+updates a held target: the player's own tick starts the Move (key = the player, u16 0x9001), about one per 0x192 while
+walking and one per frame from the same cell while blocked. 0x195 gets no answer and does not cancel a target not yet
+started. Sequences go up by one, top bit set. A click during a swing waits, and the newest starts when the swing ends.
+
+**Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLink`; `Lockstep.cs` and
+`LockstepHold` follow GGG):
+
+| Here | GGG | Why |
+|---|---|---|
+| Client and server can differ between action starts | Never: its server is the client's simulation | The server is a port |
+| Only confirmed local connections, opted in | Any connection, any latency | A port's corrections are only worth the delay when it is a frame or two |
+| Frames laid over a clock, late ones sent at once | Frames are ticks of its world | The walks run on the clock |
+| Sends 0x2b6 | Never | The client's default is not traced |
+| Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |
+| Only walking is served | Everything | Not built yet |
+
+Still to serve: every other action through the lockstep messages (0x018f for NPCs, stashes, transitions, items), held
+and channelled skills, and monsters' keys. Stuns and movement skills resync with 0x128 today, which does nothing here.
 
 ## 7. More client messages seen
 
@@ -442,4 +469,4 @@ frames (the tick rules above) and sending the start of each action in the frame 
   Routes through a tight crowd differ for the same reason.
 - A monster told to swing that the player then leaves walks after the player on the client while the server stands for the
   attack's time; the gap stays while both chase.
-- Lockstep (§6): the action sequence for 0x1ad, the object-use path (0x018f) and server frame stepping.
+- Lockstep (§6): object use (0x018f), skills, monsters' order keys.

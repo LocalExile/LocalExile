@@ -10,6 +10,7 @@
 // - tp: an S→C 0x1b7 for the local player, with the cell and the client's own cell before it.
 // - end: an S→C 0x1ac for the local player.
 // - use: the client sent a C→S 0x24/0x25 (0x142166300): the action's sequence and target, and the client's cell.
+// - click: the client asked for an action (0x14215f700). In lockstep nothing starts until the server answers.
 // - gone: an object was removed (0x2bb): its pointer is no longer read.
 const m = Process.getModuleByName('Game.patched.exe');
 const at = va => m.base.add(ptr(va).sub(ptr('0x140000000')));
@@ -35,7 +36,8 @@ Interceptor.attach(at('0x1421940a0'), {
     const actor = a[0], msg = a[1], type = msg.add(8).readU16(), id = msg.add(0x10).readU32();
     const pos = actor.add(8).readPointer().add(0x98).readPointer();
     learn(id, pos);
-    if (actor.add(0x1c8).readU8() === 0) return;
+    // A lockstep client never sets the flag, so the player is known by its id there.
+    if (actor.add(0x1c8).readU8() === 0 && id !== PLAYER) return;
     player = pos;
     if (type === 0x1ab) {
       const seq = msg.add(0x36).readS16();
@@ -54,6 +56,8 @@ Interceptor.attach(at('0x141e30c90'), {
     if (pos.equals(player ?? ptr(0)) && type === 0x1b7) send({q: q(), tp: [msg.add(0x20).readS32(), msg.add(0x24).readS32()], client: cell(pos)});
   }
 });
+Interceptor.attach(at('0x14215f700'), {onEnter() { send({q: q(), click: 1}); }});
+
 Interceptor.attach(at('0x142166300'), {
   onEnter(a) {
     if (player === null) return;

@@ -775,6 +775,10 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public volatile bool AiEnabled = true, Closed;
     // Whether the lockstep warning was shown on this connection.
     public bool WarnedLockstep;
+    // Confirmed local and opted in (LockstepLink): this connection answers a lockstep client (Game.RunLockstepFrames).
+    public bool LockstepServed { get; init; }
+    public readonly GameServer.Core.World.LockstepHold LockstepHold = new();
+    public ushort LockstepSequence;
     // The character's activated waypoints (WorldAreas Ids, kept in its save) and whether this connection was reached
     // by waypoint travel (the player then appears next to the area's waypoint).
     public readonly HashSet<string> Waypoints = [];
