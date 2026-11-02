@@ -356,6 +356,9 @@ public static class InstanceItems
 
     /// <summary>Commands.dat row 44 (WarpToHideout, "/hideout") + 1: the chat command that goes to the hideout.</summary>
     public const byte WarpToHideoutCommand = 45;
+
+    /// <summary>Commands.dat row 35 <c>SetAFK</c> + 1.</summary>
+    public const byte AfkCommand = 36;
     /// <summary>Commands row 7 "ForceResync" (the client's <c>oos</c>): sent by the network update 0x142148880 when more than
     /// three of the player's commenced actions (Actor +0x22c, 0x141e94c60) have had no 0x1ac, one forgiven every 5 s.</summary>
     public const byte ForceResyncCommand = 8;

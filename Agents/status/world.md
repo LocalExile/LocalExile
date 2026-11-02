@@ -199,9 +199,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
-- The client's lockstep network mode (also what "auto" picks on localhost): the player is drawn (the Gateway sends
-  server frames) but cannot move or use objects.
-  Only Predictive is supported; the Gateway asks for it once per connection
+- The client's lockstep network mode (also what "auto" picks on localhost): with `Game_LOCKSTEP=1` on a connection
+  confirmed as local, or `Game_LOCKSTEP=network` on any connection, the player walks, uses objects and uses skills.
+  Without it the player is drawn but cannot move or
+  use objects, and the Gateway asks for Predictive once per connection
   ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell
   (The Submerged Passage, seed 1); quest flags are derived from visited areas and waypoints, not from quests

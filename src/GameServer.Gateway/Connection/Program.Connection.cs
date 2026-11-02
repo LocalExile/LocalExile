@@ -111,7 +111,13 @@ partial class Program
                 Console.WriteLine($"[gateway] {remote} => 0x0011 (start encryption)");
 
                 // Anything after the opening was already encrypted by the client.
-                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
+                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring,
+                    LockstepServed = LockstepLink.Confirmed(Lockstep, client.Client.RemoteEndPoint, client.Client.LocalEndPoint, opening.Address) };
+                if (conn.LockstepServed)
+                {
+                    conn.LockstepLatency = Lockstep == LockstepMode.Network ? LockstepLatency.Unconditional() : LockstepLatency.For(resolved.Character ?? "");
+                    Console.WriteLine($"[gateway] {remote} a lockstep client is served{(Lockstep == LockstepMode.Network ? "" : " if it is local and its round trip is low")}");
+                }
                 ConnectionMetrics.Add(ciphers, conn.Performance);
                 PacketHistories.Add(ciphers, conn.Packets);
                 left = conn;
@@ -246,6 +252,8 @@ partial class Program
                     Console.WriteLine($"[move-trace] qpc={readAt} recv 0x{id:x4} {Convert.ToHexString(bytes)}");
         foreach (var bytes in inbox.Post(messages, unknown, readAt))
         {
+            // Only a lockstep client's world counts frames behind (0x142183930), so only it reports any.
+            if (conn.LockstepServed && bytes[2] != 0) conn.LockstepClient = true;
             if (conn.Ticks++ % 50 == 0 && ServerTrace.Ticks) Console.WriteLine($"[gateway] {remote} <= 0x001b tick #{conn.Ticks}: {Convert.ToHexString(bytes)} (answered with 0x001c)");
             await SendPong(stream, ciphers, InstanceProtocol.Pong(serverDelayMs: ClientInbox.ServerDelayMs, ackIndex: inbox.NextAckIndex(), sideChannel: conn.Hnc!.NextIdleU32()));
             var waited = Stopwatch.GetElapsedTime(readAt);
@@ -305,7 +313,8 @@ partial class Program
     // Positions are the server's estimates (PlayerWalk at MonsterVarieties MovementSpeed cells/s).
     // The server frame clock (Agents/docs/protocol/07 §6): S→C 0x2b6 sets the frame length, then 0x2b5 ends a frame every
     // FrameMs. A lockstep client advances its world by exactly these frames, running the messages of each at its start (it
-    // is drawn and its world runs; its moves are not served yet); a predictive client ignores them.
+    // is drawn and its world runs, and its moves get a message box); a predictive client ignores them. A connection that
+    // serves lockstep runs Game.RunLockstepFrames instead.
     internal static async Task RunServerFrames(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         try

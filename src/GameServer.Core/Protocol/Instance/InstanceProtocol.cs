@@ -95,7 +95,7 @@ public static class InstanceProtocol
         InstanceItems.LevelUpGemId => 14, InstanceItems.LockGemId => InstanceItems.LockGemLength,
         InstanceEntities.AllocatePassiveId => 7, InstanceEntities.MasteryEffectId => InstanceEntities.MasteryEffectLength, InstanceEntities.RefundPassiveId => InstanceEntities.RefundPassiveLength,
         InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength, InstanceMapDevice.SelectMapId => InstanceMapDevice.SelectMapLength, InstanceMapDevice.MoveId => InstanceMapDevice.MoveLength, InstanceMapDevice.SocketId => InstanceMapDevice.SocketLength, InstanceEntities.AtlasAllocateId => InstanceEntities.AtlasAllocateLength, InstanceEntities.AtlasRefundId => InstanceEntities.AtlasRefundLength,
-        SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2,
+        SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, LockstepUseOnObjectId => 11, LockstepSkillStopId => 4,
         UseInstantSkillAtLocationId => 12, UseInstantSkillId => 8,
         InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
         InstanceMicrotransactions.SkillPickId => InstanceMicrotransactions.SkillPickLength,
@@ -133,14 +133,39 @@ public static class InstanceProtocol
 
     public const ushort LockstepMoveStartId = 0x018e, LockstepMoveUpdateId = 0x0192, LockstepMoveStopId = 0x0195;
 
+    /// <summary>C→S 0x018f (11 bytes, writer 0x141f924b0: u32 object, u16 skill, u16 flags, u8): lockstep's use of a skill on
+    /// an object, instead of 0x24. C→S 0x0196 (u16 skill): release that skill.</summary>
+    public const ushort LockstepUseOnObjectId = 0x018f, LockstepSkillStopId = 0x0196;
+
+    /// <summary>C→S 0x018f. Flags 0x0401 and u8 0 on a free player; flags 0x0001 and u8 3 for a request made during a swing,
+    /// which GGG serves when the swing ends.</summary>
+    public static (uint ObjectId, ushort SkillId, ushort Flags, byte Extra) ReadLockstepUseOnObject(byte[] b) =>
+        (BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(2)), BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(6)),
+         BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(8)), b[10]);
+
+    /// <summary>S→C 0x194 (id only, instance group, handled on arrival): tells the client to go AFK. It answers at once with
+    /// C→S 0x16 <see cref="InstanceItems.AfkCommand"/> and the text "This player is AFK." and changes nothing else until a
+    /// server replies to that, so it is a round trip the server can start.</summary>
+    public static byte[] AfkRequest() => [0x01, 0x94];
+
+    /// <summary>C→S 0x0196: the skill released.</summary>
+    public static ushort ReadLockstepSkillStop(byte[] b) => BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(2));
+
+    /// <summary>S→C 0x1ae: the channelled action of this sequence is over (object header, u16 sequence, u8 1).</summary>
+    public static byte[] ChannelFinished(uint objectId, ushort sequence) =>
+        new LoginWriter().U16(0x1ae).U32(objectId).U32(0).U16(0).U16(sequence).U8(1).ToArray();
+
     /// <summary>
     /// What the client sends to move instead of 0x25 when it runs in lockstep (Options → Network Mode; "auto" chose it
     /// on localhost, live 2026-10-18): 0x018e (15 bytes: i32, i32 offsets from the player, u16 skill id 0x2909 Move, u16
     /// flags 0x0400 / 0x0402, u8), then 0x0192 (10 bytes: two i32) and 0x0195 (id only). Lengths from 26 captures of each,
     /// every one alone in its chunk; the layout is inferred, not read from the client's serializers. The server does not
-    /// answer them, so in lockstep the player is never drawn and cannot move: the Gateway asks for Predictive instead.
+    /// answer them unless the connection serves lockstep (LockstepLink): anywhere else the Gateway asks for Predictive.
     /// </summary>
     public static bool IsLockstepMovement(ushort id) => id is LockstepMoveStartId or LockstepMoveUpdateId or LockstepMoveStopId;
+
+    /// <summary>Anything only a client in lockstep sends for its actions.</summary>
+    public static bool IsLockstepRequest(ushort id) => IsLockstepMovement(id) || id is LockstepUseOnObjectId or LockstepSkillStopId;
 
     /// <summary>
     /// C→S 0x018e (lockstep; sender 0x14215f700 when the network mode +0x984 is 2): use a skill at a location, the target

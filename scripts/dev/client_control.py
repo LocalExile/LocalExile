@@ -392,6 +392,11 @@ def interact_packet(target, skill=0x266):
     return list(struct.pack(">HIHHH", 0x24, target, skill, 0, 0x408))
 
 
+def lockstep_interact_packet(target, skill=0x266):
+    """C→S 0x18f, what a client in lockstep sends instead of 0x24."""
+    return list(struct.pack(">HIHHB", 0x18f, target, skill, 0x400, 0))
+
+
 def in_area(status):
     return status.get("screen") == "game" and status.get("instanceState") == 3
 
@@ -767,7 +772,8 @@ class ClientControl:
             skill = int(request.get("skill", 0x266))
             if not 0 < skill <= 0xffff:
                 raise ValueError("Skill id must be a positive uint16")
-            return self.rpc("interaction", bytes=interact_packet(target, skill))
+            packet = lockstep_interact_packet if request.get("lockstep") else interact_packet
+            return self.rpc("interaction", bytes=packet(target, skill))
         if command == "item:pickup":
             return {**self.rpc("interaction", bytes=interact_packet(request.get("id"))), "id": request["id"]}
         if command == "waypoint:travel":
