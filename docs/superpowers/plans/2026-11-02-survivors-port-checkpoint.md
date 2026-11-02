@@ -74,6 +74,7 @@ damage number:
 ## Commits (port branch, newest first)
 
 ```
+4349fe13 refactor: name the survivors ring cadence after the ring wave
 6378079b feat: survivors attacks use the equipped weapon's local damage and crit
 6a9680e1 feat: seal each survivors stage behind its lore boss; run casts read unique stats
 d2dbfa10 feat: every survivors gem casts with its own stats and PoB formulas
