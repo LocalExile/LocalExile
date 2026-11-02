@@ -17,7 +17,7 @@ The feature was originally built on the pre-refactor Gateway, then ported to the
 | What | Where |
 |---|---|
 | Port worktree | `E:\LocalExile-port` (git worktree), branch `port/survivors-mode` |
-| Ported branch on the fork | `GafGafGaf5612/LocalExile:feat/survivors-mode-preview` (head `35eb8214`) |
+| Ported branch on the fork | `GafGafGaf5612/LocalExile:feat/survivors-mode-preview` (latest commit on that branch) |
 | Original (pre-refactor) work | `E:\LocalExile`, branch `feat/survivors-mode` — kept as reference, do not delete |
 | PR | https://github.com/LocalExile/LocalExile/pull/502 |
 | Follow-up issue | https://github.com/LocalExile/LocalExile/issues/503 |
