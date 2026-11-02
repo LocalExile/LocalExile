@@ -12,10 +12,17 @@ public enum SurvivorsSkillKind { Projectile, Herald }
 /// is the effect whose projectile recipe is used (its own: the catalogue keeps only gems with a flight).
 /// </summary>
 public sealed record SurvivorsSkill(string Path, string Name, DamageType Type, int Effect, int Recipe, string Metadata,
-    SurvivorsSkillKind Kind = SurvivorsSkillKind.Projectile);
+    SurvivorsSkillKind Kind = SurvivorsSkillKind.Projectile)
+{
+    /// <summary>The gem's own cast time (GrantedEffects CastTime), the base the run's interval starts from.</summary>
+    public int CastTimeMs { get; init; } = 1000;
 
-/// <summary>A support: the support gem the window shows, and the effect it links to a skill.</summary>
-public sealed record SurvivorsSupportItem(string Path, string Name, SurvivorsSupport Support);
+    /// <summary>True for an attack gem: its hit is weapon damage times the gem's damage effectiveness, not spell damage.</summary>
+    public bool Attack { get; init; }
+}
+
+/// <summary>A support: the support gem the window shows, its GrantedEffects row, and the run-local effect it links.</summary>
+public sealed record SurvivorsSupportItem(string Path, string Name, SurvivorsSupport Support, int Effect = -1);
 
 /// <summary>A blessing: the support gem the window shows, and the run-local effect it grants.</summary>
 public sealed record SurvivorsBlessingItem(string Path, string Name, SurvivorsBlessing Blessing);
@@ -90,6 +97,50 @@ public static class SurvivorsRules
         damage <= 0 ? 0 : Math.Max(1, damage * Math.Clamp(percent, 1, 100) / 100);
 }
 
+/// <summary>
+/// The Path of Building formulas a run skill uses, in the form its calc modules define them
+/// (PathOfBuildingCommunity/PathOfBuilding, pinned 16de4b82: CalcOffence "calcDamage", CalcTools "calcRadius",
+/// CalcTools "calcCastTime"). They are plain arithmetic so the run can be tested without the game data.
+/// </summary>
+public static class SurvivorsFormulas
+{
+    /// <summary>
+    /// PoB's cast time: the gem's cast time divided by (1 + increased cast speed). The run also shortens a skill's
+    /// interval 7% per rank, so a maxed skill casts fast, and never below the 200 ms floor the mode has always used.
+    /// </summary>
+    public static double CastInterval(double baseSeconds, int rank, int increasedCastSpeedPercent) =>
+        Math.Max(0.2, Math.Max(0.05, baseSeconds) * Math.Pow(0.93, Math.Max(0, rank - 1))
+            / Math.Max(0.01, 1 + increasedCastSpeedPercent / 100.0));
+
+    /// <summary>
+    /// PoB's critical strike chance: (intrinsic base + additional base) × (1 + increased / 100), in permyriad
+    /// (10 000 = 100%), capped there as the client does. <paramref name="increasedPercent"/> is the summed
+    /// "increased Critical Strike Chance" from the skill, its supports and the run's blessings.
+    /// </summary>
+    public static int CriticalChance(int basePermyriad, int addedPermyriad, int increasedPercent)
+    {
+        double basis = Math.Max(0, basePermyriad) + Math.Max(0, addedPermyriad);
+        double chance = basis * Math.Max(0, 1 + increasedPercent / 100.0);
+        return (int)Math.Clamp(Math.Floor(chance), 0, 10_000);
+    }
+
+    /// <summary>PoB's critical strike multiplier: 150% base plus the skill's/support's added percentage.</summary>
+    public static int CriticalMultiplier(int addedPercent) => Math.Max(100, 150 + addedPercent);
+
+    /// <summary>PoB's calcRadius: a radius grows with the square root of the increased area, never linearly.</summary>
+    public static double AreaRadius(double baseRadius, int increasedAreaPercent) =>
+        Math.Max(0, baseRadius) * Math.Sqrt(Math.Max(0, 1 + increasedAreaPercent / 100.0));
+
+    /// <summary>PoB's projectile damage: (base + added × effectiveness) × (1 + increased) × each more multiplier.</summary>
+    public static double HitDamage(double baseMin, double baseMax, double effectiveness, double addedMin, double addedMax,
+        int increasedPercent, double more = 1)
+    {
+        double min = Math.Max(0, baseMin) + Math.Max(0, addedMin) * Math.Max(0, effectiveness);
+        double max = Math.Max(0, baseMax) + Math.Max(0, addedMax) * Math.Max(0, effectiveness);
+        return Math.Max(0, (min + max) / 2 * Math.Max(0, 1 + increasedPercent / 100.0) * Math.Max(0, more));
+    }
+}
+
 public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
 {
     readonly object _gate = new();
@@ -116,6 +167,17 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
         lock (_gate) return _supports.TryGetValue(skill, out var set) ? new HashSet<int>(set) : new HashSet<int>();
     }
 
+    /// <summary>Links a support to a learned skill directly (the dev verification command); false when it cannot link.</summary>
+    public bool Link(int skill, int support)
+    {
+        lock (_gate)
+        {
+            if (!_skills.ContainsKey(skill)) return false;
+            if (!_supports.TryGetValue(skill, out var set)) _supports[skill] = set = [];
+            return set.Count < SurvivorsRules.MaxSupportsPerSkill && set.Add(support);
+        }
+    }
+
     public IReadOnlyList<SurvivorsChoice> Offer { get; private set; } = [];
     public bool NeedsOffer => PendingChoices > 0 && Offer.Count == 0;
     public int TargetAlive => SurvivorsRules.TargetAlive(Elapsed, MaxAlive);
@@ -124,40 +186,22 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
     public int BlessingLevel(SurvivorsBlessing blessing) { lock (_gate) return _blessings.GetValueOrDefault(blessing); }
     public int RankOf(int skill) { lock (_gate) return _skills.GetValueOrDefault(skill); }
 
-    bool HasSupport(int skill, SurvivorsSupport support)
-    {
-        lock (_gate) return _supports.TryGetValue(skill, out var set) && set.Contains((int)support);
-    }
-
-    public double DamageMultiplier => 1 + 0.12 * BlessingLevel(SurvivorsBlessing.Might);
-    public double CastSpeedMultiplier => 1 + 0.10 * BlessingLevel(SurvivorsBlessing.Haste);
-    public double AreaMultiplier => 1 + 0.10 * BlessingLevel(SurvivorsBlessing.Area);
-    public double ProjectileSpeedMultiplier => 1 + 0.10 * BlessingLevel(SurvivorsBlessing.Swiftness);
-    public int CriticalChance => 5 * BlessingLevel(SurvivorsBlessing.Critical);
-    public int LeechPerKill => 2 * BlessingLevel(SurvivorsBlessing.Leech);
+    /// <summary>The run's increased damage (Might), added to the gem's and its supports' own increases.</summary>
+    public int DamageIncreasedPercent => 12 * BlessingLevel(SurvivorsBlessing.Might);
+    public double DamageMultiplier => 1 + DamageIncreasedPercent / 100.0;
+    public int CastSpeedIncreasedPercent => 10 * BlessingLevel(SurvivorsBlessing.Haste);
+    public double CastSpeedMultiplier => 1 + CastSpeedIncreasedPercent / 100.0;
+    public int AreaIncreasedPercent => 10 * BlessingLevel(SurvivorsBlessing.Area);
+    public double AreaMultiplier => 1 + AreaIncreasedPercent / 100.0;
+    public int ProjectileSpeedIncreasedPercent => 10 * BlessingLevel(SurvivorsBlessing.Swiftness);
+    public double ProjectileSpeedMultiplier => 1 + ProjectileSpeedIncreasedPercent / 100.0;
+    /// <summary>Increased critical strike chance (the run's own; the gem and supports add more).</summary>
+    public int CriticalChanceIncreasedPercent => 20 * BlessingLevel(SurvivorsBlessing.Critical);
+    /// <summary>Life leeched per 10 000 damage of a hit, from the Leech blessing (0.2% a level).</summary>
+    public int LeechPermyriad => 20 * BlessingLevel(SurvivorsBlessing.Leech);
     public int ExperiencePercent => 100 + 10 * BlessingLevel(SurvivorsBlessing.Wisdom);
     public int IncomingDamagePercent =>
         Math.Max(5, SurvivorsRules.IncomingDamagePercent - 2 * BlessingLevel(SurvivorsBlessing.Fortitude));
-
-    public double SkillDamageMultiplier(int skill)
-    {
-        double more = 1;
-        foreach (int support in SupportsOf(skill))
-            if (support is (int)SurvivorsSupport.AddedFire or (int)SurvivorsSupport.AddedCold
-                or (int)SurvivorsSupport.AddedLightning) more *= 1.25;
-        return DamageMultiplier * more;
-    }
-
-    public double SkillCastMultiplier(int skill) =>
-        CastSpeedMultiplier * (HasSupport(skill, SurvivorsSupport.FasterCasting) ? 1.25 : 1);
-    public double SkillAreaMultiplier(int skill) =>
-        AreaMultiplier * (HasSupport(skill, SurvivorsSupport.Area) ? 1.3 : 1);
-    public double SkillProjectileSpeedMultiplier(int skill) =>
-        ProjectileSpeedMultiplier * (HasSupport(skill, SurvivorsSupport.FasterProjectiles) ? 1.3 : 1);
-    public int SkillCriticalChance(int skill) =>
-        CriticalChance + (HasSupport(skill, SurvivorsSupport.Critical) ? 10 : 0);
-    public int SkillLeechPerKill(int skill) =>
-        LeechPerKill + (HasSupport(skill, SurvivorsSupport.LifeLeech) ? 3 : 0);
 
     public void Advance(double seconds)
     {
@@ -184,6 +228,17 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
     public void Learn(int skill)
     {
         lock (_gate) if (!_skills.ContainsKey(skill)) _skills[skill] = 1;
+    }
+
+    /// <summary>Sets a learned skill's rank (the dev verification commands): 1 to <see cref="SurvivorsRules.MaxRank"/>.</summary>
+    public bool SetRank(int skill, int rank)
+    {
+        lock (_gate)
+        {
+            if (!_skills.ContainsKey(skill)) return false;
+            _skills[skill] = Math.Clamp(rank, 1, SurvivorsRules.MaxRank);
+            return true;
+        }
     }
 
     public IReadOnlyList<SurvivorsChoice> DealOffer(Random random, int skillCatalog, int blessingCatalog, int supportCatalog,

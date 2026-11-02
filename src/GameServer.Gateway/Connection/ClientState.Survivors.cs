@@ -20,6 +20,8 @@ sealed partial class ClientState
     /// <summary>The run's skill catalogue, built once at its start: the window's items, the Actor skills and their ids
     /// all index it, so it must not be rebuilt with a different order mid-run.</summary>
     public IReadOnlyList<SurvivorsSkill>? SurvivorsCatalog;
+    /// <summary>The supports the run's level-ups can offer, with their GrantedEffects rows, built at its start.</summary>
+    public IReadOnlyList<SurvivorsSupportItem>? SurvivorsSupports;
     /// <summary>The equipped item ids a run granted: their requirements are waived while the run lasts.</summary>
     public readonly HashSet<uint> SurvivorsItemIds = [];
     /// <summary>The herald aura buff instances this run put on the player (S→C 0x1c1), removed when it ends.</summary>
