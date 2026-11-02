@@ -127,7 +127,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
   1. The trial traps in the Labyrinth's own rooms: the trials' kinds run there ([status](../status/world.md),
-     "Trials of Ascendancy"); left are the rooms' `Door_Counter` puzzles, then their monsters
+     "Trials of Ascendancy"), wired by the rooms' links, with their puzzles and the tiles' doorway rollers and blades;
+     left are the tiles' smashable and hidden walls, then the rooms' monsters
      ([labyrinth-trials](../docs/game/labyrinth-trials.md), "The Labyrinth's own rooms").
   2. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra
      data (`0x141ec7220`: seed, node, difficulty; [03](../docs/protocol/03-area-and-world.md)).
@@ -143,6 +144,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
      `QuestFlag`); agree the shared code with #151.
   6. The Cruel and Merciless trials, then secrets and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
+     Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type
+     `LabyrinthMonsterTotem`: Endless Pain, Hazard, Drought, Sting, Unending Lethargy, Frost, Fire, Storm, Vaal Totem,
+     some with Proximity Shield) that rise from the floor and debuff by an aura, sink when damaged and rise again
+     (`ReviveAfterDuration`). The map trials' end rooms place them as points (`TrialsEndgame/*/end*.arm`), and
+     MonsterGroupEntries' group 35 lists them; no Normal, Cruel or Merciless room has one.
 - **Done when:** a character completes the six Normal trials, enters the day's Normal Labyrinth from the plaza,
   walks its rooms, defeats Izaro three times and chooses an ascendancy at the Altar, keeping it and its two points
   after a relog.

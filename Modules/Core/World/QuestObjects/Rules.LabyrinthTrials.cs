@@ -78,7 +78,7 @@ static partial class QuestobjectsRules
             var o = all[index];
             if (!LabyrinthTrials.Handles(o.Type)) continue;
             bool open = conn.Instance.Transitioned(o.Type, o.X, o.Y);
-            if (open && o.Type == LabyrinthTrials.Door) continue;   // an opened Locked Door is gone (RemoveOpenedDoor)
+            if (open && LabyrinthTrials.GoesWhenOpened(o.Type, o.Model)) continue;   // an opened Locked Door is gone (RemoveOpenedDoor)
             uint id = conn.NextObjectId++;
             lock (conn.Monsters)
             {
@@ -90,7 +90,8 @@ static partial class QuestobjectsRules
                 : wiring.Graph.IsSpent(index) ? LabyrinthTrials.Spent
                 : open || wiring.Graph.IsDisabled(index) ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
-                    LabyrinthTrials.Blob(o.Type, o.Model, o.X, o.Y, o.Angle, o.Scale, state, LabyrinthTrials.IsHotPlate(o.Type) ? o.Height : null)),
+                    LabyrinthTrials.Blob(o.Type, o.Model, o.X, o.Y, o.Angle, o.Scale, state,
+                        LabyrinthTrials.IsHotPlate(o.Type) || LabyrinthTrials.AtTileHeight(o.Type) ? o.Height : null)),
                 $"0x02b9 trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, state {state}");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             if (o.Type == LabyrinthTrials.OpenDoor)
@@ -431,6 +432,31 @@ static partial class QuestobjectsRules
             case LabyrinthTrials.Switch or LabyrinthTrials.MultiSwitch:
                 await ToggleTrialSwitch(remote, stream, ciphers, conn, use.TargetId, o);
                 break;
+            // A smashable wall breaks at a hit or a click (a cast in reach too: BreakSmashableWalls); a hidden switch
+            // turns, and its secret wall opens once both switches on that side of it have (no link names them: a switch
+            // is its nearest wall's; live 2026-11-01, the original: two on each side, either pair opens it).
+            case LabyrinthTrials.SmashableWall:
+                await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o);
+                break;
+            case LabyrinthTrials.HiddenSwitch:
+                if (!await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o)) break;
+                if (NearestTrialObject(conn, LabyrinthTrials.HiddenWall, (o.X, o.Y), closed: true) is not { } wall) break;
+                List<AreaPopulation.RoomObject> switches, walls;
+                lock (conn.Monsters)
+                {
+                    switches = [.. conn.TrialObjects.Values.Where(t => t.Type == LabyrinthTrials.HiddenSwitch)];
+                    walls = [.. conn.TrialObjects.Values.Where(t => t.Type == LabyrinthTrials.HiddenWall)];
+                }
+                static long Distance(AreaPopulation.RoomObject a, AreaPopulation.RoomObject b) => (long)(a.X - b.X) * (a.X - b.X) + (long)(a.Y - b.Y) * (a.Y - b.Y);
+                // Its side of the wall: across the wall's line (its angle's width, as a door's), the way through it.
+                var w0 = wall.Object;
+                int Side(AreaPopulation.RoomObject s) => Math.Sign((s.Y - w0.Y) * Math.Cos(w0.Angle) - (s.X - w0.X) * Math.Sin(w0.Angle));
+                var own = switches.Where(s => walls.MinBy(w => Distance(s, w)) == w0 && Side(s) == Side(o)).ToList();
+                Console.WriteLine($"[gateway] {remote} hidden switch at ({o.X}, {o.Y}): {own.Count(s => conn.Instance.Transitioned(s.Type, s.X, s.Y))} of {own.Count} " +
+                    $"on its side pulled for the secret wall at ({w0.X}, {w0.Y})");
+                if (own.All(s => conn.Instance.Transitioned(s.Type, s.X, s.Y)))
+                    await OpenTrialObject(remote, stream, ciphers, conn, wall.Id, wall.Object);
+                break;
             case LabyrinthTrials.Plaque when trial is not null:
                 if (await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o))
                 {
@@ -480,8 +506,23 @@ static partial class QuestobjectsRules
             conn.DoorBarriers.Remove(id);
             conn.UpdateBarrier();
         }
-        if (o.Type == LabyrinthTrials.Door) _ = RemoveOpenedDoor(remote, stream, ciphers, conn, id);
+        if (LabyrinthTrials.GoesWhenOpened(o.Type, o.Model)) _ = RemoveOpenedDoor(remote, stream, ciphers, conn, id);
         return true;
+    }
+
+    // The smashable walls within reach of a cast the player makes break (LabyrinthTrials.SmashReach: the cast stands for its
+    // hit, Smashable's transition_on_damage_taken).
+    internal static async Task BreakSmashableWalls(ClientState conn, (int X, int Y) from)
+    {
+        List<KeyValuePair<uint, AreaPopulation.RoomObject>> walls;
+        lock (conn.Monsters)
+            walls = [.. conn.TrialObjects.Where(t => t.Value.Type == LabyrinthTrials.SmashableWall
+                && (long)(t.Value.X - from.X) * (t.Value.X - from.X) + (long)(t.Value.Y - from.Y) * (t.Value.Y - from.Y) <= LabyrinthTrials.SmashReach * LabyrinthTrials.SmashReach)];
+        if (walls.Count == 0) return;
+        var (remote, stream, ciphers) = conn.Wire;
+        try { foreach (var (id, wall) in walls) await OpenTrialObject(remote, stream, ciphers, conn, id, wall); }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} smashable wall not broken: {ServerLog.Describe(ex)}"); }
     }
 
     // An opened Locked Door's opening lifts the bars out of the way, so once it has played the door goes (0x2bb), and a

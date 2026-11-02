@@ -100,6 +100,12 @@ public sealed class QuestObjectsModule : IModule, IDisposable
                 nests = [.. conn.GlyphNests.Where(e => Dist((e.Value.At.X, e.Value.At.Y), at) <= radius).Select(e => (e.Key, e.Value))];
             foreach (var (id, nest) in nests) await OpenRhoaNestCore(remote, stream, ciphers, conn, id, nest);
         });
+        // A cast near a Labyrinth smashable wall breaks it (not this module's cast: it goes on).
+        On(GameEvents.SkillCast, (conn, effect, skillId, from, current) =>
+        {
+            _ = BreakSmashableWalls(conn, from);
+            return null;
+        });
         On(GameEvents.ObjectUse, async (conn, use, requestedAt) =>
         {
             var (remote, stream, ciphers) = conn.Wire;

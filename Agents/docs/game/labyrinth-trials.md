@@ -444,6 +444,17 @@ back. They keep the doorway closed until back down. The tiles' blades swing as t
 back, and stays hidden a good while between goes (`LabyrinthTrials.TileTrapRestSeconds`: 5 s, ours). Their traps run
 apart from the rooms' (`SpawnTileTraps`), each starting its own while after the area's start.
 
+**Smashable and hidden walls.** `LabyrinthSmashableDoor` (ElegantHouse tiles' thin walls) extends
+`Smashable` (`transition_on_damage_taken`, attackable), at its tile line's height (101 up; on the terrain its upper
+part sank into the floor, live 2026-11-01) and with its static position, so the client stamps its Hull for walking and
+projectiles until its transition plays the break and removes it (`RemoveCollidability`). A click on it, or a cast
+within `LabyrinthTrials.SmashReach` (the Gateway traces no skill hits on objects), breaks it. Live (2026-11-01, the
+original): a shortcut, or the way to a secret (an altar, another room). `HiddenDoor_Long` (a DryGarden tile's secret
+wall) opens on its transition; the disguised `HiddenDoor_Switch` levers by it (`hide_hover`; four round DryGarden
+`bottleneck_07`'s) link nothing: a switch belongs to its nearest secret wall, which opens once both switches on one
+side of it are pulled (live 2026-11-01, the original: two on each side, either pair). The rooms' gates (`DryGarden_SmallGate`, `RuinedTemple_SmallGate`)
+swing open and stay; only the trials' bars go once opened (`LabyrinthTrials.GoesWhenOpened`).
+
 **Mirrored rooms** (orientation codes 4–7) mirror a line's angle only, and the client draws a server object
 unmirrored, so a corner piece (`spinner_rail_corner`, `SpinnerStopper_Corner`) is sent a quarter turn back
 (`LabyrinthTrials.PlacedAngle`): a mirrored L is the L turned a quarter (live 2026-11-01: corners faced away).

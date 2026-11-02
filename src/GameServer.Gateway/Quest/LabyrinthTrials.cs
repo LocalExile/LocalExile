@@ -23,6 +23,13 @@ static class LabyrinthTrials
         MultiSwitch = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Switch_Multi",
         OpenDoor = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Door_Open",
         Plaque = "Metadata/QuestObjects/Labyrinth/LabyrinthTrialPlaque",
+        // The ElegantHouse tiles' thin walls a hit breaks (Smashable: transition_on_damage_taken, attackable; its
+        // transition plays the break and removes its collision).
+        SmashableWall = "Metadata/Terrain/Labyrinth/Objects/LabyrinthSmashableDoor",
+        // The DryGarden tiles' secret wall (its transition opens it, shows its minimap icon) and the disguised levers by
+        // it (hide_hover; num_states 3, 2 pulled).
+        HiddenWall = "Metadata/Terrain/Labyrinth/Objects/HiddenDoor_Long",
+        HiddenSwitch = "Metadata/Terrain/Labyrinth/Objects/HiddenDoor_Switch",
         Portal = "Metadata/Terrain/Labyrinth/Objects/LabyrinthTrialReturnPortal",
         SpikeTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthCascadeSpikeTrap",
         ArrowTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthArrowTrap",
@@ -1237,8 +1244,11 @@ static class LabyrinthTrials
         "doorbar_prison.ao" => (2, 5.5),
         "thinwallbar_door.ao" => (2.3, 5.5),
         "doorbar_ruinedtemple.ao" => (2.2, 8),
-        // A Door_Counter gate in a fence line, a tile wide (our estimate from the fence pieces a tile apart).
-        "ruinedtemple_smallgate.ao" => (11.5, 3),
+        // A Door_Counter gate in a fence line, a tile wide (our estimate from the fence pieces a tile apart); a smashable
+        // thin wall and a secret wall, a tile of wall each (ours).
+        "ruinedtemple_smallgate.ao" or "drygarden_smallgate.ao" => (11.5, 3),
+        "eleganthouse_thinwallstraight_smashable_openanimation_v01_01_animation.ao" => (11.5, 2.5),
+        "gardendry_wall_straight_secretwall_v01_01_openanimation.ao" => (11.5, 4),
         _ => (14, 6),
     };
 
@@ -1321,6 +1331,9 @@ static class LabyrinthTrials
         [PressurePlatePrefix + "_4"] = ["Positioned", "Transitionable", "BaseEvents", "Animated"],
         [PressurePlatePrefix + "Multi_4"] = ["Positioned", "Transitionable", "BaseEvents", "Animated"],
         [LabyrinthWiring.CounterDoor] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage", "MinimapIcon"],
+        [SmashableWall] = ["Positioned", "BaseEvents", "Animated", "Stats", "InteractionAction", "Transitionable", "TriggerableBlockage"],
+        [HiddenWall] = ["Positioned", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage", "MinimapIcon"],
+        [HiddenSwitch] = ["Positioned", "Transitionable", "BaseEvents", "Animated", "InteractionAction"],
         [LabyrinthWiring.OnceMultiSwitch] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
         [LabyrinthWiring.CrankPrefix] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
         [LabyrinthWiring.CrankPrefix + "_10"] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
@@ -1336,13 +1349,28 @@ static class LabyrinthTrials
 
     /// <summary>Whether it is a door a lever or a counter opens (Door_Closed, Door_Counter), or the trial's own door or a
     /// plain one.</summary>
-    public static bool IsDoor(string type) => type is IntroDoor or Door or BarDoor or LabyrinthWiring.CounterDoor;
+    public static bool IsDoor(string type) => type is IntroDoor or Door or BarDoor or LabyrinthWiring.CounterDoor or SmashableWall or HiddenWall;
+
+    /// <summary>Whether an opened Locked Door goes once its opening has played (the trials' bars, lifted out of the way);
+    /// the Labyrinth's rooms' gates (<c>DryGarden_SmallGate</c>, <c>RuinedTemple_SmallGate</c>) swing open and stay (live
+    /// 2026-11-01, the original).</summary>
+    public static bool GoesWhenOpened(string type, string model) =>
+        type == Door && !Path.GetFileName(model).Contains("SmallGate", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>How near a cast the player makes a smashable wall breaks (cells from its middle: half its tile and a
+    /// melee reach; ours). The Gateway does not trace a skill's hits on objects, so a cast in reach stands for one.</summary>
+    public const int SmashReach = 15;
+
+    /// <summary>Whether a tile object is sent at its tile line's height (the smashable walls hang 101 up, their upper part
+    /// in the floor without it; live 2026-11-01).</summary>
+    public static bool AtTileHeight(string type) => type is SmashableWall or HiddenWall;
 
     /// <summary>Whether a door in this Transitionable state blocks the way.</summary>
     public static bool Blocks(string type, byte state) => type == OpenDoor ? state == Open : state == Closed;
 
-    /// <summary>Positioned sizes (object_size − 1): the doors and the lever 4, the plaque and the portal 6.</summary>
-    public static int Size(string type) => type is Plaque or Portal ? 5 : 3;
+    /// <summary>Positioned sizes (object_size − 1): the doors and the lever 4, the plaque and the portal 6, a smashable
+    /// wall 6, a hidden switch 8.</summary>
+    public static int Size(string type) => type switch { Plaque or Portal or SmashableWall => 5, HiddenSwitch => 7, _ => 3 };
 
     public static bool Handles(string type) => Components.ContainsKey(Plate(type));
 
@@ -1432,7 +1460,9 @@ static class LabyrinthTrials
                 // f0 0x04: the fixed height, i32 whole steps of 7.8125 and the f32 z the client uses (as an area
                 // transition's record height).
                 case "Positioned":
-                    bool scaled = scale != 1, blockage = Components[Plate(type)].Contains("TriggerableBlockage");
+                    // A smashable wall keeps its static position: the client stamps its Hull (walking and projectiles) and
+                    // its transition removes it (RemoveCollidability).
+                    bool scaled = scale != 1, blockage = Components[Plate(type)].Contains("TriggerableBlockage") && type != SmashableWall;
                     w.I32(x).I32(y).F32(angle).U16(0).U8((byte)((scaled ? 0x20 : 0) | (height is null ? 0 : 0x04))).U8((byte)(blockage ? 0x2a : 0x02));
                     if (scaled) w.F32(scale).F32(1).F32(1);
                     if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
@@ -1444,6 +1474,7 @@ static class LabyrinthTrials
                 case "Transitionable": w.U8(state); break;
                 case "TriggerableBlockage": if (Blocks(type, state)) w.U8(1).U8(0); else w.U8(0); break;
                 case "MinimapIcon": w.U8(0); break;
+                case "Stats": w.Stats(null).U32(0).U32(0).U8(0); break;
                 case "Buffs": w.U16(0); break;
             }
         return w.U8(0).ToArray();   // tasks
