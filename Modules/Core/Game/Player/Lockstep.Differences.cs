@@ -31,7 +31,7 @@ static partial class Game
                     await Send(remote, stream, ciphers, InstanceProtocol.FrameEnd(), null);
                     conn.ServerFrame++;
                 }
-                await StartLockstepWalk(remote, stream, ciphers, conn, first + ended * frame);
+                await StartLockstepActions(remote, stream, ciphers, conn, first + ended * frame);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
@@ -57,12 +57,44 @@ static partial class Game
     static byte[] LockstepObjectStart((int X, int Y) from, InstanceTransfer.UseSkillOnObject use, ushort sequence) =>
         InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, from.X, from.Y, use.SkillId, sequence, use.Flags, targetObjectId: use.TargetId);
 
-    // Differs from GGG: it serves every skill in lockstep. Only walking and object use are served here so far (07 §6): the
-    // rest is ignored, and said once per connection in the log.
-    static void NotServedInLockstep(string remote, ClientState conn, ushort id)
+    // Differs from GGG: it starts a held skill from the player's tick, keyed by the player (u16 0x5001). Ours goes through
+    // the handlers a predictive client's request reaches, with the server's sequence in place of the client's, so their
+    // echo starts the action, in key 0 as every other send here is. Those handlers hold the skills' rules; a second copy
+    // for lockstep would drift from them. Beside the frames, which must not wait for a cast.
+    static void StartLockstepSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort sequence, double at)
     {
-        if (conn.WarnedLockstep) return;
-        conn.WarnedLockstep = true;
-        Console.WriteLine($"[gateway] {remote} <= 0x{id:x4}: skills are not served in lockstep yet, the request is ignored");
+        var request = conn.LockstepSkill;
+        if (request.Target is { } target)
+        {
+            _ = OnUseObject(remote, stream, ciphers, conn, new(target, request.Skill, sequence, request.Flags), at);
+            return;
+        }
+        byte[] use = new LoginWriter().U16(InstanceProtocol.UseSkillAtLocationId).U32((uint)request.Aim.X).U32((uint)request.Aim.Y)
+            .U16(request.Skill).U16(sequence).U16(request.Flags).ToArray();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await OnClientMessages(remote, stream, ciphers, [(InstanceProtocol.UseSkillAtLocationId, use)], [], conn);
+                lock (conn.Monsters)
+                    if (!LockstepRepeats(conn, request.Skill) && conn.ChannelSkill == request.Skill && conn.ChannelSkillSequence == sequence)
+                        request.Channelling(sequence);
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        });
+    }
+
+    // Differs from GGG: it lets a Move cut a swing short after its contact (a Move 295 ms into a 462 ms attack), which is
+    // where its own action ends. Ours holds everything for the swing's whole time, because a Move the client refuses
+    // mid-swing (0x141e8cf10) would leave the server walking alone. A spell takes its cast time.
+    static double LockstepActionSeconds(ClientState conn, ushort skill)
+    {
+        if (GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem)
+        {
+            if (SkillsFor(conn).IsChannelled(gem.Effect)) return 0;
+            return SkillsFor(conn).IsAttack(gem.Effect) ? SkillAttackSeconds(conn, gem.Effect, gem.Level)
+                : SkillsFor(conn).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(conn);
+        }
+        return WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn));
     }
 }

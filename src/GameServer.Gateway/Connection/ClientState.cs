@@ -777,10 +777,15 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool WarnedLockstep;
     // Confirmed local and opted in (LockstepLink): this connection answers a lockstep client (Game.RunLockstepFrames).
     public bool LockstepServed { get; init; }
+    // The client has sent a lockstep request: nothing else tells its mode, and a predictive client keeps its own messages.
+    public bool LockstepClient;
     public readonly GameServer.Core.World.LockstepHold LockstepHold = new();
     public ushort LockstepSequence;
     // The object use (C→S 0x18f) the next frame starts.
     public InstanceTransfer.UseSkillOnObject? LockstepUse;
+    public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
+    // Until when the skill started last keeps the player (Clock seconds).
+    public double LockstepBusyUntil;
     // The character's activated waypoints (WorldAreas Ids, kept in its save) and whether this connection was reached
     // by waypoint travel (the player then appears next to the area's waypoint).
     public readonly HashSet<string> Waypoints = [];

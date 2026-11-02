@@ -200,7 +200,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
 - The client's lockstep network mode (also what "auto" picks on localhost): with `Game_LOCKSTEP=1` on a connection
-  confirmed as local the player walks and uses objects, and skills do not work yet. Without it the player is drawn but cannot move or
+  confirmed as local the player walks, uses objects and uses skills. Without it the player is drawn but cannot move or
   use objects, and the Gateway asks for Predictive once per connection
   ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell

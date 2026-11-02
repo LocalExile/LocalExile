@@ -153,8 +153,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   swap places between client and server ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
 - **Lockstep network mode:** the server decides every action and the client plays it back by server frames, each
   action start putting the client on the server's cell, which ends the parted copies of a crowd.
-  Walking and object use work on a connection confirmed as local ([status](../status/world.md)).
-  Still needed: skills, held and channelled ones included, and monsters' order keys
+  It works on a connection confirmed as local, off by default ([status](../status/world.md)).
+  Still needed: monsters' order keys, and a decision on turning it on
   ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
 - **HNC packets from the client** (type 0xDD): what the server should do with them
   ([07](../docs/protocol/07-latency-visibility-movement.md)).

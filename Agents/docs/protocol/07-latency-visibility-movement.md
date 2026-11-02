@@ -382,7 +382,7 @@ Everything above is the client's **Predictive** network mode (Options → Game �
 70 ms (`0x142148880`), so it picks lockstep on localhost. A fourth value, `hybrid`, is disabled in the client.
 
 The Gateway serves a lockstep client only on a connection confirmed as local, with `Game_LOCKSTEP=1` (`LockstepLink`),
-and so far only walking and object use. Any other connection gets a message box asking for Predictive (once per connection).
+and all its actions. Any other connection gets a message box asking for Predictive (once per connection).
 
 **Server frames.** In lockstep the client's world does not run on its own clock: it runs **server frames**. S→C
 **0x2b6** (u8) sets the frame length in ms (`0x141645fa0` stores the zero-extended byte as u32 at world `+0x11c`);
@@ -427,7 +427,10 @@ Actor `+0x1c8` is set only outside lockstep (`0x142156d80`). What else changes i
 no 0x2b6. A click gets its 0x1ab with key 0 at the next frame start, target = the reported cell + (dx, dy). 0x192 only
 updates a held target: the player's own tick starts the Move (key = the player, u16 0x9001), about one per 0x192 while
 walking and one per frame from the same cell while blocked. 0x195 gets no answer and does not cancel a target not yet
-started. Sequences go up by one, top bit set. A click during a swing waits, and the newest starts when the swing ends.
+started. Sequences go up by one, top bit set. A click during a swing waits (it comes with flags 0x0001, u8 3), and the
+newest starts when the swing ends. A skill held down repeats from the player's tick, once per action, aimed at the newest
+0x192, until 0x195; an attack on an object that dies goes on at the ground. A channelled skill gets a 0x1ad for a new aim
+and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0x191, answered with 0x1ce as in Predictive.
 
 **Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLink`; `Lockstep.cs` and
 `LockstepHold` follow GGG):
@@ -441,10 +444,11 @@ started. Sequences go up by one, top bit set. A click during a swing waits, and 
 | Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours walks on out there, and 0x128 is skipped here |
 | An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |
 | Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |
-| Only walking and object use are served | Everything | Not built yet |
+| A swing holds everything for its whole attack time | A Move can cut it short after its contact | A Move the client refuses mid-swing would leave the server walking alone |
+| A skill is echoed at any key 0, from the handlers Predictive uses | From the tick, keyed by the player | As for Moves |
 
-Still to serve: skills, held and channelled ones included, and monsters' keys. Movement skills resync with 0x128 today,
-which does nothing here.
+Still to do: monsters' order keys. A movement skill's landing comes from the server's own estimate; the client's snap at
+the next action settles any difference, and its 0x128 does nothing here.
 
 ## 7. More client messages seen
 
@@ -471,4 +475,4 @@ which does nothing here.
   Routes through a tight crowd differ for the same reason.
 - A monster told to swing that the player then leaves walks after the player on the client while the server stands for the
   attack's time; the gap stays while both chase.
-- Lockstep (§6): skills, monsters' order keys.
+- Lockstep (§6): monsters' order keys.

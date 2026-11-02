@@ -137,11 +137,18 @@ public static class InstanceProtocol
     /// an object, instead of 0x24. C→S 0x0196 (u16 skill): release that skill.</summary>
     public const ushort LockstepUseOnObjectId = 0x018f, LockstepSkillStopId = 0x0196;
 
-    /// <summary>C→S 0x018f. The u8 is the sender's own: with bit 0 set a predictive client starts nothing either
-    /// (0x14215f700), and GGG answers it with nothing.</summary>
+    /// <summary>C→S 0x018f. Flags 0x0401 and u8 0 on a free player; flags 0x0001 and u8 3 for a request made during a swing,
+    /// which GGG serves when the swing ends.</summary>
     public static (uint ObjectId, ushort SkillId, ushort Flags, byte Extra) ReadLockstepUseOnObject(byte[] b) =>
         (BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(2)), BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(6)),
          BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(8)), b[10]);
+
+    /// <summary>C→S 0x0196: the skill released.</summary>
+    public static ushort ReadLockstepSkillStop(byte[] b) => BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(2));
+
+    /// <summary>S→C 0x1ae: the channelled action of this sequence is over (object header, u16 sequence, u8 1).</summary>
+    public static byte[] ChannelFinished(uint objectId, ushort sequence) =>
+        new LoginWriter().U16(0x1ae).U32(objectId).U32(0).U16(0).U16(sequence).U8(1).ToArray();
 
     /// <summary>
     /// What the client sends to move instead of 0x25 when it runs in lockstep (Options → Network Mode; "auto" chose it

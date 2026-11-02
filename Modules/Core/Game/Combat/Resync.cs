@@ -45,7 +45,7 @@ static partial class Game
                         back.Add((id, at.X, at.Y));
                     }
                 }
-                if (conn.LockstepServed) packets.AddRange(LockstepPlace(back));
+                if (conn.LockstepClient) packets.AddRange(LockstepPlace(back));
                 else if (back.Count > 0) packets.AddRange(InstanceProtocol.Resync([(PlayerId, player.X, player.Y), .. back]));
                 return packets.Count == 0 ? null : [.. packets];
             }

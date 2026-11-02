@@ -69,5 +69,34 @@ public class LockstepTests
         hold.Press((40, 0), 0x2909, 0x0400);
         hold.Clear();
         Assert.Null(hold.Due(false, here));
+
+        // A skill waits for a free player, repeats while held and goes on at the ground when its target dies.
+        var skill = new LockstepSkillHold();
+        skill.Press((5, 5), 0x3007, 0x0102, 0x0401, repeats: true);
+        Assert.False(skill.Due(free: false));
+        Assert.True(skill.Due(free: true));
+        Assert.True(skill.Due(free: true));
+        skill.LoseTarget();
+        skill.Update((6, 6));
+        Assert.Null(skill.Target);
+        Assert.Equal((6, 6), skill.Aim);
+        skill.Release();
+        Assert.False(skill.Due(free: true));
+
+        // A click during a swing is kept through its own release.
+        skill.Press((7, 7), null, 0x0102, 0x0001, repeats: true);
+        skill.Release();
+        Assert.False(skill.Due(free: false));
+        Assert.True(skill.Due(free: true));
+
+        // A channel starts once and ends on the release.
+        skill.Press((8, 8), null, 0x0200, 0x0401, repeats: false);
+        Assert.True(skill.Due(free: true));
+        skill.Channelling(0x8001);
+        Assert.False(skill.Due(free: true));
+        Assert.Null(skill.ChannelReleased());
+        skill.Release();
+        Assert.Equal((ushort)0x8001, skill.ChannelReleased());
+        Assert.Equal("01AE00001000000000000000800101", Convert.ToHexString(InstanceProtocol.ChannelFinished(0x1000, 0x8001)));
     }
 }

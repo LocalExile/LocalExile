@@ -228,6 +228,7 @@ static partial class Game
                 if (conn.LockstepServed)
                 {
                     OnLockstepRequest(remote, conn, id, bytes);
+                    if (id == InstanceProtocol.LockstepMoveUpdateId) await AimLockstepChannel(remote, stream, ciphers, conn);
                     continue;
                 }
                 // The client moves this way only in lockstep, which the Gateway does not serve yet (07 §6): say so once per
