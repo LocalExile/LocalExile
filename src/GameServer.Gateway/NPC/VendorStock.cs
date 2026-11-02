@@ -198,19 +198,41 @@ static class VendorStock
                 .ThenByDescending(g => items.ByHash(g.Item.TypeHash)!.Width)
                 .ThenByDescending(g => items.ByHash(g.Item.TypeHash)!.Height)
                 .ThenBy(g => g.Token is null ? 0 : items.ByHash(g.Item.TypeHash)!.Row), columns:true);
-        foreach (int colour in new[] {1,2,3,4}) foreach (bool support in new[] {false,true})
+        var remaining = gems.Select(items.Row).OfType<ItemCatalog.BaseType>().ToDictionary(t => t.Id);
+        void GemSection(IEnumerable<IEnumerable<string>> groups)
         {
-            var offers = new List<(Item, Guid?)>();
-            foreach (int row in gems)
+            var page = new List<InventoryItem>();
+            byte x = 0, y = 0;
+            void Flush()
             {
-                if (items.Row(row) is not { } type || items.Gem(type) is not { } gem || gem.Colour != colour || gem.IsSupport != support) continue;
-                int gemLevel = profile.Act <= 4 && profile.Kind != "Gems" && !hardMode
-                    ? Math.Min(gem.MaxLevel, skills.MaxLevelAt(gem.Variant(0).Effect, Math.Min(level,52))) : 1;
-                var item = ItemCatalog.Create(type) with { GemExperience = gem.ExperienceFor(gemLevel) };
-                if (price.Price(item) is { } priced) offers.Add((priced,null));
+                if (page.Count > 0) tabs.Add(new("Gems",page));
+                page = []; x = y = 0;
             }
-            Pack($"{new[] { "", "Red", "Green", "Blue", "White" }[colour]} {(support ? "Support" : "Skills")}", offers);
+            foreach (var group in groups)
+            {
+                bool placed = false;
+                foreach (string id in group)
+                {
+                    if (!remaining.Remove(id,out var type) || items.Gem(type) is not { } gem) continue;
+                    int gemLevel = profile.Act <= 4 && profile.Kind != "Gems" && !hardMode
+                        ? Math.Min(gem.MaxLevel, skills.MaxLevelAt(gem.Variant(0).Effect, Math.Min(level,52))) : 1;
+                    var item = ItemCatalog.Create(type) with { GemExperience = gem.ExperienceFor(gemLevel) };
+                    if (price.Price(item) is not { } priced) { notes.Add($"No price for vendor gem {id}"); continue; }
+                    if (y == 11) Flush();
+                    page.Add(new(nextId(),x,y,priced)); placed = true;
+                    if (++x == 12) { x = 0; y++; }
+                }
+                // Empty locked groups consume no space; the next available group begins on a fresh row.
+                if (placed && x != 0) { x = 0; y++; }
+            }
+            Flush();
         }
+        foreach (var section in VendorCatalog.Default.GemLayout(npc)) GemSection(section);
+        // Uncaptured class-specific gems remain available; group them by level after the observed sections.
+        var extra = remaining.Values.OrderBy(t => skills.PlayerLevelReq(items.Gem(t)!.Variant(0).Effect,1))
+            .ThenBy(t => t.Row).GroupBy(t => skills.PlayerLevelReq(items.Gem(t)!.Variant(0).Effect,1))
+            .Select(g => g.Select(t => t.Id).ToArray()).ToArray();
+        GemSection(extra);
         if (tabs.Count == 0) tabs.Add(new("Goods", []));
         return new(tabs,key,finite);
     }

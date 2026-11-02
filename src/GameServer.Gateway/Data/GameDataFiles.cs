@@ -63,7 +63,7 @@ static class GameDataFiles
     public static readonly (string Entry, int Version, string Feature)[] Needed =
     [
         ("tables", 3, "Kirac progression and gold refresh prices"),
-        ("vendor-stock", 1, "vendor-specific quest/class gem membership"),
+        ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
         ("object-types", 6, "quest objects and chests (rooms' server objects, quest tile and room types): without them they get the wrong blob or none"),
     ];

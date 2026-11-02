@@ -67,7 +67,8 @@ def main():
         kind = 'Weapons' if role.endswith('_Weapons') else 'Magic' if role.endswith('_Magic') else 'Gems' if 'LillyRoth' in role or role == 'Siosa' else 'Kirac' if role == 'Kirac' else None
         if kind:
             shops[npc['Id']] = dict(Kind=kind, Act=act, TownLevel=town_levels[act])
-    out = dict(Version=1, Shops=shops, Gems=result,
+    layouts = json.loads(Path('scripts/re/vendor-stock/gem-layout.json').read_text(encoding='utf-8'))['Vendors']
+    out = dict(Version=2, Shops=shops, Gems=result, GemLayouts=layouts,
                Policy='Wiki membership; native quest offers; captured Scion additions have assumed tier unlocks. See 17-npcs.md.')
     Path('data/vendor-stock.json').write_text(json.dumps(out, indent=2)+'\n', encoding='utf-8')
     print(json.dumps(dict(shops=len(shops), gem_rules=len(result), unresolved=sorted(missing))))

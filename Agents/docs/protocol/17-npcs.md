@@ -489,8 +489,14 @@ Goods sort equipment by width descending, height descending, then BaseItemTypes 
 Packing scans columns before rows. Replaying the captured item sequence reproduces all 269 goods positions,
 including Kirac's Unmaking at (0,0), scarab at (0,1), then ascending map tiers down columns.
 Equipment size/base ordering matches all 220 captured campaign equipment items.
-Gem presentation remains approximate: campaign captures mix colours/supports, and Lilly has level-group row breaks
-and eight tabs. The current colour/support grouping and compact row packing do not reproduce those gem layouts.
+Gem presentation uses the observed order and row groups in `scripts/re/vendor-stock/gem-layout.json`.
+Campaign gem sections mix colours/supports; Lilly has seven sections, with blue active gems overflowing to an eighth tab.
+Each nonempty group starts a new row, full rows wrap at 12 cells, and pages wrap after 11 rows.
+Filtering locked gems omits empty groups. The records contain base IDs/order/groups, not generated equipment rolls.
+The observed ordering is Scion-specific for campaign vendors; uncaptured class gems append by level/base row.
+Siosa and uncaptured later vendors use the Lilly order filtered by their own stock: these remain unmeasured assumptions.
+Same-name duplicate rows matter: vendors use SkillGemPhaseRun, SkillGemArcticArmour and SkillGemConvocationNew.
+Their obsolete alternatives were selecting absent prices or a different Convocation progression.
 
 KiracLevels.dat contains 16 progression rows: MapAreaLevelOffered, MapCompletion, ShopRerollCost.
 The first rows are (68,0,1000), (69,1,1500), (70,3,2000), (71,6,2500), (72,12,3000).

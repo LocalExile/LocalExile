@@ -203,6 +203,9 @@ sealed class ItemCatalog
     /// not Vaal or awakened, one per name, by drop level then name.</summary>
     public IReadOnlyList<BaseType> ShopGems(int colour, bool support) =>
         [.. _rows.Value.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+                // Same-name legacy rows differ in progression/pricing; these are absent from the official vendor capture.
+                && t.Id is not ("Metadata/Items/Gems/SkillGemNewPhaseRun" or "Metadata/Items/Gems/SkillGemNewArcticArmour"
+                    or "Metadata/Items/Gems/SkillGemConvocation")
                 && Gem(t) is { } g && g.Colour == colour && g.IsSupport == support && !g.IsVaalOrAwakened && g.Variants is [{ Creatable: true }, ..])
             .DistinctBy(t => t.Name).OrderBy(t => t.DropLevel).ThenBy(t => t.Name)];
 

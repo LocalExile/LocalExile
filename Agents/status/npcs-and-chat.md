@@ -83,7 +83,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Exact affix prices and special league/unique recipes remain partial; real-client recipe verification is pending.
   See [vendor recipes](../docs/protocol/24-vendor-recipes.md) for supported cases and explicit limitations.
   Live visibility verification pending; see protocol/17-npcs.md.
-- Gem stock is quest/class-specific; exact gem layouts and Kirac's native refresh UI remain open.
+- Captured gem grouping is restored; uncaptured classes/vendors use documented ordering, and Kirac refresh UI remains open.
 
 ## Not working yet
 

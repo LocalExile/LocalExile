@@ -9,6 +9,7 @@ public class VendorItemLevelTests
     [Fact]
     public void Vendor_membership_prices_and_generated_requirements_follow_the_reviewed_rules()
     {
+        Saves.Open(Path.Combine(Path.GetTempPath(),"LocalExile-gem-layout-"+Guid.NewGuid().ToString("N")+".db"));
         var catalog = new ItemCatalog("data");
         var rewards = QuestRewardCatalog.Load();
         var gems = new GemVendorStock(catalog,rewards,NpcCatalog.Load(),new SkillCatalog());
@@ -38,6 +39,26 @@ public class VendorItemLevelTests
         Assert.Equal(82,NpcShops.CampaignItemLevel("Metadata/NPC/Epilogue/KiracHideout",ItemRarity.Rare,82));
         var inventory = InstanceInventories.AddInventory(1024,NpcShops.NativeTab,NpcShops.Manager,[],0x60);
         Assert.Equal(new byte[] {71,117,12,11,0x60},inventory[7..12]);
+        // Independent digests of (tab,x,y,base Id) from the original client's five captured gem assortments.
+        foreach (var (npc,expected) in new[] {
+            ("Act1/Nessa","c1f3b93c1313e2b38dba4b3928d5cbac1a9dba62acd9864b894e74c9363c6442"),
+            ("Act2/Yeena","acb98183dcdad91c644f28ea461b135a3ade2df974d728cd474bc76a7bf9799b"),
+            ("Act3/ClarissaTown","e2bfd31bc0169d989ef3ef5e2c1527da0608d22942e43acdbf9585d6e2c18e97"),
+            ("Act4/PetarusVanja","62da2d5f43a9aee56047533884b3d076b9f2dab5a45be867fbadc19ba1547f8b"),
+            ("Epilogue/LillyHideout","e7d6240011ab0448e68451c25247b5612dec31235fbebbfcdca71942fbd70e13") })
+        {
+            string id = "Metadata/NPC/"+npc;
+            uint next = 0;
+            var notes = new List<string>();
+            var window = VendorStock.Open("Layout"+Guid.NewGuid().ToString("N"),"Standard",id,91,catalog,
+                new SkillCatalog(),gems.Stock(id,2,flags),() => ++next,LeagueRules.Standard,false,notes,random:new Random(2));
+            Assert.Empty(notes);
+            var tabs = window.Tabs.Where(t => t.Items.Any(i => catalog.Gem(catalog.ByHash(i.Item.TypeHash)!) is not null)).ToArray();
+            string positions = string.Join('\n',tabs.SelectMany((t,index) => t.Items.Select(i =>
+                $"{index}:{i.X}:{i.Y}:{catalog.ByHash(i.Item.TypeHash)!.Id}")));
+            Assert.Equal(expected,Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(positions))).ToLowerInvariant());
+        }
     }
 
     [Fact]
