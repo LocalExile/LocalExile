@@ -46,6 +46,14 @@ This branch is the port, based directly on `dfcdc8f3`.
   and `BehemothRuntimeTests.Provider_retirement_releases_owned_state...` - both unrelated to the survivors
   code (league admission / worker retirement) and failing in this environment.
 
+## Merge and PR
+
+- main moved to `7d489618` (70 commits on top of the port's base); the merge into `port/survivors-mode` was **clean, 0 conflicts**.
+- One upstream API change needed a fix: `ProjectileSkillParameters.Resolve` now takes an `arrows` flag; the survivors cast passes `ArrowsFor(conn, skill.Effect)`.
+- Tests after the merge: Core 455, Data 45, Gateway 73, all passing; build 0 warnings.
+- PR #502 is ready for review (not a draft), `mergeable=true`; the only blocker is the maintainer approving the fork's `docs-scan` workflow.
+- Live re-check after the merge: 40 kills at 00:16, run level 5, offer open with three named choices, and **0** world items created during the run.
+
 ## Open items
 
 1. **Ground items (fixed).** The pile seen during a run was loot left by earlier sessions in the area's
