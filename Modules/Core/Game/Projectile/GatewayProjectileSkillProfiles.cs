@@ -23,9 +23,10 @@ static class GatewayProjectileSkillProfiles
     public static bool IsKineticBlast(string effect) => effect is "KineticBlast" or "KineticBlastAltX" or "KineticBlastAltY";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
 
-    public static ProjectileProfile Resolve(string effect, string metadata, Func<string, int> get, double speed, bool attack)
+    public static ProjectileProfile Resolve(string effect, string metadata, Func<string, int> get, double speed, bool attack,
+        bool arrows = false)
     {
-        var p = GatewayProjectileDefaults.Create(metadata, get, speed) with
+        var p = GatewayProjectileDefaults.Create(metadata, get, speed, arrows) with
         {
             CannotReturn = CannotReturn.Contains(effect), ReturnOnDistance = effect != "FreezingPulse"
         };
@@ -50,11 +51,85 @@ static class GatewayProjectileSkillProfiles
         }
         else if (IsFireball(metadata))
             p = p with { EndArea = new("fireball-explosion", 0), EndAreaReasons = TerminalStops };
+        // Wiki Spark: a set of sparks forgets the enemies it hit every 0.66 seconds, so one cast can hit a target again.
+        // The transfigured and Vaal versions share the rule.
+        // Their wander is the client's own legs (SparkLegs, set at release from the use's sequence).
+        else if (effect is "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")
+            p = p with { HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(0.66)) };
 
-        p = GatewayProjectileModifiers.Resolve(p, get, attack);
+        p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows);
+        if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
+    }
+
+    static bool IsTornadoShot(string effect) => effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY";
+
+    // The client predicts the primary arrow and its terminal group itself (Frida: seven local and seven server
+    // TornadoShotArrow objects for one use), so the server sends no object for either and only simulates the damage.
+    // The group is three TornadoShotSecondaryArrow flights around the client's terminal RNG base ray, so both sides
+    // fan out the same way (TornadoShotBaseDirection).
+    static ProjectileProfile TornadoShotChildren(ProjectileProfile parent, Func<string, int> get)
+    {
+        int count = Math.Clamp(get("tornado_shot_num_of_secondary_projectiles") is > 0 and var n ? n : 3, 1, 256);
+        var child = parent with
+        {
+            Id = "Metadata/Projectiles/TornadoShotSecondaryArrow",
+            Count = count,
+            NativeVolley = null,
+            SpreadRadians = 0,
+            AimSpreadDistance = 0,
+            Range = SystemSettings.Default.ProjectileMaximumRangeCells,
+            // Client trace: the secondary action's final callback caps at 300 ms, so projectile speed sets the range.
+            Lifetime = ProjectileRuntime.Time(.3),
+            SequentialDelay = 0,
+            CountConsumer = ProjectileCountConsumer.Primary,
+            Pierce = parent.Pierce, Fork = parent.Fork, Chain = parent.Chain, Split = 0,
+            CannotPierce = parent.CannotPierce, CannotFork = parent.CannotFork, CannotChain = parent.CannotChain,
+            CannotSplit = true,
+            Returns = false, ReturnChancePercent = 0, ReturnRolls = null, CannotReturn = true,
+            EndEmission = null, TravelEmission = null, Pulse = null,
+            EndArea = null, EndAreaReasons = null, EndAreaOnReturnTurnaround = false, ContactArea = null,
+            ContactTargets = null, Lobbed = false, Legs = null, LegLeash = 0, GroundChains = 0,
+            FormChange = null, SplitForm = null, SplitOnTerrain = false,
+            HideVisual = true
+        };
+        return parent with
+        {
+            // Client +0x330 bit 0x4: the ordinary primary arrow pierces before its terminal child group. The negative
+            // sentinel is the runtime's never-decrementing pierce and the panel's virtual_always_pierce.
+            Pierce = -1, CannotPierce = false,
+            // The client draws its own primary arrow; a server object would be a second arrow from the bow contact.
+            HideVisual = true,
+            EndEmission = new(child, Radial: true, BaseDirection: TornadoShotBaseDirection)
+        };
+    }
+
+    // The client's terminal RNG (0x1419c29b0) seeds [sequence, mother-derived byte, owner, repeats left,
+    // secondary-release byte, 0, 0, 0]. A fresh mother's derived byte is 2, and each arrow of a volley adds its index.
+    // The radial emitter then spaces children around that sampled base ray with no extra phase.
+    internal static ProjectileVector TornadoShotBaseDirection(ushort sequence, uint derived, uint owner, uint repeats)
+    {
+        var random = new AnimationVariantSelector.NativeRandom([sequence, derived, owner, repeats, 0, 0, 0, 0]);
+        uint sample = TornadoBounded(ref random, 7001);
+        float phi = (float)sample / 7000f * 6.283180236816406f;
+        return new(MathF.Sin(phi), -MathF.Cos(phi));
+    }
+
+    static ProjectileVector TornadoShotBaseDirection(ProjectileEntity parent) =>
+        TornadoShotBaseDirection(parent.Use.Sequence, (uint)(2 + parent.VolleyIndex), parent.Use.Owner.Id,
+            parent.Use.RepeatsLeft);
+
+    // The native bounded draw (0x1404d03d0): reject the incomplete top bucket, then take the remainder.
+    static uint TornadoBounded(ref AnimationVariantSelector.NativeRandom random, uint exclusiveMax)
+    {
+        ulong limit = (1UL << 32) / exclusiveMax * exclusiveMax;
+        while (true)
+        {
+            uint value = random.NextUInt();
+            if (value < limit) return value % exclusiveMax;
+        }
     }
 
     public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<string, int> get, bool spell)

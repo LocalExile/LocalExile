@@ -15,7 +15,8 @@ static partial class VendorsRules
         var catalog = QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards);
         if (catalog.Find(offer) is not { } data) return;
         var items = ItemsOf(conn);
-        var claimed = QuestRewardCatalog.Claim(CharacterName(conn), data.TakenFlag, items, reward, ShapeOf);
+        var quest = ItemsFor(conn).ByHash(reward.TypeHash)?.Quest;
+        var claimed = QuestRewardCatalog.Claim(CharacterName(conn), data.TakenFlag, quest, items, reward, ShapeOf);
         if (claimed is null) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
             items.NextRevision(PlayerInventories.MainInventory), claimed.RemovedIds, claimed.AddedItems), "0x00bf claimed quest reward");
@@ -23,7 +24,11 @@ static partial class VendorsRules
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(0x600, 1, [.. conn.NpcRewardItems.Keys], [], NpcShops.Manager),
             $"0x00bf quest reward offer {offer}: all choices removed");
         conn.NpcRewardOffer = null; conn.NpcRewardItems.Clear();
-        await SetQuestFlags(remote, stream, ciphers, conn, [data.TakenFlag]);
+        // The taken flag (or, for a quest item, its pickup flags: an Act 1 book's HaveRewardBook), in memory and to the client.
+        var takenFlags = new List<string>();
+        if (data.TakenFlag is { } taken) takenFlags.Add(taken);
+        if (quest is not null) takenFlags.AddRange(new[] { quest.Grant, quest.Extra }.OfType<string>());
+        if (takenFlags.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, takenFlags);
         conn.InNpcTalk = false; conn.NpcFinishFlag = null; conn.TalkingTo = 0;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 quest reward claimed: dialogue ended");
     }

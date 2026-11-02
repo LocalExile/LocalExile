@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Trades between players, and parties. (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
+  <!-- Trades, parties and friends. (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
 
 </Project>

@@ -59,14 +59,28 @@ When a Voidstone is socketed into the Atlas:
   be created with `/item Map (Tier N)`; the map device accepts them, the native Atlas panel selects a starting layout
   (C?S 0x00e7), and the device opens that layout at the map tier. The selected layout is saved with the character.
   The area level follows the tier (`tier + 67`), and the area instance/monsters use it. Every character has the epilogue
-  flag `EndGameAvailable` that the client requires for Atlas activation. Basic map drops from monsters use a local
+  flag `EndGameAvailable` that the client requires for Atlas activation and map areas (before Kitava only in a hideout
+  and the maps: `Quests.EndgameOnly`). Basic map drops from monsters use a local
   approximation.
 - **Atlas passive tree, first slice:** the three presets are saved and sent (S→C 0x3d); node allocation/refund
-  (C→S 0x3e/0x3f) is saved, with a dev point budget (`/atlas_points`). The Atlas graph, point awards from completion,
-  progress, Voidstones, map stash placement and the official drop pools are not implemented.
+  (C→S 0x3e/0x3f) is saved, with a dev point budget (`/atlas_points`).   The Atlas graph, point awards from completion,
+  map stash placement and the official drop pools are not implemented. Voidstones drop from the endgame bosses
+  `AtlasVoidstoneSlots` names; the first kill sockets them (quest flags GrantAtlasUpgrade1–4) and found maps
+  then drop one tier higher, with maps below tier 16 converted to gold. The Atlas panel click (C→S 0xf6) moves
+  a Voidstone into or out of Inventories row 39. Each occupied socket sets that quadrant's S→C 0x1a3 `+0x70` bit
+  (four stones also set bit 4) so those Atlas nodes draw as T16; put / take resends 0x1a3.
 - **The map device** ([21](../protocol/21-hideouts.md) §5) opens a map's area from Maps.dat's `Regular_WorldAreasKey`,
-  which only the old area-named maps have, and Nessa sells Beach Maps. Both follow the old system: with the generic
+  which only the old area-named maps have. Kirac sells generic `MapKey` tiers that open the Atlas layout. With those
   bases, the area comes from the layout picked on the Atlas instead. Generic maps now use `MapKeys.dat` for their tier
   and the selected Atlas layout for the area; their area level follows the tier rather than the layout's WorldAreas row.
+  The map item's affixes and quality, and scarabs/fragments' `MapFragmentMods`, apply to that instance (drops, pack
+  size, monster life/damage). A recipe with no map (`MapDeviceRecipes`: Writ, invitations, four Sacrifice fragments)
+  opens that boss area (Atziri, Shaper, Elder, Maven, Sirus, Eater, Exarch and the rest of `MapDeviceRecipes`).
+  Those areas place their WorldAreas bosses without a captured room point; a multi-boss recipe arena holds the last
+  one back until the others die (Maven's Nucleus, Sirus, Atziri). A Maven invitation stands its `MavenFights`
+  witness bosses in MavenHub. Killing the last WorldAreas boss completes the Atlas node. The first Maven / Uber
+  Elder / Eater+Exarch / Incarnation of Dread kill drops that `AtlasVoidstoneSlots` Voidstone, sets the
+  GrantAtlasUpgrade quest flag, and socketed stones raise found map tiers (below 16 become gold).
+  League extra content is not spawned yet.
 - **The map stash tab** takes nothing yet: the client lists its maps by tier, and how it places them is not known
   ([18](../protocol/18-stash.md) §7).

@@ -7,8 +7,9 @@ TO PLAY
 Double-click LocalExile.exe, or run it in a terminal, and answer its questions. The first start copies the client if you
 choose that, extracts the game data (several minutes; each step is reported) and has you create a local account.
 Later starts take about a minute. In game, set Options > Game > Network Mode to Predictive once.
+LocalExileGUI.exe does the same in a window (English, Simplified or Traditional Chinese), and manages mods and accounts.
 
-ALWAYS START THE GAME WITH LocalExile.exe
+ALWAYS START THE GAME WITH LocalExile.exe (OR LocalExileGUI.exe)
 Started any other way (the game's own executable, Steam, the official launcher), the client contacts the official patch
 servers and can update itself. A newer client does not work with LocalExile, and you cannot get 3.29.3b back that way.
 

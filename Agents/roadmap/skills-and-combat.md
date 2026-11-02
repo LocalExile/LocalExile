@@ -20,13 +20,25 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 - **Ordinary aura activation:** nine previously rejected self auras now share reservation, presentation and the
   supported stat/damage paths.
   Discipline's ordinary ES pool and recharge are implemented with shared character scaling.
-  Remaining work: Pride's enemy debuff, conditional consecrated ground, herald/minion/banner
-  mechanics.
+  Remaining work: conditional consecrated ground, herald/minion/banner mechanics.
   See protocol/11-skills.md section 13.
 - **Aura caster art:** the distinct EPKFiles2 visuals are selected on activation and area restoration;
   the live source-only regression is addressed with a separate received buff for the top-left icon, awaiting
   confirmation.
   Radius-scaled aura rings, if added, still need their actual radius.
+- **Spark start cell:** the server flies each spark on the client's wander (Status), but from the server's walk
+  position, often a few cells from where the client starts it, so a drawn spark can still hit with no damage.
+  Start: trace the client's start cell and each leg's start time per frame (`scripts/re/frida/trace-spark-legs.js`)
+  next to the server's `spark seq=` lines, then start the server's legs from the same cell and frame.
+  Done when: every drawn spark hit deals damage once, and no damage lands without one.
+- **Ice Nova with Spell Echo:** the server sends Ice Nova no `spell_repeat_count`, so Spell Echo only speeds it up.
+  Its action has two repeats: after a ring its update (`0x141c00180`) waits 0.3 s and rings again while +0x320 is under
+  the count and bytes +0x2b8 and +0x2b9 are equal, and its slot 0x460 (`0x1412df740`) jumps to the spell base's replay
+  (`0x1419e3960`), which plays the animation again. Which of them runs, and when, is not readable statically.
+  Start: cast Ice Nova with Spell Echo linked under `scripts/re/frida/trace-ice-nova-repeat.js` (it logs those fields,
+  each ring start, victim and end, and each replay), with `Game_ICE_NOVA_REPEATS=1` set for the Gateway so it sends
+  the count, then hit with each ring.
+  Done when: every Ice Nova ring drawn with Spell Echo deals damage once.
 - **Completed area fix:** Cyclone's `/set_aoe` final radius is now sent to the client and shared with hit selection;
   see Status and protocol/11-skills.md (live check pending).
 
@@ -287,8 +299,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Passive enemy auras send and apply only hit conversions so far ([11](../docs/protocol/11-skills.md) section 10e);
   the others (Overwhelm, the Occultist's) need consumers for their stats first.
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous
-  Fire's); the combat auras (Anger, Hatred, Wrath, Zealotry, Pride), Heralds, banners, curse auras and
-  their unsupported conditional effects.
+  Fire's); Heralds, banners, curse auras and their unsupported conditional effects.
   The skill-bar indicator's buff association is implemented (0x1c1 bit3; live check pending, see Status).
   Support gems come with the gem system ("Gems" below); party and minion auras and life reservation with their own
   systems.
@@ -303,6 +314,16 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 - **Done when:** the timer counts down and protection ends on movement, actions or expiry.
 
 ### Damage model (foundation done, deeper defence next)
+
+- **Client Buff descriptor consumer follow-up (#370, Known issues K1-K3):** follow one prepared descriptor
+  from `ChaosDegenerationAuraPlayersUniqueBodyStr3` to an actual reader and explain its output.
+  The [ownership/transfer report](../docs/re/client-buff-descriptor-consumers.md) is the bounded #466 delivery.
+  Mods `+0x38` and entity ObjectMagicProperties `+0xc8` embed the prepared structure separately.
+  Resume only with new same-object transfer or typed-reader evidence; stopped inventories remain stopped.
+  Bind a purpose-bearing reader and its output; copy/cleanup and the separate cache do not complete original N1/N2.
+  Reuse PR #371's fixed evidence without importing its full branch; no gameplay consumer is established yet.
+  A positive configuration/presentation classification is distinct from numerical DoT publication.
+  Scope any resumed investigation as a separate batch under #370; #466 leaves K1-K3 open.
 
 - **Done:** hits are per-type `DamagePacket`s; conversion follows physical, lightning, cold, fire, chaos, including
   chained conversion, the 100% cap and gain-as-extra.
@@ -361,8 +382,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Critical elemental ignore and non-critical penetration now compose with it on the same rolled packet.
   Rerun critical ignore against a rebuilt final DLL: the previous combined run used the preceding #225 artifact.
   Recheck the resolved bow-contact and target-modifier composition natively before claiming new combined proof.
-  Special ES mechanics, conditional penetration, exposure, damaging and alternative ailments on monsters (beyond the
-  player's ignites) and further added-damage/support effects remain open.
+  Special ES mechanics, conditional penetration, skill Exposure, damaging and alternative ailments on monsters
+  (beyond the player's ignites) and further added-damage/support effects remain open.
   The player's ignites on monsters exist (`MonsterIgnites`), but only Abberath's Fury's footstep hits call them: the
   default attack, gems, projectiles and bows need their flat (pre-increase) fire packet passed to `IgniteFromHit` next
   ([20](../docs/protocol/20-damage.md) §3).
@@ -379,7 +400,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Production use during an active walk still needs measurement; native manual walk-stop experiments passed.
   Its departure/arrival damage, chilled ground, enemy-dependent recovery and shared Blink groups remain open.
   Extend terrain and movement restrictions from native evidence before accepting other instant movement skills.
-- **Start:** special ES mechanics, exposure, conditional penetration and the remaining critical strike stats
+- **Start:** special ES mechanics, skill Exposure, conditional penetration and the remaining critical strike stats
   from the stats both sides already carry; monster skills beyond the first granted effect (ranged, spells).
   Extend player stun rules to ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
   Spell base critical chance now comes from each skill's level and shares its panel/combat calculation.
@@ -471,6 +492,13 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 
 ### Skill projectiles
 
+- **Client-contract research:** use the frozen [delivery matrix](../docs/re/projectiles/delivery-matrix.md)
+  before extending the simulator or changing phase prediction ownership.
+  Recovered count/layout, random contexts, motion/contact/history and selected continuation/skill rules are available.
+  Keep the finite [K1/K2/K3 followups](../docs/re/projectiles/verification-and-limitations.md) separate:
+  gameplay TLS state/order, official Fireball result routing and six-witness effective-input/read-update timing.
+  Do not make full rendering, every stat producer or complete engine teardown prerequisites for using closed rules.
+  The research itself changes no server behavior; production tasks below remain pending under their existing scope.
 - **Known:** the [framework](../docs/game/projectile-framework.md) owns production projectile routing and the
   only Core simulator. Catalog-known gems and ordinary bows and wands have basic straight flight and resolved
   modifiers; [registered skills](../docs/game/projectile-skills.md) supply terminal Fireball blasts and separate KB

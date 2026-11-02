@@ -6,8 +6,8 @@ static partial class Game
 {
     internal static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality) =>
         SkillsFor(conn).CooldownMs(effect, level) <= 0 || GemSkillEffects(conn).Count(g => g.Effect == effect) != 1 ? null :
-            SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, CharacterPlayerStats(conn),
-                SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
+            WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, CharacterPlayerStats(conn),
+                SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2)));
 
     internal static SingleUseCooldownState CooldownStateLocked(ClientState conn, int effect, SingleUseCooldown plan, double now)
     {
@@ -88,8 +88,8 @@ static partial class Game
         lock (conn.Monsters) if (conn.SingleUseCooldowns.Count == 0) return;
         var player = CharacterPlayerStats(conn);
         var plans = GemSkillEffects(conn).GroupBy(g => g.Effect).ToDictionary(g => g.Key, g =>
-            g.Count() != 1 ? null : SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, g.Key, g.First().Level, player,
-                SkillsFor(conn).EffectStats(g.Key, g.First().Level, g.First().Quality).ToDictionary(s => s.Item1, s => s.Item2)));
+            g.Count() != 1 ? null : WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, g.Key, g.First().Level, player,
+                SkillsFor(conn).EffectStats(g.Key, g.First().Level, g.First().Quality).ToDictionary(s => s.Item1, s => s.Item2))));
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;

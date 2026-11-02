@@ -10,7 +10,10 @@ sealed class QuestRewardCatalog
     {
         public int? Rarity { get; init; }
     }
-    public sealed record Offer(int Row, string TakenFlag, IReadOnlyList<Choice> Choices);
+    /// <summary>A QuestRewardOffers row. <paramref name="TakenFlag"/> is the row's QuestFlag, null when it has none: the
+    /// quest books, keys and other quest items, whose own Quest flags (grant_flag held, remove_flag once used) tell that
+    /// the reward was taken (<see cref="Claim"/>).</summary>
+    public sealed record Offer(int Row, string? TakenFlag, IReadOnlyList<Choice> Choices);
     readonly Dictionary<int, Offer> offers = [];
     public Offer? Find(int row) => offers.GetValueOrDefault(row);
     public IReadOnlyCollection<Offer> Offers => offers.Values;
@@ -48,7 +51,12 @@ sealed class QuestRewardCatalog
         foreach (var r in offers.RootElement.EnumerateArray())
         {
             int index = row++;
-            if (r.GetProperty("QuestFlag") is not { ValueKind: JsonValueKind.Number } flag) continue;
+            // Without a QuestFlag the offer is taken when its quest item's flags say so (the Act 1 books: offers 5, 6, 9, 11).
+            if (r.GetProperty("QuestFlag") is not { ValueKind: JsonValueKind.Number } flag)
+            {
+                result.offers[index] = new(index, null, byOffer.GetValueOrDefault(index) ?? []);
+                continue;
+            }
             int f = flag.GetInt32();
             if (f < 0 || f >= names.Length || names[f] == "NEVER_SET") continue;
             result.offers[index] = new(index, names[f], byOffer.GetValueOrDefault(index) ?? []);
@@ -56,9 +64,10 @@ sealed class QuestRewardCatalog
         return result;
     }
 
-    // Grant level-one gems/currency and normal flasks at the row's level. A caller supplying the mode's ItemRolls can
-    // also construct gear at its actual item level and rarity (HardMode's armour/belt alternatives). Scripted rewards
-    // without a model remain unavailable; Program.Npcs omits a choice when this returns null.
+    // Grant level-one gems/currency and normal flasks at the row's level. With the mode's ItemRolls (Game's OfferNpcReward passes
+    // them in every mode) gear is built at its actual item level and rarity: HardMode's magic armours, the later acts' rare
+    // belts and amulets. Scripted rewards without a model remain unavailable; OfferNpcReward omits a choice when this
+    // returns null.
     public static Item? Create(Choice choice, ItemCatalog items, ItemRolls? rolls = null)
     {
         if (choice.Stack <= 0 || items.Row(choice.ItemRow) is not { Supported: true } type) return null;
@@ -93,15 +102,28 @@ sealed class QuestRewardCatalog
         return [.. placed.Select(p => p.Placement)];
     }
 
-    public static PlayerInventories.Stacking? Claim(string character, string takenFlag, PlayerInventories inventory,
+    /// <summary>Whether a character with these flags has taken the offer: its taken flag, or for an offer without one, the
+    /// reward's quest item held or used (its grant_flag or remove_flag). An offer with neither cannot be told apart, so it
+    /// counts as taken (it is not offered).</summary>
+    public static bool Taken(string? takenFlag, QuestItemFlags? quest, Func<string, bool> has) =>
+        takenFlag is not null ? has(takenFlag)
+        : quest?.Grant is not { } grant || has(grant) || quest.Remove is { } remove && has(remove);
+
+    /// <summary>Puts the reward into the main inventory and records the offer as taken (its taken flag, or the quest item's
+    /// pickup flags: an Act 1 book's a1q7-HaveRewardBook), in one save transaction. Null (nothing changes) when it is taken
+    /// already or does not fit.</summary>
+    public static PlayerInventories.Stacking? Claim(string character, string? takenFlag, QuestItemFlags? quest, PlayerInventories inventory,
         Item reward, Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically(() =>
     {
-        // Read the durable flag again inside the transaction: a retry or another connection cannot duplicate a reward.
-        if (CharacterSaves.Load(character)?.QuestFlags?.Contains(takenFlag) == true
-            || !inventory.Fits(PlayerInventories.MainInventory, reward, shapeOf)) return null;
+        // Read the durable flags again inside the transaction: a retry or another connection cannot duplicate a reward.
+        var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
+        if (Taken(takenFlag, quest, saved.Contains) || !inventory.Fits(PlayerInventories.MainInventory, reward, shapeOf)) return null;
         var added = inventory.AddStacked(PlayerInventories.MainInventory, reward, shapeOf);
         if (added.Left != 0) throw new InvalidOperationException("A quest reward did not fit after its capacity check");
-        CharacterSaves.ChangeQuestFlags(character, [takenFlag], true);
+        var flags = new List<string>();
+        if (takenFlag is not null) flags.Add(takenFlag);
+        if (quest is not null) flags.AddRange(new[] { quest.Grant, quest.Extra }.OfType<string>().Where(f => !saved.Contains(f)));
+        if (flags.Count > 0) CharacterSaves.ChangeQuestFlags(character, flags, true);
         return added;
     });
 }

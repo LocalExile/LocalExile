@@ -17,8 +17,8 @@ static partial class Game
             using var availability = AscendancyPolicies.Enter(conn,
                 CharacterSaves.Load(CharacterName(conn))?.MainAscendancy?.Selection);
             CheckAscendancyClientCompatibility(conn);
-            ValidateSavedProgress(conn, CharacterSaves.Load(CharacterName(conn)));
             PlayerInventories.SetClass(CharacterName(conn), conn.ClassRow);   // before its items are first used (start kit)
+            ValidateSavedProgress(conn, CharacterSaves.Load(CharacterName(conn)));
             // Existing items must load successfully before LoadProgress can migrate gold or normalize passives.
             // A new character's start kit is built and saved only after the read-only progress preflight above succeeds.
             var startItems = ItemsOf(conn);

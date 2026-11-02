@@ -9,6 +9,7 @@ using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
 partial class Program
 {
+    static readonly Lazy<PacketLogQueue> PacketSummaries = new(() => new(Console.WriteLine));
     internal static string CharacterName(ClientState conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
 
     // Set while a projectile's output is sent: false drops it (Send).
@@ -94,8 +95,12 @@ partial class Program
                     return;
                 }
                 ushort areaHash = resolved.Area;
-                // The client generates the area at the seed of 0x1d: one the Gateway can generate too.
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed);
+                // An opened map's level goes in 0x1d (0: the client takes the area's WorldAreas level).
+                string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
+                byte areaLevel = MapDevice.OpenOf(characterName) is { } openMap && openMap.Area.Hash16 == areaHash
+                    && openMap.Area.Level > 0 ? (byte)Math.Clamp(openMap.Area.Level, 1, 100) : (byte)0;
+                // The client generates the area at the seed and level of 0x1d: a seed the Gateway can generate too.
+                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel);
                 ulong instanceId = resolved.Instance;
                 var layout = AreaLayouts.For(areaHash, seed);
                 AreaLayouts.Announce(layout, seed);
@@ -120,8 +125,6 @@ partial class Program
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
                 int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
                 prepared = true;
-                byte areaLevel = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == areaHash
-                    && openMap.Area.Level > 0 ? (byte)Math.Clamp(openMap.Area.Level, 1, 100) : (byte)0;
                 var moduleHeader = ServerHooks.Header(PlayerOf(conn));
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: Logic.AreaLeagueStats(conn),
@@ -349,7 +352,13 @@ partial class Program
                 if (atGate() is not { } current) return;
                 bytes = current;
             }
-            if (log is not null) Console.WriteLine($"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}");
+            if (log is not null)
+            {
+                string line = $"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}";
+                // Explicit traces retain synchronous output; normal summaries cannot stall the wire on disk IO.
+                if (ServerTrace.Packets) Console.WriteLine(line);
+                else PacketSummaries.Value.Write(line);
+            }
             if (ServerTrace.Packets && PacketHistory.Kept(sent: true, PacketHistory.IdOf(bytes)))
                 Console.WriteLine($"[packets] {remote} => 0x{PacketHistory.IdOf(bytes):x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
             HistoryFor(ciphers).Sent(bytes);   // before Write, which encrypts the bytes in place

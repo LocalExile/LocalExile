@@ -111,6 +111,10 @@ public sealed record RoomDef(string Path, string Tag, TileKey Key, RoomSlot[,] S
     /// <summary>The room's doodads and objects (room data +0x70, 0x58 bytes each), in file order.</summary>
     public IReadOnlyList<RoomDoodad> Doodads { get; init; } = [];
 
+    /// <summary>The room's named points (all its point lists), in file order: spawn points, boss points, and objects a point
+    /// line places by type (AreaObjects.RoomObjects).</summary>
+    public IReadOnlyList<NamedPoint> Points { get; init; } = [];
+
     public int Width => Key.Width;
     public int Height => Key.Height;
 }
@@ -624,7 +628,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         string?[] vertexGrounds = [];
         if (inner > 0 && last is not null && last.Count == inner && last.All(t => t.IsNumber && !t.Text.Contains('.')))
             vertexGrounds = [.. last.Select(t => Path(file, t.Int))];
-        return new RoomDef(path, file.Tag, roomKey, grid) { PointCount = file.Points.Count(p => p.Section == 0), VertexGrounds = vertexGrounds, Overlap = HeaderOverlap(text), Doodads = file.Doodads };
+        return new RoomDef(path, file.Tag, roomKey, grid) { PointCount = file.Points.Count(p => p.Section == 0), VertexGrounds = vertexGrounds, Overlap = HeaderOverlap(text), Doodads = file.Doodads, Points = file.Points };
     }
 
     /// <summary><c>0x141d808c0</c>, as <c>0x141ff3210</c> turns a room slot into its key: per side, no edge puts both

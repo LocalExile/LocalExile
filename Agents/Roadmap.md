@@ -28,9 +28,9 @@ its items, and items are in rough priority order within each group.
    then send it from the server. [docs/re/tooling.md](docs/re/tooling.md) has the workflow and recipes.
 3. Verify with the real client through `.\scripts\dev\live.ps1`, and check the logs in `logs\`. Add tests for any
    message layout you implement (see `tests/GameServer.Core.Tests`).
-4. In the same pull request: document what you found in `docs/protocol/` (new message ids, layouts, client addresses
-   in [address-index.md](docs/protocol/address-index.md)), move the item to its area's file in `status/`, and remove
-   or update it in its area's file in `roadmap/`.
+4. In the same pull request: note what the code cannot tell in `docs/protocol/` (new message ids, layouts, client
+   addresses in [address-index.md](docs/protocol/address-index.md)), keep it short, move the item to its area's file in
+   `status/` as one line, and remove or update it in its area's file in `roadmap/`.
 
 The editing rules in [Status.md](Status.md) ("Editing the status") apply to the roadmap files too: put an item in its
 area's file and group, edit an item instead of adding a note about it, and start each sentence on a new line.

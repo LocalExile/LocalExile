@@ -117,21 +117,18 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   level, 18 trials, 47 sections, 223 section layout rows, 58 secrets and the Izaro chests.
   AreaTransition type 5 is Labyrinth ([08](../docs/protocol/08-area-transitions.md) §7), and
   `AreaTransitionCatalog` does not know the Labyrinth areas yet.
-- **Known (trials):** the server generates all 18 trial areas (LabyrinthTrials; the Normal six are The Lower
-  Prison, The Crypt Level 1, The Chamber of Sins Level 2, The Crematorium, The Catacombs and The Imperial Gardens).
-  The trial is two rooms the generator already places: in The Lower Prison the `labyrinth_intro` node takes
-  `axiom_intro.arm` and `labyrinth_end` takes `axiom_intro_end.arm`.
-  Their object lines hold the trial: `LabyrinthIntroDoor`, `Puzzle_Parts/Door_Closed`, `Puzzle_Parts/Switch_Once`,
-  a `LabyrinthTrialGlyph`, `LabyrinthCascadeSpikeTrap`s, `LabyrinthTrialPlaque` and `LabyrinthTrialReturnPortal`.
-  The Gateway places none of them yet: `AreaObjects` keeps only transitions, waypoints and `QuestTypes`.
+- **Known (trials):** the Gateway places each trial's door, `Switch_Once` levers, Locked Doors, plaque, portal and
+  spike traps;
+  The Lower Prison's trial completes with the real client ([status](../status/world.md), "Trials of Ascendancy").
+  A trial is done for the client by its quest flag or its league quest flag
+  ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. The Normal Trials of Ascendancy: place the trial rooms' object lines (as `AreaObjects.RoomObjects` places room
-     waypoints), open the intro door, the switch and its door, and complete the trial at the plaque, whose portal
-     returns to the door.
-     Find the client's interaction with these objects and how it learns a completed trial (LabyrinthTrials columns
-     1–3 are unread) before choosing what the save keeps; the real game shares trials per account and league.
-  2. The trial traps: each trial teaches one kind (spikes, saws, furnaces, darts, ...), the same objects as the
-     Labyrinth's; their timing and damage.
+  1. The rest of the Normal trials: the `Switch` / `Door_Open` (toggling), `Switch_Multi` and `TimerGears` puzzle
+     parts of The Crypt, The Chamber of Sins and The Crematorium, the trials' monster spawners, and saving league
+     quest flags so a trial counts for every character of the league.
+  2. The other trial traps: each trial teaches one kind (spinners, sawblades, furnaces, roombas, darts), the same
+     objects as the Labyrinth's; their timing and damage, as the spike traps do
+     ([labyrinth-trials](../docs/game/labyrinth-trials.md), "Spike traps").
   3. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra
      data (`0x141ec7220`: seed, node, difficulty; [03](../docs/protocol/03-area-and-world.md)).
      The node's LabyrinthNodeOverrides and secrets then apply in `LabyrinthPass`; the levelgen gate stays green.

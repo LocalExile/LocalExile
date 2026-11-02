@@ -58,7 +58,7 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
                 && skills.PlayerLevelReq(gem.Variant(0).Effect, 1) <= level).Order()];
         bool ignoreClass = lilly || siosa;
         var available = npcs.AvailableRewards(flags);
-        bool Done(QuestRewardCatalog.Offer offer) => flags.Contains(offer.TakenFlag) || available.Contains(offer.Row);
+        bool Done(QuestRewardCatalog.Offer offer) => offer.TakenFlag is { } taken && flags.Contains(taken) || available.Contains(offer.Row);
         var rows = new SortedSet<int>();
         foreach (var offer in rewards.Offers)
         {

@@ -26,6 +26,13 @@ static class ServerLevels
     {
         /// <summary>The client's tile hash of the generated grid, and how long the generation took.</summary>
         public uint TileHash { get; init; }
+        /// <summary>Every quest tile object of the grid (<see cref="QuestObjectTypes.IsTileQuestObject"/>): the quest engine's
+        /// seals, levers, doors, altars and quest chests. <see cref="QuestObjects"/> keeps a1q4's types only, as the
+        /// recorder captures them (the level generator's gate compares those).</summary>
+        public IReadOnlyList<PlacedTileObject> TileQuestObjects { get; init; } = [];
+        /// <summary>The server objects of the placed rooms and the objects their point lists name (AreaObjects.RoomObjects):
+        /// the quest engine's places for room objects data/room-points.json does not keep (QuestObjectTypes.AreaPlacements).</summary>
+        public IReadOnlyList<PlacedTileObject> RoomObjects { get; init; } = [];
         public long Milliseconds { get; init; }
         /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
         public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
@@ -55,16 +62,27 @@ static class ServerLevels
         public readonly Level? Level = level;
         public long UsedAt = Stopwatch.GetTimestamp();
     }
-    static readonly ConcurrentDictionary<(string Area, uint Seed), KeptLevel> Generated = new();
+    static readonly ConcurrentDictionary<(string Area, uint Seed, int AreaLevel), KeptLevel> Generated = new();
     // Every level still in use: a connection's AreaLayout holds its level (AreaLayout.Level), so a level stays
     // available, and is never generated again, while anybody plays it, however many others are generated meanwhile.
-    static readonly ConcurrentDictionary<(string Area, uint Seed), WeakReference<Level>> Live = new();
+    static readonly ConcurrentDictionary<(string Area, uint Seed, int AreaLevel), WeakReference<Level>> Live = new();
     const int Kept = 8;
     // Why the last generations that failed did (the exception in full), for the capture tour's records.
-    static readonly ConcurrentDictionary<(string Area, uint Seed), string> Errors = new();
+    static readonly ConcurrentDictionary<(string Area, uint Seed, int AreaLevel), string> Errors = new();
+    // The area level an (area, seed) is played at when 0x1d sends one (an opened map's item level): the client generates
+    // at it, and the topology and room picks depend on it (MapWorldsChateau seed 1174023763 is chateau_1.dgr at its
+    // WorldAreas level 71, chateau_2.dgr at a tier-16 map's 83). Lookups without a level (monster packs, heights,
+    // projectiles) get that generation. Never trimmed: one entry per map instance opened.
+    static readonly ConcurrentDictionary<(string Area, uint Seed), int> PlayedLevels = new();
 
     /// <summary>The exception of a failed generation of (area, seed), while it is among the last ones asked for.</summary>
-    public static string? Error(string areaId, uint seed) => Errors.GetValueOrDefault((areaId, seed));
+    public static string? Error(string areaId, uint seed) => Errors.GetValueOrDefault((areaId, seed, LevelOf(areaId, seed, 0)));
+
+    /// <summary>The area level (area, seed) is generated at: <paramref name="areaLevel"/> when given (above 0), else the
+    /// one it was played at (<see cref="PlayedLevels"/>), else its WorldAreas level (what the client takes for a 0x1d
+    /// level of 0).</summary>
+    static int LevelOf(string areaId, uint seed, int areaLevel) =>
+        areaLevel > 0 ? areaLevel : PlayedLevels.TryGetValue((areaId, seed), out int played) ? played : AreaLevel(areaId);
 
     /// <summary>Whether the Gateway generates this area itself (<see cref="BaselineFile"/>).</summary>
     public static bool IsSupported(string areaId)
@@ -94,23 +112,30 @@ static class ServerLevels
 
     /// <summary>The generated layout of (area, seed), or null when the area is not supported or generation failed
     /// (the Gateway then falls back to the capture). Generated once per (area, seed) and kept while among the
-    /// <see cref="Kept"/> most recently asked for, or while a layout in use holds it. Lock-free unless it generates.</summary>
-    public static Level? For(string areaId, uint seed)
+    /// <see cref="Kept"/> most recently asked for, or while a layout in use holds it. Lock-free unless it generates.
+    /// <paramref name="areaLevel"/>: the 0x1d level the instance is played at (0: none sent, <see cref="LevelOf"/>).</summary>
+    public static Level? For(string areaId, uint seed, int areaLevel)
     {
         if (!IsSupported(areaId)) return null;
-        if (Known((areaId, seed), out var known)) return known;
+        int at = LevelOf(areaId, seed, areaLevel);
+        var key = (areaId, seed, at);
+        if (Known(key, out var known)) return known;
         lock (Gate)
         {
-            if (Known((areaId, seed), out known)) return known;
-            var level = Generate(areaId, seed);
-            Generated[(areaId, seed)] = new(level);
-            if (level is not null) Live[(areaId, seed)] = new(level);
-            Trim((areaId, seed));
+            if (Known(key, out known)) return known;
+            var level = Generate(areaId, seed, at);
+            Generated[key] = new(level);
+            if (level is not null) Live[key] = new(level);
+            Trim(key);
             return level;
         }
     }
 
-    static bool Known((string Area, uint Seed) key, out Level? level)
+    /// <summary><see cref="For(string, uint, int)"/> at the level (area, seed) is played at. A separate overload, not an
+    /// optional parameter: modules built against this signature keep binding to it.</summary>
+    public static Level? For(string areaId, uint seed) => For(areaId, seed, 0);
+
+    static bool Known((string Area, uint Seed, int AreaLevel) key, out Level? level)
     {
         if (Generated.TryGetValue(key, out var kept))
         {
@@ -125,7 +150,7 @@ static class ServerLevels
     // Under Gate: the kept levels beyond Kept go, older failed generations first, then the least recently used; never the
     // one just generated (its callers ask again at once). A level in use stays reachable through Live. Live forgets the
     // levels nobody holds any more.
-    static void Trim((string Area, uint Seed) newest)
+    static void Trim((string Area, uint Seed, int AreaLevel) newest)
     {
         while (Generated.Count > Kept)
         {
@@ -146,8 +171,19 @@ static class ServerLevels
     /// first of <see cref="Replacements"/> it can. Without a level the Gateway would have no walk map, area transitions
     /// or waypoint while the client still builds the map. The replacement depends only on the seed, so everyone entering
     /// the instance gets the same one. Kept as it is for the capture tour (<see cref="AreaLayouts.Recording"/>) and
-    /// Game_SEED, which ask for that seed's trace.</summary>
-    public static uint PlayableSeed(string areaId, uint seed)
+    /// Game_SEED, which ask for that seed's trace. A 0x1d <paramref name="areaLevel"/> above 0 is remembered for the
+    /// seed played (<see cref="PlayedLevels"/>), so its layout is the one the client generates.</summary>
+    public static uint PlayableSeed(string areaId, uint seed) => PlayableSeed(areaId, seed, 0);
+
+    /// <inheritdoc cref="PlayableSeed(string, uint)"/>
+    public static uint PlayableSeed(string areaId, uint seed, int areaLevel)
+    {
+        seed = Playable(areaId, seed, areaLevel);
+        if (areaLevel > 0) PlayedLevels[(areaId, seed)] = areaLevel;
+        return seed;
+    }
+
+    static uint Playable(string areaId, uint seed, int areaLevel)
     {
         if (AreaLayouts.Recording || Environment.GetEnvironmentVariable("Game_SEED") is { Length: > 0 }) return seed;
         if (seed == 1)
@@ -156,9 +192,9 @@ static class ServerLevels
             Console.WriteLine($"[gateway] server levels: the client cannot generate {areaId} at seed 1; played at seed {inPlace}");
             seed = inPlace;
         }
-        if (!IsSupported(areaId) || For(areaId, seed) is not null) return seed;
+        if (!IsSupported(areaId) || For(areaId, seed, areaLevel) is not null) return seed;
         foreach (uint other in Replacements(seed))
-            if (For(areaId, other) is not null)
+            if (For(areaId, other, areaLevel) is not null)
             {
                 Console.WriteLine($"[gateway] server levels: {areaId} seed {seed} not generated; played at seed {other}");
                 return other;
@@ -181,13 +217,13 @@ static class ServerLevels
     public static Level? InPlaceOf(string folder, string areaId, uint seed) =>
         Path.GetFullPath(folder) == Path.GetFullPath("data/walkability") ? For(areaId, seed) : null;
 
-    static Level? Generate(string areaId, uint seed)
+    static Level? Generate(string areaId, uint seed, int areaLevel)
     {
         var clock = Stopwatch.StartNew();
         try
         {
             var files = Files();
-            var area = AreaInfo.Load(Read, areaId, AreaLevel(areaId));
+            var area = AreaInfo.Load(Read, areaId, areaLevel);
             var result = LevelGenerator.Generate(files, area, seed);
             var walk = Walkability.Build(result.Grid, t => files.Walk(t.Path));
             // The doodad stage stamps the doodads' collision into the grids (re/011 §6c).
@@ -200,7 +236,7 @@ static class ServerLevels
             var exits = AreaExits.Resolve(files, result, (x, y) => WithinReach(walk.Walk, walk.Width, walk.Height, x, y, 13));
             // A room's waypoint line when no tile places one (The Ledge).
             if (!objects.Any(o => o.Type == GameServer.Core.Protocol.Instance.WaypointObject.MetadataPath)) objects.AddRange(AreaObjects.RoomWaypoints(result));
-            Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} ({walk.Width}x{walk.Height} cells, " +
+            Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} level {areaLevel} ({walk.Width}x{walk.Height} cells, " +
                 $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads) in {clock.ElapsedMilliseconds} ms");
             ConnectionPerformance.Server("LevelGen", clock.Elapsed, areaId);
             return new Level(walk.Width, walk.Height, walk.Walk, heights, objects, doodads.Placed, AreaObjects.Rooms(result),
@@ -208,12 +244,14 @@ static class ServerLevels
             {
                 TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
                 Exits = exits.Exits, Entrances = exits.Entrances,
+                TileQuestObjects = AreaObjects.TileObjects(files, result, QuestObjectTypes.IsTileQuestObject),
+                RoomObjects = AreaObjects.RoomObjects(result, points: true),
             };
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[gateway] server levels: {areaId} seed {seed} not generated ({ex.GetType().Name}: {ex.Message.Split('\n')[0]})");
-            Errors[(areaId, seed)] = ex.ToString();
+            Console.WriteLine($"[gateway] server levels: {areaId} seed {seed} level {areaLevel} not generated ({ex.GetType().Name}: {ex.Message.Split('\n')[0]})");
+            Errors[(areaId, seed, areaLevel)] = ex.ToString();
             return null;
         }
     }

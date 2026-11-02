@@ -13,7 +13,7 @@ static class QuestObjectsFeature
     {
         var notes = new List<string>();
         var objects = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes)
-            .Select(o => (Object: o, Flag: Quests.RoomObjectRemovedBy(conn.Layout.Id, o.Type)))
+            .Select(o => (Object: o, Flag: QuestsOf(conn).RoomObjectRemovedBy(conn.Layout.Id, o.Type)))
             .Where(o => o.Flag is not null).ToList();
         if (objects.Count == 0) return;
         // The walls guard the exits their flag opens; the boss's side is the room's boss point ("mapboss", "mapboss2" …,
@@ -77,7 +77,6 @@ static class QuestObjectsFeature
     // PlacedGlyphs. The recorder writes the capture while the client generates the area: wait briefly for it.
     internal static async Task SpawnGlyphQuest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        await RemoveLeftoverGlyphs(remote, stream, ciphers, conn);
         if (conn.Layout.Id != GlyphQuest.Area) return;
         // Usually captured on an earlier visit: created at once, with the area. Else wait for the recorder in the background.
         if (LoadGlyphLayout(remote, conn) is { } now) { await CreateGlyphObjects(remote, stream, ciphers, conn, now); return; }
@@ -183,15 +182,27 @@ static class QuestObjectsFeature
 
     internal static async Task TalkToWoundedExile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,uint id,SpawnedNpc npc)
     {
-        if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { Talked: false } || conn.TutorialSceneRunning) return;
+        if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial) return;
+        if (tutorial.Talked || conn.TutorialSceneRunning)
+        {
+            TutorialObjects.SkipDialogue(conn);
+            await Send(remote,stream,ciphers,InstanceNpcs.Talk(0),"0x0084 dying exile: opening scene already started");
+            return;
+        }
         bool armed = ItemsOf(conn).Items(PlayerInventories.Weapon1).Count > 0;
+        var dialogue = TutorialObjects.Dialogue(armed, tutorial.WeaponPromptHeard);
         conn.InNpcTalk = true;
-        await Send(remote,stream,ciphers,InstanceNpcs.Talk(id,armed ? (byte)2 : (byte)1),"0x0084 dying exile: class weapon check");
-        if (!armed) return;
+        await Send(remote,stream,ciphers,InstanceNpcs.Talk(id,dialogue.Option),"0x0084 dying exile: class weapon check");
+        if (dialogue.BiteAt is not double biteAt)
+        {
+            CharacterSaves.ChangeTutorial(CharacterName(conn),t=>t with { WeaponPromptHeard=true });
+            return;
+        }
         conn.TutorialSceneRunning = true;
+        var skipped = conn.TutorialDialogueSkipped = new(TaskCreationOptions.RunContinuationsAsynchronously);
         CharacterSaves.ChangeTutorial(CharacterName(conn),t=>t with { Talked=true });
         await SetQuestFlags(remote,stream,ciphers,conn,["TalkedToWoundedExile"]);
-        _ = RunOpeningScene(remote,stream,ciphers,conn,id,npc);
+        _ = RunOpeningScene(remote,stream,ciphers,conn,id,npc,biteAt,skipped.Task);
     }
 
 }

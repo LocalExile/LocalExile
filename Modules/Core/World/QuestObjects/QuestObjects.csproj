@@ -1,5 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- The objects of the campaign's quests: the opening tutorial, its gems, and the Glyph quest. (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
+  <!-- The campaign's quests: the quest engine's act tables (Acts/), its hooks, the opening tutorial, its gems, and the Glyph
+       quest (Agents/docs/dev/modules.md, Agents/docs/game/campaign-quests.md). Everything else is in Directory.Build.props. -->
+
+  <ItemGroup>
+    <!-- The campaign oracle (QuestEngineTests) plays the acts' tables. -->
+    <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+  </ItemGroup>
 
 </Project>

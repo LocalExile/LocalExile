@@ -18,6 +18,8 @@ sealed class NpcCatalog
         /// <summary>A fixed world z (a town room's line, <see cref="Placement.Height"/>).</summary>
         public float? Height { get; init; }
         public int HardModeShopRow { get; init; } = -1;
+        /// <summary>The type's Transitionable num_states (object-types.json; 1 when it has none): the last state.</summary>
+        public byte TransitionStates { get; init; } = 1;
         public bool Supported => Components is { } c && NpcObject.CanSerialize(c, StateMachine is not null);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
@@ -32,10 +34,73 @@ sealed class NpcCatalog
         public bool OpensGuildHideouts => System.Text.RegularExpressions.Regex.IsMatch(Script, @"HideoutSelectionWindow\s*,\s*1\s*\)");
         public IReadOnlyList<string> RequiredFlags { get; init; } = [];
         public IReadOnlyList<string> ExcludedFlags { get; init; } = [];
+        /// <summary>NPCTalk QuestFlag3: the flags that mark the row as heard (they are the row's own QuestFlag4/5 or its
+        /// quest's next step: Tarkleigh's first "Dweller of the Deep" has a1q7-ReceivedQuest, the second a1q7-Congratulated).
+        /// Of two rows with the same text, the one not heard yet is the quest's next.</summary>
+        public IReadOnlyList<string> HeardFlags { get; init; } = [];
         public string? StartFlag { get; init; }
         public string? FinishFlag { get; init; }
         public int? RewardOffer { get; init; }
+        /// <summary>The row's second script (NPCTalk Script2).</summary>
+        public string Script2 { get; init; } = "";
         public bool Available(IReadOnlySet<string> flags) => RequiredFlags.All(flags.Contains) && !ExcludedFlags.Any(flags.Contains);
+
+        // A call names one flag or several: Eramir's "Bandit Amulets" (NPCTalk 95) has
+        // SetQuestFlag("a2q7-QuestRewardTaken", "a2b-DeliveredAmulets").
+        static readonly System.Text.RegularExpressions.Regex FlagCall =
+            new(@"\b(SetQuestFlag|ClearQuestFlag|SetSessionQuestFlag)\(\s*((?:""?[\w-]+""?\s*,\s*)*""?[\w-]+""?)\s*\)");
+
+        IEnumerable<(string Call, string Flag)> FlagCalls() =>
+            FlagCall.Matches(Script + "\n" + Script2).SelectMany(m => m.Groups[2].Value.Split(',')
+                .Select(f => (m.Groups[1].Value, f.Trim().Trim('"'))));
+
+        /// <summary>The flags the row's scripts set when it is chosen (<c>triggerer.SetQuestFlag("a1q6-ReceivedQuest")</c>;
+        /// SetSessionQuestFlag too: its flag is a session flag, never saved).</summary>
+        public IReadOnlyList<string> ScriptSets => [.. FlagCalls().Where(c => c.Call != "ClearQuestFlag").Select(c => c.Flag).Distinct()];
+
+        /// <summary>The flags the row's scripts clear (<c>triggerer.ClearQuestFlag("a1q6-DeliveredAllFlame")</c>).</summary>
+        public IReadOnlyList<string> ScriptClears => [.. FlagCalls().Where(c => c.Call == "ClearQuestFlag").Select(c => c.Flag).Distinct()];
+
+        /// <summary>The monster varieties the row's script transitions (<c>IfVarietyContains( "&lt;variety&gt;", { Transition(); } )</c>):
+        /// Fairgraves' "Thank You" turns the NPC into SkeletonBossFairgraves (Quests.TurnsIntoRule).</summary>
+        public IReadOnlyList<string> TransitionsVarieties => [.. System.Text.RegularExpressions.Regex
+            .Matches(Script + "\n" + Script2, @"IfVarietyContains\(\s*""([^""]+)""").Select(m => m.Groups[1].Value).Distinct()];
+
+        string Scripts => Script + "\n" + Script2;
+
+        /// <summary><c>triggerer.FinishNPCChat()</c>: the dialogue ends with this row (Sin's Pantheon rows, Bannon's
+        /// "Rescue", Lilly's and Weylam's sailing rows): no option list comes back.</summary>
+        public bool FinishesChat => Scripts.Contains("FinishNPCChat(", StringComparison.Ordinal);
+
+        /// <summary><c>triggerer.DoNPCChat(n)</c>: when this row's talk ends, the NPC's option <c>n</c> plays next (a talk in
+        /// several pages: Sin's "Kitava" 882 → 883 → 884, rows no option list shows).</summary>
+        public int? NextChat => System.Text.RegularExpressions.Regex.Match(Scripts, @"DoNPCChat\(\s*(\d+)\s*\)") is { Success: true } m
+            ? int.Parse(m.Groups[1].Value) : null;
+
+        /// <summary><c>triggerer.AreaTransitionTo(&lt;area&gt;, &lt;index&gt;, &lt;delay&gt;)</c>: the row moves the player to that
+        /// WorldAreas Id after the delay in seconds (Lilly's "Sail to Wraeclast" → 2_6_town, Weylam's sailing rows). The
+        /// index (0 or 1) is probably the arrival point; not decoded.</summary>
+        public (string Area, int Index, double Delay)? AreaTransition =>
+            System.Text.RegularExpressions.Regex.Match(Scripts, @"AreaTransitionTo\(\s*""?([\w]+)""?\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)") is { Success: true } m
+                ? (m.Groups[1].Value, int.Parse(m.Groups[2].Value), double.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture))
+                : null;
+
+        /// <summary><c>triggerer.SendOpenScreen(&lt;screen&gt;)</c> with no window argument: the screen the row opens
+        /// (<c>PantheonScreen</c> on Sin's god rows). The passive tree and hideout rows have their own categories.</summary>
+        public string? OpensScreen => System.Text.RegularExpressions.Regex.Match(Scripts, @"SendOpenScreen\(\s*(\w+)\s*\)") is { Success: true } m
+            ? m.Groups[1].Value : null;
+
+        /// <summary>A top-level <c>DirtyTransition();</c>: the NPC itself steps to its next Transitionable state (Dialla at
+        /// the Rapture Device, NPCTalk 534: state 1 → 2, withered).</summary>
+        public bool TransitionsSelf => System.Text.RegularExpressions.Regex.Replace(Scripts, @"\{[^{}]*\}", "")
+            .Contains("DirtyTransition()", StringComparison.Ordinal);
+
+        /// <summary>The object types the row's script transitions: <c>ForEachOfType( "&lt;type&gt;", { DirtyTransition(); } )</c>
+        /// (Dialla's 521 opens the Ascent, 535 the wound into the Belly) and <c>ForEachInRange( r, { IfType( "&lt;type&gt;",
+        /// { Transition(); } ); } )</c> (Piety's 621 opens the way to The Harvest).</summary>
+        public IReadOnlyList<string> TransitionsTypes => [.. System.Text.RegularExpressions.Regex
+            .Matches(Scripts, @"(?:ForEachOfType|IfType)\(\s*""([^""]+)""\s*,\s*\{\s*(?:DirtyTransition|Transition)\(\)")
+            .Select(m => m.Groups[1].Value).Distinct()];
     }
 
     /// <summary>An NPC standing in a town: its NPCs.dat Id, cell and facing (radians); optionally the model and fixed
@@ -119,6 +184,9 @@ sealed class NpcCatalog
 
     /// <summary>The NPCTalk row an NPC's option index (C→S 0x82) stands for.</summary>
     public Talk? TalkOf(Npc npc, int index) => _talk.GetValueOrDefault((TalkSource(npc).Row, index));
+
+    /// <summary>Every NPCTalk row of the NPC (its talk source's), by option index.</summary>
+    public IEnumerable<Talk> TalksOf(Npc npc) => _talk.Values.Where(t => t.Npc == TalkSource(npc).Row).OrderBy(t => t.Index);
 
     public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags) =>
         _talk.Values.Any(t => t.Npc == TalkSource(npc).Row && t.RewardOffer == offer && t.Available(flags));
@@ -218,6 +286,7 @@ sealed class NpcCatalog
                     set >= 0 && set < shopOfSet.Count ? shopOfSet[set] : -1)
                 {
                     Model = TownNpcs.ModelOf(id),
+                    TransitionStates = transitionStates.GetValueOrDefault(type, (byte)1),
                     HardModeShopRow = set >= 0 && set < hardModeShopOfSet.Count ? hardModeShopOfSet[set] : -1,
                 });
             }
@@ -250,9 +319,10 @@ sealed class NpcCatalog
                     category >= 0 && category < names.Count ? names[category] : "", r.GetProperty("Script").GetString() ?? "",
                     [.. r.GetProperty("NPCTextAudioKeys").EnumerateArray().Select(e => e.GetInt32())])
                 {
-                    RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"),
+                    RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"), HeardFlags = FlagList("QuestFlag3"),
                     StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
-                    RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null
+                    RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,
+                    Script2 = r.TryGetProperty("Script2", out var script2) ? script2.GetString() ?? "" : "",
                 });
             }
         return talk;

@@ -67,6 +67,26 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
         return true;
     }
 
+    /// <summary>Hinekora's Lock: a modifiable rare item that is not already foreseeing enters the state with a
+    /// non-zero seed. Normal, magic, gem, corrupted, mirrored and unmodifiable items are refused (the item text says
+    /// "left click a rare item"; gems have no Mods component and the rest fail <see cref="TryModifiable"/>). The
+    /// original is unchanged on refusal.</summary>
+    public Item? ApplyLock(Item item, Random random)
+    {
+        if (item.Foreseeing || item.Rarity != ItemRarity.Rare || !TryModifiable(item, out _)) return null;
+        uint seed = (uint)random.NextInt64(1, (long)uint.MaxValue + 1);
+        return item with { Foreseeing = true, ForeseeSeed = seed };
+    }
+
+    /// <summary>Any successful modification clears the foreseeing state; a refused one keeps it.</summary>
+    public static Item ClearForesee(Item item) =>
+        item.Foreseeing || item.ForeseeSeed != 0 ? item with { Foreseeing = false, ForeseeSeed = 0 } : item;
+
+    /// <summary>The RNG shared by the preview and the committed result: the item's seed mixed with the currency's
+    /// type hash, so the same currency type always previews and commits the same result.</summary>
+    public static Random ForeseeRandom(Item item, uint currencyTypeHash) =>
+        new(unchecked((int)(item.ForeseeSeed ^ currencyTypeHash)));
+
     /// <summary>Transmutation's validated normal-to-magic upgrade. Refused targets return null before rolling or
     /// spending: no unknown/unmodifiable bases or empty ordinary affix pools. Ordinary magic counts stay 50/50.</summary>
     public Item? Transmute(Item item, Random random)
@@ -243,9 +263,26 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     /// <summary>Vaal Orb, the documented LocalExile rule: a weapon, armour piece or jewellery (ring, amulet, belt)
     /// that is modifiable, not unique and not corrupted/mirrored is always corrupted. A normal or magic item becomes
     /// rare with 4-6 affixes; a rare one replaces 1-5 affixes or rerolls all of them. One white socket is coloured.
-    /// Refused targets return null before rolling or spending, including missing/empty pools.</summary>
+    /// Maps and MapKeys are corrupted the same way (white/magic become rare; a rare map can gain extra affixes up to
+    /// 4/4). Refused targets return null before rolling or spending, including missing/empty pools on equipment.</summary>
     public Item? Vaal(Item item, ItemCatalog.BaseType type, (int Str, int Dex, int Int) requirements, Random random)
     {
+        if (CurrencyEffects.IsMap(item, type))
+        {
+            if (item.Corrupted || item.Mirrored) return null;
+            Item map = item;
+            if (TryModifiable(item, out _) && Pool(type, item).Count > 0)
+            {
+                if (item.Rarity != ItemRarity.Rare) map = Roll(item, ItemRarity.Rare, random);
+                else
+                {
+                    int extra = random.Next(1, 3);
+                    for (int n = 0; n < extra && AddAffix(map, (4, 4), random, respectMetamods: false) is { } added; n++)
+                        map = added;
+                }
+            }
+            return map with { Corrupted = true, Identified = true };
+        }
         bool target = item.Components.Contains("Weapon") || item.Components.Contains("Armour") ||
             type.Class is "Ring" or "Amulet" or "Belt";
         if (!target || item.Rarity == ItemRarity.Unique || !TryModifiable(item, out _) ||

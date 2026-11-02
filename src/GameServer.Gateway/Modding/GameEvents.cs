@@ -49,6 +49,9 @@ static class GameEvents
     public static readonly GameEvent<Func<ClientState, uint, SpawnedNpc, Task<bool>>> NpcTalk = new();
     /// <summary>A connection's chat commands are made: a module adds to them.</summary>
     public static readonly GameEvent<Func<ChatCommands, string, NetworkStream, ConnectionCiphers, ClientState, ChatCommands>> CommandsBuilding = new();
+    /// <summary>The campaign driver's /state is made (Agents/docs/dev/campaign-automation.md): a module adds the fields of
+    /// what it runs (the Pantheon's "pantheon").</summary>
+    public static readonly GameEvent<Action<ClientState, System.Text.Json.Nodes.JsonObject>> StateBuilding = new();
     public static readonly GameEvent<Func<ClientState, Dictionary<uint, int>, Dictionary<uint, int>>> PlayerStatSources = new();
     public static readonly GameEvent<Func<ClientState, IReadOnlyDictionary<uint, int>, SpawnedMonster, DamagePacket, DamagePacket>> OutgoingDamage = new();
     /// <summary>A click on an object; true when it was this module's.</summary>
@@ -80,6 +83,11 @@ static class GameEvents
         // With no connection, for the list tools read: every module's commands.
         foreach (var run in conn is null ? CommandsBuilding.All : CommandsBuilding.For(conn)) commands = run(commands, remote, stream, ciphers, conn!);
         return commands;
+    }
+
+    public static void RunStateBuilding(ClientState conn, System.Text.Json.Nodes.JsonObject state)
+    {
+        foreach (var run in StateBuilding.For(conn)) run(conn, state);
     }
 
     public static async Task RunKill(KillContext kill)

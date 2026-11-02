@@ -43,16 +43,26 @@ sealed class AnimationContacts(string folder = "data")
 
     /// <summary>When in a spell cast its projectile leaves, as a fraction of the cast: the class's spell_projectile
     /// animation (wand, unarmed, then any), else any spell animation's contact.</summary>
-    public double SpellRelease(string animatedObject)
+    public double SpellRelease(string animatedObject) =>
+        SpellContact(animatedObject, ["spell_projectile_wand", "spell_projectile_unarmed"], ["spell_projectile", "spell_"])
+        ?? DefaultSpellRelease;
+
+    /// <summary>When an area spell (Ice Nova: the class ACT's SpellAreaOfEffect* animations) lands, as a fraction of the
+    /// cast: the class's spell_aoe clip (spellaoe in the newer rigs; Witch 266 of 766 ms), else the projectile release.</summary>
+    public double SpellAreaRelease(string animatedObject) =>
+        SpellContact(animatedObject, ["spell_aoe_wand", "spellaoe_wand", "spell_aoe_unarmed", "spellaoe_unarmed"],
+            ["spell_aoe", "spellaoe"]) ?? SpellRelease(animatedObject);
+
+    double? SpellContact(string animatedObject, string[] names, string[] prefixes)
     {
-        if (!_byAo.Value.TryGetValue(animatedObject, out var actor)) return DefaultSpellRelease;
+        if (!_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
         var anims = actor.Clips;
-        foreach (string name in (string[])["spell_projectile_wand", "spell_projectile_unarmed"])
+        foreach (string name in names)
             if (anims.TryGetValue(name, out var a) && a.Length > 0) return (double)a.Contact / a.Length;
-        foreach (string prefix in (string[])["spell_projectile", "spell_"])
+        foreach (string prefix in prefixes)
             foreach (var (name, a) in anims.OrderBy(kv => kv.Key, StringComparer.Ordinal))
                 if (name.StartsWith(prefix, StringComparison.Ordinal) && a.Length > 0) return (double)a.Contact / a.Length;
-        return DefaultSpellRelease;
+        return null;
     }
 
     /// <summary>When a melee attack's weapon visually hits (the attack1 animation's contact keyframe), as a fraction of the

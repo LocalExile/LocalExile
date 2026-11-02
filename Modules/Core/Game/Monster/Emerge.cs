@@ -17,9 +17,9 @@ static partial class Game
     }
 
     // Every 250 ms: the monsters waiting near the player, and lurking ones that were hit, rise (MonsterEmerge.RiseLocked).
-    // For each, S→C 0x1ab starts its Emerge basic action in place (the .act's Emerge clip plays from the paused first
-    // frame), 0x2ba steps its Transitionable to the transitioned state (on_transition: EnableTargetable), and when the clip
-    // has played (game time) 0x1ac ends the action; meanwhile it is busy, so the AI only chases and attacks after it.
+    // For each, S→C 0x1ab gives it its Emerge basic action in place, 0x2ba steps its Transitionable to the transitioned
+    // state (on_transition: EnableTargetable), and 0x1ac at once lets the action play: the .act's Emerge clip, from the
+    // paused first frame. Meanwhile it is busy (RiseLocked: the clip's length), so the AI only chases and attacks after it.
     // Rising does not wait for the AI (/ai off still lets a /spawn_mob emerge monster rise next to the player); it waits
     // while the game is paused or the player is dead.
     internal static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -61,13 +61,12 @@ static partial class Game
             await Send(remote, stream, ciphers, messages[0],
                 $"0x01ab monster 0x{id:x} ({m.Label}) emerges at ({at.X}, {at.Y}): Emerge action 0x{skill:x4}, {seconds:0.00} s");
             await Send(remote, stream, ciphers, messages[1], $"0x02ba monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
-            // The clip's length in game time, like BusyUntil: a pause stops it.
-            double end = conn.Clock.Elapsed.TotalSeconds + seconds;
-            while (!conn.Closed && conn.Clock.Elapsed.TotalSeconds < end) await Task.Delay(50);
-            // Not for a monster that died or was removed (/despawn) meanwhile.
+            // A server action on a monster waits in the Actor's pending slot (+0x1b8) until 0x1ac sets its go flag
+            // (0x141e94720, retried every 0.25 s); only then does it move to +0x1b0 and play. Sent at the end of the clip,
+            // the monster lay still for one clip and rose for another, and took Moves only at twice the clip (live
+            // 2026-11-01, 5 of 5 rises).
             bool Still() { lock (conn.Monsters) return !conn.Closed && !m.Dead && conn.Monsters.GetValueOrDefault(id) == m; }
-            if (!Still()) return;
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), $"0x01ac monster 0x{id:x} ({m.Label}) emerge action ended",
+            await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), $"0x01ac monster 0x{id:x} ({m.Label}) emerge action plays",
                 still: Still);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)

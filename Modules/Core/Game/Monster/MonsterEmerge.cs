@@ -26,8 +26,8 @@ enum EmergeKind
 /// script (BossFights), not a proximity rise.
 /// They are created in state 1; when the player comes within <see cref="Range"/> cells (or their aggro range, if
 /// shorter), or a lurking one is hit, they rise: the Emerge action (S→C 0x1ab, the .act's Emerge clip), then
-/// Transitionable → 2 (0x2ba; on_transition runs EnableTargetable), then 0x1ac when the clip has played; until then they
-/// are busy, so the AI neither moves them nor attacks with them. Data: object-types.json (<c>basic_actions</c>,
+/// Transitionable → 2 (0x2ba; on_transition runs EnableTargetable), then 0x1ac, which lets the clip play; until it has
+/// played they are busy, so the AI neither moves them nor attacks with them. Data: object-types.json (<c>basic_actions</c>,
 /// <c>client_transitionable</c>, <c>client_targetable</c>: scripts/re/ot_components.py), monster-takehit.json
 /// (<c>emerge</c>: the clip's length, scripts/re/monster_takehit.py), ActionTypes.json.
 /// </summary>
@@ -74,7 +74,7 @@ sealed class MonsterEmerge(string folder = "data")
         _clips.Value.TryGetValue(v.Id, out double s) && s > 0 ? s : DefaultSeconds;
 
     /// <summary>The rise's first two messages, in order: the Emerge action in place (0x1ab, not predicted) and the
-    /// Transitionable step (0x2ba). <see cref="InstanceProtocol.ActionEnded"/> (0x1ac) follows when the clip has played.</summary>
+    /// Transitionable step (0x2ba). <see cref="InstanceProtocol.ActionEnded"/> (0x1ac) follows at once: it starts the clip.</summary>
     public static byte[][] RiseMessages(uint id, (int X, int Y) at, ushort skill, byte transitionableIndex, byte state) =>
     [
         InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, skill, 0xffff, 0x0408),
@@ -154,7 +154,7 @@ sealed class MonsterEmerge(string folder = "data")
         {
             m.Aggro = true;
             m.LastTarget = null;
-            // A little past the clip, so the action's end (0x1ac) goes out before the AI's first order.
+            // A little past the clip, so the client has finished the action before the AI's first order.
             m.BusyUntil = now + seconds + 0.3;
         }
         watching = g.Watching = g.Monsters.Count + g.Lurking.Count > 0;

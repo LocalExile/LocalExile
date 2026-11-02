@@ -1544,6 +1544,13 @@ the target open, so the recorder's write of the fourth object threw and left the
   match by tile hash. 1_2_15 at 3 of 5 seeds (985067295, 493643698, 474438120): first difference at the client's
   `n(2137)` from `0x14211532d` (the port draws `n(1)`), before the area unique rooms, with a shrine feature.
   1_2_14_2 496072668: the client's `n(1)` from `0x142031e88` (the port `n(100)`), in the dungeon layout.
+- **Area level (2026-11-01):** the client generates at the 0x1d area level (an opened map's tier level), and the level
+  changes the topology pick: MapWorldsChateau 1174023763 is `chateau_1.dgr` at its WorldAreas level 71 (tile hash
+  2796439874) and `chateau_2.dgr` at 83 (3728131682, the client's trace; every tile, room and checked draw matches).
+  At 83 the port also fails where the client failed (1586962864 at room (5, 7); 1478278079, which ended the client)
+  and generates 693566620, which it failed at 71. The Gateway generated maps at the WorldAreas level until then;
+  `ServerLevels` keys its levels by (area, seed, area level) and keeps the level each (area, seed) is played at.
+  `levelgen generate` takes the level from the trace (1 without one).
 - **Heights:** `lg.ps1 heights <area> <seed>` compares the port's cell heights with `<area>_seed<seed>.heights.bin`,
   by tile.
 - **Client failures (2026-10-27):** the gate also runs every (area, seed) the client failed to generate (the

@@ -5,6 +5,10 @@ using GameServer.Core.World;
 sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePacket EnergyShield)
 {
     public bool Attack { get; init; }
+    // Life, Mana and Energy Shield gained per enemy hit, instantly: "Gain X Life per Enemy Hit with Attacks" and a
+    // weapon's local "Grants X Life per Enemy Hit". Every 3.29 source is an attack's (PoB SkillStatMap maps
+    // base_life_gain_per_target to LifeOnHit for attacks; the mana and energy shield mods say "with Attacks").
+    public (int Life, int Mana, int EnergyShield) GainOnHit { get; init; }
     public static LeechSources From(Func<string, int> get, bool attack, Func<string, int>? local = null)
     {
         DamagePacket Pool(string pool)
@@ -36,7 +40,13 @@ sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePacket En
             }
             return result;
         }
-        return new(Pool("life"), Pool("mana"), Pool("energy_shield")) { Attack = attack };
+        int Local(string name) => local?.Invoke(name) ?? 0;
+        var gain = attack ? (Math.Max(0, get("base_life_gain_per_target") + Local("local_life_gain_per_target")
+                + Local("local_life_and_mana_gain_per_target")),
+            Math.Max(0, get("mana_gain_per_target") + Local("local_mana_gain_per_target")
+                + Local("local_life_and_mana_gain_per_target")),
+            Math.Max(0, get("energy_shield_gain_per_target"))) : default;
+        return new(Pool("life"), Pool("mana"), Pool("energy_shield")) { Attack = attack, GainOnHit = gain };
     }
 
     // Preserve the existing whole direct-hit total while retaining its post-mitigation type proportions.

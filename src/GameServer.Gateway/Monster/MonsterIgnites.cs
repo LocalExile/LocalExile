@@ -18,12 +18,12 @@ sealed class MonsterIgnites
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
         /// <summary><paramref name="rows"/>: a context's ailment rows (per minute); <paramref name="get"/>: the merged
-        /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); never_ignite and
-        /// never_damaging_ailments stop it. faster_burn_% and damaging_ailments_deal_damage_+%_faster multiply the damage
+        /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); the ignite
+        /// prohibitions (<see cref="MonsterElementalAilments.CannotInflict"/>) and never_damaging_ailments stop it. faster_burn_% and damaging_ailments_deal_damage_+%_faster multiply the damage
         /// per second and divide the duration (wiki Ignite; PoB IgniteBurnFaster).</summary>
         public static Settings From(IEnumerable<(string Stat, int Value)> rows, string hand, Func<string, int> get)
         {
-            if (get("never_ignite") != 0 || get("never_damaging_ailments") != 0) return None;
+            if (MonsterElementalAilments.CannotInflict("ignite", get) || get("never_damaging_ailments") != 0) return None;
             var r = rows.ToDictionary(x => x.Stat, x => x.Value);
             double faster = Faster(get);
             if (faster <= 0) return None;
@@ -106,5 +106,10 @@ sealed class MonsterIgnites
         return whole;
     }
 
-    public void Clear() { active.Clear(); carry = 0; }
+    /// <summary>Ends a dead monster's ignites. <paramref name="burnt"/>: its ignite killed it, so it died ignited even if
+    /// that ignite ran out in the same advance.</summary>
+    public void Clear(bool burnt = false) { DiedBurning |= burnt || Burning; active.Clear(); carry = 0; }
+
+    /// <summary>It was ignited when it died (its ignites were cleared): the kill was of an ignited enemy.</summary>
+    public bool DiedBurning { get; private set; }
 }

@@ -15,6 +15,11 @@
     .venv/Scripts/python.exe scripts/dev/client_control.py passive:refund 202
     echo '{"command":"waypoint:travel","area":"0x7ad2"}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
     .venv/Scripts/python.exe scripts/dev/client_control.py game:frames
+    .venv/Scripts/python.exe scripts/dev/client_control.py character:delete CampaignWitch
+    .venv/Scripts/python.exe scripts/dev/client_control.py waypoint:travel 1_1_town
+    .venv/Scripts/python.exe scripts/dev/client_control.py area:wait 1_1_2
+    .venv/Scripts/python.exe scripts/dev/client_control.py item:pickup 1027
+    echo '{"command":"character:create","name":"CampaignWitch","class":"Witch"}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
     echo '{"command":"inventory:pickup","inventoryId":1,"id":1027}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
 
 Use --stdio for persistent JSON-lines RPC (one request/result per line). Each request is
@@ -241,6 +246,36 @@ def chat_packet(text):
     return list(packet)
 
 
+def stash_deposit_packet(request):
+    """C->S 0xe0 (20 bytes, 18-stash.md §5): Ctrl + click on an inventory item while the stash is open: u16 tab, u32 item
+    id, u8 flags (0), u8 kind (0: the personal stash), u16 token, u64 0. The server puts it in the tab's first free cell."""
+    item, tab = request.get("id"), request.get("tab", 0)
+    for name, value, top in (("id", item, 0xffffffff), ("tab", tab, 0xffff)):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= top or (name == "id" and value == 0):
+            raise ValueError(f"stash:deposit needs an integer {name}")
+    return list(struct.pack(">HHIBBHQ", 0xe0, tab, item, 0, 0, 0, 0))
+
+
+def use_item_packet(request):
+    """C->S 0x58 (10 bytes, 13-items.md): use an item that needs no target (a right-click: a quest book, an Orb of
+    Regret), u32 inventory id (default 1, the main inventory) and u32 item id, both big-endian."""
+    inventory, item = request.get("inventoryId", 1), request.get("id")
+    for value in (inventory, item):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= 0xffffffff:
+            raise ValueError("item:use needs a positive uint32 item id (and inventoryId)")
+    return list(struct.pack(">HII", 0x58, inventory, item))
+
+
+def pantheon_packet(request):
+    """C->S 0x1ee (3 bytes, the Pantheon panel; the later acts' Pantheon steps): choose a Pantheon god, u8 =
+    PantheonPanelLayout row + 1 (the request names the 0-based `row`); the row's IsMajorGod says whether it is the major
+    or the minor god."""
+    row = request.get("row")
+    if isinstance(row, bool) or not isinstance(row, int) or not 0 <= row < 255:
+        raise ValueError("pantheon:select needs a PantheonPanelLayout row (0-254)")
+    return [0x01, 0xEE, row + 1]
+
+
 def flask_packet(request):
     """C→S 0x70 for a flask-bar cell, as the client sends it for a flask key: u32 big-endian cell, 0 for key 1 … 4
     for key 5 (Agents/docs/protocol/13-items.md §8). The request names the cell (`slot` 0-4) or the key (`key` 1-5)."""
@@ -253,6 +288,117 @@ def flask_packet(request):
     if not 0 <= slot <= 4:
         raise ValueError("flask slot must be 0-4 (key 1-5)")
     return list(struct.pack(">HI", 0x70, slot)), slot
+
+
+TABLES = ROOT / "data" / "tables"
+_tables = {}
+
+
+def table(name, folder=None):
+    """An extracted game-data table (data/tables/<name>.json), cached per folder."""
+    path = (folder or TABLES) / f"{name}.json"
+    if path not in _tables:
+        _tables[path] = json.loads(path.read_text(encoding="utf-8"))
+    return _tables[path]
+
+
+# S→C 0x13 / 0x0d results: BackendErrors rows + 1 (Agents/docs/protocol/01-login.md §7).
+CREATE_ERRORS = {21: "name taken", 22: "invalid name", 23: "name too short", 24: "name too long",
+                 25: "invalid class", 26: "no such league", 49: "no free character slot"}
+DELETE_ERRORS = {16: "character does not exist"}
+
+
+def character_name(name):
+    """The Auth rule (AccountService.ValidName(name, 3, 23)): 3..23 letters, digits, '_' or '-'."""
+    if not isinstance(name, str) or not 3 <= len(name.encode("utf-16-le")) // 2 <= 23:
+        raise ValueError("Character name must have 3..23 characters")
+    if not all(ch.isalpha() or ch.isdecimal() or ch in "_-" for ch in name):
+        raise ValueError("Character name may contain only letters, digits, '_' and '-'")
+    return name
+
+
+def start_state(request, folder=None):
+    """The CharacterStartStates Id for a create request: `startState` as given, or the default (set 0, level 1)
+    start state of the Characters row named `class` (Witch → IntDefault)."""
+    if ("class" in request) == ("startState" in request):
+        raise ValueError("character:create needs exactly one of class or startState")
+    states = table("CharacterStartStates", folder)
+    if "startState" in request:
+        value = request["startState"]
+        if not isinstance(value, str) or not any(row["Id"] == value for row in states):
+            raise ValueError(f"Unknown CharacterStartStates Id: {value!r}")
+        return value
+    name = request["class"]
+    classes = table("Characters", folder)
+    index = next((i for i, row in enumerate(classes)
+                  if isinstance(name, str) and row["Name"].lower() == name.lower()), None)
+    if index is None:
+        raise ValueError(f"Unknown class {name!r}; expected one of {', '.join(row['Name'] for row in classes)}")
+    for row in states:
+        if row["CharactersKey"] == index and row["CharacterStartStateSetKey"] == 0 and row["Level"] == 1:
+            return row["Id"]
+    raise ValueError(f"No default start state for class {name!r}")
+
+
+def create_fields(request, folder=None):
+    """Validated (name, league, start state) of a character:create request."""
+    league = request.get("league", "Standard")
+    if not isinstance(league, str) or not 1 <= len(league) <= 64 or "\0" in league:
+        raise ValueError("league must contain 1..64 characters")
+    return character_name(request.get("name")), league, start_state(request, folder)
+
+
+def area_row(request, folder=None):
+    """(WorldAreas Id or None, HASH16) for a request naming the area Id (`area`) or its HASH16 (`hash`)."""
+    if ("area" in request) == ("hash" in request):
+        raise ValueError("waypoint:travel needs exactly one of area (WorldAreas Id) or hash")
+    if "hash" in request:
+        value = request["hash"]
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= 0xffff:
+            raise ValueError("hash must be a WorldAreas HASH16 (1..65535)")
+        try:
+            area = next((row["Id"] for row in table("WorldAreas", folder) if row["HASH16"] == value), None)
+        except OSError:
+            area = None
+        return area, value
+    area = request["area"]
+    rows = table("WorldAreas", folder) if isinstance(area, str) else []
+    row = next((row for row in rows if row["Id"] == area), None)
+    if row is None:
+        raise ValueError(f"Unknown WorldAreas Id: {area!r}")
+    return area, row["HASH16"]
+
+
+def travel_packet(hash16):
+    """C→S 0x4d, the World panel's pin click (16-waypoints.md §3): u16 HASH16, u32 0x2f00 (panel +0x524, live),
+    u8 Ctrl (0: travel, not the instance list)."""
+    return list(struct.pack(">HHIB", 0x4d, hash16, 0x2f00, 0))
+
+
+def interact_packet(target, skill=0x266):
+    """C→S 0x24 on an object with flags 0x408: skill 0x266 is the default left-click interaction (a ground item goes to
+    the first free main-inventory cell); another skill id uses that skill on the target."""
+    if isinstance(target, bool) or not isinstance(target, int) or not 0 < target <= 0xffffffff:
+        raise ValueError("Object id must be a positive uint32")
+    return list(struct.pack(">HIHHH", 0x24, target, skill, 0, 0x408))
+
+
+def in_area(status):
+    return status.get("screen") == "game" and status.get("instanceState") == 3
+
+
+def arrived(status, area, before, left):
+    """Whether an area:wait is done: in an area and, when the area is readable, the requested one. With `before`
+    (the status before the travel) the area must also have changed: the instance left state 3 meanwhile or the area
+    Id differs; without an area to compare, only that change counts."""
+    if not in_area(status):
+        return False
+    current = status.get("area")
+    previous = before.get("area") if before else None
+    changed = left or (current is not None and previous is not None and current != previous)
+    if area is not None and current is not None:
+        return current == area and (before is None or changed)
+    return changed
 
 
 GATEWAY_LOG = ROOT / "logs" / "live-gateway.log"
@@ -412,6 +558,68 @@ class ClientControl:
                 raise TimeoutError(f"Timed out waiting for {description}; inspect game:status and server logs")
             time.sleep(0.05)
 
+    def characters(self):
+        return self.rpc("characters")["characters"]
+
+    def area_wait(self, area=None, before=None, timeout=60):
+        """Poll until `arrived` (see there); `left` records the instance leaving state 3 during the wait."""
+        deadline, left = time.monotonic() + timeout, False
+        while True:
+            value = self.status()
+            left = left or not in_area(value)
+            if arrived(value, area, before, left):
+                return value
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Timed out waiting for area {area or 'change'}; "
+                                   "inspect game:status and server logs")
+            time.sleep(0.05)
+
+    def create(self, request):
+        name, league, state = create_fields(request)
+        if self.status().get("screen") != "characters":
+            raise RuntimeError("character:create requires the character selection screen")
+        if any(c["name"].lower() == name.lower() for c in self.characters()):
+            raise RuntimeError(f"Character {name} is already in the client list")
+        self.rpc("create", name=name, league=league, startState=state)
+        # Auth sends the new 0x15 list before 0x13 result 0; a rejection is 0x13 alone.
+        deadline = time.monotonic() + float(request.get("timeout", 15))
+        while True:
+            result = self.status().get("lastCreateResult")
+            if result not in (None, 0):
+                reason = CREATE_ERRORS.get(result, "unknown")
+                raise RuntimeError(f"Character creation rejected (result {result}: {reason})")
+            created = next((c for c in self.characters() if c["name"] == name), None)
+            if created is not None:
+                return {"character": created, "startState": state, "result": result}
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Timed out waiting for the new character in the client list; inspect the Auth log")
+            time.sleep(0.05)
+
+    def delete(self, request):
+        name = request.get("name")
+        if not isinstance(name, str) or not 1 <= len(name) <= 64:
+            raise ValueError("name is required")
+        if self.status().get("screen") != "characters":
+            raise RuntimeError("character:delete requires the character selection screen")
+        # Auth matches the name case-insensitively; send the listed spelling and wait for it to go.
+        entry = next((c for c in self.characters() if c["name"].lower() == name.lower()), None)
+        if entry is None:
+            if request.get("missingOk"):
+                return {"deleted": False, "name": name}
+            raise RuntimeError(f"Character {name} is not in the client list")
+        self.rpc("delete", name=entry["name"])
+        deadline = time.monotonic() + float(request.get("timeout", 15))
+        while True:
+            result = self.status().get("lastDeleteResult")
+            if result not in (None, 0):
+                reason = DELETE_ERRORS.get(result, "unknown")
+                raise RuntimeError(f"Character deletion rejected (result {result}: {reason})")
+            if all(c["name"] != entry["name"] for c in self.characters()):
+                return {"deleted": True, "character": entry, "result": result}
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Timed out waiting for the character to leave the client list; inspect the Auth log")
+            time.sleep(0.05)
+
     def ready(self, timeout=60):
         deadline=time.monotonic()+timeout
         while True:
@@ -515,6 +723,10 @@ class ClientControl:
             self.rpc("play", name=name)
             return self.wait(lambda s: s.get("screen") == "game" and s.get("instanceState") == 3
                              and s.get("character") == name, "character entering the area", timeout=45)
+        if command == "character:create":
+            return self.create(request)
+        if command == "character:delete":
+            return self.delete(request)
         if command == "character:select":
             self.rpc("select")
             return self.wait(lambda s: s.get("screen") == "characters", "character selection")
@@ -545,7 +757,35 @@ class ClientControl:
             skill = int(request.get("skill", 0x266))
             if not 0 < skill <= 0xffff:
                 raise ValueError("Skill id must be a positive uint16")
-            return self.rpc("interaction", bytes=list(struct.pack(">HIHHH",0x24,target,skill,0,0x408)))
+            return self.rpc("interaction", bytes=interact_packet(target, skill))
+        if command == "item:pickup":
+            return {**self.rpc("interaction", bytes=interact_packet(request.get("id"))), "id": request["id"]}
+        if command == "waypoint:travel":
+            # The destination as a WorldAreas Id ("1_1_town", or `hash`) or as its HASH16 (an int or "0x7ad2"); `wait`
+            # returns once the new area is entered (area:wait).
+            value = request.get("area")
+            if "hash" in request or (isinstance(value, str) and not re.fullmatch(r"0[xX][0-9a-fA-F]+|\d+", value.strip())):
+                area, hash16 = area_row(request)
+                packet, reply = travel_packet(hash16), {"area": area, "hash": hash16}
+            else:
+                packet, hash16 = waypoint_packet(request)
+                area, reply = None, {"area": hash16}
+            before = self.status() if request.get("wait") else None
+            result = {**self.rpc("interaction", bytes=packet), **reply}
+            if request.get("wait"):
+                result["status"] = self.area_wait(area, before, float(request.get("timeout", 60)))
+            return result
+        if command == "area:wait":
+            area, before = request.get("area"), request.get("from")
+            if area is not None:
+                area = area_row({"area": area})[0]
+            if isinstance(before, dict) and isinstance(before.get("result"), dict):
+                before = before["result"]  # a whole {"ok":…, "result": status} line
+            if before is not None and not isinstance(before, dict):
+                raise ValueError("from must be a previous status object")
+            if area is None and before is None:
+                raise ValueError("area:wait needs area (WorldAreas Id) and/or from (a previous status)")
+            return self.area_wait(area, before, float(request.get("timeout", 60)))
         if command == "move":
             x,y=int(request["x"]),int(request["y"])
             if not 0<=x<=0x7fffffff or not 0<=y<=0x7fffffff:
@@ -569,9 +809,12 @@ class ClientControl:
         if command == "inventory:place":
             inventory, x, y = int(request["inventoryId"]), int(request.get("x",0)), int(request.get("y",0))
             return self.rpc("interaction",bytes=list(struct.pack(">HIIIBBBB",0x2a,inventory,x,y,0,3,0,0)))
-        if command == "waypoint:travel":
-            packet, area = waypoint_packet(request)
-            return {**self.rpc("interaction", bytes=packet), "area": area}
+        if command == "stash:deposit":
+            return {**self.rpc("interaction", bytes=stash_deposit_packet(request)), "id": request["id"]}
+        if command == "item:use":
+            return {**self.rpc("interaction", bytes=use_item_packet(request)), "id": request["id"]}
+        if command == "pantheon:select":
+            return {**self.rpc("interaction", bytes=pantheon_packet(request)), "row": request["row"]}
         if command == "game:frames":
             # Main-loop frames since the bridge attached and the rate since the previous call (client-control.js).
             self.attach()
@@ -639,6 +882,15 @@ def main():
             request["password"] = sys.stdin.readline().rstrip("\r\n") if options.password_stdin else getpass.getpass("Local password: ")
         if request["command"] in ("passive:allocate", "passive:refund") and options.text is not None:
             request["node"] = int(request.pop("text"))
+        if request["command"] == "character:delete" and options.text is not None:
+            request["name"] = request.pop("text")
+        if request["command"] in ("waypoint:travel", "area:wait") and options.text is not None:
+            request["area"] = request.pop("text")
+            request.setdefault("wait", True)
+        if request["command"] == "pantheon:select" and options.text is not None:
+            request["row"] = int(request.pop("text"))
+        if request["command"] in ("item:pickup", "item:use") and options.text is not None:
+            request["id"] = int(request.pop("text"), 0)
         result = run_request(control, request)
         print(json.dumps(result, ensure_ascii=True), flush=True)
         return 0 if result["ok"] else 1

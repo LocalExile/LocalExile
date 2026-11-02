@@ -59,12 +59,23 @@ static class Charges
     /// one of the special type (pinned PoB CalcPerform: the special count takes the standard count, which becomes 0), with
     /// the special type's effects and HUD buff instead of the standard ones; the held state, limits and gains are the
     /// standard type's.</summary>
-    public static string ConversionFlag(ChargeType type) => $"gain_{SpecialName(type)}_charges_instead_of_{Name(type)}_charges";
+    public static string ConversionFlag(ChargeType type) => ConversionFlags[Index(type)];
+
+    // The per-type stat names, built once: every stat snapshot asks for them (Agents/docs/dev/character-stat-lifecycle.md).
+    static readonly string[] ConversionFlags = [.. Types.Select(t => $"gain_{SpecialName(t)}_charges_instead_of_{Name(t)}_charges")];
+    static readonly string[] MinimumConversionFlags =
+        [.. Types.Select(t => $"modifiers_to_minimum_{Name(t)}_charges_instead_apply_to_{SpecialName(t)}_charges")];
+    static readonly string[] VirtualMaximums = [.. Types.Select(t => $"virtual_maximum_{Name(t)}_charges")];
+    static readonly string[] BaseMinimums = [.. Types.Select(t => $"base_minimum_{Name(t)}_charges")];
+
+    // Types[i] is the ChargeType i; anything else throws as Name does.
+    static int Index(ChargeType type) => type is ChargeType.Endurance or ChargeType.Frenzy or ChargeType.Power
+        ? (int)type : throw new ArgumentOutOfRangeException(nameof(type));
 
     /// <summary>"Modifiers to Minimum Endurance Charges instead apply to Brutal Charges":
     /// <c>modifiers_to_minimum_endurance_charges_instead_apply_to_brutal_charges</c> and the other two. The minimum then
     /// shows on the special type's row.</summary>
-    public static string MinimumConversionFlag(ChargeType type) => $"modifiers_to_minimum_{Name(type)}_charges_instead_apply_to_{SpecialName(type)}_charges";
+    public static string MinimumConversionFlag(ChargeType type) => MinimumConversionFlags[Index(type)];
 
     /// <summary>Whether the type's charges are the special type's now (<paramref name="get"/>: the character's stats).</summary>
     public static bool Converted(ChargeType type, Func<string, int> get) => get(ConversionFlag(type)) != 0;
@@ -89,9 +100,9 @@ static class Charges
     /// </summary>
     public static Limits LimitsOf(ChargeType type, Func<string, int> get, int held = 0)
     {
-        string name = Name(type);
-        int maximum = ChargePanelStats.Compute(get).First(r => r.Stat == $"virtual_maximum_{name}_charges").Value;
-        int minimum = Math.Clamp(get($"base_minimum_{name}_charges") + get("minimum_frenzy_power_endurance_charges"), 0, maximum);
+        string virtualMaximum = VirtualMaximums[Index(type)];
+        int maximum = ChargePanelStats.Compute(get).First(r => r.Stat == virtualMaximum).Value;
+        int minimum = Math.Clamp(get(BaseMinimums[Index(type)]) + get("minimum_frenzy_power_endurance_charges"), 0, maximum);
         int increased = get("charge_duration_+%") + get("base_charge_duration_+%") + type switch
         {
             ChargeType.Endurance => get("endurance_charge_duration_+%"),

@@ -16,6 +16,23 @@ public static class ProjectileGeometry
         return t is >= 0 and <= 1 ? t : null;
     }
 
+    /// <summary>Entry time into a swept relative square of half-width <paramref name="half"/>, including overlap and edges.</summary>
+    public static double? SquareContact(ProjectileVector from, ProjectileVector to, double half)
+    {
+        double enter = 0, exit = 1;
+        return Slab(from.X, to.X) && Slab(from.Y, to.Y) ? enter : null;
+
+        bool Slab(double a, double b)
+        {
+            double d = b - a;
+            if (d == 0) return Math.Abs(a) <= half;
+            double t0 = (-half - a) / d, t1 = (half - a) / d;
+            if (t0 > t1) (t0, t1) = (t1, t0);
+            enter = Math.Max(enter, t0); exit = Math.Min(exit, t1);
+            return enter <= exit;
+        }
+    }
+
     /// <summary>Supercover grid traversal. Cells are centered on integer coordinates.</summary>
     public static TerrainContact? TraceGrid(ProjectileVector from, ProjectileVector to, Func<int, int, bool> blocked)
     {

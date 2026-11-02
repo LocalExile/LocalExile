@@ -18,6 +18,11 @@ const specs = {
   assignText: ['0x1401346d0', '48895c241048896c2418565741574883'],
   lifeTick: ['0x141e6a190', '40534883ec3083b9a801000000488bd9'],
   poolUpdate: ['0x141e69fb0', '405341574883ec288b42204c8bfa448b'],
+  // C->S 0x12 sender (login, name view, league view, unused r9, password view, start-state view); called by the
+  // create screen's 0x140cf5ef0 after it pushes state 11. Needs only the login object and its socket +0xdd0.
+  createCharacter: ['0x142140490', '48895c240848897c241044894c242055'],
+  // C->S 0x0c class 0x1435bfcd8 vtable slot 1 (message, socket): u16 id (+8), wstr (+0x10), u8 (+0x30); no flush.
+  deleteWriter: ['0x141f950c0', '48895c2410574883ec20488bf9488bda'],
   // The client's own instance send: guards the socket offsets lockedWrite copies from it (+0x240, +0x242, +0x248).
   instanceSend: ['0x14216e940', '48895c241048896c2418488974242057'],
 };
@@ -39,6 +44,8 @@ const flush = native('flush', ['pointer', 'uint32', 'uint8']);
 const logout = native('logout', ['pointer']);
 const push = native('push', ['pointer', 'pointer']);
 const assignText = native('assignText', ['pointer', 'pointer', 'uint64'], 'pointer');
+const createCharacter = native('createCharacter', ['pointer', 'pointer', 'pointer', 'uint32', 'pointer', 'pointer']);
+const deleteWriter = native('deleteWriter', ['pointer', 'pointer']);
 const kernel32 = Process.getModuleByName('kernel32.dll');
 const acquireLock = new NativeFunction(kernel32.getExportByName('AcquireSRWLockExclusive'), 'void', ['pointer']);
 const releaseLock = new NativeFunction(kernel32.getExportByName('ReleaseSRWLockExclusive'), 'void', ['pointer']);
@@ -58,7 +65,10 @@ const stack = () => at('0x1445cbe40').readPointer();
 const loginObject = () => app().add(0x358).readPointer();
 const instance = () => app().add(0x348).readPointer();
 rpc.exports.identity = () => ({pid: Process.id, path: module.path, build: '3.29.3b'});
-let lastLoginResult = null;
+let lastLoginResult = null, lastCreateResult = null, lastDeleteResult = null;
+// The bridge's own create is waiting for its 0x13 result (createSent), then for the Play its successful create needs
+// (createdAwaitingPlay): only that loading state is the one after a create.
+let createSent = false, createdAwaitingPlay = false;
 let credentials = null, loginSubmitted = false;
 let life = null, resourceProbe = false;
 const resourceUpdates = [];
@@ -98,6 +108,34 @@ function string(s, wide, keep) {
   header.add(0x18).writeU64(Math.max(length, wide ? 8 : 16));
   keep.push(header, data); return header;
 }
+function view(s, keep) {
+  // The {wchar_t *data, u64 length} view the login senders take (as Play's name argument).
+  const data = Memory.allocUtf16String(s), v = Memory.alloc(16);
+  v.writePointer(data); v.add(8).writeU64(s.length); keep.push(data, v); return v;
+}
+function loginText(value, what) {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 64 || value.includes('\0'))
+    throw new Error(`Invalid ${what}`);
+  return value;
+}
+function loginSocket() {
+  const socket = loginObject().add(0xdd0).readPointer();
+  if (socket.isNull()) throw new Error('Login connection has no socket');
+  return socket;
+}
+// The current area's WorldAreas row is the world object's +0xb0 (world = instance +0xc278). Static evidence:
+// the map overlay 0x1406b2030 loads [[ui+0x328]+0xc278]+0xb0, shows its +0x8 (Name) as the area title and tests
+// +0x14 (IsTown) and +0x1e4 (__col51); the delve gauge 0x1404301f0 tests the same row's +0x1e4 == 27. A WorldAreas row
+// starts with the Id string pointer (+0x0) and has HASH16 at +0x2a (schema; 16-waypoints s.3 pin row +0x2a).
+function currentArea(i) {
+  try {
+    const world = i.add(0xc278).readPointer();
+    const row = world.isNull() ? world : world.add(0xb0).readPointer();
+    if (row.isNull()) return {area: null, areaHash: null};
+    const id = row.readPointer(), area = id.isNull() ? null : id.readUtf16String();
+    return {area: area !== null && area.length <= 128 ? area : null, areaHash: row.add(0x2a).readU16()};
+  } catch (_) { return {area: null, areaHash: null}; }
+}
 function characters() {
   const l = loginObject();
   if (l.isNull() || l.add(0xde8).readU32() !== 3) throw new Error('Not logged in');
@@ -118,10 +156,13 @@ function status() {
   if (!Number.isInteger(count) || count < 0 || count > 32) throw new Error('Invalid state stack');
   const states = Array.from({length: count}, (_, n) => begin.add(n * 16).readPointer().add(0x209).readU8());
   const loginState = l.isNull() ? 0 : l.add(0xde8).readU32();
+  const instanceState = i.isNull() ? 0 : i.add(0xc3a0).readU32();
   return {pid: Process.id, build: '3.29.3b', states, screen: ({4:'game',6:'login',7:'login',9:'characters',11:'loading'})[states.at(-1)] || 'other',
-    loginState, instanceState: i.isNull() ? 0 : i.add(0xc3a0).readU32(),
+    loginState, instanceState,
     account: loginState === 3 ? text(l.add(0xe10)) : null,
-    character: i.isNull() || i.add(0xc3a0).readU32() !== 3 ? null : text(l.add(0xdf0)), lastLoginResult, loginSubmitted};
+    character: instanceState !== 3 ? null : text(l.add(0xdf0)),
+    ...(instanceState === 3 ? currentArea(i) : {area: null, areaHash: null}),
+    lastLoginResult, lastCreateResult, lastDeleteResult, loginSubmitted};
 }
 function state(id) {
   const sm = stack(), entry = sm.add(0x48 + id * 16);
@@ -166,7 +207,11 @@ function execute(request) {
       return {submitted: true};
     }
     case 'play': {
-      if (current.screen !== 'characters' || current.loginState !== 3) throw new Error('Play requires character selection');
+      // A successful create leaves the client on the loading state (11), waiting for the Play its create screen sends
+      // (01-login.md s.7): Play from there, without pushing the loading state again.
+      const afterCreate = createdAwaitingPlay && current.screen === 'loading' && current.loginState === 3
+        && current.instanceState === 0;
+      if ((current.screen !== 'characters' && !afterCreate) || current.loginState !== 3) throw new Error('Play requires character selection');
       const chosen = characters().find(c => c.name === request.name);
       if (!chosen) throw new Error('Character not found in the client list');
       const data = Memory.allocUtf16String(chosen.name), view = Memory.alloc(16);
@@ -174,8 +219,32 @@ function execute(request) {
       // The Play callback sets the class on state 4, but pushes state 11 (the loading state), not state 4.
       // Loading installs the instance-assignment listener before it enters the in-game state.
       stack().add(0x88).readPointer().add(0xa48).writeU32(chosen.classId);
-      play(loginObject(), view, chosen.index); state(11);
+      createdAwaitingPlay = false;
+      play(loginObject(), view, chosen.index); if (!afterCreate) state(11);
       return {submitted: true, character: chosen.name};
+    }
+    case 'create': {
+      // The client's own 0x12 sender, without the create screen's state 11 push: no auto-Play follows the result.
+      if (current.screen !== 'characters' || current.loginState !== 3)
+        throw new Error('Create requires character selection');
+      const name = loginText(request.name, 'character name'), league = loginText(request.league, 'league');
+      const startState = loginText(request.startState, 'start state');
+      loginSocket(); lastCreateResult = null; createdAwaitingPlay = false; createSent = true;
+      // Empty password view: the sender writes 32 zero bytes instead of the private league's SHA-256.
+      createCharacter(loginObject(), view(name, keep), view(league, keep), 0, view('', keep), view(startState, keep));
+      return {submitted: true};
+    }
+    case 'delete': {
+      // The delete screen's sender (0x140cfafa0) needs that screen; its message class writer does not.
+      if (current.screen !== 'characters' || current.loginState !== 3)
+        throw new Error('Delete requires character selection');
+      const name = loginText(request.name, 'character name'), socket = loginSocket();
+      const message = Memory.alloc(0x38); keep.push(message);
+      message.writePointer(at('0x1435bfcd8')); message.add(8).writeU16(0x0c);
+      Memory.copy(message.add(0x10), string(name, true, keep), 0x20); message.add(0x30).writeU8(0);
+      lastDeleteResult = null;
+      lockedWrite(socket, () => deleteWriter(message, socket)); flush(socket, 0x15180, 0);  // as the delete screen's sender flushes
+      return {submitted: true};
     }
     case 'select':
       if (current.screen === 'characters') return {alreadySelected: true};
@@ -183,6 +252,7 @@ function execute(request) {
       sendPacket([0x01,0x53], 'instance'); return {submitted: true};
     case 'logout':
       if (current.screen === 'game') throw new Error('Return to character selection before logging out');
+      createdAwaitingPlay = createSent = false;
       logout(stack().add(0xb8).readPointer()); return {submitted: true};
     case 'chat':
       if (current.screen !== 'game' || current.instanceState !== 3) throw new Error('Chat requires an active area');
@@ -191,7 +261,7 @@ function execute(request) {
     case 'interaction': {
       if (current.screen !== 'game' || current.instanceState !== 3) throw new Error('Interaction requires an active area');
       const b=request.bytes, id=Array.isArray(b) && b.length>=2 ? b[0]*256+b[1] : -1;
-      const lengths={0x24:12,0x25:16,0x28:13,0x2a:18,0x4d:9,0x70:6,0x82:3,0x85:2,0x88:15};
+      const lengths={0x24:12,0x25:16,0x28:13,0x2a:18,0x4d:9,0x58:10,0x70:6,0x82:3,0x85:2,0x88:15,0xe0:20,0x1ee:3};
       if (!lengths[id] || b.length!==lengths[id])
         throw new Error('Unsupported interaction message');
       sendPacket(b,'instance'); return {submitted:true};
@@ -212,7 +282,19 @@ Interceptor.attach(addresses.frame, function () {
   catch (e) { setImmediate(()=>work.reject(e)); }
 });
 Interceptor.attach(addresses.dispatch, {onEnter(args) {
-  try { const message = args[2].readPointer(); if (!message.isNull() && message.add(8).readU16() === 4) lastLoginResult = message.add(0x10).readU16(); } catch (_) {}
+  try {
+    const message = args[2].readPointer();
+    if (message.isNull()) return;
+    // 0x04 (as before) and 0x0d (class 0x1435bf7e8, reader 0x141f928d0) keep the u16 result at +0x10;
+    // 0x13's reader 0x14219b8d0 stores its u16 result at +0x12 and the tracking bool at +0x10.
+    const id = message.add(8).readU16();
+    if (id === 0x04) lastLoginResult = message.add(0x10).readU16();
+    else if (id === 0x13) {
+      lastCreateResult = message.add(0x12).readU16();
+      if (createSent) { createSent = false; createdAwaitingPlay = lastCreateResult === 0; }
+    }
+    else if (id === 0x0d) lastDeleteResult = message.add(0x10).readU16();
+  } catch (_) {}
 }});
 Interceptor.attach(addresses.loginWriter, {onEnter(args) {
   if (!credentials) return;

@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+
 namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
@@ -47,13 +49,29 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
 /// </summary>
 public static class InstanceMapDevice
 {
-    public const ushort ActivateId = 0x00d8, SelectMapId = 0x00e7;
-    public const int ActivateLength = 5, SelectMapLength = 5;
+    public const ushort ActivateId = 0x00d8, SelectMapId = 0x00e7, MoveId = 0x00e8, SocketId = 0x00f6;
+    public const int ActivateLength = 5, SelectMapLength = 5, MoveLength = 11, SocketLength = 8;
 
     public static (ushort Target, byte Index) ReadActivate(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);
 
     /// <summary>C→S 0x00e7: an Atlas map node picked in the hideout map device. u16 BE WorldAreas HASH16, u8 0x0d.</summary>
     public static (ushort Area, byte Mode) ReadSelectMap(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);
+
+    /// <summary>C→S 0xe8: Ctrl + click with the Atlas map device open (0x14030e3e0 → 0x142167da0 when the window's
+    /// +0x10b8 check passes and the item's inventory kind is 0 or 0x0c). Writer 0x141f98c30: u32 BE item id, u8 flags,
+    /// u8 into (1 from the main inventory onto Map1, 0 back out), u8, u8 row (13 Map1), u8.</summary>
+    public sealed record Move(uint ItemId, byte Flags, bool IntoDevice, byte Extra, byte Row);
+
+    public static Move ReadMove(ReadOnlySpan<byte> m) =>
+        new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6], m[7] != 0, m[8], m[9]);
+
+    /// <summary>C→S 0xf6: a Voidstone clicked into (or out of) an Atlas socket with the map device open
+    /// (0x1407c2e60 → 0x142168110). Writer 0x141f92b00: u32 BE item id, u8, u8 (both 0 on the live
+    /// inventory Ctrl + click). The item's own AtlasVoidstoneSlots row chooses the socket.</summary>
+    public sealed record Socket(uint ItemId, byte A, byte B);
+
+    public static Socket ReadSocket(ReadOnlySpan<byte> m) =>
+        new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6], m[7]);
 
     public const ushort PortalsId = 0x008f;
 

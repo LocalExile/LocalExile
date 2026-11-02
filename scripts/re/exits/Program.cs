@@ -1,14 +1,20 @@
 // usage (from the repository root): dotnet run --project scripts/re/exits -c Release -- [area regex] [--all] [--seeds N]
-//   [--seed S]… [--json out.json] [--quiet] [--notes] [--objects]
+//   [--seed S]… [--json out.json] [--quiet] [--notes] [--objects] [--quests]
 // The offline area transition audit (Agents/docs/protocol/08-area-transitions.md §8). For every campaign area (WorldAreas
 // ids "1_…" / "2_…" of acts 1–10 with a topology; --all: every area with one) that the Gateway generates itself
 // (ServerLevels, the gate baseline), at seed 1 and N further seeds (default 3, fixed per area), it generates the layout, asks AreaTransitionCatalog for the
-// exits exactly as the Gateway does when a player enters (captures off) and checks:
+// exits exactly as the Gateway does when a player enters (captures off; --quests: with the QuestObjects module's act
+// tables registered, as in a league that lists it, so the disabled exits a quest gates are created too) and checks:
 //   missing      a node of the layout names "entranceN" (enabled), its room holds a transition object at which no exit
 //                was created (by position), and no exit leads to Connections[N-1]
 //   misplaced    an exit leads there, but none sits in (or next to) the room of that node
 //   unexpected   an exit leads to an area no enabled "entranceN" of the layout names (and not within the area), and
-//                the model matching does not lead there either (info unnamed-exit: Delve's mine)
+//                the model matching does not lead there either (info unnamed-exit: Delve's mine; info gated: --quests, a
+//                disabled entrance a quest gates, its exit in that entrance's room; info quest-exit: --quests, an exit
+//                whose tile type a quest rule sends to its own version of an area, On.Exists(…, to:), and the twin it
+//                creates: The Control Blocks' way into the burnt Ruined Square)
+//   gated-duplicate / gated-misplaced  (--quests) more exits to a quest-gated disabled entrance's area than such
+//                entrances, or one not in (or next to) their rooms
 //   duplicate    more exits lead to an area than the layout's enabled entrances name it
 //   teleport     a node names "teleportN" (enabled) and no in-area exit there takes the player to the "telepadN" node
 //   unreachable  an exit (or teleport) the player cannot get to by walking and the layout's in-area exits, starting
@@ -36,7 +42,7 @@ string filter = ".";
 int extraSeeds = 3;
 var fixedSeeds = new List<uint>();
 string? jsonOut = null;
-bool quiet = false, all = false, showNotes = false, showObjects = false;
+bool quiet = false, all = false, showNotes = false, showObjects = false, quests = false;
 for (int i = 0; i < args.Length; i++)
     switch (args[i])
     {
@@ -47,11 +53,20 @@ for (int i = 0; i < args.Length; i++)
         case "--all": all = true; break;
         case "--notes": showNotes = true; break;
         case "--objects": showObjects = true; break;
+        case "--quests": quests = true; break;
         default: filter = args[i]; break;
     }
 
 if (!File.Exists("AGENTS.md") || !Directory.Exists("data/tables")) { Console.Error.WriteLine("run from the repository root (needs data/)"); return 2; }
 AreaTransitionCatalog.UseCaptures = false;
+// The act tables (Modules/Core/World/QuestObjects/Acts/, compiled into this tool: Exits.csproj), found as the module finds
+// them, in act order: a quest's gate makes the catalog create an exit the layout disables (AreaTransitionCatalog.Gated: The
+// Upper Sceptre of God's way to The Aqueduct).
+using var questTables = quests
+    ? Quests.Register("QuestObjects", System.Reflection.Assembly.GetExecutingAssembly().GetTypes()
+        .Where(t => t.IsSubclassOf(typeof(Quests.Act)) && !t.IsAbstract && t.GetConstructor(Type.EmptyTypes) is not null)
+        .Select(t => (Quests.Act)Activator.CreateInstance(t)!).OrderBy(a => a.Number))
+    : null;
 
 // WorldAreas: id, name, act, hash, topologies; connections (by index) from the atlas (the JSON column is broken).
 var areas = new List<(string Id, string Name, int Act, ushort Hash)>();
@@ -107,7 +122,8 @@ foreach (var area in areas)
         }
         checkedLoads++;
         var notes = new List<string>();
-        var exits = AreaTransitionCatalog.For(area.Hash, area.Id, seed, notes).Select(e => e.Transition).ToList();
+        // As a player whose league runs every registered table sees them: an exit a quest replaced is not there.
+        var exits = AreaTransitionCatalog.For(area.Hash, area.Id, seed, notes).Select(e => e.Transition).Where(t => !t.QuestReplaced).ToList();
         // The model matching over the same objects, for the comparison (lost / lost-gate).
         AreaTransitionCatalog.UseLayout = false;
         var matched = AreaTransitionCatalog.For(area.Hash, area.Id, seed, []).Select(e => e.Transition).ToList();
@@ -194,7 +210,23 @@ void Audit((string Id, string Name, int Act, ushort Hash) area, ServerLevels.Lev
     foreach (var g in exits.Where(e => e.TeleportTo is null).GroupBy(e => e.DestinationHash16))
     {
         if (g.Key == area.Hash) continue;
-        if (!expected.TryGetValue(g.Key, out int want) && matched.Any(m => m.DestinationHash16 == g.Key && m.TeleportTo is null))
+        // --quests: an entrance the layout disables that a quest gates is created on purpose (The Library's way into The
+        // Archives, the tower top's to The Aqueduct): one exit at most per such entrance, each in (or next to) its room.
+        var disabledTo = entrances.Where(e => !e.Enabled && conns.Any(c => c.Hash == g.Key && c.Index == e.N)).ToList();
+        if (!expected.ContainsKey(g.Key) && disabledTo.Count > 0 && Quests.FlagToEnter(area.Id, Name(g.Key)) is { } flag)
+        {
+            if (g.Count() > disabledTo.Count)
+                Problem("gated-duplicate", $"{g.Count()} exits to {Name(g.Key)} for {disabledTo.Count} disabled entrance(s) a quest gates: {string.Join(", ", g.Select(e => $"({e.GridX}, {e.GridY})"))}");
+            else if (g.FirstOrDefault(e => !disabledTo.Any(d => Near(d.Room, e.GridX, e.GridY))) is { } away)
+                Problem("gated-misplaced", $"exit to {Name(g.Key)} at ({away.GridX}, {away.GridY}), not in {string.Join(" or ", disabledTo.Select(d => Path.GetFileName(d.Room.Room.Path)))}");
+            else
+                Info("gated", $"{g.Count()} exit(s) to {Name(g.Key)} at a disabled entrance ({string.Join(", ", disabledTo.Select(d => Path.GetFileName(d.Room.Room.Path)))}), created because a quest gates it ({flag})");
+        }
+        // --quests: two exits of one tile record that swap by flag each lead to their own version of the area, and the
+        // twin the layout left out is created (AreaTransitionCatalog.QuestExitDestinations).
+        else if (!expected.ContainsKey(g.Key) && g.All(e => Quests.ExitTo(e.SourceType) == Name(g.Key)))
+            Info("quest-exit", $"{g.Count()} exit(s) to {Name(g.Key)} ({string.Join(", ", g.Select(e => e.SourceType!.Split('/')[^1]).Distinct())}), led there by a quest rule");
+        else if (!expected.TryGetValue(g.Key, out int want) && matched.Any(m => m.DestinationHash16 == g.Key && m.TeleportTo is null))
             Info("unnamed-exit", $"{g.Count()} exit(s) to {Name(g.Key)}, which no node names; the model matching leads there too");
         else if (!expected.TryGetValue(g.Key, out want)) Problem("unexpected", $"{g.Count()} exit(s) to {Name(g.Key)} at {string.Join(", ", g.Select(e => $"({e.GridX}, {e.GridY})"))}, which no enabled entrance names");
         else if (g.Count() > want) Problem("duplicate", $"{g.Count()} exits to {Name(g.Key)} for {want} entrance(s): {string.Join(", ", g.Select(e => $"({e.GridX}, {e.GridY})"))}");

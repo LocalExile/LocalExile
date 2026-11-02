@@ -22,7 +22,7 @@ static partial class Game
     /// panel's ignite rows (Abberath's Fury: <see cref="TriggerFootstepSkill"/>). The hit needs fire damage
     /// (<paramref name="baseFire"/>: its base and added fire damage after conversion, before any increase) and a critical
     /// strike (always ignites) or the chance (base_chance_to_ignite_%, chance_to_ignite_%, chance_to_freeze_shock_ignite_%);
-    /// never_ignite stops it. It burns 90% of that fire per second (Ailments.Ignite) × the ignite increases ×
+    /// the ignite prohibitions (MonsterElementalAilments.CannotInflict) stop it. It burns 90% of that fire per second (Ailments.Ignite) × the ignite increases ×
     /// <paramref name="more"/> × the damage over time multipliers (with +50% from a critical strike), for 4 s × increased
     /// ignite duration × the monster's base_self_ignite_duration_-%; the "faster" stats as in
     /// <see cref="MonsterIgnites.Settings.From"/>. <paramref name="attacker"/> gives the player's and the skill's stats.
@@ -30,7 +30,7 @@ static partial class Game
     internal static DamageOverTime? IgniteFromHit(double baseFire, bool critical, Func<string, int> attacker, double more,
         SpawnedMonster m, Random random)
     {
-        if (baseFire <= 0 || attacker("never_ignite") != 0 || attacker("never_ignite_chill_freeze_shock") != 0
+        if (baseFire <= 0 || MonsterElementalAilments.CannotInflict("ignite", attacker)
             || attacker("never_damaging_ailments") != 0) return null;
         int chance = attacker("base_chance_to_ignite_%") + attacker("chance_to_ignite_%") + attacker("chance_to_freeze_shock_ignite_%");
         if (!critical && !RandomRolls.Chance(chance, 100, random)) return null;
@@ -74,6 +74,7 @@ static partial class Game
     internal static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now)
     {
+        if (target.Invulnerable) return;
         var e = target.Mods.Effects;
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
@@ -110,7 +111,7 @@ static partial class Game
                 {
                     m.Dead = true;
                     CollectVaalSoulAtDeathLocked(conn, m);
-                    m.Ignites.Clear();
+                    m.Ignites.Clear(burnt: true);
                     if (m.Ignites.Buff is ushort buff) { ended.Add((id, buff)); m.Ignites.Buff = null; }
                 }
                 hits.Add((id, m, m.Life, damage));

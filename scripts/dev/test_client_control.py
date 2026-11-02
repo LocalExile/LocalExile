@@ -14,11 +14,62 @@ import time
 import unittest
 from unittest.mock import Mock, call, patch
 
+import client_control
 from client_control import (
-    ClientControl, chat_packet, collect_replies, connection_ports, find_client, flask_packet, launched_path, log_mark,
-    normalize, process_info, read_records, read_replies, run_request, same_path, session_name, stack_port, tp_text,
-    waypoint_packet,
+    ClientControl, area_row, arrived, character_name, chat_packet, collect_replies, connection_ports, create_fields,
+    find_client, flask_packet, interact_packet, launched_path, log_mark, normalize, pantheon_packet, process_info,
+    read_records, read_replies, run_request, same_path, session_name, stack_port, start_state, tp_text, travel_packet,
+    use_item_packet, waypoint_packet,
 )
+
+
+def sticky(values):
+    """The values in order, then the last one forever (a client state that stops changing)."""
+    values = list(values)
+    return chain(values, repeat(values[-1]))
+
+
+class FakeBridge:
+    """The JS agent's `command` export: a status sequence, a character-list sequence, and the other ops recorded."""
+    def __init__(self, statuses=({},), lists=([],), results=None):
+        self.statuses, self.lists, self.results, self.calls = sticky(statuses), sticky(lists), results or {}, []
+
+    def __call__(self, op, **fields):
+        self.calls.append((op, fields))
+        if op == "status":
+            return dict(next(self.statuses))
+        if op == "characters":
+            return {"characters": [dict(c) for c in next(self.lists)]}
+        return self.results.get(op, {"submitted": True})
+
+    def ops(self, *names):
+        return [(op, fields) for op, fields in self.calls if op in names]
+
+
+class MockTables:
+    """A data/tables folder with the rows these tests need (the extracted tables are not in the repository)."""
+    def __enter__(self):
+        self.folder = tempfile.TemporaryDirectory()
+        path = Path(self.folder.name)
+        tables = {
+            "Characters": [{"Name": "Marauder"}, {"Name": "Witch"}, {"Name": "Scion"}],
+            "CharacterStartStates": [
+                {"Id": "StrDefault", "CharactersKey": 0, "Level": 1, "CharacterStartStateSetKey": 0},
+                {"Id": "IntAct2Race", "CharactersKey": 1, "Level": 12, "CharacterStartStateSetKey": 2},
+                {"Id": "IntDefault", "CharactersKey": 1, "Level": 1, "CharacterStartStateSetKey": 0},
+                {"Id": "StrDexIntDefault", "CharactersKey": 2, "Level": 1, "CharacterStartStateSetKey": 0},
+            ],
+            "WorldAreas": [{"Id": "1_1_town", "HASH16": 0x235c}, {"Id": "1_1_2", "HASH16": 31442}],
+        }
+        for name, rows in tables.items():
+            (path / f"{name}.json").write_text(json.dumps(rows), encoding="utf-8")
+        self.patch = patch("client_control.TABLES", path)
+        self.patch.start()
+        return path
+
+    def __exit__(self, *unused):
+        self.patch.stop()
+        self.folder.cleanup()
 
 
 class ClientControlTests(unittest.TestCase):
@@ -111,6 +162,27 @@ class ClientControlTests(unittest.TestCase):
         self.assertIn("0x4d:9", source)
         self.assertIn("frameCount.frames++", source)
         self.assertIn("rpc.exports.frames", source)
+
+    def test_play_from_loading_only_after_the_bridges_own_successful_create(self):
+        # A loading screen with no instance is the after-create state only when the bridge's create got result 0.
+        source = Path(__file__).with_name("client-control.js").read_text(encoding="utf-8")
+        self.assertIn("const afterCreate = createdAwaitingPlay && current.screen === 'loading'", source)
+        self.assertIn("if (createSent) { createSent = false; createdAwaitingPlay = lastCreateResult === 0; }", source)
+        self.assertIn("createdAwaitingPlay = false;", source.split("case 'play'")[1].split("case 'create'")[0])
+
+    def test_pantheon_select_sends_the_row_plus_one(self):
+        self.assertEqual(bytes(pantheon_packet({"row": 0})), bytes.fromhex("01ee01"))    # The Brine King
+        self.assertEqual(bytes(pantheon_packet({"row": 11})), bytes.fromhex("01ee0c"))   # Tukohama
+        for bad in ({}, {"row": -1}, {"row": 255}, {"row": True}, {"row": "0"}):
+            with self.assertRaises(ValueError):
+                pantheon_packet(bad)
+
+    def test_item_use_sends_the_right_click_message(self):
+        self.assertEqual(bytes(use_item_packet({"id": 0x403})), bytes.fromhex("0058" "00000001" "00000403"))
+        self.assertEqual(bytes(use_item_packet({"inventoryId": 2, "id": 7})), bytes.fromhex("0058" "00000002" "00000007"))
+        for bad in [{}, {"id": 0}, {"id": True}, {"id": "7"}, {"id": 7, "inventoryId": 0}, {"id": 0x100000000}]:
+            with self.assertRaises(ValueError):
+                use_item_packet(bad)
 
     def test_replies_are_the_gateway_chat_lines_after_the_mark(self):
         nl = chr(10)
@@ -319,6 +391,182 @@ class ClientControlLoginTests(unittest.TestCase):
 
                 self.assertGreaterEqual(self.elapsed, 15)
                 self.assertLess(self.elapsed, 15.1)
+
+
+class ClientControlCampaignTests(unittest.TestCase):
+    """character:create/delete, waypoint:travel, area:wait and item:pickup against a fake bridge and mock tables."""
+    def setUp(self):
+        self.control = ClientControl.__new__(ClientControl)
+        self.control.script = object()
+        self.elapsed = 0.0
+        for target, effect in (("client_control.time.monotonic", lambda: self.elapsed),
+                               ("client_control.time.sleep", self.advance_time)):
+            mock = patch(target, side_effect=effect)
+            mock.start()
+            self.addCleanup(mock.stop)
+        self.tables = MockTables()
+        self.folder = self.tables.__enter__()
+        self.addCleanup(self.tables.__exit__)
+
+    def advance_time(self, seconds):
+        self.elapsed += seconds
+
+    def bridge(self, **kwargs):
+        self.control.rpc = FakeBridge(**kwargs)
+        return self.control.rpc
+
+    selection = {"screen": "characters", "loginState": 3, "lastCreateResult": None, "lastDeleteResult": None}
+    witch = {"index": 1, "name": "CampaignWitch", "league": "Standard", "level": 1, "classId": 3}
+    other = {"index": 0, "name": "OfflineWitch", "league": "Standard", "level": 100, "classId": 3}
+
+    def test_class_maps_to_its_default_start_state(self):
+        self.assertEqual(start_state({"class": "Witch"}), "IntDefault")
+        self.assertEqual(start_state({"class": "scion"}), "StrDexIntDefault")
+        self.assertEqual(start_state({"startState": "IntAct2Race"}), "IntAct2Race")
+        self.assertEqual(create_fields({"name": "CampaignWitch", "class": "Witch"}),
+                         ("CampaignWitch", "Standard", "IntDefault"))
+        self.assertEqual(create_fields({"name": "Abc", "class": "Marauder", "league": "Hardcore"})[1:],
+                         ("Hardcore", "StrDefault"))
+        for bad in [{}, {"class": "Witch", "startState": "IntDefault"}, {"class": "Necromancer"},
+                    {"startState": "Nope"}, {"class": 3}]:
+            with self.assertRaises(ValueError):
+                start_state(bad)
+        with self.assertRaises(ValueError):
+            create_fields({"name": "CampaignWitch", "class": "Witch", "league": ""})
+
+    def test_character_names_follow_the_auth_rule(self):
+        for good in ["Abc", "Campaign_Witch-2", "A" * 23, "Ärger"]:
+            self.assertEqual(character_name(good), good)
+        for bad in [None, "", "ab", "A" * 24, "two words", "bang!", " Abc", "a\0b"]:
+            with self.assertRaises(ValueError):
+                character_name(bad)
+
+    def test_create_sends_once_and_waits_for_the_name_in_the_received_list(self):
+        bridge = self.bridge(statuses=[self.selection], lists=[[self.other], [self.other], [self.other],
+                                                              [self.other, self.witch]])
+        result = self.control.execute({"command": "character:create", "name": "CampaignWitch", "class": "Witch"})
+        self.assertEqual(result, {"character": self.witch, "startState": "IntDefault", "result": None})
+        self.assertEqual(bridge.ops("create"),
+                         [("create", {"name": "CampaignWitch", "league": "Standard", "startState": "IntDefault"})])
+        self.assertAlmostEqual(self.elapsed, 0.1)
+
+    def test_create_raises_the_0x13_result(self):
+        bridge = self.bridge(statuses=[self.selection, self.selection, {**self.selection, "lastCreateResult": 21}],
+                             lists=[[self.other]])
+        with self.assertRaisesRegex(RuntimeError, r"rejected \(result 21: name taken\)"):
+            self.control.execute({"command": "character:create", "name": "CampaignWitch", "class": "Witch"})
+        self.assertEqual(len(bridge.ops("create")), 1)
+
+    def test_create_refuses_outside_selection_a_listed_name_and_bad_input_before_sending(self):
+        cases = [({"screen": "game", "instanceState": 3}, [], "character selection"),
+                 (self.selection, [{**self.witch, "name": "campaignwitch"}], "already in the client list")]
+        for status, listed, message in cases:
+            bridge = self.bridge(statuses=[status], lists=[listed])
+            with self.assertRaisesRegex(RuntimeError, message):
+                self.control.execute({"command": "character:create", "name": "CampaignWitch", "class": "Witch"})
+            self.assertEqual(bridge.ops("create"), [])
+        bridge = self.bridge(statuses=[self.selection])
+        with self.assertRaises(ValueError):
+            self.control.execute({"command": "character:create", "name": "x", "class": "Witch"})
+        self.assertEqual(bridge.calls, [])
+
+    def test_create_times_out_without_list_or_result(self):
+        self.bridge(statuses=[self.selection], lists=[[self.other]])
+        with self.assertRaisesRegex(TimeoutError, "new character"):
+            self.control.execute({"command": "character:create", "name": "CampaignWitch", "class": "Witch"})
+        self.assertGreaterEqual(self.elapsed, 15)
+
+    def test_delete_sends_the_listed_name_and_waits_until_it_is_gone(self):
+        bridge = self.bridge(statuses=[self.selection], lists=[[self.other, self.witch], [self.other, self.witch],
+                                                              [self.other]])
+        result = self.control.execute({"command": "character:delete", "name": "campaignWITCH"})
+        self.assertEqual(result, {"deleted": True, "character": self.witch, "result": None})
+        self.assertEqual(bridge.ops("delete"), [("delete", {"name": "CampaignWitch"})])
+
+    def test_delete_missing_name(self):
+        bridge = self.bridge(statuses=[self.selection], lists=[[self.other]])
+        self.assertEqual(self.control.execute({"command": "character:delete", "name": "Gone", "missingOk": True}),
+                         {"deleted": False, "name": "Gone"})
+        with self.assertRaisesRegex(RuntimeError, "not in the client list"):
+            self.control.execute({"command": "character:delete", "name": "Gone"})
+        self.assertEqual(bridge.ops("delete"), [])
+
+    def test_delete_raises_the_0x0d_result(self):
+        self.bridge(statuses=[self.selection, self.selection, {**self.selection, "lastDeleteResult": 16}],
+                    lists=[[self.witch]])
+        with self.assertRaisesRegex(RuntimeError, r"result 16: character does not exist"):
+            self.control.execute({"command": "character:delete", "name": "CampaignWitch"})
+
+    def test_travel_packet_is_the_pin_click_message(self):
+        self.assertEqual(bytes(travel_packet(0x235c)), bytes.fromhex("004d235c00002f0000"))
+        self.assertEqual(area_row({"area": "1_1_town"}), ("1_1_town", 0x235c))
+        self.assertEqual(area_row({"hash": 31442}), ("1_1_2", 31442))
+        self.assertEqual(area_row({"hash": 0x1234}), (None, 0x1234))
+        for bad in [{}, {"area": "1_1_town", "hash": 1}, {"area": "nowhere"}, {"hash": 0}, {"hash": True},
+                    {"hash": 0x10000}, {"area": 7}]:
+            with self.assertRaises(ValueError):
+                area_row(bad)
+
+    def test_travel_with_wait_returns_after_the_new_area_is_entered(self):
+        town = {"screen": "game", "instanceState": 3, "area": "1_1_town"}
+        loading = {"screen": "loading", "instanceState": 1, "area": None}
+        bridge = self.bridge(statuses=[town, town, loading, {**town, "area": "1_1_2"}])
+        result = self.control.execute({"command": "waypoint:travel", "area": "1_1_2", "wait": True})
+        self.assertEqual(bridge.ops("interaction"),
+                         [("interaction", {"bytes": list(bytes.fromhex("004d7ad200002f0000"))})])
+        self.assertEqual((result["area"], result["hash"], result["status"]["area"]), ("1_1_2", 31442, "1_1_2"))
+        self.assertTrue(result["submitted"])
+
+    def test_arrival_rules(self):
+        town = {"screen": "game", "instanceState": 3, "area": "1_1_town"}
+        unknown = {**town, "area": None}
+        self.assertTrue(arrived(town, "1_1_town", None, False))
+        self.assertFalse(arrived({**town, "instanceState": 2}, "1_1_town", None, True))
+        self.assertFalse(arrived({**town, "screen": "loading"}, None, town, True))
+        # Travel to the area already entered: only a transition (left) completes it.
+        self.assertFalse(arrived(town, "1_1_town", town, False))
+        self.assertTrue(arrived(town, "1_1_town", town, True))
+        # A changed area completes it even when the loading state was not observed.
+        self.assertTrue(arrived({**town, "area": "1_1_2"}, "1_1_2", town, False))
+        self.assertFalse(arrived({**town, "area": "1_1_2"}, "1_1_3", town, True))
+        self.assertTrue(arrived({**town, "area": "1_1_2"}, None, town, False))
+        # An unreadable area falls back to the transition.
+        self.assertFalse(arrived(unknown, "1_1_2", unknown, False))
+        self.assertTrue(arrived(unknown, "1_1_2", unknown, True))
+
+    def test_area_wait_accepts_a_previous_result_line_and_times_out(self):
+        town = {"screen": "game", "instanceState": 3, "area": "1_1_town"}
+        self.bridge(statuses=[town, {**town, "instanceState": 1}, town])
+        result = self.control.execute({"command": "area:wait", "from": {"ok": True, "result": town}})
+        self.assertEqual(result, {"running": True, **town})
+        self.bridge(statuses=[town])
+        with self.assertRaisesRegex(TimeoutError, "area 1_1_2"):
+            self.control.execute({"command": "area:wait", "area": "1_1_2", "timeout": 2})
+        self.assertGreaterEqual(self.elapsed, 2)
+        for bad in [{"command": "area:wait"}, {"command": "area:wait", "area": "nowhere"}]:
+            with self.assertRaises(ValueError):
+                self.control.execute(bad)
+
+    def test_item_pickup_is_the_default_object_interaction(self):
+        self.assertEqual(bytes(interact_packet(1027)), bytes.fromhex("0024" "00000403" "0266" "0000" "0408"))
+        bridge = self.bridge()
+        self.assertEqual(self.control.execute({"command": "item:pickup", "id": 1027}), {"submitted": True, "id": 1027})
+        self.control.execute({"command": "object:interact", "id": 1027})
+        packets = [fields["bytes"] for _, fields in bridge.ops("interaction")]
+        self.assertEqual(packets[0], packets[1])
+        for bad in [0, -1, 0x100000000, True, "1027", None]:
+            with self.assertRaises(ValueError):
+                self.control.execute({"command": "item:pickup", "id": bad})
+
+
+@unittest.skipUnless(all((client_control.TABLES / f"{name}.json").exists()
+                         for name in ("WorldAreas", "Characters", "CharacterStartStates")),
+                     "extracted tables (data/tables) are absent")
+class ExtractedTableTests(unittest.TestCase):
+    def test_extracted_tables_give_the_documented_values(self):
+        self.assertEqual([start_state({"class": c}) for c in ("Witch", "Ranger", "Scion", "Templar")],
+                         ["IntDefault", "DexDefault", "StrDexIntDefault", "StrIntDefault"])
+        self.assertEqual(area_row({"area": "1_1_town"}), ("1_1_town", 0x235c))  # 01-login.md §4
 
 
 if __name__ == "__main__":
