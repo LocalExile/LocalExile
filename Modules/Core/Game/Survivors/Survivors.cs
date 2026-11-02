@@ -254,9 +254,8 @@ static partial class Game
         Console.WriteLine($"[gateway] {remote} survivors run started in {conn.Layout.Id} at level {roster.Level}: " +
             $"{roster.Varieties.Count} varieties, {roster.Bosses.Count} boss(es), {run.MaxAlive} alive at most, " +
             $"base damage {roster.WeaponDamage}, {catalog.Count} skills, {SurvivorsBlessingsFor(conn).Count} blessings");
-        // The run hides the loot already lying in the area: the client forgets the objects (the instance keeps them).
-        foreach (var (id, _) in conn.Instance.Ground.All())
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb survivors hide world item 0x{id:x}");
+        // The run hides the loot already lying in the area: the client forgets the objects and the instance drops them.
+        await SurvivorsClearGround(remote, stream, ciphers, conn);
         // The run's skills go out as Actor skills, which puts their gems and cooldowns on the skill bar.
         await SendSkills(remote, stream, ciphers, conn);
         _ = RunSurvivors(remote, stream, ciphers, conn, run, roster, catalog, stage: 0);
@@ -278,6 +277,8 @@ static partial class Game
         // The player object was created without the run's skills: publish them, and the bar with them.
         await SendSkills(remote, stream, ciphers, conn);
         await SendSkillBar(remote, stream, ciphers, conn);
+        // The new area's ground too: the run keeps the map clear.
+        await SurvivorsClearGround(remote, stream, ciphers, conn);
         await conn.Commands!.Reply($"--- Level {carry.Stage + 1} ---\nThe run resumes: {SurvivorsClock(carry.Run.Elapsed)}, " +
             $"{carry.Run.Kills} kills.");
         _ = RunSurvivors(remote, stream, ciphers, conn, carry.Run, roster, catalog, carry.Stage);
@@ -392,7 +393,7 @@ static partial class Game
         SurvivorsRun run, SurvivorsRoster roster, IReadOnlyList<SurvivorsSkill> catalog, int stage)
     {
         double last = conn.Clock.Elapsed.TotalSeconds, nextSpawn = 0, nextBoss = SurvivorsBossIntervalSeconds,
-            nextRing = SurvivorsBossIntervalSeconds / 2, nextReport = 10;
+            nextRing = SurvivorsBossIntervalSeconds / 2, nextReport = 10, nextSweep = 0;
         int bossesSpawned = 0, lastKills = run.Kills;
         bool carried = false;
         var horde = new HashSet<uint>();
@@ -428,6 +429,12 @@ static partial class Game
                 {
                     nextSpawn = now + SurvivorsRules.SpawnIntervalSeconds;
                     await SpawnSurvivorsWave(remote, stream, ciphers, conn, run, roster, horde);
+                }
+                // The ground never shows loot during a run: anything dropped or placed is swept once a second.
+                if (now >= nextSweep)
+                {
+                    nextSweep = now + 1;
+                    await SurvivorsClearGround(remote, stream, ciphers, conn);
                 }
                 if (roster.Bosses.Count > 0 && run.Elapsed >= nextBoss)
                 {
@@ -693,6 +700,8 @@ static partial class Game
     static async Task<bool> SurvivorsEquipCore(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, Item item)
     {
+        static Dictionary<uint, int> StatsNow(ClientState c) => PlayerStatsWithCleared(c).ToDictionary(s => s.Item1, s => s.Item2);
+        var before = StatsNow(conn);
         if (ItemsFor(conn).ByHash(item.TypeHash) is not { } type) return false;
         var items = ItemsOf(conn);
         byte? slot = null;
@@ -716,7 +725,24 @@ static partial class Game
             $"0x00bf survivors unique {type.Name} equipped in row {equipped}");
         if (PlayerInventories.ShowsOnModel(equipped)) await SendEquipment(remote, stream, ciphers, conn, items);
         await SendCharacterStats(remote, stream, ciphers, conn, $"survivors unique {type.Name}");
+        // The item's mods must reach the character: the stat packet above is checked against the same build.
+        var after = StatsNow(conn);
+        var changed = after.Where(kv => before.GetValueOrDefault(kv.Key) != kv.Value)
+            .Select(kv => $"{Stats.Name(kv.Key)} {before.GetValueOrDefault(kv.Key)}->{kv.Value}").Take(8).ToList();
+        Console.WriteLine($"[gateway] {remote} survivors unique {type.Name}: {(changed.Count == 0 ? "no stat change" : string.Join(", ", changed))}");
         return true;
+    }
+
+    /// <summary>Removes every item on the ground of the area for this run: the client forgets the object and the
+    /// instance's store drops it, so loot neither shows nor comes back on the next connection.</summary>
+    static async Task SurvivorsClearGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        foreach (var (id, _) in conn.Instance.Ground.All())
+        {
+            conn.Instance.Ground.Take(id);
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
+                $"0x02bb survivors hide world item 0x{id:x}");
+        }
     }
 
     /// <summary>The unique items a level-up may still offer: the catalogue's definitions the run has not taken and the

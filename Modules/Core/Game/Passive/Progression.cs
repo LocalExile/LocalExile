@@ -120,6 +120,9 @@ static partial class Game
         IEnumerable<ushort>? nodes = null, int? level = null)
     {
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
+        // A survivors run's own uniques are never held inactive: drop them from the previous set before it is reused.
+        if (conn.SurvivorsItemIds.Count > 0)
+            before = new HashSet<uint>((before ?? []).Where(id => !conn.SurvivorsItemIds.Contains(id)));
         var (sources, attributes, inactive, worn) = EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot(), nodes, level);
         lock (conn.Monsters)
             if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired)
@@ -175,10 +178,13 @@ static partial class Game
             .Concat(treeJewels.Select(i => i with { Item = AdornedJewel(i.Item, adorned) }))
             .ToArray();
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
+        // A survivors run's own uniques are never held inactive: drop them from the previous set before it is reused.
+        if (conn.SurvivorsItemIds.Count > 0)
+            before = new HashSet<uint>((before ?? []).Where(id => !conn.SurvivorsItemIds.Contains(id)));
         // The sum below is a pure function of these inputs (items are immutable records), and the combat paths ask for
         // it many times a second (every monster hit): reuse the last result while none of them changed.
         var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level,
-            before, [.. conn.ClusterPassives.Order()], conn.TattooRevision);
+            before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. conn.SurvivorsItemIds.Order()]);
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
         // A timeless jewel replaces (or augments) the stats of allocated ordinary nodes in its radius. The item is a
@@ -492,7 +498,14 @@ static partial class Game
             return (ForRequirements("strength", str), ForRequirements("dexterity", dex), ForRequirements("intelligence", intel));
         }, before, ItemsFor(conn).Mods);
         // A survivors run's own uniques are worn whatever the character's level or attributes: the run granted them.
-        if (conn.SurvivorsItemIds.Count > 0) inactive.ExceptWith(conn.SurvivorsItemIds);
+        // They must join the active list too, not just leave the inactive set, or their mods never reach the stats.
+        if (conn.SurvivorsItemIds.Count > 0)
+        {
+            var exempt = wornItems.Where(w => conn.SurvivorsItemIds.Contains(w.Id) && inactive.Contains(w.Id))
+                .Select(w => w.Item).ToList();
+            if (exempt.Count > 0) active = [.. active, .. exempt];
+            inactive.ExceptWith(conn.SurvivorsItemIds);
+        }
         var rawAttributes = RawAttributes(active);
         var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
@@ -529,7 +542,7 @@ static partial class Game
     /// <summary>The inputs of CharacterStatSources' passive and equipment sum, compared by value (items by reference).</summary>
     internal sealed record StatSourcesKey(ushort[] Nodes, IReadOnlyDictionary<ushort, ushort> Masteries,
         GameServer.Core.Protocol.Instance.InventoryItem[] Worn, Dictionary<uint, int> Dev, int ClassRow, bool God, int Level,
-        IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision)
+        IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems)
     {
         public bool Matches(StatSourcesKey o) =>
             ClassRow == o.ClassRow && God == o.God && Level == o.Level && TattooRevision == o.TattooRevision
@@ -538,7 +551,8 @@ static partial class Game
             && Worn.Length == o.Worn.Length && Worn.Zip(o.Worn).All(p => p.First.Id == p.Second.Id
                 && p.First.X == p.Second.X && ReferenceEquals(p.First.Item, p.Second.Item))
             && Dev.Count == o.Dev.Count && Dev.All(kv => o.Dev.TryGetValue(kv.Key, out int v) && v == kv.Value)
-            && (Before ?? new HashSet<uint>()).SetEquals(o.Before ?? new HashSet<uint>());
+            && (Before ?? new HashSet<uint>()).SetEquals(o.Before ?? new HashSet<uint>())
+            && RunItems.AsSpan().SequenceEqual(o.RunItems);
     }
 
     internal sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,
