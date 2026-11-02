@@ -82,13 +82,14 @@ damage number:
   now writes each class's rig `indices` (`animation-contacts` version 4, `extractor version 4`, `GameDataFiles.Needed`).
   Live: Fireball `spell_projectile_unarmed` index 386, Tornado Shot `attack1_unarmed` index 28, Storm Burst
   `spell_aoe_unarmed` index 335, Herald of Ash `spell_buff_unarmed` index 367, each with its speed.
+  `SurvivorsAnimationTests` walks every class x weapon stance x kind and asserts every catalogue skill maps to a clip.
 - **Projectile and hit animations.** The server-drawn survivor projectile now carries the projectile type's flight and
   impact clips from `projectile-clips.json` (Fireball impact 1, Spark impact 0, ...); Fireball plays its area explosion
   and Kinetic Blast its cluster visual. A live Fireball trace shows `projectile Metadata/Projectiles/Fireball ...
   impact clip 1`. A Herald's aura pulse now sends the 0x1af hit package with its gem's damage-type code (fire/cold/
   lightning/chaos) instead of the physical default.
 - **New dev command** `/survivors matrix [gem]` prints every support's effect through the live cast's computation.
-- Build 0/0; Core 462, Data 45, Gateway 76 tests pass.
+- Build 0/0; Core 462, Data 45, Gateway 77 tests pass.
 
 ## Where everything is
 
@@ -177,7 +178,7 @@ de07fbd6 merge: upstream main into the survivors port
 dotnet build GameServer.slnx          # 0 errors, 0 warnings
 dotnet test tests/GameServer.Core.Tests       # 462 passed
 dotnet test tests/GameServer.Data.Tests       # 45 passed
-dotnet test tests/GameServer.Gateway.Tests    # 76 passed
+dotnet test tests/GameServer.Gateway.Tests    # 77 passed
 ```
 
 ## Environment (worktree setup, one-time, already done)

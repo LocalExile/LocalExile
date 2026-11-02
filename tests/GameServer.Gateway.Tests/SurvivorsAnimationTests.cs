@@ -1,3 +1,6 @@
+using GameServer.Core.Protocol.Instance;
+using League = GameServer.Core.Accounts.League;
+
 namespace GameServer.Gateway.Tests;
 
 // A run cast plays a rig clip through 0x1b2 kind 0; every class/weapon stance has to resolve one, or the character
@@ -58,6 +61,43 @@ public sealed class SurvivorsAnimationTests
             Assert.NotNull(presentation);
             Assert.NotNull(presentation!.ImpactClip);
             Assert.True(presentation.ImpactLifetime > 0);
+        }
+    }
+
+    [Fact]
+    public void Every_run_skill_maps_to_a_cast_clip()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-anim-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        Saves.Open(path);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = new ClientState(new(1, "SurvivorsAnimation", 1000, 1000, 100, 100, null, []), 1, 1)
+        {
+            Character = "SurvivorsAnimation", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
+            Experience = CharacterStats.ExperienceFor(100),
+            Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+        };
+        try
+        {
+            var catalog = Game.SurvivorsCatalogFor(conn);
+            var contacts = new AnimationContacts("data");
+            string ao = Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+            var unarmed = new WeaponProfile(false, false, false, false, false, Unarmed: true);
+            Assert.True(catalog.Count >= 25, $"only {catalog.Count} run skills");
+            foreach (var skill in catalog)
+            {
+                var kind = Game.SurvivorsCastKind(skill);
+                Assert.True(contacts.CastClip(ao, unarmed, kind) is not null,
+                    $"{skill.Name}: {kind} has no clip on {ao}");
+            }
+        }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!);
+            Program.SetGameLogic(previousLogic!);
+            Saves.Db.Dispose();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
         }
     }
 }

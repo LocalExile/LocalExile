@@ -997,11 +997,7 @@ static partial class Game
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO")
             ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        CastAnimationKind kind = skill.Kind == SurvivorsSkillKind.Herald ? CastAnimationKind.Buff
-            : skill.Attack ? CastAnimationKind.Attack
-            : Supports.Of(skill.Effect)?.Types.Contains(2) == true ? CastAnimationKind.Projectile
-            : Supports.Of(skill.Effect)?.Types.Contains(7) == true ? CastAnimationKind.Area
-            : CastAnimationKind.Projectile;
+        CastAnimationKind kind = SurvivorsCastKind(skill);
         if (Animations.CastClip(ao, WeaponProfileFor(conn, activeSet: true), kind) is not { } clip) return;
         float speed = interval > 0 && clip.LengthMs > 0
             ? (float)Math.Clamp(clip.LengthMs / 1000.0 / interval, 0.1, 10) : 1;
@@ -1009,6 +1005,16 @@ static partial class Game
             $"0x01b2 survivors cast {clip.Name} ({kind}) for {skill.Name}: index {clip.Index}, " +
             $"{clip.LengthMs} ms over {interval:0.00} s (speed {speed:0.##})");
     }
+
+    /// <summary>The stance clip family a run skill's cast plays: a herald buff, an attack swing, a spell projectile or
+    /// a spell area cast. The gem's own ActiveSkillTypes decide between projectile and area, so Fireball (both) is a
+    /// projectile cast, while Storm Burst (area without the projectile flag) is an area cast.</summary>
+    internal static CastAnimationKind SurvivorsCastKind(SurvivorsSkill skill) =>
+        skill.Kind == SurvivorsSkillKind.Herald ? CastAnimationKind.Buff
+        : skill.Attack ? CastAnimationKind.Attack
+        : Supports.Of(skill.Effect)?.Types.Contains(2) == true ? CastAnimationKind.Projectile
+        : Supports.Of(skill.Effect)?.Types.Contains(7) == true ? CastAnimationKind.Area
+        : CastAnimationKind.Projectile;
 
     /// <summary>One cast's computed numbers, before the live part (positions, aims, packets) needs a monster.</summary>
     internal sealed record SurvivorsComputedCast(double Interval, SurvivorsSkill Skill, int Rank, int Count,
