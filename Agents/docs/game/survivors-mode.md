@@ -44,7 +44,8 @@ the catalogue grows with the item data. A gem with no projectile (Ice Nova, Arc)
 and is left out.
 
 **Supports** are real support gems linked to one skill, up to five per skill (the level-up offers them once a skill
-slot is full). Each one contributes the stats of the support gem at the skill's rank (the run has no gem experience of
+slot is full, and only when the game's ActiveSkillTypes allow the link; heralds take none). Each one contributes the
+stats of the support gem at the skill's rank (the run has no gem experience of
 its own), and the cast pipeline reads them exactly as Path of Building does:
 
 | Support | Stat it links (level 1) | Effect on the linked skill |
@@ -110,8 +111,8 @@ Herald gems (**Herald of Ash**, **of Ice**, **of Thunder**, **of Agony**, **of P
 they have no projectile, so a cast is an **aura pulse** around the player - every hostile within 12 cells (grown by the
 skill's rank and the run's area) takes the skill's damage. Learning one puts the gem's aura buff on the player (S->C
 0x1c1, the BuffDefinitions row from the effect's ActiveSkills row), so the client draws the herald and its icon; the
-buffs are removed when the run ends. Each hit also sends the impact packet (0x1af, as a melee hit) so the blood and
-particles play on the monster. Kills from a pulse feed the run like any other.
+buffs are removed when the run ends. Each hit also sends the impact packet (0x1af) with the gem's own damage-type
+code, so its elemental hit particles play on the monster. Kills from a pulse feed the run like any other.
 
 A level-up window can be closed by a stray click while running; closing it takes the first reward, so the run never
 stays paused with nothing to click.
