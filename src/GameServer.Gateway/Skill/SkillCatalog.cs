@@ -634,6 +634,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // ClusterBurst (the skill data names no row); it uses the wand attack's projectile at the same 3260 speed. Tornado
     // Shot's arrow is TornadoShotArrow (2173); without it every use was refused while the client had stopped to shoot,
     // and the server walked on (live 2026-10-29). Spark's transfigured and Vaal versions fire Spark's own row.
+    // Spectral Throw's is ThrownWeapon; without it every use was refused (live 2026-11-02).
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -648,6 +649,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["SparkAltX"] = "Metadata/Projectiles/Spark",
         ["SparkAltY"] = "Metadata/Projectiles/Spark",
         ["VaalSpark"] = "Metadata/Projectiles/Spark",
+        ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>

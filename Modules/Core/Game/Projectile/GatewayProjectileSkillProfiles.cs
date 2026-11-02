@@ -57,6 +57,8 @@ static class GatewayProjectileSkillProfiles
             p = p with { HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(0.66)) };
 
         p = GatewayProjectileModifiers.Resolve(p, get, attack);
+        // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
+        if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);

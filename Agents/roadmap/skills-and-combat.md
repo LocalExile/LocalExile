@@ -31,6 +31,15 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Start: trace the client's start cell and each leg's start time per frame (`scripts/re/frida/trace-spark-legs.js`)
   next to the server's `spark seq=` lines, then start the server's legs from the same cell and frame.
   Done when: every drawn spark hit deals damage once, and no damage lands without one.
+- **Spectral Throw hit timing:** the skill deals damage (Status), but its hits can land before or after the drawn
+  weapon reaches a monster, most on the return toward monsters walking at the thrower.
+  The server's return flies at a constant average speed where the client's accelerates from rest.
+  Its Melee combo release is known only for the Witch and Scion with sword, mace or axe and shield, and when the client
+  starts the combo over at 01a is not known.
+  Start: trace the client's weapon (`scripts/re/frida/trace-projectile-path.js`) next to the server's hit lines on one
+  clock, with pauses and default attacks between throws; then read every class and stance's Melee views from the ACT
+  and .ao in `scripts/re/anim_contacts.py` instead of `SpectralThrowRelease`'s table.
+  Done when: each hit lands as the drawn weapon reaches the monster, out and back, for every class and weapon.
 - **Ice Nova with Spell Echo:** the server sends Ice Nova no `spell_repeat_count`, so Spell Echo only speeds it up.
   Its action has two repeats: after a ring its update (`0x141c00180`) waits 0.3 s and rings again while +0x320 is under
   the count and bytes +0x2b8 and +0x2b9 are equal, and its slot 0x460 (`0x1412df740`) jumps to the spell base's replay
