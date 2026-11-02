@@ -251,7 +251,7 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
     }
 
     public IReadOnlyList<SurvivorsChoice> DealOffer(Random random, int skillCatalog, int blessingCatalog, int supportCatalog,
-        IReadOnlyList<int>? itemPool = null)
+        IReadOnlyList<int>? itemPool = null, Func<int, int, bool>? linkable = null)
     {
         lock (_gate)
         {
@@ -279,7 +279,7 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
             if (_skills.Count < Math.Min(SurvivorsRules.MaxSkills, skillCatalog))
                 Add(Enumerable.Range(0, skillCatalog).Where(s => !_skills.ContainsKey(s))
                     .Select(s => new SurvivorsChoice(s, SurvivorsChoiceKind.NewSkill)));
-            Add(SupportCandidates(supportCatalog));
+            Add(SupportCandidates(supportCatalog, linkable));
             if (_blessings.Count < Math.Min(SurvivorsRules.MaxBlessings, blessingCatalog))
                 Add(Enumerable.Range(0, blessingCatalog).Where(b => !_blessings.ContainsKey((SurvivorsBlessing)b))
                     .Select(b => new SurvivorsChoice(b, SurvivorsChoiceKind.Blessing)));
@@ -294,14 +294,14 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
         }
     }
 
-    IEnumerable<SurvivorsChoice> SupportCandidates(int supportCatalog)
+    IEnumerable<SurvivorsChoice> SupportCandidates(int supportCatalog, Func<int, int, bool>? linkable)
     {
         foreach (int skill in _skills.Keys.OrderBy(k => k))
         {
             var taken = _supports.GetValueOrDefault(skill) ?? [];
             if (taken.Count >= SurvivorsRules.MaxSupportsPerSkill) continue;
             for (int support = 0; support < supportCatalog; support++)
-                if (!taken.Contains(support))
+                if (!taken.Contains(support) && (linkable is null || linkable(skill, support)))
                     yield return new SurvivorsChoice(support, SurvivorsChoiceKind.Support, skill);
         }
     }

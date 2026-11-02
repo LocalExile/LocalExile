@@ -22,7 +22,8 @@ auto-cast skills, a choice on every level). No code from it, or from any other p
 | `/survivors level` | Dev: banks a few run levels at once, so the choice window can be tested without waiting for kills. |
 | `/survivors herald` | Dev: learns the first Herald gem at once, for watching its aura pulse. |
 | `/survivors test <gem>` | Dev: restarts the run with exactly that gem (rank 1), for the per-gem verification pass. |
-| `/survivors link <support>` | Dev: links that support to the first learned skill, for the per-support verification pass. |
+| `/survivors link <support>` | Dev: links that support to the first learned skill when the game's skill types allow it. |
+| `/survivors matrix [gem]` | Dev: prints every support's effect on that gem's interval, radius, speed, crit, leech and hit, through the live cast's own computation. |
 | `/survivors unique <name>` | Dev: creates and equips a named unique, for checking its mods on the character and on casts. |
 | `/survivors uniques` | Dev: sweeps the whole unique catalogue and reports creatable/equippable items, missing Mods rows and mods with no stat effect. |
 | `/survivors rank <1-8>` | Dev: sets every learned skill to that rank. |
@@ -164,6 +165,51 @@ so the slots clear.
 
 Clicking one of those slots does not cast: the run casts for the player, and the client's own action would spawn a second
 projectile next to the server's. The use packet is dropped (C→S `0x25`, logged).
+
+## Support links follow the game's skill types
+
+The eight support gems are not linked freely. `GemSupports.Compatible` applies the same
+`AllowedActiveSkillTypes` / `ExcludedActiveSkillTypes` / `SupportWeaponRestrictions` rules the game's own gem links use:
+the level-up offer only pairs a support with a skill it can support, and `/survivors link` refuses an illegal pair by
+name. Heralds take no supports: the real gem is a buff (its damage is the buff's burn/shatter, not a hit), so these
+damage supports have nothing to modify; the run's aura pulse is the mode's own effect.
+
+The full matrix over the run's projectile skills: every one has 6-8 compatible supports (Faster Casting is spell-only,
+Increased Area needs an area skill), and `SurvivorsSupportMatrixTests` walks every skill x every support through the
+same `SurvivorsComputeCast` the live cast uses, asserting the support's own number moves:
+
+| Support | Gem stat (level 1) | What the matrix sees |
+|---|---|---|
+| Added Fire | `physical_damage_%_to_add_as_fire` 25 | 25% of the physical hit added as fire; a skill with no physical damage (Fireball) legitimately does not change |
+| Added Cold | `global_minimum/maximum_added_cold_damage` 4-6 | cold added at the gem's damage effectiveness |
+| Added Lightning | `global_minimum/maximum_added_lightning_damage` 1-8 | lightning added at the gem's damage effectiveness |
+| Faster Casting | `base_cast_speed_+%` 20 | cast interval down, unless the 200 ms floor is already reached |
+| Increased Area | `base_skill_area_of_effect_+%` 30 | radius up by √(1 + increased) |
+| Increased Critical | `additional_base_critical_strike_chance` 200 + `critical_strike_chance_+%` 60 | critical chance up |
+| Faster Projectiles | `base_projectile_speed_+%` 50 + `projectile_damage_+%` 20 | projectile speed and hit damage up |
+| Life Leech | `life_leech_from_any_damage_permyriad` 200 | the shot's leech coefficient becomes non-zero |
+
+The matrix also caught an area double count: the character's `skill_area_of_effect_+%` already contains the player's
+base area (`PanelStats`), so the cast now removes `base_skill_area_of_effect_+%` from the player's final stats before
+`SkillArea.Increased` adds the gem's and each support's own base once.
+
+## Cast, projectile and hit animations
+
+A run cast plays the character's own stance clip with **0x1b2 kind 0**, not 0x1d1: 0x1d1 is the Animation.dat recovery
+route, which cancels the player's action and locks input for its duration, so it would freeze a mode whose player has
+to keep moving. 0x1b2 only replaces the rig clip. The clip comes from the class ACT by weapon stance:
+`attack1_<weapon>` for attacks, `spell_projectile_<weapon>`, `spell_aoe_<weapon>` and `spell_buff_<weapon>` for spells,
+with the unarmed clip as fallback and the newer rigs' `spellprojectile_*` / `spellaoe_*` / `spellbuff_*` names
+included. Its speed is the clip's natural length over the cast interval, so a 0.2 s cast plays fast and a 1 s cast
+plays at its own pace. `data/animation-contacts.json` now carries each class's rig `indices` (extractor version 4);
+the `/survivors matrix` command and the trace print the chosen clip and index.
+
+The survivor projectile is the server's own object, so it now carries the projectile type's flight and impact clips
+from `projectile-clips.json` (`MonsterProjectilePresentation`): Fireball's `fireball_explode`, Spark's
+`electrical_explode`, Ice Spear's `frozenspear_impact`, Ethereal Knives' `end` and the rest. The impact clip is the
+skill's hit animation and plays where the projectile stops. Fireball also plays its area explosion and Kinetic Blast
+its cluster visual. Monsters keep their 0x1d1 `TakeHit` flinch and the 0x1af hit package (blood, particles, the
+critical bit).
 
 ## Between runs
 
@@ -325,9 +371,9 @@ checks the whole catalogue in CI.
 
 ## Needs testing
 
-- **Cast animations**: some gems still cast without a character animation; each needs its own animation pass.
-- **Every support on every skill**: the five links share one stat dictionary, but the full 8 × 30 matrix has not been
-  walked; the checks above cover each support's formula once.
+- **Cast animation playback on the local player**: the server sends the stance's rig clip through 0x1b2 and the trace
+  shows the clip, index and speed, but whether the client keeps that clip over a moving player's walk animation is a
+  visual check; the packet route itself is verified live.
 - **DOT gems**: Caustic Arrow, Vaal Caustic Arrow, Soulrend and poison builds need a monster ground/DOT model before
   their non-hit damage can be shown; the hit portion works today.
 - **Tornado Shot's secondary arrows**: the client predicts and draws them in the real game; here the run hides the

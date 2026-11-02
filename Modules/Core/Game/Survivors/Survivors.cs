@@ -244,6 +244,28 @@ static partial class Game
         ItemsFor(conn).Find(path) is { } type && ItemsFor(conn).Gem(type) is { Variants.Count: > 0 } gem
             ? gem.Variant(0).Effect : -1;
 
+    /// <summary>
+    /// Whether a support can support a run skill, by the same ActiveSkillType rules the game's own gem links use
+    /// (<see cref="GemSupports.Compatible"/>). A herald takes none: the real gem is a buff (its damage is the buff's
+    /// burn/shatter, not a hit), so these damage supports have nothing to modify; the run's aura pulse is the mode's
+    /// own effect, not the gem's hit.
+    /// </summary>
+    internal static bool SurvivorsCanSupport(ClientState conn, int skillIndex, int supportIndex)
+    {
+        if (conn.SurvivorsCatalog is not { } catalog || conn.SurvivorsSupports is not { } supports
+            || skillIndex < 0 || skillIndex >= catalog.Count || supportIndex < 0 || supportIndex >= supports.Count)
+            return false;
+        var skill = catalog[skillIndex];
+        if (skill.Kind == SurvivorsSkillKind.Herald) return false;
+        if (Supports.Of(skill.Effect) is not { } target) return false;
+        if (Supports.Of(supports[supportIndex].Effect) is not { Support: true } support) return false;
+        return GemSupports.Compatible(support, target.Types.ToHashSet(), target.MinionTypes, weapon: null);
+    }
+
+    /// <summary>The offer pairs a support with a learned skill only when the game's type rules allow the link.</summary>
+    internal static Func<int, int, bool> SurvivorsLinkRule(ClientState conn) => (skill, support) =>
+        SurvivorsCanSupport(conn, skill, support);
+
     // BaseItemTypes rows for skill gems, read once; a table without the key yields an empty catalogue.
     static IReadOnlyList<string> SurvivorsGemPaths(ClientState conn) =>
         [.. ItemsFor(conn).All.Where(t => t.Supported && t.Id.Contains("SkillGem", StringComparison.Ordinal)).Select(t => t.Id)];
@@ -492,6 +514,12 @@ static partial class Game
                 await conn.Commands!.Reply("Usage: /survivors link <support name>, e.g. /survivors link added cold.");
                 return;
             }
+            if (!SurvivorsCanSupport(conn, target, support))
+            {
+                await conn.Commands!.Reply(
+                    $"{linkCatalog[support].Name} cannot support {linkSkills[target].Name} (the game's skill types).");
+                return;
+            }
             await conn.Commands!.Reply(linked.Link(target, support)
                 ? $"Linked {linkCatalog[support].Name} to {linkSkills[target].Name} (dev)."
                 : $"Could not link {linkCatalog[support].Name}: the skill already has five supports.");
@@ -509,6 +537,62 @@ static partial class Game
             bool equipped = await SurvivorsEquip(remote, stream, ciphers, conn, unique);
             await conn.Commands!.Reply(equipped
                 ? $"Equipped {wanted} (dev)." : $"{wanted} could not be equipped.");
+            return;
+        }
+        // Dev: the full gem x support matrix through the same computation the live cast uses, so every support's
+        // number can be checked without waiting for a level-up offer or a live cast.
+        if (what == "matrix")
+        {
+            var matrixCatalog = SurvivorsCatalogFor(conn);
+            string wanted = string.Join(' ', args.Skip(1)).Trim().ToLowerInvariant();
+            int index = wanted.Length == 0 && conn.Survivors is { } active
+                ? active.Skills.Keys.OrderBy(k => k).DefaultIfEmpty(-1).First()
+                : matrixCatalog.ToList().FindIndex(s => s.Name.ToLowerInvariant().Contains(wanted));
+            if (index < 0 || index >= matrixCatalog.Count)
+            {
+                await conn.Commands!.Reply("Usage: /survivors matrix <gem>, e.g. /survivors matrix fireball.");
+                return;
+            }
+            conn.SurvivorsCatalog ??= matrixCatalog;
+            conn.SurvivorsSupports ??= SurvivorsSupportsFor(conn);
+            var matrixSupports = conn.SurvivorsSupports!;
+            var roster = SurvivorsRosterFor(conn) ?? new SurvivorsRoster([], [], 1, 20);
+            var skill = matrixCatalog[index];
+            SurvivorsRun Bare()
+            {
+                var run = new SurvivorsRun();
+                run.Learn(index);
+                return run;
+            }
+            if (SurvivorsComputeCast(conn, Bare(), skill, 1, index, roster) is not { } bare)
+            {
+                await conn.Commands!.Reply($"{skill.Name} has no cast to compare.");
+                return;
+            }
+            string baseLine = bare.Herald
+                ? $"base: interval {bare.Interval:0.00}, pulse {bare.HeraldDamage}, radius {bare.HeraldRadius:0.#}"
+                : $"base: interval {bare.Interval:0.00}, radius {bare.Profile?.Radius:0.#}, " +
+                  $"speed {bare.Profile?.Speed:0.#}, crit {bare.Shot?.CriticalChance / 100.0:0.##}%, " +
+                  $"leech {bare.Shot?.Leech.Life.MinTotal:0.#}, hit {bare.Shot?.Hit}";
+            await conn.Commands!.Reply($"--- Survivors matrix: {skill.Name} rank 1 ---\n{baseLine}");
+            foreach (int support in Enumerable.Range(0, matrixSupports.Count))
+            {
+                if (!SurvivorsCanSupport(conn, index, support))
+                {
+                    await conn.Commands!.Reply($"{matrixSupports[support].Name}: cannot support {skill.Name} (skill types).");
+                    continue;
+                }
+                var linkedRun = Bare();
+                linkedRun.Link(index, support);
+                if (SurvivorsComputeCast(conn, linkedRun, skill, 1, index, roster) is not { } with) continue;
+                await conn.Commands!.Reply($"{matrixSupports[support].Name}: " +
+                    $"interval {bare.Interval:0.00}->{with.Interval:0.00}, " +
+                    $"radius {bare.Profile?.Radius:0.#}->{with.Profile?.Radius:0.#}, " +
+                    $"speed {bare.Profile?.Speed:0.#}->{with.Profile?.Speed:0.#}, " +
+                    $"crit {bare.Shot?.CriticalChance / 100.0:0.##}->{with.Shot?.CriticalChance / 100.0:0.##}%, " +
+                    $"leech {bare.Shot?.Leech.Life.MinTotal:0.#}->{with.Shot?.Leech.Life.MinTotal:0.#}, " +
+                    $"hit {bare.Shot?.Hit} -> {with.Shot?.Hit}");
+            }
             return;
         }
         // Dev: sweep the whole unique catalogue and report what can be equipped and what its mods do.
@@ -826,25 +910,10 @@ static partial class Game
     internal static async Task<double> SurvivorsCast(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         SurvivorsRun run, SurvivorsRoster roster, SurvivorsSkill skill, int rank, int skillIndex)
     {
+        if (SurvivorsComputeCast(conn, run, skill, rank, skillIndex, roster) is not { } cast) return 0;
         (int X, int Y) origin;
         List<(int X, int Y)> aims = [];
         List<(uint Id, double Distance, uint Life, int X, int Y)> inReach = [];
-        var supports = conn.SurvivorsSupports ?? [];
-        var own = SurvivorsStatsByName(conn, skill.Effect, rank);
-        var skillStats = SurvivorsSkillAndSupportStats(conn, run, skill, skillIndex, rank, supports, own);
-        var playerKeys = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        var playerStats = SurvivorsPlayerStats(playerKeys);
-        var merged = new Dictionary<string, int>(playerStats, StringComparer.Ordinal);
-        foreach (var (name, value) in skillStats) merged[name] = merged.GetValueOrDefault(name) + value;
-        int Get(string name) => merged.GetValueOrDefault(name);
-        bool spell = !skill.Attack;
-        // An attack gem swings the weapon the character actually wears (a unique weapon's local damage, attack speed and
-        // type now matter); with no weapon it falls back to the mode's nominal weapon and the gem's cast time.
-        var weapon = WeaponFor(conn);
-        bool armedAttack = skill.Attack && weapon.LocalSources is not null;
-        double baseSeconds = armedAttack ? weapon.AttackSeconds(playerKeys) : skill.CastTimeMs / 1000.0;
-        int castSpeed = armedAttack ? 0 : Get("base_cast_speed_+%") + Get("cast_speed_+%") + (spell ? Get("spell_cast_speed_+%") : 0);
-        double interval = SurvivorsFormulas.CastInterval(baseSeconds, rank, castSpeed);
         using (ProjectileMutation(conn))
         {
             double world = ProjectileWorldTime(conn);
@@ -863,39 +932,126 @@ static partial class Game
             origin = here;
         }
         // A herald is an aura pulse: every hostile around the player takes the hit, and the client plays the gem's cast.
-        if (skill.Kind == SurvivorsSkillKind.Herald)
+        if (cast.Herald)
         {
-            double radius = SurvivorsFormulas.AreaRadius(SurvivorsHeraldRadius * SurvivorsRules.SkillRadius(rank),
-                run.AreaIncreasedPercent + playerStats.GetValueOrDefault("skill_area_of_effect_+%"));
-            int heraldDamage = (int)(SurvivorsRules.SkillDamage(roster.WeaponDamage, rank) * run.DamageMultiplier
-                * (1 + playerStats.GetValueOrDefault("damage_+%") / 100.0));
             int struck = 0;
             foreach (var (id, distance, _, _, _) in inReach)
             {
-                if (distance > radius) continue;
+                if (distance > cast.HeraldRadius) continue;
                 MonsterHit? hit = null;
                 SpawnedMonster? target = null;
                 lock (conn.Monsters)
                     if (conn.Monsters.TryGetValue(id, out target) && !target.Dead && target.Life > 0)
-                        hit = ApplyMonsterHitLocked(conn, target, heraldDamage);
+                        hit = ApplyMonsterHitLocked(conn, target, cast.HeraldDamage);
                 if (hit is not { } applied) continue;
                 struck++;
-                await NotifyMonsterHit(remote, stream, ciphers, conn, id, target!, applied, heraldDamage, skill.Name, log: false, melee: true);
+                await NotifyMonsterHit(remote, stream, ciphers, conn, id, target!, applied, cast.HeraldDamage, skill.Name, log: false, melee: true);
             }
             if (struck == 0) return 0;
+            await SurvivorsPlayCastAnimation(remote, stream, ciphers, conn, skill, cast.Interval);
             ushort heraldId = SurvivorsSkillId(skillIndex);
             await Send(remote, stream, ciphers, InstanceProtocol.InstantAction(PlayerId, heraldId, origin.X, origin.Y),
                 $"0x01ce survivors herald 0x{heraldId:x4} {skill.Name} around ({origin.X}, {origin.Y})");
-            await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, [origin], interval);
-            return interval;
+            await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, [origin], cast.Interval);
+            return cast.Interval;
         }
-        if (SurvivorsDefinition(skill) is not { } definition) return 0;
+        var profile = cast.Profile!;
+        var shot = cast.Shot!;
+        // The pick is the nearest target, or the toughest for a few named gems, up to the gem's own projectile count.
+        var pick = cast.Toughest
+            ? inReach.OrderByDescending(t => t.Life).ThenBy(t => t.Distance)
+            : inReach.OrderBy(t => t.Distance);
+        aims = [.. pick.Take(Math.Min(cast.Count, inReach.Count)).Select(t => (t.X, t.Y))];
+        if (SurvivorsTrace)
+            Console.WriteLine($"[gateway] {remote} survivors cast {skill.Name} rank {rank}: {aims.Count} aim(s) of {cast.Count}, " +
+                $"pierce {profile.Pierce}, chain {profile.Chain}, fork {profile.Fork}, radius {profile.Radius:0.#}, " +
+                $"speed {profile.Speed:0.#}, hit {shot.Hit}, crit {shot.CriticalChance / 100.0:0.##}%, " +
+                $"leech {shot.Leech.Life.MinTotal:0.#}, interval {cast.Interval:0.00} s");
+        await SurvivorsPlayCastAnimation(remote, stream, ciphers, conn, skill, cast.Interval);
+        var owner = new ProjectileActorKey(PlayerId, conn.ProjectileEpoch);
+        var runtime = ProjectilesFor(remote, stream, ciphers, conn);
+        long now = ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds);
+        foreach (var aim in aims)
+        {
+            var use = new ProjectileUse(profile, owner, owner, 1, ProjectileSession.Vector(origin), ProjectileSession.Vector(aim))
+            { Payload = shot, ReturnAnchor = owner };
+            runtime.Schedule(now, () => true, () => use);
+        }
+        await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, aims, cast.Interval);
+        return cast.Interval;
+    }
+
+    /// <summary>
+    /// Plays a run cast's character animation with 0x1b2 kind 0: a rig clip change, not the 0x1d1 Animation.dat route,
+    /// which cancels the player's action and locks input for its duration (11-skills.md "Player hit recovery"). The
+    /// clip is the class/weapon stance's own (spell_projectile_wand, attack1_bow, ...), stretched over the cast
+    /// interval, so the character visibly casts while the run keeps moving the player.
+    /// </summary>
+    internal static async Task SurvivorsPlayCastAnimation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, SurvivorsSkill skill, double interval)
+    {
+        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO")
+            ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+        CastAnimationKind kind = skill.Kind == SurvivorsSkillKind.Herald ? CastAnimationKind.Buff
+            : skill.Attack ? CastAnimationKind.Attack
+            : Supports.Of(skill.Effect)?.Types.Contains(2) == true ? CastAnimationKind.Projectile
+            : Supports.Of(skill.Effect)?.Types.Contains(7) == true ? CastAnimationKind.Area
+            : CastAnimationKind.Projectile;
+        if (Animations.CastClip(ao, WeaponProfileFor(conn, activeSet: true), kind) is not { } clip) return;
+        float speed = interval > 0 && clip.LengthMs > 0
+            ? (float)Math.Clamp(clip.LengthMs / 1000.0 / interval, 0.1, 10) : 1;
+        await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(PlayerId, 0, clip.Index, speed),
+            $"0x01b2 survivors cast {clip.Name} ({kind}) for {skill.Name}: index {clip.Index}, " +
+            $"{clip.LengthMs} ms over {interval:0.00} s (speed {speed:0.##})");
+    }
+
+    /// <summary>One cast's computed numbers, before the live part (positions, aims, packets) needs a monster.</summary>
+    internal sealed record SurvivorsComputedCast(double Interval, SurvivorsSkill Skill, int Rank, int Count,
+        ProjectileSkillDefinition? Definition, ProjectileProfile? Profile, ProjectileOffense? Shot, bool Toughest,
+        bool Herald, int HeraldDamage, double HeraldRadius, DamagePacket? Raw = null);
+
+    /// <summary>
+    /// The pure part of a run cast: the gem's stats, its supports' stats, the character's final stats, the interval, the
+    /// projectile profile and the resolved hit. It reads no position and sends nothing, so the support matrix can be
+    /// checked for every gem and support without a live area.
+    /// </summary>
+    internal static SurvivorsComputedCast? SurvivorsComputeCast(ClientState conn, SurvivorsRun run, SurvivorsSkill skill,
+        int rank, int skillIndex, SurvivorsRoster roster)
+    {
+        var supports = conn.SurvivorsSupports ?? [];
+        var own = SurvivorsStatsByName(conn, skill.Effect, rank);
+        var skillStats = SurvivorsSkillAndSupportStats(conn, run, skill, skillIndex, rank, supports, own);
+        var playerKeys = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+        var playerStats = SurvivorsPlayerStats(playerKeys);
+        // The panel's skill_area_of_effect_+% already counts the player's base area (PanelStats); keeping the base key as
+        // well would count it twice in SkillArea.Increased.
+        playerStats.Remove(SkillArea.BaseIncreased);
+        var merged = new Dictionary<string, int>(playerStats, StringComparer.Ordinal);
+        foreach (var (name, value) in skillStats) merged[name] = merged.GetValueOrDefault(name) + value;
+        int Get(string name) => merged.GetValueOrDefault(name);
+        bool spell = !skill.Attack;
+        // An attack gem swings the weapon the character actually wears (a unique weapon's local damage, attack speed and
+        // type now matter); with no weapon it falls back to the mode's nominal weapon and the gem's cast time.
+        var weapon = WeaponFor(conn);
+        bool armedAttack = skill.Attack && weapon.LocalSources is not null;
+        double baseSeconds = armedAttack ? weapon.AttackSeconds(playerKeys) : skill.CastTimeMs / 1000.0;
+        int castSpeed = armedAttack ? 0 : Get("base_cast_speed_+%") + Get("cast_speed_+%") + (spell ? Get("spell_cast_speed_+%") : 0);
+        double interval = SurvivorsFormulas.CastInterval(baseSeconds, rank, castSpeed);
+        if (skill.Kind == SurvivorsSkillKind.Herald)
+        {
+            double radius = SurvivorsFormulas.AreaRadius(SurvivorsHeraldRadius * SurvivorsRules.SkillRadius(rank),
+                run.AreaIncreasedPercent + playerStats.GetValueOrDefault("skill_area_of_effect_+%"));
+            int damage = (int)Math.Round(SurvivorsRules.SkillDamage(roster.WeaponDamage, rank) * run.DamageMultiplier
+                * (1 + playerStats.GetValueOrDefault("damage_+%") / 100.0));
+            return new(interval, skill, rank, 0, null, null, null, false, true, damage, radius);
+        }
+        if (SurvivorsDefinition(skill) is not { } definition) return null;
         int baseSpeed = SkillsFor(conn).Projectile(definition.Metadata)?.Speed ?? 1000;
         // Riptide's Projectiles row is a 10-unit placeholder: a projectile that slow cannot cross a cell.
         if (baseSpeed < 100) baseSpeed = 800;
         double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Get, Get,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
-        if (!double.IsFinite(speed) || speed <= 0) return 0;
+        if (!double.IsFinite(speed) || speed <= 0) return null;
         var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(conn, skill.Effect));
         profile = SurvivorsMechanics(skill, Get, profile, spell);
         int count = Math.Clamp(profile.Count, 1, 32);
@@ -936,7 +1092,7 @@ static partial class Game
             raw = SpellDamage.WithEffectiveness(nominal, effectiveness)
                 .Add(added.Scale(roster.SkillScale));
         }
-        if (raw.IsZero) return 0;
+        if (raw.IsZero) return null;
 
         var mergedKeys = SurvivorsKeyStats(merged);
         var skillKeys = SurvivorsKeyStats(skillStats);
@@ -950,7 +1106,7 @@ static partial class Game
             supportModifiers: supportMods);
         var areaHit = PlayerHitDamage.Resolve(raw, Get, conversion, spell, area: true, projectile: true,
             supportModifiers: supportMods);
-        if (hitDamage.IsZero && areaHit.IsZero) return 0;
+        if (hitDamage.IsZero && areaHit.IsZero) return null;
 
         // The character's penetration, resistance modifiers and leech join the run's hit exactly as they join a gem's.
         var local = spell ? null : weapon.LocalSources;
@@ -973,8 +1129,8 @@ static partial class Game
             CriticalChance: crit, CriticalMultiplier: multiplier, Label: skill.Name)
         {
             AreaHit = areaHit,
-            // The client draws the shot: one instant action per target (0x1ce) runs the gem's own use there, so the
-            // server's matching projectile is simulated but sends no object of its own.
+            // The survivor projectile is the server's own (ClientPredicted=false), so it carries its flight and impact
+            // clips; the client's instant action only starts the bar's cooldown and the cast animation.
             Effect = skill.Effect, Level = rank, ClientPredicted = false, HitPacket = true,
             SkillStats = skillKeys,
             Penetration = Penetration.Of(playerKeys, Stats, attack: !spell, skillKeys, local),
@@ -985,26 +1141,30 @@ static partial class Game
             Leech = LeechSources.From(Get, skill.Attack),
             SecondFormCriticalChance = secondForm,
         };
-        // The pick is the nearest target, or the toughest for a few named gems, up to the gem's own projectile count.
-        var pick = SurvivorsAimsToughest(skill)
-            ? inReach.OrderByDescending(t => t.Life).ThenBy(t => t.Distance)
-            : inReach.OrderBy(t => t.Distance);
-        aims = [.. pick.Take(Math.Min(count, inReach.Count)).Select(t => (t.X, t.Y))];
-        if (SurvivorsTrace)
-            Console.WriteLine($"[gateway] {remote} survivors cast {skill.Name} rank {rank}: {aims.Count} aim(s) of {count}, " +
-                $"pierce {profile.Pierce}, chain {profile.Chain}, fork {profile.Fork}, radius {profile.Radius:0.#}, " +
-                $"hit {hitDamage}, crit {crit / 100.0:0.##}%, interval {interval:0.00} s");
-        var owner = new ProjectileActorKey(PlayerId, conn.ProjectileEpoch);
-        var runtime = ProjectilesFor(remote, stream, ciphers, conn);
-        long now = ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds);
-        foreach (var aim in aims)
+        // The client draws the projectile's own flight and impact clips (projectile-clips.json): an impact clip is the
+        // skill's hit animation. Fireball and Kinetic Blast also carry the area effect their data names.
+        if (MonsterProjectilePresentation(SkillsFor(conn).Clips(definition.Metadata),
+                SurvivorsRules.Range / Math.Max(0.01, speed)) is { } presentation)
         {
-            var use = new ProjectileUse(profile, owner, owner, 1, ProjectileSession.Vector(origin), ProjectileSession.Vector(aim))
-            { Payload = shot, ReturnAnchor = owner };
-            runtime.Schedule(now, () => true, () => use);
+            shot = shot with { Presentation = presentation };
+            if (SurvivorsTrace)
+                Console.WriteLine($"[gateway] survivors {skill.Name}: projectile {definition.Metadata} " +
+                    $"flight clip {presentation.FlightClip?.ToString() ?? "default"}, impact clip {presentation.ImpactClip?.ToString() ?? "none"}");
         }
-        await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, aims, interval);
-        return interval;
+        if (GatewayProjectileSkillProfiles.IsFireball(definition.Metadata))
+        {
+            string ao = Art.AnimatedInPlaceOf(DefaultProjectileImpactAo, 0);
+            shot = shot with { Presentation = (shot.Presentation ?? new ProjectilePresentation()) with
+            {
+                EffectLifetime = ProjectileRuntime.Time(1.5),
+                EventEffect = value => value.Kind == ProjectileEventKind.Area ? ao : null,
+            } };
+        }
+        else if (Skills.EffectId(skill.Effect) is { } effectId && GatewayProjectileSkillProfiles.IsKineticBlast(effectId))
+            shot = shot with { AreaVisual = Art.AnimatedInPlaceOf(KineticBlastExplosionAo, 0),
+                Presentation = (shot.Presentation ?? new ProjectilePresentation()) with
+                { EffectLifetime = ProjectileRuntime.Time(.35) } };
+        return new(interval, skill, rank, count, definition, profile, shot, SurvivorsAimsToughest(skill), false, 0, 0, raw);
     }
 
     /// <summary>
@@ -1342,7 +1502,8 @@ static partial class Game
         if (!ReferenceEquals(conn.Survivors, run) || !run.NeedsOffer) return;
         var blessings = SurvivorsBlessingsFor(conn);
         var supports = SurvivorsSupportsFor(conn);
-        var offer = run.DealOffer(Random.Shared, catalog.Count, blessings.Count, supports.Count, SurvivorsItemPool(conn, run));
+        var offer = run.DealOffer(Random.Shared, catalog.Count, blessings.Count, supports.Count,
+            SurvivorsItemPool(conn, run), SurvivorsLinkRule(conn));
         if (offer.Count == 0) return;
         var items = ItemsOf(conn);
         var uniques = UniquesFor(conn).All;

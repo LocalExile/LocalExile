@@ -162,6 +162,22 @@ public class SurvivorsRunTests
     }
 
     [Fact]
+    public void An_offer_only_pairs_a_support_with_a_skill_the_rule_allows()
+    {
+        var run = new SurvivorsRun();
+        run.Learn(0);
+        run.Learn(1);
+        run.RecordKill(MonsterRarity.Unique);
+        var allowed = new HashSet<(int Skill, int Support)> { (0, 2), (1, 1) };
+
+        var offer = run.DealOffer(new Random(1), 2, 0, 4, null, (skill, support) => allowed.Contains((skill, support)));
+
+        var supports = offer.Where(c => c.Kind == SurvivorsChoiceKind.Support).ToList();
+        Assert.Equal(2, supports.Count);
+        Assert.All(supports, c => Assert.Contains((c.Target, c.Index), allowed));
+    }
+
+    [Fact]
     public void Blessings_change_the_run_numbers()
     {
         var run = new SurvivorsRun();

@@ -53,8 +53,41 @@ damage number:
   recognized stat, 0 missing Mods.dat rows; only Tabula Rasa has no stat (its identity is white sockets).
   `UniqueCatalogueTests` locks this in CI.
 - **Dev commands:** `/survivors unique <name>` equips a named unique; `/survivors uniques` sweeps the catalogue.
-- Remaining: DOT components, cast animations, the support x gem matrix, and unique mechanics that are conditional
-  rather than plain stats (per charge/at full life/on block).
+- Remaining: DOT components and unique mechanics that are conditional rather than plain stats (per charge, at full
+  life, on block).
+
+## Update: support matrix and all skill animations (2026-11-03)
+
+- **Support links follow the game's skill types.** `GemSupports.Compatible` now decides whether a support can support a
+  run skill; the level-up offer only pairs legal links and `/survivors link` refuses an illegal one by name. Heralds
+  take no supports (the real gem is a buff, not the run's pulse).
+- **The full matrix is tested.** `SurvivorsComputeCast` is the pure half of the live cast (stats, interval, profile,
+  hit, crit, leech, herald pulse); `SurvivorsSupportMatrixTests` walks every run skill x every support through it and
+  asserts each support's own number moves: Added Fire 25% of physical as fire, Added Cold 4-6 x effectiveness,
+  Added Lightning 1-8 x effectiveness, Faster Casting interval, Increased Area radius, Increased Critical +2% base and
+  +60%, Faster Projectiles 50% speed + 20% damage, Life Leech 200 permyriad. Every projectile skill has 6-8 compatible
+  supports, and the test fails if one drops below five.
+- **Live matrix evidence** (`/survivors matrix`): Ethereal Knives `Physical 7-11` -> Added Fire `Fire 1.75-2.75`, Added
+  Cold `Cold 8.4-12.6`, Added Lightning `Lightning 2.1-16.8`, crit `10 -> 19.2%`, Faster Projectiles speed `257.6 ->
+  386.4` and hit `7-11 -> 8.4-13.2`, Life Leech `0 -> 1000`; Fireball `Fire 9-14` -> Added Cold `12-18`, Added
+  Lightning `3-24`, area radius `6.9 -> 7.3`, crit `5 -> 11.2%`, Faster Projectiles speed `95.7 -> 143.5` and hit
+  `9-14 -> 10.8-16.8`; Tornado Shot `Physical 10.35-20.7` -> Added Fire `Fire 2.59-5.18`; Faster Casting and
+  Increased Area correctly refuse attacks. The test character's tree floors every interval at 0.2 s, so its Faster
+  Casting row is the only one that cannot move live; the bare-character matrix test proves the formula.
+- **Area double count fixed.** The panel's `skill_area_of_effect_+%` already contains the player's
+  `base_skill_area_of_effect_+%`; the cast removes the duplicate before `SkillArea.Increased`.
+- **Cast animations.** Each cast sends `0x1b2` kind 0 with the class/weapon stance's rig clip
+  (`attack1_<weapon>`, `spell_projectile_<weapon>`, `spell_aoe_<weapon>`, `spell_buff_<weapon>`, unarmed fallback),
+  stretched over the cast interval. `0x1d1` was rejected: it cancels the player's action and locks input. The extractor
+  now writes each class's rig `indices` (`animation-contacts` version 4, `extractor version 4`, `GameDataFiles.Needed`).
+  Live: Fireball `spell_projectile_unarmed` index 386, Tornado Shot `attack1_unarmed` index 28, Storm Burst
+  `spell_aoe_unarmed` index 335, Herald of Ash `spell_buff_unarmed` index 367, each with its speed.
+- **Projectile and hit animations.** The server-drawn survivor projectile now carries the projectile type's flight and
+  impact clips from `projectile-clips.json` (Fireball impact 1, Spark impact 0, ...); Fireball plays its area explosion
+  and Kinetic Blast its cluster visual. A live Fireball trace shows `projectile Metadata/Projectiles/Fireball ...
+  impact clip 1`.
+- **New dev command** `/survivors matrix [gem]` prints every support's effect through the live cast's computation.
+- Build 0/0; Core 462, Data 45, Gateway 76 tests pass.
 
 ## Where everything is
 
