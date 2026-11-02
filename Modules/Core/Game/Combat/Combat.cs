@@ -62,9 +62,11 @@ static partial class Game
         Math.Max(TickSeconds, SkillAttackTiming.ForSkill(SkillsFor(conn), effect, level, WeaponFor(conn),
             CharacterPlayerStats(conn)) / PlayerActionFactor(conn));
 
-    internal static bool AttackReady(ClientState conn, int effect, int level, out double seconds)
+    internal static bool AttackReady(ClientState conn, ushort skillId, int effect, int level, out double seconds)
     {
-        seconds = SkillAttackSeconds(conn, effect, level);
+        // The supported skill's own speed includes its gem/support inputs; the generic fallback is for callers without
+        // a skill id (ordinary weapon timing). Keep the gate and the interval CastGemSkill reserves on the same value.
+        seconds = skillId != 0 ? SupportedAttackSeconds(conn, skillId) : SkillAttackSeconds(conn, effect, level);
         double now = conn.Clock.Elapsed.TotalSeconds;
         lock (conn.Monsters) return AttackTiming.Ready(now, conn.NextAttackAt, seconds);
     }
@@ -361,7 +363,7 @@ static partial class Game
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
         if (gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
         {
-            if (!AttackReady(conn, gem.Effect, gem.Level, out double attackSeconds))
+            if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                 return;
