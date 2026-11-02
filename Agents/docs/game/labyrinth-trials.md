@@ -426,6 +426,24 @@ Each `1_Labyrinth_*` area (WorldAreas `IsLabyrinthArea`) gets the trials' traps,
 plaque, flag or portal (`LabyrinthTrials.InLabyrinth`). Their objects are the Gateway's generated rooms' lines
 (`ServerLevels`): `room-points.json` keeps only the Labyrinth's rooms with points, not its trap rooms.
 
+**Tile objects.** The Labyrinth's tiles place server objects of their own (`AreaObjects.TileObjects`, not room
+lines, so without links): the ElegantHouse doorways' roller traps (`LabyrinthRollerTrap`, `_02`, `_03`), most abyss
+edge blades, `LabyrinthSmashableDoor` and `HiddenDoor_Long` (`ServerLevels.Level.TileLabyrinthObjects`, after the
+room objects). The rollers have the cascade trap's components, at their tile line's
+height (the first hangs 226 up, under the lintel). The first (`elegant_doorway_trap.ao`) is a spinning roller: the
+Gateway plays its rig clips by 0x1b2 (`down`, `idle_bottom` for its .ot's `base_skill_effect_duration` 3.5 s, `up`,
+then `idle_top`, by their order in its rig.amd), and while down it closes the doorway and cuts whoever is by it as a
+roomba does. `_02` and `_03` are spikes rising from the floor, played by their clips too (`up`, `idle_up` for
+`trap_idle_duration`, `down_medium`; their sounds are on these, none on `spike`): a spike trap's hit and bleed each
+strike: `_03` once, at `up`'s contact; `_02`, whose spikes are long and reach beside the doorway too (±7 cells across, its wall only
+its Hull's ±2.5), rising at `up`'s
+`contact` and swinging at its `secondary` and at each round's `secondary` of `idle_up` (625 ms) while out (live
+2026-11-01: it rises and swings four times, one hit a swing; `LabyrinthTrials.RisingSpikes`). Each strikes a player in the strip once, until the next, and throws them a little
+back. They keep the doorway closed until back down. The tiles' blades swing as the rooms'. Live
+(2026-11-01, the original): every tile trap closes its doorway or strip while out, throws a player it hits a little
+back, and stays hidden a good while between goes (`LabyrinthTrials.TileTrapRestSeconds`: 5 s, ours). Their traps run
+apart from the rooms' (`SpawnTileTraps`), each starting its own while after the area's start.
+
 **Mirrored rooms** (orientation codes 4–7) mirror a line's angle only, and the client draws a server object
 unmirrored, so a corner piece (`spinner_rail_corner`, `SpinnerStopper_Corner`) is sent a quarter turn back
 (`LabyrinthTrials.PlacedAngle`): a mirrored L is the L turned a quarter (live 2026-11-01: corners faced away).

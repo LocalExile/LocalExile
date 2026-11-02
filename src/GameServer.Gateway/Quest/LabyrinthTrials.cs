@@ -1001,14 +1001,18 @@ static class LabyrinthTrials
     /// team 14, its own model, unblocked, state 1, one life, and no skills (it fires with the Emerge basic action, whose
     /// clip is its <c>spike_fast</c>).</summary>
     /// <remarks>A pressure spike trap (<see cref="IsPressureSpikeTrap"/>) reads Transitionable before
-    /// TriggerableBlockage.</remarks>
-    public static byte[] SpikeTrapBlob(int x, int y, string? type = null)
+    /// TriggerableBlockage. A doorway roller (<see cref="IsRoller"/>) has the cascade trap's components, at its angle and
+    /// its tile line's height.</remarks>
+    public static byte[] SpikeTrapBlob(int x, int y, string? type = null, float angle = 0, float? height = null)
     {
         var w = new BlobWriter().U8(0).U8(0);
         bool pressure = type is not null && IsPressureSpikeTrap(type);
         // A pressure trap's object_size 11 made it a wall round its tile (live 2026-11-01): flags1 0x08 with its u8, blocks
         // no walker (the doors' too, Blob).
-        w.I32(x).I32(y).U32(0).U16(14).U8(0).U8((byte)(pressure ? 0x0a : 0x02)).U8(0).U8(1); // Positioned
+        // f0 0x04: a fixed height (a doorway roller's tile line), as Blob sends the plates'.
+        w.I32(x).I32(y).F32(angle).U16(14).U8((byte)(height is null ? 0 : 0x04)).U8((byte)(pressure ? 0x0a : 0x02));
+        if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+        w.U8(0).U8(1);                                                  // Positioned
         if (pressure) w.U8(1);
         w.U8(0);                                                        // Animated: the .ot's
         if (pressure) w.U8(1).U8(0);                                    // Transitionable, TriggerableBlockage: unblocked
@@ -1030,6 +1034,71 @@ static class LabyrinthTrials
     public static bool IsEdgeBlade(string type) => type.StartsWith(EdgeBladePrefix, StringComparison.Ordinal);
 
     public const double EdgeBladeClipSeconds = 1.8, EdgeBladeImpactSeconds = 0.601;
+
+    /// <summary>The ElegantHouse doorways' roller traps (tile objects: <c>LabyrinthRollerTrap</c>, <c>_02</c>, <c>_03</c>,
+    /// each with its own <c>elegant_doorway_trap*.ao</c> rig). A spike trap's .ot (<c>is_spike_trap</c>, its hit
+    /// <c>LbRetractableTrap</c>, 100% knockback, no bleed) whose Emerge plays <c>spike</c>: the roller slides down,
+    /// spins and goes back up (live 2026-11-01, the original: on a timer).</summary>
+    public const string RollerPrefix = "Metadata/Terrain/Labyrinth/Traps/LabyrinthRollerTrap";
+
+    public static bool IsRoller(string type) => type.StartsWith(RollerPrefix, StringComparison.Ordinal);
+
+    /// <summary>Whether it is the first roller, a spinning roller that hangs under the lintel (its tile line 226 up) and
+    /// drops to close the doorway (live 2026-11-01, the original: it cuts whoever is near it for as long as it is down,
+    /// as a roomba); <c>_02</c> and <c>_03</c> are spikes that rise from the floor and strike, <c>_02</c> twice.</summary>
+    public static bool IsDroppingRoller(string type) => type == RollerPrefix;
+
+    /// <summary>The dropping roller's rig clips (<c>doorway spikes/rig.amd</c>, by their order there; 0x1b2 kind 0 plays
+    /// one): <c>down</c> (1000 ms, on the floor at 541), <c>idle_bottom</c>, <c>idle_top</c> (its rest, the .act's Idle),
+    /// <c>up</c> (2041 ms, off the floor at 624).</summary>
+    public const uint RollerDownClip = 0, RollerBottomClip = 1, RollerTopClip = 3, RollerUpClip = 5;
+    public const double RollerDownSeconds = 1, RollerLandsSeconds = 0.541, RollerUpSeconds = 2.041, RollerLiftsSeconds = 0.624;
+
+    /// <summary>How long the dropping roller stays down: its .ot's <c>base_skill_effect_duration</c> (3500 ms; our
+    /// reading).</summary>
+    public const double RollerHoldSeconds = 3.5;
+
+    /// <summary>The rising spikes' rig clips (<c>doorway spikes_02</c>, <c>_03/rig.amd</c>, by their order there; their
+    /// .ao's sounds are on these, none on <c>spike</c>): <c>down_medium</c> (back into the floor), <c>idle_bottom</c> (their
+    /// rest, the .act's Idle), <c>idle_up</c> (out), <c>up</c> (rising).</summary>
+    public const uint SpikesDownClip = 1, SpikesRestClip = 3, SpikesOutClip = 4, SpikesUpClip = 6;
+
+    /// <summary>A rising roller's go: its <c>up</c> clip (2041 ms, <c>_03</c> 1960), out for the .ot's
+    /// <c>trap_idle_duration</c> (2000 ms, 800) looping <c>idle_up</c>, then <c>down_medium</c> (2458 ms, 1960), and its
+    /// strikes, one a swing at its clips' contacts: <c>_03</c> once, at <c>up</c>'s (160 ms); <c>_02</c> rising at
+    /// <c>up</c>'s <c>contact</c> (208 ms), swinging at its <c>secondary</c> (1291 ms) and at each round's
+    /// <c>secondary</c> of <c>idle_up</c> (250 of 625 ms, with its sound) while out. Live (2026-11-01, the original):
+    /// <c>_02</c> rises and swings four times, one hit a swing; <c>_03</c> strikes once.</summary>
+    public static (double Up, double[] Strikes, double Out, double Down) RisingSpikes(string type)
+    {
+        if (type == RollerPrefix + "_03") return (1.96, [0.16], 0.8, 1.96);
+        const double up = 2.041, held = 2, round = 0.625, swing = 0.25;
+        return (up, [0.208, 1.291, .. Enumerable.Range(0, 8).Select(k => up + swing + k * round).Where(s => s < up + held)], held, 2.458);
+    }
+
+    /// <summary>How long a tile's trap stays hidden between two goes (live 2026-11-01, the original: a good while; the
+    /// user's 5 s).</summary>
+    public static double TileTrapRestSeconds = 5;
+
+    /// <summary>Where a roller hits and closes the doorway: its Hull across the doorway (the first's walk strip about
+    /// ±3.3 × ±8.4 cells, the others' projectile strips ±1.5 × ±7.5 and −2.4…0.6 × −9.5…12.6), widened to its sweep, as
+    /// half sizes for <see cref="HullCells"/> (our numbers).</summary>
+    /// <remarks><c>_02</c>'s spikes are long and reach a player beside the doorway too (live 2026-11-01): ±7 across, while
+    /// the doorway they close is its Hull's (<see cref="RollerWallHalf"/>).</remarks>
+    public static (double Across, double Along) RollerHalf(string type) => type[RollerPrefix.Length..] switch
+    {
+        "_02" => (7, 8.5),
+        "_03" => (3.5, 11),
+        _ => (3.5, 8.5),
+    };
+
+    /// <summary>The strip a roller closes while out: <see cref="RollerHalf"/>, but <c>_02</c>'s only its Hull's ±2.5
+    /// across (live 2026-11-01: a wall as wide as its reach kept the player out of it).</summary>
+    public static (double Across, double Along) RollerWallHalf(string type) => type == RollerPrefix + "_02" ? (2.5, 8.5) : RollerHalf(type);
+
+    /// <summary>How far a tile trap's hit throws the player back, away from its middle (live 2026-11-01: a little, back
+    /// from the doorway; ours), and how far beyond its strip the dropping roller throws one under it out.</summary>
+    public const double KnockbackCells = 3, ThrowOutCells = 4;
 
     /// <summary>How often a blade swings and how long after the start it first does (the server's: ours, every 3 s; a
     /// rhythm's or an offset's its number of seconds later).</summary>

@@ -24,6 +24,7 @@ static partial class QuestobjectsRules
         var notes = new List<string>();
         var links = new List<PlacedLink>();
         var all = LabyrinthRoomObjects(conn, notes, links);
+        int tilesFrom = ServerLevels.For(conn.Layout.Id, conn.Seed)?.RoomObjects.Count ?? all.Count;
         if (all.Count == 0 && !labyrinth) all = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes);
         var wiring = WireRoomObjects(conn, all, links);
         SetSwapLevers(conn, all, links);
@@ -32,7 +33,8 @@ static partial class QuestobjectsRules
             [.. all.Where(o => o.Type is LabyrinthTrials.Door or LabyrinthTrials.IntroDoor).Select(o => (o.X, o.Y))],
             [.. all.Where(o => LabyrinthTrials.Trigger(o.Type) is not null)], all, links);
         await SpawnArrowTraps(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsArrowTrap(o.Type))]);
-        await SpawnEdgeBlades(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsEdgeBlade(o.Type))]);
+        await SpawnEdgeBlades(remote, stream, ciphers, conn, [.. all.Take(tilesFrom).Where(o => LabyrinthTrials.IsEdgeBlade(o.Type))]);
+        await SpawnTileTraps(remote, stream, ciphers, conn, [.. all.Skip(tilesFrom).Where(o => LabyrinthTrials.IsEdgeBlade(o.Type) || LabyrinthTrials.IsRoller(o.Type))]);
         // The Chamber of Sins and Crypt trials' track pieces: server objects the client shows.
         foreach (var rail in all.Where(o => o.Type == LabyrinthTrials.VisibleRail))
         {
@@ -143,8 +145,11 @@ static partial class QuestobjectsRules
             return [];
         }
         links.AddRange(level.RoomLinks);
+        // The tiles' own (the doorways' rollers, the abyss edges' blades) after the rooms', whose indexes the links are.
         return [.. level.RoomObjects.Select(o => new AreaPopulation.RoomObject(o.Type, o.Model, o.X, o.Y,
-            LabyrinthTrials.PlacedAngle(o.Model, o.Rotation, o.Code), o.Scale, float.IsNaN(o.Z) ? null : o.Z, o.Code is >= 4 and < 8))];
+            LabyrinthTrials.PlacedAngle(o.Model, o.Rotation, o.Code), o.Scale, float.IsNaN(o.Z) ? null : o.Z, o.Code is >= 4 and < 8)),
+            .. level.TileLabyrinthObjects.Select(o => new AreaPopulation.RoomObject(o.Type, o.Model, o.X, o.Y, o.Rotation, o.Scale,
+                o.Z == 0 ? null : o.Z, o.Code is >= 4 and < 8))];
     }
 
     // A room area's wiring on this connection: its objects' links, and the ids its placed objects have.
@@ -799,6 +804,214 @@ static partial class QuestobjectsRules
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} abyss edge blades stopped: {ServerLog.Describe(ex)}"); }
+    }
+
+    // The Labyrinth's tiles' traps (LabyrinthTrials.TileTrapRestSeconds hidden between two goes, each its own while
+    // after the start by its place): the doorway rollers and the abyss edges' blades. While out they close their strip
+    // (0x1c6 and the server's walk estimate, as a spike trap's square, not under a player in it).
+    // The dropping roller (idle_top, down, idle_bottom, up by 0x1b2) throws a player under it out as it lands and cuts
+    // whoever is in or by its strip while down, as a roomba (ClientState.TrapDegenPerSecond, the roomba's buff and its
+    // blood). The rising spikes (LabyrinthTrials.RisingSpikes) and the blades hit a player in the strip once a strike, from
+    // the strike to the next (the last's until they are gone), with bleed, each throwing them a little back.
+    static async Task SpawnTileTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        List<AreaPopulation.RoomObject> traps)
+    {
+        if (traps.Count == 0) return;
+        var placed = new List<TileTrap>();
+        foreach (var trap in traps)
+        {
+            uint id = conn.NextObjectId++;
+            bool blade = LabyrinthTrials.IsEdgeBlade(trap.Type);
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type), blade
+                ? LabyrinthTrials.EdgeBladeBlob(trap.X, trap.Y, trap.Angle)
+                : LabyrinthTrials.SpikeTrapBlob(trap.X, trap.Y, angle: trap.Angle, height: trap.Height)), null);
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            var (across, along) = blade ? (LabyrinthTrials.EdgeBladeHalfAcross, LabyrinthTrials.EdgeBladeHalfAlong) : LabyrinthTrials.RollerHalf(trap.Type);
+            var (wallAcross, wallAlong) = blade ? (across, along) : LabyrinthTrials.RollerWallHalf(trap.Type);
+            placed.Add(new TileTrap(id, trap, across, [.. LabyrinthTrials.HullCells(trap.X, trap.Y, trap.Angle, across, along)],
+                [.. LabyrinthTrials.HullCells(trap.X, trap.Y, trap.Angle, wallAcross, wallAlong)]));
+        }
+        Console.WriteLine($"[gateway] {remote} tile traps: {placed.Count(p => LabyrinthTrials.IsRoller(p.Trap.Type))} doorway roller(s), " +
+            $"{placed.Count(p => !LabyrinthTrials.IsRoller(p.Trap.Type))} abyss edge blade(s)");
+        _ = RunTileTraps(remote, stream, ciphers, conn, placed);
+    }
+
+    // Its strip (where it hits) and its wall (the cells it closes while out: the same, but _02's narrower).
+    sealed record TileTrap(uint Id, AreaPopulation.RoomObject Trap, double Across, HashSet<(int X, int Y)> Strip, HashSet<(int X, int Y)> Wall)
+    {
+        public double Start = double.PositiveInfinity;
+        // Whether it is out, and whether its strip's cells are closed on the server's walk estimate.
+        public bool Blocked, Barred;
+        public int Struck = -1, Played = -1;
+    }
+
+    static async Task RunTileTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, List<TileTrap> traps)
+    {
+        var degen = new TrapDegen();
+        double first = conn.Clock.Elapsed.TotalSeconds + 1;
+        foreach (var t in traps) t.Start = first + (t.Trap.X * 31 + t.Trap.Y * 17) % 50 / 10.0;
+        try
+        {
+            while (!conn.Closed)
+            {
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                (int X, int Y) here;
+                lock (conn.Monsters) here = conn.Walk.Position(now);
+                bool cut = false;
+                foreach (var t in traps)
+                {
+                    if (now < t.Start) continue;
+                    double at = now - t.Start;
+                    string type = t.Trap.Type;
+                    if (LabyrinthTrials.IsDroppingRoller(type))
+                    {
+                        double hold = LabyrinthTrials.RollerDownSeconds + LabyrinthTrials.RollerHoldSeconds, end = hold + LabyrinthTrials.RollerUpSeconds;
+                        // Its clips: down, then idle_bottom, then up, then back to idle_top.
+                        int phase = at < LabyrinthTrials.RollerDownSeconds ? 0 : at < hold ? 1 : at < end ? 2 : 3;
+                        if (phase != t.Played)
+                        {
+                            t.Played = phase;
+                            uint clip = phase switch { 0 => LabyrinthTrials.RollerDownClip, 1 => LabyrinthTrials.RollerBottomClip, 2 => LabyrinthTrials.RollerUpClip, _ => LabyrinthTrials.RollerTopClip };
+                            await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(t.Id, 0, clip, 1), null);
+                        }
+                        bool down = at >= LabyrinthTrials.RollerLandsSeconds && at < hold + LabyrinthTrials.RollerLiftsSeconds;
+                        await BlockTileTrap(remote, stream, ciphers, conn, t, down, throwOut: true);
+                        if (down && NearStrip(t, here)) cut = true;
+                        if (phase == 3) (t.Start, t.Played) = (now + LabyrinthTrials.TileTrapRestSeconds, -1);
+                        continue;
+                    }
+                    bool blade = LabyrinthTrials.IsEdgeBlade(type);
+                    // A blade swings with its Emerge (blade.ao's hit, its sounds); the spikes go up, stay out and go back
+                    // down by their own clips (0x1b2), whose sounds those are.
+                    double[] strikes;
+                    double open, done;
+                    if (blade)
+                    {
+                        (strikes, open, done) = ([LabyrinthTrials.EdgeBladeImpactSeconds], LabyrinthTrials.EdgeBladeClipSeconds - 0.3, LabyrinthTrials.EdgeBladeClipSeconds);
+                        if (t.Played < 0)
+                        {
+                            t.Played = 0;
+                            await Send(remote, stream, ciphers, InstanceProtocol.ActorAnimation(t.Id, (float)LabyrinthTrials.EdgeBladeClipSeconds, LabyrinthTrials.EmergeAnimation), null);
+                        }
+                    }
+                    else
+                    {
+                        var go = LabyrinthTrials.RisingSpikes(type);
+                        // Closed until they have gone back down (live 2026-11-01: they let the player through while still out).
+                        (strikes, open, done) = (go.Strikes, go.Up + go.Out + go.Down - 0.2, go.Up + go.Out + go.Down);
+                        int phase = at < go.Up ? 0 : at < go.Up + go.Out ? 1 : at < done ? 2 : 3;
+                        if (phase != t.Played)
+                        {
+                            t.Played = phase;
+                            uint clip = phase switch { 0 => LabyrinthTrials.SpikesUpClip, 1 => LabyrinthTrials.SpikesOutClip, 2 => LabyrinthTrials.SpikesDownClip, _ => LabyrinthTrials.SpikesRestClip };
+                            await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(t.Id, 0, clip, 1), null);
+                        }
+                    }
+                    // A strike first: a player in the strip is hit, the last strike throwing them back out.
+                    int strike = at < open ? Array.FindLastIndex(strikes, s => at >= s) : -1;
+                    if (strike > t.Struck && t.Strip.Contains(here))
+                    {
+                        t.Struck = strike;
+                        await TileTrapHit(remote, stream, ciphers, conn, t, blade, now);
+                    }
+                    await BlockTileTrap(remote, stream, ciphers, conn, t, at >= strikes[0] && at < open, throwOut: false);
+                    if (at >= done) (t.Start, t.Played, t.Struck) = (now + LabyrinthTrials.TileTrapRestSeconds, -1, -1);
+                }
+                double perSecond = 0;
+                if (cut)
+                {
+                    var (lifeShare, shieldShare) = LabyrinthTrials.RoombaDamagePerSecond;
+                    lock (conn.Monsters) perSecond = conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare;
+                }
+                await degen.Set(remote, stream, ciphers, conn, perSecond, LabyrinthTrials.RoombaBuffRow(LabyrinthTrials.Roomba), "under a doorway roller");
+                await Task.Delay(SpikeTickMilliseconds);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} tile traps stopped: {ServerLog.Describe(ex)}"); }
+    }
+
+    // Whether the player is in a dropping roller's strip or within two cells of it.
+    static bool NearStrip(TileTrap t, (int X, int Y) at)
+    {
+        for (int dy = -2; dy <= 2; dy++)
+            for (int dx = -2; dx <= 2; dx++)
+                if (t.Strip.Contains((at.X + dx, at.Y + dy))) return true;
+        return false;
+    }
+
+    // A tile trap's strip closes (the client's TriggerableBlockage, the server's walk estimate) or opens. A player in it
+    // as it closes is thrown back out first (throwOut: the dropping roller), or keeps the cells under them open, as a spike
+    // trap's square does (the collision escape would throw them off).
+    // Called every tick: the cells left open under a player close once they are out of the strip.
+    static async Task BlockTileTrap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, TileTrap t, bool blocked,
+        bool throwOut)
+    {
+        bool changed = t.Blocked != blocked;
+        t.Blocked = blocked;
+        bool inside;
+        lock (conn.Monsters) inside = t.Wall.Contains(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
+        if (changed && blocked && inside && throwOut) await Knockback(remote, stream, ciphers, conn, t, outOfStrip: true);
+        lock (conn.Monsters)
+        {
+            inside = t.Wall.Contains(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
+            bool bar = blocked && !inside;
+            if (bar != t.Barred)
+            {
+                t.Barred = bar;
+                if (!bar) conn.DoorBarriers.Remove(t.Id);
+                else if (conn.Layout.Walkable is { } walkable) conn.DoorBarriers[t.Id] = t.Wall.Where(c => walkable(c.X, c.Y)).ToHashSet();
+                conn.UpdateBarrier();
+            }
+        }
+        if (changed) await Send(remote, stream, ciphers, InstanceEntities.BlockageUpdate(t.Id, blocked), null);
+    }
+
+    // A rising roller's or a blade's strike on the player in its strip: a spike's hit (a blade's its own), with the bleed,
+    // and thrown a little back.
+    static async Task TileTrapHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, TileTrap t, bool blade, double now)
+    {
+        uint life;
+        int damage;
+        lock (conn.Monsters)
+        {
+            if ((blade ? LabyrinthTrials.EdgeBladeDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum)
+                    : LabyrinthTrials.SpikeDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum)) is not int dealt
+                || TrapHitLocked(conn, dealt, now) is not uint left) return;
+            (damage, life) = (dealt, left);
+        }
+        await Knockback(remote, stream, ciphers, conn, t, outOfStrip: false);
+        if (!await PresentTrapHit(remote, stream, ciphers, conn, t.Id, $"{(blade ? "abyss edge blade" : "doorway spikes")} 0x{t.Id:x} at ({t.Trap.X}, {t.Trap.Y})", damage, life))
+            return;
+        if (blade) await SpikeBleed(remote, stream, ciphers, conn, damage, LabyrinthTrials.EdgeBladeBleedPerSecond, LabyrinthTrials.EdgeBladeBleedSeconds);
+        else await SpikeBleed(remote, stream, ciphers, conn, damage, LabyrinthTrials.SpikeBleedPerSecond, LabyrinthTrials.SpikeBleedSeconds);
+    }
+
+    // Throws the player across a tile trap's strip, back the way they stand from its middle: a hit's
+    // LabyrinthTrials.KnockbackCells, or (outOfStrip) out of it, LabyrinthTrials.ThrowOutCells beyond; onto a walkable cell,
+    // the other way if not; nowhere to go, they stay.
+    static async Task Knockback(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, TileTrap t, bool outOfStrip)
+    {
+        (int X, int Y) to;
+        lock (conn.Monsters)
+        {
+            var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            double cos = Math.Cos(t.Trap.Angle), sin = Math.Sin(t.Trap.Angle);
+            double off = (at.X - t.Trap.X) * cos + (at.Y - t.Trap.Y) * sin;
+            (int X, int Y)? found = null;
+            foreach (int side in off >= 0 ? new[] { 1, -1 } : [-1, 1])
+            {
+                double push = outOfStrip ? side * (t.Across + LabyrinthTrials.ThrowOutCells) - off : side * LabyrinthTrials.KnockbackCells;
+                var cell = ((int)Math.Round(at.X + push * cos), (int)Math.Round(at.Y + push * sin));
+                if (conn.Layout.Walkable is { } walk && walk(cell.Item1, cell.Item2) && (!outOfStrip || !t.Strip.Contains(cell))) { found = cell; break; }
+            }
+            if (found is not { } cellTo) return;
+            to = cellTo;
+            Interlocked.Increment(ref conn.ActionCount);
+            conn.Walk.Teleport(to.X, to.Y, conn.Clock.Elapsed.TotalSeconds);
+        }
+        await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(PlayerId), null);
+        await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"0x01b7 thrown back from tile trap 0x{t.Id:x} to ({to.X}, {to.Y})");
     }
 
     // A pressure spike trap's click: spiketrap_trigger.ao, whose default clip plays the Trigger sound, as an effect object
@@ -1492,6 +1705,9 @@ static partial class QuestobjectsRules
     sealed class TrapDegen
     {
         (ushort Instance, ushort Row)? shown;
+        // This trap runner's share of ClientState.TrapDegenPerSecond: the runners (hot plates, roombas, doorway rollers)
+        // add theirs up, so one out of its traps does not cancel another's.
+        double mine;
 
         // This tick's degeneration (0 out of the trap) and buff row: the buff swapped as the row changes, and the client's
         // recovery rates sent again on entering and leaving (PlayerStatsUpdateAtGate).
@@ -1502,9 +1718,11 @@ static partial class QuestobjectsRules
             ushort instance = 0;
             lock (conn.Monsters)
             {
-                was = conn.TrapDegenPerSecond > 0;
-                conn.TrapDegenPerSecond = conn.PlayerLife == 0 ? 0 : perSecond;
-                degen = conn.TrapDegenPerSecond > 0;
+                was = mine > 0;
+                if (conn.PlayerLife == 0) perSecond = 0;
+                conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - mine + perSecond);
+                mine = perSecond;
+                degen = mine > 0;
                 if (!degen) row = null;
                 if (row is not null && shown?.Row != row) instance = conn.NextBuff++;
             }

@@ -30,6 +30,9 @@ static class ServerLevels
         /// seals, levers, doors, altars and quest chests. <see cref="QuestObjects"/> keeps a1q4's types only, as the
         /// recorder captures them (the level generator's gate compares those).</summary>
         public IReadOnlyList<PlacedTileObject> TileQuestObjects { get; init; } = [];
+        /// <summary>The Labyrinth's objects its tiles place (server-only, as the room lines): the ElegantHouse doorways'
+        /// roller traps, the abyss edges' blades, the smashable and hidden walls.</summary>
+        public IReadOnlyList<PlacedTileObject> TileLabyrinthObjects { get; init; } = [];
         /// <summary>The server objects of the placed rooms and the objects their point lists name (AreaObjects.RoomObjects):
         /// the quest engine's places for room objects data/room-points.json does not keep (QuestObjectTypes.AreaPlacements).</summary>
         public IReadOnlyList<PlacedTileObject> RoomObjects { get; init; } = [];
@@ -248,6 +251,7 @@ static class ServerLevels
                 TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
                 Exits = exits.Exits, Entrances = exits.Entrances,
                 TileQuestObjects = AreaObjects.TileObjects(files, result, QuestObjectTypes.IsTileQuestObject),
+                TileLabyrinthObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/Terrain/Labyrinth/", StringComparison.Ordinal)),
                 RoomObjects = AreaObjects.RoomObjects(result, points: true, links: roomLinks),
                 RoomLinks = roomLinks,
             };
