@@ -127,8 +127,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
   1. The trial traps in the Labyrinth's own rooms: the trials' kinds run there ([status](../status/world.md),
-     "Trials of Ascendancy"); left are the rooms' own kinds: `LabyrinthAbyssEdgeBlade` and the
-     `Door_Counter` puzzles, then the rooms' monsters
+     "Trials of Ascendancy"); left are the rooms' `Door_Counter` puzzles, then their monsters
      ([labyrinth-trials](../docs/game/labyrinth-trials.md), "The Labyrinth's own rooms").
   2. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra
      data (`0x141ec7220`: seed, node, difficulty; [03](../docs/protocol/03-area-and-world.md)).

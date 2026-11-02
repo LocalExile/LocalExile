@@ -427,6 +427,15 @@ the client wall the player off round them until Positioned flags1 0x08 (blocks n
 rises about 1 s later, on its own; it fires again only after the player steps off it and on again.
 `LabyrinthCascadeSpikeTrap_EH` (`spiketrap_house.ao`) is the trial's cascade trap.
 
+**Abyss edge blades** (`LabyrinthAbyssEdgeBlade`, `_Rhythm1`–`3`, `_Offset1s`, `_Offset2s`: one .ot; `_Short` with
+`ShatteredAbyssEdgeBlade.ao`; Positioned, BaseEvents, Animated, TriggerableBlockage, Pathfinding, Stats, Buffs, Life,
+Transitionable, Actor). Emerge plays `blade.ao`'s `hit`: the swing at 421 ms, the impact at 601, the end at 1795.
+At the impact a player in the blade's strip (its Hull, about ±2.4 × 25 cells along its angle, widened to ±4 × 28: live,
+a little wider than the Hull) takes `LbEdgeTrap`'s hit (25% of life, 15% of energy shield, 20% more against players)
+and bleeds: the spike's bleed with its −45% damage and −40% duration (3 s). The timers are the server's: ours, every
+3 s, `_Rhythm2` / `_Offset1s` 1 s later, `_Rhythm3` / `_Offset2s` 2 s. Live (2026-11-01, the original): the rhythm
+matches.
+
 **Dart traps** (`LabyrinthTrials.Volley`). The rooms' wall darts (`walldart_*.ao`: `LabyrinthArrowTrap_Single`,
 `_SingleSlow`, `_SingleSlowOffset`, `_Delayed`, `_Triggered`) shoot one dart ahead (`projectiles_nova 0`); the
 `AlternateArrowTraps/` turrets a spiral nova (`base_number_of_projectiles_in_spiral_nova` darts over
@@ -530,6 +539,5 @@ trial, before the player object is sent; which event sets it in the real game is
 ## Not built yet
 
 - The step-triggered spikes of Izaro's rooms, and the hot plates' Cruel and Merciless rooms.
-- The Labyrinth's `LabyrinthAbyssEdgeBlade` blades, `Door_Counter`
-  puzzles and its rooms' monsters (the ElegantHouse rooms' Immolators among them).
+- The Labyrinth's `Door_Counter` puzzles and its rooms' monsters (the ElegantHouse rooms' Immolators among them).
 - The Eternal trials' plaques drop an Offering to the Goddess.

@@ -925,6 +925,59 @@ static class LabyrinthTrials
         return w.U8(0).ToArray();                                       // tasks
     }
 
+    /// <summary>The Labyrinth's rooms' blades at an abyss's edge (<c>LabyrinthAbyssEdgeBlade</c> and its <c>_Rhythm1</c>–
+    /// <c>3</c>, <c>_Offset1s</c>, <c>_Offset2s</c>, <c>_Short</c>: one .ot, <c>_Short</c> with
+    /// <c>ShatteredAbyssEdgeBlade.ao</c>). Its Emerge plays <c>blade.ao</c>'s <c>hit</c>: the mechanism at 0 ms, the swing
+    /// at 421, the impact at 601 (the blade line's particles), the end at 1795.</summary>
+    public const string EdgeBladePrefix = "Metadata/Terrain/Labyrinth/Traps/LabyrinthAbyssEdgeBlade";
+
+    public static bool IsEdgeBlade(string type) => type.StartsWith(EdgeBladePrefix, StringComparison.Ordinal);
+
+    public const double EdgeBladeClipSeconds = 1.8, EdgeBladeImpactSeconds = 0.601;
+
+    /// <summary>How often a blade swings and how long after the start it first does (the server's: ours, every 3 s; a
+    /// rhythm's or an offset's its number of seconds later).</summary>
+    public static (double Period, double Delay) EdgeBladeTimer(string type) => type[EdgeBladePrefix.Length..] switch
+    {
+        "_Rhythm2" or "_Offset1s" => (3, 1),
+        "_Rhythm3" or "_Offset2s" => (3, 2),
+        _ => (3, 0),
+    };
+
+    /// <summary>Where a blade cuts: its Hull's walk strip (<c>blade.ao</c>: about ±2.4 cells across, −11 to 14 along its
+    /// angle), widened to its swing (live 2026-11-01, the original: a little wider than the Hull), as half sizes for
+    /// <see cref="HullCells"/>.</summary>
+    public const double EdgeBladeHalfAcross = 4, EdgeBladeHalfAlong = 14;
+
+    /// <summary>A blade's hit bleeds (live 2026-11-01, the original): the spike's bleed (<see cref="SpikeBleedPerSecond"/>,
+    /// 5 s) with <c>LbEdgeTrap</c>'s <c>active_skill_bleeding_damage_+%_final</c> −45 and <c>base_bleed_duration_+%</c>
+    /// −40.</summary>
+    public const double EdgeBladeBleedPerSecond = SpikeBleedPerSecond * (1 - 0.45), EdgeBladeBleedSeconds = 5 * (1 - 0.4);
+
+    /// <summary>A blade's hit on a player (GrantedEffectStatSets <c>LbEdgeTrap</c>: 25% of maximum life plus 15% of
+    /// maximum energy shield, 20% more against players), read as the spike trap's (<see cref="SpikeDamage"/>).</summary>
+    public static int? EdgeBladeDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(EdgeStats.Value, maxLife, maxEnergyShield);
+
+    static readonly Lazy<(int Life, int EnergyShield, int VsPlayers)?> EdgeStats = new(() => TrapStats("LbEdgeTrap"));
+
+    /// <summary>A blade's 0x2b9 blob (Positioned, BaseEvents, Animated, TriggerableBlockage, Pathfinding, Stats, Buffs, Life,
+    /// Transitionable, Actor): the room line's angle, team 14, flags1 0x08 (blocks no walker, as the pressure spikes),
+    /// the .ot's model, unblocked, one life, state 1.</summary>
+    public static byte[] EdgeBladeBlob(int x, int y, float angle)
+    {
+        var w = new BlobWriter().U8(0).U8(0);
+        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x0a).U8(0).U8(1).U8(1); // Positioned
+        w.U8(0);                                                        // Animated: the .ot's
+        w.U8(0);                                                        // TriggerableBlockage: unblocked
+        w.Stats(null).U32(0).U32(0).U8(0);                              // Stats
+        w.U16(0);                                                       // Buffs
+        foreach (uint pool in new uint[] { 1, 0, 0 }) w.U32(pool).U32(0).U16(0).U32(0).U32(0);
+        w.U8(0);                                                        // Life flags
+        w.U8(1);                                                        // Transitionable
+        w.WStr32("").U16(0).U8(0).U32(0).U32(0).U8(0).U8(0);            // Actor
+        return w.U8(0).ToArray();                                       // tasks
+    }
+
     /// <summary>How often the dart traps fire (live 2026-10-31, the original's Imperial Gardens: every turret at once,
     /// about 1.5 s apart; the real timer is the server's).</summary>
     public const double ArrowVolleySeconds = 1.5;

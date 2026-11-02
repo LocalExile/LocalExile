@@ -27,6 +27,7 @@ static partial class QuestobjectsRules
             [.. all.Where(o => o.Type is LabyrinthTrials.Door or LabyrinthTrials.IntroDoor).Select(o => (o.X, o.Y))],
             [.. all.Where(o => LabyrinthTrials.Trigger(o.Type) is not null)]);
         await SpawnArrowTraps(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsArrowTrap(o.Type))]);
+        await SpawnEdgeBlades(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsEdgeBlade(o.Type))]);
         // The Chamber of Sins and Crypt trials' track pieces: server objects the client shows.
         foreach (var rail in all.Where(o => o.Type == LabyrinthTrials.VisibleRail))
         {
@@ -546,6 +547,66 @@ static partial class QuestobjectsRules
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial spike traps stopped: {ServerLog.Describe(ex)}"); }
     }
 
+    // The Labyrinth's abyss edge blades: each swings on its timer (LabyrinthTrials.EdgeBladeTimer) with its Emerge clip
+    // (0x1d1) and, at the clip's impact, hits a player in its strip once (LabyrinthTrials.EdgeBladeDamage), who bleeds.
+    static async Task SpawnEdgeBlades(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        List<AreaPopulation.RoomObject> blades)
+    {
+        if (blades.Count == 0) return;
+        var placed = new List<(uint Id, AreaPopulation.RoomObject Blade, HashSet<(int X, int Y)> Strip)>();
+        foreach (var blade in blades)
+        {
+            uint id = conn.NextObjectId++;
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(blade.Type),
+                LabyrinthTrials.EdgeBladeBlob(blade.X, blade.Y, blade.Angle)), null);
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            placed.Add((id, blade, [.. LabyrinthTrials.HullCells(blade.X, blade.Y, blade.Angle, LabyrinthTrials.EdgeBladeHalfAcross, LabyrinthTrials.EdgeBladeHalfAlong)]));
+        }
+        Console.WriteLine($"[gateway] {remote} abyss edge blades: {placed.Count} placed");
+        _ = RunEdgeBlades(remote, stream, ciphers, conn, placed);
+    }
+
+    static async Task RunEdgeBlades(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        List<(uint Id, AreaPopulation.RoomObject Blade, HashSet<(int X, int Y)> Strip)> blades)
+    {
+        double start = conn.Clock.Elapsed.TotalSeconds + 1;
+        var next = blades.Select(b => start + LabyrinthTrials.EdgeBladeTimer(b.Blade.Type).Delay).ToArray();
+        var impact = blades.Select(_ => double.PositiveInfinity).ToArray();
+        try
+        {
+            while (!conn.Closed)
+            {
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                for (int i = 0; i < blades.Count; i++)
+                {
+                    var (id, blade, strip) = blades[i];
+                    if (now >= next[i])
+                    {
+                        next[i] = Math.Max(next[i] + LabyrinthTrials.EdgeBladeTimer(blade.Type).Period, now);
+                        impact[i] = now + LabyrinthTrials.EdgeBladeImpactSeconds;
+                        await Send(remote, stream, ciphers, InstanceProtocol.ActorAnimation(id, (float)LabyrinthTrials.EdgeBladeClipSeconds, LabyrinthTrials.EmergeAnimation), null);
+                    }
+                    if (now < impact[i]) continue;
+                    impact[i] = double.PositiveInfinity;
+                    uint life;
+                    int damage;
+                    lock (conn.Monsters)
+                    {
+                        if (!strip.Contains(conn.Walk.Position(now))
+                            || LabyrinthTrials.EdgeBladeDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int dealt
+                            || TrapHitLocked(conn, dealt, now) is not uint left) continue;
+                        (damage, life) = (dealt, left);
+                    }
+                    if (await PresentTrapHit(remote, stream, ciphers, conn, id, $"abyss edge blade 0x{id:x} at ({blade.X}, {blade.Y})", damage, life))
+                        await SpikeBleed(remote, stream, ciphers, conn, damage, LabyrinthTrials.EdgeBladeBleedPerSecond, LabyrinthTrials.EdgeBladeBleedSeconds);
+                }
+                await Task.Delay(SpikeTickMilliseconds);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} abyss edge blades stopped: {ServerLog.Describe(ex)}"); }
+    }
+
     // A pressure spike trap's click: spiketrap_trigger.ao, whose default clip plays the Trigger sound, as an effect object
     // on the trap for as long as it plays.
     static async Task PressureClick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AreaPopulation.RoomObject trap)
@@ -650,24 +711,25 @@ static partial class QuestobjectsRules
     // A spike hit bleeds (LabyrinthTrials.SpikeBleedPerSecond of its damage a second, three times that while the player
     // moves, for SpikeBleedSeconds); only the strongest bleed runs, so a weaker one while another lasts is dropped. Its
     // damage goes to energy shield first, then life, in SpikeBleedTickSeconds ticks, off the traps' loop.
-    static async Task SpikeBleed(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int hit)
+    static async Task SpikeBleed(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int hit,
+        double share = LabyrinthTrials.SpikeBleedPerSecond, double seconds = LabyrinthTrials.SpikeBleedSeconds)
     {
         if (CannotBleed(conn)) return;
         var bleed = Bleeds.GetValue(conn, _ => new());
-        double perSecond = hit * LabyrinthTrials.SpikeBleedPerSecond, until;
+        double perSecond = hit * share, until;
         ushort buff;
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
             if (now < bleed.Until && bleed.PerSecond > perSecond) return;
             bool running = now < bleed.Until;
-            (bleed.PerSecond, bleed.Until) = (perSecond, until = now + LabyrinthTrials.SpikeBleedSeconds);
+            (bleed.PerSecond, bleed.Until) = (perSecond, until = now + seconds);
             buff = bleed.Buff = conn.NextBuff++;
             if (running) return;   // the running ticks take the new bleed on
         }
         if (LabyrinthTrials.BleedingBuffRow is ushort row)
             await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, buff, row,
-                u68: BitConverter.SingleToUInt32Bits((float)LabyrinthTrials.SpikeBleedSeconds)), null);
+                u68: BitConverter.SingleToUInt32Bits((float)seconds)), null);
         _ = Task.Run(async () =>
         {
             ushort shown = buff;
