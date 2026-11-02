@@ -168,9 +168,11 @@ static class NpcShops
         if (rules.SellsMaps && SellsMaps.Contains(npcId))
         {
             var mapStock = NessaMapStock.Build(items, dataFolder);
-            var maps = mapStock.Where(m => m.Item.Rarity != ItemRarity.Unique).ToList();
+            var originator = mapStock.Where(m => m.Name.StartsWith("Originator ", StringComparison.Ordinal)).ToList();
+            var maps = mapStock.Where(m => m.Item.Rarity != ItemRarity.Unique && !originator.Contains(m)).ToList();
             var uniques = mapStock.Where(m => m.Item.Rarity == ItemRarity.Unique).ToList();
             if (maps.Count > 0) AddItemPages("Maps", maps);
+            if (originator.Count > 0) AddItemPages("Originator Maps", originator);
             if (uniques.Count > 0) AddItemPages("Unique Maps", uniques);
         }
         return tabs;

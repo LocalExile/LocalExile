@@ -81,10 +81,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Exact affix prices and special league/unique recipes remain partial; real-client recipe verification is pending.
   See [vendor recipes](../docs/protocol/24-vendor-recipes.md) for supported cases and explicit limitations.
   Live visibility verification pending; see protocol/17-npcs.md.
-- **Nessa's shop tabs:** Goods contains her supplies. Maps holds one generic Map (Tier N) key for tiers 1-16, the
-  tier-17 Nightmare Map and Originator-influenced entries, and Unique Maps holds the 28 unique names with unique
-  rarity, name and artwork; both tabs paginate automatically. Full unique modifier sets and unique-area routing
-  remain open.
+- **Nessa's shop tabs:** Goods contains her supplies. Maps holds one generic Map (Tier N) key for tiers 1-16 and the
+  tier-17 Nightmare Map; Originator Maps holds a tier-16 and a Nightmare map with the `MapZanaInfluenced` implicit;
+  Unique Maps holds the 28 unique names with unique rarity, name and artwork. The three map tabs paginate
+  automatically. Full unique modifier sets and unique-area routing remain open.
   Nessa's development gem stock also splits Awakened Gems and Exceptional Gems into their own tabs; the ordinary colour
   tabs leave those out. The progression-filtered Skills tab is shown only when it has stock. The split layout is
   unit-tested; its updated native display is pending.

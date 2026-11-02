@@ -237,11 +237,11 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   (transfigured, Trarthan and creatable Vaal variants stay there). Its progression-filtered Skills tab is shown only
   when it has stock. `ItemCatalog.AwakenedShopGems` restores the whole awakened table (3.29 disables the non-exceptional
   rows for normal play); `ExceptionalShopGems` is the GemTags "exceptional" set without the awakened rows.
-  Nessa's maps are separate tabs: "Maps" has one generic `Map (Tier N)` item (`MapKeyTier1` … `MapKeyTier16`) per tier,
-  the tier-17 `Nightmare Map` (`MapKeyNightmareBoss`) and Originator-influenced entries carrying the `MapZanaInfluenced`
-  implicit; "Unique Maps" has one identified unique item per UniqueMaps name, with Words HASH32 and ItemVisualIdentity
-  HASH16. These are catalogue identities; complete unique modifier sets and unique-area device routing remain
-  unimplemented. No numbered MapWorlds catalogue is mixed into Goods.
+  Nessa's maps are separate tabs: "Maps" has one generic `Map (Tier N)` item (`MapKeyTier1` … `MapKeyTier16`) per tier
+  and the tier-17 `Nightmare Map` (`MapKeyNightmareBoss`); "Originator Maps" has a `Map (Tier 16)` and a `Nightmare Map`
+  carrying the `MapZanaInfluenced` implicit; "Unique Maps" has one identified unique item per UniqueMaps name, with
+  Words HASH32 and ItemVisualIdentity HASH16. These are catalogue identities; complete unique modifier sets and
+  unique-area device routing remain unimplemented. No numbered MapWorlds catalogue is mixed into Goods.
   Goods2, Goods3 and later pages are created automatically when needed.
   Tabs fill row by row. 0x8c's u16 is the window kind (`0x14073ee60`, +0x5f0), not an NPCShop row: 0 buy, 1-4 haggle,
   deal, exchange and expedition, 9 Azmeri, 10 black market, 11 unset; the Gateway sends 0. The window is chosen by the
