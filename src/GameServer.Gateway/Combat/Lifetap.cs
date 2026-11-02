@@ -56,13 +56,18 @@ static class Lifetap
     public static int Stat(IReadOnlyDictionary<uint, int> stats, string name) =>
         Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
 
-    /// <summary>Whether these supported-skill stats make the skill pay Life instead of Mana.</summary>
-    public static bool Supported(IReadOnlyDictionary<uint, int> stats) =>
+    /// <summary>Whether these supported-skill stats convert the Mana cost to Life, with or without Lifetap.</summary>
+    public static bool ConvertsCostToLife(IReadOnlyDictionary<uint, int> stats) =>
         Stat(stats, CostLifeStat) != 0 || Stat(stats, AlternateCostLifeStat) != 0;
 
-    /// <summary>The whole cost, in Life, of a skill supported by Lifetap; 0 for an unsupported one.</summary>
+    /// <summary>Whether these stats come from Lifetap Support: its own spent-Life threshold is the specific marker.
+    /// Generic Life-cost conversion (for example Blood Magic) must pay Life without granting Lifetap's buff.</summary>
+    public static bool Supported(IReadOnlyDictionary<uint, int> stats) =>
+        ConvertsCostToLife(stats) && Stat(stats, ThresholdStat) > 0;
+
+    /// <summary>The whole cost, in Life, of a skill whose Mana cost is converted to Life; 0 otherwise.</summary>
     public static int LifeCost(IReadOnlyDictionary<uint, int> stats, int manaCost) =>
-        Supported(stats) ? Math.Max(0, manaCost) : 0;
+        ConvertsCostToLife(stats) ? Math.Max(0, manaCost) : 0;
 
     public static bool ActiveAt(ClientState conn, double now) => conn.Lifetap.ActiveAt(now);
 
@@ -78,7 +83,8 @@ static class Lifetap
     {
         if (life <= 0 || !Supported(stats)) return;
         var state = conn.Lifetap;
-        int threshold = Math.Max(1, Stat(stats, ThresholdStat));
+        int threshold = Stat(stats, ThresholdStat);
+        if (threshold <= 0) return;
         state.Spent = (int)Math.Min(int.MaxValue, (long)state.Spent + life);
         if (state.Spent < threshold) return;
 

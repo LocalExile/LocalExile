@@ -46,7 +46,7 @@ static partial class Game
         uint mana = free ? 0 : (uint)Math.Max(0, gem.Stats.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
         // Lifetap turns the whole upfront cost into Life.
         uint life = 0;
-        if (!free && Lifetap.Supported(gem.Stats))
+        if (!free && Lifetap.ConvertsCostToLife(gem.Stats))
         {
             life = mana;
             mana = 0;

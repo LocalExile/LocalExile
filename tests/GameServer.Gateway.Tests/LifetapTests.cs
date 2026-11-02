@@ -59,6 +59,16 @@ public sealed class LifetapTests
             conn.Lifetap.Clear();
             Assert.False(conn.Lifetap.ActiveAt(conn.Clock.Elapsed.TotalSeconds));
             Assert.Equal(0, Lifetap.FlaskRecovery(conn));
+
+            // Generic Life-cost conversion without Lifetap still pays Life, but must not accumulate or grant the
+            // support's buff (and its flask recovery).
+            var generic = new Dictionary<uint, int> { [Program.Stats.Key(Lifetap.CostLifeStat)!.Value] = 1 };
+            Assert.False(Lifetap.Supported(generic));
+            Assert.Equal(9, Lifetap.LifeCost(generic, 9));
+            Lifetap.Spend(conn, generic, 9, conn.Clock.Elapsed.TotalSeconds);
+            Assert.False(conn.Lifetap.ActiveAt(conn.Clock.Elapsed.TotalSeconds));
+            Assert.Equal(0, conn.Lifetap.Spent);
+            Assert.Equal(0, Lifetap.FlaskRecovery(conn));
         }
         finally
         {

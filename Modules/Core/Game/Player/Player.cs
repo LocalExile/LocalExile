@@ -290,7 +290,7 @@ static partial class Game
             if (cost > 0 && BloodCharges.Uses(Own))
                 cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
             int life;
-            if (Lifetap.Supported(own))
+            if (Lifetap.ConvertsCostToLife(own))
             {
                 life = (int)Math.Min(cost, int.MaxValue);
                 cost = 0;
