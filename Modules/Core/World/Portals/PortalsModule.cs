@@ -98,5 +98,11 @@ public sealed class PortalsModule : IModule, IDisposable
             await SelectAtlasMap(remote, stream, ciphers, conn, InstanceMapDevice.ReadSelectMap(bytes));
             return true;
         });
+        module.OnPacket(InstanceMapDevice.MoveId, async p =>
+        {
+            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            await MoveToMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadMove(bytes));
+            return true;
+        });
     }
 }

@@ -10,8 +10,19 @@ readonly record struct SkillDamageContext(SkillHitKind Kind, IReadOnlyDictionary
     public DamagePacket Hit(DamagePacket packet) => Suppressed ? DamagePacket.Empty : DamageFactor == 1 ? packet : packet.Scale(DamageFactor);
 
     // This is outgoing spell damage only. RF's independent self-burn must not pass through this context.
+    // The caster's damage-type prohibitions (DamageStats.Prohibited) also stop a DoT of that type (PoB canDeal).
     public DamageOverTime OverTime(DamageOverTime damage) =>
-        damage with { DamagePerSecond = Suppressed ? 0 : damage.DamagePerSecond * DamageFactor };
+        damage with
+        {
+            DamagePerSecond = Suppressed || Prohibits(damage.Type) ? 0 : damage.DamagePerSecond * DamageFactor,
+        };
+
+    bool Prohibits(DamageType type)
+    {
+        var caster = ActualCaster;
+        int Get(string name) => Program.Stats.Key(name) is uint key ? caster.GetValueOrDefault(key) : 0;
+        return DamageStats.Prohibited(type, Get, attack: Kind == SkillHitKind.Attack);
+    }
 
     double DamageFactor => Game.GamblerFor(ActualCaster).DamageFactor;
 }

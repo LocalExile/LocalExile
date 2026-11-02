@@ -34,6 +34,11 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>
     public SkillCatalog.MonsterProjectileInfo? Projectile { get; init; }
+    /// <summary>Whether this is a spell skill rather than a melee/ranged attack. A spell's cast duration comes from the
+    /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
+    /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
+    public bool Spell { get; init; }
+
     /// <summary>The attack's final stats (the client derives none, 11-skills.md §4): the swing time, reach and damage.
     /// These also go on the monster's Stats component.</summary>
     public IReadOnlyList<(uint, int)> Stats()
@@ -51,14 +56,31 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
         ];
     }
 
+    /// <summary>An actor whose actions a controller plays (KingInMists.cs): every skill starts at once, none walks it up.</summary>
+    public bool Scripted { get; init; }
+
+    /// <summary>Plays where the actor stands. A plain melee attack instead walks the monster up (07 §5).</summary>
+    public bool InPlace => Ranged || Spell || Scripted;
+
     /// <summary>The skill's stats. A melee attack keeps the client's pathing step: the action walks the monster up to its
     /// target and waits there until S→C 0x1ac starts the swing (07 §5). Anything else plays where it stands.</summary>
-    public IReadOnlyList<(uint, int)> SkillStats() => Ranged ? InPlaceSkillStats() : Stats();
+    public IReadOnlyList<(uint, int)> SkillStats() => InPlace ? InPlaceSkillStats() : Stats();
 
-    /// <summary><see cref="Stats"/> plus skill_is_non_pathing: the action starts at once where the actor stands
-    /// (the Melee action's begin, 0x141938830). Only on the skill: on the monster's Stats component it also stops its Move
-    /// action from pathing (live 2026-10-17: the monsters stood still).</summary>
-    public IReadOnlyList<(uint, int)> InPlaceSkillStats() => [.. Stats(), (StatKeys.SkillIsNonPathing, 1)];
+    /// <summary>An attack's <see cref="Stats"/> or a spell's cast time, plus skill_is_non_pathing: the action starts at once
+    /// where the actor stands (the Melee action's begin, 0x141938830). Only on the skill: on the monster's Stats component
+    /// it also stops its Move action from pathing (live 2026-10-17: the monsters stood still).</summary>
+    public IReadOnlyList<(uint, int)> InPlaceSkillStats() => [.. Spell ? SpellStats() : Stats(), (StatKeys.SkillIsNonPathing, 1)];
+
+    IReadOnlyList<(uint, int)> SpellStats()
+    {
+        int ms = Math.Max(1, (int)Math.Round(Seconds * 1000));
+        return
+        [
+            (StatKeys.BaseSpellCastTimeMs, ms), (StatKeys.VirtualBaseSpellCastTimeMs, ms),
+            (StatKeys.HundredTimesCastsPerSecond, (int)Math.Round(100_000.0 / ms)),
+            (StatKeys.CastingSpell, 1),
+        ];
+    }
 }
 
 sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y)
@@ -103,6 +125,19 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public uint? OwnerId { get; init; }
     public double RampageBlindUntil;
     public int StunSerial;
+    /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>
+    public bool CannotBeStunned { get; init; }
+    /// <summary>The humanoid King's life cannot reach 0 before the three fetishes hand the fight to the treant.</summary>
+    public bool KingPhaseLocked { get; init; }
+    /// <summary>The treant's emergence grace: hits do nothing until KingInMists clears it.</summary>
+    public bool KingGrace;
+    /// <summary>The humanoid's fetish channel: no damage, ailment, leech or hit reaction until the ritual ends.</summary>
+    public bool RitualGrace;
+    // A Mystic Fetish waits for the King's ritual before it can be damaged (the client-side buff and hidden mini bar
+    // are the same pair the humanoid's intro uses).
+    public bool FetishGrace;
+    // No damage, ailments, impale or hit reaction while a scripted grace runs.
+    public bool Invulnerable => KingGrace || RitualGrace || FetishGrace;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
@@ -261,6 +296,13 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool LeavingArea;
     public readonly RecentEnemyHits RecentEnemyHits = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
+    // The King in the Mists' Portent Vapors: stacks taken from his Mystic Fetishes and when they expire. The server
+    // applies the increased damage taken to his hits; the buff icon and count are presentation.
+    public int KingPortentStacks;
+    public double KingPortentUntil = double.NegativeInfinity;
+    /// <summary>The Crux of Nothingness arena's "mapboss" cell: the King's spawn and the base of the fixed Mystic Fetish
+    /// offsets (KingInMists.cs). Set when the area is populated, so both forms use the same origin.</summary>
+    public (int X, int Y)? KingOrigin;
     public Random IncomingHitRandom = Random.Shared;
     // The player's ignite rolls on monsters (MonsterIgnites), apart from the hit's own streams.
     public Random IgniteRandom = Random.Shared;
@@ -445,6 +487,11 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public InstanceKeyring Keyring = null!;
     // Server objects created after entering (monsters); the player is 0x1000 and area transitions start at 0x2000.
     public uint NextObjectId = 0x3000;
+    // Every 0x1ab action on this connection gets a fresh sequence. The official server increments it per action (the
+    // King's first actions are 0x8011, 0x8012, …); reusing 0xffff for several actors left the client's channel object
+    // without a current action and crashed StartChannelling (0xc0000005 at 0x19e0daf, live 2026-10-31).
+    int _nextActionSequence = 0x8000;
+    public ushort NextActionSequence() => (ushort)Interlocked.Increment(ref _nextActionSequence);
     // Room server objects a quest keeps in the area until its flag is set (The Twilight Strand's force wall), by id.
     public readonly Dictionary<uint, (string Flag, IReadOnlySet<(int X, int Y)> Cells)> QuestRoomObjects = [];
     // A Trial of Ascendancy's objects in this area (LabyrinthTrials), by id, and the cells its closed doors and risen

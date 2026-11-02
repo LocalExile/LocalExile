@@ -42,6 +42,11 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
 {
     public byte ItemLevel { get; init; } = 1;
     public byte Quality { get; init; }
+
+    /// <summary>The map quality's AlternateQualityTypes row, from a map quality chisel; null is quantity quality (what
+    /// <see cref="Quality"/> alone means). A different chisel replaces it. Maps and map keys only.</summary>
+    public byte? AlternateQualityType { get; init; }
+
     public const byte MaximumDefenceBaseRoll = 31;
     public const byte SpecialDefenceBaseRoll = 32;
     byte defenceBaseRoll;

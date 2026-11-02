@@ -883,6 +883,11 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   which drops a server-driven monster's queued attack in the same frame (traced: created, queued, both checks passed,
   then neither current nor queued). The server walks the monster itself, so the skill is non-pathing. Only on the
   skill: on the monster's Stats component it also stops its Move action from pathing (the monsters stood still).
+- **A monster's spell skills carry cast-time stats, not the attack duration.** `MonsterAttack.Spell` sends
+  `base_spell_cast_time_ms` (0x2a9), `virtual_base_spell_cast_time_ms` (0x24b9), `hundred_times_casts_per_second`
+  (0x2aa) and `casting_spell` (0x1b6); only attacks send `main_hand_attack_duration_ms`. The client's cast-duration
+  path reads the virtual base when the action starts; a utility spell sent with only attack stats crashed the client in
+  that path (`0xc0000005` at `0x19e0daf`, live 2026-10-31, the King's hex/teleport actions).
 - **AI** (`RunMonsterAi`, `MonsterAiCadence`): decisions run at 50 ms intervals of elapsed game time.
   A late wake runs one decision and schedules the next from the current time; it never replays missed steps.
   Pause freezes game time, and disabled AI or a dead player does not accumulate work to replay afterward.
@@ -1721,13 +1726,24 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
   Animated, BaseEvents and Projectile, so the blob is Positioned, one Animated byte and the tasks byte
   (`ProjectileObject`; the Animated component is index 1), then 0x1a9 (wake zone). The real link between a skill and
-  its projectile is unknown; the Gateway matches the Id. Multiple projectiles are one object each, spread around the
+  its projectile is unknown; the Gateway matches the Id, then the Id with a `Royale`, `AltX`, `AltY` or `AltZ` suffix
+  removed: 3.29 files the Royale and transfigured duplicates of a skill under its own name plus a suffix, and those
+  duplicates fire the base skill's row (the Lightning Arrow gem grants `LightningArrowRoyale`, whose row is
+  `Metadata/Projectiles/LightningArrow`). `ProjectileFallbacks` covers the effects no suffix rule reaches, because their
+  row is named otherwise (Elemental Hit's `ElementalHitArrowCombined`). Multiple projectiles are one object each, spread around the
   aim (`ProjectileSpread`: `number_of_additional_projectiles`, `projectile_spread_radius` or 10°,
   `Game_PROJECTILE_SPREAD`); the client also spawns its own copies of a gem use's volley (above), so those objects
   are no longer sent. Kinetic Blast's effect is ClusterBurst, which names no
   Projectiles row, so it falls back to the wand attack's `Metadata/Projectiles/WandProjectile` (3260) and plays
   `Metadata/Effects/Spells/cluster_burst/big.ao` where it lands; a landing on bare ground runs one area hit of the
-  skill's radius (its secondary explosions are not modelled).
+  skill's radius (its secondary explosions are not modelled). Rolling Magma (once Magma Orb) creates
+  `Metadata/Projectiles/MagmaOrbShort`, one client object per cast (Frida 2026-11-01, `trace-projectile-create.js`).
+  Its ground bounces are the shared terminal `0x141ba68c0` with no contact, once per impact: the action's chain budget
+  (`0x141bb6530`, vtable +0x638) is the skill record's `virtual_number_of_chains_for_projectiles`, and the executed
+  count +0x458 goes 0, 1, 2 across the impacts, 375 ms apart; the enemy search `0x141baea60` never runs, so the orb
+  bounces straight on even beside monsters (`trace-chain-decisions.js`). The client reads the budget from the skill
+  record it holds, which is only resent with the skill list: with 0 there (the server's ground chains are not
+  `Chain`) the orb stopped at its first impact, and after the fix it bounced only once the gem was socketed again.
 - **Pierce.** Pierce Support's `projectile_base_number_of_targets_to_pierce` (2 at level 1, 4 at level 20) and the other
   pierce stats give a hit budget of 1 + pierce: the projectile passes through that many monsters, each hit landing as
   the glide reaches its cell; the support's more Projectile Damage is part of `SupportedHit`. `always_pierce` is
