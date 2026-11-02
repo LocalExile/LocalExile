@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -132,6 +133,12 @@ public class InflictedAilmentTests
         Assert.Equal((0.0, 0.0), (far.Ailments.Magnitude(Chill, .1), far.Ailments.Magnitude(Freeze, .1)));
         Assert.Equal((0.0, 100.0), (immune.Ailments.Magnitude(Chill, .1), immune.Ailments.Magnitude(Freeze, .1)));
         Assert.Empty(near.Ailments.Spreading(.1));
+        // A monster frozen by a spread copy is a frozen kill: "on Killing a Frozen Enemy" counts it.
+        Assert.Equal((true, false), (mid.Ailments.FrozenAtDeath(.1), far.Ailments.FrozenAtDeath(.1)));
+        var powerOnFrozenKill = With(("chance_to_gain_power_charge_on_killing_frozen_enemy_%", 100));
+        Assert.Equal(ChargeType.Power, ChargeGains.Roll(new ChargeEvent.Kill(MonsterRarity.Normal, Frozen: true),
+            powerOnFrozenKill, default, new Random(1)).Single().Type);
+        Assert.Empty(ChargeGains.Roll(new ChargeEvent.Kill(MonsterRarity.Normal), powerOnFrozenKill, default, new Random(1)));
         // The freeze copy ends with its source; the chill's lasts.
         Game.MonsterAilmentChangesLocked(conn, now: .7);
         Assert.Equal((19.0, 0.0), (near.Ailments.Magnitude(Chill, .7), near.Ailments.Magnitude(Freeze, .7)));

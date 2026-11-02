@@ -12,8 +12,9 @@ abstract record ChargeEvent
     public sealed record Hit(bool Critical, bool Spell, bool? Melee, MonsterRarity Rarity, string? SkillEffect = null,
         Func<string, int>? Skill = null, bool Killed = false, bool Primary = true) : ChargeEvent;
 
-    /// <summary>The player killed a hostile monster.</summary>
-    public sealed record Kill(MonsterRarity Rarity) : ChargeEvent;
+    /// <summary>The player killed a hostile monster; <paramref name="Frozen"/>: it was frozen when it died, shattered
+    /// included (MonsterElementalAilments.FrozenAtDeath).</summary>
+    public sealed record Kill(MonsterRarity Rarity, bool Frozen = false) : ChargeEvent;
 
     /// <summary>A monster's hit landed on the player (not evaded, not blocked).</summary>
     public sealed record WhenHit : ChargeEvent;
@@ -59,6 +60,8 @@ static class ChargeGains
         new("power_frenzy_or_endurance_charge_on_kill_%", null, (e, _) => e is ChargeEvent.Kill),
         new("endurance_charge_on_kill_percent_chance_while_holding_shield", ChargeType.Endurance, (e, w) => e is ChargeEvent.Kill && w.Shield),
         new("add_frenzy_charge_on_kill_%_chance_while_dual_wielding", ChargeType.Frenzy, (e, w) => e is ChargeEvent.Kill && w.DualWield),
+        new("chance_to_gain_power_charge_on_killing_frozen_enemy_%", ChargeType.Power, (e, _) => e is ChargeEvent.Kill { Frozen: true }),
+        new("chance_to_gain_frenzy_charge_on_killing_frozen_enemy_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill { Frozen: true }),
         // On hit
         new("add_frenzy_charge_on_skill_hit_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit),
         new("gain_frenzy_charge_on_hitting_rare_or_unique_enemy_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),

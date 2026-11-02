@@ -3568,7 +3568,8 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
 - **Gains** (`ChargeGains.Rules`): each source stat is its own roll of `rng.Next(100) < chance`; 100 and the "Gain a …
   Charge" flags gain without a roll, and a random type is drawn with `rng.Next(3)`. On kill:
   `endurance_charge_on_kill_%`, `add_frenzy_charge_on_kill_%_chance`, `add_power_charge_on_kill_%_chance`, the two kill
-  flags, `power_frenzy_or_endurance_charge_on_kill_%`, the shield and dual-wield ones. On hit:
+  flags, `power_frenzy_or_endurance_charge_on_kill_%`, the shield and dual-wield ones, and power and frenzy on killing
+  a frozen enemy (`FrozenAtDeath`: the corpse kept a freeze, a spread or the killing hit's own, or shattered). On hit:
   `add_frenzy_charge_on_skill_hit_%` (the character's plus the used skill's), the rare-or-unique ones. On critical
   strike: power, endurance, melee endurance, frenzy, wand power, per enemy you crit. On non-critical strike: power,
   with claws or daggers. When hit: endurance, frenzy. On block: endurance, frenzy, attack-only frenzy, power,

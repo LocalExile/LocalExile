@@ -36,6 +36,9 @@ sealed class MonsterElementalAilments
     public double Magnitude(Kind kind, double now) =>
         effects.Count == 0 && spread.Count == 0 ? 0 : Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
 
+    /// <summary>Whether it was frozen when it died: a shattered one was, though its freeze is gone.</summary>
+    public bool FrozenAtDeath(double now) => Shattered || Magnitude(Kind.Freeze, now) > 0;
+
     /// <summary>Whether it was shocked when it died: Within the Tempest's shock on its corpse does not count.</summary>
     public bool ShockedAtDeath(double now) => Active(Kind.Shock, now).Any(e => !e.OnKill && e.Magnitude > 0);
 

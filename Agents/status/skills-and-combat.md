@@ -400,10 +400,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   in parentheses and the spell block row.
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
-- Endurance, Frenzy and Power charges: gained from the on-kill, on-hit, on-crit, on-non-crit, when-hit and on-block
-  chance stats, the timed ones (each second, while stationary or moving, if hit recently) and skills (Frenzy, Power
-  Siphon, Flicker Strike, Enduring Cry); 10 s duration with the duration mods, a gain refreshes the whole type, all
-  expire together, minimum charges always held, lost on death, carried over area changes with the time left.
+- Endurance, Frenzy and Power charges: gained from the on-kill (a frozen enemy's too), on-hit, on-crit, on-non-crit,
+  when-hit and on-block chance stats, the timed ones (each second, while stationary or moving, if hit recently) and
+  skills (Frenzy, Power Siphon, Flicker Strike, Enduring Cry); 10 s duration with the duration mods, a gain refreshes
+  the whole type, all expire together, minimum charges always held, lost on death, carried over area changes with the
+  time left.
   Character.ot's per-charge bonuses and every "per charge" mod the server calculates with apply to the pools, hits,
   damage taken, walk speed and the sent stats; the Charges tab gets `current_*_charges` and the per-charge rows.
   The HUD shows one icon per type with the count (0x1c1 flags bit2) and time left (bit1), and the orbs.
