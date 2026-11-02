@@ -6,7 +6,11 @@ using GameServer.Core.Protocol.Instance;
 /// the unique map identities.</summary>
 static class NessaMapStock
 {
-    public sealed record Entry(ItemCatalog.BaseType Type, Item Item, string Name, int Tier);
+    public sealed record Entry(ItemCatalog.BaseType Type, Item Item, string Name, int Tier)
+    {
+        /// <summary>An Originator-influenced copy of a map key (the MapZanaInfluenced implicit).</summary>
+        public bool Originator { get; init; }
+    }
 
     public static List<Entry> Build(ItemCatalog items, string folder = "data")
     {
@@ -36,7 +40,7 @@ static class NessaMapStock
                 result.Add(new(type, item with
                 {
                     Mods = [.. item.Mods, originator.With(ModSection.Implicit, [1, 5], Random.Shared)],
-                }, name, tier));
+                }, name, tier) { Originator = true });
             }
         }
         if (!File.Exists(Table("UniqueMaps")) || !File.Exists(Table("Words")) || !File.Exists(Table("ItemVisualIdentity"))) return result;
