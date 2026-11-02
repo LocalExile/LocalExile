@@ -419,6 +419,17 @@ room's piece is sent the other state.
 plates with their own `hotplate*_EH.ao`; the Gateway runs them as the Crematorium's (`LabyrinthTrials.Plate`). Live
 (2026-11-01, the original): a room's plates all heat together, with the Crematorium's timings and burn.
 
+**Dart traps** (`LabyrinthTrials.Volley`). The rooms' wall darts (`walldart_*.ao`: `LabyrinthArrowTrap_Single`,
+`_SingleSlow`, `_SingleSlowOffset`, `_Delayed`, `_Triggered`) shoot one dart ahead (`projectiles_nova 0`); the
+`AlternateArrowTraps/` turrets a spiral nova (`base_number_of_projectiles_in_spiral_nova` darts over
+`projectile_spiral_nova_angle` in `projectile_spiral_nova_time_ms`: Two90 two over 90° in 756 ms, Two180 two over
+180° at once, Three three over 180° in 1024 ms). `_Triggered`'s .ot reads Animated before Transitionable.
+The periods are the server's: the trial's 1.5 s, the slow ones 3 s, a delayed or offset one half a period later.
+The `PressurePlate_Reset*` plates (`dryGardenPlate_01.ao`; Positioned, Transitionable 1 up / 2 down, BaseEvents,
+Animated) name nothing they fire: a player stepping on one presses it and every `_Triggered` of its room fires;
+`Reset` comes up when the player steps off, `_4` 4 s after, `_ResetMulti_4` pressing again while they stay.
+Live (2026-11-01, `1_Labyrinth_DG_end` seed 1): all as the original.
+
 **Roomba runs** (`LabyrinthTrials.ScratchedRuns`): the rooms' invisible rails run any way, diagonals too, and no file
 links them. The rooms' scratch decals (`LabyrinthRoombaKit/R_scratch_*`) lie along every ground roomba's run: a run
 joins two rails at most 100 cells apart with no rail between them and a scratch along it, the most scratched first and
@@ -511,7 +522,6 @@ trial, before the player object is sent; which event sets it in the real game is
 ## Not built yet
 
 - The step-triggered spikes of Izaro's rooms, and the hot plates' Cruel and Merciless rooms.
-- The Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered` with their `PressurePlate_*`, the
-  alternate arrow traps), its `LabyrinthSpikeTrap_Pressure` spikes, `LabyrinthAbyssEdgeBlade` blades, `Door_Counter`
+- The Labyrinth's `LabyrinthSpikeTrap_Pressure` spikes, `LabyrinthAbyssEdgeBlade` blades, `Door_Counter`
   puzzles and its rooms' monsters (the ElegantHouse rooms' Immolators among them).
 - The Eternal trials' plaques drop an Offering to the Goddess.

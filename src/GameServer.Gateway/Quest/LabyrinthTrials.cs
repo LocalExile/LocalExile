@@ -907,6 +907,56 @@ static class LabyrinthTrials
     /// about 1.5 s apart; the real timer is the server's).</summary>
     public const double ArrowVolleySeconds = 1.5;
 
+    /// <summary>The Labyrinth's rooms' dart traps: the trial's turret, the wall darts (<c>walldart_*.ao</c>: <c>_Single</c>,
+    /// <c>_SingleSlow</c>, <c>_SingleSlowOffset</c>, <c>_Delayed</c>, and <c>_Triggered</c>, which its room's pressure
+    /// plates fire) and the turrets of <c>AlternateArrowTraps/</c>.</summary>
+    public const string TriggeredArrowTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthArrowTrap_Triggered";
+
+    public static bool IsArrowTrap(string type) => type.StartsWith(ArrowTrap, StringComparison.Ordinal)
+        || type.StartsWith("Metadata/Terrain/Labyrinth/Traps/AlternateArrowTraps/LabyrinthArrowTrap", StringComparison.Ordinal);
+
+    /// <summary>A dart trap's volley: every <paramref name="Period"/> seconds, first <paramref name="Delay"/> after the
+    /// start, each shot a turn (radians, clockwise from its facing) at a time into the volley.</summary>
+    public sealed record DartVolley(double Period, double Delay, IReadOnlyList<(double Turn, double At)> Shots);
+
+    /// <summary>A dart trap's volley, or null for one its pressure plates fire (<see cref="TriggeredArrowTrap"/>: one dart
+    /// ahead each time). The .ot's: the trial's four (<c>number_of_additional_projectiles</c> 3, a nova); one dart ahead
+    /// for the wall darts (<c>projectiles_nova 0</c>); a spiral nova of <c>base_number_of_projectiles_in_spiral_nova</c>
+    /// darts over <c>projectile_spiral_nova_angle</c> in <c>projectile_spiral_nova_time_ms</c>: Two90 two over 90° in
+    /// 756 ms, Two180 two over 180° at once, Three three over 180° in 1024 ms. The periods and the wall darts' delays are
+    /// the server's: ours, the trial's 1.5 s, the slow ones 3 s, a delayed or offset one half a period later.</summary>
+    public static DartVolley? Volley(string type)
+    {
+        static DartVolley Spiral(int count, double degrees, double ms) =>
+            new(ArrowVolleySeconds, 0, [.. Enumerable.Range(0, count).Select(k => (k * degrees / (count - 1) * Math.PI / 180, k * ms / (count - 1) / 1000))]);
+        return type[(type.LastIndexOf('/') + 1)..] switch
+        {
+            "LabyrinthArrowTrap" => new(ArrowVolleySeconds, 0, [.. Enumerable.Range(0, 4).Select(k => (k * Math.PI / 2, 0.0))]),
+            "LabyrinthArrowTrap_Single" => new(ArrowVolleySeconds, 0, [(0, 0)]),
+            "LabyrinthArrowTrap_Delayed" => new(ArrowVolleySeconds, ArrowVolleySeconds / 2, [(0, 0)]),
+            "LabyrinthArrowTrap_SingleSlow" => new(ArrowVolleySeconds * 2, 0, [(0, 0)]),
+            "LabyrinthArrowTrap_SingleSlowOffset" => new(ArrowVolleySeconds * 2, ArrowVolleySeconds, [(0, 0)]),
+            "LabyrinthArrowTrapTwo90DegreeArrows" => Spiral(2, 90, 756),
+            "LabyrinthArrowTrapTwo180DegreeArrows" => Spiral(2, 180, 1),
+            "LabyrinthArrowTrapThreeArrows" => Spiral(3, 180, 1024),
+            _ => null,
+        };
+    }
+
+    /// <summary>The Labyrinth's rooms' pressure plates (<c>PressurePlate_Reset</c>, <c>_Reset_4</c>, <c>_ResetMulti_4</c>;
+    /// Transitionable 1 up, 2 down): a player stepping on one presses it and fires the <see cref="TriggeredArrowTrap"/>s
+    /// of its room. <c>Reset</c> comes up when the player steps off, the <c>_4</c> ones 4 s after (<c>_ResetMulti_4</c>
+    /// again and again while the player stays); our reading of the names, no file says.</summary>
+    public const string PressurePlatePrefix = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/PressurePlate_Reset";
+
+    public static bool IsPressurePlate(string type) => type.StartsWith(PressurePlatePrefix, StringComparison.Ordinal);
+
+    /// <summary>How long a pressed plate stays down, or null until the player steps off.</summary>
+    public static double? PlateDownSeconds(string type) => type.EndsWith("_4", StringComparison.Ordinal) ? 4 : null;
+
+    /// <summary>How near a plate's centre a player presses it: half its tile (its .ot's <c>object_size</c> 8).</summary>
+    public const int PlateHalf = 8;
+
     /// <summary>A dart trap's shot (Projectiles.dat): the poison darts, for its skill's <c>global_poison_on_hit</c>.</summary>
     public const string ArrowProjectile = "Metadata/Projectiles/PoisonArrowTrapProjectile";
 
@@ -990,12 +1040,13 @@ static class LabyrinthTrials
     /// <summary>A dart trap's 0x2b9 blob (LabyrinthArrowTrap.ot: Positioned, Transitionable, Animated, Pathfinding,
     /// BaseEvents, Stats, Buffs, Life, Actor), as the spike trap's (<see cref="SpikeTrapBlob"/>): the .ot's team 14, the
     /// room line's angle and model, state 1, one life, no skills (the server fires its darts).</summary>
-    public static byte[] ArrowTrapBlob(int x, int y, float angle, string model)
+    /// <remarks><see cref="TriggeredArrowTrap"/>'s .ot reads Animated before Transitionable.</remarks>
+    public static byte[] ArrowTrapBlob(int x, int y, float angle, string model, string? type = null)
     {
         var w = new BlobWriter().U8(0).U8(0);
         w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x02).U8(0).U8(1); // Positioned
-        w.U8(1);                                                        // Transitionable
-        w.U8(1).WStr32(model);                                          // Animated: the room line's
+        if (type == TriggeredArrowTrap) w.U8(1).WStr32(model).U8(1);    // Animated: the room line's, Transitionable
+        else w.U8(1).U8(1).WStr32(model);                               // Transitionable, Animated: the room line's
         w.Stats(null).U32(0).U32(0).U8(0);                              // Stats
         w.U16(0);                                                       // Buffs
         foreach (uint pool in new uint[] { 1, 0, 0 }) w.U32(pool).U32(0).U16(0).U32(0).U32(0);
@@ -1024,6 +1075,9 @@ static class LabyrinthTrials
         [Lava3x3] = ["Positioned", "Animated", "BaseEvents", "Transitionable", "Buffs"],
         [Lava1x3] = ["Positioned", "Animated", "BaseEvents", "Transitionable", "Buffs"],
         [InertLava] = ["Positioned", "Animated", "BaseEvents", "Transitionable"],
+        [PressurePlatePrefix] = ["Positioned", "Transitionable", "BaseEvents", "Animated"],
+        [PressurePlatePrefix + "_4"] = ["Positioned", "Transitionable", "BaseEvents", "Animated"],
+        [PressurePlatePrefix + "Multi_4"] = ["Positioned", "Transitionable", "BaseEvents", "Animated"],
     };
 
     /// <summary>Transitionable states: 1 runs create_untransitioned (closed, unpulled, dark), 2 the transition (num_states 2).

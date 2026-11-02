@@ -26,7 +26,7 @@ static partial class QuestobjectsRules
             [.. all.Where(o => o.Type == LabyrinthTrials.Lever).Select(o => (o.X, o.Y))],
             [.. all.Where(o => o.Type is LabyrinthTrials.Door or LabyrinthTrials.IntroDoor).Select(o => (o.X, o.Y))],
             [.. all.Where(o => LabyrinthTrials.Trigger(o.Type) is not null)]);
-        await SpawnArrowTraps(remote, stream, ciphers, conn, [.. all.Where(o => o.Type == LabyrinthTrials.ArrowTrap)]);
+        await SpawnArrowTraps(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsArrowTrap(o.Type))]);
         // The Chamber of Sins and Crypt trials' track pieces: server objects the client shows.
         foreach (var rail in all.Where(o => o.Type == LabyrinthTrials.VisibleRail))
         {
@@ -692,7 +692,7 @@ static partial class QuestobjectsRules
         {
             uint id = conn.NextObjectId++;
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
-                LabyrinthTrials.ArrowTrapBlob(trap.X, trap.Y, trap.Angle, trap.Model)), null);
+                LabyrinthTrials.ArrowTrapBlob(trap.X, trap.Y, trap.Angle, trap.Model, trap.Type)), null);
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             placed.Add((id, trap));
             // Its Hull, as the client stamps it: a wall to the darts and to the player's walk estimate.
@@ -707,8 +707,11 @@ static partial class QuestobjectsRules
         _ = RunArrowTraps(remote, stream, ciphers, conn, placed);
     }
 
-    // Each volley: every turret plays its cast (0x1d1) and releases its four darts (LabyrinthTrials.ArrowDirections) into
-    // the connection's projectile world, which flies them, stops them at walls and turrets and hands a contact to ArrowHit.
+    // Each turret's volley (LabyrinthTrials.Volley) on its own timer: it plays its cast (0x1d1) and releases its darts
+    // into the connection's projectile world, each its turn from its facing and its time into the volley; the world flies
+    // them, stops them at walls and turrets and hands a contact to ArrowHit. A player stepping on a pressure plate presses
+    // it (Transitionable 2) and fires the wall darts its room's plates fire (LabyrinthTrials.TriggeredArrowTrap), one dart
+    // ahead each; the plate comes up as its kind does (LabyrinthTrials.PlateDownSeconds).
     static async Task RunArrowTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         List<(uint Id, AreaPopulation.RoomObject Trap)> traps)
     {
@@ -723,42 +726,86 @@ static partial class QuestobjectsRules
         // turret's cast contact. A dart flies until a wall or the player stops it, at most the projectile range.
         var presentation = (MonsterProjectilePresentation(skills.Clips(LabyrinthTrials.ArrowProjectile), 1) ?? new())
             with { LaunchHeight = LabyrinthTrials.ArrowLaunchHeight };
+        async Task Fire(uint id, AreaPopulation.RoomObject trap, IEnumerable<(double Turn, double At)> shots)
+        {
+            await Send(remote, stream, ciphers, InstanceProtocol.ActorAnimation(id, 1, LabyrinthTrials.CastAnimation), null);
+            var session = ProjectilesFor(remote, stream, ciphers, conn);
+            session.Advance();
+            foreach (var (turn, at) in shots)
+            {
+                double a = trap.Angle + turn;
+                var direction = new ProjectileVector(Math.Sin(a), -Math.Cos(a));
+                var origin = new ProjectileVector(trap.X, trap.Y) + direction * LabyrinthTrials.ArrowForwardCells;
+                var owner = new ProjectileActorKey(id);
+                var profile = new ProjectileProfile(LabyrinthTrials.ArrowProjectile) { Speed = speed, Radius = 1, Count = 1 };
+                session.Schedule(session.Runtime.Now + GameServer.Core.Projectiles.ProjectileRuntime.Time(at), () => !conn.Closed, () =>
+                    new ProjectileUse(profile, owner, owner, 2, origin, origin + direction * 10)
+                    {
+                        Payload = new ObjectProjectileOffense($"trial dart trap 0x{id:x}",
+                            (shot, contact) => ArrowHit(shot, contact, id, trap)) { Presentation = presentation, Quiet = true },
+                    });
+            }
+        }
+        var timed = traps.Select(t => (t.Id, t.Trap, Volley: LabyrinthTrials.Volley(t.Trap.Type))).Where(t => t.Volley is not null).ToList();
+        var triggered = traps.Where(t => t.Trap.Type == LabyrinthTrials.TriggeredArrowTrap).ToList();
+        var rooms = ServerLevels.For(conn.Layout.Id, conn.Seed)?.Rooms ?? [];
+        int RoomOf(int x, int y) => rooms.ToList().FindLastIndex(r =>
+            x >= r.X && y >= r.Y && x < r.X + (r.Code % 2 == 1 ? r.Height : r.Width) && y < r.Y + (r.Code % 2 == 1 ? r.Width : r.Height));
+        var plates = new Dictionary<uint, (bool Down, double At, bool Left)>();
         try
         {
-            double next = conn.Clock.Elapsed.TotalSeconds + 1;
+            double start = conn.Clock.Elapsed.TotalSeconds + 1;
+            var next = timed.Select(t => start + t.Volley!.Delay).ToArray();
             while (!conn.Closed)
             {
-                double wait = next - conn.Clock.Elapsed.TotalSeconds;
-                if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
-                if (conn.Closed) break;
-                next = Math.Max(next + LabyrinthTrials.ArrowVolleySeconds, conn.Clock.Elapsed.TotalSeconds);
-                var session = ProjectilesFor(remote, stream, ciphers, conn);
-                session.Advance();
-                foreach (var (id, trap) in traps)
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                for (int i = 0; i < timed.Count; i++)
                 {
-                    await Send(remote, stream, ciphers, InstanceProtocol.ActorAnimation(id, 1, LabyrinthTrials.CastAnimation), null);
-                    foreach (var (x, y) in LabyrinthTrials.ArrowDirections(trap.Angle))
+                    if (now < next[i]) continue;
+                    next[i] = Math.Max(next[i] + timed[i].Volley!.Period, now);
+                    await Fire(timed[i].Id, timed[i].Trap, timed[i].Volley!.Shots);
+                }
+                if (triggered.Count > 0)
+                {
+                    List<KeyValuePair<uint, AreaPopulation.RoomObject>> placed;
+                    (int X, int Y) here;
+                    lock (conn.Monsters)
                     {
-                        var direction = new ProjectileVector(x, y);
-                        var origin = new ProjectileVector(trap.X, trap.Y) + direction * LabyrinthTrials.ArrowForwardCells;
-                        var owner = new ProjectileActorKey(id);
-                        var profile = new ProjectileProfile(LabyrinthTrials.ArrowProjectile) { Speed = speed, Radius = 1, Count = 1 };
-                        session.Schedule(session.Runtime.Now, () => !conn.Closed, () =>
-                            new ProjectileUse(profile, owner, owner, 2, origin, origin + direction * 10)
-                            {
-                                Payload = new ObjectProjectileOffense($"trial dart trap 0x{id:x}",
-                                    (shot, contact) => ArrowHit(shot, contact, id, trap)) { Presentation = presentation, Quiet = true },
-                            });
+                        placed = [.. conn.TrialObjects.Where(t => LabyrinthTrials.IsPressurePlate(t.Value.Type))];
+                        here = conn.Walk.Position(now);
+                    }
+                    foreach (var (id, plate) in placed)
+                    {
+                        bool on = Math.Abs(here.X - plate.X) <= LabyrinthTrials.PlateHalf && Math.Abs(here.Y - plate.Y) <= LabyrinthTrials.PlateHalf;
+                        var (down, at, left) = plates.GetValueOrDefault(id, (false, 0, true));
+                        left |= !on;
+                        double? hold = LabyrinthTrials.PlateDownSeconds(plate.Type);
+                        if (down && (hold is double h ? now >= at + h : !on))
+                        {
+                            down = false;
+                            await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Closed),
+                                $"0x02ba pressure plate 0x{id:x} at ({plate.X}, {plate.Y}) comes up");
+                        }
+                        bool again = plate.Type.EndsWith("Multi_4", StringComparison.Ordinal);
+                        if (!down && on && (left || again))
+                        {
+                            (down, at, left) = (true, now, false);
+                            int room = RoomOf(plate.X, plate.Y);
+                            var fired = triggered.Where(t => RoomOf(t.Trap.X, t.Trap.Y) == room).ToList();
+                            await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Open),
+                                $"0x02ba pressure plate 0x{id:x} at ({plate.X}, {plate.Y}) pressed: {fired.Count} wall dart(s) fire");
+                            foreach (var (dart, trap) in fired) await Fire(dart, trap, [(0, 0)]);
+                        }
+                        plates[id] = (down, at, left);
                     }
                 }
+                await Task.Delay(50);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial dart traps stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    // Under the connection's lock (the projectile world's contact): a dart reaching the player hits them for the trap's
-    // share of their pools (LabyrinthTrials.ArrowDamage) and poisons them; anything else in its way it passes.
     static ProjectileHitResult ArrowHit(ProjectileSession session, ProjectileDamage contact, uint id, AreaPopulation.RoomObject trap)
     {
         var conn = session.Conn;
