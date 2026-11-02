@@ -124,6 +124,8 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public readonly ImpaleState Impale = new();
     // The player's ignites on it (MonsterIgnites.cs), under the Monsters lock.
     public readonly MonsterIgnites Ignites = new();
+    // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
+    public readonly MonsterPoisons Poisons = new();
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
     public readonly MonsterElementalAilments Ailments = new();
     // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.
