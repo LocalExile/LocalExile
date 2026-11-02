@@ -132,6 +132,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Put("virtual_base_spell_cast_time_ms", e.CastTime);
             Put("hundred_times_casts_per_second", (int)Math.Round(100_000.0 / e.CastTime));
         }
+        if (Value(stats, "volley_additional_projectiles_fire_parallel_x_dist", "greater_volley_additional_projectiles_fire_parallel_x_dist") is int parallelDist and > 0)
+            Put("virtual_additional_projectiles_fire_parallel_x_dist", parallelDist);
         if (gepl >= 0 && t.RageCost[gepl] > 0) { Put("base_rage_cost", t.RageCost[gepl]); Put("total_base_rage_cost", t.RageCost[gepl]); }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
@@ -655,6 +657,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // and the server walked on (live 2026-10-29). Spark's transfigured and Vaal versions fire Spark's own row.
     // Elemental Hit fires ElementalHitArrowFire/Cold/Lightning by the element it picked, a choice the server does not model
     // yet, so both the gem and its transfigured (Spectrum) version take the combined arrow's art.
+    // Rolling Magma (once Magma Orb) creates MagmaOrbShort (Frida 2026-11-01, trace-projectile-create.js); without the row every
+    // cast was refused while the client drew its orb.
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -674,6 +678,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["VaalSpark"] = "Metadata/Projectiles/Spark",
         ["ElementalHit"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",
+        ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>

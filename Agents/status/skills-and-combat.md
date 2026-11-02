@@ -343,6 +343,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named
   after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); the
   terminal secondary group is in Partly working.
+  Rolling Magma fires `Metadata/Projectiles/MagmaOrbShort` (same fallback; every cast was refused before) and lands on
+  the aim, explodes and bounces straight on once per chain, each impact an area hit (verified live 2026-11-01: damage at
+  every impact, 3 impacts at level 1). The base radius 14 and 16 cells between impacts are not read from the client;
+  its slower bounces (375 ms each) mean a bounce's hits land about 0.1 s early.
   Projectiles spawn at the captured terrain height + the releasing clip's keyframe height (the bow 16 steps, a wand
   12, the Sand Spitter's spit 9; `Game_PROJECTILE_HEIGHT`, 5 steps, without rig data) on natural ground; without a
   capture they use the bare offset.

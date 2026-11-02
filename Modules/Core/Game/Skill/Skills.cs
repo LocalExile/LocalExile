@@ -498,6 +498,18 @@ static partial class Game
                     .All(n => Stats.Key(n) is uint k && stats.GetValueOrDefault(k) != 0)
                 && Stats.Key("virtual_self_targeted_skills_target_location_instead") is uint novaKey)
                 stats[novaKey] = 1;
+            // Parallel volley (0x141bb89d0): the client reads virtual_additional_projectiles_fire_parallel_x_dist;
+            // without it the distance is zero and parallel projectiles collapse onto each other.
+            if (Stats.Key("virtual_additional_projectiles_fire_parallel_x_dist") is uint virtualParallelXKey
+                && !stats.ContainsKey(virtualParallelXKey))
+            {
+                int parallelX = 0;
+                if (Stats.Key("volley_additional_projectiles_fire_parallel_x_dist") is uint volleyX && stats.TryGetValue(volleyX, out int vx) && vx > 0)
+                    parallelX = vx;
+                else if (Stats.Key("greater_volley_additional_projectiles_fire_parallel_x_dist") is uint gVolleyX && stats.TryGetValue(gVolleyX, out int gvx) && gvx > 0)
+                    parallelX = gvx;
+                if (parallelX > 0) stats[virtualParallelXKey] = parallelX;
+            }
             if (SkillsFor(conn).IsSpell(effect) && !SkillsFor(conn).IsAttack(effect) && Stats.Key("spell_critical_strike_chance") is uint critKey)
                 stats[critKey] = SupportedCriticalChance(conn, id);
             // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.
