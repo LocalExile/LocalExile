@@ -27,14 +27,19 @@ static partial class Game
             m.Ailments.ShockOnKill(now, Get, name => m.Mods.Effects[name], AilmentArea(Get, _ => 0, spell: false));
     }
 
-    /// <summary>"X% chance to Chill/Shock Attackers for 4 seconds on Block": a monster hit the player blocks may chill or
-    /// shock its monster without damage (MonsterElementalAilments.WithoutDamage), each on its own roll of Random.Shared so
-    /// the incoming hit's draws stay in order. Each spreads by the player's area modifier, as Within the Tempest's shock.
+    /// <summary>The chills and shocks without damage (MonsterElementalAilments.WithoutDamage) a monster hit that lands on
+    /// the player puts on its monster: "Chill Enemy for X seconds when Hit, reducing their Action Speed by 30%" (The
+    /// Pandemonius) on every one, blocked too, as Brine Bound's freeze, and "X% chance to Chill/Shock Attackers for 4
+    /// seconds on Block" on a blocked one, each on its own roll of Random.Shared so the incoming hit's draws stay in order.
+    /// Each spreads by the player's area modifier, as Within the Tempest's shock.
     /// </summary>
-    internal static void AilmentsOnBlockLocked(SpawnedMonster m, Func<string, int> player, double now)
+    internal static void AilmentsWhenHitLocked(SpawnedMonster m, Func<string, int> player, bool blocked, double now)
     {
         int Target(string name) => m.Mods.Effects[name];
         double area = AilmentArea(player, _ => 0, spell: false);
+        if (player("chill_enemy_when_hit_duration_ms") is > 0 and int ms)
+            m.Ailments.WithoutDamage(Kind.Chill, ms / 1000.0, now, player, Target, area, stated: 30);
+        if (!blocked) return;
         if (RandomRolls.Chance(player("chill_attackers_for_4_seconds_on_block_%_chance"), 100, Random.Shared))
             m.Ailments.WithoutDamage(Kind.Chill, 4, now, player, Target, area);
         if (RandomRolls.Chance(player("shock_attackers_for_4_seconds_on_block_%_chance"), 100, Random.Shared))

@@ -94,6 +94,12 @@ public class InflictedAilmentTests
         Assert.Equal(6, OnBlock(Chill, With(("virtual_chill_duration_+%", 50))).Until);
         Assert.Equal(15, OnBlock(Shock, With()).Magnitude);
         Assert.Equal(50, OnBlock(Shock, With(("virtual_shock_effect_+%", 300))).Magnitude);   // 60% over the cap
+        // The Pandemonius states its chill's 30%, which the effect modifiers and the cap still meet.
+        static double WhenHit(Func<string, int> player, Func<string, int> monster) =>
+            new MonsterElementalAilments().WithoutDamage(Chill, 1, now: 0, player, monster, stated: 30)!.Magnitude;
+        Assert.Equal(30, WhenHit(With(("virtual_chill_effect_+%", 50)), With()));
+        Assert.Equal(40, WhenHit(With(("virtual_chill_effect_+%", 50), ("elementalist_chill_maximum_magnitude_override", 40)), With()));
+        Assert.Equal(15, WhenHit(With(), With(("chill_effectiveness_on_self_+%", -50))));
     }
 
     // The client builds each kind's proliferation radius from its own sources: Elemental Proliferation's counts for all

@@ -1444,7 +1444,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   mods' ailment stats (of the Ice, of the Tempest, Unstoppable, Mirrored) and the chilled/frozen/shocked buffs.
   Elemental Focus and the never-ailment stats stop those ailments ([20](../docs/protocol/20-damage.md) §3).
   Chill can raise damage taken and lessen the monster's swings (Glacial Wave), a freeze can have a minimum duration
-  and a monster that hits the player can be frozen (Brine Bound).
+  and a monster that hits the player can be frozen (Brine Bound) or chilled (The Pandemonius).
   A monster hit the player blocks can be chilled or shocked for 4 s ("Chill/Shock Attackers on Block").
   "As though dealing more damage" raises the chill, shock or freeze it inflicts ([20](../docs/protocol/20-damage.md)).
   Shock and chill minimums (Beacon of Ruin) and caps can be raised ([20](../docs/protocol/20-damage.md)).

@@ -208,16 +208,18 @@ sealed class MonsterElementalAilments
     }
 
     /// <summary>A chill or shock that deals no damage ("Chill Attackers for 4 seconds on Block"), for <paramref name="seconds"/>
-    /// through a hit's duration modifiers and immunity. It spreads by the player's area modifier <paramref name="area"/>.</summary>
+    /// through a hit's duration modifiers and immunity, from the <paramref name="stated"/> effect when its source gives one
+    /// ("reducing their Action Speed by 30%"). It spreads by the player's area modifier <paramref name="area"/>.</summary>
     public Effect? WithoutDamage(Kind kind, double seconds, double now, Func<string, int> attacker, Func<string, int> target,
-        double area = 1) =>
-        Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target))
+        double area = 1, int? stated = null) =>
+        Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target, stated))
             { Spread = SpreadRadius(kind, attacker, area) }, attacker, target);
 
-    // Chill and shock without damage: 10% and 15% base (wiki Chill and Shock) through the effect modifiers, up to the cap.
-    static double BaseWithoutDamage(Kind kind, Func<string, int> attacker, Func<string, int> target) =>
+    // Chill and shock without damage: 10% and 15% base unless the source states its own (wiki Chill and Shock), through
+    // the effect modifiers, up to the cap.
+    static double BaseWithoutDamage(Kind kind, Func<string, int> attacker, Func<string, int> target, int? stated = null) =>
         Math.Min(kind == Kind.Chill ? ChillCap(attacker) : ShockCap(attacker),
-            Math.Floor((kind == Kind.Chill ? 10 : 15) * EffectModifier(kind, attacker, target)));
+            Math.Floor((stated ?? (kind == Kind.Chill ? 10 : 15)) * EffectModifier(kind, attacker, target)));
 
     /// <summary>A hit killed it while frozen and it shattered: its freeze is gone, but the kill was of a frozen enemy.</summary>
     public bool Shattered { get; private set; }
