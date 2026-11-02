@@ -9,6 +9,20 @@ static partial class Game
     // and with Game_GATEWAY_ENTER=1 enter area (0x21) + wake zone; 0x25 (move) → 0x1ab echo;
     // 0x24 on an area transition → change area (0x2b2, then 0x27 with the new instance) or, with Ctrl, the instance chooser (0xae).
     // Anything else is logged in hex: those are the next messages to map.
+    // The most a hold on the server has been seen to outlast the client's is 33 ms.
+    const double HoldEndGraceSeconds = .06;
+
+    // How long the hold on the player still has to run, if it is within limit; else 0.
+    static double HoldEndsWithin(ClientState conn, double limit)
+    {
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            double left = Math.Max(conn.HitRecovery.Until, conn.ElementalAilments.FreezeUntil(now)) - now;
+            return left <= limit ? Math.Max(left, 0) : 0;
+        }
+    }
+
     internal static async Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt = 0)
     {
@@ -30,6 +44,14 @@ static partial class Game
             // Native TakeHit blocks predicted action starts too. Buffered normal actions must not restart the server's
             // movement/cast timeline during that same recovery. Flasks and instant skills retain their own paths.
             if (id is InstanceProtocol.UseSkillAtLocationId or InstanceTransfer.UseSkillOnObjectId or InstanceProtocol.ChannelUpdateId)
+            {
+                // The client buffers a click from the last part of a hold and sends it as its own hold ends, which can be a
+                // few ms before the server's. On localhost it arrives inside them: dropped, the client acts alone.
+                while (HoldEndsWithin(conn, HoldEndGraceSeconds) is > 0 and var left)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(left + .001));
+                    readAt = 0;
+                }
                 lock (conn.Monsters)
                 {
                     if (PlayerActionBlocked(conn, conn.ClockAt(readAt), conn.Clock.Elapsed.TotalSeconds))
@@ -42,6 +64,7 @@ static partial class Game
                     }
                     conn.HeldMove = null;
                 }
+            }
             if (id == InstanceProtocol.UseSkillAtLocationId)
             {
                 // Echo the action so the client runs it (Move on a ground click); an attack gem is paced and may be movement

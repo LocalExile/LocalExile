@@ -236,7 +236,9 @@ the target's size within the weapon's range.
 
 **Stun and freeze.** The client stops for a hit's recovery (0x1d1) and then goes on with its walk, so the server holds
 its walk for that long (`PlayerWalk.Pause`) instead of ending it. A held walker is not moving for anything that asks
-(`PlayerWalk.Moving`). A click in the meantime starts when the recovery ends, and only the newest counts (`ReleaseHeldMove`). The client does not
+(`PlayerWalk.Moving`). A click in the meantime starts when the recovery ends, and only the newest counts (`ReleaseHeldMove`). The client sends
+nothing for a skill clicked early in a hold, buffers one clicked in about its last 0.4 s, and sends that as its own hold
+ends, up to 33 ms before the server's on localhost; the server waits those out. The client does not
 stop for `is_frozen`, and `virtual_action_speed_+%` at -100 would divide its clips by zero, so a freeze plays a recovery
 of its own length (`ShowFreeze`).
 
