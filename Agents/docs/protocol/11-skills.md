@@ -1719,7 +1719,11 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
   Animated, BaseEvents and Projectile, so the blob is Positioned, one Animated byte and the tasks byte
   (`ProjectileObject`; the Animated component is index 1), then 0x1a9 (wake zone). The real link between a skill and
-  its projectile is unknown; the Gateway matches the Id. Multiple projectiles are one object each, spread around the
+  its projectile is unknown; the Gateway matches the Id, then the Id with a `Royale`, `AltX`, `AltY` or `AltZ` suffix
+  removed: 3.29 files the Royale and transfigured duplicates of a skill under its own name plus a suffix, and those
+  duplicates fire the base skill's row (the Lightning Arrow gem grants `LightningArrowRoyale`, whose row is
+  `Metadata/Projectiles/LightningArrow`). `ProjectileFallbacks` covers the effects no suffix rule reaches, because their
+  row is named otherwise (Elemental Hit's `ElementalHitArrowCombined`). Multiple projectiles are one object each, spread around the
   aim (`ProjectileSpread`: `number_of_additional_projectiles`, `projectile_spread_radius` or 10°,
   `Game_PROJECTILE_SPREAD`); the client also spawns its own copies of a gem use's volley (above), so those objects
   are no longer sent. Kinetic Blast's effect is ClusterBurst, which names no
