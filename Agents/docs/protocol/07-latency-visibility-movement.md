@@ -303,6 +303,12 @@ listing the player and the monsters within 23.4 cells; the Gateway does the same
 GGG sends no timed 0x128: every drift above 20 cells it leaves alone, and a timed one is seen as objects, the player
 included, jumping 20 cells or more. A gap closes when a walk ends on its target.
 
+In a crowd the two copies of the player can part for longer. A monster's estimate a couple of cells off closes a narrow
+gap, so the server's player stands while the client's walks on, and the server's monsters stay round the one it has
+(the reverse happens too). GGG's do the same: in The Mud Flats its two stood up to 93 cells apart, and only a stun's
+0x128 or the client's own 92-cell snap brought them together. A closed ring holds both copies, a few cells apart. From
+the server the two cases look alike, so the Gateway leaves bodies blocking; lockstep (§6) has no second copy to part.
+
 **The wake zone.** Monsters more than about 171 cells from the player leave it (S→C 0x1aa) and stop ticking on the client,
 so a chase the server gave up does not run on there. They come back with 0x1a9 and a 0x128 for their cell (`KeepWakeZone`).
 
