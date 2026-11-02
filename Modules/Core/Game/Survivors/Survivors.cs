@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using System.Net.Sockets;
 using GameServer.Core.Projectiles;
 using ChatCommand = GameServer.Modding.ChatCommand;
@@ -43,6 +44,31 @@ static partial class Game
     /// <summary>The base cooldown of a run skill: its cast interval, which the client shows on the skill bar.</summary>
     internal static int SurvivorsSkillCooldownMs(int rank) =>
         (int)Math.Round(SurvivorsRules.SkillInterval(rank) * 1000);
+
+    // The BuffDefinitions row of each Herald effect (the aura the client draws around the player), read once: the
+    // effect's ActiveSkills row names the buff (<c>herald_of_ash</c> and the like).
+    static readonly Lazy<IReadOnlyDictionary<int, int>> HeraldBuffRows = new(() =>
+    {
+        var result = new Dictionary<int, int>();
+        string folder = Path.Combine("data", "tables");
+        if (!File.Exists(Path.Combine(folder, "GrantedEffects.json")) || !File.Exists(Path.Combine(folder, "ActiveSkills.json"))
+            || !File.Exists(Path.Combine(folder, "BuffDefinitions.json"))) return result;
+        using var effects = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "GrantedEffects.json")));
+        using var actives = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "ActiveSkills.json")));
+        using var buffs = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "BuffDefinitions.json")));
+        var byId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < buffs.RootElement.GetArrayLength(); i++)
+            if (buffs.RootElement[i].TryGetProperty("Id", out var id) && id.GetString() is { } name) byId[name] = i;
+        for (int row = 0; row < effects.RootElement.GetArrayLength(); row++)
+        {
+            if (!effects.RootElement[row].TryGetProperty("ActiveSkill", out var active) || active.ValueKind != JsonValueKind.Number) continue;
+            int at = active.GetInt32();
+            if (at < 0 || at >= actives.RootElement.GetArrayLength()) continue;
+            if (actives.RootElement[at].TryGetProperty("Id", out var skill) && skill.GetString() is { } effectId
+                && byId.TryGetValue(effectId, out int buff)) result[row] = buff;
+        }
+        return result;
+    });
 
     /// <summary>
     /// The run's learned skills as Actor skills, so the client puts their gems on the skill bar and draws their cooldown.
@@ -265,6 +291,7 @@ static partial class Game
         await SurvivorsClearGround(remote, stream, ciphers, conn);
         // The run's skills go out as Actor skills, which puts their gems and cooldowns on the skill bar.
         await SendSkills(remote, stream, ciphers, conn);
+        await SurvivorsPublishHeralds(remote, stream, ciphers, conn, run, catalog);
         _ = RunSurvivors(remote, stream, ciphers, conn, run, roster, catalog, stage: 0);
     }
 
@@ -284,6 +311,7 @@ static partial class Game
         // The player object was created without the run's skills: publish them, and the bar with them.
         await SendSkills(remote, stream, ciphers, conn);
         await SendSkillBar(remote, stream, ciphers, conn);
+        await SurvivorsPublishHeralds(remote, stream, ciphers, conn, carry.Run, catalog);
         // The new area's ground too: the run keeps the map clear.
         await SurvivorsClearGround(remote, stream, ciphers, conn);
         await conn.Commands!.Reply($"--- Level {carry.Stage + 1} ---\nThe run resumes: {SurvivorsClock(carry.Run.Elapsed)}, " +
@@ -307,6 +335,7 @@ static partial class Game
             conn.SurvivorsPausedByWindow = false;
             if (!conn.Clock.IsRunning) conn.Clock.Start();
         }
+        await SurvivorsClearHeralds(remote, stream, ciphers, conn);
         // Take the run's skills off the Actor and the bar: the client prunes the slots the ids no longer fill.
         if (conn.PlayerObjectCreated)
         {
@@ -356,6 +385,7 @@ static partial class Game
             await conn.Commands!.Reply($"Learned {heraldCatalog[index].Name} (herald, dev).");
             await SendSkills(remote, stream, ciphers, conn);
             await SendSkillBar(remote, stream, ciphers, conn);
+            await SurvivorsPublishHeralds(remote, stream, ciphers, conn, heraldRun, heraldCatalog);
             return;
         }
         if (what == "stop")
@@ -668,7 +698,7 @@ static partial class Game
                         hit = ApplyMonsterHitLocked(conn, target, heraldDamage);
                 if (hit is not { } applied) continue;
                 struck++;
-                await NotifyMonsterHit(remote, stream, ciphers, conn, id, target!, applied, heraldDamage, skill.Name, log: false);
+                await NotifyMonsterHit(remote, stream, ciphers, conn, id, target!, applied, heraldDamage, skill.Name, log: false, melee: true);
             }
             if (struck == 0) return false;
             ushort heraldId = SurvivorsSkillId(skillIndex);
@@ -684,7 +714,7 @@ static partial class Game
         {
             // The client draws the shot: one instant action per target (0x1ce) runs the gem's own use there, so the
             // server's matching projectile is simulated but sends no object of its own.
-            Effect = skill.Effect, Level = 1, ClientPredicted = true, HitPacket = true,
+            Effect = skill.Effect, Level = 1, ClientPredicted = false, HitPacket = true,
         };
         int baseSpeed = SkillsFor(conn).Projectile(definition.Metadata)?.Speed ?? 1000;
         double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, _ => 0, _ => 0,
@@ -794,6 +824,42 @@ static partial class Game
                 $"0x00bf survivors reset row {row}: {ids.Count} item(s) removed");
         }
         conn.SurvivorsItemIds.Clear();
+    }
+
+    /// <summary>Puts a learned Herald's aura buff on the player (S→C 0x1c1), so the client draws it and its icon; the
+    /// instances are removed when the run ends.</summary>
+    static async Task SurvivorsPublishHeralds(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, SurvivorsRun run, IReadOnlyList<SurvivorsSkill> catalog)
+    {
+        foreach (var (index, _) in run.Skills)
+        {
+            if (index < 0 || index >= catalog.Count || catalog[index].Kind != SurvivorsSkillKind.Herald) continue;
+            if (!conn.SurvivorsHeraldSkills.Add(index)) continue;
+            if (!HeraldBuffRows.Value.TryGetValue(catalog[index].Effect, out int row) || row is < 0 or > 0xffff) continue;
+            ushort skillId = SurvivorsSkillId(index);
+            ushort aura = conn.NextBuff++;
+            conn.SurvivorsHeraldBuffs.Add(aura);
+            await Send(remote, stream, ciphers,
+                InstanceEntities.AddBuff(PlayerId, aura, (ushort)row, PlayerId, skillId, auraSource: true, displayState: 0),
+                $"0x01c1 survivors herald aura {catalog[index].Name} (BuffDefinitions row {row})");
+            if (SkillsFor(conn).ActionHash(catalog[index].Effect) is ushort action)
+            {
+                ushort icon = conn.NextBuff++;
+                conn.SurvivorsHeraldBuffs.Add(icon);
+                await Send(remote, stream, ciphers,
+                    InstanceEntities.AddBuff(PlayerId, icon, (ushort)row, PlayerId, skillId, activeSkill: (skillId, action)),
+                    $"0x01c1 survivors herald icon {catalog[index].Name}");
+            }
+        }
+    }
+
+    /// <summary>Removes every herald aura buff the run put on the player.</summary>
+    static async Task SurvivorsClearHeralds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        foreach (ushort buff in conn.SurvivorsHeraldBuffs)
+            await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), $"0x01c2 survivors herald buff {buff}");
+        conn.SurvivorsHeraldBuffs.Clear();
+        conn.SurvivorsHeraldSkills.Clear();
     }
 
     /// <summary>Removes every item on the ground of the area for this run: the client forgets the object and the
@@ -952,6 +1018,7 @@ static partial class Game
         });
         // A new skill or rank changes the Actor's skills and the bar: the client draws the new gem and its cooldown.
         await SendSkills(remote, stream, ciphers, conn);
+        await SurvivorsPublishHeralds(remote, stream, ciphers, conn, run, catalog);
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 survivors offer closed");
         await SurvivorsOfferIfDue(remote, stream, ciphers, conn, run, catalog);
         // Nothing left to choose: the run resumes where it paused.

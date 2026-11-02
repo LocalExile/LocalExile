@@ -20,4 +20,8 @@ sealed partial class ClientState
     public IReadOnlyList<SurvivorsSkill>? SurvivorsCatalog;
     /// <summary>The equipped item ids a run granted: their requirements are waived while the run lasts.</summary>
     public readonly HashSet<uint> SurvivorsItemIds = [];
+    /// <summary>The herald aura buff instances this run put on the player (S→C 0x1c1), removed when it ends.</summary>
+    public readonly List<ushort> SurvivorsHeraldBuffs = [];
+    /// <summary>The catalogue indices of the heralds already published as auras.</summary>
+    public readonly HashSet<int> SurvivorsHeraldSkills = [];
 }
