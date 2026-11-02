@@ -657,8 +657,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   simulates their damage; one secondary per set can hit an enemy, and the children keep
   support Pierce/Fork/Chain. Their range uses the client's 0.3 s secondary action lifetime (a Frida trace caps the
   final callback at 300 ms), so projectile speed scales it, and Point Blank/Far Shot distance includes the primary
-  leg. Tests cover the profile, the client RNG vector, the 300 ms lifetime and the continued PB/Far Shot distance, but
-  live damage and visuals are not checked yet.
+  leg. Tests cover the profile, the client RNG vector, the 300 ms lifetime and the continued PB/Far Shot distance; the
+  2026-11-02 live check confirmed the single primary origin, the fan and the damage.
   Code: `GatewayProjectileSkillProfiles.cs`, `ProjectileStages.cs`, `ProjectileTypes.cs`, `Projectiles.cs`;
   wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
