@@ -638,7 +638,7 @@ static partial class Game
         double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, _ => 0, _ => 0,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED")) * run.SkillProjectileSpeedMultiplier(skillIndex);
         if (!double.IsFinite(speed) || speed <= 0) return false;
-        var profile = definition.Parameters.Resolve(_ => 0, speed);
+        var profile = definition.Parameters.Resolve(_ => 0, speed, ArrowsFor(conn, skill.Effect));
         profile = profile with { Radius = profile.Radius * SurvivorsRules.SkillRadius(rank) * run.SkillAreaMultiplier(skillIndex) };
         var owner = new ProjectileActorKey(PlayerId, conn.ProjectileEpoch);
         var runtime = ProjectilesFor(remote, stream, ciphers, conn);
