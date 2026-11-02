@@ -115,6 +115,12 @@ damage number:
 ## Commits (port branch, newest first)
 
 ```
+193cb100 test: every herald has a hit effect
+263afdd9 feat: every herald plays its own hit effect
+2e593d64 docs: Frida confirms the cast and impact clips on the client
+374962dd test: every run skill maps to a cast clip
+2c077d5b docs: support eligibility and herald hit particles
+6133218d docs: checkpoint test counts and commit list
 3c3c1474 fix: herald pulses use their gem's elemental hit code
 a75689ae test: walk the support matrix at ranks 1 and 8
 183daf95 docs: record the support matrix and animation pass in the checkpoint
