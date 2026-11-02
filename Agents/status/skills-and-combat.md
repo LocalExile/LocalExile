@@ -651,12 +651,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Tornado Shot terminal secondaries: each primary arrow pierces its contacts and emits three
-  `TornadoShotSecondaryArrow` flights at its endpoint, spaced around a uniform random group phase. The server
-  simulates their damage but hides their objects because the client draws the same arrows itself; one secondary per
-  set can hit an enemy, and the children keep support Pierce/Fork/Chain. Their range uses a provisional 0.5 s
-  fade/lifetime, so projectile speed scales it, and Point Blank/Far Shot distance includes the primary leg. The
-  client's native aim/phase derivation and exact secondary range are not ported; profile tests cover the setup, but
-  live damage and visuals are not checked yet.
+  `TornadoShotSecondaryArrow` flights at its endpoint, spaced around the client's native terminal RNG ray
+  (`[sequence, mother-derived byte, owner, repeats]`). The server simulates their damage but hides their objects
+  because the client draws the same arrows itself; one secondary per set can hit an enemy, and the children keep
+  support Pierce/Fork/Chain. Their range uses a provisional 0.5 s fade/lifetime, so projectile speed scales it, and
+  Point Blank/Far Shot distance includes the primary leg. The exact native fade duration remains unported; tests cover
+  the profile, the client RNG vector and the continued PB/Far Shot distance, but live damage and visuals are not
+  checked yet.
   Code: `GatewayProjectileSkillProfiles.cs`, `ProjectileStages.cs`, `ProjectileTypes.cs`, `Projectiles.cs`;
   wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).

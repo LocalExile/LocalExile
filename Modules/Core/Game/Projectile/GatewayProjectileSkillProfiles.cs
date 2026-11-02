@@ -67,8 +67,8 @@ static class GatewayProjectileSkillProfiles
 
     // The client's primary arrow pierces enemies and, at its terminal point, generates an ordinary secondary group:
     // three TornadoShotSecondaryArrow flights spaced around a random base ray. The server simulates that group for
-    // damage but hides its objects because the client draws the same arrows itself. The client's own random aim
-    // derivation is not ported; this uses a uniform random phase instead.
+    // damage but hides its objects because the client draws the same arrows itself. The base ray is the client's own
+    // terminal RNG draw, so both sides fan out the same way (TornadoShotBaseDirection).
     static ProjectileProfile TornadoShotChildren(ProjectileProfile parent, Func<string, int> get)
     {
         int count = Math.Clamp(get("tornado_shot_num_of_secondary_projectiles") is > 0 and var n ? n : 3, 1, 256);
@@ -99,8 +99,34 @@ static class GatewayProjectileSkillProfiles
             // Client +0x330 bit 0x4: the ordinary primary arrow pierces before its terminal child group. The negative
             // sentinel is the runtime's never-decrementing pierce and the panel's virtual_always_pierce.
             Pierce = -1, CannotPierce = false,
-            EndEmission = new(child, Radial: true, RandomPhase: true)
+            EndEmission = new(child, Radial: true, BaseDirection: TornadoShotBaseDirection)
         };
+    }
+
+    // The client's terminal RNG (0x1419c29b0) seeds [sequence, mother-derived byte, owner, repeats left,
+    // secondary-release byte, 0, 0, 0]. A fresh mother's derived byte is 2, and each arrow of a volley adds its index.
+    // The radial emitter then spaces children around that sampled base ray with no extra phase.
+    internal static ProjectileVector TornadoShotBaseDirection(ushort sequence, uint derived, uint owner, uint repeats)
+    {
+        var random = new AnimationVariantSelector.NativeRandom([sequence, derived, owner, repeats, 0, 0, 0, 0]);
+        uint sample = TornadoBounded(ref random, 7001);
+        float phi = (float)sample / 7000f * 6.283180236816406f;
+        return new(MathF.Sin(phi), -MathF.Cos(phi));
+    }
+
+    static ProjectileVector TornadoShotBaseDirection(ProjectileEntity parent) =>
+        TornadoShotBaseDirection(parent.Use.Sequence, (uint)(2 + parent.VolleyIndex), parent.Use.Owner.Id,
+            parent.Use.RepeatsLeft);
+
+    // The native bounded draw (0x1404d03d0): reject the incomplete top bucket, then take the remainder.
+    static uint TornadoBounded(ref AnimationVariantSelector.NativeRandom random, uint exclusiveMax)
+    {
+        ulong limit = (1UL << 32) / exclusiveMax * exclusiveMax;
+        while (true)
+        {
+            uint value = random.NextUInt();
+            if (value < limit) return value % exclusiveMax;
+        }
     }
 
     public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<string, int> get, bool spell)
