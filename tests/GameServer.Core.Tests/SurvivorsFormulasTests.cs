@@ -47,6 +47,15 @@ public class SurvivorsFormulasTests
     }
 
     [Fact]
+    public void The_way_onward_is_sealed_only_while_the_lore_boss_lives()
+    {
+        Assert.True(SurvivorsRules.WaySealed(1, bossDefeated: false));
+        Assert.False(SurvivorsRules.WaySealed(1, bossDefeated: true));
+        // An area with no boss (a town-like layout) never seals its exit.
+        Assert.False(SurvivorsRules.WaySealed(0, bossDefeated: false));
+    }
+
+    [Fact]
     public void Added_damage_is_scaled_by_the_skill_effectiveness()
     {
         // Base 10-20, added 4-6 at 200% effectiveness, then 25% increased: (15 + 10) × 1.25.

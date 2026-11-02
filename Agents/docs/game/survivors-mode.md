@@ -23,6 +23,8 @@ auto-cast skills, a choice on every level). No code from it, or from any other p
 | `/survivors herald` | Dev: learns the first Herald gem at once, for watching its aura pulse. |
 | `/survivors test <gem>` | Dev: restarts the run with exactly that gem (rank 1), for the per-gem verification pass. |
 | `/survivors link <support>` | Dev: links that support to the first learned skill, for the per-support verification pass. |
+| `/survivors unique <name>` | Dev: creates and equips a named unique, for checking its mods on the character and on casts. |
+| `/survivors uniques` | Dev: sweeps the whole unique catalogue and reports creatable/equippable items, missing Mods rows and mods with no stat effect. |
 | `/survivors rank <1-8>` | Dev: sets every learned skill to that rank. |
 | `/survivors stop` | Ends the run and prints the result. |
 
@@ -115,11 +117,11 @@ stays paused with nothing to click.
 
 ## Unique items
 
-Every third run level the window offers one **unique item** (`UniqueCatalog`'s definitions; `Mageblood`, `Crown of Eyes`
-today) beside the skills. The item is created when the offer is dealt, so the pick equips exactly the item the window
-showed: `PlayerInventories.Add` puts it into the first free equipment row its class fits (the main inventory when every
-slot is taken), the client gets the inventory change and, for a visible slot, the equipment update, and the character's
-stats are published again.
+Every third run level the window offers one **unique item** from the full Path of Building-derived `UniqueCatalog`
+(1299 definitions; `Mageblood`, `Crown of Eyes`, `The Searing Touch` and the rest) beside the skills. The item is
+created when the offer is dealt, so the pick equips exactly the item the window showed: `PlayerInventories.Add` puts it
+into the first free equipment row its class fits (the main inventory when every slot is taken), the client gets the
+inventory change and, for a visible slot, the equipment update, and the character's stats are published again.
 
 Unlike blessings, a unique is a real item on the character: it stays equipped, is saved with the character and keeps
 its mods. A run waives its requirements while it lasts, because a low-level character could not otherwise wear it:
@@ -128,6 +130,24 @@ above the player's level), the three `virtual_*_for_requirements` stats go to 10
 attribute check), and `ClientState.SurvivorsItemIds` keeps the item out of the server's inactive set so its mods count.
 After the run the item follows the normal requirements again. An item already taken in the run, or already worn by the
 character (matched by its name word), is not offered again.
+
+**The run's casts read the character's stats**, so a unique's mods actually change the run: `FinalPlayerStats` (passives
+and equipped uniques) is merged into every cast's stat dictionary beside the gem, its supports and the blessings. That
+gives the hit the unique's increased/more damage, conversion and added damage, cast speed, critical chance and
+multiplier, area, projectile speed, penetration/resistance modifiers, leech and ailment chance/duration through the same
+`PlayerHitDamage.Resolve` pipeline. Only items that fit an equipment row are offered: a jewel or flask has nowhere to go
+in a character whose inventory is emptied at the start, so it would be a wasted reward.
+
+## Boss gate
+
+Each stage is one area with its lore boss. The boss is the area's own unique from `MonsterPacks` (the same one the
+normal area spawns), arrives 15 run-seconds into the stage, and announces itself with the area's name. The 120-second
+timer no longer opens the way by itself: when it runs out and the boss still lives, the run stays in the area and says
+"The way is sealed until <boss> falls." Killing the boss marks the stage cleared; the next area opens at the next
+tick, with the run level, skills, blessings and uniques carried over. An area with no boss (a town-like layout) has no
+gate.
+
+`Game_SURVIVORS_STAGE_SECONDS` (at least 15) shortens the stage for verification; the default is 120.
 
 ## Skill bar
 
@@ -152,13 +172,13 @@ inventory row), so nothing from an earlier run carries in.
 | Rule | Value |
 |---|---|
 | Run length | 900 s |
-| Levels (areas) | the run moves to the next area every 120 s: `1_1_1`, `1_1_2`, `1_1_3`, `1_1_5`, `1_1_6`, `1_1_9`, `1_1_11_2`; the horde, run level and skills carry over |
+| Levels (areas) | the run moves to the next area every 120 s, but **only after that area's lore boss falls**; the boss is the area's own `MonsterPacks` unique (e.g. Hillock in the Twilight Strand), arrives 15 s into the stage and holds the way sealed while alive |
 | Monsters kept alive | 14 at the start growing to the cap (120) at the end |
 | Spawn cadence | every 0.5 s, at most 4 per step, on a 30-38 cell ring around the player |
 | Roster | the area's own `MonsterPacks`, deduplicated, ordered by the life the client gives the variety at the area level; the last four unlocked varieties are drawn from |
 | Rarity | 15% magic after 20% of the run, 3% rare after 50% |
-| Boss | the area's `WorldAreas` unique boss every 135 s |
-| Ring wave | halfway between bosses, a closing ring of the weakest variety: 28 bodies at the start, 88 by the end |
+| Boss | the area's own `WorldAreas` unique boss, once per stage, 15 s in; while it lives the way onward stays sealed |
+| Ring wave | halfway through the stage (67.5 s), a closing ring of the weakest variety: 28 bodies at the start, 88 by the end |
 | Monster scaling | life ×(1 + 0.75 × progress), damage ×(1 + 0.9 × progress) |
 | Cast | each learned skill casts on the gem's own cast time, 7% shorter per rank, divided by increased cast speed (floor 200 ms); an empty cast retries in 200 ms |
 | Targets | one projectile per target in 34 cells: the nearest, or the toughest for Pyroblast, Aimed Shot, Exorcism and Starfire, up to the gem's projectile count |
@@ -219,8 +239,9 @@ The first attempt sent `0x00bf` for `0x600` before the inventory was registered 
 - Damage-over-time components of a gem (Caustic Arrow's caustic ground, Soulrend's debuff, poison) are not simulated:
   the monster poison DOT and ground effects have no server model yet, so those gems currently live on their hit damage.
 - The run window is the quest-reward window: it lists gems, not custom cards with upgrade text.
-- The unique pool is `UniqueCatalog`'s definitions (two today), not the game's whole unique list: the client data has no
-  table linking a unique to its mods.
+- The unique pool is the full `UniqueCatalog` seed generated from Path of Building (1299 definitions; the 1072 that fit
+  an equipment row are offered). Jewels, flasks and maps are left out because the run's emptied character has nowhere
+  to put them.
 - No loot, gold or gem experience from run kills: `DropLoot` is skipped while a run is active.
 - No HUD panel for the run's clock; the skills themselves are on the normal skill bar.
 
@@ -263,6 +284,40 @@ Increased Critical Strikes took the chance 5% → 11.2% ((5 + 2) × 1.6), Faster
 the flight speed ×1.5. Ethereal Knives + Added Fire confirmed the physical-only rule. The remaining supports (Added
 Lightning, Life Leech) use the same shared pipeline, and Life Leech's coefficient is read by `LeechSources` on each hit.
 
+## Boss and unique verification (2026-11-02, late)
+
+**Boss gate.** With `Game_SURVIVORS_STAGE_SECONDS=15` (so the stage boundary and the 15 s boss delay meet), the run
+showed the whole flow live:
+
+```
+Hillock guards The Twilight Strand. Defeat it to open the way onward.
+Hillock falls. The way onward opens.
+--- Level 2 --- Moving to The Coast.
+The way is sealed until Fire Fury falls.
+Fire Fury guards The Coast. Defeat it to open the way onward.
+Fire Fury falls. The way onward opens.
+--- Level 3 --- Moving to The Mud Flats.
+```
+
+The first stage's Hillock died before the timer (the normal case, transition at the stage boundary); the second stage
+proved the sealed branch: the boundary arrived while the boss was not yet dead, the run stayed and said so, and the
+transition happened the moment Fire Fury died.
+
+**Uniques.** `/survivors uniques` swept the full catalogue:
+
+```
+1299 definitions: 1299 create, 0 unsupported base type(s), 1072 fit an equipment row,
+1071 with a recognized stat, 0 with a missing Mods.dat row.
+No stat found: Tabula Rasa
+```
+
+Every equipment unique resolves its `Mods.dat` rows and leaves a stat on the character; Tabula Rasa is the one whose
+identity is its white sockets, not a stat. The survivors pool now offers only items that fit an equipment row (no
+jewels, flasks or maps), so no reward is wasted. Equipping **The Searing Touch** raised Fireball's cast from
+`Fire 20.35-31.65, Cold 27.13-40.70` to `Fire 44.56-69.32, Cold 39.61-59.42`; the character's `FinalPlayerStats` is
+merged into every cast, so a unique's damage, cast speed, crit, area, projectile speed, penetration, leech and ailment
+mods all reach the run. A regression test (`UniqueCatalogueTests`) now checks the whole catalogue in CI.
+
 ## Needs testing
 
 - **Cast animations**: some gems still cast without a character animation; each needs its own animation pass.
@@ -272,9 +327,14 @@ Lightning, Life Leech) use the same shared pipeline, and Life Leech's coefficien
   their non-hit damage can be shown; the hit portion works today.
 - **Tornado Shot's secondary arrows**: the client predicts and draws them in the real game; here the run hides the
   server copies and only simulates their damage, so they are not separately visible.
-- **A unique item** on the third level: the window shows it, the pick equips it in the right slot, its mods reach the
-  character panel, and it survives the area change (verified earlier, unchanged by this pass).
+- **Unique mechanics that are not plain stats**: the sweep proves every equipment unique's Mods rows resolve to
+  character stats, but conditional lines (per charge, at full life, on block, "while you have…") are only as good as
+  `PlayerHitDamage`/`FinalPlayerStats` model them; each such unique still deserves its own live check.
+- **Boss balance**: the gate is verified, but the boss's life and the stage length have not been tuned together on a
+  fresh character; a weak build can hold a stage open indefinitely (which is the intended gate, not a bug).
 
 ## Tuning
 
 `Game_SURVIVORS_MAX_ALIVE` (10-400, default 120) changes how many monsters a run keeps alive.
+`Game_SURVIVORS_STAGE_SECONDS` (at least 15, default 120) shortens the stage timer for a verification run.
+`Game_SURVIVORS_TRACE=1` prints one line per cast with the mechanics, damage, critical chance and interval it used.

@@ -46,6 +46,12 @@ public static class SurvivorsRules
     public const int MaxSupportsPerSkill = 5;
     public const double LevelSeconds = 120;
 
+    /// <summary>The current stage's length: <see cref="LevelSeconds"/>, or Game_SURVIVORS_STAGE_SECONDS (at least 15 s)
+    /// for a verification run that does not wait two minutes per area.</summary>
+    public static double StageSeconds =>
+        double.TryParse(Environment.GetEnvironmentVariable("Game_SURVIVORS_STAGE_SECONDS"), out double seconds) && seconds >= 15
+            ? seconds : LevelSeconds;
+
     public static double Progress(double elapsed) => Math.Clamp(elapsed / VictorySeconds, 0, 1);
 
     /// <summary>The horde: 14 alive at the start, the cap by the end (Azeroth Survivors' 14 → 220 curve).</summary>
@@ -92,6 +98,9 @@ public static class SurvivorsRules
     }
 
     public const int IncomingDamagePercent = 25;
+
+    /// <summary>The next area opens only once the stage's lore boss has fallen; an area with no boss never seals.</summary>
+    public static bool WaySealed(int bossCount, bool bossDefeated) => bossCount > 0 && !bossDefeated;
 
     public static int IncomingDamage(int damage, int percent = IncomingDamagePercent) =>
         damage <= 0 ? 0 : Math.Max(1, damage * Math.Clamp(percent, 1, 100) / 100);

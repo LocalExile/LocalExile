@@ -104,6 +104,11 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             && items.Find(d.BaseTypeId)?.Name.Equals(name[(d.Name.Length + 1)..], StringComparison.OrdinalIgnoreCase) == true)
         ?? All.FirstOrDefault(d => d.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>The word-list word a unique's name resolves to, or null when the client data has no such name. The
+    /// survivors pool uses it to skip a unique the character already wears without rolling a whole item.</summary>
+    public uint? NameWord(Definition definition) =>
+        _names.Value.TryGetValue(NameKey(definition.Name), out var unique) ? unique.Word : null;
+
     /// <summary>The unique item for a name, or null when the name is not one or its base type is not writable.</summary>
     public Item? Create(string name, Random random) => Find(name) is { } definition ? Create(definition, random) : null;
 

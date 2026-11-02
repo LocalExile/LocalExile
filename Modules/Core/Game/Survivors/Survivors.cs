@@ -16,13 +16,16 @@ static partial class Game
     /// <summary>The unique boss of the area arrives this often, in run seconds.</summary>
     internal const double SurvivorsBossIntervalSeconds = 135;
 
+    /// <summary>The area's boss arrives this long after a stage starts: its death is what opens the next stage.</summary>
+    internal const double SurvivorsBossDelaySeconds = 15;
+
     /// <summary>A herald's aura reaches this far around the player, in cells, before its rank and area grow it.</summary>
     internal const double SurvivorsHeraldRadius = 12;
 
     /// <summary>The reward inventory the level-up window lists its skills in (the quest-reward window's own).</summary>
     internal const uint SurvivorsOfferInventory = 0x600;
 
-    /// <summary>The areas a run moves through, one "level" every <see cref="SurvivorsRules.LevelSeconds"/>.</summary>
+    /// <summary>The areas a run moves through, one "level" every <see cref="SurvivorsRules.StageSeconds"/>.</summary>
     internal static readonly string[] SurvivorsLevels =
         ["1_1_1", "1_1_2", "1_1_3", "1_1_5", "1_1_6", "1_1_9", "1_1_11_2"];
 
@@ -326,10 +329,11 @@ static partial class Game
         conn.SurvivorsSupports = supports;
         await conn.Commands!.Reply(
             "--- Survivors ---:\n" +
-            $"Survive {SurvivorsRules.VictorySeconds / 60:0} minutes. Your skills cast themselves at the nearest monster; every " +
-            $"{SurvivorsRules.LevelSeconds / 60:0} minutes the run moves to the next area.\n" +
-            $"Start: {catalog[0].Name}. Each level opens the reward window with three upgrades; /survivors stop ends the run. " +
-            "The run's skills and their cooldowns are on your skill bar.");
+            $"Survive {SurvivorsRules.VictorySeconds / 60:0} minutes. Your skills cast themselves at the nearest monster. " +
+            $"Every {SurvivorsRules.StageSeconds / 60:0.#} minutes the run moves to the next area, but only after the " +
+            $"area's lore boss falls.\n" +
+            $"Start: {catalog[0].Name}. Each level opens the reward window with three upgrades; /survivors stop ends " +
+            "the run. The run's skills and their cooldowns are on your skill bar.");
         Console.WriteLine($"[gateway] {remote} survivors run started in {conn.Layout.Id} at level {roster.Level}: " +
             $"{roster.Varieties.Count} varieties, {roster.Bosses.Count} boss(es), {run.MaxAlive} alive at most, " +
             $"base damage {roster.WeaponDamage} (skill scale {roster.SkillScale:0.###}), {catalog.Count} skills, " +
@@ -493,6 +497,26 @@ static partial class Game
                 : $"Could not link {linkCatalog[support].Name}: the skill already has five supports.");
             return;
         }
+        // Dev: equip a named unique, for checking its mods on the character and on the run's casts.
+        if (what == "unique")
+        {
+            string wanted = string.Join(' ', args.Skip(1)).Trim();
+            if (wanted.Length == 0 || UniquesFor(conn).Create(wanted, Random.Shared) is not { } unique)
+            {
+                await conn.Commands!.Reply($"Usage: /survivors unique <name>, e.g. /survivors unique The Searing Touch.");
+                return;
+            }
+            bool equipped = await SurvivorsEquip(remote, stream, ciphers, conn, unique);
+            await conn.Commands!.Reply(equipped
+                ? $"Equipped {wanted} (dev)." : $"{wanted} could not be equipped.");
+            return;
+        }
+        // Dev: sweep the whole unique catalogue and report what can be equipped and what its mods do.
+        if (what == "uniques")
+        {
+            await SurvivorsUniqueReport(remote, stream, ciphers, conn);
+            return;
+        }
         if (what == "stop")
         {
             if (conn.Survivors is null) { await conn.Commands!.Reply("No survivors run is active."); return; }
@@ -547,9 +571,15 @@ static partial class Game
     static async Task RunSurvivors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         SurvivorsRun run, SurvivorsRoster roster, IReadOnlyList<SurvivorsSkill> catalog, int stage)
     {
-        double last = conn.Clock.Elapsed.TotalSeconds, nextSpawn = 0, nextBoss = SurvivorsBossIntervalSeconds,
-            nextRing = SurvivorsBossIntervalSeconds / 2, nextReport = 10, nextSweep = 0;
-        int bossesSpawned = 0;
+        // Each stage is one area and one lore boss: the boss arrives 15 s in, and the way out opens only after it falls.
+        double stageStart = stage * SurvivorsRules.StageSeconds;
+        double last = conn.Clock.Elapsed.TotalSeconds, nextSpawn = 0,
+            nextBoss = Math.Max(stageStart + SurvivorsBossDelaySeconds, run.Elapsed + 5),
+            nextRing = Math.Max(stageStart + SurvivorsBossIntervalSeconds / 2, run.Elapsed + 10),
+            nextReport = 10, nextSweep = 0;
+        string bossName = roster.Bosses.Count > 0 ? roster.Bosses[0].Name : "";
+        uint stageBoss = 0;
+        bool bossSpawned = false, bossDefeated = false, bossWarned = false;
         bool carried = false;
         var horde = new HashSet<uint>();
         var nextFire = new Dictionary<int, double>();
@@ -568,14 +598,35 @@ static partial class Game
                 run.Advance(step);
                 if (conn.PlayerLife == 0) { await EndSurvivors(remote, stream, ciphers, conn, "defeat"); break; }
                 if (run.Elapsed >= SurvivorsRules.VictorySeconds) { await EndSurvivors(remote, stream, ciphers, conn, "victory"); break; }
-                if (run.Elapsed >= (stage + 1) * SurvivorsRules.LevelSeconds && stage + 1 < SurvivorsLevels.Length)
+                // The stage boss is the gate: its death is the only thing that lets the run leave this area.
+                if (stageBoss != 0 && !bossDefeated)
                 {
-                    if (AreaTransitionCatalog.HashOf(SurvivorsLevels[stage + 1]) is { } nextArea)
+                    bool dead;
+                    lock (conn.Monsters) dead = !conn.Monsters.TryGetValue(stageBoss, out var boss) || boss.Dead || boss.Life == 0;
+                    if (dead)
+                    {
+                        bossDefeated = true;
+                        await conn.Commands!.Reply($"{bossName} falls. The way onward opens.");
+                    }
+                }
+                if (run.Elapsed >= (stage + 1) * SurvivorsRules.StageSeconds && stage + 1 < SurvivorsLevels.Length)
+                {
+                    bool sealedByBoss = SurvivorsRules.WaySealed(roster.Bosses.Count, bossDefeated);
+                    if (sealedByBoss)
+                    {
+                        if (!bossWarned)
+                        {
+                            bossWarned = true;
+                            await conn.Commands!.Reply($"The way is sealed until {bossName} falls.");
+                        }
+                    }
+                    else if (AreaTransitionCatalog.HashOf(SurvivorsLevels[stage + 1]) is { } nextArea)
                     {
                         if (conn.Character is { } character)
                             SurvivorsCarried[character] = new SurvivorsCarry(run, stage + 1, DateTime.UtcNow, [.. conn.SurvivorsItemIds]);
                         carried = true;
-                        await conn.Commands!.Reply($"--- Level {stage + 2} ---\nMoving to {SurvivorsLevels[stage + 1]}.");
+                        string nextName = AreaTransitionCatalog.NameOf(nextArea) ?? SurvivorsLevels[stage + 1];
+                        await conn.Commands!.Reply($"--- Level {stage + 2} ---\nMoving to {nextName}.");
                         await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(nextArea, 0, false), "survivors level");
                         break;
                     }
@@ -591,16 +642,16 @@ static partial class Game
                     nextSweep = now + 1;
                     await SurvivorsClearGround(remote, stream, ciphers, conn);
                 }
-                if (roster.Bosses.Count > 0 && run.Elapsed >= nextBoss)
+                if (roster.Bosses.Count > 0 && !bossSpawned && run.Elapsed >= nextBoss)
                 {
-                    nextBoss += SurvivorsBossIntervalSeconds;
-                    if (bossesSpawned < roster.Bosses.Count)
-                        await SpawnSurvivorsBoss(remote, stream, ciphers, conn, roster, bossesSpawned++, horde);
+                    stageBoss = await SpawnSurvivorsBoss(remote, stream, ciphers, conn, roster, 0, horde);
+                    if (stageBoss != 0) bossSpawned = true;
+                    else nextBoss = run.Elapsed + 5;
                 }
-                // Halfway between bosses a ring of the moment's weakest closes in on the player.
+                // Halfway through the stage a ring of the moment's weakest closes in on the player.
                 if (run.Elapsed >= nextRing)
                 {
-                    nextRing += SurvivorsBossIntervalSeconds;
+                    nextRing = stageStart + SurvivorsBossIntervalSeconds;
                     await SpawnSurvivorsRing(remote, stream, ciphers, conn, run, roster, horde);
                 }
                 foreach (var (skill, rank) in run.Skills)
@@ -697,17 +748,24 @@ static partial class Game
         if (spawned > 0) await conn.Commands!.Reply("They're surrounding you!");
     }
 
-    static async Task SpawnSurvivorsBoss(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<uint> SpawnSurvivorsBoss(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         SurvivorsRoster roster, int index, HashSet<uint> horde)
     {
         if (SurvivorsSpawnCell(conn, 24) is not { } cell)
         {
             Console.WriteLine($"[gateway] {remote} survivors: no cell for boss {roster.Bosses[index].Name}");
-            return;
+            return 0;
         }
-        horde.Add(await SpawnMonster(remote, stream, ciphers, conn, roster.Bosses[index], roster.Level, MonsterRarity.Unique, cell.X, cell.Y));
-        await conn.Commands!.Reply($"{roster.Bosses[index].Name} approaches.");
+        uint id = await SpawnMonster(remote, stream, ciphers, conn, roster.Bosses[index], roster.Level, MonsterRarity.Unique, cell.X, cell.Y);
+        horde.Add(id);
+        string area = SurvivorsAreaName(conn.Layout.Id);
+        await conn.Commands!.Reply($"{roster.Bosses[index].Name} guards {area}. Defeat it to open the way onward.");
+        return id;
     }
+
+    /// <summary>The client's own name for an area id, or the id when the atlas has none.</summary>
+    static string SurvivorsAreaName(string id) =>
+        AreaTransitionCatalog.HashOf(id) is { } hash ? AreaTransitionCatalog.NameOf(hash) ?? id : id;
 
     /// <summary>A spawned monster's mods for the run's clock: +75% life and +90% damage at 15:00, as the monster mods'
     /// own stats (MonsterModEffects).</summary>
@@ -758,11 +816,6 @@ static partial class Game
         || skill.Name.Contains("Starfire", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// One run skill's cast: a real projectile object the client draws for each target in reach (one per rank's extra
-    /// projectile), released from the player and resolved by the projectile runtime, so damage lands at the flight's own
-    /// contact. Returns whether it fired; the run retries an empty cast sooner.
-    /// </summary>
-    /// <summary>
     /// One run skill's cast with the gem's own numbers: base damage, damage effectiveness, conversion, critical strike
     /// chance, cast time, projectile count, pierce/chain/fork/split, area, duration and ailment chances all come from the
     /// same game-data rows Path of Building reads, and each linked support contributes its gem's real stats. The hit is
@@ -778,11 +831,15 @@ static partial class Game
         List<(uint Id, double Distance, uint Life, int X, int Y)> inReach = [];
         var supports = conn.SurvivorsSupports ?? [];
         var own = SurvivorsStatsByName(conn, skill.Effect, rank);
-        var merged = SurvivorsMergedStats(conn, run, skill, skillIndex, rank, supports, own);
+        var skillStats = SurvivorsSkillAndSupportStats(conn, run, skill, skillIndex, rank, supports, own);
+        var playerKeys = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+        var playerStats = SurvivorsPlayerStats(playerKeys);
+        var merged = new Dictionary<string, int>(playerStats, StringComparer.Ordinal);
+        foreach (var (name, value) in skillStats) merged[name] = merged.GetValueOrDefault(name) + value;
         int Get(string name) => merged.GetValueOrDefault(name);
         bool spell = !skill.Attack;
         double interval = SurvivorsFormulas.CastInterval(skill.CastTimeMs / 1000.0, rank,
-            Get("base_cast_speed_+%"));
+            Get("base_cast_speed_+%") + Get("cast_speed_+%") + (spell ? Get("spell_cast_speed_+%") : 0));
         using (ProjectileMutation(conn))
         {
             double world = ProjectileWorldTime(conn);
@@ -804,8 +861,9 @@ static partial class Game
         if (skill.Kind == SurvivorsSkillKind.Herald)
         {
             double radius = SurvivorsFormulas.AreaRadius(SurvivorsHeraldRadius * SurvivorsRules.SkillRadius(rank),
-                run.AreaIncreasedPercent);
-            int heraldDamage = (int)(SurvivorsRules.SkillDamage(roster.WeaponDamage, rank) * run.DamageMultiplier);
+                run.AreaIncreasedPercent + playerStats.GetValueOrDefault("skill_area_of_effect_+%"));
+            int heraldDamage = (int)(SurvivorsRules.SkillDamage(roster.WeaponDamage, rank) * run.DamageMultiplier
+                * (1 + playerStats.GetValueOrDefault("damage_+%") / 100.0));
             int struck = 0;
             foreach (var (id, distance, _, _, _) in inReach)
             {
@@ -830,7 +888,7 @@ static partial class Game
         int baseSpeed = SkillsFor(conn).Projectile(definition.Metadata)?.Speed ?? 1000;
         // Riptide's Projectiles row is a 10-unit placeholder: a projectile that slow cannot cross a cell.
         if (baseSpeed < 100) baseSpeed = 800;
-        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, _ => 0, Get,
+        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Get, Get,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0) return 0;
         var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(conn, skill.Effect));
@@ -843,34 +901,34 @@ static partial class Game
             Count = 1,
         };
 
-        // PoB calcDamage: base + added × effectiveness, converted, then increased/more from the gem, its supports and
-        // the run's blessings. A spell's own base is already final; an attack uses the run's nominal weapon.
+        // PoB calcDamage: base + added × effectiveness, converted, then increased/more from the character, the gem, its
+        // supports and the run's blessings. A spell's own base is already final; an attack uses the run's nominal
+        // weapon, with added damage (the character's, a support's, the gem's) scaled like the rest of the run.
         int effectiveness = SkillsFor(conn).DamageEffectiveness(skill.Effect, rank);
         DamagePacket raw;
         if (spell)
         {
-            raw = SkillsFor(conn).HitDamage(skill.Effect, rank).Scale(roster.SkillScale);
+            raw = SkillsFor(conn).HitDamage(skill.Effect, rank);
             raw = DamageStats.RawAdded(raw, Get, spell: true, effectiveness / 10_000.0);
+            raw = SurvivorsGlobalAdded(raw, Get, effectiveness);
+            raw = raw.Scale(roster.SkillScale);
         }
         else
         {
             bool unarmed = Get("flask_throw_charges_used_per_projectile") != 0;
             var weapon = unarmed ? DamagePacket.Empty
                 : DamagePacket.Of(DamageType.Physical, roster.WeaponDamage * 0.45, roster.WeaponDamage * 0.9);
-            raw = SpellDamage.WithEffectiveness(DamageStats.RawAdded(weapon, Get, spell: false), effectiveness);
-        }
-        // Added Cold/Lightning Support's "global" ranges apply to spells and attacks alike (PoB ModParser), scaled by
-        // the skill's damage effectiveness like every other added range.
-        foreach (var type in new[] { DamageType.Physical, DamageType.Lightning, DamageType.Cold, DamageType.Fire, DamageType.Chaos })
-        {
-            string slug = SurvivorsDamageSlug(type);
-            var added = new DamageRange(Get($"global_minimum_added_{slug}_damage"), Get($"global_maximum_added_{slug}_damage"));
-            if (!added.IsZero) raw = raw.Add(type, added.Scale(effectiveness / 10_000.0));
+            var added = DamageStats.RawAdded(DamagePacket.Empty, Get, spell: false);
+            added = SurvivorsGlobalAdded(added, Get, 10_000);
+            added = SpellDamage.WithEffectiveness(added, effectiveness);
+            raw = SpellDamage.WithEffectiveness(weapon, effectiveness)
+                .Add(added.Scale(roster.SkillScale));
         }
         if (raw.IsZero) return 0;
 
-        var keys = SurvivorsKeyStats(merged);
-        var conversion = DamageStats.Conversion(keys, Stats, skill.Attack);
+        var mergedKeys = SurvivorsKeyStats(merged);
+        var skillKeys = SurvivorsKeyStats(skillStats);
+        var conversion = DamageStats.Conversion(mergedKeys, Stats, skill.Attack);
         List<(string Name, int Value)> supportMods = [];
         foreach (int index in run.SupportsOf(skillIndex))
             if (index >= 0 && index < supports.Count && supports[index].Effect >= 0)
@@ -882,6 +940,8 @@ static partial class Game
             supportModifiers: supportMods);
         if (hitDamage.IsZero && areaHit.IsZero) return 0;
 
+        // The character's penetration, resistance modifiers and leech join the run's hit exactly as they join a gem's.
+        var local = spell ? null : WeaponFor(conn).LocalSources;
         int baseCrit = spell ? SkillsFor(conn).SpellCritChance(skill.Effect, rank) ?? 0 : 500;
         int crit = spell
             ? SpellCriticalStrike.Chance(baseCrit, _ => 0, Get)
@@ -890,15 +950,25 @@ static partial class Game
         if (spell && Get("ice_spear_second_form_critical_strike_chance_+%") is > 0 and var secondCrit)
             secondForm = AddedBaseCriticalStrike.Chance(baseCrit,
                 Get("critical_strike_chance_+%") + secondCrit, spell: true, _ => 0, Get);
-        var shot = new ProjectileOffense(hitDamage, spell, Accuracy: int.MaxValue, CriticalChance: crit,
-            CriticalMultiplier: SurvivorsFormulas.CriticalMultiplier(Get("base_critical_strike_multiplier_+")), Label: skill.Name)
+        int multiplier = spell
+            ? (int)Math.Clamp((long)conn.Pools.SpellCriticalStrikeMultiplier
+                + skillStats.GetValueOrDefault("base_critical_strike_multiplier_+"), int.MinValue, int.MaxValue)
+            : AttackCriticalMultiplier(conn, playerKeys, skill.Effect, skillKeys);
+        string hand = spell ? "spell" : "main_hand";
+        var ailmentRows = AilmentPanelStats.Compute(new(hand, Spell: spell, Projectile: true), raw, conversion, Get);
+        var shot = new ProjectileOffense(hitDamage, spell, Accuracy: spell ? int.MaxValue : conn.Pools.Accuracy,
+            CriticalChance: crit, CriticalMultiplier: multiplier, Label: skill.Name)
         {
             AreaHit = areaHit,
             // The client draws the shot: one instant action per target (0x1ce) runs the gem's own use there, so the
             // server's matching projectile is simulated but sends no object of its own.
             Effect = skill.Effect, Level = rank, ClientPredicted = false, HitPacket = true,
-            SkillStats = keys,
-            Ignite = SurvivorsIgnite(Get, hitDamage),
+            SkillStats = skillKeys,
+            Penetration = Penetration.Of(playerKeys, Stats, attack: !spell, skillKeys, local),
+            ResistanceMods = HitResistMods(playerKeys, skillKeys),
+            AccuracyProfile = spell ? null : AttackAccuracyProfile.From(conn.Pools, playerKeys, Stats, skillKeys, local),
+            AlwaysHits = Get("global_always_hit") != 0,
+            Ignite = MonsterIgnites.Settings.From(ailmentRows, hand, Get),
             Leech = LeechSources.From(Get, skill.Attack),
             SecondFormCriticalChance = secondForm,
         };
@@ -947,12 +1017,23 @@ static partial class Game
         return stats;
     }
 
+    /// <summary>The character's final stats by name (passives, equipped uniques, flasks): the player side of Path of
+    /// Building's damage formula, which a run skill now reads beside its own gem and supports.</summary>
+    static Dictionary<string, int> SurvivorsPlayerStats(IReadOnlyDictionary<uint, int> player)
+    {
+        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (key, value) in player)
+            if (Stats.Name(key) is { Length: > 0 } name) stats[name] = stats.GetValueOrDefault(name) + value;
+        return stats;
+    }
+
     /// <summary>
-    /// The stats a run skill casts with: its own gem, each linked support at the skill's rank, and the run's blessings
-    /// as PoB-style increased modifiers. The profile resolver, the damage resolver and the ailment code all read this
-    /// one dictionary, so a support cannot mean one thing to the flight and another to the hit.
+    /// The skill side of a run cast: its own gem, each linked support at the skill's rank, and the run's blessings as
+    /// PoB-style increased modifiers. The character's own final stats are layered over this in
+    /// <see cref="SurvivorsCast"/>, so the profile resolver, the damage resolver and the ailment code read one
+    /// dictionary and a support cannot mean one thing to the flight and another to the hit.
     /// </summary>
-    static Dictionary<string, int> SurvivorsMergedStats(ClientState conn, SurvivorsRun run, SurvivorsSkill skill,
+    static Dictionary<string, int> SurvivorsSkillAndSupportStats(ClientState conn, SurvivorsRun run, SurvivorsSkill skill,
         int skillIndex, int rank, IReadOnlyList<SurvivorsSupportItem> supports, Dictionary<string, int> own)
     {
         var stats = new Dictionary<string, int>(own, StringComparer.Ordinal);
@@ -964,7 +1045,7 @@ static partial class Game
         }
         void Add(string name, int value) { if (value != 0) stats[name] = stats.GetValueOrDefault(name) + value; }
         Add("damage_+%", run.DamageIncreasedPercent);
-        Add("base_cast_speed_+%", run.CastSpeedIncreasedPercent);
+        Add("cast_speed_+%", run.CastSpeedIncreasedPercent);
         Add("base_skill_area_of_effect_+%", run.AreaIncreasedPercent);
         Add("critical_strike_chance_+%", run.CriticalChanceIncreasedPercent);
         Add("life_leech_from_any_damage_permyriad", run.LeechPermyriad);
@@ -993,14 +1074,21 @@ static partial class Game
         DamageType.Fire => "fire", _ => "chaos",
     };
 
-    /// <summary>PoB's ignite: 90% of the hit's fire damage a second for 4 s, +50% multiplier from a critical strike.</summary>
-    static MonsterIgnites.Settings SurvivorsIgnite(Func<string, int> get, DamagePacket hit)
+    /// <summary>
+    /// The "global" added damage ranges (Added Cold/Lightning Support, a unique's "Adds X to Y Damage"): PoB's
+    /// ModParser adds them to spells and attacks alike, scaled by the skill's damage effectiveness like any other
+    /// added range.
+    /// </summary>
+    static DamagePacket SurvivorsGlobalAdded(DamagePacket raw, Func<string, int> get, int effectivenessPermyriad)
     {
-        int chance = Math.Clamp(get("base_chance_to_ignite_%") + get("chance_to_ignite_%"), 0, 100);
-        var fire = hit[DamageType.Fire];
-        if (chance == 0 || fire.IsZero) return MonsterIgnites.Settings.None;
-        double min = fire.Min * 0.9, max = fire.Max * 0.9;
-        return new(chance, min, max, min * 1.5, max * 1.5, 4);
+        double effectiveness = Math.Max(0, effectivenessPermyriad / 10_000.0);
+        foreach (var type in new[] { DamageType.Physical, DamageType.Lightning, DamageType.Cold, DamageType.Fire, DamageType.Chaos })
+        {
+            string slug = SurvivorsDamageSlug(type);
+            var added = new DamageRange(get($"global_minimum_added_{slug}_damage"), get($"global_maximum_added_{slug}_damage"));
+            if (!added.IsZero) raw = raw.Add(type, added.Scale(effectiveness));
+        }
+        return raw;
     }
 
     /// <summary>
@@ -1101,6 +1189,47 @@ static partial class Game
         return true;
     }
 
+    /// <summary>
+    /// Dev: walk the whole unique catalogue and report what the server can actually make work: the base types it can
+    /// create, the ones that fit an equipment row, the ones whose Mods.dat rows are all present, and the ones whose
+    /// mods resolve to at least one global or local stat. A name in "No stat found" is a unique whose mechanic is not
+    /// a plain stat (or a conditional one) and needs its own implementation.
+    /// </summary>
+    static async Task SurvivorsUniqueReport(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        var uniques = UniquesFor(conn).All;
+        var catalog = ItemsFor(conn);
+        int creatable = 0, equipment = 0, withStats = 0, missingRows = 0, unsupported = 0;
+        var empty = new List<string>();
+        var missing = new List<string>();
+        foreach (var definition in uniques)
+        {
+            if (UniquesFor(conn).Create(definition, Random.Shared) is not { } item) { unsupported++; continue; }
+            creatable++;
+            if (catalog.Find(definition.BaseTypeId) is not { } type
+                || !ItemModStats.EquipmentRows.Any(row => PlayerInventories.Accepts(row, type.Class))) continue;
+            equipment++;
+            int absent = definition.Mods.Count(id => catalog.Mods.ById(id) is null)
+                + (definition.Implicits?.Count(id => catalog.Mods.ById(id) is null) ?? 0);
+            if (absent > 0)
+            {
+                missingRows++;
+                if (missing.Count < 12) missing.Add($"{definition.Name} ({absent})");
+            }
+            var global = ItemModStats.Global([item], catalog.Mods, Stats);
+            var local = ItemModStats.Local(item, catalog.Mods);
+            if (global.Count > 0 || local.Count > 0) withStats++;
+            else if (empty.Count < 12) empty.Add(definition.Name);
+        }
+        await conn.Commands!.Reply($"--- Uniques ---\n{uniques.Count} definitions: {creatable} create, {unsupported} " +
+            $"unsupported base type(s), {equipment} fit an equipment row, {withStats} with a recognized stat, " +
+            $"{missingRows} with a missing Mods.dat row.");
+        if (missing.Count > 0) await conn.Commands!.Reply($"Missing Mods.dat rows: {string.Join(", ", missing)}");
+        if (empty.Count > 0) await conn.Commands!.Reply($"No stat found: {string.Join(", ", empty)}");
+        Console.WriteLine($"[gateway] {remote} survivors uniques: {uniques.Count} definitions, {creatable} create, " +
+            $"{equipment} equipment, {withStats} with stats, {missingRows} missing rows, {unsupported} unsupported");
+    }
+
     /// <summary>A new run starts from an empty character: every carried, worn and flask item is removed and the client
     /// is told row by row (0xbf), so nothing from an earlier run carries in.</summary>
     static async Task SurvivorsResetInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -1172,6 +1301,7 @@ static partial class Game
     internal static IReadOnlyList<int> SurvivorsItemPool(ClientState conn, SurvivorsRun run)
     {
         var all = UniquesFor(conn).All;
+        var catalog = ItemsFor(conn);
         var taken = run.Items;
         var worn = new HashSet<uint>();
         foreach (byte row in ItemModStats.EquipmentRows)
@@ -1181,7 +1311,11 @@ static partial class Game
         for (int i = 0; i < all.Count; i++)
         {
             if (taken.Contains(i)) continue;
-            if (UniquesFor(conn).Create(all[i].Name, Random.Shared) is { NameWords: [var own, ..] } && worn.Contains(own)) continue;
+            // Only an item that fits an equipment row can work in a run: a jewel or flask has nowhere to go in a
+            // character whose inventory is emptied at the start, and offering it would waste the reward.
+            if (catalog.Find(all[i].BaseTypeId) is not { } type
+                || !ItemModStats.EquipmentRows.Any(row => PlayerInventories.Accepts(row, type.Class))) continue;
+            if (UniquesFor(conn).NameWord(all[i]) is not { } own || worn.Contains(own)) continue;
             pool.Add(i);
         }
         return pool;

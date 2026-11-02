@@ -35,6 +35,25 @@ damage number:
 - The level-up window can be left open by a replaced run; `SurvivorsOfferIfDue` now refuses to deal an offer for a run
   that is no longer `conn.Survivors`, and the run's `finally` restarts a clock it may have stopped.
 
+## Update: lore boss gate and the full unique catalogue (2026-11-02, later)
+
+- **Boss gate.** Each stage now spawns the area's own unique (`MonsterPacks` boss) 15 run-seconds in. The stage timer
+  only opens the next area when that boss is dead; otherwise the run stays and says "The way is sealed until <boss>
+  falls." The message names the area (`AreaTransitionCatalog`) and the boss. `Game_SURVIVORS_STAGE_SECONDS` (>= 15)
+  shortens the stage for verification. Live: Hillock in the Twilight Strand, then Fire Fury in The Coast; the sealed
+  branch was seen with a 15 s stage (boundary before the boss spawn), then the boss died and the run moved on.
+- **Uniques in the run.** Every cast now merges `FinalPlayerStats` (passives and equipped uniques) with the gem,
+  supports and blessings, so a unique's damage, cast speed, crit, area, projectile speed, penetration, leech and
+  ailment stats reach the run's hit. The pool only offers items that fit an equipment row (no jewels/flasks/maps).
+  The Searing Touch raised Fireball from `Fire 20.35-31.65 / Cold 27.13-40.70` to `Fire 44.56-69.32 / Cold
+  39.61-59.42` live.
+- **Unique sweep.** `/survivors uniques`: 1299 definitions, 1299 create, 1072 fit an equipment row, 1071 with a
+  recognized stat, 0 missing Mods.dat rows; only Tabula Rasa has no stat (its identity is white sockets).
+  `UniqueCatalogueTests` locks this in CI.
+- **Dev commands:** `/survivors unique <name>` equips a named unique; `/survivors uniques` sweeps the catalogue.
+- Remaining: DOT components, cast animations, the support x gem matrix, and unique mechanics that are conditional
+  rather than plain stats (per charge/at full life/on block).
+
 ## Where everything is
 
 | What | Where |
@@ -48,7 +67,7 @@ damage number:
 | Gameplay adapter | `Modules/Core/Game/Survivors/Survivors.cs` (`static partial class Game`) |
 | Per-connection state | `src/GameServer.Gateway/Connection/ClientState.Survivors.cs` |
 | Docs | `Agents/docs/game/survivors-mode.md` (ported, with preview art `docs/preview/survivors-mode-preview.png`) |
-| Checkpoint (this file) | worktree `docs/superpowers/plans/` and a copy in `E:\LocalExile\docs\superpowers\plans\` |
+| Checkpoint (this file) | worktree `docs/superpowers/plans/` and a copy in `E:\LocalExile\docs\superpowers\plans` |
 
 ## Commits (port branch, newest first)
 
@@ -81,7 +100,7 @@ de07fbd6 merge: upstream main into the survivors port
 | Damage | PoB calcDamage: the gem's base at rank (gem level) + added × effectiveness, converted, increased/more; the catalogue's median rank-1 hit equals the area's median monster life; crit ×1.5 |
 | Supports | 8 real support gems, up to 5 per skill, each linked at the skill's rank and read for its real stats (added fire/cold/lightning, cast speed, area, crit, projectile speed/damage, life leech) |
 | Blessings | 8 run-local passives (Might, Haste, Area, Critical, Leech, Wisdom, Fortitude, Swiftness) |
-| Unique items | every 3rd run level; equipped on pick; level/attribute requirements waived for the run; mods reach the character (cache key + active list fix) |
+| Unique items | every 3rd run level from the full 1299-definition PoB catalogue (1072 equipment); equipped on pick; requirements waived; mods reach the character and the run casts (FinalPlayerStats merged); only Tabula Rasa has no stat |
 | Heralds | Ash/Ice/Thunder/Agony/Purity as `Herald` kind: aura pulse (12 cells, grown by rank/area) every cast, gem aura buff on the player (`0x1c1`) + impact packet (`0x1af`) on each hit |
 | Skill bar | run skills as Actor skills (`0x2ba`), ids from `0x0300`, slots from Q; cooldown `0x1ce` per target + `0x02ba` trailer |
 | Loot | no `DropLoot`, no `SendGroundItems`, no gold auto-loot during a run; ground swept at start, on area resume and every run second (`0x2bb`, store `Take`) |
@@ -89,7 +108,7 @@ de07fbd6 merge: upstream main into the survivors port
 | Pause | clock stops while the choice window is open; resumes after the pick |
 | Window close | closing the window (click outside / Esc / 0x85) **takes the first reward**; the run never hangs |
 | Kills | `RecordKill` hooks in `CommitProjectileKill` and `MonsterKilledBy` |
-| Area change | every 120 s the run moves to the next area and carries over (`SurvivorsCarried`) |
+| Area change | at the stage boundary the run moves to the next area **only after the area's lore boss dies**; carries over (`SurvivorsCarried`); `Game_SURVIVORS_STAGE_SECONDS` shortens the stage for tests |
 | Commands | `/survivors start|stop|pick <1-3>|status`, dev `/survivors level` (banks levels), dev `/survivors herald` (learns the first herald) |
 
 ## Verified live (2026-11-02, new architecture)
