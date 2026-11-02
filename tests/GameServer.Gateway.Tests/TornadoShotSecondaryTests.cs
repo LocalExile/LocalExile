@@ -23,6 +23,7 @@ public sealed class TornadoShotSecondaryTests
             "Metadata/Projectiles/TornadoShotArrow", Get, 200, attack: true);
 
         Assert.True(profile.Pierce < 0);
+        Assert.True(profile.HideVisual);
         Assert.NotNull(profile.EndEmission);
         Assert.True(profile.EndEmission!.Radial);
         Assert.NotNull(profile.EndEmission.BaseDirection);

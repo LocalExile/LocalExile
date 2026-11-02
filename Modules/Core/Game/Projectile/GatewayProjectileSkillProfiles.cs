@@ -65,10 +65,10 @@ static class GatewayProjectileSkillProfiles
 
     static bool IsTornadoShot(string effect) => effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY";
 
-    // The client's primary arrow pierces enemies and, at its terminal point, generates an ordinary secondary group:
-    // three TornadoShotSecondaryArrow flights spaced around a random base ray. The server simulates that group for
-    // damage but hides its objects because the client draws the same arrows itself. The base ray is the client's own
-    // terminal RNG draw, so both sides fan out the same way (TornadoShotBaseDirection).
+    // The client predicts the primary arrow and its terminal group itself (Frida: seven local and seven server
+    // TornadoShotArrow objects for one use), so the server sends no object for either and only simulates the damage.
+    // The group is three TornadoShotSecondaryArrow flights around the client's terminal RNG base ray, so both sides
+    // fan out the same way (TornadoShotBaseDirection).
     static ProjectileProfile TornadoShotChildren(ProjectileProfile parent, Func<string, int> get)
     {
         int count = Math.Clamp(get("tornado_shot_num_of_secondary_projectiles") is > 0 and var n ? n : 3, 1, 256);
@@ -99,6 +99,8 @@ static class GatewayProjectileSkillProfiles
             // Client +0x330 bit 0x4: the ordinary primary arrow pierces before its terminal child group. The negative
             // sentinel is the runtime's never-decrementing pierce and the panel's virtual_always_pierce.
             Pierce = -1, CannotPierce = false,
+            // The client draws its own primary arrow; a server object would be a second arrow from the bow contact.
+            HideVisual = true,
             EndEmission = new(child, Radial: true, BaseDirection: TornadoShotBaseDirection)
         };
     }

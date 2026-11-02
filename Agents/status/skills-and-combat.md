@@ -652,8 +652,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Tornado Shot terminal secondaries: each primary arrow pierces its contacts and emits three
   `TornadoShotSecondaryArrow` flights at its endpoint, spaced around the client's native terminal RNG ray
-  (`[sequence, mother-derived byte, owner, repeats]`). The server simulates their damage but hides their objects
-  because the client draws the same arrows itself; one secondary per set can hit an enemy, and the children keep
+  (`[sequence, mother-derived byte, owner, repeats]`). The client predicts the primary and secondary arrows itself
+  (Frida: seven local and seven server `TornadoShotArrow` objects for one use), so the server hides both and only
+  simulates their damage; one secondary per set can hit an enemy, and the children keep
   support Pierce/Fork/Chain. Their range uses the client's 0.3 s secondary action lifetime (a Frida trace caps the
   final callback at 300 ms), so projectile speed scales it, and Point Blank/Far Shot distance includes the primary
   leg. Tests cover the profile, the client RNG vector, the 300 ms lifetime and the continued PB/Far Shot distance, but
