@@ -40,7 +40,18 @@ sealed class MonsterElementalAilments
     public bool FrozenAtDeath(double now) => Shattered || Magnitude(Kind.Freeze, now) > 0;
 
     /// <summary>Whether it was shocked when it died: Within the Tempest's shock on its corpse does not count.</summary>
-    public bool ShockedAtDeath(double now) => Active(Kind.Shock, now).Any(e => !e.OnKill && e.Magnitude > 0);
+    public bool ShockedAtDeath(double now) => ShockAtDeath(now) is not null;
+
+    /// <summary>The strongest shock it had when it died, or null: Within the Tempest's on its corpse does not count.</summary>
+    public Effect? ShockAtDeath(double now) =>
+        Active(Kind.Shock, now).Where(e => !e.OnKill && e.Magnitude > 0).MaxBy(e => e.Magnitude);
+
+    /// <summary>Berek's Respite: a new shock equivalent to a killed monster's, its effect and remaining duration (wiki
+    /// Berek's Respite), so no modifier changes it; only this monster's immunity counts. It does not spread.</summary>
+    public void Equivalent(Effect shock, Func<string, int> target)
+    {
+        if (!Immune(shock.Kind, target)) effects.Add(shock with { Spread = 0, OnKill = false });
+    }
 
     /// <summary>Seconds until the last active effect of <paramref name="kind"/> ends (0 when none).</summary>
     public double Remaining(Kind kind, double now) => Active(kind, now).Select(e => e.Until - now).DefaultIfEmpty().Max();

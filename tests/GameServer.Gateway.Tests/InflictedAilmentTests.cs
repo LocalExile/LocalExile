@@ -139,6 +139,23 @@ public class InflictedAilmentTests
         Assert.Equal(ChargeType.Power, ChargeGains.Roll(new ChargeEvent.Kill(MonsterRarity.Normal, Frozen: true),
             powerOnFrozenKill, default, new Random(1)).Single().Type);
         Assert.Empty(ChargeGains.Roll(new ChargeEvent.Kill(MonsterRarity.Normal), powerOnFrozenKill, default, new Random(1)));
+
+        // Berek's Respite: killing a shocked monster gives each living one within 2 m (20 cells) an equivalent shock, its
+        // effect and remaining duration, which does not spread.
+        var berek = new Dictionary<uint, int>
+            { [Program.Stats.Key("shock_X_nearby_enemies_for_2_s_on_killing_shocked_enemy")!.Value] = 1 };
+        var area = new ClientState(new(1, "berek", 300, 300, 100, 100, null, []), 1, 1);
+        var (killed, close, away) = (At(200), At(220), At(221));
+        id = 0;
+        foreach (var m in new[] { killed, close, away }) area.Monsters[++id] = m;
+        // A 10% lightning critical strike: a 19% shock for 2 s that spreads 15 cells.
+        killed.Ailments.Inflict(Taken(lightning: 10), critical: true, threshold: 100, now: 0,
+            With(("gloves_shock_proliferation_radius", 15)), With(), new Random(1));
+        killed.Dead = true;
+        Game.ShockOnKillLocked(area, killed, berek, now: .5);
+        Assert.Equal((19.0, 1.5), (close.Ailments.Magnitude(Shock, .5), close.Ailments.Remaining(Shock, .5)));
+        Assert.Equal(0, away.Ailments.Magnitude(Shock, .5));
+        Assert.Empty(close.Ailments.Spreading(.5));
         // The freeze copy ends with its source; the chill's lasts.
         Game.MonsterAilmentChangesLocked(conn, now: .7);
         Assert.Equal((19.0, 0.0), (near.Ailments.Magnitude(Chill, .7), near.Ailments.Magnitude(Freeze, .7)));

@@ -1451,6 +1451,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Shock and chill minimums (Beacon of Ruin) and caps can be raised ([20](../docs/protocol/20-damage.md)).
   "All/Chaos/... Damage can Chill/Freeze/Shock" count those types, and "Hits always Shock" needs no chance.
   A corpse keeps its killing hit's ailments and a kill can shock it, unless the hit killed it frozen and it shatters.
+  Killing a shocked monster with Berek's Respite gives the monsters within 2 m the same shock.
   Each chill, freeze and shock spreads to living enemies within its own `virtual_*_proliferation_radius` of the
   monster or corpse it is on, like an aura.
   An area skill applies a Mirrored monster's reflected ailments after its last target, and a sweep stopped partway

@@ -1484,6 +1484,13 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   each spreads as far as its own radius reaches (wiki Within the Tempest: the spread includes shocks inflicted on
   enemies the character kills). A shattered monster
   gets neither.
+- **Equivalent shock on kill.** `shock_X_nearby_enemies_for_2_s_on_killing_shocked_enemy` (Berek's Respite) runs
+  in `ShockOnKillLocked` before Within the Tempest's: when the killed monster was shocked (`ShockAtDeath`, the
+  strongest shock it had, Within the Tempest's on the corpse not counted), each other living hostile monster within 2
+  m of it, 20 cells that area of effect does not change, gets a new shock with the same effect and remaining duration
+  (wiki Berek's Respite). No modifier changes it, only the receiving monster's immunity counts, and so it can chain
+  to the next kill. The copy does not spread, as it comes from no skill (not verified for the player's own spread
+  stats). Its ignite twin (`ignite_X_nearby_enemies_for_4_s_on_killing_ignited_enemy`) is not read.
 - **Shatter** (wiki Shatter, Freeze): a non-unique monster that a hit kills while frozen, the killing hit's own freeze
   included, leaves no corpse. The server ends its ailments, so it spreads nothing and gets no kill shock. A kill by
   damage over time (Righteous Fire) never shatters. The client's shatter visual is not sent, because the packet that

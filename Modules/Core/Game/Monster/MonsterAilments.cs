@@ -16,13 +16,23 @@ static partial class Game
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + (chaos ? WitheredTaken(m, now) : 0));
 
-    /// <summary>Within the Tempest (enemy_shock_on_kill): a monster the player just killed (its life reached 0 from a hit
-    /// or Righteous Fire) is shocked through the player's modifiers, and its corpse spreads that shock by the player's own
-    /// area of effect. <paramref name="player"/> is the caller's CharacterPlayerStats, so a kill computes no stats of its
-    /// own. Under the Monsters lock.</summary>
-    static void ShockOnKillLocked(SpawnedMonster m, IReadOnlyDictionary<uint, int> player, double now)
+    /// <summary>The shocks a kill of a monster by the player (its life reached 0 from a hit or Righteous Fire) inflicts.
+    /// Berek's Respite (shock_X_nearby_enemies_for_2_s_on_killing_shocked_enemy): when it was shocked, each other living
+    /// hostile monster within 2 m of it (20 cells, which area of effect does not change) gets an equivalent shock (wiki
+    /// Berek's Respite). Within the Tempest (enemy_shock_on_kill): it is shocked through the player's modifiers, and its
+    /// corpse spreads that shock by the player's own area of effect. <paramref name="player"/> is the caller's
+    /// CharacterPlayerStats, so a kill computes no stats of its own. Under the Monsters lock.</summary>
+    internal static void ShockOnKillLocked(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int> player, double now)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        // Before Within the Tempest's, which comes after the death.
+        if (Get("shock_X_nearby_enemies_for_2_s_on_killing_shocked_enemy") != 0 && m.Ailments.ShockAtDeath(now) is { } shock)
+        {
+            var at = m.Walk.Position(now);
+            foreach (var other in conn.Monsters.Values)
+                if (!ReferenceEquals(other, m) && !other.Dead && other.Hostile && Dist(other.Walk.Position(now), at) <= 20)
+                    other.Ailments.Equivalent(shock, name => other.Mods.Effects[name]);
+        }
         if (Get("enemy_shock_on_kill") != 0)
             m.Ailments.ShockOnKill(now, Get, name => m.Mods.Effects[name], AilmentArea(Get, _ => 0, spell: false));
     }
@@ -106,7 +116,7 @@ static partial class Game
             // Shatter (wiki Shatter, Freeze): a non-unique monster a hit kills while frozen, the killing hit's own freeze
             // included, leaves no corpse, so nothing spreads from it and the kill's shock has nothing to land on.
             if (m.Rarity != MonsterRarity.Unique && m.Ailments.Magnitude(Kind.Freeze, now) > 0) m.Ailments.Shatter();
-            else ShockOnKillLocked(m, player, now);
+            else ShockOnKillLocked(conn, m, player, now);
             return;
         }
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now);

@@ -722,7 +722,7 @@ static partial class Game
                 {
                     m.Dead = true;
                     CollectVaalSoulAtDeathLocked(conn, m);
-                    ShockOnKillLocked(m, playerStats, now);
+                    ShockOnKillLocked(conn, m, playerStats, now);
                     if (rf.Auras.Remove(id, out ushort b)) left.Add((id, b));
                     TriggerElementalRelicLocked(conn, m, hit: false, killed: true);   // a burn is no hit
                 }
