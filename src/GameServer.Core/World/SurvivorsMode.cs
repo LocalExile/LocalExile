@@ -4,11 +4,15 @@ namespace GameServer.Core.World;
 
 public enum SurvivorsChoiceKind { NewSkill, SkillRank, Blessing, Support, Item }
 
+/// <summary>What a run skill does when it fires: a projectile at a target, or a herald's aura pulse around the player.</summary>
+public enum SurvivorsSkillKind { Projectile, Herald }
+
 /// <summary>
 /// A run skill: the gem whose item the level-up window shows, and the projectile it casts. <paramref name="Recipe"/>
 /// is the effect whose projectile recipe is used (its own: the catalogue keeps only gems with a flight).
 /// </summary>
-public sealed record SurvivorsSkill(string Path, string Name, DamageType Type, int Effect, int Recipe, string Metadata);
+public sealed record SurvivorsSkill(string Path, string Name, DamageType Type, int Effect, int Recipe, string Metadata,
+    SurvivorsSkillKind Kind = SurvivorsSkillKind.Projectile);
 
 /// <summary>A support: the support gem the window shows, and the effect it links to a skill.</summary>
 public sealed record SurvivorsSupportItem(string Path, string Name, SurvivorsSupport Support);

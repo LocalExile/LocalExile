@@ -15,6 +15,9 @@ static partial class Game
     /// <summary>The unique boss of the area arrives this often, in run seconds.</summary>
     internal const double SurvivorsBossIntervalSeconds = 135;
 
+    /// <summary>A herald's aura reaches this far around the player, in cells, before its rank and area grow it.</summary>
+    internal const double SurvivorsHeraldRadius = 12;
+
     /// <summary>The reward inventory the level-up window lists its skills in (the quest-reward window's own).</summary>
     internal const uint SurvivorsOfferInventory = 0x600;
 
@@ -149,9 +152,12 @@ static partial class Game
             if (baseType.Name.Contains("[UNUSED]", StringComparison.OrdinalIgnoreCase)) continue;
             if (gem.IsSupport || gem.Variants.Count == 0) continue;
             var variant = gem.Variant(0);
-            if (ResolveProjectileDefinition(variant.Effect) is null) continue;
+            // Heralds have no flight: the run casts them as an aura pulse around the player.
+            bool herald = baseType.Name.StartsWith("Herald of", StringComparison.OrdinalIgnoreCase);
+            if (!herald && ResolveProjectileDefinition(variant.Effect) is null) continue;
             string metadata = Skills.ProjectileFor(variant.Effect)?.Id ?? "Metadata/Projectiles/Fireball";
-            catalog.Add(new SurvivorsSkill(path, baseType.Name, SurvivorsDamageType(baseType.Name), variant.Effect, variant.Effect, metadata));
+            catalog.Add(new SurvivorsSkill(path, baseType.Name, SurvivorsDamageType(baseType.Name), variant.Effect, variant.Effect,
+                metadata, herald ? SurvivorsSkillKind.Herald : SurvivorsSkillKind.Projectile));
         }
         return catalog;
     }
@@ -241,8 +247,9 @@ static partial class Game
             await conn.Commands!.Reply("No run skills are available: the item catalogue or the projectile definitions are missing.");
             return;
         }
-        var run = new SurvivorsRun(SurvivorsMaxAlive());
-        run.Learn(0);
+        // Every run starts from an empty character: no carried, worn or flask item survives into a new run.
+        await SurvivorsResetInventory(remote, stream, ciphers, conn);
+        var run = new SurvivorsRun(SurvivorsMaxAlive());        run.Learn(0);
         conn.Survivors = run;
         conn.SurvivorsCatalog = catalog;
         await conn.Commands!.Reply(
@@ -336,6 +343,19 @@ static partial class Game
             int before = levelling.Level;
             for (int i = 0; i < 4; i++) levelling.RecordKill(MonsterRarity.Unique);
             await conn.Commands!.Reply($"Run level {before} -> {levelling.Level} (dev).");
+            return;
+        }
+        // Dev: learn the first Herald skill at once, so its aura pulse can be watched without hunting the offer list.
+        if (what == "herald")
+        {
+            if (conn.Survivors is not { } heraldRun) { await conn.Commands!.Reply("No survivors run is active."); return; }
+            var heraldCatalog = SurvivorsCatalogFor(conn);
+            int index = heraldCatalog.ToList().FindIndex(s => s.Kind == SurvivorsSkillKind.Herald);
+            if (index < 0) { await conn.Commands!.Reply("No Herald skill gem in the catalogue."); return; }
+            heraldRun.Learn(index);
+            await conn.Commands!.Reply($"Learned {heraldCatalog[index].Name} (herald, dev).");
+            await SendSkills(remote, stream, ciphers, conn);
+            await SendSkillBar(remote, stream, ciphers, conn);
             return;
         }
         if (what == "stop")
@@ -609,19 +629,20 @@ static partial class Game
     {
         (int X, int Y) origin;
         List<(int X, int Y)> aims = [];
+        List<(uint Id, double Distance, uint Life, int X, int Y)> inReach = [];
         using (ProjectileMutation(conn))
         {
             double world = ProjectileWorldTime(conn);
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused) return false;
             var here = conn.Walk.Position(world);
-            var inReach = new List<(double Distance, uint Life, int X, int Y)>();
-            foreach (var (_, m) in conn.Monsters)
+
+            foreach (var (id, m) in conn.Monsters)
             {
                 if (m.Dead || m.Life == 0 || !m.Hostile) continue;
                 var at = m.Walk.Position(world);
                 double distance = Dist(here, at);
                 if (distance > SurvivorsRules.Range) continue;
-                inReach.Add((distance, m.Life, at.X, at.Y));
+                inReach.Add((id, distance, m.Life, at.X, at.Y));
             }
             if (inReach.Count == 0) return false;
             // One projectile per target: the nearest, or the toughest for a few named gems, up to the rank's count.
@@ -631,8 +652,32 @@ static partial class Game
             aims = [.. pick.Take(SurvivorsRules.SkillProjectiles(rank)).Select(t => (t.X, t.Y))];
             origin = here;
         }
-        if (ResolveProjectileDefinition(skill.Recipe) is not { } definition) return false;
-        int damage = (int)(SurvivorsRules.SkillDamage(roster.WeaponDamage, rank) * run.SkillDamageMultiplier(skillIndex));
+        // A herald is an aura pulse: every hostile around the player takes the hit, and the client plays the gem's cast.
+        if (skill.Kind == SurvivorsSkillKind.Herald)
+        {
+            double radius = SurvivorsHeraldRadius * SurvivorsRules.SkillRadius(rank) * run.SkillAreaMultiplier(skillIndex);
+            int heraldDamage = (int)(SurvivorsRules.SkillDamage(roster.WeaponDamage, rank) * run.SkillDamageMultiplier(skillIndex));
+            int struck = 0;
+            foreach (var (id, distance, _, _, _) in inReach)
+            {
+                if (distance > radius) continue;
+                MonsterHit? hit = null;
+                SpawnedMonster? target = null;
+                lock (conn.Monsters)
+                    if (conn.Monsters.TryGetValue(id, out target) && !target.Dead && target.Life > 0)
+                        hit = ApplyMonsterHitLocked(conn, target, heraldDamage);
+                if (hit is not { } applied) continue;
+                struck++;
+                await NotifyMonsterHit(remote, stream, ciphers, conn, id, target!, applied, heraldDamage, skill.Name, log: false);
+            }
+            if (struck == 0) return false;
+            ushort heraldId = SurvivorsSkillId(skillIndex);
+            await Send(remote, stream, ciphers, InstanceProtocol.InstantAction(PlayerId, heraldId, origin.X, origin.Y),
+                $"0x01ce survivors herald 0x{heraldId:x4} {skill.Name} around ({origin.X}, {origin.Y})");
+            await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, [origin]);
+            return true;
+        }
+        if (ResolveProjectileDefinition(skill.Recipe) is not { } definition) return false;        int damage = (int)(SurvivorsRules.SkillDamage(roster.WeaponDamage, rank) * run.SkillDamageMultiplier(skillIndex));
         var packet = DamagePacket.Of(skill.Type, damage, damage);
         var shot = new ProjectileOffense(packet, Spell: true, Accuracy: int.MaxValue, CriticalChance: run.SkillCriticalChance(skillIndex),
             CriticalMultiplier: 200, Label: skill.Name)
@@ -731,6 +776,24 @@ static partial class Game
             .Select(kv => $"{Stats.Name(kv.Key)} {before.GetValueOrDefault(kv.Key)}->{kv.Value}").Take(8).ToList();
         Console.WriteLine($"[gateway] {remote} survivors unique {type.Name}: {(changed.Count == 0 ? "no stat change" : string.Join(", ", changed))}");
         return true;
+    }
+
+    /// <summary>A new run starts from an empty character: every carried, worn and flask item is removed and the client
+    /// is told row by row (0xbf), so nothing from an earlier run carries in.</summary>
+    static async Task SurvivorsResetInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        var items = ItemsOf(conn);
+        var rows = Enumerable.Range(0, 16).Select(i => (byte)i).Append((byte)102).Append(PlayerInventories.Cursor).Distinct();
+        foreach (byte row in rows)
+        {
+            var ids = items.Items(row).Select(i => i.Id).ToList();
+            if (ids.Count == 0) continue;
+            foreach (uint id in ids) items.Remove(row, id);
+            await Send(remote, stream, ciphers,
+                InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), ids, []),
+                $"0x00bf survivors reset row {row}: {ids.Count} item(s) removed");
+        }
+        conn.SurvivorsItemIds.Clear();
     }
 
     /// <summary>Removes every item on the ground of the area for this run: the client forgets the object and the
