@@ -13,7 +13,11 @@ sealed class MapDevice
     public const int PortalCount = 6;
 
     /// <summary>ItemClasses Ids the slots take.</summary>
-    public const string MapClass = "Map", MapKeyClass = "MapKey", FragmentClass = "MapFragment";
+    public const string MapClass = "Map", MapKeyClass = "MapKey", FragmentClass = "MapFragment",
+        MiscClass = "MiscMapItem", VaultClass = "VaultKey";
+
+    public static bool AcceptsClass(string itemClass) =>
+        itemClass is MapClass or MapKeyClass or FragmentClass or MiscClass or VaultClass;
 
     /// <summary>The area a map item opens: WorldAreas HASH16, Id and name, the map's tier and the level it plays at.</summary>
     public sealed record MapArea(ushort Hash16, string Id, string Name, int Tier)
@@ -26,13 +30,22 @@ sealed class MapDevice
     private readonly Dictionary<uint, MapArea> _byItemType;
     private readonly Dictionary<uint, MapArea> _byFragment;
     private readonly AtlasCatalog? _atlas;
+    private readonly MapRunCatalog _runs;
+    private readonly List<MapArea?> _worldAreas;
+    private readonly HashSet<ushort> _recipeAreas;
 
     public MapDevice(IReadOnlyDictionary<uint, MapArea> byItemType, AtlasCatalog? atlas = null,
-        IReadOnlyDictionary<uint, MapArea>? byFragment = null)
+        IReadOnlyDictionary<uint, MapArea>? byFragment = null, MapRunCatalog? runs = null,
+        IReadOnlyList<MapArea?>? worldAreas = null)
     {
         _byItemType = new(byItemType);
         _byFragment = byFragment is null ? [] : new(byFragment);
         _atlas = atlas;
+        _runs = runs ?? new MapRunCatalog(new Dictionary<int, MapRunCatalog.Fragment>(), []);
+        _worldAreas = worldAreas is null ? [] : [.. worldAreas];
+        _recipeAreas = [.. _runs.Recipes
+            .Where(r => r.WorldArea >= 0 && r.WorldArea < _worldAreas.Count && _worldAreas[r.WorldArea] is not null)
+            .Select(r => _worldAreas[r.WorldArea]!.Hash16)];
     }
 
     /// <summary>Maps.dat: each map's BaseItemTypes row, by its HASH32 (<paramref name="hashOfRow"/>), to its regular area.
@@ -74,7 +87,31 @@ sealed class MapDevice
                         break;
                     }
         }
-        return new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder), byFragment);
+        var worldAreas = LoadWorldAreas(folder);
+        return new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder), byFragment,
+            MapRunCatalog.Load(folder), worldAreas);
+    }
+
+    static List<MapArea?> LoadWorldAreas(string folder)
+    {
+        string areas = Path.Combine(folder, "tables", "WorldAreas.json");
+        if (!File.Exists(areas)) return [];
+        using var a = GameTables.Open(areas);
+        var list = new List<MapArea?>(a.RootElement.GetArrayLength());
+        foreach (var wa in a.RootElement.EnumerateArray())
+        {
+            if (wa.GetProperty("HASH16") is not { ValueKind: JsonValueKind.Number } hash)
+            {
+                list.Add(null);
+                continue;
+            }
+            list.Add(new MapArea((ushort)hash.GetInt32(), wa.GetProperty("Id").GetString() ?? "",
+                wa.GetProperty("Name").GetString() ?? "", 0)
+            {
+                Level = wa.TryGetProperty("AreaLevel", out var lv) && lv.ValueKind == JsonValueKind.Number ? lv.GetInt32() : 0,
+            });
+        }
+        return list;
     }
 
     public AtlasCatalog? Atlas => _atlas;
@@ -88,45 +125,83 @@ sealed class MapDevice
 
     /// <summary>Whether a map opens this area (WorldAreas HASH16): it gets a portal back to the hideout.</summary>
     public bool IsMapArea(ushort hash16) => _byItemType.Values.Any(a => a.Hash16 == hash16) ||
-        _byFragment.Values.Any(a => a.Hash16 == hash16) || _atlas?.Layouts.Any(l => l.Hash16 == hash16) == true;
+        _byFragment.Values.Any(a => a.Hash16 == hash16) || _atlas?.Layouts.Any(l => l.Hash16 == hash16) == true
+        || _recipeAreas.Contains(hash16);
 
-    /// <summary>One item in the slots: its type hash and ItemClasses Id.</summary>
-    public readonly record struct Slot(uint TypeHash, string Class, string Name);
+    /// <summary>One item in the slots: its type, class, BaseItemTypes row, rolled mods and quality.</summary>
+    public readonly record struct Slot(uint TypeHash, string Class, string Name, int BaseRow, IReadOnlyList<ItemMod> Mods, byte Quality)
+    {
+        /// <summary>AlternateQualityTypes row from a map chisel; null is quantity quality when <see cref="Quality"/> is set.</summary>
+        public byte? AlternateQualityType { get; init; }
+
+        /// <summary>The item's .it components when known; Map / MapKey admit a slot even if ItemClasses later rename it.</summary>
+        public IReadOnlyList<string>? Components { get; init; }
+
+        public bool IsMap =>
+            Class is MapClass or MapKeyClass
+            || Components is { } c && (c.Contains("Map") || c.Contains("MapKey"));
+    }
+
+    /// <summary>The area a successful Activate opens, the mods that instance plays with, and the first slot's
+    /// BaseItemTypes row (a Maven invitation: <see cref="MapBossFights.Witnesses"/>).</summary>
+    public sealed record Opening(MapArea Area, MapMods Mods, int ItemRow = 0);
 
     /// <summary>
-    /// What Activate does with these slots: only maps and map fragments may be in them, and exactly one map (fragments
-    /// alone open nothing yet). Returns the map's area, or null with the reason the player is told.
+    /// What Activate does with these slots: one map (its affixes and the scarabs/fragments' MapFragmentMods), or a
+    /// MapDeviceRecipes set with no map (Maven's Writ, four Sacrifice fragments). Returns the area, or null with the
+    /// reason the player is told.
     /// </summary>
-    public MapArea? Check(IReadOnlyList<Slot> slots, out string why) => Check(slots, null, out why);
+    public Opening? Check(IReadOnlyList<Slot> slots, out string why) => Check(slots, null, null, out why);
 
-    public MapArea? Check(IReadOnlyList<Slot> slots, string? character, out string why)
+    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why)
     {
         why = "";
-        if (slots.FirstOrDefault(s => s.Class is not (MapClass or MapKeyClass or FragmentClass)) is { Class: not null } wrong)
+        if (slots.FirstOrDefault(s => !AcceptsClass(s.Class) && !s.IsMap && s.Class.Length > 0) is { Class: not null } wrong)
         {
             why = $"{wrong.Name} cannot be used in the Map Device: only maps and map fragments can.";
             return null;
         }
-        var maps = slots.Where(s => s.Class is MapClass or MapKeyClass).ToList();
+        var maps = slots.Where(s => s.IsMap).ToList();
         if (maps.Count == 0)
         {
             // A fragment alone may open its area (An Audience With The King).
             var fragments = slots.Where(s => s.Class == FragmentClass).ToList();
-            if (fragments.Count == 1 && AreaOfFragment(fragments[0].TypeHash) is { } fragmentArea) return fragmentArea;
-            why = "Put a map into the Map Device first.";
-            return null;
+            if (fragments.Count == 1 && AreaOfFragment(fragments[0].TypeHash) is { } fragmentArea)
+                return new Opening(fragmentArea, MapMods.None);
         }
         if (maps.Count > 1) { why = "Only one map can be activated at a time."; return null; }
-        if (AreaOf(maps[0].TypeHash) is { } area) return area;
-        if (_atlas?.TierOf(maps[0].TypeHash) is int tier)
+        if (maps.Count == 1)
         {
-            if (_atlas.Selected(character) is { } layout)
-                return new(layout.Hash16, layout.Id, layout.Name, tier) { Level = MapLevel(tier) };
-            why = "No Atlas layout is available: extract AtlasNode.dat and WorldAreas.dat.";
-            return null;
+            MapArea? area = AreaOf(maps[0].TypeHash);
+            if (area is null && _atlas?.TierOf(maps[0].TypeHash) is int tier)
+            {
+                if (_atlas.Selected(character) is { } layout)
+                    area = new(layout.Hash16, layout.Id, layout.Name, tier) { Level = MapLevel(tier) };
+                else
+                {
+                    why = "No Atlas layout is available: extract AtlasNode.dat and WorldAreas.dat.";
+                    return null;
+                }
+            }
+            if (area is null) { why = $"{maps[0].Name} opens no known area."; return null; }
+            var extras = slots.Where(s => !s.IsMap).ToList();
+            if (!_runs.FragmentsAllowed(extras, area.Level, out why)) return null;
+            return new Opening(area, mods is null ? MapMods.None : _runs.Of(slots, mods));
         }
-        why = $"{maps[0].Name} opens no known area.";
+        if (_runs.Match([.. slots.Select(s => s.BaseRow)]) is { } recipe && AreaOfWorld(recipe) is { } recipeArea)
+            return new Opening(recipeArea, mods is null ? MapMods.None : _runs.OfRecipe(recipe, mods),
+                slots.Count > 0 ? slots[0].BaseRow : 0);
+        why = maps.Count == 0 && slots.Count > 0
+            ? "These items do not open an area."
+            : "Put a map into the Map Device first.";
         return null;
+    }
+
+    MapArea? AreaOfWorld(MapRunCatalog.Recipe recipe)
+    {
+        if (recipe.WorldArea < 0 || recipe.WorldArea >= _worldAreas.Count || _worldAreas[recipe.WorldArea] is not { } area)
+            return null;
+        return area with { Level = recipe.AreaLevel > 0 ? recipe.AreaLevel : area.Level };
     }
 
     /// <summary>A generic map's area level: tier 1 is 68 and tier 16 is 83 (3.29 rules).</summary>
@@ -134,7 +209,7 @@ sealed class MapDevice
 
     /// <summary>A character's opened map: its area, its instance (0 until the first portal is taken) and the places around
     /// the device (0 to <see cref="PortalCount"/> - 1, <see cref="PortalCell"/>) whose portal is still there.</summary>
-    public sealed record OpenMap(MapArea Area, ulong Instance, IReadOnlyList<int> Left)
+    public sealed record OpenMap(MapArea Area, ulong Instance, IReadOnlyList<int> Left, MapMods Mods, int ItemRow = 0)
     {
         public int PortalsLeft => Left.Count;
     }
@@ -145,8 +220,12 @@ sealed class MapDevice
     public static OpenMap? OpenOf(string character) => Open.GetValueOrDefault(character);
 
     /// <summary>Opens a map for the character with a portal at every place, replacing the one open before.</summary>
-    public static OpenMap Activate(string character, MapArea area) =>
-        Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)]);
+    public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0) =>
+        Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow);
+
+    /// <summary>The character's open map when they are in that area.</summary>
+    public static OpenMap? Current(string character, ushort areaHash) =>
+        OpenOf(character) is { } open && open.Area.Hash16 == areaHash ? open : null;
 
     /// <summary>Takes the portal at place <paramref name="index"/> of the character's open map, so it does not come back.
     /// Returns the map as it was (its instance to enter, 0 for a new one) and how many portals are left, or null when no

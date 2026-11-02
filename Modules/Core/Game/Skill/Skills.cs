@@ -480,7 +480,7 @@ static partial class Game
             }
             if (Stats.Key("virtual_extra_critical_rolls") is uint criticalRolls)
                 stats[criticalRolls] = CriticalExtraRollsFor(conn, playerStats, own);
-            if (singleSources.Contains(effect) && SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, playerStats, own) is { } cooldown
+            if (singleSources.Contains(effect) && WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, playerStats, own)) is { } cooldown
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
                 stats[recoveryKey] = cooldown.RecoveryPercent;
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);
