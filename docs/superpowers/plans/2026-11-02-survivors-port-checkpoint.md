@@ -85,7 +85,8 @@ damage number:
 - **Projectile and hit animations.** The server-drawn survivor projectile now carries the projectile type's flight and
   impact clips from `projectile-clips.json` (Fireball impact 1, Spark impact 0, ...); Fireball plays its area explosion
   and Kinetic Blast its cluster visual. A live Fireball trace shows `projectile Metadata/Projectiles/Fireball ...
-  impact clip 1`.
+  impact clip 1`. A Herald's aura pulse now sends the 0x1af hit package with its gem's damage-type code (fire/cold/
+  lightning/chaos) instead of the physical default.
 - **New dev command** `/survivors matrix [gem]` prints every support's effect through the live cast's computation.
 - Build 0/0; Core 462, Data 45, Gateway 76 tests pass.
 

@@ -935,6 +935,11 @@ static partial class Game
         if (cast.Herald)
         {
             int struck = 0;
+            // The 0x1af code selects the elemental hit particles; the herald's pulse is its gem's damage type.
+            byte hitCode = skill.Type switch
+            {
+                DamageType.Cold => 1, DamageType.Fire => 2, DamageType.Lightning => 3, DamageType.Chaos => 4, _ => 0,
+            };
             foreach (var (id, distance, _, _, _) in inReach)
             {
                 if (distance > cast.HeraldRadius) continue;
@@ -945,7 +950,7 @@ static partial class Game
                         hit = ApplyMonsterHitLocked(conn, target, cast.HeraldDamage);
                 if (hit is not { } applied) continue;
                 struck++;
-                await NotifyMonsterHit(remote, stream, ciphers, conn, id, target!, applied, cast.HeraldDamage, skill.Name, log: false, melee: true);
+                await NotifyMonsterHit(remote, stream, ciphers, conn, id, target!, applied, cast.HeraldDamage, skill.Name, log: false, melee: true, hitCode: hitCode);
             }
             if (struck == 0) return 0;
             await SurvivorsPlayCastAnimation(remote, stream, ciphers, conn, skill, cast.Interval);

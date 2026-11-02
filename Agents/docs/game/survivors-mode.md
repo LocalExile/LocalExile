@@ -208,8 +208,9 @@ The survivor projectile is the server's own object, so it now carries the projec
 from `projectile-clips.json` (`MonsterProjectilePresentation`): Fireball's `fireball_explode`, Spark's
 `electrical_explode`, Ice Spear's `frozenspear_impact`, Ethereal Knives' `end` and the rest. The impact clip is the
 skill's hit animation and plays where the projectile stops. Fireball also plays its area explosion and Kinetic Blast
-its cluster visual. Monsters keep their 0x1d1 `TakeHit` flinch and the 0x1af hit package (blood, particles, the
-critical bit).
+its cluster visual. A Herald's aura pulse sends the 0x1af hit package with the gem's own damage-type code (fire, cold,
+lightning or chaos particles) instead of the physical default. Monsters keep their 0x1d1 `TakeHit` flinch and the
+0x1af hit package (blood, particles, the critical bit).
 
 ## Between runs
 
