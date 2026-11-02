@@ -151,8 +151,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Attack-hand alias composition now includes attack-only sources, linked supports and each active hand's local
   modifiers, with automated lifecycle checks.
   Display prohibitions and weapon-local/non-base combat penetration now have automated source/lifecycle/contact
-  coverage. Verify the updated rows and contacts natively; off-hand attack selection and remaining conditional
-  penetration sources still need implementation and validation.
+  coverage. Verify the updated rows and contacts natively; off-hand attack selection and the conditional penetration
+  forms not read yet (Zealotry's critical-only, Enmity's Embrace's overcapped fire, recent kill or block, flask,
+  tincture, while chilled, single-skill) still need implementation and validation.
   Selected ailment duration/effect coefficients now include real Unbound Ailments contributions, with 24
   source/link/override regressions. Validate the twelve aliases natively, then complete ailment chance/eligibility,
   damaging ranges, duration/application and stacking; a correct coefficient alone does not prove those consumers.
@@ -382,7 +383,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Critical elemental ignore and non-critical penetration now compose with it on the same rolled packet.
   Rerun critical ignore against a rebuilt final DLL: the previous combined run used the preceding #225 artifact.
   Recheck the resolved bow-contact and target-modifier composition natively before claiming new combined proof.
-  Special ES mechanics, conditional penetration, skill Exposure, damaging and alternative ailments on monsters
+  Special ES mechanics, the remaining conditional penetration, skill Exposure, damaging and alternative ailments on monsters
   (beyond the player's ignites) and further added-damage/support effects remain open.
   The player's ignites on monsters exist (`MonsterIgnites`), but only Abberath's Fury's footstep hits call them: the
   default attack, gems, projectiles and bows need their flat (pre-increase) fire packet passed to `IgniteFromHit` next
@@ -400,7 +401,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Production use during an active walk still needs measurement; native manual walk-stop experiments passed.
   Its departure/arrival damage, chilled ground, enemy-dependent recovery and shared Blink groups remain open.
   Extend terrain and movement restrictions from native evidence before accepting other instant movement skills.
-- **Start:** special ES mechanics, skill Exposure, conditional penetration and the remaining critical strike stats
+- **Start:** special ES mechanics, skill Exposure, the remaining conditional penetration and critical strike stats
   from the stats both sides already carry; monster skills beyond the first granted effect (ranged, spells).
   Extend player stun rules to ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
   Spell base critical chance now comes from each skill's level and shares its panel/combat calculation.

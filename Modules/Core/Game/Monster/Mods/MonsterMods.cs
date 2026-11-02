@@ -73,13 +73,15 @@ static partial class Game
         Penetration.PerType pen = default) => MonsterTakesRolled(m, hit.Roll(random), spell, pen);
 
     /// <summary>A monster's resistance to one type of the player's hit: base and mod resistance compose before
-    /// Monster.ot's 75% cap; penetration subtracts once after that cap.</summary>
+    /// Monster.ot's 75% cap; penetration subtracts once after that cap, the cold one against a chilled monster at
+    /// <paramref name="now"/> too (without a time it is not chilled).</summary>
     internal static DamageModel.ResistanceValue MonsterHitResistance(SpawnedMonster m, DamageType type,
         Penetration.PerType pen, double now = double.NaN)
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
         return resistance with { Value = resistance.Value + m.Mods.Effects.Resistance(type) + MonsterExposure(m, type, now),
-            Maximum = MonsterModEffects.MaxResistance, Penetration = pen.Of(type) };
+            Maximum = MonsterModEffects.MaxResistance, Penetration = pen.Of(type) + (type == DamageType.Cold
+                && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0 ? pen.ColdVsChilled : 0) };
     }
 
     // Already rolled: no extra RNG or per-component rounding, including ordinary bow contact snapshots.

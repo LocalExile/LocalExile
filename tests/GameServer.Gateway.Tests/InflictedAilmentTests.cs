@@ -8,6 +8,9 @@ public class InflictedAilmentTests
     const MonsterElementalAilments.Kind Chill = MonsterElementalAilments.Kind.Chill,
         Freeze = MonsterElementalAilments.Kind.Freeze, Shock = MonsterElementalAilments.Kind.Shock;
 
+    static Dictionary<uint, int> Raw(params (string Name, int Value)[] stats) =>
+        stats.ToDictionary(s => Program.Stats.Key(s.Name)!.Value, s => s.Value);
+
     static Func<string, int> With(params (string Stat, int Value)[] stats) =>
         name => stats.Where(s => s.Stat == name).Sum(s => s.Value);
 
@@ -31,7 +34,7 @@ public class InflictedAilmentTests
     // Shock", the one-type forms and the chill and freeze ones make other types count, a cannot keeps one out, "Hits
     // always Shock" needs no chance, and the caps can be raised.
     [Fact]
-    public void Minimums_caps_and_the_damage_that_can_inflict_set_what_a_hit_inflicts()
+    public void Minimums_caps_damage_types_and_conditional_penetration_set_what_a_hit_does()
     {
         var shockAtLeast15 = With(("shock_minimum_damage_taken_increase_%", 15));
         Assert.Equal(7, Magnitude(Shock, Taken(lightning: 1), With()));   // floor(50 × 0.01^0.4)
@@ -101,6 +104,45 @@ public class InflictedAilmentTests
         Assert.Equal(30, WhenHit(With(("virtual_chill_effect_+%", 50)), With()));
         Assert.Equal(40, WhenHit(With(("virtual_chill_effect_+%", 50), ("elementalist_chill_maximum_magnitude_override", 40)), With()));
         Assert.Equal(15, WhenHit(With(), With(("chill_effectiveness_on_self_+%", -50))));
+
+        // "Damage with Weapons Penetrates", "against Chilled Enemies" and "while affected by Wrath": each counts only
+        // while its condition holds, on hits and on the panel's hand rows.
+        var player = Raw(("reduce_enemy_fire_resistance_with_weapons_%", 10), ("reduce_enemy_elemental_resistance_with_weapons_%", 5),
+            ("cold_penetration_%_vs_chilled_enemies", 20));
+        var sword = new Dictionary<string, int>();
+        Assert.Equal(new Penetration.PerType(15, 5, 5, 0, 20), Penetration.Of(player, Program.Stats, attack: true, weaponLocal: sword));
+        // Unarmed (no weapon's local sources) and spells take no "with Weapons" penetration; chilled targets still count.
+        Assert.Equal(new Penetration.PerType(0, 0, 0, 0, 20), Penetration.Of(player, Program.Stats, attack: true));
+        Assert.Equal(new Penetration.PerType(0, 0, 0, 0, 20), Penetration.Of(player, Program.Stats, attack: false, weaponLocal: sword));
+        player[Program.Stats.Key(Penetration.ElementalProhibition)!.Value] = 1;
+        Assert.Equal(default(Penetration.PerType), Penetration.Of(player, Program.Stats, attack: true, weaponLocal: sword));
+
+        // The cold-vs-chilled share counts against a chilled monster only, and only for cold.
+        var pen = new Penetration.PerType(15, 5, 5, 0, 20);
+        var m = new SpawnedMonster("chilled", new(105, 100, 0), 0, 0, 100);
+        Assert.Equal(5, Game.MonsterHitResistance(m, DamageType.Cold, pen, now: 10).Penetration);
+        m.Ailments.Inflict(DamagePacket.Of(DamageType.Cold, 10, 10), critical: false, threshold: 100, now: 10, With(), With(), new Random(1));
+        Assert.Equal(25, Game.MonsterHitResistance(m, DamageType.Cold, pen, now: 10.5).Penetration);
+        Assert.Equal(15, Game.MonsterHitResistance(m, DamageType.Fire, pen, now: 10.5).Penetration);
+        Assert.Equal(5, Game.MonsterHitResistance(m, DamageType.Cold, pen, now: 13).Penetration);
+
+        // While affected by Wrath, Anger or Hatred: that element's base penetration, unscaled by aura effect.
+        AuraCatalog.Aura Running(string id) => new(0x999, 0, id, id, 1, 0, 0, 0);
+        var watchersEye = Raw(("reduce_enemy_lightning_resistance_%_while_affected_by_wrath", 15),
+            ("reduce_enemy_cold_resistance_%_while_affected_by_hatred", 12));
+        Assert.Equal(new[] { (Program.Stats.Key("base_reduce_enemy_lightning_resistance_%")!.Value, 15) },
+            AuraCatalog.WhileAffectedPenetration([Running("Wrath"), Running("Anger")], watchersEye, Program.Stats).ToArray());
+        Assert.Empty(AuraCatalog.WhileAffectedPenetration([Running("Anger")], watchersEye, Program.Stats));
+
+        // The panel's hand rows count "with Weapons" only for a hand holding a weapon.
+        var panel = With(("reduce_enemy_fire_resistance_with_weapons_%", 10), ("reduce_enemy_elemental_resistance_with_weapons_%", 5));
+        var armed = PanelStats.Compute(panel, _ => 0, _ => 0, mainArmed: true);
+        Assert.Contains(("main_hand_attack_damage_penetrates_fire_resist_%", 15), armed);
+        Assert.Contains(("main_hand_attack_damage_penetrates_cold_resist_%", 5), armed);
+        Assert.DoesNotContain(armed, row => row.Stat.StartsWith("off_hand_") || row.Stat == "reduce_enemy_fire_resistance_%");
+        Assert.Contains(("main_hand_attack_damage_penetrates_fire_resist_%", 15),
+            PanelStats.Selected(panel, _ => 0, mainHand: _ => 0, mainArmed: true));
+        Assert.DoesNotContain(PanelStats.Compute(panel, _ => 0, _ => 0), row => row.Stat.Contains("penetrates"));
     }
 
     // The client builds each kind's proliferation radius from its own sources: Elemental Proliferation's counts for all

@@ -104,7 +104,7 @@ with the time left. Not read: skill and aura Exposure (Hydrosphere's `water_sphe
 Wall's `firewall_applies_%_fire_exposure`, the Heralds' nearby-enemy Exposure), `exposure_effect_+%` on the target, Malachai's Artifice's socketed Elemental Equilibrium and the conditional and
 minion sources.
 
-The unconditional stats the server reads (whole percents, this client's Stats.dat names):
+The stats the server reads (whole percents, this client's Stats.dat names):
 
 | Stats | Scope |
 |---|---|
@@ -114,6 +114,9 @@ The unconditional stats the server reads (whole percents, this client's Stats.da
 | `base_attack_damage_penetrates_{fire,cold,lightning,chaos}_resist_%` | attacks only |
 | `base_attack_damage_penetrates_elemental_resist_%` | attacks only, on fire, cold and lightning (Forces of Nature, Warden) |
 | `local_{fire,cold,lightning,chaos,elemental}_penetration_%` | attacks using the explicitly supplied, qualified active weapon only; spells exclude these inputs |
+| `reduce_enemy_{fire,cold,lightning}_resistance_with_weapons_%`, `reduce_enemy_elemental_resistance_with_weapons_%` | "Damage with Weapons Penetrates" (Lava Lash, Fangs of Frost, Arcing Blows, the wand and staff clusters, Galvanic Hammer, Piscator's Vigil): attacks with a weapon only, PoB's `ModFlag.Weapon`; unarmed attacks and spells take none |
+| `cold_penetration_%_vs_chilled_enemies` | cold, against a monster chilled at the hit's time (The Pandemonius, Blanketed Snow); `MonsterHitResistance` adds it beside Exposure |
+| `reduce_enemy_{fire,cold,lightning}_resistance_%_while_affected_by_{anger,hatred,wrath}` | Watcher's Eye: that element's `base_reduce_enemy_…_resistance_%` while the matching aura runs (`AuraCatalog.WhileAffectedPenetration`), not scaled by aura effect |
 | `cannot_penetrate_or_ignore_elemental_resistances` | a flag: every elemental penetration is off for the player's hits; chaos is not elemental |
 
 The derived `main_hand_…`/`off_hand_…` and per-element display aliases are not raw inputs to combat.
@@ -123,7 +126,11 @@ current main-hand weapon at contact, consistent with their existing damage path.
 unqualified weapons cannot contribute. The current executors still lack off-hand attack selection.
 The source totals use wide intermediates and saturate once at the integer representation boundary.
 Either player or skill prohibition suppresses elemental penetration even if signed flag values would cancel.
-The non-critical companion is handled by the critical resistance rules below; other conditions remain separate work.
+The non-critical companion is handled by the critical resistance rules below. The hand rows add the "with Weapons"
+stats only for a hand that holds a weapon (`PanelStats.Sum.Armed`); the chilled-target share is not on the panel, as
+the target decides it. Not read yet: Zealotry's critical-only penetration, Enmity's Embrace's overcapped fire
+resistance as penetration, and the forms that need a recent kill or block, a flask or tincture, the player being
+chilled, or one named skill.
 Spells take only general sources; physical damage never penetrates.
 
 The issue-75 review added parsed contact regressions for ordinary melee/bow, Cyclone, Burning Arrow and Fireball,

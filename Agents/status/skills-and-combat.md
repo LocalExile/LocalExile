@@ -472,7 +472,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Cyclone, Burning Arrow and Fireball with/without elemental prohibition. Selected and actor projections emit zero
   for all nine elemental aliases under prohibition and restore totals when removed; chaos remains separate.
   Real Elemental Penetration support contributes 14 at level one and agrees with the hit consumer.
-  Current-branch native validation, off-hand attack selection and remaining target conditions are still open.
+  Conditional penetration: "Damage with Weapons Penetrates" counts for attacks with a weapon (hits and the hand rows
+  of a hand holding one), cold penetration against chilled enemies against a monster chilled at the hit, and Watcher's
+  Eye's Anger, Hatred and Wrath forms while that aura runs (`InflictedAilmentTests`).
+  Current-branch native validation, off-hand attack selection and the other conditional forms
+  ([20](../docs/protocol/20-damage.md) §2) are still open.
   Selected ailment duration/effect coefficients now also include qualifying supports: real level-one Unbound
   Ailments adds 35 to character 10 for all seven duration and five non-damaging effect aliases. Its 10% more
   ailment damage stays separate. Twenty-four regressions cover the reproduced omission, link/source removal,

@@ -187,7 +187,7 @@ static partial class Game
 
     internal sealed record PanelSourceSnapshot(IReadOnlyDictionary<uint, int> Raw,
         IReadOnlySet<uint> Overrides, int PlayerLevel,
-        IReadOnlyDictionary<string, int> MainHand, IReadOnlyDictionary<string, int> OffHand);
+        IReadOnlyDictionary<string, int> MainHand, IReadOnlyDictionary<string, int> OffHand, bool MainArmed, bool OffArmed);
 
     internal static Dictionary<uint, int> CharacterPlayerStatsCore(ClientState conn, out double baselineLifePerSecond) =>
         CharacterPlayerStatsSnapshot(conn, out baselineLifePerSecond, out _);
@@ -260,7 +260,8 @@ static partial class Game
         // Capture only for a skill publication. Recovery-only callers avoid these extra immutable copies.
         panelSources = capturePanelSources
             ? new(stats.ToFrozenDictionary(), devSet.ToFrozenSet(), conn.Pools.Level,
-                mainLocal.ToFrozenDictionary(), offLocal.ToFrozenDictionary()) : null;
+                mainLocal.ToFrozenDictionary(), offLocal.ToFrozenDictionary(),
+                WeaponIn(conn, ActiveMainHand(conn)) is not null, OffhandWeaponFor(conn) is not null) : null;
         // The tail reuses its last result while its inputs are the same (StatSnapshotCache.cs); the head above ran as always.
         var tailInputs = ReadStatSnapshotTailInputs(conn, stats, rawOverrides, devSet, mainLocal, offLocal, lifeRegenerationToEnergyShield, moving);
         stats = StatSnapshotTailFor(conn, tailInputs, StatSnapshotStage.Panels);
@@ -367,6 +368,8 @@ static partial class Game
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = [.. conn.Auras.Values];
         foreach (var (k, v) in AuraCatalog.RawStats(auras, conn.Pools.AuraEffectPct, SkillsFor(conn), Stats).Concat(MinionAuraStats(conn, auras)))
+            extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
+        foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, extra, Stats).ToList())
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         // The mods' stats (Program.Mods.cs), added like /god's: the pools (life, mana) are not rebuilt from them.
         if (Program.ServerHooks.ChangesStats)
@@ -675,7 +678,8 @@ static partial class Game
             int RawPanel(string stat) => Stats.Key(stat) is uint key ? panelSources.Raw.GetValueOrDefault(key) : 0;
             int OwnPanel(string stat) => Stats.Key(stat) is uint key ? own.GetValueOrDefault(key) : 0;
             foreach (var (stat, value) in PanelStats.Selected(RawPanel, OwnPanel, panelSources.PlayerLevel,
-                panelSources.MainHand.GetValueOrDefault, panelSources.OffHand.GetValueOrDefault))
+                panelSources.MainHand.GetValueOrDefault, panelSources.OffHand.GetValueOrDefault,
+                panelSources.MainArmed, panelSources.OffArmed))
                 if (Stats.Key(stat) is uint key)
                     stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;
             if (Stats.Key(VaalSoulCost.Aura) is uint aura)
