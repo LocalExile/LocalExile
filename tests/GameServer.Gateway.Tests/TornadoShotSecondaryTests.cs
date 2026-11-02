@@ -14,7 +14,7 @@ public sealed class TornadoShotSecondaryTests
         var profile = GatewayProjectileSkillProfiles.Resolve("TornadoShot",
             "Metadata/Projectiles/TornadoShotArrow", Get, 200, attack: true);
 
-        Assert.True(profile.Pierce > 0);
+        Assert.True(profile.Pierce < 0);
         Assert.NotNull(profile.EndEmission);
         Assert.True(profile.EndEmission!.Radial);
         Assert.True(profile.EndEmission.RandomPhase);

@@ -96,8 +96,9 @@ static class GatewayProjectileSkillProfiles
         };
         return parent with
         {
-            // Client +0x330 bit 0x4: the ordinary primary arrow pierces before its terminal child group.
-            Pierce = Math.Max(parent.Pierce, 1_000_000), CannotPierce = false,
+            // Client +0x330 bit 0x4: the ordinary primary arrow pierces before its terminal child group. The negative
+            // sentinel is the runtime's never-decrementing pierce and the panel's virtual_always_pierce.
+            Pierce = -1, CannotPierce = false,
             EndEmission = new(child, Radial: true, RandomPhase: true)
         };
     }
