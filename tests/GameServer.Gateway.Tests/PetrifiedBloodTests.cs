@@ -26,10 +26,14 @@ public sealed class PetrifiedBloodTests
         var noStats = new Dictionary<uint, int>();
         // 100 of the 300 is above half Life; of the 200 below it 80 is prevented, and 81% of 80 is deferred.
         Assert.Equal(220, Game.DamagePlayerHit(conn, 300, 0, 0, noStats));
+        var loss = conn.PetrifiedBlood.Display(0);
+        Assert.Equal(972, loss.PerMinute);   // 64.8 deferred over 4 s = 16.2/s
+        Assert.Equal(4, loss.Expiry, 6);
         conn.PlayerLife = 380;
         Assert.Equal(32.0, conn.PetrifiedBlood.Take(2), 6);   // 16.2 per second, whole points
         Assert.Equal(32.0, conn.PetrifiedBlood.Take(4), 6);
         Assert.Equal(0.0, conn.PetrifiedBlood.Take(6), 6);
+        Assert.Equal(0, conn.PetrifiedBlood.Display(6).PerMinute);
         Assert.Equal(350, PetrifiedBlood.RequiredMana(conn.Pools, 3500));
 
         // A hit wholly below half Life protects 40% of all of it; level 1 defers every protected point.

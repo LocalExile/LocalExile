@@ -1536,6 +1536,11 @@ rather than refreshing one pool. The loss is not damage, ignores Energy Shield a
 3.22 Grace Period rule suppresses it while entry protection runs. Hits only: damage over time and the loss already owed
 are not protected, and killing blow overkill is split like any other Life loss.
 
+The current deferred rate is presented with the invisible BuffDefinitions row 1796
+`slow_life_loss_from_hit_damage`. Its single `life_degeneration_per_minute_not_in_grace` value is the sum of the active
+segments' rates per minute, and its duration is the last segment's remaining time; the client draws the dark
+deferred-loss overlay on the life orb. Grace Period hides it because the loss is suppressed there.
+
 While the buff runs, Life recovery other than flasks stops at the Low Life boundary
 (`cannot_recover_above_low_life_except_flasks`); a flask may still fill the pool above it. Life leech instances are
 not removed at Low Life (their own cap and the client's leech display are maximum unreserved Life), but their actual

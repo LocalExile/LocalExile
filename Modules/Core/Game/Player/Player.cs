@@ -496,6 +496,7 @@ static partial class Game
             await SendAttackerSlows(remote, stream, ciphers, conn);
             await SendLifetap(remote, stream, ciphers, conn);
             await SendLeechBuffs(remote, stream, ciphers, conn);
+            await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);
             await TickPassiveAuras(remote, stream, ciphers, conn);
             await PushOutOfCollision(remote, stream, ciphers, conn);
             await BurnIgnited(remote, stream, ciphers, conn);
@@ -1103,6 +1104,9 @@ static partial class Game
                             conn.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
                         conn.PresentedAuras.Clear();
                         conn.LeechDisplay.Clear();
+                        conn.PetrifiedBlood.PresentedLossBuff = 0;
+                        conn.PetrifiedBlood.SentLossPerMinute = 0;
+                        conn.PetrifiedBlood.SentLossExpiry = 0;
                         conn.Lifetap.PresentedBuff = 0;
                         conn.Lifetap.RefreshPresented = false;
                         conn.AuraStatsDirty = false;

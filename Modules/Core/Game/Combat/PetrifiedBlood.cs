@@ -99,4 +99,46 @@ static partial class Game
     static int RequiredManaWithPetrifiedBlood(ClientState conn, int petrifiedBloodPercent) =>
         AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values)
         + PetrifiedBlood.RequiredMana(conn.Pools, petrifiedBloodPercent);
+
+    // The invisible slow_life_loss_from_hit_damage buff (BuffDefinitions 1796) draws the dark deferred-loss overlay
+    // on the life orb. Its single value is the current deferred life loss per minute; the duration is the last
+    // segment's end. Grace Period suppresses the loss, so it hides the overlay while protection runs.
+    internal static byte[]? PetrifiedBloodLossPresentation(ClientState conn)
+    {
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        var (perMinute, expiry) = conn.PetrifiedBlood.Display(now);
+        if (InGracePeriod(conn)) perMinute = 0;
+        var state = conn.PetrifiedBlood;
+        var packets = new List<byte[]>();
+        bool show = perMinute > 0 && expiry > now;
+        if (state.PresentedLossBuff != 0
+            && (!show || perMinute != state.SentLossPerMinute || expiry != state.SentLossExpiry))
+        {
+            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedLossBuff));
+            state.PresentedLossBuff = 0;
+            state.SentLossPerMinute = 0;
+            state.SentLossExpiry = 0;
+        }
+        if (show && state.PresentedLossBuff == 0)
+        {
+            state.PresentedLossBuff = conn.NextBuff++;
+            packets.Add(InstanceEntities.AddBuff(PlayerId, state.PresentedLossBuff, PetrifiedBlood.SlowLossBuffRow,
+                PlayerId, values: [(uint)Math.Min(perMinute, int.MaxValue)],
+                u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, expiry - now))));
+            state.SentLossPerMinute = perMinute;
+            state.SentLossExpiry = expiry;
+        }
+        return packets.Count == 0 ? null : [.. packets.SelectMany(packet => packet)];
+    }
+
+    internal static Task SendPetrifiedBloodLoss(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn) => Send(remote, stream, ciphers, [], null, atGate: () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (conn.Closed || conn.LeavingArea || conn.RageRetired
+                    || (!conn.PlayerObjectCreated && !conn.PlayerSent)) return null;
+                return PetrifiedBloodLossPresentation(conn);
+            }
+        });
 }

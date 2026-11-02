@@ -19,6 +19,11 @@ sealed class PetrifiedBloodState
     /// again. The client steps Life from <c>life_recovery_per_minute</c> and only knows the maximum pool, so while the
     /// buff blocks non-flask recovery that rate goes as 0 and returns when Life is back on Low Life.</summary>
     public bool? SentRecoveryBlocked { get; set; }
+    /// <summary>The buff instance this connection actually sent for the deferred life loss; 0 while none is shown.</summary>
+    public ushort PresentedLossBuff { get; set; }
+    /// <summary>The deferred-loss rate and last segment end carried by the shown buff, for change detection.</summary>
+    public int SentLossPerMinute { get; set; }
+    public double SentLossExpiry { get; set; }
     /// <summary>The skill's mana reservation in permyriad (3500 = 35%).</summary>
     public int ManaPercent { get; private set; }
 
@@ -107,6 +112,21 @@ sealed class PetrifiedBloodState
         carry -= whole;
         return whole;
     }
+
+    /// <summary>The current deferred-loss rate and the last segment's end, for the client's orb loss overlay. This
+    /// does not consume or settle the debt; <see cref="Take"/> owns the actual life loss.</summary>
+    public (int PerMinute, double Expiry) Display(double now)
+    {
+        if (now < last) now = last;
+        double rate = 0, expiry = now;
+        foreach (var debt in debts)
+        {
+            if (debt.End <= now || debt.Start > now) continue;
+            rate += debt.Rate;
+            expiry = Math.Max(expiry, debt.End);
+        }
+        return ((int)Math.Clamp(Math.Round(rate * 60), 0, int.MaxValue), expiry);
+    }
 }
 
 /// <summary>Petrified Blood (`PetrifiedBlood` GrantedEffects row, BuffDefinitions 1819): the data and the pure
@@ -119,6 +139,9 @@ static class PetrifiedBlood
 
     /// <summary>BuffDefinitions row <c>petrified_blood</c> (the table's 1819th row).</summary>
     public const ushort BuffRow = 1819;
+
+    /// <summary>BuffDefinitions row <c>slow_life_loss_from_hit_damage</c> (1796): the orb's deferred-loss overlay.</summary>
+    public const ushort SlowLossBuffRow = 1796;
 
     public const double DeferSeconds = 4;
 
