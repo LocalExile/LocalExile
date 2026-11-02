@@ -690,7 +690,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
 - Petrified Blood: the 35% Mana reservation buff, its hit-only Life-loss split at half Life, the four-second deferred
-  loss, the non-flask recovery cap at Low Life and the Life cost above it are implemented.
+  loss, the non-flask recovery cap at Low Life and the Life cost above it are implemented. Life leech instances and
+  the client's leech display keep the full maximum-unreserved-Life cap; they are not removed at Low Life, but their
+  actual recovery is capped like regeneration and Recoup. Recoup is based on the hit before Petrified Blood and its
+  four-second instance also keeps running at Low Life; a level-21/20-quality gem's 30% deferred share is offset by 30%
+  Recoup as Life over the same four seconds.
   Low Life uses the shared 50% default (`low_life_threshold_%_override` then `low_life_threshold_%`), not a fixed
   half of maximum Life; the 3.29.3b Life mastery `Life4` sets the override to 55%. The client's own
   `life_recovery_per_minute` is published as 0 while the cap blocks recovery and restored below it, so its pool
@@ -699,8 +703,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   the existing aura send gate; the buff is not an aura and the aura restriction leaves it alone.
   Not implemented: the buff-specific reservation-efficiency rows, the client tooltip's Life cost, and any non-hit
   Life loss (damage over time and the already-deferred loss are not protected).
-  Automated tests cover the split, level-1/level-20 deferral, the threshold and recovery cap, and the Life cost; no
-  native check yet. Code: `Combat/PetrifiedBlood.cs`, `Combat/LowLife.cs`,
+  Automated tests cover the split, level-1/level-20 deferral, the threshold, the recovery cap (including a leech
+  instance retained above Low Life while its recovery is capped), and the Life cost; no native check yet. Code:
+  `Combat/PetrifiedBlood.cs`, `Combat/LowLife.cs`,
   `Modules/Core/Game/Combat/PetrifiedBlood.cs`; docs: [20](../docs/protocol/20-damage.md) section 2i.
 
 - Selected supported-spell panel: final linked-support damage replaces both spell and inherited hand ranges,

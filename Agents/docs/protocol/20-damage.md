@@ -961,6 +961,8 @@ ward, energy shield and life absorb it; dev hits too) starts its own recovery in
 × (1 + `life_recovery_rate_+%`), paid evenly over 4 s (3 s with Nine Lives' `recoup_effects_apply_over_3_seconds_instead`
 or `recoup_life_effects_apply_over_3_seconds_instead`). poedb's Recoup page gives the rule ("Only Damage from Hits can be
 Recouped, over 4 seconds following the Hit") and PoB CalcDefence the recovery-rate scaling and the damage it counts.
+Petrified Blood is applied after this base: it does not reduce the recouped amount, and its deferred loss is not a hit
+and starts no separate Recoup.
 `cannot_recover_life` stops it, and death and area loading drop what is left. Damage over time is not recouped.
 
 Ten native controls verified flat sources, independent increase buckets, prohibition, source clearing and relog.
@@ -1528,14 +1530,23 @@ rather than refreshing one pool. The loss is not damage, ignores Energy Shield a
 3.22 Grace Period rule suppresses it while entry protection runs. Hits only: damage over time and the loss already owed
 are not protected, and killing blow overkill is split like any other Life loss.
 
-While the buff runs, Life recovery from every source except flasks stops at the Low Life boundary
-(`cannot_recover_above_low_life_except_flasks`); a flask may still fill the pool above it. Low Life is 50% of maximum
-Life or less by default (the 3.29.3b `ReminderTextLowLife` text); a positive `low_life_threshold_%_override` replaces
-that boundary, then `low_life_threshold_%` (the shared `LowLife` rule used by the critical policy). The 3.29.3b Life
-Mastery `Life4` (`PassiveSkillMasteryEffects` row 190) is the current override source: it grants
-`low_life_threshold_%_override` 55 ("You count as on Low Life while at 55% of maximum Life or below"). Above Low Life
-every paid skill gains a base Life cost of 40% of its base Mana cost; paying it cannot reduce Life to 0, and at Low Life
-the extra cost disappears.
+While the buff runs, Life recovery other than flasks stops at the Low Life boundary
+(`cannot_recover_above_low_life_except_flasks`); a flask may still fill the pool above it. Life leech instances are
+not removed at Low Life (their own cap and the client's leech display are maximum unreserved Life), but their actual
+recovery is ignored above the boundary and capped below it, exactly like regeneration and Recoup. Because the
+instance keeps running, its later ticks still cover Petrified Blood's deferred loss while Life sits at the boundary.
+Low Life is 50% of maximum Life or less by default (the 3.29.3b `ReminderTextLowLife` text); a positive
+`low_life_threshold_%_override` replaces that boundary, then `low_life_threshold_%` (the shared `LowLife` rule used by
+the critical policy). The 3.29.3b Life Mastery `Life4` (`PassiveSkillMasteryEffects` row 190) is the current override
+source: it grants `low_life_threshold_%_override` 55 ("You count as on Low Life while at 55% of maximum Life or
+below"). Above Low Life every paid skill gains a base Life cost of 40% of its base Mana cost; paying it cannot reduce
+Life to 0, and at Low Life the extra cost disappears.
+
+Recoup is calculated before Petrified Blood: the hit's damage after resistance, armour and Fortification, but before
+Ward, Energy Shield and the buff's prevention. A level-21/20-quality Petrified Blood defers 30% of the protected life
+loss below Low Life over four seconds; when the whole hit is below Low Life, 30% of damage taken recouped as Life
+offsets that loss. Recoup's four-second instance is not removed at Low Life either: its rate continues and only the
+actual recovery is capped.
 
 The client steps its own Life pool from `life_recovery_per_minute` and only clamps to the maximum pool, so it does not
 know this buff's boundary by itself. While the buff blocks recovery the server publishes that rate as 0, and publishes

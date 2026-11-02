@@ -173,8 +173,10 @@ static class PetrifiedBlood
     }
 
     /// <summary>
-    /// Life recovery other than flasks cannot raise Life above Low Life. A pool already above it gains nothing;
-    /// below it the recovery stops at half maximum. Damage (a negative amount) keeps the ordinary full maximum.
+    /// Life recovery other than flasks, including life leech, cannot raise Life above Low Life. A pool already above
+    /// it gains nothing; below it the recovery stops at the boundary. Damage (a negative amount) keeps the ordinary
+    /// full maximum. Leech instances themselves are not cleared at Low Life: their own cap is maximum unreserved Life,
+    /// but the recovery they apply through this function is capped like regeneration and Recoup.
     /// </summary>
     public static uint RecoverLife(ClientState conn, uint current, double amount, ref double carry, uint minimum = 0)
     {

@@ -202,6 +202,8 @@ static partial class Game
                 .Concat(PanelStats.FromPools(Get, pools))
                 .Concat(PanelStats.Defence(Get, pools, Monsters.BaseDamage(pools.Level), Monsters.BaseAccuracy(pools.Level)))
                 .Concat(PanelStats.Recovery(PanelStats.WhileMoving(Get, inputs.Moving), pools.Life, pools.Mana))
+                // Leech limits and the client display use the full maximum pool. Petrified Blood caps only the
+                // recovery actually applied, not the instance's contribution or its displayed cap.
                 .Concat(LeechLimits.Compute(Get, pools.Life, pools.Mana, pools.EnergyShield,
                     name => Stats.Key(name) is uint key && rawOverrides.TryGetValue(key, out int value) ? value : null,
                     OnLowLife(stats)))

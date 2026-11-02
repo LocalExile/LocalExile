@@ -78,7 +78,8 @@ static partial class Game
         var gain = sources.GainOnHit;
         uint life = conn.PlayerLife, mana = conn.PlayerMana;
         // Instant portions and the gain per enemy hit resolve in this hit transaction, so a later enemy hit sees the
-        // recovered resource. Keep sub-point recovery between hits, and discard overflow at a full pool.
+        // recovered resource. Keep sub-point recovery between hits, and discard overflow at a full pool. Petrified
+        // Blood caps the actual recovery like regeneration/Recoup; the leech instance itself remains until full Life.
         conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, life,
             instant.Life + (session.RecoversLife ? gain.Life : 0), ref session.LifeInstantCarry, minimum: 1);
         conn.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(conn), instant.Mana + gain.Mana,

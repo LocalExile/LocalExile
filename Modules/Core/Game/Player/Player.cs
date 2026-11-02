@@ -659,7 +659,8 @@ static partial class Game
                     double enduringCryLife = conn.EnduringCryRecovery.Take(now);
                     if (convertLifeRegen) conn.EnergyShield.Gain(enduringCryLife);
                     double recoupLife = conn.LifeRecoup.Take(now);
-                    // Flask recovery alone may pass Low Life under Petrified Blood; every other source stops at half.
+                    // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
+                    // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds) + (zealotsOath ? 0 : fortificationLife)
                         + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife) + recoupLife;
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(conn, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
