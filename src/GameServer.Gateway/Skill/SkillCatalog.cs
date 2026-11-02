@@ -633,7 +633,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // Granted effects whose Projectiles.dat row is not named after them, by effect Id. Kinetic Blast's effect is
     // ClusterBurst (the skill data names no row); it uses the wand attack's projectile at the same 3260 speed. Tornado
     // Shot's arrow is TornadoShotArrow (2173); without it every use was refused while the client had stopped to shoot,
-    // and the server walked on (live 2026-10-29). Spark's transfigured and Vaal versions fire Spark's own row.
+    // and the server walked on (live 2026-10-29). Spark's transfigured and Vaal versions fire Spark's own row. Rolling
+    // Magma (once Magma Orb) creates MagmaOrbShort (Frida 2026-11-01, trace-projectile-create.js); without the row every
+    // cast was refused while the client drew its orb.
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -648,6 +650,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["SparkAltX"] = "Metadata/Projectiles/Spark",
         ["SparkAltY"] = "Metadata/Projectiles/Spark",
         ["VaalSpark"] = "Metadata/Projectiles/Spark",
+        ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
