@@ -2,7 +2,7 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 
 sealed record VaalUseReservation(ushort Skill, int Effect, int Action, int Epoch, int Rage, uint Souls,
-    uint Mana, double PreventionSeconds, SkillCriticalRoll? CriticalRoll = null)
+    uint Mana, uint Life, double PreventionSeconds, SkillCriticalRoll? CriticalRoll = null)
 {
     public bool Executed;
     public long WorkGeneration;
@@ -44,11 +44,18 @@ static partial class Game
                 Get("base_rage_cost_efficiency_+%"), free));
         uint souls = conversion || free ? 0 : (uint)VaalSoulCost.Required(definition.BaseCost, Get);
         uint mana = free ? 0 : (uint)Math.Max(0, gem.Stats.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
+        // Lifetap turns the whole upfront cost into Life.
+        uint life = 0;
+        if (!free && Lifetap.Supported(gem.Stats))
+        {
+            life = mana;
+            mana = 0;
+        }
         double prevention = Get("vaal_skill_does_not_apply_soul_gain_prevention") != 0
             || Get("map_player_disable_soul_gain_prevention") != 0 ? 0
             : Math.Max(0, SkillsFor(conn).SoulGainPreventionMs(gem.Effect, gem.Level) / 1000.0
                 * (1 + Get("vaal_skill_soul_gain_prevention_+%_final_from_pact_of_ktash") / 100.0));
-        return new(id, gem.Effect, conn.ActionCount, conn.ProjectileEpoch, rage, souls, mana, prevention)
+        return new(id, gem.Effect, conn.ActionCount, conn.ProjectileEpoch, rage, souls, mana, life, prevention)
             { RageConverted = conversion };
     }
 
@@ -56,7 +63,8 @@ static partial class Game
     {
         var stats = CharacterPlayerStats(conn);
         var rage = conn.Rage.Read(VaalResourceTime(conn), RageStats.Inputs(n => RageStat(stats, n)));
-        if (conn.PlayerMana < plan.Mana || rage.Current < plan.Rage) return false;
+        if (conn.PlayerMana < plan.Mana || plan.Life > 0 && conn.PlayerLife <= plan.Life
+            || rage.Current < plan.Rage) return false;
         if (plan.Souls == 0) return true;
         RefreshVaalSouls(conn);
         var definition = SkillsFor(conn).VaalBudget(plan.Effect, SupportedSkill(conn, plan.Skill).Level)!.Value;
@@ -89,6 +97,11 @@ static partial class Game
                 throw new InvalidOperationException("Vaal soul reservation changed inside admission");
         }
         conn.PlayerMana -= plan.Mana;
+        if (plan.Life > 0)
+        {
+            conn.PlayerLife -= plan.Life;
+            Lifetap.Spend(conn, SupportedSkill(conn, plan.Skill).Stats, (int)plan.Life, now);
+        }
         if (attackDeadline is double next) conn.NextAttackAt = next;
         conn.VaalPreventionUntil = Math.Max(conn.VaalPreventionUntil, now + plan.PreventionSeconds);
         conn.VaalUse = plan with { Action = conn.ActionCount, Epoch = conn.ProjectileEpoch,
@@ -151,7 +164,7 @@ static partial class Game
             if (!Current()) return;
             await SendVaalSouls(remote, stream, ciphers, conn);
             if (!Current()) return;
-            await SendPlayerMana(remote, stream, ciphers, conn, "Vaal use paid");
+            await SendSkillCost(remote, stream, ciphers, conn, paid.Life, "Vaal use paid");
         }
         finally { Program.ProjectileOutputGuard.Value = previous; }
     }

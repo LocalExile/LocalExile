@@ -7,7 +7,7 @@ using GameServer.Core.World;
 static partial class Game
 {
     internal static double ConditionalSupportMore(IReadOnlyDictionary<uint, int>? skill, bool attack, bool chilled,
-        bool lowLife, bool fullLife)
+        bool lowLife, bool fullLife, bool lifetap)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
         double more = 1;
@@ -15,6 +15,7 @@ static partial class Game
         Apply(chilled, "support_hypothermia_damage_+%_vs_chilled_enemies_final");
         Apply(lowLife, "support_executioner_damage_vs_enemies_on_low_life_+%_final");
         Apply(attack && fullLife, "support_damage_while_on_full_life_+%_final");
+        Apply(lifetap, "support_lifetap_damage_+%_final_while_buffed");
         return more;
     }
 
@@ -23,7 +24,8 @@ static partial class Game
         bool attack, SpawnedMonster target, DamagePacket rolled, double now)
     {
         double more = ConditionalSupportMore(skill, attack, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
-            FlaskRecovery.LowLife(target.Life, target.MaxLife), conn.PlayerLife >= conn.PlayerMaxLife);
+            FlaskRecovery.LowLife(target.Life, target.MaxLife), conn.PlayerLife >= conn.PlayerMaxLife,
+            Lifetap.ActiveAt(conn, now));
         return more == 1 ? rolled : rolled.Scale(more);
     }
 }

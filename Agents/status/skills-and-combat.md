@@ -650,6 +650,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Lifetap Support: supported skills pay their whole Mana cost as Life, including the 300% cost multiplier; the paid
+  Life is accumulated against `support_lifetap_spent_life_threshold`. Reaching it grants the 4 s (plus quality) Lifetap
+  buff, whose more damage applies to supported hits and whose 20% increased Life recovery applies to flasks.
+  Vaal uses pay the same Life cost. The buff is presented through the own-aura send gate; the hidden spent-Life buff
+  and minion buffs are not sent, and damage over time does not receive the more multiplier.
+  Automated test covers Tornado Shot with level-1 Lifetap: 9 Mana becomes 27 Life, the first use grants the buff,
+  and the hit and flask bonuses apply. Code: `Combat/Lifetap.cs`, `Player.cs`, `ConditionalSupportDamage.cs`;
+  docs: [25](../docs/protocol/25-gem-supports.md).
 - Selected supported-spell panel: final linked-support damage replaces both spell and inherited hand ranges,
   clearing removed types and updating pre-critical average/DPS from the supported cast time.
   Eight pipeline controls cover damage, projectiles, added damage, gem level, type prohibition, link lifecycle
