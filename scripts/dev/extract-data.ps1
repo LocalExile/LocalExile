@@ -126,9 +126,10 @@ Need (Test-Path (Join-Path $repo 'Tools\ooz\node_modules\ooz-wasm')) 'Tools\ooz\
 $python = $null
 if ($todo | Where-Object { $_.Runner -eq 'python' }) {
     # A virtual environment in the repository (.venv) wins over the python on PATH, as in live.ps1.
-    $venv = Join-Path $repo '.venv\Scripts\python.exe'
+    $venv = Join-Path $repo $(if ($IsLinux) { '.venv/bin/python' } else { '.venv\Scripts\python.exe' })
     $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
     if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
+    if (-not $python -and $IsLinux) { $python = (Get-Command python3 -ErrorAction SilentlyContinue).Source }
     Need $python 'Python 3.9+ not found (python)'
     & $python -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>$null
     Need ($LASTEXITCODE -eq 0) "Python 3.9+ needed ($python)"
