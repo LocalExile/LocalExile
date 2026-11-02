@@ -27,27 +27,6 @@ static partial class Game
         if (ImmuneCharacters.ContainsKey(CharacterName(conn))) conn.Immune = conn.God;
     }
 
-    // The player's life per second from regeneration: the flat life regeneration per minute (/god, /set_stat) plus a
-    // percentage of maximum life, from the row PanelStats.Recovery sends to the character panel.
-    internal static double LifeRegenPerSecond(ClientState conn)
-    {
-        lock (conn.Monsters)
-        {
-            CharacterPlayerStatsCore(conn, out double baseline);
-            return baseline;
-        }
-    }
-
-    // The player's mana per second from regeneration: Character.ot's mana_regeneration_rate_per_minute_% (105: 1.75% of
-    // maximum mana per second) plus the stats' flat base_mana_regeneration_rate_per_minute (/god), raised by
-    // mana_regeneration_rate_+%.
-    internal static double ManaRegenPerSecond(ClientState conn)
-    {
-        var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
-        return PanelStats.ManaPerMinute(PanelStats.WhileMoving(Get, conn.Clock.Elapsed.TotalSeconds < conn.Walk.ArrivesAt), conn.Pools.Mana) / 60;
-    }
-
     // The mana the running auras reserve, and what is left for casting and regeneration.
     // Restoring an already enabled aura is not a fresh cast: transient mana availability must not discard its saved intent.
     internal static IReadOnlyList<AuraCatalog.Aura> RestoreRememberedAuras(ClientState conn, IEnumerable<string> saved)
@@ -563,9 +542,9 @@ static partial class Game
                 // Stat aggregation stays at the old 250 ms cadence, rather than rebuilding the panel 60 times/s.
                 if (now - ratesAt >= PlayerTickMs / 1000.0 || rf != cachedRf)
                 {
-                    lifeRate = LifeRegenPerSecond(conn);
-                    manaRate = ManaRegenPerSecond(conn);
-                    recoveryStats = CharacterPlayerStats(conn);
+                    recoveryStats = CharacterPlayerStatsCore(conn, out lifeRate);
+                    manaRate = PanelStats.ManaPerMinute(
+                        PanelStats.WhileMoving(RecoveryStat, conn.Clock.Elapsed.TotalSeconds < conn.Walk.ArrivesAt), conn.Pools.Mana) / 60;
                     zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
                     convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
                     burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
