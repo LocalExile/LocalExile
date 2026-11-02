@@ -73,9 +73,8 @@ skill's rank and the run's area) takes the skill's damage. Learning one puts the
 buffs are removed when the run ends. Each hit also sends the impact packet (0x1af, as a melee hit) so the blood and
 particles play on the monster. Kills from a pulse feed the run like any other.
 
-A level-up window can be closed by a stray click while running; the choice is mandatory, so the server sends the window
-again (on the client's 0x85 close and every 10 s while the offer is open) instead of leaving the run paused with nothing
-to click.
+A level-up window can be closed by a stray click while running; closing it takes the first reward, so the run never
+stays paused with nothing to click.
 
 ## Unique items
 
