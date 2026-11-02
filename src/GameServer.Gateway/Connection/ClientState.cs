@@ -786,7 +786,21 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public WalkEstimator NewWalk(int x, int y, double speed) =>
         new(x, y, Math.Max(1, speed), Layout.Walkable, Layout.GridW > 0 ? Layout.GridW : 4096, Layout.GridH > 0 ? Layout.GridH : 4096);
 
-    public (int X, int Y) SpawnNear((int X, int Y) at) => Layout.Near(at);
+    /// <summary>The nearest cell to spawn on, clear of other bodies: a walk that starts on a body goes through bodies
+    /// (PlayerWalk.WalksThrough), so monsters spawned on one cell would stay stacked wherever they went.</summary>
+    public (int X, int Y) SpawnNear((int X, int Y) at)
+    {
+        const int Size = 2, Step = 3, Reach = 90;
+        var near = Layout.Near(at);
+        var bodies = Blockers;
+        for (int r = 0; r <= Reach; r += Step)
+            for (int a = 0, n = Math.Max(1, r * 2); a < n; a++)
+            {
+                int x = near.X + (int)Math.Round(r * Math.Cos(a * Math.Tau / n)), y = near.Y + (int)Math.Round(r * Math.Sin(a * Math.Tau / n));
+                if (Layout.WalkableFor(x, y, Size) && !ClientPathfinder.ObjectBlocks(bodies, x, y, Size + 1, Size + 4)) return (x, y);
+            }
+        return near;
+    }
 }
 
 /// <summary>A worn pet the server walks after the player (RunPetFollow): its walk estimate, which side of the player it
