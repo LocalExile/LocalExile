@@ -112,7 +112,10 @@ they have no projectile, so a cast is an **aura pulse** around the player - ever
 skill's rank and the run's area) takes the skill's damage. Learning one puts the gem's aura buff on the player (S->C
 0x1c1, the BuffDefinitions row from the effect's ActiveSkills row), so the client draws the herald and its icon; the
 buffs are removed when the run ends. Each hit also sends the impact packet (0x1af) with the gem's own damage-type
-code, so its elemental hit particles play on the monster. Kills from a pulse feed the run like any other.
+code, so its elemental hit particles play on the monster, and plays the herald's own hit effect at up to three struck
+targets (the wave still damages every target): Ash's `flameherald_explode.ao`, Ice's `iceherald_explode.ao`, Thunder's
+`lightning_strike_herald.ao` (the bolt from above), Agony's `mortarimpact.ao` and Purity's `slam_impact.ao`, each
+removed when its clip ends. Kills from a pulse feed the run like any other.
 
 A level-up window can be closed by a stray click while running; closing it takes the first reward, so the run never
 stays paused with nothing to click.
@@ -209,6 +212,10 @@ A Frida probe on the live 3.29.3b client (`trace-player-hit-animation.js`) confi
 (object 4096) requested index 386, the body controller accepted it and switched its clip to 386
 (`spell_projectile_unarmed`); Fireball's projectile objects received index 1 (`fireball_explode`) at impact. The
 client's own `0x1b2` handler is the same for both.
+
+A Herald's aura pulse plays its gem's own hit art at up to three struck targets (`flameherald_explode`,
+`iceherald_explode`, `lightning_strike_herald`, `mortarimpact`, `slam_impact`), each as a `Metadata/Effects/...` .ao
+object created at the target and removed when its clip ends.
 
 The survivor projectile is the server's own object, so it now carries the projectile type's flight and impact clips
 from `projectile-clips.json` (`MonsterProjectilePresentation`): Fireball's `fireball_explode`, Spark's

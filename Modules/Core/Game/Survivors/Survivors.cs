@@ -22,6 +22,27 @@ static partial class Game
     /// <summary>A herald's aura reaches this far around the player, in cells, before its rank and area grow it.</summary>
     internal const double SurvivorsHeraldRadius = 12;
 
+    /// <summary>
+    /// The hit effect each Herald gem plays where its pulse strikes: the game's own <c>.ao</c> for the herald's impact
+    /// (Ash's fire explosion, Ice's shatter, Thunder's bolt from above, Agony's poison splash, Purity's slam) and the
+    /// clip's length, after which the effect object is removed.
+    /// </summary>
+    internal sealed record SurvivorsHeraldImpact(string Ao, int Ms);
+
+    static readonly IReadOnlyDictionary<string, SurvivorsHeraldImpact> SurvivorsHeraldImpacts =
+        new Dictionary<string, SurvivorsHeraldImpact>(StringComparer.Ordinal)
+        {
+            ["HeraldOfAsh"] = new("Metadata/Effects/Spells/herald/fire/flameherald_explode.ao", 958),
+            ["HeraldOfIce"] = new("Metadata/Effects/Spells/herald/ice/iceherald_explode.ao", 833),
+            ["HeraldOfThunder"] = new("Metadata/Effects/Spells/herald/lightning/lightning_strike_herald.ao", 1625),
+            ["HeraldOfAgony"] = new("Metadata/Effects/Spells/herald/agony/minion/mortarimpact.ao", 1000),
+            ["HeraldOfPurity"] = new("Metadata/Effects/Spells/herald/light/slam_impact/slam_impact.ao", 1000),
+        };
+
+    static SurvivorsHeraldImpact? SurvivorsHeraldImpactFor(ClientState conn, SurvivorsSkill skill) =>
+        SkillsFor(conn).EffectId(skill.Effect) is { } id && SurvivorsHeraldImpacts.TryGetValue(id, out var impact)
+            ? impact : null;
+
     /// <summary>The reward inventory the level-up window lists its skills in (the quest-reward window's own).</summary>
     internal const uint SurvivorsOfferInventory = 0x600;
 
@@ -940,7 +961,12 @@ static partial class Game
             {
                 DamageType.Cold => 1, DamageType.Fire => 2, DamageType.Lightning => 3, DamageType.Chaos => 4, _ => 0,
             };
-            foreach (var (id, distance, _, _, _) in inReach)
+            // Each herald's pulse plays the game's own hit effect at up to three struck targets (the wave still damages
+            // every target): Ash's fire explosion, Ice's shatter, Thunder's bolt from above, Agony's poison splash,
+            // Purity's slam. The effect object is removed when its clip ends.
+            var impact = SurvivorsHeraldImpactFor(conn, skill);
+            int strikes = 0;
+            foreach (var (id, distance, _, tx, ty) in inReach)
             {
                 if (distance > cast.HeraldRadius) continue;
                 MonsterHit? hit = null;
@@ -951,6 +977,8 @@ static partial class Game
                 if (hit is not { } applied) continue;
                 struck++;
                 await NotifyMonsterHit(remote, stream, ciphers, conn, id, target!, applied, cast.HeraldDamage, skill.Name, log: false, melee: true, hitCode: hitCode);
+                if (impact is { } art && strikes++ < 3)
+                    await SurvivorsHeraldEffect(remote, stream, ciphers, conn, tx, ty, art.Ao, art.Ms, skill.Name);
             }
             if (struck == 0) return 0;
             await SurvivorsPlayCastAnimation(remote, stream, ciphers, conn, skill, cast.Interval);
@@ -1004,6 +1032,31 @@ static partial class Game
         await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(PlayerId, 0, clip.Index, speed),
             $"0x01b2 survivors cast {clip.Name} ({kind}) for {skill.Name}: index {clip.Index}, " +
             $"{clip.LengthMs} ms over {interval:0.00} s (speed {speed:0.##})");
+    }
+
+    /// <summary>
+    /// A herald pulse's hit effect: a permanent effect object at the target cell playing the herald's own <c>.ao</c>
+    /// (Ash's <c>flameherald_explode</c>, Ice's <c>iceherald_explode</c>, Thunder's <c>lightning_strike_herald</c>,
+    /// Agony's <c>mortarimpact</c>, Purity's <c>slam_impact</c>), removed when its clip ends. The same art the real
+    /// client plays for that herald's hit.
+    /// </summary>
+    static async Task SurvivorsHeraldEffect(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, int x, int y, string ao, int ms, string label)
+    {
+        int epoch = conn.ProjectileEpoch;
+        uint id;
+        lock (conn.Monsters) id = conn.NextObjectId++;
+        await Send(remote, stream, ciphers,
+            InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(x, y, ao).Blob()),
+            $"0x02b9 survivors herald {label} effect 0x{id:x} {ao} at ({x}, {y})");
+        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(ms);
+            if (conn.ProjectileActive(epoch))
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
+        });
     }
 
     /// <summary>The stance clip family a run skill's cast plays: a herald buff, an attack swing, a spell projectile or
