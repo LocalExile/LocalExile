@@ -104,6 +104,11 @@ static partial class Game
         // weapon up from the off hand's own final stats (it derives nothing itself, 11-skills.md §4).
         foreach (var (k, v) in WeaponStats(conn, WeaponOf(conn, mainHand), stats)) stats[k] = v;
         foreach (var (k, v) in CosmeticStats(conn).Where(s => !ActorScale.IsInput(s.Stat))) stats.TryAdd(k, v);
+        // A survivors run's uniques also waive their attribute requirements: the client's equip check reads these.
+        if (conn.SurvivorsItemIds.Count > 0)
+            foreach (var name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
+                "virtual_intelligence_for_requirements" })
+                if (Stats.Key(name) is uint key) stats[key] = Math.Max(stats.GetValueOrDefault(key), 1000);
         return stats.Select(kv => (kv.Key, kv.Value));
     }
 

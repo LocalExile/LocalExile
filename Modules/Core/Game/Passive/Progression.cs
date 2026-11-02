@@ -491,6 +491,8 @@ static partial class Game
                 .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god);
             return (ForRequirements("strength", str), ForRequirements("dexterity", dex), ForRequirements("intelligence", intel));
         }, before, ItemsFor(conn).Mods);
+        // A survivors run's own uniques are worn whatever the character's level or attributes: the run granted them.
+        if (conn.SurvivorsItemIds.Count > 0) inactive.ExceptWith(conn.SurvivorsItemIds);
         var rawAttributes = RawAttributes(active);
         var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their

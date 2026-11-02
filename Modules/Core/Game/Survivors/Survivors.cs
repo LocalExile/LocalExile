@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.Sockets;
 using GameServer.Core.Projectiles;
+using ChatCommand = GameServer.Modding.ChatCommand;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -315,6 +316,65 @@ static partial class Game
 
     internal static string SurvivorsClock(double seconds) =>
         $"{(int)(seconds / 60):00}:{(int)(seconds % 60):00}";
+
+    /// <summary>The /survivors command: start, stop, pick a choice without the window, or report the run.</summary>
+    internal static async Task SurvivorsCommand(ChatCommand command)
+    {
+        var conn = ConnOf(command.Player);
+        var (remote, stream, ciphers) = conn.Wire;
+        var args = command.Args;
+        string what = args.Count == 0 ? "status" : args[0].ToLowerInvariant();
+        if (what == "start") { await StartSurvivors(remote, stream, ciphers, conn); return; }
+        if (what == "stop")
+        {
+            if (conn.Survivors is null) { await conn.Commands!.Reply("No survivors run is active."); return; }
+            await EndSurvivors(remote, stream, ciphers, conn, "stopped");
+            return;
+        }
+        if (what == "pick")
+        {
+            if (conn.Survivors is not { } picking)
+            {
+                await conn.Commands!.Reply("No survivors run is active. /survivors start begins one in this area.");
+                return;
+            }
+            if (picking.Offer.Count == 0)
+            {
+                await conn.Commands!.Reply("No skill is waiting right now.");
+                return;
+            }
+            int index = args.Count > 1 ? int.Parse(args[1]) : 0;
+            if (index < 1 || index > picking.Offer.Count
+                || !await ApplySurvivorsChoice(remote, stream, ciphers, conn, picking.Offer[index - 1]))
+            {
+                await conn.Commands!.Reply($"Pick a number from 1 to {picking.Offer.Count}.");
+                return;
+            }
+            return;
+        }
+        if (conn.Survivors is not { } run)
+        {
+            await conn.Commands!.Reply("No survivors run is active. /survivors start begins one in this area.");
+            return;
+        }
+        string offer = "";
+        if (run.Offer.Count > 0 && conn.SurvivorsOffer is { } shown)
+        {
+            var lines = new List<string>();
+            foreach (var choice in run.Offer)
+            {
+                uint id = shown.FirstOrDefault(e => e.Value == choice).Key;
+                string label = id != 0 && conn.SurvivorsOfferNames?.GetValueOrDefault(id) is { } named
+                    ? named : choice.Kind.ToString();
+                lines.Add($"{lines.Count + 1}: {label} (0x{id:x8})");
+            }
+            offer = "\n" + string.Join("\n", lines);
+        }
+        await conn.Commands!.Reply(
+            $"--- Survivors ---\n{SurvivorsClock(run.Elapsed)} of {SurvivorsRules.VictorySeconds / 60:0} minutes, " +
+            $"{run.Kills} kills, run level {run.Level}, {run.Skills.Count} skill(s), {run.PendingChoices} choice(s) waiting, " +
+            $"horde up to {run.TargetAlive} of {run.MaxAlive}." + offer);
+    }
 
     static async Task RunSurvivors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         SurvivorsRun run, SurvivorsRoster roster, IReadOnlyList<SurvivorsSkill> catalog, int stage)
