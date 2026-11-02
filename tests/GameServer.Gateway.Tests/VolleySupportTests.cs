@@ -34,10 +34,9 @@ public sealed class VolleySupportTests
             foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
                 "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
             var skills = Game.PlayerSkills(conn);
-            var fb = skills.Single(s => Game.SkillsFor(conn).EffectId(s.Effect) == "Fireball");
+            var fb = skills.Single(s => Game.SkillEffectId(conn, s.Id) == "Fireball");
             uint xDistKey = Program.Stats.Key("virtual_additional_projectiles_fire_parallel_x_dist")!.Value;
-            Assert.True(fb.Stats.TryGetValue(xDistKey, out int xDist));
-            Assert.Equal(80, xDist);
+            Assert.Contains((xDistKey, 80), fb.Stats);
         }
         finally
         {
