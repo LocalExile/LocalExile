@@ -5,12 +5,13 @@ using GameServer.Core.Projectiles;
 static class GatewayProjectileModifiers
 {
     public static ProjectileProfile Resolve(ProjectileProfile profile, Func<string, int> get, bool attack,
-        bool chainInputConsumed = false, bool intrinsicSplitCount = false)
+        bool arrows = false, bool chainInputConsumed = false, bool intrinsicSplitCount = false)
     {
         var p = profile;
         int splitTargets = Math.Max(get("projectile_number_to_split"), get("projectile_number_of_targets_to_split_to"));
         int extra = get("number_of_additional_projectiles")
-            + get(attack ? "attacks_number_of_additional_projectiles" : "spells_number_of_additional_projectiles");
+            + get(attack ? "attacks_number_of_additional_projectiles" : "spells_number_of_additional_projectiles")
+            + (arrows ? AdditionalArrows(get) : 0);
         int pierce = Math.Max(get("projectile_number_of_targets_to_pierce"), get("projectile_base_number_of_targets_to_pierce"));
         if (attack) pierce += Math.Max(get("arrow_number_of_targets_to_pierce"), get("arrow_base_number_of_targets_to_pierce"));
         if (get("always_pierce") != 0 || get("virtual_always_pierce") != 0
@@ -75,5 +76,16 @@ static class GatewayProjectileModifiers
             p = p with { TravelEmission = travelEmission with { Child = ReturnControls(ProjectileParameters.Resolve(travelEmission.Child,
                 modifiers with { ExtraProjectiles = 0 })) } };
         return p;
+    }
+
+    // Native arrow alias 29cb: the generic additions above plus number_of_additional_arrows and the
+    // main-hand-accuracy condition. The Dash-recently term is not modelled yet because the server has no
+    // have_cast_dash_recently state; a profile must pass arrows = true only for a bow attack.
+    static int AdditionalArrows(Func<string, int> get)
+    {
+        int count = get("number_of_additional_arrows");
+        if (get("main_hand_accuracy_rating") >= 3000)
+            count += get("number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more");
+        return count;
     }
 }

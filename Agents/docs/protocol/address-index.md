@@ -479,7 +479,7 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x1428abac0`, `0x1428ac240`, `0x1428abe80` | Fn | `is_wielding_sword` (0–2), `_mace` (3–5), `_axe` (7, 8): the weapon-type enum's sources |
 | `0x143324da8` | Vtable | Shield Charge's action (type 0x2bc0, constructor `0x1413c6d80`; [11](11-skills.md) §10k) |
 | `0x141a6c060` | Fn | moving-attack per-frame update: travel, then the end phase's scheduled events |
-| `0x141a6bae0` | Fn | moving-attack setup: path, `shield_charge_range_+%`, `shield_charge_extra_distance` |
+| `0x141a6bae0` | Fn | moving-attack setup: path, at most 75 cells × (1 + `shield_charge_range_+%` / 100), `shield_charge_extra_distance` |
 | `0x1413c79d0` → `0x141a6d7c0` | Fn | Shield Charge's hit (vtable +0x550): kind 0 path, 1 final, 2 starts the end phase (+0x3f8) |
 | `0x141a6d760` | Fn | a moving-attack hit's range by kind (Shield Charge 8 / 16 / 28) |
 | `0x141a6ca30`, `0x1413c7780` → `0x141a6df00` | Fn | arrival; Shield Charge's override: final hit, then the end attack's animation |

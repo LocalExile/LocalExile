@@ -9,7 +9,8 @@ static partial class Game
         if (ResolveProjectilePanelParameters(effect) is not { } parameters) return;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         ProjectileProfile profile;
-        try { profile = parameters.Resolve(Get, 1); }
+        bool arrows = ArrowsForSkill(effect);
+        try { profile = parameters.Resolve(Get, 1, arrows); }
         catch (InvalidOperationException ex)
         {
             // An unavailable recipe must not prevent the rest of the skill list from reaching the client.
@@ -18,6 +19,11 @@ static partial class Game
         }
         Put("total_number_of_projectiles_to_fire", profile.Count);
         Put("virtual_total_number_of_projectiles", profile.Count);
+        if (arrows)
+        {
+            Put("total_number_of_arrows_to_fire", profile.Count);
+            Put("virtual_total_number_of_arrows", profile.Count);
+        }
         Put("projectile_number_of_targets_to_pierce", profile.CannotPierce || profile.Pierce < 0 ? 0 : profile.Pierce);
         Put("virtual_always_pierce", !profile.CannotPierce && profile.Pierce < 0 ? 1 : 0);
         Put("virtual_projectiles_cannot_pierce", profile.CannotPierce ? 1 : 0);
