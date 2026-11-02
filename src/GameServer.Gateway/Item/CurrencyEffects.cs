@@ -112,6 +112,106 @@ static class CurrencyEffects
     public static Item? Vaal(Item item, ItemCatalog.BaseType type, (int Str, int Dex, int Int) requirements, ItemRolls rolls, Random random) =>
         rolls.Vaal(item, type, requirements, random);
 
+    public const string CartographersChisel = "Metadata/Items/Currency/CurrencyMapQuality";
+
+    /// <summary>CurrencyItems.Action values this class applies. A new table row with the same action (another Maven
+    /// chisel, another Vaal, another quality orb) is picked up without an Id list.</summary>
+    public static bool HandlesAction(string? action) =>
+        action is { Length: > 0 } && (action.StartsWith("add_cleansing_fire_implicit_", StringComparison.Ordinal)
+            || action.StartsWith("add_great_tangle_implicit_", StringComparison.Ordinal)
+            || action is "add_map_alt_quality" or "add_armour_quality" or "add_weapon_quality" or "add_flask_quality"
+                or "add_gem_quality" or "corrupt_item" or "special_corrupt_item"
+                or "identify" or "reroll" or "transmute_to_magic" or "transmute_to_rare" or "transmute_to_random"
+                or "add_mod_to_magic" or "reroll_magic" or "convert_to_normal" or "add_mod_to_rare"
+                or "upgrade_magic_to_rare" or "reroll_socket_colours" or "reroll_socket_links" or "reroll_socket_numbers"
+                or "reroll_mod_values" or "reroll_implicit_mod" or "reroll_variable_defences"
+                or "remove_random_mod" or "fracture_random_mod" or "add_flask_seal" or "add_flask_injector");
+
+    public static bool Recognizes(ItemCatalog items, ItemCatalog.BaseType type, bool essence = false) =>
+        essence || HandlesAction(items.CurrencyAction(type))
+        || type.Id is "Metadata/Items/Currency/CurrencyIdentification" or ChromaticOrb or JewellersOrb or OrbOfFusing
+            or OrbOfAlchemy or ChaosOrb or DivineOrb or BlessedOrb or OrbOfScouring or OrbOfTransmutation
+            or OrbOfAlteration or OrbOfAugmentation or RegalOrb or ExaltedOrb or OrbOfAnnulment or AncientOrb
+            or ArmourersScrap or SacredOrb or BlacksmithsWhetstone or OrbOfChance or VaalOrb or GlassblowersBauble
+            or GemcuttersPrism or FracturingOrb or CartographersChisel
+            or LesserEldritchIchor or GreaterEldritchIchor or GrandEldritchIchor or ExceptionalEldritchIchor
+            or LesserEldritchEmber or GreaterEldritchEmber or GrandEldritchEmber or ExceptionalEldritchEmber
+            or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling;
+
+    static int? ActionTier(string action, string prefix) =>
+        action.StartsWith(prefix, StringComparison.Ordinal)
+        && int.TryParse(action[prefix.Length..], out int n) && n > 0 ? n : null;
+
+    /// <summary>Apply a CurrencyItems.Action. True when this action is implemented (the item may still be null because
+    /// the target was refused). Id constants stay only as a fallback when the table has no Action.</summary>
+    public static bool TryAction(ItemCatalog items, ItemRolls rolls, Item target, ItemCatalog.BaseType currency,
+        Random random, out Item? result, UniqueCatalog.StatRoll? uniqueRolls = null)
+    {
+        result = null;
+        if (items.CurrencyAction(currency) is not { } action || !HandlesAction(action)) return false;
+        var targetType = items.ByHash(target.TypeHash);
+        result = action switch
+        {
+            "identify" => target.Identified || !target.Components.Contains("Mods") ? null : target with { Identified = true },
+            "add_map_alt_quality" => targetType is not null && items.AlternateQualityOf(currency) is byte qualityType
+                ? Chisel(target, targetType, qualityType) : null,
+            "add_armour_quality" => ArmourerScrap(target),
+            "add_weapon_quality" => Whetstone(target),
+            "add_flask_quality" => Glassblower(target),
+            "add_gem_quality" => Gemcutter(target),
+            "corrupt_item" or "special_corrupt_item" => targetType is not null
+                ? Vaal(target, targetType, items.Requirements(targetType), rolls, random) : null,
+            "reroll" => Chaos(target, rolls, random),
+            "transmute_to_magic" => Transmutation(target, rolls, random),
+            "transmute_to_rare" => Alchemy(target, rolls, random),
+            "transmute_to_random" => Chance(target, rolls, random),
+            "add_mod_to_magic" => Augmentation(target, rolls, random),
+            "reroll_magic" => Alteration(target, rolls, random),
+            "convert_to_normal" => Scouring(target, rolls),
+            "add_mod_to_rare" => Exalted(target, rolls, random),
+            "upgrade_magic_to_rare" => Regal(target, rolls, random),
+            "reroll_socket_colours" => targetType is not null
+                ? Chromatic(target, items.Requirements(targetType), random) : null,
+            "reroll_socket_links" => targetType is not null ? Fusing(target, targetType, random) : null,
+            "reroll_socket_numbers" => targetType is not null ? Jewellers(target, targetType, random) : null,
+            "reroll_mod_values" => rolls.Reforge(target, random, uniqueRolls),
+            "reroll_implicit_mod" => rolls.Bless(target, random, uniqueRolls),
+            "reroll_variable_defences" => targetType is not null
+                ? Sacred(target, items.Defences(targetType), random) : null,
+            "remove_random_mod" => Annulment(target, rolls, random),
+            "fracture_random_mod" => Fracture(target, rolls, random),
+            "add_flask_seal" or "add_flask_injector" => targetType is not null
+                ? FlaskEnchantments.Apply(target, targetType, items.Mods, action == "add_flask_injector", random) : null,
+            _ when ActionTier(action, "add_cleansing_fire_implicit_") is int ember && targetType is not null =>
+                EldritchEmber(target, targetType, ember, rolls, random),
+            _ when ActionTier(action, "add_great_tangle_implicit_") is int ichor && targetType is not null =>
+                EldritchIchor(target, targetType, ichor, rolls, random),
+            _ => null,
+        };
+        return true;
+    }
+
+    /// <summary>A map item: the Map or MapKey component (and the ItemClasses Id as fallback), so a new generic key
+    /// base is admitted without naming each map.</summary>
+    public static bool IsMap(ItemCatalog.BaseType type) =>
+        type.Components.Contains("Map") || type.Components.Contains("MapKey")
+        || type.Class is MapDevice.MapClass or MapDevice.MapKeyClass;
+
+    public static bool IsMap(Item item, ItemCatalog.BaseType type) =>
+        item.Components.Contains("Map") || item.Components.Contains("MapKey") || IsMap(type);
+
+    /// <summary>Any map quality chisel (CurrencyItems Action add_map_alt_quality): +1% quality of that
+    /// AlternateQualityTypes row, up to 20%. A different type replaces the old one. Refused for non-maps, or at 20% of
+    /// the same type.</summary>
+    public static Item? Chisel(Item item, ItemCatalog.BaseType type, byte qualityType) =>
+        !IsMap(item, type) ? null
+        : item.Quality >= MaximumQuality && item.AlternateQualityType == qualityType ? null
+        : item with
+        {
+            Quality = item.Quality >= MaximumQuality ? item.Quality : (byte)(item.Quality + 1),
+            AlternateQualityType = qualityType,
+        };
+
     public const string GlassblowersBauble = "Metadata/Items/Currency/CurrencyFlaskQuality";
 
     /// <summary>Glassblower's Bauble: +1% quality on a flask (any rarity), up to 20%. Refused for other items or at 20%.</summary>
@@ -120,6 +220,9 @@ static class CurrencyEffects
             : item with { Quality = (byte)(item.Quality + 1) };
 
     public const string FracturingOrb = "Metadata/Items/Currency/CurrencyFractureRare";
+
+    /// <summary>Hinekora's Lock: puts an item into the foreseeing state (ItemRolls.ApplyLock).</summary>
+    public const string HinekorasLock = "Metadata/Items/Currency/CurrencyHinekorasLock";
 
     /// <summary>Fracturing Orb (as the official one): a rare item with at least four explicit mods, not corrupted,
     /// mirrored or fractured yet, on a base and class the game allows to fracture, has one random explicit mod

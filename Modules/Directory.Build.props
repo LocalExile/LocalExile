@@ -39,8 +39,8 @@
     <InternalsVisibleTo Include="harvest" />
     <InternalsVisibleTo Include="heist" />
     <InternalsVisibleTo Include="hideoutediting" />
-    <InternalsVisibleTo Include="mercy" />
     <InternalsVisibleTo Include="npcdialogue" />
+    <InternalsVisibleTo Include="pantheon" />
     <InternalsVisibleTo Include="portals" />
     <InternalsVisibleTo Include="phreciaascendancies" />
     <InternalsVisibleTo Include="questobjects" />

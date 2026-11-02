@@ -197,9 +197,7 @@ static partial class Game
         [.. new[] { "is_player_minion", "is_semantic_minion" }.Select(Stats.Key).OfType<uint>().Select(k => (k, 1))];
 
     // A relic's aura: its variety's aura effect at the relic's level (PlayerMinions.AuraStatsAt), with that level's radius:
-    // an aura's base 40 cells (Path of Building's radius for every aura; the data has none) and the level's
-    // active_skill_base_radius_+ (Anger at gem level 20: 59).
-    const int AuraBaseRadius = 40;
+    // AuraCatalog.BaseRadius and the level's active_skill_base_radius_+ (Anger at gem level 20: 59).
     static PlayerMinions.Aura? RelicAura(ClientState conn, MonsterCatalog.Variety variety, int level)
     {
         var skills = SkillsFor(conn);
@@ -208,7 +206,7 @@ static partial class Game
             if (skills.EffectId(effect) is not { } id || !AuraCatalog.Supported(id)) continue;
             var own = skills.EffectStats(effect, skills.MaxLevelAt(effect, level)).ToDictionary(s => s.Item1, s => s.Item2);
             int Get(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
-            return new(id, AuraCatalog.BuffRow(id), SkillArea.Radius(AuraBaseRadius, Get, spell: false),
+            return new(id, AuraCatalog.BuffRow(id), SkillArea.Radius(AuraCatalog.BaseRadius, Get, spell: false),
                 PlayerMinions.AuraStatsAt(skills, Stats, effect, id, level));
         }
         return null;

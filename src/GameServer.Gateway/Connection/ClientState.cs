@@ -34,6 +34,11 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>
     public SkillCatalog.MonsterProjectileInfo? Projectile { get; init; }
+    /// <summary>Whether this is a spell skill rather than a melee/ranged attack. A spell's cast duration comes from the
+    /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
+    /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
+    public bool Spell { get; init; }
+
     /// <summary>The attack's final stats (the client derives none, 11-skills.md §4): the swing time, reach and damage.
     /// These also go on the monster's Stats component.</summary>
     public IReadOnlyList<(uint, int)> Stats()
@@ -51,14 +56,31 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
         ];
     }
 
-    /// <summary>The skill's stats: <see cref="Stats"/> plus skill_is_non_pathing. The server walks the monster into range
-    /// itself; without it the Melee action's begin (0x141938830) sends the attack through the client's own pathing step,
-    /// which drops a server-driven monster's attack (no swing). Only on the skill: on the monster's Stats component it
-    /// also stops its Move action from pathing (live 2026-10-17: the monsters stood still).</summary>
-    public IReadOnlyList<(uint, int)> SkillStats() => [.. Stats(), (StatKeys.SkillIsNonPathing, 1)];
+    /// <summary>The skill's stats: an attack's <see cref="Stats"/> or a spell's cast time, plus skill_is_non_pathing.
+    /// The server walks the monster into range itself; without it the Melee action's begin (0x141938830) sends the attack
+    /// through the client's own pathing step, which drops a server-driven monster's attack (no swing). Only on the skill:
+    /// on the monster's Stats component it also stops its Move action from pathing (live 2026-10-17: monsters stood
+    /// still).</summary>
+    public IReadOnlyList<(uint, int)> SkillStats() => Spell ? [.. SpellStats(), (StatKeys.SkillIsNonPathing, 1)]
+        : [.. Stats(), (StatKeys.SkillIsNonPathing, 1)];
+
+    IReadOnlyList<(uint, int)> SpellStats()
+    {
+        int ms = Math.Max(1, (int)Math.Round(Seconds * 1000));
+        return
+        [
+            (StatKeys.BaseSpellCastTimeMs, ms), (StatKeys.VirtualBaseSpellCastTimeMs, ms),
+            (StatKeys.HundredTimesCastsPerSecond, (int)Math.Round(100_000.0 / ms)),
+            (StatKeys.CastingSpell, 1),
+        ];
+    }
 }
 
-sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y);
+sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y)
+{
+    /// <summary>Its Transitionable state as the client has it (NPCTalk scripts step it: Game.StepNpcTransition).</summary>
+    public byte State { get; set; } = Npc.TransitionState;
+}
 
 // An open sell window: the NPC, the two offer inventories (manager 1), the offered items and the NPC's offer.
 sealed class NpcSale(SpawnedNpc npc, uint mine, uint theirs)
@@ -94,6 +116,19 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public uint? OwnerId { get; init; }
     public double RampageBlindUntil;
     public int StunSerial;
+    /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>
+    public bool CannotBeStunned { get; init; }
+    /// <summary>The humanoid King's life cannot reach 0 before the three fetishes hand the fight to the treant.</summary>
+    public bool KingPhaseLocked { get; init; }
+    /// <summary>The treant's emergence grace: hits do nothing until KingInMists clears it.</summary>
+    public bool KingGrace;
+    /// <summary>The humanoid's fetish channel: no damage, ailment, leech or hit reaction until the ritual ends.</summary>
+    public bool RitualGrace;
+    // A Mystic Fetish waits for the King's ritual before it can be damaged (the client-side buff and hidden mini bar
+    // are the same pair the humanoid's intro uses).
+    public bool FetishGrace;
+    // No damage, ailments, impale or hit reaction while a scripted grace runs.
+    public bool Invulnerable => KingGrace || RitualGrace || FetishGrace;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
@@ -131,12 +166,34 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public int ActionGeneration;
     public int? SwingGeneration;
     // The player's debuffs on it (Game.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock
-    // seconds) with the taunted buff shown and the end it shows, his passives' enemy auras (BuffDefinitions row → buff
-    // instance), and the increased damage taken they give (every type; fire, cold and lightning) that its hits read.
+    // seconds) with the taunted buff shown and the end it shows, his passives' and Pride's enemy auras (BuffDefinitions
+    // row → buff instance), and the increased damage taken they give (every type; fire, cold and lightning) that its
+    // hits read.
     public double TauntedUntil = double.NegativeInfinity, TauntShownUntil;
     public ushort TauntBuff;
+    // Intimidated and unnerved by his hits (Game.HitDebuffsOnHitLocked) until when, shown the same way as the taunt.
+    public double IntimidatedUntil = double.NegativeInfinity, IntimidateShownUntil, UnnervedUntil = double.NegativeInfinity,
+        UnnerveShownUntil;
+    public ushort IntimidateBuff, UnnerveBuff;
+    // Blinded by his hits until when, one more source of his Blind (Game.Blinded), shown with its own blinded buff.
+    public double BlindedUntil = double.NegativeInfinity, BlindShownUntil;
+    public ushort BlindBuff;
+    // His Exposure on it (Game.ExposureOnHitLocked): until when, by element and magnitude, the highest running one lowering
+    // its resistance; per element (fire, cold, lightning) when the last of them ends and its shown buff.
+    public readonly Dictionary<(DamageType Type, int Magnitude), double> Exposures = [];
+    public readonly double[] ExposureUntil = [double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity];
+    public readonly double[] ExposureShownUntil = new double[3];
+    public readonly ushort[] ExposureBuff = new ushort[3];
+    // His Withered stacks on it (Game.WitherOnHitLocked): each one's end and chaos damage taken; the buff shown for them.
+    public readonly List<(double Until, double Pct)> Withered = [];
+    public int WitherShownStacks;
+    public double WitherShownUntil;
+    public ushort WitherBuff;
     public readonly Dictionary<ushort, ushort> PlayerAuras = [];
     public (int All, int Elemental) TakenFromPlayer;
+    // Pride's more Physical Damage taken, ramped by the time this monster has stayed in the aura (EnemyDebuffsTick).
+    public double PrideSince = double.NaN;
+    public double PridePhysicalMore;
     // Fleeing (MonsterFlee): from a hit's roll until its walk to the flee point ends; FleeTo is the point until the AI
     // orders that walk.
     public bool Fleeing;
@@ -161,6 +218,9 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     // A boss's stage (BossFights) and whether a hit has started it.
     public BossFights.Stage? Stage { get; init; }
     public bool StageTaken, StageRunning;
+    // A quest threshold (Quests.ThresholdRule): the monster never dies; reaching it sets the flags once (Game.QuestThreshold).
+    public Quests.ThresholdRule? Threshold { get; init; }
+    public bool ThresholdReached;
     // Its StateMachine's shared states as last sent, and whether the big boss life bar is up.
     public StateMachineData? States;
     public bool BossBarShown;
@@ -224,6 +284,13 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool LeavingArea;
     public readonly RecentEnemyHits RecentEnemyHits = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
+    // The King in the Mists' Portent Vapors: stacks taken from his Mystic Fetishes and when they expire. The server
+    // applies the increased damage taken to his hits; the buff icon and count are presentation.
+    public int KingPortentStacks;
+    public double KingPortentUntil = double.NegativeInfinity;
+    /// <summary>The Crux of Nothingness arena's "mapboss" cell: the King's spawn and the base of the fixed Mystic Fetish
+    /// offsets (KingInMists.cs). Set when the area is populated, so both forms use the same origin.</summary>
+    public (int X, int Y)? KingOrigin;
     public Random IncomingHitRandom = Random.Shared;
     // The player's ignite rolls on monsters (MonsterIgnites), apart from the hit's own streams.
     public Random IgniteRandom = Random.Shared;
@@ -392,6 +459,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public float PortalRotationRadians => PortalRotationDegrees * MathF.PI / 180f;
     public long Ticks;
     public volatile PendingTransfer? PendingTransfer;
+    /// <summary>The 0x29c preview request (Hinekora's Lock): its key, the currency/target it names and the computed
+    /// preview answered by 0x29f. The next 0x71 on that target commits exactly this item.</summary>
+    public (ushort Key, uint InventoryId, uint CurrencyId, uint TargetInventoryId, uint TargetId, uint Seed, Item? Preview)? ForesightRequest;
     public ChooserList? Chooser;
     public ChatCommands? Commands;
     // 0x1c's u32 is an HNC carrier and must decrypt to idle zero bytes, or the client throws "HNC Protocol Violated".
@@ -399,15 +469,25 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public InstanceKeyring Keyring = null!;
     // Server objects created after entering (monsters); the player is 0x1000 and area transitions start at 0x2000.
     public uint NextObjectId = 0x3000;
+    // Every 0x1ab action on this connection gets a fresh sequence. The official server increments it per action (the
+    // King's first actions are 0x8011, 0x8012, …); reusing 0xffff for several actors left the client's channel object
+    // without a current action and crashed StartChannelling (0xc0000005 at 0x19e0daf, live 2026-10-31).
+    int _nextActionSequence = 0x8000;
+    public ushort NextActionSequence() => (ushort)Interlocked.Increment(ref _nextActionSequence);
     // Room server objects a quest keeps in the area until its flag is set (The Twilight Strand's force wall), by id.
     public readonly Dictionary<uint, (string Flag, IReadOnlySet<(int X, int Y)> Cells)> QuestRoomObjects = [];
-    // Cells quest walls close to the player's walk estimate (QuestBarriers), the union of QuestRoomObjects' cells.
+    // A Trial of Ascendancy's objects in this area (LabyrinthTrials), by id, and the cells its closed doors and risen
+    // spike traps close, by id.
+    public readonly Dictionary<uint, AreaPopulation.RoomObject> TrialObjects = [];
+    public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> DoorBarriers = [];
+    // Cells quest walls and closed doors close to the player's walk estimate (QuestBarriers): the union of
+    // QuestRoomObjects' and DoorBarriers' cells.
     public volatile IReadOnlySet<(int X, int Y)> Barrier = new HashSet<(int X, int Y)>();
 
-    /// <summary>Recomputes <see cref="Barrier"/> from the standing quest walls; the player's walk estimate reads it on its
-    /// next order (call under the Monsters lock).</summary>
+    /// <summary>Recomputes <see cref="Barrier"/> from the standing quest walls and closed doors; the player's walk estimate
+    /// reads it on its next order (call under the Monsters lock).</summary>
     public void UpdateBarrier() =>
-        Barrier = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells));
+        Barrier = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells).Concat(DoorBarriers.Values.SelectMany(c => c)));
     // The player's attacks: the next time one may start (Clock seconds). The client repeats 0x24 while the button is held.
     public double NextAttackAt;
     // Counts the player's actions; an attack's hit lands only if no other action started since (moving cancels it).
@@ -416,6 +496,10 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly WardState Ward = new();
     public readonly AntiquarianCombatState Antiquarian = new();
     public readonly TimedLifeRecovery EnduringCryRecovery = new();
+    /// <summary>Lifetap Support's life-paid costs, spent-Life counter and buff (Combat/Lifetap.cs).</summary>
+    public readonly LifetapState Lifetap = new();
+    // Life Recoup of the hits the player took (Game.RecoupHitLocked), paid by the resource recovery loop.
+    public readonly RecoupRecovery LifeRecoup = new();
     public double SentEnduringCryUntil = double.NaN;
     public ushort EnduringCryBuff;
     public bool AppliedAdrenaline;
@@ -499,6 +583,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public ushort RefundPoints;
     // /god (GodStats) and the running Righteous Fire, if any; buff instance ids (0x1c1) given out on this connection.
     public bool God;
+    // /god immune: god mode that also takes no damage (hits and ailment ticks); only with God.
+    public bool Immune;
     public readonly GracePeriod EntryProtection = new();
     public RighteousFireState? RighteousFire;
     /// <summary>The hands' part of the player model last sent (Program.HandsKey): null until the area's first model.</summary>
@@ -614,22 +700,61 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public GlyphQuest.Layout? Glyphs;
     public readonly Dictionary<uint, GlyphQuest.Nest> GlyphNests = [];
     public uint GlyphWallId, GlyphWaterId;
-    public double GlyphSyncAt;
+    // When the quest items' flags are synced next (Game.SyncQuestItems, about once a second from the player tick).
+    public double QuestItemSyncAt;
+    // The quest engine's objects in this area (Modules/Core/Game/World/Quest/QuestEngine.cs): the quest chests by object id (guarded by itself),
+    // the room objects the sight rules watch, and the client's own blockers the server mirrors (Monsters lock).
+    public readonly Dictionary<uint, (Quests.ChestRule Rule, GlyphQuest.Placement At)> QuestChests = [];
+    public List<(Quests.NearRule Rule, int X, int Y)> QuestNear = [];
+    /// <summary>The instance's proximity spawns (Quests.NearSpawnRule) and whether each has spawned.</summary>
+    public List<(Quests.NearSpawnRule Rule, int X, int Y, bool Spawned)> QuestNearSpawns = [];
+    public List<(Quests.BlockerRule Rule, int X, int Y)> QuestBlockers = [];
+    // The quest objects the engine created (Quests.ObjectRule: seals, levers, altars) and the room NPCs whose state follows a
+    // flag (Quests.NpcRule.TransitionedBy), by object id (each guarded by itself).
+    public readonly Dictionary<uint, (Quests.ObjectRule Rule, GlyphQuest.Placement At, QuestObjectTypes.Info Info)> QuestObjects = [];
     public TutorialObjects.Placement? TutorialChest;
     public AreaPopulation.RoomObject? TutorialZombiePlacement;
     public bool TutorialSceneRunning;
+    public bool TutorialGettingUp;
+    public TaskCompletionSource? TutorialDialogueSkipped;
     public string? NpcFinishFlag;
+    // The dialogue row whose script acts when its talk ends (DoNPCChat, FinishNPCChat, SendOpenScreen, AreaTransitionTo:
+    // Game.EndTalkScript), or null.
+    public NpcCatalog.Talk? NpcTalkScript;
+    // The NPCs a quest decides in this instance (QuestNpc, Game's QuestNpcs.cs), created or not.
+    public readonly List<QuestNpc> QuestNpcs = [];
+    // The monster varieties that died in this instance, for NPCs a death frees (Quests.NpcRule.FreedBy); under QuestNpcs' lock.
+    public readonly HashSet<string> KilledVarieties = new(StringComparer.Ordinal);
+    // Where the later forms the area leaves out would stand (AreaPopulation.LaterFormPoints), by MonsterVarieties Id, for a
+    // quest that forms one (Quests.FormsRule); under Monsters' lock.
+    public readonly Dictionary<string, (int X, int Y)> LaterFormPoints = new(StringComparer.Ordinal);
+    // The area transitions created on this instance's client (ids), and those a script showed before their quest flag
+    // (Game.TransitionShown).
+    public HashSet<uint> ShownTransitions = [];
+    public HashSet<uint> ScriptShownTransitions = [];
     public int? NpcRewardOffer;
     public Dictionary<uint, Item> NpcRewardItems = [];
     // NPCs created on this connection by object id (town NPCs, /npc).
     public readonly Dictionary<uint, SpawnedNpc> Npcs = [];
     /// <summary>The character's quest flags (QuestFlags.dat Ids), saved in data/saves/.</summary>
     public HashSet<string> QuestFlags = [];
+    /// <summary>Of <see cref="Quests.EveryCharacter"/> (given on login, in <see cref="QuestFlags"/> but for
+    /// <see cref="Quests.EndgameOnly"/>), those the character's save does not have: granted, not earned. A quest event that
+    /// sets one (Kitava's death: EndGameAvailable) saves it and takes it out of here; what is earned only through the quest
+    /// (Kitava's Act 10 penalty, /state's flags) reads this, and Game.PlayerQuestFlags sends an unearned endgame flag only
+    /// in a hideout or a map area.</summary>
+    public HashSet<string> UnearnedQuestFlags = [];
+    /// <summary>The chosen Pantheon gods (PantheonPanelLayout Ids, null = none), from the save (CharacterSaves.SetPantheon);
+    /// the Pantheon module changes them under the Monsters lock (campaign/pantheon.md).</summary>
+    public string? PantheonMajor, PantheonMinor;
     // QuestFlags is changed under the Monsters lock (SetQuestFlagsHeld); code that may run beside it (the player tick)
     // reads it through these, under the same lock.
     public HashSet<string> QuestFlagsSnapshot() { lock (Monsters) return [.. QuestFlags]; }
     public bool HasQuestFlag(string flag) { lock (Monsters) return QuestFlags.Contains(flag); }
-    // One quest-flag change at a time per connection (SetQuestFlags, SyncGlyphs, the a1q5 sync): each reads, changes and sends the whole
+    /// <summary>Whether the character earned the flag: it has it, and not only as one every character is given at login
+    /// (<see cref="UnearnedQuestFlags"/>: EndGameAvailable before Kitava's Act 10 death).</summary>
+    public bool EarnedQuestFlag(string flag) { lock (Monsters) return QuestFlags.Contains(flag) && !UnearnedQuestFlags.Contains(flag); }
+    // One quest-flag change at a time per connection (SetQuestFlags, the quest item sync): each reads, changes and sends the whole
     // set, so two at once could send an older set last.
     public readonly SemaphoreSlim QuestGate = new(1, 1);
 

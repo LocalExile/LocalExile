@@ -24,6 +24,26 @@ sealed class OrdinaryPassiveRules(string folder = "data")
         _data.Value is { } data && data.Graphs.TryGetValue(family, out var graph) && graph.TryGetValue(node, out var set)
             ? set : [];
 
+    /// <summary>The unallocated ordinary passives next to the class start or an allocated passive, ascending: what one more
+    /// point can take while the tree stays connected (the campaign driver's /state). Masteries do not connect; class
+    /// starts, ascendancy, mastery and expansion nodes are not offered.</summary>
+    public IReadOnlyList<ushort> Frontier(byte baseClass, AscendancyFamily family, IReadOnlyCollection<ushort> allocated)
+    {
+        if (_data.Value is not { } data || !data.Graphs.TryGetValue(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start)
+            || !graph.ContainsKey(start)) return [];
+        var have = allocated.ToHashSet();
+        var result = new SortedSet<ushort>();
+        foreach (ushort from in have.Append(start))
+        {
+            if (!graph.TryGetValue(from, out var next) || (data.Nodes.TryGetValue(from, out var source) && source.IsMastery)) continue;
+            foreach (ushort n in next)
+                if (!have.Contains(n) && data.Nodes.TryGetValue(n, out var node) && !node.IsAscendancy && !node.IsMastery
+                    && node.Starts.Count == 0 && !node.RequiresExpansion)
+                    result.Add(n);
+        }
+        return [.. result];
+    }
+
     /// <summary>Checks a complete candidate set without modifying either supplied allocation. <paramref name="bypassNodes"/>
     /// are allocated nodes that an Intuitive Leap/Thread of Hope jewel lets stand without a path to the class start.
     /// They are allowed as individual exceptions, but do not bridge to their neighbours unless they are adjacent to

@@ -73,7 +73,9 @@ Denied siblings pass through that victim. An evaded contact keeps flying without
 Independent area events have independent admission and may overlap any geometrically covered target.
 Core contact tests combine projectile and actor radii; area tests combine area and actor radii. The Gateway
 adapter currently passes zero actor radii, so area coverage checks target centers, including for large monsters.
-Monster catalog `ObjectSize` feeds movement blocking but has not been calibrated as a circular combat radius.
+A projectile the client draws itself instead uses the client's square contact (`ProjectileProfile.ContactCells`):
+Chebyshev cells within its Projectiles.dat reach plus the monster's `ObjectSize − 1` ([11-skills](../protocol/11-skills.md),
+"The client's object contact").
 A terminal collision victim shares direct admission with its terminal area, receiving one area-classified hit
 instead of a direct hit plus another blast. An evaded terminal victim does not end the flight.
 
@@ -111,9 +113,15 @@ baseline without a rebuild. `projectile_distance_override` sets an exact distanc
 3.29.3b player tables do not currently assign that stat, so it is a safety net for future skill and support rows.
 
 Fork, chain and split start a **new movement instance** at the continuation point, so each leg gets a fresh range
-budget and the total path can exceed 15 m; `ProjectileEntity.Distance` keeps accumulating for Far Shot and the
-flight arc. The return leg keeps the measured 150-cell overshoot past the captured caster rather than taking a
+budget and the total path can exceed 15 m; `ProjectileEntity.Distance` keeps accumulating for Far Shot, Point Blank
+and the flight arc. The return leg keeps the measured 150-cell overshoot past the captured caster rather than taking a
 plain fresh budget.
+
+Far Shot (`player_far_shot`) and the Point Blank keystone (`keystone_point_blank`) scale an attack projectile's hit
+by that cumulative travel at the contact, with PoB `CalcOffence.lua`'s ramps (`AntiquarianEffects`): Far Shot from
+20% less up to 10 units to 60% more from 70, Point Blank from 30% more up to 10 units through none at 35 to 30% less
+from 120. Both multiply when both apply; spells and melee never read them. The map mod
+`map_players_have_point_blank` is not read.
 
 Action speed is not a projectile input. It changes attack, cast and movement pacing, while projectile speed only
 changes the time to the endpoint (and, for limited-duration projectiles, how far they get before expiring, up to

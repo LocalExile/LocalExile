@@ -78,6 +78,12 @@ public static class InstanceWaypoints
     // 0x142163420 case 0x37 -> +0x5278 -> LAB_140dae778 -> HUD +0xcf8 -> 0x140dcf150.
     public const byte HeistLockerUi = 0x37;
 
+    /// <summary>S→C 0x7b kind 9: the Trial Plaque window (AscendancyMapWindowTitle; built by 0x140b75b90, the live HUD's
+    /// +0x7e8 from 0x140db0150): instance +0x19f8 → 0x140dcda40 (registered by 0x140dbcd40). Its trial icons light from
+    /// the trials' flags (0x140b76170 → 0x141f69230), not from the message. Kind 0x66 (HUD virtual +0x1028, the live
+    /// HUD's +0xa30) is Mirage's Wishes window instead (live 2026-10-31).</summary>
+    public const byte TrialPlaqueUi = 9;
+
     /// <summary>
     /// S→C 0x4c (class 0x1435dc7e0, read 0x14219f460; dispatcher case 0x12): u32 BE (+0x10, passed with the bitset to the
     /// listeners at instance +0x73f0), then 19 raw bytes (+0x14) copied to instance +0xcf31: bit i = the i-th WorldAreas

@@ -255,6 +255,24 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         effectRow >= 0 && level > 0 && _tables.Value is { } t
             && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.AttackSpeedMultipliers[row] : 0;
 
+    /// <summary>The gem's own base attack time at a GEPL level (GrantedEffectsPerLevel AttackTime, ms; Shield Charge
+    /// 500), or 0 where the skill uses its weapon's.</summary>
+    public int AttackTimeMs(int effectRow, int level) =>
+        effectRow >= 0 && level > 0 && _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0
+            && row < _attackTimes.Value.Count ? _attackTimes.Value[row] : 0;
+
+    // GrantedEffectsPerLevel AttackTime by row, in the order Tables.PerLevel reads them.
+    private readonly Lazy<List<int>> _attackTimes = new(() =>
+    {
+        var times = new List<int>();
+        string path = Path.Combine(folder, "tables", "GrantedEffectsPerLevel.json");
+        if (!File.Exists(path)) return times;
+        using var doc = GameTables.Open(path);
+        foreach (var r in doc.RootElement.EnumerateArray())
+            times.Add(r.TryGetProperty("AttackTime", out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out int ms) ? Math.Max(0, ms) : 0);
+        return times;
+    });
+
     /// <summary>The effect's primary stat set's base spell critical chance at this gem level, in permyriad.
     /// Null means missing/invalid data, distinct from a known zero (a spell with no inherent critical chance).</summary>
     public int? SpellCritChance(int effectRow, int level)
@@ -395,6 +413,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public bool IsMovement(int effectRow) => _movementEffects.Value.Contains(effectRow);
     public bool IsTravel(int effectRow) => _skillTypes.Travel.Value.Contains(effectRow);
     public bool IsGuard(int effectRow) => _skillTypes.Guard.Value.Contains(effectRow);
+    /// <summary>A skill that needs a shield (ActiveSkillType RequiresShield: Shield Charge, Shield Crush …).</summary>
+    public bool RequiresShield(int effectRow) => _skillTypes.RequiresShield.Value.Contains(effectRow);
 
     /// <summary>Whether a GrantedEffects row's skill is an attack (ActiveSkillType Attack: the default attack, Holy
     /// Strike, Flicker Strike …): it swings with the weapon's attack time and its use is paced like the default
@@ -503,7 +523,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Spell = Of("Spell"); Projectile = Of("Projectile"); Warcry = Of("Warcry"); Aura = Of("Aura");
             Curse = Of("AppliesCurse"); AddedAura = Of("Aura", added: true); Brand = Of("Brand");
             Travel = Of("Travel"); Guard = Of("Guard");
-            Strike = Of("MeleeSingleTarget"); Vaal = Of("Vaal"); Nova = Of("Nova");
+            Strike = Of("MeleeSingleTarget"); Vaal = Of("Vaal"); Nova = Of("Nova"); RequiresShield = Of("RequiresShield");
             SelfTargeted = new(() =>
             {
                 var self = EffectsOfTargetType(folder, 4, 10);
@@ -528,6 +548,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public Lazy<HashSet<int>> Strike { get; }
         public Lazy<HashSet<int>> Vaal { get; }
         public Lazy<HashSet<int>> Nova { get; }
+        public Lazy<HashSet<int>> RequiresShield { get; }
         public Lazy<HashSet<int>> SelfTargeted { get; }
 
         Lazy<HashSet<int>> Of(string typeId, bool added = false) => new(() => Effects(_rows.Value, typeId, added));
@@ -605,30 +626,75 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         if (_tables.Value is not { } t) return null;
         string? effect = t.EffectRows.FirstOrDefault(kv => kv.Value.Row == effectRow).Key;
         if (effect is null) return null;
-        string id = ProjectileFallbacks.GetValueOrDefault(effect, "Metadata/Projectiles/" + effect);
-        return _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
+        foreach (string id in ProjectileCandidates(effect))
+            if (_projectiles.Value.TryGetValue(id, out int speed)) return (id, speed);
+        return null;
     }
+
+    /// <summary>The Projectiles.dat rows to try for an effect, best first: its own row, then the row of the effect it is a
+    /// variant of. 3.29 files the Royale and transfigured duplicates under the base skill's name plus a suffix
+    /// (<c>LightningArrowRoyale</c>, <c>FireballAltX</c>), and those rows are the base skill's, so the Lightning Arrow gem
+    /// — which grants <c>LightningArrowRoyale</c> — fires nothing at all until this second step is taken.</summary>
+    static IEnumerable<string> ProjectileCandidates(string effect)
+    {
+        yield return ProjectileFallbacks.GetValueOrDefault(effect, "Metadata/Projectiles/" + effect);
+        string baseEffect = effect;
+        foreach (string suffix in VariantSuffixes)
+            if (baseEffect.EndsWith(suffix, StringComparison.Ordinal)) { baseEffect = baseEffect[..^suffix.Length]; break; }
+        if (baseEffect.Length != 0 && baseEffect != effect)
+            yield return ProjectileFallbacks.GetValueOrDefault(baseEffect, "Metadata/Projectiles/" + baseEffect);
+    }
+
+    /// <summary>The suffixes GrantedEffects Ids carry on a duplicate of a base effect (3.29: <c>LightningArrowRoyale</c>,
+    /// <c>FireballAltX</c>, <c>CobraLashAltY</c>). Ordered longest-first so that no shorter suffix hides a longer one.</summary>
+    static readonly string[] VariantSuffixes = ["Royale", "AltX", "AltY", "AltZ"];
 
     // Granted effects whose Projectiles.dat row is not named after them, by effect Id. Kinetic Blast's effect is
     // ClusterBurst (the skill data names no row); it uses the wand attack's projectile at the same 3260 speed. Tornado
     // Shot's arrow is TornadoShotArrow (2173); without it every use was refused while the client had stopped to shoot,
-    // and the server walked on (live 2026-10-29).
+    // and the server walked on (live 2026-10-29). Spark's transfigured and Vaal versions fire Spark's own row.
+    // Elemental Hit fires ElementalHitArrowFire/Cold/Lightning by the element it picked, a choice the server does not model
+    // yet, so both the gem and its transfigured (Spectrum) version take the combined arrow's art.
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
         ["KineticBlastAltX"] = "Metadata/Projectiles/WandProjectile",
         ["KineticBlastAltY"] = "Metadata/Projectiles/WandProjectile",
+        ["EtherealKnives"] = "Metadata/Projectiles/EtherealKnivesProjectile",
+        ["EtherealKnivesAltX"] = "Metadata/Projectiles/EtherealKnivesProjectile",
+        ["EtherealKnivesAltY"] = "Metadata/Projectiles/EtherealKnivesProjectile",
         ["RampageDaemonStunNova"] = "Metadata/Projectiles/RampageProjectile",
         ["RampageDaemonBlindNova"] = "Metadata/Projectiles/RampageProjectile",
         ["RampageDaemonSuperRepeatNova"] = "Metadata/Projectiles/RampageProjectile",
         ["TornadoShot"] = "Metadata/Projectiles/TornadoShotArrow",
         ["TornadoShotAltX"] = "Metadata/Projectiles/TornadoShotArrow",
         ["TornadoShotAltY"] = "Metadata/Projectiles/TornadoShotArrow",
+        ["SparkAltX"] = "Metadata/Projectiles/Spark",
+        ["SparkAltY"] = "Metadata/Projectiles/Spark",
+        ["VaalSpark"] = "Metadata/Projectiles/Spark",
+        ["ElementalHit"] = "Metadata/Projectiles/ElementalHitArrowCombined",
+        ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
     public (string Id, int Speed)? Projectile(string id) =>
         _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
+
+    /// <summary>A Projectiles.dat row's max(CollisionRadius, CollisionCandidateRadius): the reach of the client's object
+    /// contact for a projectile it draws itself (0x141e32710 → 0x141e47a40, 11-skills.md "Hit").</summary>
+    public int? ProjectileContactCells(string id) => _projectileContacts.Value.TryGetValue(id, out int cells) ? cells : null;
+
+    private readonly Lazy<Dictionary<string, int>> _projectileContacts = new(() =>
+    {
+        var result = new Dictionary<string, int>();
+        using var d = DataFile(Path.Combine(folder, "tables", "Projectiles.json"));
+        if (d is null) return result;
+        static int Cells(JsonElement r, string key) => r.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+        foreach (var r in d.RootElement.EnumerateArray())
+            if (r.GetProperty("Id").GetString() is { } id)
+                result.TryAdd(id, Math.Max(Cells(r, "CollisionRadius"), Cells(r, "CollisionCandidateRadius")));
+        return result;
+    });
 
     private readonly Lazy<Dictionary<string, int>> _projectiles = new(() =>
     {
@@ -698,12 +764,17 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// aimed and damage an area there.</summary>
     public sealed record MonsterProjectileInfo(string Metadata, int Speed, bool Lobbed, double CollisionRadius)
     {
+        /// <summary>How many projectiles one release creates (VoodooKingBugRend's six BugSoulrends; one otherwise).</summary>
+        public int Count { get; init; } = 1;
         /// <summary>The Animation.dat Id of the clips the client plays for the skill (MonsterMortar.Animation: the Sand
         /// Spitter mortar's <c>SpellProjectile</c>, row 20), the key of the variety's ACT pool; null when the row names none.</summary>
         public string? AnimationKey { get; init; }
         /// <summary>The skill's <c>projectile_minimum_range</c> in world units (the Spitter's 50): a lob lands no closer
         /// to the monster than this. 0 without the stat.</summary>
         public int MinimumRange { get; init; }
+        /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
+        /// fallback, and a boss skill may name its own).</summary>
+        public double AreaRadius { get; init; }
     }
 
     /// <summary>One clip of a monster's attack pool (data/monster-contacts.json, scripts/re/monster_contacts.py): its name,

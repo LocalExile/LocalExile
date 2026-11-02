@@ -16,13 +16,17 @@ static class GemSupportDamage
         "support_elemental_proliferation_damage_+%_final", "support_controlled_destruction_spell_damage_+%_final",
         "support_void_manipulation_chaos_damage_+%_final", "support_reduced_duration_damage_+%_final",
         "support_gem_elemental_damage_+%_final", "support_pierce_projectile_damage_+%_final",
+        "support_better_ailments_hit_damage_+%_final", "support_spirit_strike_damage_+%_final",
+        "support_storm_barrier_damage_+%_final", "support_pure_shock_damage_+%_final",
+        "support_bonechill_cold_damage_+%_final", "support_blood_thirst_damage_+%_final",
         "support_attack_skills_elemental_damage_+%_final", "support_chance_to_ignite_fire_damage_+%_final",
         "support_efficacy_spell_damage_+%_final", "support_maim_chance_physical_damage_+%_final",
         "support_brutality_physical_damage_+%_final", "support_parallel_projectiles_damage_+%_final",
         "support_spell_cascade_damage_+%_final", "support_greater_volley_projectile_damage_+%_final",
         "support_pulverise_melee_area_damage_+%_final", "support_fortify_melee_damage_+%_final",
         "support_barrage_damage_+%_final", "support_cruelty_hit_damage_+%_final",
-        "support_vicious_projectiles_physical_damage_+%_final", "support_vicious_projectiles_chaos_damage_+%_final"
+        "support_vicious_projectiles_physical_damage_+%_final", "support_vicious_projectiles_chaos_damage_+%_final",
+        "inc_aoe_plus_more_area_damage_+%_final"
     ];
 
     /// <summary>Each matching support modifier applies once to the portion's complete visited-type set.

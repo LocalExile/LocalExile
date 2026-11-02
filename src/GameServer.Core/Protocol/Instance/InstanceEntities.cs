@@ -252,6 +252,20 @@ public static class InstanceEntities
     public static byte[] TransitionableUpdate(uint entityId, byte componentIndex, byte state) =>
         ComponentUpdate(entityId, componentIndex, [state]);
 
+    public const ushort BlockageUpdateId = 0x1c6;
+
+    /// <summary>
+    /// S→C 0x1c6 (world group, read 0x141fe14b0; world handler 0x142187480): an object's TriggerableBlockage, which has no
+    /// 0x2ba reader (slot 20 is <c>ret</c>). World header, u8 blocked; while blocked a u8 count and that many u8 sections.
+    /// Unblocked runs the component's +0xb8 (a Trial of Ascendancy's door opening), blocked its +0xb0 with the sections.
+    /// </summary>
+    public static byte[] BlockageUpdate(uint entityId, bool blocked)
+    {
+        var w = new LoginWriter().U16(BlockageUpdateId).U32(entityId).U32(0).U16(0).U8((byte)(blocked ? 1 : 0));
+        if (blocked) w.U8(0);   // no sections
+        return w.ToArray();
+    }
+
     /// <summary>
     /// S→C 0x2ba to an object's Animated component (reader <c>0x141e57490</c>): flags bit0 + a u32-counted UTF-16 .ao path
     /// swaps its animated object, which then plays the new one's default animation (a projectile's impact: Fireball →
@@ -331,6 +345,14 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] PlayerHideoutsUpdate(uint playerId, ushort hideout, ushort hideout2) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x10).U16(hideout).U16(hideout2).ToArray());
+
+    /// <summary>
+    /// The player's Pantheon gods (0x2ba to the Player component, reader 0x141e7ee30): u16 flags, bit7 (0x80) = u8 → +0x1ae
+    /// (major), u8 → +0x1ad (minor), each a PantheonPanelLayout row + 1 (0 = none), as C→S 0x1ee chooses them; then the
+    /// component's vtable +0x138 (refresh). campaign/pantheon.md §5.
+    /// </summary>
+    public static byte[] PlayerPantheonUpdate(uint playerId, byte major, byte minor) =>
+        ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x80).U8(major).U8(minor).ToArray());
 
     /// <summary>The player's league quest flags (0x2ba to the Player component): u16 flags, bit3 (0x08) = the whole
     /// second flag set (+0x1d0) again, as <see cref="PlayerObject.WriteFlagSet"/>.</summary>
@@ -479,6 +501,17 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     /// Server side only; the blob names the area itself as the destination.</summary>
     public (int X, int Y)? TeleportTo { get; init; }
 
+    /// <summary>The tile object's own type when it was created as a plain AreaTransition (a quest exit such as
+    /// Metadata/QuestObjects/Act4/AscentTransition, see AreaTransitionCatalog.Resolve): quest rules and NPC scripts name it.
+    /// Server side only.</summary>
+    public string? SourceType { get; init; }
+    /// <summary>The module whose quest tables changed this exit of the shared layout, or null: an exit that stands only where
+    /// those tables run (a quest-gated disabled entrance, a quest portal, an exit's version a quest swaps in), or with
+    /// <see cref="QuestReplaced"/> one that stands only where they do not (the layout's own exit a quest replaced).
+    /// Server side only.</summary>
+    public string? QuestSource { get; init; }
+    public bool QuestReplaced { get; init; }
+
     /// <summary>Whether the exit stands in a town. Only then does the client read the compact int (<see cref="Index"/>)
     /// after the destination: 0x141e5b870 reads it when the state is 0 and the byte at +0x14 of the current area's
     /// WorldAreas row (entity +8 → world +0x78 → +0xb0) is set, which is IsTown; the server-side writer 0x141e5b7a0
@@ -568,6 +601,9 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
 
+    /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
+    public float Rotation { get; init; }
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -600,9 +636,9 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
         {
             switch (c)
             {
-                // x, y, f32 +0x29c, u16 team (+0x1e0; the player is team 0: 0 = friendly, green outline; 1 = hostile, red),
-                // flags; flags1 0x02 + (hidden 0, shown 1) as for the player.
-                case "Positioned": w.I32(GridX).I32(GridY).U32(0).U16(Team).U8(0).U8(0x02).U8(0).U8(1); break;
+                // x, y, f32 rotation (+0x29c), u16 team (+0x1e0; the player is team 0: 0 = friendly, green outline;
+                // 1 = hostile, red), flags; flags1 0x02 + (hidden 0, shown 1) as for the player.
+                case "Positioned": w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(0x02).U8(0).U8(1); break;
                 case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // base magic properties (0x142201d70, Instance.MagicProperties): u16 flags (bits 0-2 rarity → +0x7c,
                 // 0 = normal; bit 3 identified → +0x78, which gates the name and the explicit list), u8 +0x7a, the mod
@@ -798,6 +834,34 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 }
 
 /// <summary>
+/// The Crux of Nothingness's central shrine (<c>Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/RitualPillar2</c>):
+/// Positioned, BaseEvents, Animated, StateMachine, Stats, the type's read order (Positioned first, then the .ot's
+/// sections). The arena's <c>HugeRitualShrine01_01.ao</c> is explicit art because the type itself names no model.
+/// <c>active_pillars</c> 0 plays <c>idle_inactive</c>; 1, 2 and 3 play <c>idle_active_01</c>, <c>_02</c> and <c>_03</c>
+/// (quarter, half and full).
+/// </summary>
+public sealed record RitualPillarObject(int GridX, int GridY, float Rotation, string Model, StateMachineData States)
+{
+    public static readonly string[] Components = ["Positioned", "BaseEvents", "Animated", "StateMachine", "Stats"];
+
+    /// <summary>StateMachine in the component order above; 0x2ba updates use this index.</summary>
+    public const byte StateMachineComponentIndex = 3;
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        w.U8(0).U8(0);                                                              // object flags, base data entry count
+        // Positioned: the room's static blocking object, team 0 and shown (as the hideout doodads).
+        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);
+        w.U8(1).WStr32(Model);                                                      // Animated: explicit art
+        States.Write(w);                                                            // StateMachine: active_pillars
+        w.Stats([]).U32(0).U32(0).U8(0);                                            // Stats: the .ot's own stat defaults
+        w.U8(0);                                                                    // tasks
+        return w.ToArray();
+    }
+}
+
+/// <summary>
 /// A room's blocking object: <c>Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_*</c> (The Twilight Strand's force
 /// walls), components Positioned, BaseEvents, Animated, TriggerableBlockage, Transitionable (12-quests.md §6).
 /// TriggerableBlockage (0x141e44290): u8 blocked, then only while blocked a u8 count and that many u8 (none here); the
@@ -933,8 +997,17 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
     ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0)
 {
+    /// <summary>Start in the client's washed-up beach state, which handles lying down and getting up on input.</summary>
+    public bool WashedUp { get; init; }
+    public float Rotation { get; init; }
+    // All seven 3.29.3b character .act files put WashedUp at stance index 68 (0 is the base stance).
+    public const byte WashedUpStance = 68;
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
+
+    /// <summary>The Pantheon gods (Player +0x1ae major, +0x1ad minor): PantheonPanelLayout row + 1, 0 = none.</summary>
+    public byte PantheonMajor { get; init; }
+    public byte PantheonMinor { get; init; }
 
     /// <summary>The Inventories component's index in the player object's component order (04 §3).</summary>
     public const byte InventoriesComponentIndex = 8;
@@ -970,7 +1043,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         // Positioned (0x141e2f0b0): x, y, u32 +0x29c, u16 +0x1e0, two flag bytes. The type's +0x21 prefix (Sector) is off.
         // flags1 0x02 adds two bytes: hidden (→ +0x1e7 bit0) and shown (→ +0x1e5 bit3); both changes call the object's
         // vtable +0xb0 (visibility). Without "shown" the player entity exists but its model is not drawn.
-        w.I32(GridX).I32(GridY).U32(0).U16(0).U8(0).U8(Shown ? (byte)0x02 : (byte)0);
+        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(Shown ? (byte)0x02 : (byte)0);
         if (Shown) w.U8(0).U8(1);
         // comp1 = Stats (0x1421c2f40): compact-int count of (compact-int key, value) pairs, then u32 +0x28, u32 +0x2c, u8
         // +0x30. Keys are the client's stat ids (Stats.dat row + 1).
@@ -999,15 +1072,18 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         w
          .Zeros(9)           // raw +0x1e8
          .U16(Hideout).U16(Hideout2)   // Hideouts.dat keys (HASH16; 0 finds no row): the character's hideout (21-hideouts.md §1)
-         .U8(0)              // +0x1b1 (non-zero → "WashedUp" state)
-         .U8(0).U8(0).U8(0).U8(0).U8(0)
+         .U8((byte)(WashedUp ? 1 : 0)) // +0x1b1 (non-zero → "WashedUp" state)
+         .U8(PantheonMajor)  // +0x1ae: the major Pantheon god, PantheonPanelLayout row + 1 (0 = none; campaign/pantheon.md §5)
+         .U8(PantheonMinor)  // +0x1ad: the minor god, the same way
+         .U8(0).U8(0).U8(0)  // +0x1b0, +0x1af, +0x238
          .U32(0)             // u32 count + u32 list (vtable +0x158)
          .U8(0);             // microtransaction counters (0x141e83470)
         WriteInventories(w, Equipped);   // Inventories (0x141e1ee30): what the model wears
         // comp9 = Actor (0x142192a80): u32-counted UTF-16 string, u16 +0x21c, u8; two more u8 (+0x230, +0x234) only
         // when a runtime value is < 1 (false here: traced live, comp9 read 15 bytes); u32 +0x26c, u32 +0x274; then its
         // vtable+0xa0 reader 0x1421932b0: two flag bytes. f0 0x40 = the skill list (0x142197b10); the rest stay off.
-        w.WStr32("").U16(0).U8(0).U32(0).U32(0);
+        // Player's WashedUp flag selects that stance, but Actor is read afterwards and replaces it with this byte.
+        w.WStr32("").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
         if (Skills is { Count: > 0 } || Souls is { Count: > 0 })
         {
             w.U8(0x40).U8(0);

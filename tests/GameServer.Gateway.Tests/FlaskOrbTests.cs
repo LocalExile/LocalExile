@@ -31,7 +31,9 @@ public class FlaskOrbTests
             }
             Assert.Equal(instilling ? 15 : 5, seen.Count);
             var other = FlaskEnchantments.Apply(item, type, catalog.Mods, !instilling, random)!;
-            Assert.Equal(instilling ? 21 : 22, catalog.Mods.ByHash(Assert.Single(other.Mods, m => m.Section == ModSection.Enchant).Hash)!.GenerationType);
+            var types = other.Mods.Where(m => m.Section == ModSection.Enchant)
+                .Select(m => catalog.Mods.ByHash(m.Hash)!.GenerationType).Order().ToArray();
+            Assert.Equal(new[] { 21, 22 }, types);
             var overfilled = FlaskEnchantments.Apply(item with { Charges = 10000 }, type, catalog.Mods, true, random)!;
             Assert.Equal(type.MaxCharges, overfilled.Charges);
             Assert.Null(FlaskEnchantments.Apply(item with { Corrupted = true }, type, catalog.Mods, instilling, random));

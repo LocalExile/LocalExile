@@ -1,0 +1,733 @@
+{
+  "source_commit": "dd7a33465a448de12ccc18fa0a6437b7a60481b5",
+  "delivery_base": "d377bd256036242d2fb43f53eb7110b4897e1862",
+  "binary_sha256": "78a0e227189c263658a7f65a02f086428b859bfc114ae8e7ce8aab721ebd48d5",
+  "sealed_manifest_sha256": "5d30b2e92f00a2d3f9852b616a7059cd1e0a5d454dc8d0e3f845adaa2e25fc69",
+  "evidence_type": "sanitized historical audit receipt; not a native replay fixture",
+  "retained_source_blobs": [
+    {
+      "path": "Agents/docs/re/projectiles/action-initialization.md",
+      "source_sha256": "0a50db6c653286c817483d91414bc910ae47d06756cbde73d8bb0edad10f51c4"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/actions-and-emission.md",
+      "source_sha256": "17d35157e53cac0c98cf1da17890d7fd884112410aba28b3d708bf0430426db7"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/animation-and-release.md",
+      "source_sha256": "5791c372b461077ef647a1520143d8a8354102d087b9ff7a2a764c9402f08ed8"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/area-increased-terms.md",
+      "source_sha256": "67bffada5b91ade3befc73c233b7250dc76369703890e1d5ac698911d8c82379"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/area-more-factors.md",
+      "source_sha256": "6d387567c1411e00473d593b186ca393c2186048d1f45800b0f7432d12edb92e"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/area-radius.md",
+      "source_sha256": "06325dd2317ce0ec389b1ab041cc1c45b6acb68e0e778142444dc718551af928"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/attack-hit-chance.md",
+      "source_sha256": "b69f5dcf961615d601c41e7ba1b3ebbe075034941e8447d225f52a275b53c6ba"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/bow-wand-and-burning-arrow.md",
+      "source_sha256": "2e515d885ffc358c9641e963ebe12c3f1fa87f228ea9d54f71d8c5dd8228f35e"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/capture-contract.md",
+      "source_sha256": "825ad61b5f48ffeb62eeeb392259c4aae8c6cca37d8fb346462045a7ce815cf3"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/chain-candidate-admission.md",
+      "source_sha256": "26b6075b3f48856a50160a06f1b1a42db27dd28e91371c71c0426600b43cb44d"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/continuation-and-memory.md",
+      "source_sha256": "9f3707214e6b5b33f12afad7f33d94c033067fbfbbda38aa03fba431cf7b6b71"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/continuation-stat-inputs.md",
+      "source_sha256": "3d1644fd3f75e02ad823a6c70e3ce1fb49731b5331fd75797d459babc23f6bc7"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/count-stat-inputs.md",
+      "source_sha256": "ebfdaa9f6e9d62058901adb2ffe3a93d018c6a66117dfdabd990e2d6e5b3fdb2"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/emission-admission.md",
+      "source_sha256": "1ae1d184b7c2e964612e4823ef661e6e6386f12cea5370562ac10d707e78e6ed"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/evidence-and-open-questions.md",
+      "source_sha256": "e57d0e4076ac56fb27367210f430c32fe7f8bacc9233fabe6e4f4fedffaedec2"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/external-ranged-evidence.md",
+      "source_sha256": "5f88df5f25f13cdf9ddb1382fe360b8170a916e8d8a86a30aff144eaf9d43079"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/fireball-and-kinetic-blast.md",
+      "source_sha256": "62ffb4520162e40a72ddc3281ac40bbb645b5e0d6886a4688ad4f37b48b93777"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/hand-selection.md",
+      "source_sha256": "abb948fe1ca543ffaecd7852434ba7d00dd9405b6aefbebdf68c8644e50b0cbc"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/instance-frame-inputs.md",
+      "source_sha256": "d088a0459358bbcfe903f75d5e1433c678c4341195e13c1f51eedf26b67a7453"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/kinetic-wall-contact.md",
+      "source_sha256": "107b96275154408f61fd5e0f0c7b69d971f44f88f3eeb75225c5600a7fcb5640"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/layout-stat-inputs.md",
+      "source_sha256": "97f6f317594b014bb2dd33ce0c2df39067ebc0d298cdedc84d3cfbd43b0710e0"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/local-hit-prediction.md",
+      "source_sha256": "31b09de4451fc2dcdb16c757a1da26ef813b6390ee6c56dd2c1399ada3bc12ba"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/motion-admission-inputs.md",
+      "source_sha256": "dec8d9bf5dc97d040aa6b8beeef3640f89b51360d2e52ed4e71d2ccff2537e6f"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/motion-and-contact.md",
+      "source_sha256": "62d028b05cdbe2a970f7e3b62ed59236b420abada86561d400e2be45de735ced"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/motion-configuration-inputs.md",
+      "source_sha256": "8abc3f0ba0ab763551888439d34349d67c42365c1de2ec67c953773c59c28cd4"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/motion-speed-and-time.md",
+      "source_sha256": "49c620b73c02f3227bf1c311e16f942751a13a139b71d189623b2bb48f792012"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/object-type-binding.md",
+      "source_sha256": "24caf1801b1ef7207ca9f90402217abdc7589606a0dfe07d6ed316c14a2cb304"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/random-inputs.md",
+      "source_sha256": "4223e1998c1096107986f3f24a899405c4aafb36878672b0e52c5182b6f5a0c2"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/release-and-repeat.md",
+      "source_sha256": "475cb93461c007f37913fae882242b8b124d56aa567c9076314683ba4c1021ba"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/repeat-source-state.md",
+      "source_sha256": "27019eb9e9e01c958972a81ba36c8e20c40af0a21d6e1adea80b25aba091c96d"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/resource-selection.md",
+      "source_sha256": "bfa26417b968085b07f9b2e49b12050a9f84a4dc69665625f322571b5dd92750"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/results-and-protocol.md",
+      "source_sha256": "75d285e045bac7563418174480216f8c1e1c51a3fa9ae2ce9ee83548820be5f7"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/root-eligibility-and-policy.md",
+      "source_sha256": "53abf78dc0c09a5989f2411fa0e79052d00dd73744c1c62b60eb7fe53c2a6fd2"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/skill-witnesses.md",
+      "source_sha256": "93f1b7b129d69706b699336862d8f5eda552c837230d30273c5ba5401fe3f58a"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/split-target-order.md",
+      "source_sha256": "4b13c7be566cda44778351dd2d9cdc6a53bc9f9dcf4355ee6b12835e0a7542e3"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/synthetic-start-and-server-commands.md",
+      "source_sha256": "657b1cb2f8740b4b0cb1c8025c4031c50f728bae878156d668a7b171cd83fc72"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/tornado-shot.md",
+      "source_sha256": "d24be26b2c7f5ff7cdee921dec26cbbd752734b6538b079b7a10ccfcb570e53f"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/world-message-inputs.md",
+      "source_sha256": "fae615ada504ad549f4cea06d5e4eb786e969b24ff775ade02569e739db72dfe"
+    },
+    {
+      "path": "Agents/docs/re/projectiles/world-scheduling.md",
+      "source_sha256": "f7b6d3a7322f1387ca1d6209637368e967281017b48b7912e41146ba045871f8"
+    },
+    {
+      "path": "Agents/docs/re/012-projectile-execution.md",
+      "source_sha256": "1452de8964fec1583eefc3c6804801cf30577f761295833e3aedc04b6074b225"
+    },
+    {
+      "path": "scripts/re/projectiles/analyze_execution_capture.py",
+      "source_sha256": "4919ab8d83253a7797a6240646147c1671a97319953e117158f05635703ff40c"
+    },
+    {
+      "path": "scripts/re/projectiles/native_projectile_raster.py",
+      "source_sha256": "958a9ec4f0aa1f9444b3c790c2843293783ca3575307c3a921f9f5782ec3a6bb"
+    },
+    {
+      "path": "scripts/re/projectiles/native_projectile_rng.py",
+      "source_sha256": "107f6dbc2d83dbf848457234837234e338a1ab6404081fdb9e6ed3e0558f111a"
+    },
+    {
+      "path": "scripts/re/projectiles/native_tornado_rng.py",
+      "source_sha256": "3a5dd7551bb424822eee50362529ab41e50f70c4339555ac542d49b46107df0f"
+    },
+    {
+      "path": "scripts/re/projectiles/test_execution_capture.py",
+      "source_sha256": "2350b1889c1d7fa54f0fac3c86d8e426679d4e5fdc3121f0c89941b5cbe320f5"
+    },
+    {
+      "path": "scripts/re/projectiles/test_execution_probe.js",
+      "source_sha256": "df2a23fafcd698580da5706031ae2af9aef87fdf32371e795cfa5da3b0d08337"
+    },
+    {
+      "path": "scripts/re/frida/trace-projectile-execution.js",
+      "source_sha256": "1bef7bf8efa6d528b1da3b3da849bf49d9881b519b3fc9e1c44d91bd745cb246"
+    }
+  ],
+  "selected_private_audits": [
+    {
+      "source": {
+        "path": "logs/projectile-execution-model/round55/kb-lifecycle-controls.json",
+        "sha256": "72704efe7a50addac8d8e48b1c8bdc43d9998a5012fa016b8a6c6537eac9a1ba"
+      },
+      "boundary": "Original KB source reason prefix through source stage, copy/derived registration/sector position and group update; explicit cache/activation/container/terrain/presentation/ProcessResult inputs. No native client or authoritative server schedule.",
+      "selected_outcomes": [
+        {
+          "case": "source-copy-register-positions-timer-exact-results-mode1",
+          "seeds": [
+            [
+              4660,
+              3,
+              826366246,
+              2,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "centers": [
+            [
+              13,
+              12
+            ],
+            [
+              11,
+              10
+            ],
+            [
+              13,
+              8
+            ],
+            [
+              15,
+              11
+            ]
+          ],
+          "logical_draws": [
+            {
+              "kind": "chance",
+              "sample": 0.4754999876022339
+            },
+            {
+              "kind": "phase",
+              "sample": 0.574999988079071
+            },
+            {
+              "kind": "angle",
+              "sector": 0,
+              "sample": 0.2915000021457672
+            },
+            {
+              "kind": "angle",
+              "sector": 1,
+              "sample": 0.3095000088214874
+            },
+            {
+              "kind": "angle",
+              "sector": 2,
+              "sample": 0.2759999930858612
+            },
+            {
+              "kind": "angle",
+              "sector": 3,
+              "sample": 0.3935000002384186
+            }
+          ],
+          "ticks": [
+            {
+              "dt": 0.0,
+              "before": [
+                0,
+                0.0,
+                3
+              ],
+              "after": [
+                1,
+                0.10000000149011612,
+                4
+              ],
+              "effects": 1,
+              "retired": false
+            },
+            {
+              "dt": 0.3499999940395355,
+              "before": [
+                1,
+                0.10000000149011612,
+                4
+              ],
+              "after": [
+                2,
+                -0.15000000596046448,
+                5
+              ],
+              "effects": 2,
+              "retired": false
+            },
+            {
+              "dt": 0.0,
+              "before": [
+                2,
+                -0.15000000596046448,
+                5
+              ],
+              "after": [
+                3,
+                -0.05000000447034836,
+                6
+              ],
+              "effects": 3,
+              "retired": false
+            },
+            {
+              "dt": 0.0,
+              "before": [
+                3,
+                -0.05000000447034836,
+                6
+              ],
+              "after": [
+                4,
+                0.04999999701976776,
+                7
+              ],
+              "effects": 4,
+              "retired": false
+            },
+            {
+              "dt": 0.0,
+              "before": [
+                4,
+                0.04999999701976776,
+                7
+              ],
+              "after": [
+                4,
+                0.04999999701976776,
+                7
+              ],
+              "effects": 4,
+              "retired": true
+            }
+          ],
+          "explosions": [
+            {
+              "index": 0,
+              "stage": 3
+            },
+            {
+              "index": 1,
+              "stage": 4
+            },
+            {
+              "index": 2,
+              "stage": 5
+            },
+            {
+              "index": 3,
+              "stage": 6
+            }
+          ]
+        },
+        {
+          "case": "omitted-sector-compacts-position-time-stage-line",
+          "seeds": [
+            [
+              4660,
+              3,
+              826366246,
+              2,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "centers": [
+            [
+              12,
+              8
+            ],
+            [
+              13,
+              8
+            ],
+            [
+              14,
+              11
+            ]
+          ],
+          "logical_draws": [
+            {
+              "kind": "chance",
+              "sample": 0.4754999876022339
+            },
+            {
+              "kind": "phase",
+              "sample": 0.574999988079071
+            },
+            {
+              "kind": "angle",
+              "sector": 0,
+              "sample": 0.2915000021457672
+            },
+            {
+              "kind": "angle",
+              "sector": 0,
+              "sample": 0.3095000088214874
+            },
+            {
+              "kind": "angle",
+              "sector": 0,
+              "sample": 0.2759999930858612
+            },
+            {
+              "kind": "angle",
+              "sector": 0,
+              "sample": 0.3935000002384186
+            },
+            {
+              "kind": "angle",
+              "sector": 1,
+              "sample": 0.8324999809265137
+            },
+            {
+              "kind": "angle",
+              "sector": 2,
+              "sample": 0.2685000002384186
+            },
+            {
+              "kind": "angle",
+              "sector": 3,
+              "sample": 0.7200000286102295
+            }
+          ],
+          "ticks": [
+            {
+              "dt": 0.0,
+              "before": [
+                0,
+                0.0,
+                3
+              ],
+              "after": [
+                1,
+                0.10000000149011612,
+                4
+              ],
+              "effects": 1,
+              "retired": false
+            },
+            {
+              "dt": 0.10000000149011612,
+              "before": [
+                1,
+                0.10000000149011612,
+                4
+              ],
+              "after": [
+                2,
+                0.10000000149011612,
+                5
+              ],
+              "effects": 2,
+              "retired": false
+            },
+            {
+              "dt": 0.10000000149011612,
+              "before": [
+                2,
+                0.10000000149011612,
+                5
+              ],
+              "after": [
+                3,
+                0.10000000149011612,
+                6
+              ],
+              "effects": 3,
+              "retired": false
+            },
+            {
+              "dt": 0.0,
+              "before": [
+                3,
+                0.10000000149011612,
+                6
+              ],
+              "after": [
+                3,
+                0.10000000149011612,
+                6
+              ],
+              "effects": 3,
+              "retired": true
+            }
+          ],
+          "explosions": [
+            {
+              "index": 0,
+              "stage": 3
+            },
+            {
+              "index": 1,
+              "stage": 4
+            },
+            {
+              "index": 2,
+              "stage": 5
+            }
+          ]
+        },
+        {
+          "case": "omitted-sector-compacts-position-time-stage-all",
+          "seeds": [
+            [
+              4660,
+              3,
+              826366246,
+              2,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "centers": [],
+          "logical_draws": [
+            {
+              "kind": "chance",
+              "sample": 0.4754999876022339
+            },
+            {
+              "kind": "phase",
+              "sample": 0.574999988079071
+            },
+            {
+              "kind": "angle",
+              "sector": 0,
+              "sample": 0.2915000021457672
+            },
+            {
+              "kind": "angle",
+              "sector": 0,
+              "sample": 0.3095000088214874
+            },
+            {
+              "kind": "angle",
+              "sector": 0,
+              "sample": 0.2759999930858612
+            },
+            {
+              "kind": "angle",
+              "sector": 0,
+              "sample": 0.3935000002384186
+            },
+            {
+              "kind": "angle",
+              "sector": 1,
+              "sample": 0.8324999809265137
+            },
+            {
+              "kind": "angle",
+              "sector": 1,
+              "sample": 0.2685000002384186
+            },
+            {
+              "kind": "angle",
+              "sector": 1,
+              "sample": 0.7200000286102295
+            },
+            {
+              "kind": "angle",
+              "sector": 1,
+              "sample": 0.20350000262260437
+            },
+            {
+              "kind": "angle",
+              "sector": 2,
+              "sample": 0.032499998807907104
+            },
+            {
+              "kind": "angle",
+              "sector": 2,
+              "sample": 0.0364999994635582
+            },
+            {
+              "kind": "angle",
+              "sector": 2,
+              "sample": 0.0689999982714653
+            },
+            {
+              "kind": "angle",
+              "sector": 2,
+              "sample": 0.04899999871850014
+            },
+            {
+              "kind": "angle",
+              "sector": 3,
+              "sample": 0.9589999914169312
+            },
+            {
+              "kind": "angle",
+              "sector": 3,
+              "sample": 0.5109999775886536
+            },
+            {
+              "kind": "angle",
+              "sector": 3,
+              "sample": 0.9390000104904175
+            },
+            {
+              "kind": "angle",
+              "sector": 3,
+              "sample": 0.3395000100135803
+            }
+          ],
+          "ticks": [
+            {
+              "dt": 0.0,
+              "before": [
+                0,
+                0.0,
+                3
+              ],
+              "after": [
+                0,
+                0.0,
+                3
+              ],
+              "effects": 0,
+              "retired": true
+            }
+          ],
+          "explosions": []
+        }
+      ]
+    },
+    {
+      "source": {
+        "path": "logs/projectile-execution-model/round81/ts-retirement-controls.json",
+        "sha256": "63b8890f80e8169f0c0cef143760e84e6503d2ac01d0da1b5bd0e6638912c525"
+      },
+      "boundary": "Original generated TS secondary contact/Fork/Split then bounded post-root Actor snapshot/removal, native deleting receiver, strong/weak history release and deferred Entity request. Effective grants, model/resource/terrain/targets, initialized Entity events, empty action result queue and supplied Actor post-root state. Resource/container/storage APIs and absent render model remain boundaries. No Entity queue drain, component destruction, full World scheduling or authoritative damage.",
+      "selected_outcomes": [
+        {
+          "case": "fork-shotgun-0-count-1-reentry-1",
+          "source_phases_before": [
+            [
+              101
+            ],
+            [],
+            []
+          ],
+          "source_history_counts": [
+            {
+              "kind": "history-count-before",
+              "strong": 3
+            },
+            {
+              "kind": "history-count-after",
+              "strong": 2
+            }
+          ],
+          "completion_listeners": [
+            {
+              "latch": 1,
+              "source_still_retained": false
+            }
+          ],
+          "survivor_phases": [
+            [
+              [
+                101
+              ],
+              [],
+              []
+            ],
+            [
+              [
+                101
+              ],
+              [],
+              []
+            ]
+          ],
+          "descendants_clear_history_on_final": true,
+          "final_retained_count": 0,
+          "pending_entity_removals": 3
+        },
+        {
+          "case": "split-shotgun-1-count-1-reentry-1",
+          "source_phases_before": [
+            [
+              101
+            ],
+            [],
+            []
+          ],
+          "source_history_counts": [
+            {
+              "kind": "history-count-before",
+              "strong": 1
+            },
+            {
+              "kind": "history-count-after",
+              "strong": 0
+            }
+          ],
+          "completion_listeners": [
+            {
+              "latch": 1,
+              "source_still_retained": false
+            }
+          ],
+          "survivor_phases": [
+            [
+              [
+                101
+              ],
+              [],
+              []
+            ]
+          ],
+          "descendants_clear_history_on_final": true,
+          "final_retained_count": 0,
+          "pending_entity_removals": 2
+        }
+      ]
+    }
+  ],
+  "replay_limit": "Only terminal-rng.json is directly exercised by public vector tests. The KB/TS receipts do not reexecute original code, terrain queries, result processing, cleanup or official scheduling."
+}

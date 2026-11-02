@@ -32,7 +32,9 @@ sealed class ItemCatalog
         _defences = new(() => LoadDefences(folder));
         _flasks = new(() => LoadFlasks(folder, _rows.Value.Rows, hardMode));
         _utilityFlasks = new(() => UtilityFlasks.Load(folder, _rows.Value.Rows, hardMode));
+        _onslaught = new(() => _utilityFlasks.Value.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null));
         _visualsById = new(() => LoadVisualsById(folder));
+        _currencyUses = new(() => LoadCurrencyUses(folder));
     }
 
     private readonly Lazy<Dictionary<string, ushort>> _visualsById;
@@ -61,6 +63,9 @@ sealed class ItemCatalog
         /// <summary>Tags.dat Ids for mod spawn weights: the .it chain's Base tags (item-types.json) and the row's TagsKeys.</summary>
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
 
+        /// <summary>A quest item's Quest component (its .it, item-types.json "quest"), or null for other items.</summary>
+        public QuestItemFlags? Quest { get; init; }
+
         /// <summary>BaseItemTypes ModDomain: the Mods.dat Domain its affixes come from (1 items, 2 flasks, …).</summary>
         public int ModDomain { get; init; } = 1;
 
@@ -79,6 +84,10 @@ sealed class ItemCatalog
         /// armour, jewellery and quivers) and false for flasks, jewels, maps and currency. The Mirror of Kalandra's
         /// non-unique equipment check; the wiki's equipment definition is the same set.</summary>
         public bool CanBeMirrored { get; init; }
+
+        /// <summary>ItemClasses CanBeCorrupted: MapKey, jewels, some misc map items; old area-named maps are false, so
+        /// Vaal also admits anything with a Map or MapKey component.</summary>
+        public bool CanBeCorrupted { get; init; }
 
         public bool Supported => Components.Count > 0 && Item.CanSerialize(Components);
         /// <summary>Several of the type share one cell (a Stack component and a CurrencyItems StackSize above 1).</summary>
@@ -105,6 +114,45 @@ sealed class ItemCatalog
     private readonly Lazy<Dictionary<uint, BaseType>> _byHash;
 
     public ItemCatalog() : this("data") { }
+
+    readonly Lazy<(Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem)> _currencyUses;
+
+    /// <summary>CurrencyItems.Action for this base, or null when the row is not a currency / has no action. New chisels
+    /// and Vaal variants are picked up from the table instead of an Id list.</summary>
+    public string? CurrencyAction(BaseType t) =>
+        _currencyUses.Value.Actions.TryGetValue(t.Row, out string? action) && action.Length > 0 ? action : null;
+
+    /// <summary>AlternateQualityTypes row whose Item column is this currency (Cartographer / Maven map chisels).</summary>
+    public byte? AlternateQualityOf(BaseType currency) =>
+        _currencyUses.Value.QualityByItem.TryGetValue(currency.Row, out byte row) ? row : null;
+
+    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem) LoadCurrencyUses(string folder)
+    {
+        var actions = new Dictionary<int, string>();
+        string currency = Path.Combine(folder, "tables", "CurrencyItems.json");
+        if (File.Exists(currency))
+        {
+            using var doc = GameTables.Open(currency);
+            foreach (var r in doc.RootElement.EnumerateArray())
+                if (r.GetProperty("BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } b
+                    && r.TryGetProperty("Action", out var a) && a.GetString() is { Length: > 0 } action)
+                    actions.TryAdd(b.GetInt32(), action);
+        }
+        var quality = new Dictionary<int, byte>();
+        string alt = Path.Combine(folder, "tables", "AlternateQualityTypes.json");
+        if (File.Exists(alt))
+        {
+            using var doc = GameTables.Open(alt);
+            byte row = 0;
+            foreach (var r in doc.RootElement.EnumerateArray())
+            {
+                if (r.TryGetProperty("Item", out var item) && item.ValueKind == JsonValueKind.Number)
+                    quality.TryAdd(item.GetInt32(), row);
+                row++;
+            }
+        }
+        return (actions, quality);
+    }
 
     public BaseType? Row(int row) => row >= 0 && row < _rows.Value.Rows.Count ? _rows.Value.Rows[row] : null;
 
@@ -190,6 +238,10 @@ sealed class ItemCatalog
         /// <summary>The variant the client uses: an index outside the list is the normal gem (0x14246fa50 resets it).</summary>
         public GemVariant Variant(int index) => index > 0 && index < Variants.Count ? Variants[index] : Variants[0];
     }
+
+    /// <summary>The quest items: every type with a Quest component (QuestItems, Agents/docs/protocol/12-quests.md §5).</summary>
+    public IReadOnlyList<BaseType> QuestItemTypes => _questTypes ??= [.. _rows.Value.Rows.Where(t => t.Quest is not null)];
+    IReadOnlyList<BaseType>? _questTypes;
 
     /// <summary>The gems a shop sells of one colour, active or support: creatable, writable, dropping (DropLevel above 0),
     /// not Vaal or awakened, one per name, by drop level then name.</summary>
@@ -338,6 +390,12 @@ sealed class ItemCatalog
 
     /// <summary>A utility flask's use (<see cref="UtilityFlasks"/>), or null for other types.</summary>
     public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.Value.GetValueOrDefault(t.Row);
+
+    private readonly Lazy<UtilityFlasks.ExtraBuff?> _onslaught;
+
+    /// <summary>The Onslaught buff with the player's values, as the Silver Flask grants it (the only flask extra buff);
+    /// null without the tables.</summary>
+    public UtilityFlasks.ExtraBuff? Onslaught => _onslaught.Value;
 
     /// <summary>Any flask's charges (life, mana or utility, usable or not), for refills; null for other types.</summary>
     public Flasks.Flask? FlaskChargesOf(BaseType t) => FlaskOf(t) ?? UtilityFlaskOf(t)?.Charges;
@@ -490,6 +548,7 @@ sealed class ItemCatalog
         if (!File.Exists(bases) || !File.Exists(visuals)) return ([], $"{bases} is missing: extract the game tables (Tools/PoEDataExtractor)");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var itemTags = new Dictionary<string, IReadOnlyList<string>>();
+        var questFlags = new Dictionary<string, QuestItemFlags>();
         string types = Path.Combine(folder, "item-types.json");
         if (!File.Exists(types)) return ([], $"{types} is missing: run scripts/dev/extract-data.ps1");
         using (var doc = GameTables.Open(types))
@@ -499,6 +558,12 @@ sealed class ItemCatalog
                     [.. t.GetProperty("components").EnumerateArray().Take(t.GetProperty("read").GetInt32()).Select(c => c.GetString()!)];
                 // "tags" since 2026-10-20; older files have none (regenerate with ot_components.py --items).
                 if (t.TryGetProperty("tags", out var tg)) itemTags[t.GetProperty("type").GetString()!] = [.. tg.EnumerateArray().Select(x => x.GetString()!)];
+                // "quest" since manifest version 2: the Quest component's flags.
+                if (t.TryGetProperty("quest", out var q) && q.ValueKind == JsonValueKind.Object)
+                {
+                    string? Flag(string name) => q.TryGetProperty(name, out var v) && v.GetString() is { Length: > 0 } f ? f : null;
+                    questFlags[t.GetProperty("type").GetString()!] = new(Flag("grant_flag"), Flag("extra_flag"), Flag("remove_flag"), Flag("use_flag"));
+                }
             }
         List<ushort> visualHashes;
         using (var doc = JsonDocument.Parse(File.ReadAllBytes(visuals)))
@@ -531,6 +596,7 @@ sealed class ItemCatalog
         var unmodifiableClasses = new List<bool>();
         var fracturableClasses = new List<bool>();
         var mirrorableClasses = new List<bool>();
+        var corruptibleClasses = new List<bool>();
         string classesPath = Path.Combine(folder, "tables", "ItemClasses.json");
         if (File.Exists(classesPath))
         {
@@ -546,6 +612,8 @@ sealed class ItemCatalog
             // equipment" rule from the wiki.
             mirrorableClasses = [.. doc.RootElement.EnumerateArray().Select(r =>
                 r.TryGetProperty("__col21", out var m) && m.ValueKind == JsonValueKind.True)];
+            corruptibleClasses = [.. doc.RootElement.EnumerateArray().Select(r =>
+                r.TryGetProperty("CanBeCorrupted", out var c) && c.ValueKind == JsonValueKind.True)];
         }
         List<string> tagIds = [];
         string tagsPath = Path.Combine(folder, "tables", "Tags.json");
@@ -579,6 +647,7 @@ sealed class ItemCatalog
                     Tags = new HashSet<string>([.. itemTags.GetValueOrDefault(id) ?? [],
                         .. r.GetProperty("TagsKeys").EnumerateArray().Select(k => k.GetInt32()).Where(k => k < tagIds.Count).Select(k => tagIds[k])]),
                     ModDomain = r.GetProperty("ModDomain").GetInt32(),
+                    Quest = questFlags.GetValueOrDefault(id),
                     ClassRow = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } cr ? cr.GetInt32() : -1,
                     Unmodifiable = r.TryGetProperty("Unmodifiable", out var u) && u.ValueKind == JsonValueKind.True ||
                         r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } uc &&
@@ -587,9 +656,17 @@ sealed class ItemCatalog
                         fc.GetInt32() >= 0 && fc.GetInt32() < fracturableClasses.Count && fracturableClasses[fc.GetInt32()],
                     CanBeMirrored = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } mc &&
                         mc.GetInt32() >= 0 && mc.GetInt32() < mirrorableClasses.Count && mirrorableClasses[mc.GetInt32()],
+                    CanBeCorrupted = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } cc &&
+                        cc.GetInt32() >= 0 && cc.GetInt32() < corruptibleClasses.Count && corruptibleClasses[cc.GetInt32()],
                 });
             }
         }
         return (rows, null);
     }
 }
+
+/// <summary>A quest item's Quest component (its .it file; Agents/docs/protocol/12-quests.md §5): <see cref="Grant"/> is held
+/// while the item is carried, <see cref="Extra"/> set when it is first picked up, <see cref="Remove"/> takes the item away
+/// once set (and stops it dropping again), <see cref="Use"/> is set by using it (the quest books, whose static rewards
+/// QuestStaticRewards keys by that flag).</summary>
+sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use);

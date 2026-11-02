@@ -87,3 +87,5 @@ desktop.ini
 /scripts/re/levelgen/gate-latest.json
 /scripts/re/levelgen/survey-latest.json
 /scripts/re/levelgen/loads-latest.json
+
+*.iml

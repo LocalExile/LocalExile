@@ -127,5 +127,16 @@ static class AnimationVariantSelector
             uint span = unchecked((uint)(max - min));
             return unchecked((int)((span == uint.MaxValue ? NextUInt() : Uniform(span + 1)) + (uint)min));
         }
+
+        /// <summary>
+        /// The float range (0x1404ce3f0): N = (int)(max − min + 1) × 1000, k uniform in [0, N], k / N × (max − min) + min
+        /// in single precision; a zero-width range still draws.
+        /// </summary>
+        public float Range(float min, float max)
+        {
+            float span = max - min;
+            uint steps = (uint)(int)(span + 1f) * 1000;
+            return Uniform(steps + 1) / (float)steps * span + min;
+        }
     }
 }

@@ -196,8 +196,7 @@ static class UtilityFlasks
         // A flask's Onslaught scales with the flask's effect modifiers (wiki Silver Flask, Onslaught: since 3.20 Onslaught is
         // a buff and flask effect applies when a flask grants it), added to the character's increased Onslaught effect.
         double onslaughtEffect = effect + character("onslaught_effect_+%") / 100.0;
-        if (u.Extra is { } x) stats.AddRange(x.Stats.Where(s => Applies(s.Stat))
-            .Select(s => new Source($"buff {x.BuffRow}", s.Stat, Scale(s.Value, onslaughtEffect))));
+        if (u.Extra is { } x) stats.AddRange(OnslaughtSources(x, onslaughtEffect));
         // The flask's "during effect" mods, scaled by increased effect too (poewiki, Quality: increased flask effect
         // improves "any of the mods that the flask has rolled"); flags stay as they are.
         foreach (var (localStat, stat, sign, flag) in DuringEffect)
@@ -208,6 +207,12 @@ static class UtilityFlasks
 
     /// <summary>A value scaled by increased effect as the game rounds it (poewiki: "always rounded down"; Path of Building
     /// ModStore.ScaleAddMod: rounded to two decimals, then the fraction dropped).</summary>
+    /// <summary>The Onslaught buff's stats at <paramref name="effect"/>, as sources of that buff: a flask's and a kill's
+    /// Onslaught are one effect, so the strongest-per-(effect, stat) pass counts it once.</summary>
+    public static IEnumerable<Source> OnslaughtSources(ExtraBuff onslaught, double effect) =>
+        onslaught.Stats.Where(s => SupportOf(s.Stat) != Support.Unsupported)
+            .Select(s => new Source($"buff {onslaught.BuffRow}", s.Stat, Scale(s.Value, effect)));
+
     public static int Scale(int value, double effect) =>
         (int)Math.Clamp(Math.Truncate(Math.Round(value * effect, 2)), int.MinValue, int.MaxValue);
 
@@ -299,6 +304,12 @@ static class UtilityFlasks
         public IReadOnlyList<Source> Sources()
         {
             lock (_lock) return [.. _active.SelectMany(a => a.Stats)];
+        }
+
+        /// <summary>Whether a running effect shows its own Onslaught buff (a Silver Flask's).</summary>
+        public bool ShowsOnslaught
+        {
+            get { lock (_lock) return _active.Any(a => a.ExtraBuff is not null); }
         }
 
         /// <summary>Whether any effect runs.</summary>

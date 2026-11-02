@@ -67,6 +67,11 @@ Step 'publishing LocalExile.exe ...'
 dotnet publish src\LocalExile @properties -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=embedded -o $package
 Check-Exit 'dotnet publish src\LocalExile'
 
+# The window over LocalExile.exe --json, with Windows' own .NET Framework compiler: no runtime of its own to ship.
+Step 'building LocalExileGUI.exe ...'
+& powershell -NoProfile -ExecutionPolicy Bypass -File src\LocalExileGui\build.ps1 -Out (Join-Path $package 'LocalExileGUI.exe')
+Check-Exit 'src\LocalExileGui\build.ps1'
+
 # The modules as the Gateway loads them: each one's manifest and other files, and its bin\ without the build's leftovers.
 Step 'copying modules, mods and leagues ...'
 Get-ChildItem Modules -Recurse -File | Where-Object {
@@ -156,7 +161,7 @@ $bad = @(Get-ChildItem $package -Recurse -File | Where-Object {
     ($relative -like 'data\*' -and $relative -notlike 'data\schema\*') -or $relative -like 'Client\*'
 })
 if ($bad.Count) { throw "the package must not hold: $(($bad | Select-Object -First 10 | ForEach-Object { $_.FullName.Substring($package.Length + 1) }) -join ', ')" }
-foreach ($required in 'app\GameServer.Gateway.exe', 'app\GameServer.Auth.exe', 'app\GameServer.Patch.exe', 'app\GgDump.exe', 'Tools\python\python.exe',
+foreach ($required in 'LocalExileGUI.exe', 'app\GameServer.Gateway.exe', 'app\GameServer.Auth.exe', 'app\GameServer.Patch.exe', 'app\GgDump.exe', 'Tools\python\python.exe',
     'Tools\node\node.exe', 'Tools\ooz\node_modules\ooz-wasm\package.json', 'Modules\Core\Game\bin\game.dll', 'scripts\re\levelgen\gate-baseline.json', 'data\schema\schema.min.json') {
     if (-not (Test-Path (Join-Path $package $required))) { throw "the package misses $required" }
 }

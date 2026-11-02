@@ -99,6 +99,7 @@ if (!File.Exists(GameServer.Data.Ggpk.ClientConstants.DefaultFile))
 }
 HncSender.UseMask(GameServer.Data.Ggpk.ClientConstants.Load().HncMaskBytes);
 if (GameDataFiles.Warning() is { } missingData) Console.WriteLine(missingData);
+if (GameDataFiles.OutdatedWarning() is { } outdatedData) Console.WriteLine(outdatedData);
 
 // Characters and stashes: the save database (Saves). Saves from before it (data/saves, data/stashes) go into it once; one
 // that can't be read stops the Gateway, so no character starts over.

@@ -8,6 +8,7 @@ using SaveFiles = GameServer.Core.Saves.SaveFiles;
 sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int SpawnX, int SpawnY,
     Func<int, int, bool>? Walkable, (uint Id, AreaTransitionObject Transition)[] AreaTransitions)
 {
+    public float SpawnRotation { get; init; }
     /// <summary>The area's waypoint (WaypointCatalog), if it has one and its place is known.</summary>
     public WaypointObject? Waypoint { get; init; }
     /// <summary>The area transitions' effects (<see cref="AreaTransitionCatalog.Effects"/>).</summary>
@@ -107,7 +108,10 @@ static class AreaLayouts
         Ids.GetValueOrDefault(hash) ?? AreaTransitionCatalog.IdOf(hash) ?? HideoutCatalog.ByArea(hash)?.AreaId ?? $"0x{hash:x4}";
 
     /// <summary>The seed the instance's layout is generated and played at (<see cref="ServerLevels.PlayableSeed"/>).</summary>
-    public static uint PlayableSeed(ushort hash, uint seed) => ServerLevels.PlayableSeed(IdOf(hash), seed);
+    public static uint PlayableSeed(ushort hash, uint seed) => PlayableSeed(hash, seed, 0);
+
+    /// <inheritdoc cref="PlayableSeed(ushort, uint)"/>
+    public static uint PlayableSeed(ushort hash, uint seed, int areaLevel) => ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel);
 
     public static AreaLayout For(ushort hash, uint seed)
     {
@@ -161,7 +165,8 @@ static class AreaLayouts
             // The area's start point (a room's "default", e.g. The Twilight Strand's beach), else the deepest cell.
             var start = AreaPopulation.LoadPoints(id, seed, []).FirstOrDefault(p => p.Name == "default");
             var (sx, sy) = start is null ? DeepestCell(cells, w, h) : (start.X, start.Y);
-            return new AreaLayout(hash, id, w, h, sx, sy, Walkable(cells, w, h), transitions) { Clearance = Clearance(cells, w, h) };
+            return new AreaLayout(hash, id, w, h, sx, sy, Walkable(cells, w, h), transitions)
+                { Clearance = Clearance(cells, w, h), SpawnRotation = start?.Angle ?? 0 };
         }
         // No walk map yet: a position inside any grid; the client may place the player on unwalkable ground.
         return new AreaLayout(hash, id, 0, 0, 197, 261, null, transitions);

@@ -75,8 +75,13 @@ static partial class Game
     internal static (Item Item, ItemCatalog.BaseType? Type)? ActiveOffHand(ClientState conn) => ActiveHand(conn, PlayerInventories.Offhand1);
 
     internal static (Item Item, ItemCatalog.BaseType? Type)? ActiveHand(ClientState conn, byte row) =>
-        ItemsOf(conn).Items(row).Where(i => !IsInactive(conn, i.Id))
-            .Select(i => ((Item, ItemCatalog.BaseType?)?)(i.Item, ItemsFor(conn).ByHash(i.Item.TypeHash))).FirstOrDefault();
+        ActiveHandIn(ItemsOf(conn).Items(row), id => IsInactive(conn, id), ItemsFor(conn));
+
+    // ActiveHand from a row read once, with the items whose requirements are not met (the stat snapshot's tail inputs).
+    internal static (Item Item, ItemCatalog.BaseType? Type)? ActiveHandIn(IEnumerable<InventoryItem> row, Func<uint, bool> inactive,
+        ItemCatalog catalog) =>
+        row.Where(i => !inactive(i.Id))
+            .Select(i => ((Item, ItemCatalog.BaseType?)?)(i.Item, catalog.ByHash(i.Item.TypeHash))).FirstOrDefault();
 
     // The active weapon's local typed damage, quality and duration; no weapon uses the class's unarmed attack.
     internal static SkillCatalog.Unarmed WeaponFor(ClientState conn) => WeaponOf(conn, ActiveMainHand(conn));
@@ -85,16 +90,20 @@ static partial class Game
         WeaponIn(conn, mainHand) ?? SkillsFor(conn).UnarmedFor(conn.ClassRow);
 
     // A hand's weapon attack (WeaponOf); null when the hand holds no weapon (empty, a shield, a quiver).
-    internal static SkillCatalog.Unarmed? WeaponIn(ClientState conn, (Item Item, ItemCatalog.BaseType? Type)? hand)
+    internal static SkillCatalog.Unarmed? WeaponIn(ClientState conn, (Item Item, ItemCatalog.BaseType? Type)? hand) =>
+        WeaponIn(SkillsFor(conn), ItemsFor(conn), conn.ClassRow, hand);
+
+    internal static SkillCatalog.Unarmed? WeaponIn(SkillCatalog skills, ItemCatalog catalog, int classRow,
+        (Item Item, ItemCatalog.BaseType? Type)? hand)
     {
-        var unarmed = SkillsFor(conn).UnarmedFor(conn.ClassRow);
-        if (hand is not var (item, type) || type is null || SkillsFor(conn).WeaponBase(type.Row) is not var (ms, min, max, range)) return null;
-        var local = ItemWeaponStats.Calculate(item, (ms, min, max, range), ItemsFor(conn).Mods);
+        var unarmed = skills.UnarmedFor(classRow);
+        if (hand is not var (item, type) || type is null || skills.WeaponBase(type.Row) is not var (ms, min, max, range)) return null;
+        var local = ItemWeaponStats.Calculate(item, (ms, min, max, range), catalog.Mods);
         var physical = local.Damage[GameServer.Core.World.DamageType.Physical];
         // The weapon's class decides Arcane Might's wand-only grant and the melee context of its own components.
         return new SkillCatalog.Unarmed(local.AttackMs, (int)physical.Min, (int)physical.Max, Math.Max(range, unarmed.Range))
         {
-            LocalDamage = local.Damage, LocalSources = ItemModStats.Local(item, ItemsFor(conn).Mods).ToFrozenDictionary(),
+            LocalDamage = local.Damage, LocalSources = ItemModStats.Local(item, catalog.Mods).ToFrozenDictionary(),
             WieldingWand = type.Class == "Wand", Melee = type.Class is not ("Wand" or "Bow"),
         };
     }
@@ -122,10 +131,17 @@ static partial class Game
     internal static WeaponProfile WeaponProfileFor(ClientState conn, bool activeSet = true)
     {
         var items = ItemsOf(conn);
+        return WeaponProfileFrom(row => items.Items(row), id => IsInactive(conn, id), ItemsFor(conn), activeSet, () => HasShield(conn));
+    }
+
+    // WeaponProfileFor from rows read once (the stat snapshot's tail inputs hold rows 2 and 3, the active set's hands).
+    internal static WeaponProfile WeaponProfileFrom(Func<byte, IReadOnlyList<InventoryItem>> rowItems, Func<uint, bool> inactive,
+        ItemCatalog catalog, bool activeSet, Func<bool> hasShield)
+    {
         // An inactive weapon (requirements not met) is not there at all: the class is unarmed, as the default attack's
         // unarmed fallback (WeaponFor) is.
-        ItemCatalog.BaseType? At(byte row) => items.Items(row).Where(i => !IsInactive(conn, i.Id))
-            .Select(i => ItemsFor(conn).ByHash(i.Item.TypeHash)).FirstOrDefault(t => t is not null);
+        ItemCatalog.BaseType? At(byte row) => rowItems(row).Where(i => !inactive(i.Id))
+            .Select(i => catalog.ByHash(i.Item.TypeHash)).FirstOrDefault(t => t is not null);
         static bool OneHandMelee(ItemCatalog.BaseType t) => t.Class is "Claw" or "Dagger" or "Rune Dagger"
             or "One Hand Sword" or "Thrusting One Hand Sword" or "One Hand Axe" or "One Hand Mace" or "Sceptre";
         static bool OneHand(ItemCatalog.BaseType t) => OneHandMelee(t) || t.Class == "Wand";
@@ -141,10 +157,10 @@ static partial class Game
         var dual = Pair(main1, off1) || Pair(main2, off2);
         var claws = (main1?.Class == "Claw" && off1?.Class == "Claw") || (main2?.Class == "Claw" && off2?.Class == "Claw");
         var unarmed = main1 is null && main2 is null;
-        var mainItem = items.Items(2).Concat(activeSet ? [] : items.Items(14)).Where(i => !IsInactive(conn, i.Id)).Select(i => i.Item).FirstOrDefault();
-        var local = mainItem is null ? [] : ItemModStats.Local(mainItem, ItemsFor(conn).Mods);
+        var mainItem = rowItems(2).Concat(activeSet ? [] : rowItems(14)).Where(i => !inactive(i.Id)).Select(i => i.Item).FirstOrDefault();
+        var local = mainItem is null ? [] : ItemModStats.Local(mainItem, catalog.Mods);
         return new WeaponProfile(
-            Shield: activeSet ? off1?.Class == "Shield" : HasShield(conn),
+            Shield: activeSet ? off1?.Class == "Shield" : hasShield(),
             DualWield: dual,
             Staff: all.Any(t => t.Class is "Staff" or "Warstaff"),
             Bow: all.Any(t => t.Class == "Bow"),
@@ -163,7 +179,7 @@ static partial class Game
             Wand: all.Any(t => t.Class == "Wand"),
             // The main hand's local critical chance and accuracy feed its character calculations. Local attack speed
             // is item metadata here; ItemWeaponStats already includes it in that hand's duration.
-            Critical: (main1 ?? main2) is { } main ? AddedBaseCriticalStrike.LocalWeaponChance(ItemsFor(conn).WeaponCritical(main),
+            Critical: (main1 ?? main2) is { } main ? AddedBaseCriticalStrike.LocalWeaponChance(catalog.WeaponCritical(main),
                 local.GetValueOrDefault("local_critical_strike_chance"), local.GetValueOrDefault("local_critical_strike_chance_+%")) : 0,
             LocalAttackSpeedPct: local.GetValueOrDefault("local_attack_speed_+%"),
             LocalAccuracy: local.GetValueOrDefault("local_accuracy_rating"));

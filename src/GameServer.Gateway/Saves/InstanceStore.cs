@@ -72,6 +72,20 @@ sealed partial class InstanceState
         lock (_startWeapons) return _startWeapons.TryGetValue(character, out var placed) && placed.Id == id;
     }
 
+    readonly HashSet<string> _states = new(StringComparer.Ordinal);
+
+    /// <summary>The instance's own quest states (Quests.InstanceFlag: the Library's hidden door, opened by its candle for
+    /// whoever is in this instance, never saved): true the first time one is set.</summary>
+    public bool SetState(string state)
+    {
+        lock (_states) return _states.Add(state);
+    }
+
+    public bool HasState(string state)
+    {
+        lock (_states) return _states.Contains(state);
+    }
+
     readonly HashSet<(int X, int Y)> _openedChests = [];
 
     /// <summary>Opens the quest chest standing at this cell (a Rhoa Nest): true the first time in this instance.</summary>
@@ -83,6 +97,20 @@ sealed partial class InstanceState
     public bool ChestOpened(int x, int y)
     {
         lock (_openedChests) return _openedChests.Contains((x, y));
+    }
+
+    readonly HashSet<(string Type, int X, int Y)> _transitioned = [];
+
+    /// <summary>Transitions the room object of this type standing at this cell (a trial's door, lever or plaque): true the
+    /// first time in this instance. It stays so for every later entry.</summary>
+    public bool Transition(string type, int x, int y)
+    {
+        lock (_transitioned) return _transitioned.Add((type, x, y));
+    }
+
+    public bool Transitioned(string type, int x, int y)
+    {
+        lock (_transitioned) return _transitioned.Contains((type, x, y));
     }
 
     public uint? PlaceTutorialItem(string key, WorldItemObject item)

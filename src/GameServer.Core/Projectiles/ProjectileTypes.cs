@@ -15,7 +15,12 @@ public readonly record struct ProjectileVector(double X, double Y)
     public override string ToString() => $"({X}, {Y})";
 }
 
-public sealed record ProjectileActor(ProjectileActorKey Key, int Team, Func<long, ProjectileVector> Position, double Radius);
+public sealed record ProjectileActor(ProjectileActorKey Key, int Team, Func<long, ProjectileVector> Position, double Radius)
+{
+    /// <summary>The actor's Positioned size in cells (a monster's ObjectSize − 1), for <see cref="ProjectileProfile.ContactCells"/>;
+    /// −1 is no footprint, which the client never contacts.</summary>
+    public int Size { get; init; }
+}
 public readonly record struct TerrainContact(double Fraction, ProjectileVector Normal);
 public enum ProjectileHitResult { Miss, Blocked, Hit }
 public enum ProjectileHitScope { Emission, Projectile }
@@ -41,11 +46,56 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
 }
 public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
-    bool RandomDirections = false);
+    bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null);
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);
 public sealed record ProjectileSplitFormRecipe(double SpeedMultiplier, int Pierce);
 public sealed record ProjectileTargetedRecipe(string Stage, int Count, double Radius);
+
+/// <summary>The client's volley (0x141bb13a0 with 0x141bb0f20's stats). A nova (0x141bb9500) puts projectile i at
+/// i × 2π / count from the aim. A fan (0x141bb9730) steps <see cref="FixedDegrees"/> / (count − 1) when set, otherwise
+/// atan(k × <see cref="Width"/> / aim distance), at most min(2π, k × 120°) / (count − 1) and at least 0.1428 rad, with
+/// k = 1 + <see cref="SpreadPercent"/> / 100 (live 2026-10-31: 175 Spark volleys).</summary>
+public sealed record ProjectileNativeVolley
+{
+    /// <summary>total_projectile_spread_angle_override, else 60 world units; in cells.</summary>
+    public double Width { get; init; } = 60 / 10.869565;
+    /// <summary>fixed_projectile_spread; −1 (projectile_remove_default_spread) sends every projectile along the aim.</summary>
+    public int FixedDegrees { get; init; }
+    /// <summary>multiple_projectiles_projectile_spread_+%.</summary>
+    public int SpreadPercent { get; init; }
+    public bool Nova { get; init; }
+    /// <summary>The host's seeded direction of each projectile from the aim (random_projectile_direction, 0x141bb9280).</summary>
+    public IReadOnlyList<double>? Angles { get; init; }
+
+    public double Angle(int index, int count, double distance)
+    {
+        if (Angles is { } angles) return angles[index];
+        if (Nova) return index * (6.28318f / count);
+        if (count <= 1) return 0;
+        double step;
+        if (FixedDegrees != 0) step = Math.Max(FixedDegrees, 0) * 0.017453292 / (count - 1);
+        else
+        {
+            double k = (SpreadPercent + 100) / 100.0;
+            step = Math.Max(Math.Min(Math.Atan(k * Width / Math.Max(.001, distance)),
+                Math.Min(2 * Math.PI, k * 2.0943952) / (count - 1)), .14279968);
+        }
+        return (index - (count - 1) / 2.0) * step;
+    }
+}
+
+/// <summary>A self-steering flight (Spark's wander): the host's source picks every leg, as the client does for the
+/// projectiles it draws itself, so the server's flight is the one on screen.</summary>
+public interface IProjectileLegs
+{
+    /// <summary>Seconds this flight lives, decided before its first leg.</summary>
+    double Lifetime { get; }
+    ProjectileLeg First(ProjectileVector from, ProjectileVector aim);
+    /// <summary>The leg after the last one ended (<paramref name="blocked"/> false) or terrain stopped it.</summary>
+    ProjectileLeg Next(ProjectileVector from, bool blocked);
+}
+public readonly record struct ProjectileLeg(ProjectileVector Target, double Speed);
 
 /// <summary>Resolved stage parameters. Counts and restrictions are resolved before a use is released.</summary>
 public sealed record ProjectileProfile(string Id)
@@ -56,6 +106,8 @@ public sealed record ProjectileProfile(string Id)
     public bool? CircularSpread { get; init; }
     /// <summary>Sample each launch direction within the spread instead of placing an evenly spaced fan.</summary>
     public bool RandomSpread { get; init; }
+    /// <summary>The client's own volley, for projectiles the client draws itself. Overrides <see cref="SpreadRadians"/>.</summary>
+    public ProjectileNativeVolley? NativeVolley { get; init; }
     /// <summary>Zero keeps a fixed fan; positive values widen it as aim approaches the emitter.
     /// The host adopts/calibrates the reference distance, independently of projectile count.</summary>
     public double AimSpreadDistance { get; init; }
@@ -65,6 +117,10 @@ public sealed record ProjectileProfile(string Id)
     /// fork, chain and split start a new movement instance with a fresh budget.</summary>
     public double Range { get; init; } = 150;
     public double Radius { get; init; } = 4;
+    /// <summary>The client's object contact, for projectiles it draws itself: its Projectiles.dat row's
+    /// max(CollisionRadius, CollisionCandidateRadius). Set, a flight cell contacts an actor whose Chebyshev cell distance
+    /// is at most this plus the actor's <see cref="ProjectileActor.Size"/>, and <see cref="Radius"/> is not used for actors.</summary>
+    public int? ContactCells { get; init; }
     public long Lifetime { get; init; } = 1200000;
     public long SequentialDelay { get; init; }
     public bool DirectDamage { get; init; } = true;
@@ -75,6 +131,9 @@ public sealed record ProjectileProfile(string Id)
     public double ChainRange { get; init; } = 60;
     public bool Returns { get; init; }
     public int ReturnChancePercent { get; init; }
+    /// <summary>The host's 0–99 return roll of each initial projectile, for projectiles the client rolls itself; null
+    /// rolls once for the whole use.</summary>
+    public IReadOnlyList<int>? ReturnRolls { get; init; }
     public double ReturnSpeedMultiplier { get; init; } = 1;
     public double ReturnOvershoot { get; init; }
     /// <summary>Null retains unlimited return contacts; zero admits no return contacts.</summary>
@@ -121,6 +180,13 @@ public sealed record ProjectileProfile(string Id)
     public bool SplitWithoutTargets { get; init; }
     public ProjectileTargetedRecipe? ContactTargets { get; init; }
     public long WanderInterval { get; init; }
+    /// <summary>Each initial projectile's leg source, by its index in the volley. Null flies straight.</summary>
+    public Func<int, IProjectileLegs>? Legs { get; init; }
+    /// <summary>A legged flight ends this far from where it started; zero has no limit.</summary>
+    public double LegLeash { get; init; }
+    /// <summary>The server simulates this flight for damage but sends no object: the client draws it itself (Tornado
+    /// Shot's terminal secondary arrows).</summary>
+    public bool HideVisual { get; init; }
 }
 
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,
@@ -131,6 +197,10 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     /// <summary>Optional initial-projectile snapshots; continuation children inherit their parent's selected payload.</summary>
     public IReadOnlyList<object?>? ProjectilePayloads { get; init; }
     public int Seed { get; init; } = 1;
+    /// <summary>The client action sequence that released this use, for the native terminal RNG.</summary>
+    public ushort Sequence { get; init; }
+    /// <summary>The cast's repeats left at release, for the native terminal RNG.</summary>
+    public uint RepeatsLeft { get; init; }
 }
 
 public sealed class ProjectileEntity
@@ -161,6 +231,8 @@ public sealed class ProjectileEntity
     public ProjectileVector Position { get; internal set; }
     public ProjectileVector Direction { get; internal set; }
     public long CreatedAt { get; }
+    /// <summary>The arrow's index in its release volley; the terminal RNG's mother-derived byte is 2 + this.</summary>
+    public int VolleyIndex { get; internal set; }
     public long ExpiresAt { get; internal set; }
     public int Phase { get; internal set; }
     public double Remaining { get; internal set; }
@@ -176,6 +248,12 @@ public sealed class ProjectileEntity
     internal ProjectileActorKey? TurnaroundTarget;
     internal long ChildEmission;
     internal int EmissionNumber;
+    internal IProjectileLegs? Legs;
+    internal ProjectileVector LegStart;
+    internal bool LegLeashed;
+    /// <summary>A legged flight stopped by terrain picks its next leg at once but moves from the next tick, as the
+    /// client's does from its next frame; otherwise a blocked turn could repeat at one instant.</summary>
+    internal long WaitUntil;
     internal readonly Random Random;
     public Random RandomSource { get; }
     public Random RewardRandomSource { get; }

@@ -136,6 +136,21 @@ public sealed class ItemCatalogueTests
             Assert.NotEqual([], definition.Implicits);
         }
 
+        // The hidden level overrides PoB leaves out: every one of these is lower than its base type's drop level.
+        (string Name, int Level)[] hiddenLevels =
+        [
+            ("Araku Tiki", 1), ("Blackheart", 1), ("Cragfall", 4), ("Craghead", 4), ("Doedre's Damning", 1),
+            ("Kalandra's Touch", 1), ("Kaom's Sign", 1), ("Karui Ward", 5), ("Malachai's Artifice", 5),
+            ("Perandus Signet", 1), ("Replica Doedre's Damning", 1), ("Replica Karui Ward", 5),
+            ("Replica Malachai's Artifice", 5), ("Seven-League Step", 1), ("Sidhebreath", 1),
+            ("Stone of Lazhwar", 5), ("Sudden Dawn", 3), ("Tear of Purity", 5),
+        ];
+        foreach (var (name, level) in hiddenLevels)
+        {
+            var item = uniques.Create(name, random)!;
+            Assert.Equal(level, ItemModStats.LevelRequirement(item, items.ByHash(item.TypeHash)!.DropLevel, items.Mods));
+        }
+
         // What the export gets wrong: mod ids that look like metadata, alternate variants, the newest base, same-name
         // bases, an old base's implicits, stale rolls, and a mod in both lists.
         Assert.Equal(["CorruptedMagicJewelModEffectUnique__1"], uniques.Find("The Adorned")!.Mods);

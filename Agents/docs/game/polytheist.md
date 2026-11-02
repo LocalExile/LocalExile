@@ -199,8 +199,8 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   player's feet: two per 800 ms of the Templar's run animation (the first 233 ms after the walk starts), more often
   with movement speed and less when chilled (the wiki: movement speed raises the frequency; cast speed does nothing).
   A movement skill's blink is no walk, so it triggers nothing, as the wiki says. The wiki's one exception, Shield
-  Charge (the player still walks, faster), is a known gap: Shield Charge is a Movement skill here and blinks too, so it
-  triggers nothing until it gets a walk-like charge. Nothing triggers in town, in the grace
+  Charge (the player still walks, faster), walks its charge ([11](../protocol/11-skills.md) §10k), so it steps at the
+  charge speed; not checked live yet. Nothing triggers in town, in the grace
   period, or while the player is dead, frozen or stunned. The hit is the level-20 row's 300-450 fire
   (GrantedEffectStatSetsPerLevel 45353) with the player's increases, added damage and conversion (`GrantedSpellHit`),
   a 5% base spell critical chance (with the Solaris increase against Blinded targets) and the spell multiplier, rolled
@@ -258,9 +258,9 @@ These effects are not faked. Each waits for an engine system that does not exist
   (Frostblink, the Aquamarine flask) do not create it either.
 - **Corrupted Blood cannot be inflicted on you** (Ralakesh): nothing inflicts Corrupted Blood.
   The only related code maps a flask's bleed-and-Corrupted-Blood immunity to `immune_to_bleeding`.
-- **Shield Charge sets off Abberath's Fury** (Abberath; the wiki's one movement-skill exception): Shield Charge is a
-  Movement skill here, so the player blinks to the aimed cell and takes no footsteps.
-  It needs a charge that moves like a walk (`FootstepsDue` then advances during it).
+- **Shield Charge sets off Abberath's Fury** (Abberath; the wiki's one movement-skill exception): the charge now walks
+  to the aimed cell ([11](../protocol/11-skills.md) §10k), so `FootstepsDue` advances during it.
+  Not checked with the client yet.
 
 ## Admission
 
