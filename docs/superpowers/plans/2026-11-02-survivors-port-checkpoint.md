@@ -57,7 +57,7 @@ This branch is the port, based directly on `dfcdc8f3`.
 ## Latest fixes (2026-11-02, evening)
 
 - **Unique stats now reach the character.** The stat cache in CharacterStatSources was the blocker: an exempted
-  item stayed out of the cached ctive list. Progression.cs now adds the run's items to ctive, drops their ids
+  item stayed out of the cached active list. Progression.cs now adds the run's items to active, drops their ids
   from the previous inactive set, and the cache key carries SurvivorsItemIds. Live: `The Primordial Chain` logged
   `base_life_regeneration_rate_per_minute 0->187, base_number_of_golems_allowed 0->3`.
 - **Ground loot.** `SurvivorsClearGround` runs at start, on area resume and once per run second; it takes every

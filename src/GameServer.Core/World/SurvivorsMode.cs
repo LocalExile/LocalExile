@@ -1,4 +1,4 @@
-﻿using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Core.World;
 
