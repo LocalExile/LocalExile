@@ -1371,6 +1371,8 @@ static partial class Game
             blocked = HardcoreProgressBlocked(conn);
         }
         await SendVaalSouls(remote, stream, ciphers, conn);
+        // Every kill in a survivors run feeds the run's own experience, whoever landed it (survivors-mode.md).
+        if (m.Hostile) conn.Survivors?.RecordKill(m.Rarity);
         // A dead Hardcore character's kills (an ignite still burning) make no progress, as a projectile's (CommitProjectileKill).
         if (blocked || m.Variety is not { } variety || !m.Hostile) return;
         var killer = PlayerOf(conn);

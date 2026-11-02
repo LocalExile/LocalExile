@@ -86,6 +86,8 @@ static partial class Game
     {
         var conn = session.Conn;
         var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
+        // A survivors run counts every hostile kill, including the run's own projectile kills (survivors-mode.md).
+        if (monster.Hostile) conn.Survivors?.RecordKill(monster.Rarity);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
