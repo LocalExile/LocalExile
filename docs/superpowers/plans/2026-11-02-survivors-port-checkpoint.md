@@ -48,12 +48,10 @@ This branch is the port, based directly on `dfcdc8f3`.
 
 ## Open items
 
-1. **Ground items still visible during a run.** The server log for the session has **no**
-   `0x02b9 create world item` lines at all, yet the client shows a pile of items with gold prices
-   (Iron Greaves, Glass Shank, Scroll of Wisdom ...). So those objects are not created by the survivors
-   or drop paths in this session - they look like the area's own pre-placed stock (the fork's gold
-   vendor) or client-cached objects. Decide: hide every world object the client has at run start
-   (needs their ids from the shop/instance), or accept them as the area's scenery.
+1. **Ground items (fixed).** The pile seen during a run was loot left by earlier sessions in the area's`
+instance store. `StartSurvivors` now sends `0x02bb RemoveObject` for every `Instance.Ground` item before
+the run: the live pass logged **351 hidden items** and the floor cleared. A few labels near a fresh corpse
+remained (created after the sweep); if they matter, re-sweep on the first run tick.
 2. Area change at 02:00 in the new tree (`ResumeSurvivors` + carry) not exercised yet.
 3. Push `port/survivors-mode` to the fork and update PR #502 (title/body: drop "needs port", keep the
    preview note); issue #503 (verify every projectile skill and its supports) stays open.
