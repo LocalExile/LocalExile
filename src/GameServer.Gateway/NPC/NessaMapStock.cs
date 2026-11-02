@@ -1,7 +1,8 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 
-/// <summary>The legacy named-map catalogue, independent of ambiguous display-name lookup.</summary>
+/// <summary>The map catalogue Nessa's development shop sells, independent of ambiguous display-name lookup: one
+/// generic "Map (Tier N)" key for every tier 1-16, the tier-17 map items, and the unique map identities.</summary>
 static class NessaMapStock
 {
     public sealed record Entry(ItemCatalog.BaseType Type, Item Item, string Name, int Tier);
@@ -12,15 +13,22 @@ static class NessaMapStock
         if (!File.Exists(Table("Maps"))) return [];
         using var maps = JsonDocument.Parse(File.ReadAllBytes(Table("Maps")));
         var rows = maps.RootElement.EnumerateArray().ToArray();
-        var regular = rows.Select(r => (Row: r, Type: items.Row(r.GetProperty("BaseItemTypesKey").GetInt32())))
-            .Where(p => p.Type is { Supported: true, Class: "Map" }
+        // The generic map keys name their tier themselves (MapKey component); the client reads the tier from the base.
+        var result = new List<Entry>();
+        for (int tier = 1; tier <= 16; tier++)
+            if (items.Find($"Metadata/Items/Maps/MapKeyTier{tier}") is { Supported: true } type)
+                result.Add(new(type, ItemCatalog.Create(type), type.Name, tier));
+        // There is no MapKeyTier17: the tier-17 maps are ordinary MapWorlds items.
+        var tier17 = rows.Select(r => (Row: r, Type: items.Row(r.GetProperty("BaseItemTypesKey").GetInt32())))
+            .Where(p => p.Row.GetProperty("Tier").GetInt32() == 17
+                && p.Type is { Supported: true, Class: "Map" }
                 && p.Type.Id.StartsWith("Metadata/Items/Maps/MapWorlds", StringComparison.Ordinal)
                 && !p.Type.Name.StartsWith('['))
             .GroupBy(p => p.Type!.Name, StringComparer.Ordinal)
-            .Select(g => g.OrderBy(p => p.Row.GetProperty("Tier").GetInt32()).ThenBy(p => p.Type!.Id).First())
-            .OrderBy(p => p.Row.GetProperty("Tier").GetInt32()).ThenBy(p => p.Type!.Name).ToList();
-        var result = regular.Select(p => new Entry(p.Type!, ItemCatalog.Create(p.Type!), p.Type!.Name,
-            p.Row.GetProperty("Tier").GetInt32())).ToList();
+            .Select(g => g.OrderBy(p => p.Type!.Id, StringComparer.Ordinal).First())
+            .OrderBy(p => p.Type!.Name, StringComparer.Ordinal)
+            .Select(p => new Entry(p.Type!, ItemCatalog.Create(p.Type!), p.Type!.Name, 17));
+        result.AddRange(tier17);
         if (!File.Exists(Table("UniqueMaps")) || !File.Exists(Table("Words")) || !File.Exists(Table("ItemVisualIdentity"))) return result;
         using var uniques = GameTables.Open(Table("UniqueMaps"));
         using var words = GameTables.Open(Table("Words"));

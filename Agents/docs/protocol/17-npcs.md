@@ -233,10 +233,14 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   additions put Faster Attacks on Nessa after a1q2 and Faster Casting on Yeena after a2q4. Live 2026-10-26: Nessa
   listed the Witch's a1q1 and a1q4 gems, then the a1q2 gems plus Faster Attacks after the flag; Lilly is unit-tested
   only (the Act 6 town has no walk-map capture and spawns the player in water).
-  Nessa's goods use exact MapWorlds base identifiers, one ordinary white item per display name, ordered by tier/name.
-  UniqueMaps supplies one identified unique item per name, with Words HASH32 and ItemVisualIdentity HASH16.
-  These are catalogue identities; complete unique modifier sets and unique-area device routing remain unimplemented.
-  No MapAtlas, MapTier or generic MapKey entries are mixed into this stock.
+  Nessa's development stock adds Awakened Gems and Exceptional Gems tabs and keeps the ordinary colour tabs ordinary
+  (transfigured, Trarthan and creatable Vaal variants stay there). Its progression-filtered Skills tab is shown only
+  when it has stock. `ItemCatalog.AwakenedShopGems` restores the whole awakened table (3.29 disables the non-exceptional
+  rows for normal play); `ExceptionalShopGems` is the GemTags "exceptional" set without the awakened rows.
+  Nessa's maps are separate tabs: "Maps" has one generic `Map (Tier N)` item (`MapKeyTier1` … `MapKeyTier16`) per tier
+  plus the MapWorlds tier-17 maps, and "Unique Maps" has one identified unique item per UniqueMaps name, with Words
+  HASH32 and ItemVisualIdentity HASH16. These are catalogue identities; complete unique modifier sets and unique-area
+  device routing remain unimplemented. No numbered MapWorlds catalogue is mixed into Goods.
   Goods2, Goods3 and later pages are created automatically when needed.
   Tabs fill row by row. 0x8c's u16 is the window kind (`0x14073ee60`, +0x5f0), not an NPCShop row: 0 buy, 1-4 haggle,
   deal, exchange and expedition, 9 Azmeri, 10 black market, 11 unset; the Gateway sends 0. The window is chosen by the

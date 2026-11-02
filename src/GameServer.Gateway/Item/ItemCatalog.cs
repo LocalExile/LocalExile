@@ -168,6 +168,14 @@ sealed class ItemCatalog
         /// <summary>A Vaal gem's own row (IsVaalVariant) or an awakened one (RegularVariant set).</summary>
         public bool IsVaalOrAwakened { get; init; }
 
+        /// <summary>An Awakened row (its SkillGems RegularVariant names the ordinary gem it upgrades); its name starts
+        /// with "Awakened ". 3.29 keeps the rows but disables the ordinary awakened supports for normal play.</summary>
+        public bool IsAwakened { get; init; }
+
+        /// <summary>Carries the GemTags "exceptional" tag: the Greater supports, the Pacts and Awakened
+        /// Empower/Enhance/Enlighten.</summary>
+        public bool IsExceptional { get; init; }
+
         /// <summary>SkillGems MtxSlotTypes: the MicrotransactionSkillGemEffectSlotTypes rows its Cosmetics tab skill slots
         /// take (0 the skill's effect, 1 a totem skin).</summary>
         public IReadOnlyList<int> MtxSlotTypes { get; init; } = [];
@@ -207,11 +215,28 @@ sealed class ItemCatalog
             .DistinctBy(t => t.Name).OrderBy(t => t.DropLevel).ThenBy(t => t.Name)];
 
     /// <summary>The local full gem shop: every writable, creatable variant, including transfigured and Vaal gems.
-    /// Keep the catalog's creatability checks: placeholder and unsupported awakened rows are not safe to create.</summary>
-    public IReadOnlyList<(BaseType Type, GemVariant Variant)> FullShopGems(int colour, bool support) =>
+    /// Keep the catalog's creatability checks: placeholder and unsupported awakened rows are not safe to create.
+    /// <paramref name="ordinaryOnly"/> leaves the Awakened and Exceptional tabs' gems out of the colour tabs.</summary>
+    public IReadOnlyList<(BaseType Type, GemVariant Variant)> FullShopGems(int colour, bool support, bool ordinaryOnly = false) =>
         [.. _rows.Value.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
-                && Gem(t) is { } g && g.Colour == colour && g.IsSupport == support)
+                && Gem(t) is { } g && g.Colour == colour && g.IsSupport == support
+                && (!ordinaryOnly || !g.IsAwakened && !g.IsExceptional))
             .SelectMany(t => Gem(t)!.Variants.Where(v => v.Creatable).Select(v => (Type: t, Variant: v)))
+            .OrderBy(x => x.Type.DropLevel).ThenBy(x => x.Variant.Name)];
+
+    /// <summary>The Awakened tab: every writable Awakened gem. Its rows are creatable only for the exceptional
+    /// supports in ordinary play, but the local development shop restores the whole 3.29 table.</summary>
+    public IReadOnlyList<(BaseType Type, GemVariant Variant)> AwakenedShopGems() =>
+        [.. _rows.Value.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+                && Gem(t) is { IsAwakened: true })
+            .SelectMany(t => Gem(t)!.Variants.Where(v => v.Effect >= 0).Select(v => (Type: t, Variant: v)))
+            .OrderBy(x => x.Type.DropLevel).ThenBy(x => x.Variant.Name)];
+
+    /// <summary>The Exceptional tab: the exceptional gems that are not Awakened (the Greater supports and Pacts).</summary>
+    public IReadOnlyList<(BaseType Type, GemVariant Variant)> ExceptionalShopGems() =>
+        [.. _rows.Value.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+                && Gem(t) is { IsExceptional: true, IsAwakened: false })
+            .SelectMany(t => Gem(t)!.Variants.Where(v => v.Effect >= 0).Select(v => (Type: t, Variant: v)))
             .OrderBy(x => x.Type.DropLevel).ThenBy(x => x.Variant.Name)];
 
     /// <summary>A base type's gem (its SkillGems row), or null for items that are not gems.</summary>
@@ -394,6 +419,19 @@ sealed class ItemCatalog
         using var b = GameTables.Open(Table("BaseItemTypes"));
         using var x = GameTables.Open(Table("ItemExperiencePerLevel"));
         using var xt = GameTables.Open(Table("ItemExperienceTypes"));
+        // Optional: GemTags' row index for "exceptional" (the Greater supports, Pacts and Awakened exceptional supports).
+        bool hasGemTags = File.Exists(Table("GemTags"));
+        var exceptionalTags = new HashSet<int>();
+        if (hasGemTags)
+        {
+            using var tags = GameTables.Open(Table("GemTags"));
+            int tagRow = 0;
+            foreach (var tag in tags.RootElement.EnumerateArray())
+            {
+                if (tag.TryGetProperty("Id", out var id) && id.GetString() == "exceptional") exceptionalTags.Add(tagRow);
+                tagRow++;
+            }
+        }
         static int Row(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
         // Null or absent means no alternate; row zero remains a real effect, and must not be treated as missing.
         int Effect(JsonElement r, string name) => hardMode && Row(r, name + "Hardmode") is int alternate and >= 0
@@ -425,6 +463,7 @@ sealed class ItemCatalog
             bool awakened = Row(r, "RegularVariant") >= 0
                 && (expType < 0 || xt.RootElement[expType].GetProperty("Id").GetString() != "GemProgressionExceptionalPlus");
             bool rowCreatable = !baseName.StartsWith('[') && !baseName.StartsWith("WIP") && !awakened;
+            bool exceptional = false;
             var variants = new List<GemVariant>();
             foreach (var (v, i) in Variants(r))
             {
@@ -436,12 +475,19 @@ sealed class ItemCatalog
                     creatable &= regular.TryGetValue(effect2, out var baseSkill);
                     if (i > 0 && baseSkill is not null) name = "Vaal " + baseSkill;
                 }
+                exceptional |= hasGemTags && effects[v].TryGetProperty("GemTags", out var carried)
+                    && carried.EnumerateArray().Any(t => t.ValueKind == JsonValueKind.Number
+                        && exceptionalTags.Contains(t.GetInt32()));
                 variants.Add(new GemVariant(i, name, effect, effect2, creatable));
             }
+            bool exceptionalFallback = expType >= 0 && expType < xt.RootElement.GetArrayLength()
+                && xt.RootElement[expType].GetProperty("Id").GetString() is "GemProgressionExceptional" or "GemProgressionExceptionalPlus";
             result.TryAdd(baseRow, new GemType(baseRow, r.GetProperty("IsSupport").GetBoolean(), variants,
                 thresholds.GetValueOrDefault(expType) ?? [])
             {
                 Colour = Row(r, "GemColour"), IsVaalOrAwakened = vaal || Row(r, "RegularVariant") >= 0,
+                IsAwakened = baseName.StartsWith("Awakened ", StringComparison.Ordinal),
+                IsExceptional = exceptionalTags.Count > 0 ? exceptional : exceptionalFallback,
                 MtxSlotTypes = r.TryGetProperty("MtxSlotTypes", out var st) ? [.. st.EnumerateArray().Select(t => t.GetInt32())] : [],
                 StrengthPercent = Row(r, "StrengthRequirementPercent"), DexterityPercent = Row(r, "DexterityRequirementPercent"),
                 IntelligencePercent = Row(r, "IntelligenceRequirementPercent"),

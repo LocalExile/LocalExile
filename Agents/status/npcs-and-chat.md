@@ -81,10 +81,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Exact affix prices and special league/unique recipes remain partial; real-client recipe verification is pending.
   See [vendor recipes](../docs/protocol/24-vendor-recipes.md) for supported cases and explicit limitations.
   Live visibility verification pending; see protocol/17-npcs.md.
-- **Nessa's shop tabs:** Goods contains her supplies and the legacy MapWorlds catalogue, with automatic extra pages.
-  Ordinary maps are white and deduplicated by name; 28 unique names have unique rarity, name and artwork.
-  Full unique modifier sets and unique-area routing remain open.
-  The gem vendors (Nessa, Yeena, Clarissa, Petarus and Vanja, Lani, Lilly Roth, Siosa) have the seven gem tabs, with
+- **Nessa's shop tabs:** Goods contains her supplies. Maps holds one generic Map (Tier N) key for tiers 1-16 plus the
+  tier-17 maps, and Unique Maps holds the 28 unique names with unique rarity, name and artwork; both tabs paginate
+  automatically. Full unique modifier sets and unique-area routing remain open.
+  Nessa's development gem stock also splits Awakened Gems and Exceptional Gems into their own tabs; the ordinary colour
+  tabs leave those out. The progression-filtered Skills tab is shown only when it has stock. The split layout is
+  unit-tested; its updated native display is pending.
+  The gem vendors (Nessa, Yeena, Clarissa, Petarus and Vanja, Lani, Lilly Roth, Siosa) have the seven colour gem tabs, with
   the completed-quest/class progression, Siosa's and Lilly's all-class stock and the 3.29 cross-class supports
   (`GemVendorStock`); their gems cost the currency of their level-1 requirement tier (Wisdom, Transmutation, Alteration,
   Chance or Alchemy), the rest of the stock 1 Scroll of Wisdom. Nessa was checked live 2026-10-26; Lilly and Siosa are unit-tested only
