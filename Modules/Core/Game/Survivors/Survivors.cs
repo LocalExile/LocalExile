@@ -838,8 +838,13 @@ static partial class Game
         foreach (var (name, value) in skillStats) merged[name] = merged.GetValueOrDefault(name) + value;
         int Get(string name) => merged.GetValueOrDefault(name);
         bool spell = !skill.Attack;
-        double interval = SurvivorsFormulas.CastInterval(skill.CastTimeMs / 1000.0, rank,
-            Get("base_cast_speed_+%") + Get("cast_speed_+%") + (spell ? Get("spell_cast_speed_+%") : 0));
+        // An attack gem swings the weapon the character actually wears (a unique weapon's local damage, attack speed and
+        // type now matter); with no weapon it falls back to the mode's nominal weapon and the gem's cast time.
+        var weapon = WeaponFor(conn);
+        bool armedAttack = skill.Attack && weapon.LocalSources is not null;
+        double baseSeconds = armedAttack ? weapon.AttackSeconds(playerKeys) : skill.CastTimeMs / 1000.0;
+        int castSpeed = armedAttack ? 0 : Get("base_cast_speed_+%") + Get("cast_speed_+%") + (spell ? Get("spell_cast_speed_+%") : 0);
+        double interval = SurvivorsFormulas.CastInterval(baseSeconds, rank, castSpeed);
         using (ProjectileMutation(conn))
         {
             double world = ProjectileWorldTime(conn);
@@ -913,15 +918,22 @@ static partial class Game
             raw = SurvivorsGlobalAdded(raw, Get, effectiveness);
             raw = raw.Scale(roster.SkillScale);
         }
+        else if (armedAttack)
+        {
+            // The equipped weapon's own hit (local damage, local added, attack added) at the gem's effectiveness.
+            raw = SupportedAttackDamage.Raw(weapon, Get);
+            raw = SurvivorsGlobalAdded(raw, Get, 10_000);
+            raw = SpellDamage.WithEffectiveness(raw, effectiveness);
+        }
         else
         {
             bool unarmed = Get("flask_throw_charges_used_per_projectile") != 0;
-            var weapon = unarmed ? DamagePacket.Empty
+            var nominal = unarmed ? DamagePacket.Empty
                 : DamagePacket.Of(DamageType.Physical, roster.WeaponDamage * 0.45, roster.WeaponDamage * 0.9);
             var added = DamageStats.RawAdded(DamagePacket.Empty, Get, spell: false);
             added = SurvivorsGlobalAdded(added, Get, 10_000);
             added = SpellDamage.WithEffectiveness(added, effectiveness);
-            raw = SpellDamage.WithEffectiveness(weapon, effectiveness)
+            raw = SpellDamage.WithEffectiveness(nominal, effectiveness)
                 .Add(added.Scale(roster.SkillScale));
         }
         if (raw.IsZero) return 0;
@@ -941,8 +953,9 @@ static partial class Game
         if (hitDamage.IsZero && areaHit.IsZero) return 0;
 
         // The character's penetration, resistance modifiers and leech join the run's hit exactly as they join a gem's.
-        var local = spell ? null : WeaponFor(conn).LocalSources;
-        int baseCrit = spell ? SkillsFor(conn).SpellCritChance(skill.Effect, rank) ?? 0 : 500;
+        var local = spell ? null : weapon.LocalSources;
+        int baseCrit = spell ? SkillsFor(conn).SpellCritChance(skill.Effect, rank) ?? 0
+            : armedAttack ? WeaponProfileFor(conn, activeSet: true).Critical : 500;
         int crit = spell
             ? SpellCriticalStrike.Chance(baseCrit, _ => 0, Get)
             : AddedBaseCriticalStrike.Chance(baseCrit, Get("critical_strike_chance_+%"), spell: false, _ => 0, Get);

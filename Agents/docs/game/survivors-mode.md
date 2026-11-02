@@ -135,8 +135,11 @@ character (matched by its name word), is not offered again.
 and equipped uniques) is merged into every cast's stat dictionary beside the gem, its supports and the blessings. That
 gives the hit the unique's increased/more damage, conversion and added damage, cast speed, critical chance and
 multiplier, area, projectile speed, penetration/resistance modifiers, leech and ailment chance/duration through the same
-`PlayerHitDamage.Resolve` pipeline. Only items that fit an equipment row are offered: a jewel or flask has nowhere to go
-in a character whose inventory is emptied at the start, so it would be a wasted reward.
+`PlayerHitDamage.Resolve` pipeline. An attack gem also swings the **equipped weapon** (local damage, local added damage,
+attack time and local critical chance), so a unique weapon's own numbers matter; with no weapon it uses the mode's
+nominal weapon. Only items
+that fit an equipment row are offered: a jewel or flask has nowhere to go in a character whose inventory is emptied at
+the start, so it would be a wasted reward.
 
 ## Boss gate
 
@@ -314,9 +317,11 @@ No stat found: Tabula Rasa
 Every equipment unique resolves its `Mods.dat` rows and leaves a stat on the character; Tabula Rasa is the one whose
 identity is its white sockets, not a stat. The survivors pool now offers only items that fit an equipment row (no
 jewels, flasks or maps), so no reward is wasted. Equipping **The Searing Touch** raised Fireball's cast from
-`Fire 20.35-31.65, Cold 27.13-40.70` to `Fire 44.56-69.32, Cold 39.61-59.42`; the character's `FinalPlayerStats` is
-merged into every cast, so a unique's damage, cast speed, crit, area, projectile speed, penetration, leech and ailment
-mods all reach the run. A regression test (`UniqueCatalogueTests`) now checks the whole catalogue in CI.
+`Fire 20.35-31.65, Cold 27.13-40.70` to `Fire 44.56-69.32, Cold 39.61-59.42`; an equipped **Doomfletch** raised
+Tornado Shot's hit from `Physical 10.35-20.70` (the nominal unarmed weapon) to `Physical 28-80` (the bow's own local
+damage). The character's `FinalPlayerStats` is merged into every cast, so a unique's damage, cast speed, crit, area,
+projectile speed, penetration, leech and ailment mods all reach the run. A regression test (`UniqueCatalogueTests`) now
+checks the whole catalogue in CI.
 
 ## Needs testing
 
@@ -329,7 +334,8 @@ mods all reach the run. A regression test (`UniqueCatalogueTests`) now checks th
   server copies and only simulates their damage, so they are not separately visible.
 - **Unique mechanics that are not plain stats**: the sweep proves every equipment unique's Mods rows resolve to
   character stats, but conditional lines (per charge, at full life, on block, "while you have…") are only as good as
-  `PlayerHitDamage`/`FinalPlayerStats` model them; each such unique still deserves its own live check.
+  `PlayerHitDamage`/`FinalPlayerStats` model them; each such unique still deserves its own live check. An equipped
+  weapon's local damage, local added damage, attack time and local critical chance are used by attack gems.
 - **Boss balance**: the gate is verified, but the boss's life and the stage length have not been tuned together on a
   fresh character; a weak build can hold a stage open indefinitely (which is the intended gate, not a bug).
 
