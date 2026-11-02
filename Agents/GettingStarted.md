@@ -445,7 +445,6 @@ Environment variables, read when each server starts:
 |---|---|---|
 | `Game_GATEWAY_ENTER` | `1` (set by `live.ps1`) | `1` = enter the area after creating the player |
 | `Game_BIND` | `127.0.0.1` | address Auth and Gateway listen on |
-| `Game_LOCKSTEP` | off | serve a lockstep client: `1` on a connection confirmed as local, `network` on any connection ([07](docs/protocol/07-latency-visibility-movement.md) §6) |
 | `Game_LOGIN_PORT` | 20493 | login server port (must match step 6) |
 | `Game_GATEWAY_PORT` | 6112 | instance server port |
 | `Game_GATEWAY_HOST` | 127.0.0.1 | address (IP) Auth and the Gateway send the client for its first area and every area change |
