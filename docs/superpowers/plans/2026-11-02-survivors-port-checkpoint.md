@@ -12,6 +12,29 @@ The feature was originally built on the pre-refactor Gateway, then ported to the
   verification.
 - Next session: pick up at "Next steps" below.
 
+## Update: gem mechanics pass (2026-11-02, late)
+
+Commit `d2dbfa10` (pushed, PR #502 head) makes every run skill cast with its own game-data rows instead of one flat
+damage number:
+
+- Gem level = run rank. Base damage (`HitDamage`), damage effectiveness, conversion/gain, crit chance/multiplier,
+  cast time, projectile count, pierce/chain/fork/split, area, duration and ailment chances are read from the gem.
+- The hit runs through the Gateway's PoB port (`PlayerHitDamage.Resolve`, PoB 16de4b82 `calcDamage`); supports add
+  their real gem stats (`EffectStats` at the skill's rank) to the same dictionary.
+- Signature mechanics: Fireball explosion, Kinetic Blast clusters, Tornado Shot secondaries, Spark's seeded wander and
+  0.66 s hit window, Ice Spear's second form, Ball Lightning/Storm Burst pulses, chains (Lightning Arrow, Cobra Lash),
+  always-pierce gems, Vaal Spark/Lightning Trap volleys, Vaal Burning Arrow pierce.
+- Support formulas verified live: Added Fire 25% of physical (EK 14-22 -> Fire 3.5-5.5), Added Cold 4-6 x 300%
+  effectiveness (12-18), Faster Casting 0.75 -> 0.63 s, Increased Area radius 4 -> 4.6, Increased Critical 5% ->
+  11.2%, Faster Projectiles hit x1.2 and speed x1.5, Life Leech 2% of damage.
+- New dev commands: `/survivors test <gem>`, `/survivors link <support>`, `/survivors rank <1-8>`; a per-cast trace
+  under `Game_SURVIVORS_TRACE=1`.
+- Verification: all 25 projectile gems cast; Core 460, Data 45, Gateway 73 tests pass; build 0/0.
+- Remaining (issue #503): DOT components (caustic ground, Soulrend debuff, poison) need a monster ground-DOT model,
+  per-gem cast animations, and the full support x gem matrix.
+- The level-up window can be left open by a replaced run; `SurvivorsOfferIfDue` now refuses to deal an offer for a run
+  that is no longer `conn.Survivors`, and the run's `finally` restarts a clock it may have stopped.
+
 ## Where everything is
 
 | What | Where |
@@ -30,6 +53,7 @@ The feature was originally built on the pre-refactor Gateway, then ported to the
 ## Commits (port branch, newest first)
 
 ```
+d2dbfa10 feat: every survivors gem casts with its own stats and PoB formulas
 35eb8214 docs: full survivors port checkpoint for the next session
 a6acfbe9 fix: closing the survivors window takes the first reward instead of reopening
 be57c615 feat: the survivors level-up window reopens instead of hanging the run
@@ -52,10 +76,10 @@ de07fbd6 merge: upstream main into the survivors port
 |---|---|
 | Horde | from the area's MonsterPacks, 14 alive at start to 120, magic/rare rolls, boss every 135 s, ring wave halfway |
 | Monster scaling | life ×1.75, damage ×1.9 by 15:00 (`MonsterModSet` with `maximum_life_+%` / `damage_+%`) |
-| Run skills | every projectile skill gem the data resolves; casts on its own timer (1.2 s ×0.93/rank, floor 0.2 s) |
-| Projectiles | one per target (nearest, or toughest for Pyroblast/Aimed Shot/Exorcism/Starfire), +1 at ranks 3/5/7; **server-created objects** (`0x2b9`), so the flight is visible |
-| Damage | roster median × (1 + 0.30/rank) × blessings/supports, ×2 crit |
-| Supports | 8 real support gems, up to 5 per skill, effects per skill (damage/cast/area/crit/projectile speed/leech) |
+| Run skills | every projectile skill gem the data resolves; gem level = run rank; the gem's own cast time, 7% shorter per rank, divided by increased cast speed (floor 0.2 s) |
+| Projectiles | one per target (nearest, or toughest for Pyroblast/Aimed Shot/Exorcism/Starfire), up to the gem's own count; the gem's pierce/chain/fork/split/area/duration apply |
+| Damage | PoB calcDamage: the gem's base at rank (gem level) + added × effectiveness, converted, increased/more; the catalogue's median rank-1 hit equals the area's median monster life; crit ×1.5 |
+| Supports | 8 real support gems, up to 5 per skill, each linked at the skill's rank and read for its real stats (added fire/cold/lightning, cast speed, area, crit, projectile speed/damage, life leech) |
 | Blessings | 8 run-local passives (Might, Haste, Area, Critical, Leech, Wisdom, Fortitude, Swiftness) |
 | Unique items | every 3rd run level; equipped on pick; level/attribute requirements waived for the run; mods reach the character (cache key + active list fix) |
 | Heralds | Ash/Ice/Thunder/Agony/Purity as `Herald` kind: aura pulse (12 cells, grown by rank/area) every cast, gem aura buff on the player (`0x1c1`) + impact packet (`0x1af`) on each hit |
