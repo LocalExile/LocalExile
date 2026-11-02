@@ -40,7 +40,52 @@ static class LabyrinthTrials
         // The Crypt trial's spinners (spinning morning stars) and the track pieces that turn them back or switch their
         // way (SpinnerStopper_Straight, _TriCorner: Transitionable swaps the piece's animation).
         Spinner = "Metadata/Terrain/Labyrinth/Traps/LabyrinthSpinner",
-        RailSwitch = "Metadata/Terrain/Labyrinth/Traps/Rail_Visible_Swap_Anims01";
+        RailSwitch = "Metadata/Terrain/Labyrinth/Traps/Rail_Visible_Swap_Anims01",
+        // The same with its two animations the other way round (state 1 plays its clip 1): the Labyrinth's spinner rooms'
+        // SpinnerStopper_Corner2, under the spinner.
+        RailSwitchSwapped = "Metadata/Terrain/Labyrinth/Traps/Rail_Visible_Swap_Anims10";
+
+    public static bool IsRailSwitch(string type) => type is RailSwitch or RailSwitchSwapped;
+
+    /// <summary>The way a swap piece (<see cref="RailSwitchSwapped"/>, a corner, <see cref="PlacedAngle"/>) leads in this
+    /// state (direction (sin a, −cos a)): in state 1 its first arm, in 2 the other. A spinner on the piece runs the part of
+    /// its track that way and turns back at the piece (live 2026-11-01, the original: the Labyrinth's spinner rooms start on
+    /// the short part, round the track's corner). Its first arm is the line's angle; a mirrored room's piece, sent turned
+    /// a quarter back, has it a quarter on.</summary>
+    public static (double X, double Y) SwapWay(float angle, bool mirrored, bool transitioned)
+    {
+        double a = angle + ((mirrored ? 1 : 0) + (transitioned ? 1 : 0)) % 2 * Math.PI / 2;
+        return (Math.Round(Math.Sin(a), 6), Math.Round(-Math.Cos(a), 6));
+    }
+
+    /// <summary>The state a swap piece is sent in for its logical one: state 1 (clip 1) shows its other arm (live
+    /// 2026-11-01), and a mirrored room's the other way round (the client plays the unmirrored piece's clips, whose arms
+    /// a mirrored room swaps).</summary>
+    public static byte SwapClientState(bool mirrored, bool transitioned) => transitioned != mirrored ? Closed : Open;
+
+    /// <summary>Whether a lever beside a swap piece stands on the side of the piece's first arm (else its other arm's).
+    /// Each part of the track has its lever and the lever's gears; pulling the one by the part the spinner runs sends it
+    /// to the other part, and that lever stays pulled, gears turning, until the other is pulled (live 2026-11-01, the
+    /// original: the two levers switch each other off).</summary>
+    public static bool OnFirstArm((int X, int Y) lever, (int X, int Y) swap, float angle, bool mirrored)
+    {
+        var (fx, fy) = SwapWay(angle, mirrored, false);
+        var (sx, sy) = SwapWay(angle, mirrored, true);
+        double dx = lever.X - swap.X, dy = lever.Y - swap.Y;
+        return dx * fx + dy * fy >= dx * sx + dy * sy;
+    }
+
+    /// <summary>A room line's angle as the Gateway sends it: a corner piece (<c>spinner_rail_corner</c>,
+    /// <c>SpinnerStopper_Corner</c>) in a mirrored room (orientation codes 4–7) turned a quarter back. The room's angle
+    /// only mirrors the line's angle, and the client draws the piece unmirrored: a mirrored L is the L turned a quarter
+    /// (live 2026-11-01: the Labyrinth's spinner rooms showed their corners facing away from the track).</summary>
+    public static float PlacedAngle(string model, float angle, int code)
+    {
+        string name = Path.GetFileName(model);
+        if (code is < 4 or >= 8 || !(name.StartsWith("spinner_rail_corner", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("SpinnerStopper_Corner", StringComparison.OrdinalIgnoreCase))) return angle;
+        return (angle - MathF.PI / 2 + MathF.PI * 2) % (MathF.PI * 2);
+    }
 
     /// <summary>The Crematorium trial's hot plates (one tile, three by three, one by three) and the gears a lever sets
     /// turning (TimerGears, <c>Cogs04_Quiet.ao</c>). The plates half in the walls (<c>_inert</c>: no Buffs) heat with the
@@ -229,9 +274,11 @@ static class LabyrinthTrials
     /// square of four all face round it; live 2026-10-31, the original: clockwise on the screen); a chain it follows to
     /// its end and back (<c>path_following_method = "reverse_when_path_ends"</c>).</summary>
     /// <remarks>A visible rail (the Chamber of Sins' track pieces, <paramref name="railAngles"/>; NaN for an invisible one)
-    /// joins along its own piece only, so the ends of a track's two lanes, 9 cells apart, do not close a ring.</remarks>
+    /// joins along its own piece only, so the ends of a track's two lanes, 9 cells apart, do not close a ring.
+    /// In the Labyrinth's own rooms (<paramref name="scratches"/>, the rooms' roomba scratch decals) the runs go any way:
+    /// a roomba takes the nearest run of its kind (<see cref="ScratchedRuns"/>), not only one under it.</remarks>
     public static RoombaPath?[] RoombaPaths(IReadOnlyList<(int X, int Y)> rails, IReadOnlyList<(int X, int Y, float Angle)> roombas,
-        IReadOnlyList<float>? railAngles = null)
+        IReadOnlyList<float>? railAngles = null, IReadOnlyList<(int X, int Y)>? scratches = null, IReadOnlyList<bool>? flying = null)
     {
         const double MaxDeviation = 6 * Math.PI / 180, OnRail = 4;
         (int X, int Y)[] axes = [(1, 0), (-1, 0), (0, 1), (0, -1)];
@@ -262,16 +309,17 @@ static class LabyrinthTrials
                     joined[i].Add(j);
                     joined[j].Add(i);
                 }
-        static double ToSegment((int X, int Y) p, (int X, int Y) a, (int X, int Y) b)
-        {
-            double dx = b.X - a.X, dy = b.Y - a.Y, len = dx * dx + dy * dy;
-            double t = len == 0 ? 0 : Math.Clamp(((p.X - a.X) * dx + (p.Y - a.Y) * dy) / len, 0, 1);
-            return Math.Sqrt(Math.Pow(p.X - a.X - t * dx, 2) + Math.Pow(p.Y - a.Y - t * dy, 2));
-        }
+        static double ToSegment((int X, int Y) p, (int X, int Y) a, (int X, int Y) b) => OnSegment(p, a, b).Distance;
+        var runs = scratches is null ? default : ScratchedRuns(rails, scratches);
         var paths = new RoombaPath?[roombas.Count];
         for (int r = 0; r < roombas.Count; r++)
         {
             var (x, y, angle) = roombas[r];
+            var network = joined;
+            double reach = OnRail;
+            if (runs.Scratched is not null && (flying?[r] == true ? runs.Flown : runs.Scratched) is var own
+                && Enumerable.Range(0, rails.Count).Any(i => own[i].Any(j => ToSegment((x, y), rails[i], rails[j]) <= RunReach)))
+                (network, reach) = (own, RunReach);
             double fx = Math.Sin(angle), fy = -Math.Cos(angle);
             // How far a run's way (A to B) lies along the facing: 1 straight ahead, -1 straight behind.
             double Along(int a, int b)
@@ -279,10 +327,10 @@ static class LabyrinthTrials
                 double dx = rails[b].X - rails[a].X, dy = rails[b].Y - rails[a].Y, len = Math.Sqrt(dx * dx + dy * dy);
                 return len == 0 ? 0 : (dx * fx + dy * fy) / len;
             }
-            var under = Enumerable.Range(0, rails.Count).SelectMany(i => joined[i].Where(j => j > i).Select(j => (A: i, B: j)))
+            var under = Enumerable.Range(0, rails.Count).SelectMany(i => network[i].Where(j => j > i).Select(j => (A: i, B: j)))
                 .Select(e => (e.A, e.B, Distance: ToSegment((x, y), rails[e.A], rails[e.B]), Along: Along(e.A, e.B)))
-                .Where(e => e.Distance <= OnRail)
-                .OrderByDescending(e => Math.Abs(e.Along) >= Math.Cos(Math.PI / 6)).ThenBy(e => e.Distance).FirstOrDefault();
+                .Where(e => e.Distance <= reach)
+                .OrderByDescending(e => reach == OnRail && Math.Abs(e.Along) >= Math.Cos(Math.PI / 6)).ThenBy(e => e.Distance).FirstOrDefault();
             if (under == default) continue;
             if (under.Along < 0) (under.A, under.B) = (under.B, under.A);
             // The run's rails in order: from one end of a chain, or round a ring.
@@ -291,20 +339,85 @@ static class LabyrinthTrials
             for (int at = under.A, next = under.B; next >= 0 && seen.Add(next); )
             {
                 order.Add(next);
-                (at, next) = (next, joined[next].FirstOrDefault(j => j != at && !seen.Contains(j), -1));
+                (at, next) = (next, network[next].FirstOrDefault(j => j != at && !seen.Contains(j), -1));
             }
             for (int at = under.B, back = under.A; ; )
             {
-                int prev = joined[back].FirstOrDefault(j => j != at && !seen.Contains(j), -1);
+                int prev = network[back].FirstOrDefault(j => j != at && !seen.Contains(j), -1);
                 if (prev < 0) break;
                 seen.Add(prev);
                 order.Insert(0, prev);
                 (at, back) = (back, prev);
             }
-            bool ring = order.Count > 2 && joined[order[0]].Contains(order[^1]);
+            bool ring = order.Count > 2 && network[order[0]].Contains(order[^1]);
             paths[r] = new RoombaPath([.. order.Select(i => rails[i])], ring);
         }
         return paths;
+    }
+
+    /// <summary>How far from its run a Labyrinth room's roomba may stand (its room line is placed roughly: the
+    /// OutdoorHouse indoor_trap_var2_2's ground roomba stands 13 cells off its ring).</summary>
+    const double RunReach = 25;
+
+    /// <summary>The runs of a Labyrinth room's invisible rails. No file links them (the real server's paths are its
+    /// own): a ground roomba's runs are the ones its room's scratch decals (<c>LabyrinthRoombaKit/R_scratch_*</c>) lie
+    /// along, any way (diagonals too), between rails at most 100 cells apart with no rail between them, the most scratched
+    /// first and none crossing another; a flying roomba scratches nothing, and the rails left join shortest first, at most
+    /// two runs a rail. Live (2026-11-01, the original):
+    /// OutdoorHouse's 2x2_trap_05 runs chains of four with right-angle turns and a slant, and its indoor_trap_var2_2 a
+    /// ground ring of three (one diagonal) beside a flying ring of four, with scratches along every ground run.</summary>
+    public static (List<int>[] Scratched, List<int>[] Flown) ScratchedRuns(IReadOnlyList<(int X, int Y)> rails, IReadOnlyList<(int X, int Y)> scratches)
+    {
+        const double Lane = 3, Longest = 100;
+        var scratched = Enumerable.Range(0, rails.Count).Select(_ => new List<int>()).ToArray();
+        var flown = Enumerable.Range(0, rails.Count).Select(_ => new List<int>()).ToArray();
+        static bool Inside((double T, double Distance) at) => at.T is > 0.05 and < 0.95 && at.Distance <= Lane;
+        var candidates = new List<(int A, int B)>();
+        for (int i = 0; i < rails.Count; i++)
+            for (int j = i + 1; j < rails.Count; j++)
+            {
+                double dx = rails[i].X - rails[j].X, dy = rails[i].Y - rails[j].Y;
+                if (rails[i] != rails[j] && dx * dx + dy * dy <= Longest * Longest
+                    && !Enumerable.Range(0, rails.Count).Any(k => rails[k] != rails[i] && rails[k] != rails[j] && Inside(OnSegment(rails[k], rails[i], rails[j]))))
+                    candidates.Add((i, j));
+            }
+        // Runs do not cross: the most scratched first, and none across one taken (a run over a ring's slant passes a
+        // scratch of it too).
+        var taken = new List<(int A, int B)>();
+        foreach (var (i, j, _) in candidates.Select(e => (e.A, e.B, Marks: scratches.Count(c => Inside(OnSegment(c, rails[e.A], rails[e.B])))))
+                     .Where(e => e.Marks > 0).OrderByDescending(e => e.Marks).ThenBy(e => e.A).ThenBy(e => e.B))
+        {
+            if (taken.Any(t => Cross(rails[i], rails[j], rails[t.A], rails[t.B]))) continue;
+            taken.Add((i, j));
+            scratched[i].Add(j);
+            scratched[j].Add(i);
+        }
+        // The rest, shortest first: at most two runs a rail, none crossing (a flying roomba's ring of four).
+        long Distance(int a, int b) => (long)(rails[a].X - rails[b].X) * (rails[a].X - rails[b].X) + (long)(rails[a].Y - rails[b].Y) * (rails[a].Y - rails[b].Y);
+        var flights = new List<(int A, int B)>();
+        foreach (var (i, j) in candidates.Where(e => scratched[e.A].Count == 0 && scratched[e.B].Count == 0).OrderBy(e => Distance(e.A, e.B)))
+        {
+            if (flown[i].Count >= 2 || flown[j].Count >= 2 || flights.Any(t => Cross(rails[i], rails[j], rails[t.A], rails[t.B]))) continue;
+            flights.Add((i, j));
+            flown[i].Add(j);
+            flown[j].Add(i);
+        }
+        return (scratched, flown);
+    }
+
+    /// <summary>Whether two segments cross away from their ends.</summary>
+    static bool Cross((int X, int Y) a, (int X, int Y) b, (int X, int Y) c, (int X, int Y) d)
+    {
+        static long Side((int X, int Y) p, (int X, int Y) q, (int X, int Y) r) => Math.Sign((long)(q.X - p.X) * (r.Y - p.Y) - (long)(q.Y - p.Y) * (r.X - p.X));
+        return Side(a, b, c) * Side(a, b, d) < 0 && Side(c, d, a) * Side(c, d, b) < 0;
+    }
+
+    /// <summary>Where along a segment (0 to 1) a cell lies nearest, and how far from it.</summary>
+    static (double T, double Distance) OnSegment((int X, int Y) p, (int X, int Y) a, (int X, int Y) b)
+    {
+        double dx = b.X - a.X, dy = b.Y - a.Y, len = dx * dx + dy * dy;
+        double t = len == 0 ? 0 : Math.Clamp(((p.X - a.X) * dx + (p.Y - a.Y) * dy) / len, 0, 1);
+        return (t, Math.Sqrt(Math.Pow(p.X - a.X - t * dx, 2) + Math.Pow(p.Y - a.Y - t * dy, 2)));
     }
 
     /// <summary>The Crypt trial's spinner track: its server track pieces (Rail_Visible and the Rail_Visible_Swap_Anims01
@@ -323,18 +436,20 @@ static class LabyrinthTrials
         readonly List<(int Rail, double X, double Y)>[] ways;
         readonly bool[] stopper;
         readonly int[] gate;
+        readonly ((double X, double Y) First, (double X, double Y) Other)?[] swaps;
 
-        SpinnerTrack(IReadOnlyList<(int X, int Y)> rails, List<(int, double, double)>[] ways, bool[] stopper, int[] gate) =>
-            (Rails, this.ways, this.stopper, this.gate) = (rails, ways, stopper, gate);
+        SpinnerTrack(IReadOnlyList<(int X, int Y)> rails, List<(int, double, double)>[] ways, bool[] stopper, int[] gate,
+            ((double X, double Y), (double X, double Y))?[] swaps) =>
+            (Rails, this.ways, this.stopper, this.gate, this.swaps) = (rails, ways, stopper, gate, swaps);
 
         /// <summary>The track of these pieces (others than a spinner track's are left out: null when none is one).</summary>
-        public static SpinnerTrack? Build(IReadOnlyList<(int X, int Y, float Angle, string Model)> pieces)
+        public static SpinnerTrack? Build(IReadOnlyList<(int X, int Y, float Angle, string Model)> pieces, IReadOnlyList<bool>? mirrored = null)
         {
             static (double X, double Y) Way(double a) => (Math.Round(Math.Sin(a), 6), Math.Round(-Math.Cos(a), 6));
             static double[]? Turns(string model) => Path.GetFileNameWithoutExtension(model).ToLowerInvariant() switch
             {
                 var m when m.StartsWith("spinner_rail_end") => [Math.PI],
-                var m when m.StartsWith("spinner_rail_corner") => [0, Math.PI / 2],
+                var m when m.StartsWith("spinner_rail_corner") || m.StartsWith("spinnerstopper_corner") => [0, Math.PI / 2],
                 var m when m.StartsWith("spinner_rail_crossing") => [0, Math.PI / 2, Math.PI, -Math.PI / 2],
                 var m when m.StartsWith("spinner_rail_straight") || m.StartsWith("spinnerstopper_straight") => [0, Math.PI],
                 var m when m.StartsWith("spinnerstopper_tricorner") => [0, Math.PI / 2, -Math.PI / 2],
@@ -380,18 +495,33 @@ static class LabyrinthTrials
             long Distance(int a, int b) => (long)(kept[a].X - kept[b].X) * (kept[a].X - kept[b].X) + (long)(kept[a].Y - kept[b].Y) * (kept[a].Y - kept[b].Y);
             int[] gate = [.. Enumerable.Range(0, kept.Count).Select(i => ways[i].Count < 3 ? -1
                 : Enumerable.Range(0, kept.Count).Where(k => switches[k] && part[k] == part[i]).OrderBy(k => Distance(i, k)).DefaultIfEmpty(-1).First())];
-            return new SpinnerTrack([.. kept.Select(p => (p.X, p.Y))], ways, stopper, gate);
+            var mirror = pieces.Select((p, i) => (p, mirrored?[i] ?? false)).Where(e => Turns(e.p.Model) is not null).Select(e => e.Item2).ToList();
+            var swaps = kept.Select((p, i) => Path.GetFileName(p.Model).StartsWith("SpinnerStopper_Corner", StringComparison.OrdinalIgnoreCase)
+                ? (((double, double), (double, double))?)(SwapWay(p.Angle, mirror[i], false), SwapWay(p.Angle, mirror[i], true)) : null).ToArray();
+            return new SpinnerTrack([.. kept.Select(p => (p.X, p.Y))], ways, stopper, gate, swaps);
+        }
+
+        // The way a swap piece leads now (open: in state 2), or null for any other piece.
+        (int Rail, double X, double Y)? SwapLead(int at, Func<int, bool> open)
+        {
+            if (swaps[at] is not { } swap) return null;
+            var (x, y) = open(at) ? swap.Other : swap.First;
+            foreach (var way in ways[at])
+                if (way.Item2 * x + way.Item3 * y > 0.99) return way;
+            return null;
         }
 
         /// <summary>The run a spinner stands on (within 4 cells), from the piece behind it to the one it faces (its room
         /// line's angle); where two runs cross under it, the one along its facing. Null when none.</summary>
-        public (int From, int To)? Start((int X, int Y) at, float angle)
+        public (int From, int To)? Start((int X, int Y) at, float angle, Func<int, bool>? open = null)
         {
             double fx = Math.Sin(angle), fy = -Math.Cos(angle);
             var runs = Enumerable.Range(0, Rails.Count).SelectMany(i => ways[i].Where(w => w.Rail > i).Select(w => (A: i, B: w.Rail, Along: w.X * fx + w.Y * fy)))
                 .Select(e => (e.A, e.B, e.Along, Distance: ToSegment(at, Rails[e.A], Rails[e.B])))
-                .Where(e => e.Distance <= 4)
+                .Where(e => e.Distance <= 4 && Leads(e.A, e.B) && Leads(e.B, e.A))
                 .OrderByDescending(e => Math.Abs(e.Along) >= Math.Cos(Math.PI / 6)).ThenBy(e => e.Distance).ToList();
+            // A swap piece's run only the way it leads now.
+            bool Leads(int piece, int to) => open is null || swaps[piece] is null || SwapLead(piece, open)?.Rail == to;
             if (runs.Count == 0) return null;
             var run = runs[0];
             return run.Along < 0 ? (run.B, run.A) : (run.A, run.B);
@@ -405,6 +535,8 @@ static class LabyrinthTrials
             double hx = Rails[at].X - Rails[from].X, hy = Rails[at].Y - Rails[from].Y, length = Math.Sqrt(hx * hx + hy * hy);
             (hx, hy) = length == 0 ? (0, 0) : (hx / length, hy / length);
             int Turn((int Rail, double X, double Y) w) { double cross = hx * w.Y - hy * w.X; return cross > 0.5 ? 1 : cross < -0.5 ? -1 : 0; }
+            // A swap piece sends a spinner its way, and turns it back when it comes from there.
+            if (SwapLead(at, open) is { } lead) return lead.Rail == from ? (from, -turn) : (lead.Rail, turn);
             var onward = ways[at].Where(w => w.Rail != from).ToList();
             if (onward.Count == 0 || stopper[at] && !open(at)) return (from, -turn);
             var ahead = onward.Where(w => w.X * hx + w.Y * hy > 0.9).ToList();
@@ -578,6 +710,89 @@ static class LabyrinthTrials
             foreach (int i in members)
                 placed[i] = (chain, (Tile(traps[i].X - traps[start].X) + Tile(traps[i].Y - traps[start].Y)) & 1, true);
             chain++;
+        }
+        return placed;
+    }
+
+    /// <summary>A room's <c>Trigger_*</c> line (server-only .ot, LabyrinthTrigger <c>trigger_method "timed"</c>,
+    /// <c>next_only_path 1</c>): it fires its traps every <paramref name="Period"/> seconds (<c>trigger_frequency</c>), one
+    /// <paramref name="Step"/> after the other along their path (<c>delay_between_traps</c>), first
+    /// <paramref name="Delay"/> after the start (<c>start_delay</c>).</summary>
+    public sealed record SpikeTrigger(double Period, double Step, double Delay);
+
+    static readonly Dictionary<string, SpikeTrigger> Triggers = new(StringComparer.Ordinal)
+    {
+        ["Trigger_CascadeFast"] = new(5, 0.2, 0),
+        ["Trigger_Delay_4_0"] = new(5, 0, 0),
+        ["Trigger_Delay_4_2"] = new(5, 0, 2.5),
+        ["Trigger_Delay_3_0"] = new(3, 0, 0),
+        ["Trigger_PulseSlow"] = new(6, 0.45, 0),
+        ["Trigger_PulseSlow_Delay"] = new(6, 0.45, 3),
+        ["Trigger_PulsePrison"] = new(7.2, 0.45, 0),
+    };
+
+    /// <summary>The trigger a room line is, or null: its type's last part, less the line's <c>WG</c> flags.</summary>
+    public static SpikeTrigger? Trigger(string type)
+    {
+        string name = type[(type.LastIndexOf('/') + 1)..];
+        if (name.EndsWith("WG", StringComparison.Ordinal)) name = name[..^2];
+        return Triggers.GetValueOrDefault(name);
+    }
+
+    /// <summary>Which trigger fires each spike trap and the trap's place on its path, (−1, 0) for none: a trigger takes
+    /// its nearest trap (within two tiles) and the traps joined to it a tile apart (as <see cref="SpikeChains"/>), each
+    /// as many steps on as it lies tiles from that one (live 2026-11-01, the original: a line of traps rises one after
+    /// the other from its trigger's end). Triggers that take the same traps (<c>Trigger_Delay_4_0</c> and <c>_4_2</c>)
+    /// share them as a checkerboard of the traps' own tiles (their angle), each the colour of its nearest.</summary>
+    public static (int Trigger, int Order)[] TriggeredSpikes(IReadOnlyList<(int X, int Y, float Angle)> traps, IReadOnlyList<(int X, int Y)> triggers)
+    {
+        var placed = Enumerable.Repeat((-1, 0), traps.Count).ToArray();
+        static bool Near((int X, int Y, float) a, (int X, int Y, float) b) => Math.Abs(a.X - b.X) <= SpikeHalf * 2 + 2 && Math.Abs(a.Y - b.Y) <= SpikeHalf * 2 + 2;
+        static long Distance(int ax, int ay, int bx, int by) => (long)(ax - bx) * (ax - bx) + (long)(ay - by) * (ay - by);
+        var group = new int[traps.Count];
+        Array.Fill(group, -1);
+        for (int first = 0, n = 0; first < traps.Count; first++)
+        {
+            if (group[first] >= 0) continue;
+            var todo = new Stack<int>([first]);
+            group[first] = n;
+            while (todo.TryPop(out int at))
+                for (int i = 0; i < traps.Count; i++)
+                    if (group[i] < 0 && Near(traps[at], traps[i])) { group[i] = n; todo.Push(i); }
+            n++;
+        }
+        const long Reach = (SpikeHalf * 4 + 2) * (SpikeHalf * 4 + 2);
+        var nearest = triggers.Select(t => traps.Count == 0 ? -1
+            : Enumerable.Range(0, traps.Count).MinBy(i => Distance(traps[i].X, traps[i].Y, t.X, t.Y)) is var i
+              && Distance(traps[i].X, traps[i].Y, t.X, t.Y) <= Reach ? i : -1).ToArray();
+        for (int t = 0; t < triggers.Count; t++)
+        {
+            int start = nearest[t];
+            if (start < 0) continue;
+            var (sx, sy, angle) = traps[start];
+            double cos = Math.Cos(angle), sin = Math.Sin(angle);
+            int Colour(int i)
+            {
+                double dx = traps[i].X - sx, dy = traps[i].Y - sy;
+                return ((int)Math.Round((dx * cos + dy * sin) / (SpikeHalf * 2 + 1.0)) + (int)Math.Round((-dx * sin + dy * cos) / (SpikeHalf * 2 + 1.0))) & 1;
+            }
+            if (Enumerable.Range(0, triggers.Count).Any(u => u != t && nearest[u] >= 0 && group[nearest[u]] == group[start]))
+            {
+                // A colour's tiles meet at their corners only: they rise together.
+                for (int i = 0; i < traps.Count; i++)
+                    if (group[i] == group[start] && Colour(i) == 0) placed[i] = (t, 0);
+                continue;
+            }
+            var steps = new Dictionary<int, int> { [start] = 0 };
+            var queue = new Queue<int>([start]);
+            while (queue.TryDequeue(out int at))
+                for (int i = 0; i < traps.Count; i++)
+                    if (group[i] == group[start] && !steps.ContainsKey(i) && Near(traps[at], traps[i]))
+                    {
+                        steps[i] = steps[at] + 1;
+                        queue.Enqueue(i);
+                    }
+            foreach (var (i, order) in steps) placed[i] = (t, order);
         }
         return placed;
     }
@@ -793,6 +1008,7 @@ static class LabyrinthTrials
         [Switch] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
         [MultiSwitch] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
         [RailSwitch] = ["Positioned", "BaseEvents", "Transitionable", "Animated"],
+        [RailSwitchSwapped] = ["Positioned", "BaseEvents", "Transitionable", "Animated"],
         [OpenDoor] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage", "MinimapIcon"],
         [Plaque] = ["Positioned", "BaseEvents", "Animated", "Transitionable", "MinimapIcon", "InteractionAction"],
         [Portal] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "MinimapIcon"],
@@ -820,6 +1036,26 @@ static class LabyrinthTrials
 
     /// <summary>The trial in this area, or null.</summary>
     public static Trial? For(string areaId) => All.Value.GetValueOrDefault(areaId);
+
+    /// <summary>Whether the area is one of the Labyrinth's own (WorldAreas IsLabyrinthArea: the <c>1_Labyrinth_*</c> rooms
+    /// of a run and Izaro's; not the plaza, not a trial): its rooms have the trials' traps.</summary>
+    public static bool InLabyrinth(string areaId) => LabyrinthAreas.Value.Contains(areaId);
+
+    static readonly Lazy<HashSet<string>> LabyrinthAreas = new(() =>
+    {
+        try
+        {
+            if (!File.Exists("data/tables/WorldAreas.json")) return [];
+            using var areas = JsonDocument.Parse(File.ReadAllBytes("data/tables/WorldAreas.json"));
+            return [.. areas.RootElement.EnumerateArray().Where(a => a.GetProperty("IsLabyrinthArea").GetBoolean())
+                .Select(a => a.GetProperty("Id").GetString() ?? "")];
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            Console.WriteLine($"[gateway] data/tables/WorldAreas.json: {ex.Message}");
+            return [];
+        }
+    });
 
     /// <summary>Every trial of the table (Normal, Cruel, Merciless and Eternal).</summary>
     public static IReadOnlyCollection<Trial> Trials => All.Value.Values;

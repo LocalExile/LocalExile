@@ -125,8 +125,8 @@ static class AreaPopulation
     /// <summary>A server object of a room the client placed (an NPC, a quest blocker): its type and model, grid cell,
     /// angle (radians) and scale, through the room's placement.</summary>
     /// <summary>A room's server object in grid cells; <paramref name="Height"/> is its line's fixed height (world z, down),
-    /// null to stand on the terrain.</summary>
-    public sealed record RoomObject(string Type, string Model, int X, int Y, float Angle, float Scale, float? Height = null);
+    /// null to stand on the terrain; <paramref name="Mirrored"/> whether its room is placed mirrored (orientation codes 4–7).</summary>
+    public sealed record RoomObject(string Type, string Model, int X, int Y, float Angle, float Scale, float? Height = null, bool Mirrored = false);
 
     /// <summary>A quest room placed where the client placed it (<see cref="FitRooms"/>): its points and server objects
     /// in grid cells (a Trial of Ascendancy's room: its traps, its pack points and monsters).</summary>

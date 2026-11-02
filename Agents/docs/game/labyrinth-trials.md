@@ -148,9 +148,22 @@ The Emerge action (0x1ab, basic action 0x0101) played the plain clip, and the sp
 cascade stand up at once and lower slowly.
 The spikes are up from about 100 ms to 1000 ms (the stretched clip's half), and lowering until 2000 ms.
 
-**The pattern.** The real timers are the rooms' `Trigger_PulsePrisonWG`, `Trigger_Delay_4_0WG` and
-`Trigger_Delay_4_2WG` lines: server objects with no `.ot` or model, absent from `room-points.json`.
-So the pattern is fitted by eye against the original (live 2026-10-31):
+**The pattern.** The real timers are the rooms' `Trigger_*` lines (`WG` is the line's flags, not the type): server
+objects with no model whose `.ot` (BaseEvents `server_only`, `no_serialise`) has a LabyrinthTrigger component,
+`trigger_method "timed"` and `next_only_path 1`:
+
+| Trigger | `trigger_frequency` | `delay_between_traps` | `start_delay` |
+|---|---|---|---|
+| `Trigger_CascadeFast` | 5000 ms | 200 ms | |
+| `Trigger_Delay_4_0`, `_4_2` | 5000 ms | 0 | 0, 2500 ms |
+| `Trigger_Delay_3_0` | 3000 ms | 0 | |
+| `Trigger_PulseSlow`, `_Delay` | 6000 ms | 450 ms | 0, 3000 ms |
+| `Trigger_PulsePrison` | 7200 ms | 450 ms | |
+
+Where a room has them the Gateway uses them (`LabyrinthTrials.TriggeredSpikes`): a trigger fires the traps joined to
+its nearest trap, one step a tile from it; two triggers on the same traps share them as a checkerboard of the traps'
+own tiles (live 2026-11-01, the original: a diagonal line of four rises from its `Trigger_CascadeFast` end).
+The Normal trials' rooms have none, so their pattern is fitted by eye against the original (live 2026-10-31):
 - a ring (every trap side by side with two others) cascades from its trap nearest the trial's lever, straight towards
   its trap nearest the trial's doors and on round, 450 ms a trap, starting again at once;
 - any other chain fires as a checkerboard: the tiles of the start's colour, then the others 2 s later, every 4 s.
@@ -384,6 +397,33 @@ so each opens its own: live 2026-11-01, the original) and sets the gears beside 
 loops clip 0, `idle` (3333 ms); clip 2, `stop`, is for the way back (not used). Each gear goes with its nearest lever
 (`LabyrinthTrials.TurnedGears`). Despite their name they turn on: the doors stay open.
 
+## The Labyrinth's own rooms
+
+Each `1_Labyrinth_*` area (WorldAreas `IsLabyrinthArea`) gets the trials' traps, levers and doors as above, without
+plaque, flag or portal (`LabyrinthTrials.InLabyrinth`). Their objects are the Gateway's generated rooms' lines
+(`ServerLevels`): `room-points.json` keeps only the Labyrinth's rooms with points, not its trap rooms.
+
+**Mirrored rooms** (orientation codes 4–7) mirror a line's angle only, and the client draws a server object
+unmirrored, so a corner piece (`spinner_rail_corner`, `SpinnerStopper_Corner`) is sent a quarter turn back
+(`LabyrinthTrials.PlacedAngle`): a mirrored L is the L turned a quarter (live 2026-11-01: corners faced away).
+
+**Spinner rooms' swap piece.** Under each spinner of the Crypt set's two-lever rooms lies a
+`Rail_Visible_Swap_Anims10` (`SpinnerStopper_Corner2`; the `.ot` is `Anims01`'s with the clips the other way round),
+the corner between the track's short part (round its corner) and its long part. The spinner runs one part and turns
+back at the piece; each part has a `Switch` with its gears. Live (2026-11-01, the original): it starts on the short
+part with the long part's lever pulled and its gears turning; pulling the short part's lever sends the spinner to the
+long part, and the two levers switch each other off. The piece's Transitionable state 1 shows its long arm; a mirrored
+room's piece is sent the other state.
+
+**Roomba runs** (`LabyrinthTrials.ScratchedRuns`): the rooms' invisible rails run any way, diagonals too, and no file
+links them. The rooms' scratch decals (`LabyrinthRoombaKit/R_scratch_*`) lie along every ground roomba's run: a run
+joins two rails at most 100 cells apart with no rail between them and a scratch along it, the most scratched first and
+none crossing another (a run across a ring's slant passes one of its scratches). A flying roomba scratches nothing:
+the rails left join shortest first, at most two runs a rail. A roomba takes the nearest run of its kind (its room line
+stands up to 13 cells off it), whatever way it faces. Checked live on `1_Labyrinth_OH_end` seed 1 (2026-11-01): a
+ground ring of three and a flying ring of four in `indoor_trap_var2_2`, two chains of four and one of two in
+`2x2_trap_05`.
+
 ## Monsters
 
 In the original there are no monsters among a trial's traps (live 2026-10-31); what stands in its rooms the room file
@@ -467,6 +507,7 @@ trial, before the player object is sent; which event sets it in the real game is
 ## Not built yet
 
 - The step-triggered spikes of Izaro's rooms, and the hot plates' Cruel and Merciless rooms.
-- The Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered`,
-  the alternate arrow traps).
+- The Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered` with their `PressurePlate_*`, the
+  alternate arrow traps), its `LabyrinthSpikeTrap_Pressure` spikes, `LabyrinthAbyssEdgeBlade` blades, `*_EH` hot
+  plates, `Door_Counter` puzzles and its rooms' monsters.
 - The Eternal trials' plaques drop an Offering to the Goddess.

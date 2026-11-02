@@ -173,4 +173,34 @@ public sealed class LabyrinthTrialTests
 
         Assert.Equal([new LabyrinthTrials.Trial("1_1_7_1", "NormalLabyrinthCompletedPrison", 263)], trials);
     }
+
+    [Fact]
+    public void LabyrinthRoomSpikesRiseFromTheirTrigger()
+    {
+        // 1_Labyrinth_P_straight seed 1's spiketraps_2_2: a diagonal line of four traps turned 315°, its
+        // Trigger_CascadeFastWG past its (760, 781) end (live 2026-11-01: they rise one after the other from there).
+        (int, int, float)[] line = [(744, 797, 5.498f), (712, 829, 5.498f), (728, 813, 5.498f), (760, 781, 5.498f)];
+        Assert.Equal([(0, 1), (0, 3), (0, 2), (0, 0)], LabyrinthTrials.TriggeredSpikes(line, [(769, 772)]));
+        Assert.Equal(new LabyrinthTrials.SpikeTrigger(5, 0.2, 0), LabyrinthTrials.Trigger("Metadata/Terrain/Labyrinth/Traps/Trigger_CascadeFastWG"));
+
+        // Two triggers on the same square of four share it as a checkerboard; a trap no trigger reaches keeps the chains.
+        (int, int, float)[] square = [(100, 100, 0), (123, 100, 0), (100, 123, 0), (123, 123, 0), (400, 400, 0)];
+        Assert.Equal([(0, 0), (1, 0), (1, 0), (0, 0), (-1, 0)], LabyrinthTrials.TriggeredSpikes(square, [(90, 100), (133, 100)]));
+    }
+
+    [Fact]
+    public void LabyrinthRoombasRunTheRailsTheirScratchesMark()
+    {
+        // 1_Labyrinth_OH_end seed 1's indoor_trap_var2_2 (live 2026-11-01, the original): the ground roomba goes round
+        // rails 0 3 4 (its scratches; one lies on the slant from 0 to 2 too), the flying one round 1 2 5 6.
+        (int, int)[] rails = [(456, 184), (488, 238), (501, 238), (498, 184), (456, 226), (516, 222), (506, 212)];
+        (int, int)[] scratches = [(499, 184), (477, 184), (456, 184), (456, 227), (486, 195), (474, 206), (465, 216), (456, 205)];
+
+        var paths = LabyrinthTrials.RoombaPaths(rails, [(487, 213, MathF.PI / 2), (515, 239, 0.262f)], null, scratches, [false, true]);
+
+        Assert.True(paths[0]!.Ring);
+        Assert.Equal([rails[0], rails[3], rails[4]], paths[0]!.Rails.OrderBy(r => Array.IndexOf(rails, r)));
+        Assert.True(paths[1]!.Ring);
+        Assert.Equal([rails[1], rails[2], rails[5], rails[6]], paths[1]!.Rails.OrderBy(r => Array.IndexOf(rails, r)));
+    }
 }

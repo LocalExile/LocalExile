@@ -2,8 +2,8 @@ namespace GameServer.Data.Terrain.Generation;
 
 /// <summary>A tile object the server creates itself: an area transition or a waypoint, at a grid cell, with its
 /// object type (.ot), its virtual model, its angle, its height (the record's z, negative is up) and its tile's
-/// orientation code.</summary>
-public sealed record PlacedTileObject(string Type, string Model, int X, int Y, float Rotation, float Z, int Code = 0);
+/// orientation code; a room's server object line also its scale.</summary>
+public sealed record PlacedTileObject(string Type, string Model, int X, int Y, float Rotation, float Z, int Code = 0, float Scale = 1);
 
 /// <summary>A placed .arm room as scripts/walkmaps captures it (&lt;area&gt;_seed&lt;seed&gt;.rooms.json, the room
 /// loop of the doodad stage <c>0x142040770</c>): its origin and its unturned size (room data +0x138 / +0x139) in grid
@@ -73,16 +73,16 @@ public static class AreaObjects
             foreach (var room in record.Rooms)
             {
                 int code = room.Orientation;
-                void Add(string type, string model, float x, float y, float rawAngle, float z)
+                void Add(string type, string model, float x, float y, float rawAngle, float z, float scale = 1)
                 {
                     var (cx, cy) = Orientation.Map(code, (int)x, (int)y, room.Room.Width * 23, room.Room.Height * 23);
                     float angle = code is >= 4 and < 8 ? MathF.PI * 2 - rawAngle : rawAngle;
                     angle = (angle + (code & 3) * (MathF.PI / 2)) % (MathF.PI * 2);
-                    var o = new PlacedTileObject(type, model, room.X * 23 + cx, room.Y * 23 + cy, angle, z, code);
+                    var o = new PlacedTileObject(type, model, room.X * 23 + cx, room.Y * 23 + cy, angle, z, code, scale);
                     if (!placed.Contains(o)) placed.Add(o);
                 }
                 foreach (var d in room.Room.Doodads)
-                    if (keep(d.Type)) Add(d.Type, d.Model, d.X, d.Y, d.Angle, d.FixedHeight ?? float.NaN);
+                    if (keep(d.Type)) Add(d.Type, d.Model, d.X, d.Y, d.Angle, d.FixedHeight ?? float.NaN, d.Scale);
                 if (points)
                     foreach (var p in room.Room.Points)
                         if (p.Name.StartsWith("Metadata/", StringComparison.Ordinal) && keep(p.Name)) Add(p.Name, "", p.X, p.Y, p.Angle, float.NaN);

@@ -11,14 +11,21 @@ static partial class QuestobjectsRules
     // instance transitioned stays so (InstanceState.Transition); the plaque and the portal are lit once the character
     // has the trial's flag. A closed door closes its line across the way between the area's spawn and the plaque on the
     // server's walk estimate (QuestBarriers), as the client's TriggerableBlockage does on its side.
+    // The Labyrinth's own rooms (LabyrinthTrials.InLabyrinth) have the same traps, levers and doors, run the same way; their
+    // objects are the Gateway's generated rooms' (data/room-points.json keeps only the Labyrinth's rooms with points).
     internal static async Task SpawnTrialObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        if (LabyrinthTrials.For(conn.Layout.Id) is not { } trial) return;
+        var trial = LabyrinthTrials.For(conn.Layout.Id);
+        bool labyrinth = LabyrinthTrials.InLabyrinth(conn.Layout.Id);
+        if (trial is null && !labyrinth) return;
+        string what = trial is null ? $"Labyrinth room {conn.Layout.Id}" : $"trial {trial.Flag}";
         var notes = new List<string>();
-        var all = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes);
+        var all = labyrinth ? LabyrinthRoomObjects(conn, notes) : AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes);
+        SetSwapLevers(conn, all);
         await SpawnTrialTraps(remote, stream, ciphers, conn, [.. all.Where(o => o.Type == LabyrinthTrials.SpikeTrap)],
             [.. all.Where(o => o.Type == LabyrinthTrials.Lever).Select(o => (o.X, o.Y))],
-            [.. all.Where(o => o.Type is LabyrinthTrials.Door or LabyrinthTrials.IntroDoor).Select(o => (o.X, o.Y))]);
+            [.. all.Where(o => o.Type is LabyrinthTrials.Door or LabyrinthTrials.IntroDoor).Select(o => (o.X, o.Y))],
+            [.. all.Where(o => LabyrinthTrials.Trigger(o.Type) is not null)]);
         await SpawnArrowTraps(remote, stream, ciphers, conn, [.. all.Where(o => o.Type == LabyrinthTrials.ArrowTrap)]);
         // The Chamber of Sins and Crypt trials' track pieces: server objects the client shows.
         foreach (var rail in all.Where(o => o.Type == LabyrinthTrials.VisibleRail))
@@ -30,13 +37,14 @@ static partial class QuestobjectsRules
         }
         await SpawnRoombas(remote, stream, ciphers, conn,
             [.. all.Where(o => o.Type is LabyrinthTrials.Roomba or LabyrinthTrials.FlyingRoomba or LabyrinthTrials.Spinner || LabyrinthTrials.IsSawblade(o.Type))],
-            [.. all.Where(o => o.Type is LabyrinthTrials.Rail or LabyrinthTrials.VisibleRail or LabyrinthTrials.RailSwitch)],
+            [.. all.Where(o => o.Type is LabyrinthTrials.Rail or LabyrinthTrials.VisibleRail || LabyrinthTrials.IsRailSwitch(o.Type))],
             [.. all.Where(o => o.Type == LabyrinthTrials.Switch).Select(o => (o.X, o.Y))],
-            all.FirstOrDefault(o => o.Type == LabyrinthTrials.IntroDoor) is { } entrance ? (entrance.X, entrance.Y) : default);
+            all.FirstOrDefault(o => o.Type == LabyrinthTrials.IntroDoor) is { } entrance ? (entrance.X, entrance.Y) : default,
+            labyrinth ? LabyrinthScratches(conn) : null);
         // The Bronze Monograph at the trial's door: an NPCs.dat row on StoryGlyphBase, read like any NPC (its NPCTalk
         // "Read" row), with the room line's StoryGlyph.ao.
         var glyphs = all.Where(o => o.Type.StartsWith(LabyrinthTrials.GlyphPrefix, StringComparison.Ordinal)).ToList();
-        Console.WriteLine($"[gateway] {remote} trial {trial.Flag}: {glyphs.Count} monograph(s) in its rooms");
+        Console.WriteLine($"[gateway] {remote} {what}: {glyphs.Count} monograph(s) in its rooms");
         foreach (var glyph in glyphs)
         {
             if (Npcs.Value.Place(new NpcCatalog.Placement(glyph.Type, glyph.X, glyph.Y, glyph.Angle, glyph.Model)) is { Supported: true } npc)
@@ -46,14 +54,14 @@ static partial class QuestobjectsRules
         var objects = all.Where(o => LabyrinthTrials.Handles(o.Type)).ToList();
         if (objects.Count == 0)
         {
-            Console.WriteLine($"[gateway] {remote} trial {trial.Flag}: no trial objects in {conn.Layout.Id} seed {conn.Seed} ({string.Join("; ", notes)})");
+            Console.WriteLine($"[gateway] {remote} {what}: no trial objects in {conn.Layout.Id} seed {conn.Seed} ({string.Join("; ", notes)})");
             return;
         }
         var plaque = objects.FirstOrDefault(o => o.Type == LabyrinthTrials.Plaque);
         // A done trial's plaque is lit when the player comes (the flag); it counts as used in this instance, so using it
         // again opens the portal without playing its glow again. The portal opens only when the plaque is used (live
         // 2026-10-31, the original: in every trial, done or not), and stays open in this instance.
-        if (plaque is not null && ClientHasQuestFlag(conn, trial.Flag)) conn.Instance.Transition(plaque.Type, plaque.X, plaque.Y);
+        if (plaque is not null && trial is not null && ClientHasQuestFlag(conn, trial.Flag)) conn.Instance.Transition(plaque.Type, plaque.X, plaque.Y);
         var from = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         List<(int X, int Y)> guarded = plaque is null ? [] : [conn.Layout.Near((plaque.X, plaque.Y))];
         foreach (var o in objects)
@@ -62,7 +70,8 @@ static partial class QuestobjectsRules
             if (open && o.Type == LabyrinthTrials.Door) continue;   // an opened Locked Door is gone (RemoveOpenedDoor)
             uint id = conn.NextObjectId++;
             lock (conn.Monsters) conn.TrialObjects[id] = o;
-            byte state = open ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
+            byte state = o.Type == LabyrinthTrials.RailSwitchSwapped ? LabyrinthTrials.SwapClientState(o.Mirrored, open)
+                : open ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
                     LabyrinthTrials.Blob(o.Type, o.Model, o.X, o.Y, o.Angle, o.Scale, state, LabyrinthTrials.IsHotPlate(o.Type) ? o.Height : null)),
                 $"0x02b9 trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, state {state}");
@@ -101,6 +110,78 @@ static partial class QuestobjectsRules
             Console.WriteLine($"[gateway] {remote} trial hot plates: {plates.Count} placed " +
                 $"({plates.Count(p => p.Value.Type == LabyrinthTrials.InertLava)} in the walls), {burning.Count} burning areas");
             _ = RunHotPlates(remote, stream, ciphers, conn, plates, burning);
+        }
+    }
+
+    // A Labyrinth room area's roomba scratch decals (LabyrinthTrials.ScratchedRuns), from the Gateway's placed doodads.
+    static List<(int X, int Y)> LabyrinthScratches(ClientState conn) =>
+        [.. (ServerLevels.For(conn.Layout.Id, conn.Seed)?.Doodads ?? [])
+            .Where(d => d.Model.Contains("LabyrinthRoombaKit/R_scratch", StringComparison.OrdinalIgnoreCase)).Select(d => (d.X, d.Y))];
+
+    // A Labyrinth room area's server objects, as the Gateway generated its rooms (ServerLevels: the area is in the levelgen
+    // gate's baseline), with each line's scale and fixed height.
+    static List<AreaPopulation.RoomObject> LabyrinthRoomObjects(ClientState conn, List<string> notes)
+    {
+        if (ServerLevels.For(conn.Layout.Id, conn.Seed) is not { } level)
+        {
+            notes.Add(ServerLevels.Error(conn.Layout.Id, conn.Seed)?.Split('\n')[0] ?? $"{conn.Layout.Id} is not generated by the Gateway");
+            return [];
+        }
+        return [.. level.RoomObjects.Select(o => new AreaPopulation.RoomObject(o.Type, o.Model, o.X, o.Y,
+            LabyrinthTrials.PlacedAngle(o.Model, o.Rotation, o.Code), o.Scale, float.IsNaN(o.Z) ? null : o.Z, o.Code is >= 4 and < 8))];
+    }
+
+    // A Labyrinth spinner room's swap piece (Rail_Visible_Swap_Anims10) and the levers that turn it: each Switch whose
+    // nearest rail switch it is, with the lever's gears (each with its nearest lever).
+    static List<(AreaPopulation.RoomObject Lever, List<AreaPopulation.RoomObject> Gears)> SwapLevers(
+        IReadOnlyCollection<AreaPopulation.RoomObject> all, AreaPopulation.RoomObject swap)
+    {
+        static long Distance(AreaPopulation.RoomObject a, AreaPopulation.RoomObject b) => (long)(a.X - b.X) * (a.X - b.X) + (long)(a.Y - b.Y) * (a.Y - b.Y);
+        var railSwitches = all.Where(o => LabyrinthTrials.IsRailSwitch(o.Type)).ToList();
+        var levers = all.Where(o => o.Type is LabyrinthTrials.Switch or LabyrinthTrials.MultiSwitch or LabyrinthTrials.Lever).ToList();
+        return [.. levers.Where(l => l.Type == LabyrinthTrials.Switch && railSwitches.MinBy(r => Distance(l, r)) == swap)
+            .Select(l => (l, all.Where(g => g.Type == LabyrinthTrials.Gears && levers.MinBy(k => Distance(g, k)) == l).ToList()))];
+    }
+
+    // Each swap piece's levers as the piece stands in this instance (LabyrinthTrials.OnFirstArm): the one by the part of
+    // the track the spinner does not run is pulled, its gears turning.
+    static void SetSwapLevers(ClientState conn, IReadOnlyCollection<AreaPopulation.RoomObject> all)
+    {
+        foreach (var swap in all.Where(o => o.Type == LabyrinthTrials.RailSwitchSwapped))
+        {
+            bool other = conn.Instance.Transitioned(swap.Type, swap.X, swap.Y);
+            foreach (var (lever, gears) in SwapLevers(all, swap))
+            {
+                bool pulled = LabyrinthTrials.OnFirstArm((lever.X, lever.Y), (swap.X, swap.Y), swap.Angle, swap.Mirrored) == other;
+                foreach (var o in gears.Prepend(lever)) conn.Instance.SetTransitioned(o.Type, o.X, o.Y, pulled);
+            }
+        }
+    }
+
+    // A lever by a swap piece pulled: when it is the one by the part the spinner runs, the piece turns to the other part
+    // (the spinner goes over when it next comes by), this lever and its gears start and the other lever and its gears
+    // stop. The pulled one does nothing.
+    static async Task TurnSwap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AreaPopulation.RoomObject lever,
+        uint swapId, AreaPopulation.RoomObject swap)
+    {
+        if (conn.Instance.Transitioned(lever.Type, lever.X, lever.Y)) return;
+        bool other = !conn.Instance.Transitioned(swap.Type, swap.X, swap.Y);
+        conn.Instance.SetTransitioned(swap.Type, swap.X, swap.Y, other);
+        await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(swapId, LabyrinthTrials.TransitionableIndex(swap.Type),
+            LabyrinthTrials.SwapClientState(swap.Mirrored, other)), $"0x02ba swap piece 0x{swapId:x} at ({swap.X}, {swap.Y}) to its {(other ? "other" : "first")} arm");
+        List<KeyValuePair<uint, AreaPopulation.RoomObject>> placed;
+        lock (conn.Monsters) placed = [.. conn.TrialObjects];
+        foreach (var (l, gears) in SwapLevers([.. placed.Select(p => p.Value)], swap))
+        {
+            bool pulled = LabyrinthTrials.OnFirstArm((l.X, l.Y), (swap.X, swap.Y), swap.Angle, swap.Mirrored) == other;
+            foreach (var o in gears.Prepend(l))
+            {
+                if (conn.Instance.Transitioned(o.Type, o.X, o.Y) == pulled) continue;
+                conn.Instance.SetTransitioned(o.Type, o.X, o.Y, pulled);
+                uint id = placed.First(p => p.Value == o).Key;
+                await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type),
+                    pulled ? LabyrinthTrials.Open : LabyrinthTrials.Closed), $"0x02ba swap {o.Type.Split('/')[^1]} 0x{id:x} {(pulled ? "on" : "off")}");
+            }
         }
     }
 
@@ -163,7 +244,8 @@ static partial class QuestobjectsRules
     {
         AreaPopulation.RoomObject? o;
         lock (conn.Monsters) o = conn.TrialObjects.GetValueOrDefault(use.TargetId);
-        if (o is null || LabyrinthTrials.For(conn.Layout.Id) is not { } trial) return false;
+        if (o is null) return false;
+        var trial = LabyrinthTrials.For(conn.Layout.Id);
         int action = Interlocked.Increment(ref conn.ActionCount);
         double now = conn.Clock.Elapsed.TotalSeconds;
         int size = LabyrinthTrials.Size(o.Type);
@@ -197,7 +279,7 @@ static partial class QuestobjectsRules
             case LabyrinthTrials.Switch or LabyrinthTrials.MultiSwitch:
                 await ToggleTrialSwitch(remote, stream, ciphers, conn, use.TargetId, o);
                 break;
-            case LabyrinthTrials.Plaque:
+            case LabyrinthTrials.Plaque when trial is not null:
                 if (await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o))
                 {
                     // The character's own flag, and the league's: the trial counts for every character of the league.
@@ -272,6 +354,15 @@ static partial class QuestobjectsRules
     static async Task ToggleTrialSwitch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         AreaPopulation.RoomObject o)
     {
+        List<KeyValuePair<uint, AreaPopulation.RoomObject>> railSwitches;
+        lock (conn.Monsters) railSwitches = [.. conn.TrialObjects.Where(t => LabyrinthTrials.IsRailSwitch(t.Value.Type))];
+        if (o.Type == LabyrinthTrials.Switch && railSwitches.Count > 0
+            && railSwitches.MinBy(r => (long)(r.Value.X - o.X) * (r.Value.X - o.X) + (long)(r.Value.Y - o.Y) * (r.Value.Y - o.Y)) is var nearest
+            && nearest.Value.Type == LabyrinthTrials.RailSwitchSwapped)
+        {
+            await TurnSwap(remote, stream, ciphers, conn, o, nearest.Key, nearest.Value);
+            return;
+        }
         bool pulled = !conn.Instance.Transitioned(o.Type, o.X, o.Y);
         conn.Instance.SetTransitioned(o.Type, o.X, o.Y, pulled);
         byte state = pulled ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
@@ -288,7 +379,7 @@ static partial class QuestobjectsRules
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> rails, levers;
         lock (conn.Monsters)
         {
-            rails = [.. conn.TrialObjects.Where(t => t.Value.Type == LabyrinthTrials.RailSwitch)];
+            rails = [.. conn.TrialObjects.Where(t => LabyrinthTrials.IsRailSwitch(t.Value.Type))];
             levers = [.. conn.TrialObjects.Where(t => t.Value.Type is LabyrinthTrials.Switch or LabyrinthTrials.MultiSwitch)];
         }
         foreach (int i in LabyrinthTrials.SwitchedRails([.. rails.Select(r => (r.Value.X, r.Value.Y))],
@@ -328,12 +419,15 @@ static partial class QuestobjectsRules
     }
 
     // A trial's spike traps (LabyrinthTrials.SpikeTrap): created at rest, then fired in waves for as long as the player
-    // is in the area (RunSpikeTraps).
+    // is in the area (RunSpikeTraps). The traps a room's Trigger_* line takes fire on its timer (LabyrinthTrials.TriggeredSpikes),
+    // the others as the trials' chains.
     static async Task SpawnTrialTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        List<AreaPopulation.RoomObject> traps, List<(int X, int Y)> levers, List<(int X, int Y)> doors)
+        List<AreaPopulation.RoomObject> traps, List<(int X, int Y)> levers, List<(int X, int Y)> doors, List<AreaPopulation.RoomObject> triggers)
     {
         if (traps.Count == 0) return;
         var chains = LabyrinthTrials.SpikeChains([.. traps.Select(t => (t.X, t.Y))], levers, doors);
+        var triggered = LabyrinthTrials.TriggeredSpikes([.. traps.Select(t => (t.X, t.Y, t.Angle))], [.. triggers.Select(t => (t.X, t.Y))]);
+        int firstTriggered = chains.Max(c => c.Chain) + 1;
         var placed = new List<SpikeTrap>();
         for (int i = 0; i < traps.Count; i++)
         {
@@ -341,14 +435,19 @@ static partial class QuestobjectsRules
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(traps[i].Type),
                 LabyrinthTrials.SpikeTrapBlob(traps[i].X, traps[i].Y)), null);
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
-            placed.Add(new(id, traps[i], chains[i].Chain, chains[i].Order, chains[i].Checker));
+            placed.Add(triggered[i].Trigger is int t and >= 0
+                ? new(id, traps[i], firstTriggered + t, triggered[i].Order, false) { Trigger = LabyrinthTrials.Trigger(triggers[t].Type) }
+                : new(id, traps[i], chains[i].Chain, chains[i].Order, chains[i].Checker));
         }
-        Console.WriteLine($"[gateway] {remote} trial spike traps: {placed.Count} placed in {chains.Max(c => c.Chain) + 1} chain(s)");
+        Console.WriteLine($"[gateway] {remote} trial spike traps: {placed.Count} placed in {placed.Select(p => p.Chain).Distinct().Count()} chain(s), " +
+            $"{placed.Count(p => p.Trigger is not null)} on {triggers.Count} trigger(s)");
         _ = RunSpikeTraps(remote, stream, ciphers, conn, placed);
     }
 
     sealed record SpikeTrap(uint Id, AreaPopulation.RoomObject Trap, int Chain, int Order, bool Checker)
     {
+        // The room's Trigger_* line that fires it, if one does.
+        public LabyrinthTrials.SpikeTrigger? Trigger { get; init; }
         // When its last clip started (Clock seconds), and whether that clip has hit.
         public double Fired = double.NegativeInfinity;
         public bool HasHit;
@@ -371,7 +470,7 @@ static partial class QuestobjectsRules
         var due = new PriorityQueue<(SpikeTrap Trap, int Stage), double>();
         var chains = traps.GroupBy(t => t.Chain).ToDictionary(g => g.Key, g => g.ToList());
         double start = conn.Clock.Elapsed.TotalSeconds + 1;
-        foreach (var chain in chains.Values) due.Enqueue((chain[0], Wave), start);
+        foreach (var chain in chains.Values) due.Enqueue((chain[0], Wave), start + (chain[0].Trigger?.Delay ?? 0));
         async Task Fire(SpikeTrap t, double at)
         {
             (t.Fired, t.HasHit) = (at, false);
@@ -399,9 +498,9 @@ static partial class QuestobjectsRules
                         // A chain's wave: each trap at its place in it, and the next wave once it has gone round.
                         case Wave:
                             var chain = chains[t.Chain];
-                            double step = LabyrinthTrials.SpikeStep(t.Checker);
+                            double step = t.Trigger?.Step ?? LabyrinthTrials.SpikeStep(t.Checker);
                             foreach (var c in chain) due.Enqueue((c, Fired), at + c.Order * step);
-                            due.Enqueue((t, Wave), at + LabyrinthTrials.SpikeWaveSeconds(chain.Max(c => c.Order) + 1, step));
+                            due.Enqueue((t, Wave), at + (t.Trigger?.Period ?? LabyrinthTrials.SpikeWaveSeconds(chain.Max(c => c.Order) + 1, step)));
                             break;
                         case Fired: await Fire(t, at); break;
                         case Block: await BlockSpikeTrap(remote, stream, ciphers, conn, t, true); break;
@@ -830,12 +929,21 @@ static partial class QuestobjectsRules
     // pulled lever (Switch) stops in this instance starts stopped (LabyrinthTrials.SwitchedSaws: the levers and the
     // trial's door).
     static async Task SpawnRoombas(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        List<AreaPopulation.RoomObject> roombas, List<AreaPopulation.RoomObject> rails, List<(int X, int Y)> switches, (int X, int Y) entrance)
+        List<AreaPopulation.RoomObject> roombas, List<AreaPopulation.RoomObject> rails, List<(int X, int Y)> switches, (int X, int Y) entrance,
+        List<(int X, int Y)>? scratches)
     {
         if (roombas.Count == 0) return;
-        // A visible rail is a track piece, joined along its angle only.
+        // A visible rail is a track piece, joined along its angle only; the Labyrinth's rooms' runs follow their scratches.
+        var invisible = rails.Where(r => r.Type == LabyrinthTrials.Rail).ToList();
         var paths = LabyrinthTrials.RoombaPaths([.. rails.Select(r => (r.X, r.Y))], [.. roombas.Select(r => (r.X, r.Y, r.Angle))],
             [.. rails.Select(r => r.Type == LabyrinthTrials.VisibleRail ? r.Angle : float.NaN)]);
+        if (scratches is not null && invisible.Count > 0)
+        {
+            var scratched = LabyrinthTrials.RoombaPaths([.. invisible.Select(r => (r.X, r.Y))], [.. roombas.Select(r => (r.X, r.Y, r.Angle))],
+                null, scratches, [.. roombas.Select(r => r.Type == LabyrinthTrials.FlyingRoomba)]);
+            for (int i = 0; i < roombas.Count; i++)
+                if (roombas[i].Type is LabyrinthTrials.Roomba or LabyrinthTrials.FlyingRoomba) paths[i] = scratched[i];
+        }
         var saws = Enumerable.Range(0, roombas.Count).Where(i => LabyrinthTrials.IsSawblade(roombas[i].Type)).ToList();
         var halted = Enumerable.Range(0, switches.Count)
             .Where(k => conn.Instance.Transitioned(LabyrinthTrials.Switch, switches[k].X, switches[k].Y))
@@ -844,8 +952,9 @@ static partial class QuestobjectsRules
         // The Crypt trial's spinners go piece to piece on their track, which its rail switches change as they stand in
         // this instance.
         var track = roombas.Any(r => r.Type == LabyrinthTrials.Spinner)
-            ? LabyrinthTrials.SpinnerTrack.Build([.. rails.Select(r => (r.X, r.Y, r.Angle, r.Model))]) : null;
-        bool Lifted(int k) => conn.Instance.Transitioned(LabyrinthTrials.RailSwitch, track!.Rails[k].X, track.Rails[k].Y);
+            ? LabyrinthTrials.SpinnerTrack.Build([.. rails.Select(r => (r.X, r.Y, r.Angle, r.Model))], [.. rails.Select(r => r.Mirrored)]) : null;
+        bool Lifted(int k) => conn.Instance.Transitioned(LabyrinthTrials.RailSwitch, track!.Rails[k].X, track.Rails[k].Y)
+            || conn.Instance.Transitioned(LabyrinthTrials.RailSwitchSwapped, track.Rails[k].X, track.Rails[k].Y);
         var runs = new List<RoombaRun>();
         for (int i = 0; i < roombas.Count; i++)
         {
@@ -856,7 +965,7 @@ static partial class QuestobjectsRules
                 ? LabyrinthTrials.SpinnerBlob(r.X, r.Y, r.Angle, r.Model)
                 : LabyrinthTrials.RoombaBlob(r.Type, r.X, r.Y, r.Angle, r.Model, stopped ? LabyrinthTrials.Open : LabyrinthTrials.Closed)), null);
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
-            if (spinner && track?.Start((r.X, r.Y), r.Angle) is { } run)
+            if (spinner && track?.Start((r.X, r.Y), r.Angle, Lifted) is { } run)
                 runs.Add(new RoombaRun(id, r, track, run, Lifted));
             else if (!spinner && paths[i] is { } path)
                 runs.Add(new RoombaRun(id, r, LabyrinthTrials.IsSawblade(r.Type) ? path.TowardNearerEnd((r.X, r.Y)) : path) { Halted = stopped, Stopped = stopped });
