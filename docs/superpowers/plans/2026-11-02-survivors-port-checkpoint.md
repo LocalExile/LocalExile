@@ -54,6 +54,15 @@ This branch is the port, based directly on `dfcdc8f3`.
 - PR #502 is ready for review (not a draft), `mergeable=true`; the only blocker is the maintainer approving the fork's `docs-scan` workflow.
 - Live re-check after the merge: 40 kills at 00:16, run level 5, offer open with three named choices, and **0** world items created during the run.
 
+## Latest fixes (2026-11-02, evening)
+
+- **Unique stats now reach the character.** The stat cache in CharacterStatSources was the blocker: an exempted
+  item stayed out of the cached ctive list. Progression.cs now adds the run's items to ctive, drops their ids
+  from the previous inactive set, and the cache key carries SurvivorsItemIds. Live: `The Primordial Chain` logged
+  `base_life_regeneration_rate_per_minute 0->187, base_number_of_golems_allowed 0->3`.
+- **Ground loot.** `SurvivorsClearGround` runs at start, on area resume and once per run second; it takes every
+  item out of the instance store and sends `0x02bb RemoveObject`. Live: 65 hidden, 0 `create world item`.
+
 ## Open items
 
 1. **Ground items (fixed).** The pile seen during a run was loot left by earlier sessions in the area's
