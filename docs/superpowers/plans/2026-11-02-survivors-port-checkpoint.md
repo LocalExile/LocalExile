@@ -72,6 +72,7 @@ damage number:
 ## Commits (port branch, newest first)
 
 ```
+6a9680e1 feat: seal each survivors stage behind its lore boss; run casts read unique stats
 d2dbfa10 feat: every survivors gem casts with its own stats and PoB formulas
 35eb8214 docs: full survivors port checkpoint for the next session
 a6acfbe9 fix: closing the survivors window takes the first reward instead of reopening
