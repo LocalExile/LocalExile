@@ -20,7 +20,10 @@ Atlas: the player picks the layout on the Atlas, the map item sets the tier.
 Their item class is `MapKey` (ItemClassCategory 63, which StashtabAffinityByItemClassCategory gives the Maps affinity).
 
 - **Nightmare Map:** modifiable only with Chaos Orbs, Vaal Orbs, Delirium Orbs and chisels. Tier 16 maps have a chance
-  to drop as a Nightmare Map when Voidstones are socketed into the Atlas.
+  to drop as a Nightmare Map when Voidstones are socketed into the Atlas. It is the tier-17 map item.
+- **Originator influence:** the `MapZanaInfluenced` implicit (`map_zana_influence`) makes the area "Influenced by the
+  Originator's Memories"; the client shows that line on the map item. The map device does not read this implicit yet,
+  so Nessa's stock only carries the item identity for now.
 - **Shaper Guardian Map:** the area is influenced by the Shaper.
 - **Vaal Temple Map:** the area contains 10 additional guarded Vaal Vessels; always corrupted. Obtained by corrupting
   tier 16 maps.
