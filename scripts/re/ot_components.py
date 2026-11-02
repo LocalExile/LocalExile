@@ -23,8 +23,8 @@ import json, os, re, subprocess, sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROOT = REPO
-GGPK = os.path.join(ROOT, r"Client\Content.ggpk")
-CACHE = os.path.join(ROOT, r"Tools\re\out\ot")
+GGPK = os.path.join(ROOT, "Client", "Content.ggpk")
+CACHE = os.path.join(ROOT, "Tools", "re", "out", "ot")
 REGISTRY = os.path.join(REPO, "Agents", "docs", "re", "components.json")
 RAW_DATS = ["Data/MonsterVarieties.datc64", "Data/Chests.datc64"]
 
@@ -45,7 +45,8 @@ GROUND_TRUTH_READ = {"Metadata/Characters/Int/Int": 10, "Metadata/MiscellaneousO
 
 def cache_name(path):
     # \\?\: these names are long, and a release's install folder can take them past Windows' 260 characters.
-    return "\\\\?\\" + os.path.join(CACHE, path.replace("/", "_"))
+    name = os.path.join(CACHE, path.replace("/", "_"))
+    return "\\\\?\\" + name if os.name == "nt" else name
 
 
 def fetch(paths):

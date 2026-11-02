@@ -42,6 +42,9 @@ public class SaveFilesTests : IDisposable
     [Fact]
     public void A_write_that_cannot_replace_the_file_leaves_the_old_one_whole()
     {
+        // Only Windows lets a holder stop a replace: elsewhere the rename succeeds and the holder keeps the old file.
+        if (!OperatingSystem.IsWindows()) return;
+
         SaveFiles.Write(Save, "old");
 
         // Held for longer than SaveFiles waits: the write gives up.
