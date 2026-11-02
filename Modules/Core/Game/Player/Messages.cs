@@ -225,7 +225,7 @@ static partial class Game
             }
             else if (InstanceProtocol.IsLockstepRequest(id))
             {
-                if (conn.LockstepServed)
+                if (conn.LockstepServed && !conn.LockstepLatency.Refused)
                 {
                     OnLockstepRequest(remote, conn, id, bytes);
                     if (id == InstanceProtocol.LockstepMoveUpdateId) await AimLockstepChannel(remote, stream, ciphers, conn);
@@ -326,6 +326,7 @@ static partial class Game
                 if (command.Id == InstanceItems.DestroyCursorItemCommand) await DestroyHeldItem(remote, stream, ciphers, conn);
                 else if (command.Id == InstanceItems.WarpToHideoutCommand) await WarpToHideout(remote, stream, ciphers, conn, "/hideout");
                 else if (command.Id == InstanceItems.ForceResyncCommand) await SendResync(remote, stream, ciphers, conn, "the client asked");
+                else if (command.Id == InstanceItems.AfkCommand && conn.LockstepServed) AnswerLockstepProbe(remote, conn, readAt);
                 else Console.WriteLine($"[gateway] {remote} <= 0x0016 command {command} (not handled)");
             }
             else if (id == InstanceWaypoints.VisitHideoutId)

@@ -143,6 +143,11 @@ public static class InstanceProtocol
         (BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(2)), BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(6)),
          BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(8)), b[10]);
 
+    /// <summary>S→C 0x194 (id only, instance group, handled on arrival): tells the client to go AFK. It answers at once with
+    /// C→S 0x16 <see cref="InstanceItems.AfkCommand"/> and the text "This player is AFK." and changes nothing else until a
+    /// server replies to that, so it is a round trip the server can start.</summary>
+    public static byte[] AfkRequest() => [0x01, 0x94];
+
     /// <summary>C→S 0x0196: the skill released.</summary>
     public static ushort ReadLockstepSkillStop(byte[] b) => BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(2));
 

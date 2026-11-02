@@ -23,6 +23,19 @@ public class LockstepTests
         // A tunnel on the server's side: from 127.0.0.1, but the client was told another address.
         Assert.False(LockstepLink.Confirmed(true, Local, Local, GivenPublic));
         Assert.False(LockstepLink.Confirmed(true, null, Local, GivenLocal));
+
+        // A tunnel on both ends: the lowest round trip decides, by the client's own 70 and 90 ms, and only with enough of them.
+        var fast = LockstepLatency.For("fast");
+        for (int i = 0; i < LockstepLatency.Enough - 1; i++) fast.Add(104);
+        Assert.False(fast.Confirmed || fast.Refused);
+        Assert.True(fast.Add(12));
+        Assert.True(fast.Confirmed);
+        var slow = LockstepLatency.For("slow");
+        for (int i = 0; i < LockstepLatency.Enough; i++) slow.Add(95);
+        Assert.True(slow.Refused && !slow.Confirmed);
+        var between = LockstepLatency.For("between");
+        for (int i = 0; i < LockstepLatency.Window; i++) between.Add(80);
+        Assert.True(between.Refused);
     }
 
     [Fact]

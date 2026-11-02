@@ -97,6 +97,8 @@ static partial class Game
                 conn.LockstepUse = null;
                 return;
             }
+            // Requests wait here until the round trip is known; on a refused connection none arrive.
+            if (!conn.LockstepLatency.Confirmed) return;
             at = Math.Max(frameStart, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
             StepWalkers(conn, at);
             if (conn.LockstepSkill.ChannelReleased() is { } channel)

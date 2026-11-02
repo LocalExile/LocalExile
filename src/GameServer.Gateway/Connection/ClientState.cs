@@ -777,8 +777,13 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool WarnedLockstep;
     // Confirmed local and opted in (LockstepLink): this connection answers a lockstep client (Game.RunLockstepFrames).
     public bool LockstepServed { get; init; }
-    // The client has sent a lockstep request: nothing else tells its mode, and a predictive client keeps its own messages.
-    public bool LockstepClient;
+    // The client has shown it is in lockstep, by a lag byte in a tick or by a request. A predictive client's lag byte stays
+    // 0, so it is never probed and keeps its own messages.
+    public volatile bool LockstepClient;
+    // The real round trip (LockstepLatency), its probe in flight (Stopwatch timestamp, 0 for none) and the next one's time.
+    public LockstepLatency LockstepLatency = null!;
+    public long LockstepProbeSentAt;
+    public double LockstepNextProbeAt;
     public readonly GameServer.Core.World.LockstepHold LockstepHold = new();
     public ushort LockstepSequence;
     // The object use (C→S 0x18f) the next frame starts.

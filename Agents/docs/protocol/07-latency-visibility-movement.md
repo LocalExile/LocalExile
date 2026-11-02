@@ -384,6 +384,15 @@ Everything above is the client's **Predictive** network mode (Options → Game �
 The Gateway serves a lockstep client only on a connection confirmed as local, with `Game_LOCKSTEP=1` (`LockstepLink`),
 and all its actions. Any other connection gets a message box asking for Predictive (once per connection).
 
+A tick's u8 tells the modes apart early: only a lockstep world counts frames behind, so a predictive client's is always 0
+and a lockstep one's turns nonzero within seconds, idle or not. Addresses cannot tell a tunnel on both ends from loopback,
+so a client in lockstep is also timed (`LockstepLatency`). S→C **0x194** (id only, handled on arrival) tells a client to go
+AFK: it answers at once with C→S 0x16 command 36 and the text "This player is AFK.", and nothing else changes until a
+server replies. The client reads its socket once per update, so one round trip says little on a slow client (about 100 ms
+on loopback with the window in the background), and the lowest of the last 16 is the network's. The bar is the client's
+own: under 70 ms, over 90 ms. Requests wait for the first verdict. A character keeps its verdict across area changes for
+30 s. A connection that slows turns off within about 30 s, and back on when it recovers.
+
 **Server frames.** In lockstep the client's world does not run on its own clock: it runs **server frames**. S→C
 **0x2b6** (u8) sets the frame length in ms (`0x141645fa0` stores the zero-extended byte as u32 at world `+0x11c`);
 S→C **0x2b5** (id only) ends a frame. In nonzero mode, after activation sets world `+0xa00`, the embedded message
@@ -439,6 +448,7 @@ and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0
 |---|---|---|
 | Client and server can differ between action starts | Never: its server is the client's simulation | The server is a port |
 | Only confirmed local connections, opted in | Any connection, any latency | A port's corrections are only worth the delay when it is a frame or two |
+| Sends 0x194 to time a lockstep client | Not seen in any session; by its handler, an idle timeout | It is the one message found that the client answers by itself, and nothing else tells a tunnel from loopback |
 | Frames laid over a clock, late ones sent at once | Frames are ticks of its world | The walks run on the clock |
 | Sends 0x2b6 | Never | The client's default is not traced |
 | Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours walks on out there, and 0x128 is skipped here |
