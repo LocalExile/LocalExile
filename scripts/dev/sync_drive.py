@@ -16,6 +16,8 @@ import random
 import threading
 import time
 
+from client_control import keep_agent
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -47,6 +49,7 @@ class Driver:
         self.hwnd, self.width, self.height = client_window(self.pid)
         self.device = frida.get_local_device()
         self.session = self.device.attach(self.pid)
+        keep_agent(self.session)
         self.log = open(out, "a", encoding="utf-8")
         self.lock = threading.Lock()
         self.scripts = []
