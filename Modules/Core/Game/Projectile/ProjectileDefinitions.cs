@@ -4,7 +4,7 @@ static partial class Game
 {
     // Parameter rules do not require native projectile metadata or an executable release path.
     internal sealed record ProjectileSkillParameters(
-        Func<Func<string, int>, double, ProjectileProfile> Resolve)
+        Func<Func<string, int>, double, bool, ProjectileProfile> Resolve)
     {
         public Action<ProjectileProfile, Dictionary<uint, int>>? PanelStats { get; init; }
     }
@@ -84,8 +84,8 @@ static partial class Game
 
     static ProjectileSkillParameters CatalogProjectileParameters(int effect, string profileId)
     {
-        var parameters = new ProjectileSkillParameters((get, speed) =>
-            GatewayProjectileDefaults.Resolve(profileId, get, speed, Skills.IsAttack(effect)));
+        var parameters = new ProjectileSkillParameters((get, speed, arrows) =>
+            GatewayProjectileDefaults.Resolve(profileId, get, speed, Skills.IsAttack(effect), arrows));
         ConfigureCatalogProjectileParameters(effect, profileId, ref parameters);
         return parameters;
     }

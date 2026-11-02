@@ -23,9 +23,10 @@ static class GatewayProjectileSkillProfiles
     public static bool IsKineticBlast(string effect) => effect is "KineticBlast" or "KineticBlastAltX" or "KineticBlastAltY";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
 
-    public static ProjectileProfile Resolve(string effect, string metadata, Func<string, int> get, double speed, bool attack)
+    public static ProjectileProfile Resolve(string effect, string metadata, Func<string, int> get, double speed, bool attack,
+        bool arrows = false)
     {
-        var p = GatewayProjectileDefaults.Create(metadata, get, speed) with
+        var p = GatewayProjectileDefaults.Create(metadata, get, speed, arrows) with
         {
             CannotReturn = CannotReturn.Contains(effect), ReturnOnDistance = effect != "FreezingPulse"
         };
@@ -56,7 +57,7 @@ static class GatewayProjectileSkillProfiles
         else if (effect is "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")
             p = p with { HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(0.66)) };
 
-        p = GatewayProjectileModifiers.Resolve(p, get, attack);
+        p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows);
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };

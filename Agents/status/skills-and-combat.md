@@ -665,6 +665,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Automated test covers Tornado Shot with level-1 Lifetap: 9 Mana becomes 27 Life, the first use grants the buff,
   and the hit and flask bonuses apply. Code: `Combat/Lifetap.cs`, `Player.cs`, `ConditionalSupportDamage.cs`;
   docs: [25](../docs/protocol/25-gem-supports.md).
+- Bow projectile counts: actual bow attacks now read `number_of_additional_arrows` and
+  `number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more` on top of the generic projectile additions, so
+  bow/quiver modifiers and passives such as Master Fletcher add primary arrows. The arrow inputs are gated to a real
+  bow and do not reach wand, spell or melee projectiles; the selected-skill panel also publishes the arrow total.
+  The terminal secondary group is a separate change (implemented in #549).
+  Automated tests cover the bow/wand separation and the panel rows; no native check yet.
+  Code: `GatewayProjectileModifiers.cs`, `GatewayProjectileDefaults.cs`, `ProjectilePanel.cs`;
+  [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) section 3.
 - Tornado Shot terminal secondaries: each primary arrow pierces its contacts and emits three
   `TornadoShotSecondaryArrow` flights at its endpoint, spaced around the client's native terminal RNG ray
   (`[sequence, mother-derived byte, owner, repeats]`). The client predicts the primary and secondary arrows itself
