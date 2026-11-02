@@ -52,12 +52,22 @@ public sealed class NessaShopTabsTests
 
         var maps = Assert.Single(tabs, t => t.Name == "Maps").Items;
         var uniques = Assert.Single(tabs, t => t.Name == "Unique Maps").Items;
-        var keys = maps.Where(item => catalog.ByHash(item.Item.TypeHash) is { Class: "MapKey" }).ToList();
+        var originator = catalog.Mods.ById("MapZanaInfluenced");
+        Assert.NotNull(originator);
+        ushort originatorHash = originator!.Hash;
+        bool Influenced(InventoryItem item) => item.Item.Mods.Any(mod =>
+            mod.Section == ModSection.Implicit && mod.Hash == originatorHash);
+        var keys = maps.Where(item => catalog.ByHash(item.Item.TypeHash) is { Class: "MapKey" } type
+            && type.Name.StartsWith("Map (Tier ", StringComparison.Ordinal) && !Influenced(item)).ToList();
         Assert.Equal(16, keys.Count);
         Assert.Equal(Enumerable.Range(1, 16).Select(tier => $"Map (Tier {tier})"),
             keys.Select(item => catalog.ByHash(item.Item.TypeHash)!.Name));
-        Assert.Contains(maps, item => catalog.ByHash(item.Item.TypeHash)!.Name == "Sanctuary Map");
-        Assert.Contains(maps, item => catalog.ByHash(item.Item.TypeHash)!.Name == "Ziggurat Map");
+        Assert.Equal(19, maps.Count);
+        Assert.Equal(2, maps.Count(item => catalog.ByHash(item.Item.TypeHash)!.Name == "Nightmare Map"));
+        Assert.DoesNotContain(maps, item => catalog.ByHash(item.Item.TypeHash)!.Name is
+            "Sanctuary Map" or "Citadel Map" or "Fortress Map" or "Abomination Map" or "Ziggurat Map");
+        Assert.Equal(2, maps.Count(Influenced));
+        Assert.Single(maps, item => catalog.ByHash(item.Item.TypeHash)!.Name == "Map (Tier 16)" && Influenced(item));
         Assert.DoesNotContain(maps, item => item.Item.Rarity == ItemRarity.Unique);
 
         Assert.Equal(28, uniques.Count);

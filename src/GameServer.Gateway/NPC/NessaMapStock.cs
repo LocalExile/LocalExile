@@ -2,7 +2,8 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>The map catalogue Nessa's development shop sells, independent of ambiguous display-name lookup: one
-/// generic "Map (Tier N)" key for every tier 1-16, the tier-17 map items, and the unique map identities.</summary>
+/// generic "Map (Tier N)" key for every tier 1-16, the tier-17 Nightmare Map, the Originator-influenced entries and
+/// the unique map identities.</summary>
 static class NessaMapStock
 {
     public sealed record Entry(ItemCatalog.BaseType Type, Item Item, string Name, int Tier);
@@ -18,17 +19,26 @@ static class NessaMapStock
         for (int tier = 1; tier <= 16; tier++)
             if (items.Find($"Metadata/Items/Maps/MapKeyTier{tier}") is { Supported: true } type)
                 result.Add(new(type, ItemCatalog.Create(type), type.Name, tier));
-        // There is no MapKeyTier17: the tier-17 maps are ordinary MapWorlds items.
-        var tier17 = rows.Select(r => (Row: r, Type: items.Row(r.GetProperty("BaseItemTypesKey").GetInt32())))
-            .Where(p => p.Row.GetProperty("Tier").GetInt32() == 17
-                && p.Type is { Supported: true, Class: "Map" }
-                && p.Type.Id.StartsWith("Metadata/Items/Maps/MapWorlds", StringComparison.Ordinal)
-                && !p.Type.Name.StartsWith('['))
-            .GroupBy(p => p.Type!.Name, StringComparer.Ordinal)
-            .Select(g => g.OrderBy(p => p.Type!.Id, StringComparer.Ordinal).First())
-            .OrderBy(p => p.Type!.Name, StringComparer.Ordinal)
-            .Select(p => new Entry(p.Type!, ItemCatalog.Create(p.Type!), p.Type!.Name, 17));
-        result.AddRange(tier17);
+        // 3.29's tier-17 map is the Nightmare Map key; the old area-named MapWorlds tier-17 items are not used.
+        if (items.Find("Metadata/Items/Maps/MapKeyNightmareBoss") is { Supported: true } nightmare)
+            result.Add(new(nightmare, ItemCatalog.Create(nightmare), nightmare.Name, 17));
+        // Originator influence is the MapZanaInfluenced implicit (map_zana_influence: "Area is Influenced by the
+        // Originator's Memories"). Show it on a tier-16 map and on the Nightmare Map.
+        if (items.Mods.ById("MapZanaInfluenced") is { } originator)
+        {
+            AddInfluenced("Metadata/Items/Maps/MapKeyTier16", 16, "Originator Influenced Map (Tier 16)");
+            AddInfluenced("Metadata/Items/Maps/MapKeyNightmareBoss", 17, "Originator Influenced Nightmare Map");
+
+            void AddInfluenced(string id, int tier, string name)
+            {
+                if (items.Find(id) is not { Supported: true } type) return;
+                var item = ItemCatalog.Create(type);
+                result.Add(new(type, item with
+                {
+                    Mods = [.. item.Mods, originator.With(ModSection.Implicit, [1, 5], Random.Shared)],
+                }, name, tier));
+            }
+        }
         if (!File.Exists(Table("UniqueMaps")) || !File.Exists(Table("Words")) || !File.Exists(Table("ItemVisualIdentity"))) return result;
         using var uniques = GameTables.Open(Table("UniqueMaps"));
         using var words = GameTables.Open(Table("Words"));
