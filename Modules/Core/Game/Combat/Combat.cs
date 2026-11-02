@@ -476,7 +476,7 @@ static partial class Game
                 stand = conn.Walk.Position(castAt);
                 conn.Walk.Order(stand.X, stand.Y, castAt);
                 // A movement skill aimed at a monster travels as one aimed at the ground does.
-                if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, chargeBonus, aim.X, aim.Y, castAt);
+                if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
                 else if (moves)
                 {
                     var landing = MovementLanding(conn, gem.Effect, stand, aim);

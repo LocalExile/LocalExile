@@ -2494,6 +2494,11 @@ sends the player stats at both ends. Its walk estimate goes to the aimed cell at
 movement skill's teleport (§9a). Verified live: `movement_velocity_+%` 22 → 112 → 22, the charge twice as fast; the
 first stats update arrives after the client has started the charge, and the client takes it up mid-charge.
 
+**Route.** The charge runs no path search. The setup lays a straight line to the aim, cut to 75 cells ×
+(1 + `shield_charge_range_+%` / 100); an aim off the floor moves back along the line to the first cell the mover can
+stand on. Each step is checked as a walk's is ([07](07-latency-visibility-movement.md) §5), so the first blocked step
+ends the run, on a body as on a wall. A charge from inside a ring does not move at all (`PlayerWalk.Charge`).
+
 **Hits.** The client's (`trace-charge-hits.js`, four charges): kind 0 at its position as it starts and then about every
 100 ms (every ~8 cells at charge speed) within 8 cells (`0x141a6d760` returns the range), kind 1 within 16 cells where
 it arrives, and kind 2 (range 28) as the end phase starts. The Gateway lands kind 0 and 1 on its own walk

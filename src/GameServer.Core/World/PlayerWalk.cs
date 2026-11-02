@@ -230,6 +230,27 @@ public sealed class PlayerWalk
         return nearest < double.MaxValue && here <= nearest + 3;
     }
 
+    /// <summary>
+    /// Shield Charge's run (setup 0x141a6bae0): no search, a straight line to the aim cut to <paramref name="range"/> cells.
+    /// An aim off the floor moves back along the line to the first cell the mover can stand on. The steps are checked as
+    /// any walk's are, so the first blocked one ends the run.
+    /// </summary>
+    public (int X, int Y) Charge(int targetX, int targetY, int range, double now)
+    {
+        var here = At(now, out double fraction);
+        double length = Math.Sqrt((double)(targetX - here.X) * (targetX - here.X) + (double)(targetY - here.Y) * (targetY - here.Y));
+        (int X, int Y) end = (targetX, targetY);
+        if (length > range)
+            end = (here.X + (int)((targetX - here.X) * (double)range / length), here.Y + (int)((targetY - here.Y) * (double)range / length));
+        if (!_walkable(end.X, end.Y))
+            end = ClientPathfinder.Line(end, here).FirstOrDefault(c => _walkable(c.X, c.Y), here);
+        (_target, _maxRange, _tolerance) = (end, 0, -1);
+        Follow(end == here ? [here] : [here, end], here, fraction, now);
+        Reached = true;
+        WalksThrough = false;
+        return here;
+    }
+
     private (int X, int Y) Walk((int X, int Y) target, int maxRange, int tolerance, double now)
     {
         var here = At(now, out double fraction);
@@ -239,6 +260,12 @@ public sealed class PlayerWalk
         // No step to take: the client ends the action instead of pathing again (0x141e7b920 with nothing found).
         Reached = reached || path.Count < 2;
         WalksThrough = !_walkable(here.X, here.Y) || ClientPathfinder.ObjectBlocks(bodies, here.X, here.Y, _size + 1, _size + 4);
+        Follow(path, here, fraction, now);
+        return here;
+    }
+
+    private void Follow(IReadOnlyList<(int X, int Y)> path, (int X, int Y) here, double fraction, double now)
+    {
         var walk = new List<Segment>();
         double t = now;
         for (int i = 1; i < path.Count; i++)
@@ -254,7 +281,6 @@ public sealed class PlayerWalk
         _rest = here;
         _restSince = now;
         _segments = walk;
-        return here;
     }
 
     // 0x141e4d180: the segment's time is its length over the speed, spread evenly over its major-axis steps.

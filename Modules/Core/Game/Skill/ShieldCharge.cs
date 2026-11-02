@@ -21,9 +21,14 @@ static partial class Game
         SkillsFor(conn).IsMovement(effect) && SkillsFor(conn).RequiresShield(effect)
             && Stats.Key("base_movement_velocity_+%") is uint key ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(key) : 0;
 
+    // The run's length (0x141a6bae0): 75 cells, scaled by shield_charge_range_+%.
+    const int ShieldChargeBaseRange = 75;
+    static int ShieldChargeRange(ClientState conn, ushort skillId) =>
+        (SupportedSkill(conn, skillId).Stats.GetValueOrDefault(Stats.Key("shield_charge_range_+%") ?? 0) + 100) * ShieldChargeBaseRange / 100;
+
     // In the use's StartAction: the bonus on, the pools and walk speed with it, and the walk to the aimed cell. Returns the
     // run's token, which only the latest charge's end may clear.
-    internal static int BeginShieldCharge(ClientState conn, int percent, int x, int y, double at)
+    internal static int BeginShieldCharge(ClientState conn, ushort skillId, int percent, int x, int y, double at)
     {
         var run = ShieldChargeRuns.GetOrCreateValue(conn);
         lock (conn.Monsters)
@@ -31,7 +36,7 @@ static partial class Game
             run.Percent = percent;
             int token = ++run.Token;
             RecomputePoolsAndSpeed(conn);
-            conn.Walk.Order(x, y, at);
+            conn.Walk.Charge(x, y, ShieldChargeRange(conn, skillId), at);
             return token;
         }
     }
@@ -57,7 +62,9 @@ static partial class Game
         Task Hit((int X, int Y) at, int radius, ISet<uint>? once) => gem.Name is null ? Task.CompletedTask
             : AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at, immediate: true, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, radiusOverride: radius, once: once);
-        for (double tick = conn.Clock.Elapsed.TotalSeconds; tick < arrivesAt; tick += ShieldChargePathSeconds)
+        // The step pass may end the run early, on a body or a wall.
+        double Arrival() => Math.Min(arrivesAt, conn.Walk.ArrivesAt);
+        for (double tick = conn.Clock.Elapsed.TotalSeconds; tick < Arrival(); tick += ShieldChargePathSeconds)
         {
             double wait = tick - conn.Clock.Elapsed.TotalSeconds;
             if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
@@ -65,7 +72,7 @@ static partial class Game
             if (!Current()) return;
             await Hit(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), ShieldChargePathRadius, pathHit);
         }
-        double rest = arrivesAt - conn.Clock.Elapsed.TotalSeconds;
+        double rest = Arrival() - conn.Clock.Elapsed.TotalSeconds;
         if (rest > 0) await Task.Delay(TimeSpan.FromSeconds(rest));
         if (!ShieldChargeRuns.TryGetValue(conn, out var run) || run.Token != token || conn.Closed) return;
         await Hit(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), ShieldChargeEndRadius, null);
