@@ -120,6 +120,9 @@ static partial class Game
         var mainRow = items.Items(PlayerInventories.Weapon1);
         var offRow = items.Items(PlayerInventories.Offhand1);
         var (bloodHeld, bloodShown) = BloodChargePanelInputs(conn);
+        var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
+            name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
+        uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
         return new()
         {
             Stats = stats, RawOverrides = rawOverrides, DevSet = devSet, Pools = conn.Pools,
@@ -130,7 +133,8 @@ static partial class Game
             PlayerLife = conn.PlayerLife, PlayerMaxLife = conn.PlayerMaxLife,
             EnergyShieldRecharging = conn.EnergyShield.Recharging,
             PetrifiedBloodRecoveryCapped = conn.PetrifiedBlood.Active && conn.PlayerLife > 0
-                && conn.PlayerLife >= (uint)((long)conn.PlayerMaxLife * LowLifeThresholdPct(stats) / 100),
+                && (long)conn.PlayerLife + recoveryMargin
+                    >= (uint)((long)conn.PlayerMaxLife * LowLifeThresholdPct(stats) / 100),
             LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving,
             BloodChargesHeld = bloodHeld, BloodChargesShown = bloodShown,
             Ailments = [], SuppressionChance = 0,

@@ -1560,8 +1560,9 @@ offsets that loss. Recoup's four-second instance is not removed at Low Life eith
 actual recovery is capped.
 
 The client steps its own Life pool from `life_recovery_per_minute` and only clamps to the maximum pool, so it does not
-know this buff's boundary by itself. While the buff blocks recovery the server publishes that rate as 0, and publishes
-the real modelled rate again once Life is below the boundary; the Defence panel's
+know this buff's boundary by itself. While the buff blocks recovery the server publishes that rate as 0, and restores
+the modelled rate only once Life is more than a 250 ms regeneration margin below the boundary; inside the margin the
+server's own updates finish the recovery, so the client cannot predict across the boundary. The Defence panel's
 `total_life_recovery_per_minute_from_regeneration` keeps the real value. The transition is sent when it changes, not
 on every recovery step.
 

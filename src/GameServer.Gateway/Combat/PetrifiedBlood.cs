@@ -145,6 +145,14 @@ static class PetrifiedBlood
 
     public const double DeferSeconds = 4;
 
+    /// <summary>How far before the Low Life boundary the client's prediction rate is withheld. The server still
+    /// recovers to the boundary; the margin stops the client's own Life step from crossing it before the next rate
+    /// update. A local prediction allowance, not an official-server measurement.</summary>
+    public const double RecoveryPredictionMarginSeconds = .25;
+
+    public static uint RecoveryMargin(double lifePerSecond) =>
+        (uint)Math.Max(1, Math.Ceiling(Math.Max(0, lifePerSecond) * RecoveryPredictionMarginSeconds));
+
     public const string PreventSource = "petrified_blood_%_life_loss_below_half_from_hit_to_prevent",
         LoseOverTimeSource = "petrified_blood_%_prevented_life_loss_to_lose_over_time",
         LifeCostSource = "skill_grants_life_cost_%_mana_cost_while_not_on_low_life";

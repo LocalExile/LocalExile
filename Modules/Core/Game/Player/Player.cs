@@ -682,9 +682,12 @@ static partial class Game
                     lifeAfter = conn.PlayerLife;
                     if (lifeAfter == 0 && !pbDeath) ailmentDeathEpoch = conn.IncomingHitEpoch;
                     // The client's own Life step must stop at the same Low Life boundary. Publish the real recovery
-                    // rate when the pool is below it and 0 at or above it.
+                    // rate only while Life is more than a short prediction margin below it; inside the margin, the
+                    // server's own updates finish the recovery, so the client cannot predict across the boundary.
+                    uint lowLife = (uint)((long)conn.PlayerMaxLife * LowLifeThresholdPct(recoveryStats) / 100);
+                    uint margin = PetrifiedBlood.RecoveryMargin(lifeRate);
                     bool recoveryBlocked = conn.PetrifiedBlood.Active && lifeAfter > 0
-                        && lifeAfter >= (uint)((long)conn.PlayerMaxLife * LowLifeThresholdPct(recoveryStats) / 100);
+                        && (long)lifeAfter + margin >= lowLife;
                     if (recoveryBlocked != conn.PetrifiedBlood.SentRecoveryBlocked)
                     {
                         conn.PetrifiedBlood.SentRecoveryBlocked = recoveryBlocked;

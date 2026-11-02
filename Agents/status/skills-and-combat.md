@@ -700,8 +700,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   overlay for the loss still owed.
   Low Life uses the shared 50% default (`low_life_threshold_%_override` then `low_life_threshold_%`), not a fixed
   half of maximum Life; the 3.29.3b Life mastery `Life4` sets the override to 55%. The client's own
-  `life_recovery_per_minute` is published as 0 while the cap blocks recovery and restored below it, so its pool
-  prediction cannot pass the boundary.
+  `life_recovery_per_minute` is published as 0 inside a 250 ms regeneration margin of the cap and restored farther
+  below it, so its pool prediction cannot cross the boundary.
   Activation, deactivation, saved intent across areas, death cleanup and the own-aura/received-buff presentation share
   the existing aura send gate; the buff is not an aura and the aura restriction leaves it alone.
   Not implemented: the buff-specific reservation-efficiency rows, the client tooltip's Life cost, and any non-hit

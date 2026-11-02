@@ -65,6 +65,8 @@ public sealed class PetrifiedBloodTests
             manaPercent: 3500, lowLifeThresholdPct: 40, buff: 7, now: 0);
         double carry = 0;
         Assert.Equal(400u, PetrifiedBlood.RecoverLife(conn, 300, 500, ref carry));
+        Assert.Equal(5u, PetrifiedBlood.RecoveryMargin(20));   // 250 ms at 20 Life/s
+        Assert.Equal(1u, PetrifiedBlood.RecoveryMargin(0));
         double flaskCarry = 0;
         Assert.Equal(1000u, RecoveryPool.Advance(400, 1000, 600, ref flaskCarry));
 
