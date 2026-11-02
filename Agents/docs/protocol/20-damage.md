@@ -38,7 +38,7 @@ results and remaining checks. Source `artifacts/issue75-completion/` paths remai
 
 ```
 base skill/weapon damage by type
-  → added damage (DamageStats.RawAdded; the first added-damage stat is read, see §2)
+  → added damage (DamageStats.RawAdded; the stats it reads are in §2b)
   → gain X% as extra (does not consume the source)
   → conversion (source is consumed; converted damage can convert again)
   → increased / more multipliers per type
@@ -260,9 +260,10 @@ per second at quality 20 with its local physical/flat/speed modifiers. Source/DL
 Other variant tooltips, exact fractional timing and supported-contact composition remain outside that native proof.
 Evidence: `artifacts/issue75-completion/weapon-native/`, including the preserved inactive-profile failure.
 
-## 2b. Added damage from stats (the first stat)
+## 2b. Added damage from stats
 
-Added damage is not fully modelled yet, but one stat is read.
+Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges and the
+stats below are read.
 `DamageStats.RawAdded` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.
 The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`
@@ -296,6 +297,54 @@ A wand stayed at 90–90 even with a club in the inactive set; switching to the 
 Clearing the attack increase left the ranged wand at 60–60 despite the melee input.
 Clearing the grant removed the lightning rows' damage, and relog restored the baseline maximum mana and damage.
 These checks validate the generic damage consumer; ascendancy allocation remains in its separate lifecycle change.
+
+Global added attack damage per final attribute (`DamageStats.AttributeAdded`) joins the same raw attack range,
+so increases, effectiveness, conversion and support stages treat it like any other added damage:
+
+| Stats (minimum / maximum) | Per | Source (3.29) |
+|---|---|---|
+| `attack_minimum/maximum_added_physical_damage_per_25_strength` | 25 Strength | Replica Iron Commander (`AddedDamagePerStrengthUnique__1`; `__2` adds 8–24) |
+| `attack_minimum/maximum_added_physical_damage_per_25_dexterity` | 25 Dexterity | Iron Commander |
+| `minimum/maximum_added_fire_damage_to_attacks_per_10_strength` | 10 Strength | Hyrri's Demise |
+| `minimum/maximum_added_cold_damage_to_attacks_per_10_dexterity` | 10 Dexterity | Hyrri's Demise |
+| `minimum/maximum_added_lightning_damage_to_attacks_per_10_intelligence` | 10 Intelligence | Hyrri's Demise |
+| `minimum/maximum_added_chaos_damage_to_attacks_per_50_strength` | **80** Strength | Replica Alberon's Warpath (1–80; its Divergent mod 1–30) |
+
+Each grant is the stat value times the complete groups of the final attribute in the same stat dictionary
+(`floor(attribute / N)`, none for a negative attribute), as PoB's `PerStat` tag (`ModStore.lua`,
+`m_floor(base / div + 0.0001)`) computes it. The chaos pair's id says 50, but the group is 80: the client's own
+description (`Metadata/StatDescriptions/stat_descriptions.txt`, "Adds {0} to {1} Chaos Damage to Attacks per 80
+Strength", and every one of its translations), PoB's unique text and parsed mod cache (`ModCache.lua`: `div=80`) and
+RePoE's mod text all say 80.
+At 11,833 Strength the boots add 147–11,760 chaos.
+The weapon-local "to Attacks with this Weapon per 10 <attribute>" stats
+(`attack_minimum_added_fire_damage_per_10_strength`, `attack_minimum_added_lightning_damage_per_10_dex/int`,
+`attacks_with_this_weapon_minimum_added_cold_damage_per_10_dexterity`) and the spell
+`spell_minimum_added_lightning_damage_per_10_intelligence` are not read yet.
+
+Damage-type prohibitions (`DamageStats.Prohibited`) remove a final-type portion after conversion.
+`base_deal_no_damage` removes everything; the whole-type item prohibitions of 3.29 (RePoE `mods.json`, read as PoB's
+ModParser reads their text) remove these types:
+
+| Stat | Removes |
+|---|---|
+| `base_deal_no_physical/lightning/cold/fire/chaos_damage` | that type |
+| `deal_no_elemental_damage` | lightning, cold, fire |
+| `deal_no_elemental_physical_damage` ("Deal no Physical or Elemental Damage") | physical, lightning, cold, fire |
+| `deal_no_non_physical_damage`, `deal_no_non_lightning_damage` | every type but that one |
+| `deal_no_non_elemental_damage` | physical, chaos |
+| `deal_no_non_chaos_damage` ("Cannot deal non-Chaos Damage", Replica Alberon's Warpath) | physical, lightning, cold, fire |
+| `attacks_deal_no_physical_damage` | physical, in an attack's hit, ailments and DoT only |
+
+The hit resolver (`PlayerHitDamage`), the damaging-ailment rows and their ignite settings (`AilmentPanelStats`) and
+the caster's outgoing damage over time (`SkillDamageContext.OverTime`: Righteous Fire's enemy burn, a granted skill's
+ignite) apply them, as PoB's `canDeal` (CalcOffence) does for hits, ailments and DoT.
+An ailment is gated on its own type, as PoB gates bleed on `canDeal.Physical`, poison on `canDeal.Chaos` and ignite on
+`canDeal.Fire`: "Deal no Chaos Damage" stops poison even from physical. A removed portion also gives no ailment base,
+so under "Cannot deal non-Chaos Damage" there is no bleed or ignite and only the chaos part poisons.
+Support gems' own prohibitions use the same list (`GemSupportDamage.Prohibited`).
+Skill-, strike- and condition-scoped prohibitions (Blade Vortex, movement skills, the three mines, critical or
+non-critical strikes, low life, non-exerted attacks, `ignite_deal_no_damage`, minions) are not read by this list.
 
 ## 2c. Arcane Might: spell increases also apply to attacks
 
