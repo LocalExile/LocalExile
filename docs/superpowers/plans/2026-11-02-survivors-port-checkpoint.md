@@ -145,6 +145,9 @@ The gameplay was brought back onto Azeroth Survivors' mechanics and curves
 ## Commits (port branch, newest first)
 
 ```
+94031a6b docs: record the survivors reference alignment
+98b4fa3f feat: survivors curves follow the reference mode
+a56a267a docs: checkpoint the support matrix, animations and herald hit effects
 c976b7ab docs: checkpoint herald effects and latest commits
 193cb100 test: every herald has a hit effect
 263afdd9 feat: every herald plays its own hit effect
