@@ -27,27 +27,6 @@ static partial class Game
         if (ImmuneCharacters.ContainsKey(CharacterName(conn))) conn.Immune = conn.God;
     }
 
-    // The player's life per second from regeneration: the flat life regeneration per minute (/god, /set_stat) plus a
-    // percentage of maximum life, from the row PanelStats.Recovery sends to the character panel.
-    internal static double LifeRegenPerSecond(ClientState conn)
-    {
-        lock (conn.Monsters)
-        {
-            CharacterPlayerStatsCore(conn, out double baseline);
-            return baseline;
-        }
-    }
-
-    // The player's mana per second from regeneration: Character.ot's mana_regeneration_rate_per_minute_% (105: 1.75% of
-    // maximum mana per second) plus the stats' flat base_mana_regeneration_rate_per_minute (/god), raised by
-    // mana_regeneration_rate_+%.
-    internal static double ManaRegenPerSecond(ClientState conn)
-    {
-        var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
-        return PanelStats.ManaPerMinute(PanelStats.WhileMoving(Get, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds)), conn.Pools.Mana) / 60;
-    }
-
     // The mana the running auras reserve, and what is left for casting and regeneration.
     // Restoring an already enabled aura is not a fresh cast: transient mana availability must not discard its saved intent.
     internal static IReadOnlyList<AuraCatalog.Aura> RestoreRememberedAuras(ClientState conn, IEnumerable<string> saved)
@@ -123,6 +102,7 @@ static partial class Game
         {
             ended = [.. conn.Auras.Values];
             conn.Auras.Clear();
+            conn.Lifetap.Clear();
             conn.AuraStatsDirty = ended.Count > 0 || conn.AuraStatsDirty;
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
@@ -214,6 +194,32 @@ static partial class Game
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
     }
 
+    // A paid skill's Life cost, then its mana update. Lifetap's cost changes the life pool at once and the client must
+    // see it before its own prediction does anything with the new value.
+    internal static async Task SendSkillCost(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint lifeCost, string? log)
+    {
+        if (lifeCost > 0)
+            await Send(remote, stream, ciphers, [], log, atGate: () =>
+            {
+                lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife);
+            });
+        await SendPlayerMana(remote, stream, ciphers, conn, log);
+    }
+
+    // The Lifetap buff's client instance: it is added by the mana publication after a supported skill's cost (the
+    // same send gate as the other own buffs) and is removed here when its countdown runs out.
+    internal static Task SendLifetap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        Send(remote, stream, ciphers, [], null, atGate: () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (conn.Closed || conn.LeavingArea || conn.RageRetired
+                    || (!conn.PlayerObjectCreated && !conn.PlayerSent)) return null;
+                return Lifetap.Presentation(conn);
+            }
+        });
+
     internal static Task SendPlayerEnergyShield(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         Send(remote, stream, ciphers, [], "0x01b1 player energy shield", atGate: () =>
         {
@@ -249,20 +255,34 @@ static partial class Game
     internal static uint ManaCost(StatCatalog stats, SkillCatalog skills, int effect, int level, int quality) =>
         stats.Key("mana_cost") is uint k ? (uint)skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
 
-    // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts. False when the player lacks
-    // the mana.
-    internal static bool PayMana(ClientState conn, ushort skillId, out uint cost)
+    // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts. Lifetap Support
+    // replaces the whole cost with Life. False when the player lacks the pool it actually uses.
+    internal static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost)
     {
         var own = SupportedSkill(conn, skillId).Stats;
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         cost = (uint)Math.Max(0, Own("mana_cost"));
+        lifeCost = 0;
         lock (conn.Monsters)
         {
             // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
             if (cost > 0 && BloodCharges.Uses(Own))
                 cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
-            if (conn.PlayerMana < cost) return false;
+            int life;
+            if (Lifetap.ConvertsCostToLife(own))
+            {
+                life = (int)Math.Min(cost, int.MaxValue);
+                cost = 0;
+            }
+            else life = 0;
+            if (conn.PlayerMana < cost || life > 0 && conn.PlayerLife <= (uint)life) return false;
             conn.PlayerMana -= cost;
+            if (life > 0)
+            {
+                conn.PlayerLife -= (uint)life;
+                lifeCost = (uint)life;
+                Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
+            }
             return true;
         }
     }
@@ -450,6 +470,7 @@ static partial class Game
             await SendRecentEnemyHits(remote, stream, ciphers, conn);
             if (conn.FlaskGrounds.StartTickerIfConfigured()) _ = RunFlaskGrounds(remote, stream, ciphers, conn);
             await SendAttackerSlows(remote, stream, ciphers, conn);
+            await SendLifetap(remote, stream, ciphers, conn);
             await TickPassiveAuras(remote, stream, ciphers, conn);
             await PushOutOfCollision(remote, stream, ciphers, conn);
             await BurnIgnited(remote, stream, ciphers, conn);
@@ -563,9 +584,9 @@ static partial class Game
                 // Stat aggregation stays at the old 250 ms cadence, rather than rebuilding the panel 60 times/s.
                 if (now - ratesAt >= PlayerTickMs / 1000.0 || rf != cachedRf)
                 {
-                    lifeRate = LifeRegenPerSecond(conn);
-                    manaRate = ManaRegenPerSecond(conn);
-                    recoveryStats = CharacterPlayerStats(conn);
+                    recoveryStats = CharacterPlayerStatsCore(conn, out lifeRate);
+                    manaRate = PanelStats.ManaPerMinute(
+                        PanelStats.WhileMoving(RecoveryStat, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds)), conn.Pools.Mana) / 60;
                     zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
                     convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
                     burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
@@ -1025,6 +1046,8 @@ static partial class Game
                         foreach (var budget in player.Souls ?? [])
                             conn.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
                         conn.PresentedAuras.Clear();
+                        conn.Lifetap.PresentedBuff = 0;
+                        conn.Lifetap.RefreshPresented = false;
                         conn.AuraStatsDirty = false;
                         conn.PlayerObjectCreated = true;
                         return InstanceEntities.CreateObject(PlayerId, conn.PeerType, player.Blob());
