@@ -9,6 +9,7 @@ using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
 partial class Program
 {
+    static readonly Lazy<PacketLogQueue> PacketSummaries = new(() => new(Console.WriteLine));
     internal static string CharacterName(ClientState conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
 
     // Set while a projectile's output is sent: false drops it (Send).
@@ -351,7 +352,13 @@ partial class Program
                 if (atGate() is not { } current) return;
                 bytes = current;
             }
-            if (log is not null) Console.WriteLine($"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}");
+            if (log is not null)
+            {
+                string line = $"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}";
+                // Explicit traces retain synchronous output; normal summaries cannot stall the wire on disk IO.
+                if (ServerTrace.Packets) Console.WriteLine(line);
+                else PacketSummaries.Value.Write(line);
+            }
             if (ServerTrace.Packets && PacketHistory.Kept(sent: true, PacketHistory.IdOf(bytes)))
                 Console.WriteLine($"[packets] {remote} => 0x{PacketHistory.IdOf(bytes):x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
             HistoryFor(ciphers).Sent(bytes);   // before Write, which encrypts the bytes in place

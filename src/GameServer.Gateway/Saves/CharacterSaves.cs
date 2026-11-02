@@ -73,7 +73,7 @@ static class CharacterSaves
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
     }
 
-    public static readonly JsonSerializerOptions Opts = new() { WriteIndented = true };
+    public static readonly JsonSerializerOptions Opts = new();
 
     /// <summary>Deferred class gems and progress for new characters. Null preserves older pre-granted starter kits.</summary>
     public sealed record OpeningTutorial(SavedItem SkillGem, SavedItem SupportGem,
