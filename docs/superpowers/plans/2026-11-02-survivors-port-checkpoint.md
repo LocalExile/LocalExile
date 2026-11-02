@@ -1,94 +1,140 @@
-# Survivors mode: port to the Modules architecture (checkpoint, 2026-11-02)
+# Survivors mode — full checkpoint (2026-11-02, end of session)
 
-The survivors feature was written against the pre-refactor tree (`Program.*` partials in
-`src/GameServer.Gateway`). Upstream `main` (`dfcdc8f3`) moved gameplay into the `game` module
-(`Modules/Core/Game/**`, `static partial class Game`) and left only transport in the Gateway.
-This branch is the port, based directly on `dfcdc8f3`.
+Everything about the Vampire Survivors-style mode, where it lives, what is verified and what is next.
+The feature was originally built on the pre-refactor Gateway, then ported to the current `Modules` architecture.
 
-- Worktree: `E:\LocalExile-port`
-- Branch: `port/survivors-mode`
-- Build: `dotnet build GameServer.slnx` - **0 errors, 0 warnings**
-- Playable: **yes**, verified live in the new tree (2026-11-02, 20:2x-20:3x)
+## TL;DR
 
-## Verified live in the new architecture
+- The port is **done, builds and passes all tests**, and is verified live in the new tree.
+- **PR #502** (https://github.com/LocalExile/LocalExile/pull/502) is **ready for review, `mergeable=true`**; the only
+  blocker is GitHub waiting for the maintainer to approve the fork's `docs-scan` workflow run (normal for fork PRs).
+- **Issue #503** (https://github.com/LocalExile/LocalExile/issues/503) tracks the remaining per-gem/per-support
+  verification.
+- Next session: pick up at "Next steps" below.
 
-- `/survivors start|stop|status` work; the run spawns its horde, casts Fireball, monsters die
-  (`fireball-explosion ... damage=23 life=0/15`), and the skill bar and cooldowns go out
-  (`0x0053`, `0x01ce` per target + the `0x02ba` cooldown trailer).
-- `/survivors level` (dev) grants run experience at once; the reward window opened with three named
-  choices (`Ball Lightning`, `Freezing Pulse`, `Soulrend`), and `/survivors status` lists their ids.
-- Picking a skill learns it (`Learned Burning Arrow, rank 1.`), republishes the Actor skills and the bar.
-- A unique item appeared as a choice (`Stasis Prison`) and the pick equipped it:
-  `0x00bf survivors unique Carnal Armour equipped in row 1` and `Equipped Stasis Prison.`
-  (the new `UniqueCatalog` has many more uniques than the old two).
+## Where everything is
 
-## Done in the port
-
-| Piece | Where |
+| What | Where |
 |---|---|
-| Core rules, run state, tests | `src/GameServer.Core/World/SurvivorsMode.cs`, `tests/GameServer.Core.Tests/SurvivorsRunTests.cs` |
-| Adapter (spawner, casts, offers, items, area carry) | `Modules/Core/Game/Survivors/Survivors.cs` (`static partial class Game`) |
+| Port worktree | `E:\LocalExile-port` (git worktree), branch `port/survivors-mode` |
+| Ported branch on the fork | `GafGafGaf5612/LocalExile:feat/survivors-mode-preview` (head `a6acfbe9`) |
+| Original (pre-refactor) work | `E:\LocalExile`, branch `feat/survivors-mode` — kept as reference, do not delete |
+| PR | https://github.com/LocalExile/LocalExile/pull/502 |
+| Follow-up issue | https://github.com/LocalExile/LocalExile/issues/503 |
+| Core model & tests | `src/GameServer.Core/World/SurvivorsMode.cs`, `tests/GameServer.Core.Tests/SurvivorsRunTests.cs` |
+| Gameplay adapter | `Modules/Core/Game/Survivors/Survivors.cs` (`static partial class Game`) |
 | Per-connection state | `src/GameServer.Gateway/Connection/ClientState.Survivors.cs` |
-| `/survivors` command | `GameModule.Load` -> `module.OnChatCommand("survivors", ...)` -> `Game.SurvivorsCommand` |
-| Run skills as Actor skills | `PlayerSkills` appends `SurvivorsGrantedSkills`; `SendSkillBar` places them from slot 3 (Q) and works without a saved bar; `SendSkills` resends the bar while a run is live |
-| Unique requirements waived | `RequiredLevel = 0` on the offered item; `virtual_*_for_requirements` raised in `FinalPlayerStatsFrom` while `SurvivorsItemIds` is non-empty; `Progression.cs` removes those ids from the inactive set |
-| Loot hidden | `DropLoot` returns early during a run; `SendGroundItems` returns early; gold auto-loot skipped; `StartSurvivors` sends `0x02bb RemoveObject` for every item in `Instance.Ground` |
-| Damage quartered | `CommitMonsterHitLocked` (after Fortification) uses `SurvivorsRules.IncomingDamage` |
-| Reward-window click | `VendorsFeature.BuyFromShop` / `CtrlBuyFromShop` call `Game.ChooseSurvivorsSkill` first |
-| Area entry | `Modules/Core/Game/Player/Messages.cs` calls `ResumeSurvivors` after `PopulateArea` |
-| Monster scaling | `SurvivorsMonsterMods` builds `MonsterModSet` with `maximum_life_+%` / `damage_+%` |
+| Docs | `Agents/docs/game/survivors-mode.md` (ported, with preview art `docs/preview/survivors-mode-preview.png`) |
+| Checkpoint (this file) | worktree `docs/superpowers/plans/` and a copy in `E:\LocalExile\docs\superpowers\plans\` |
 
-## Tests
+## Commits (port branch, newest first)
 
-- Core: 455 passed (includes the 19 survivors tests).
-- Data: 45 passed.
-- Gateway: 48 passed, 5 failed: `PhreciaFourClassesTests.Each_class_is_admitted_with_its_own_opt_in` (4 cases)
-  and `BehemothRuntimeTests.Provider_retirement_releases_owned_state...` - both unrelated to the survivors
-  code (league admission / worker retirement) and failing in this environment.
+```
+a6acfbe9 fix: closing the survivors window takes the first reward instead of reopening
+be57c615 feat: the survivors level-up window reopens instead of hanging the run
+ceecd25e fix: survivors projectiles are server-drawn; herald auras and hit effects
+71f25849 feat: herald aura skills and an empty character at every survivors start
+76926637 docs: strip hidden control characters and the BOM flagged by docs-scan
+af566a76 docs: drop the external reference link flagged by docs-scan
+71f25849 ... (heralds, inventory reset)
+de07fbd6 merge: upstream main into the survivors port
+0fb344c8 fix: survivors unique stats reach the character; sweep the ground every run second
+...
+```
+`git log --oneline -15` in `E:\LocalExile-port` for the full list.
 
-## Merge and PR
+## Feature state (all verified live unless noted)
 
-- main moved to `7d489618` (70 commits on top of the port's base); the merge into `port/survivors-mode` was **clean, 0 conflicts**.
-- One upstream API change needed a fix: `ProjectileSkillParameters.Resolve` now takes an `arrows` flag; the survivors cast passes `ArrowsFor(conn, skill.Effect)`.
-- Tests after the merge: Core 455, Data 45, Gateway 73, all passing; build 0 warnings.
-- PR #502 is ready for review (not a draft), `mergeable=true`; the only blocker is the maintainer approving the fork's `docs-scan` workflow.
-- Live re-check after the merge: 40 kills at 00:16, run level 5, offer open with three named choices, and **0** world items created during the run.
+| Feature | State |
+|---|---|
+| Horde | from the area's MonsterPacks, 14 alive at start to 120, magic/rare rolls, boss every 135 s, ring wave halfway |
+| Monster scaling | life ×1.75, damage ×1.9 by 15:00 (`MonsterModSet` with `maximum_life_+%` / `damage_+%`) |
+| Run skills | every projectile skill gem the data resolves; casts on its own timer (1.2 s ×0.93/rank, floor 0.2 s) |
+| Projectiles | one per target (nearest, or toughest for Pyroblast/Aimed Shot/Exorcism/Starfire), +1 at ranks 3/5/7; **server-created objects** (`0x2b9`), so the flight is visible |
+| Damage | roster median × (1 + 0.30/rank) × blessings/supports, ×2 crit |
+| Supports | 8 real support gems, up to 5 per skill, effects per skill (damage/cast/area/crit/projectile speed/leech) |
+| Blessings | 8 run-local passives (Might, Haste, Area, Critical, Leech, Wisdom, Fortitude, Swiftness) |
+| Unique items | every 3rd run level; equipped on pick; level/attribute requirements waived for the run; mods reach the character (cache key + active list fix) |
+| Heralds | Ash/Ice/Thunder/Agony/Purity as `Herald` kind: aura pulse (12 cells, grown by rank/area) every cast, gem aura buff on the player (`0x1c1`) + impact packet (`0x1af`) on each hit |
+| Skill bar | run skills as Actor skills (`0x2ba`), ids from `0x0300`, slots from Q; cooldown `0x1ce` per target + `0x02ba` trailer |
+| Loot | no `DropLoot`, no `SendGroundItems`, no gold auto-loot during a run; ground swept at start, on area resume and every run second (`0x2bb`, store `Take`) |
+| Inventory | every `/survivors start` empties the character (main inventory, equipment, flasks, second weapon set, row 102), one `0xbf` per row |
+| Pause | clock stops while the choice window is open; resumes after the pick |
+| Window close | closing the window (click outside / Esc / 0x85) **takes the first reward**; the run never hangs |
+| Kills | `RecordKill` hooks in `CommitProjectileKill` and `MonsterKilledBy` |
+| Area change | every 120 s the run moves to the next area and carries over (`SurvivorsCarried`) |
+| Commands | `/survivors start|stop|pick <1-3>|status`, dev `/survivors level` (banks levels), dev `/survivors herald` (learns the first herald) |
 
-## Latest fixes (2026-11-02, evening)
+## Verified live (2026-11-02, new architecture)
 
-- **Unique stats now reach the character.** The stat cache in CharacterStatSources was the blocker: an exempted
-  item stayed out of the cached active list. Progression.cs now adds the run's items to active, drops their ids
-  from the previous inactive set, and the cache key carries SurvivorsItemIds. Live: `The Primordial Chain` logged
-  `base_life_regeneration_rate_per_minute 0->187, base_number_of_golems_allowed 0->3`.
-- **Ground loot.** `SurvivorsClearGround` runs at start, on area resume and once per run second; it takes every
-  item out of the instance store and sends `0x02bb RemoveObject`. Live: 65 hidden, 0 `create world item`.
+- `survivors run started ... 29 skills, 8 blessings`, horde spawns, projectiles kill (`damage=23 life=0/15`).
+- Kill counting: 40 kills / run level 5 in 16 s; 368 kills / level 13 in 1:26 with a longer run.
+- Reward window: `0x00c0` + `0x0087`, three named choices, `/survivors status` lists them with ids.
+- Unique item: `Stasis Prison` equipped in row 1; stats fix logged `base_life_regeneration_rate_per_minute 0->187`,
+  `base_number_of_golems_allowed 0->3` (The Primordial Chain).
+- Heralds: `0x01c1 survivors herald aura Herald of Ash (BuffDefinitions row 344)`, `hit by Herald of Ash for 23,
+  life 0/15 (dies)`, `0x01af player hit on monster ...`.
+- Loot: 351 ground items hidden at start, 0 `create world item` during a run; inventory reset rows logged.
+- Window close: `offer cleared after choosing Herald of Ash` + `offer closed`, run continues.
+- Area change (old branch, same code path): run carried to the next area.
 
-## Open items
+## Tests and build
 
-1. **Ground items (fixed).** The pile seen during a run was loot left by earlier sessions in the area's
-instance store. `StartSurvivors` now sends `0x02bb RemoveObject` for every `Instance.Ground` item before
-the run: the live pass logged **351 hidden items** and the floor cleared. A few labels near a fresh corpse
-remained (created after the sweep); if they matter, re-sweep on the first run tick.
-2. Area change at 02:00 in the new tree (`ResumeSurvivors` + carry) not exercised yet.
-3. Push `port/survivors-mode` to the fork and update PR #502 (title/body: drop "needs port", keep the
-   preview note); issue #503 (verify every projectile skill and its supports) stays open.
-4. Port the docs (`Agents/docs/game/survivors-mode.md` still lives on the old branch) and the preview
-   image into the new tree.
+`cd E:\LocalExile-port`
+
+```
+dotnet build GameServer.slnx          # 0 errors, 0 warnings
+dotnet test tests/GameServer.Core.Tests       # 455 passed
+dotnet test tests/GameServer.Data.Tests       # 45 passed
+dotnet test tests/GameServer.Gateway.Tests    # 73 passed
+```
+
+## Environment (worktree setup, one-time, already done)
+
+- `E:\LocalExile-port\Client` is a **junction** to `E:\LocalExile\Client`.
+- `E:\LocalExile-port\Tools\ooz\node_modules` is a **junction** to `E:\LocalExile\Tools\ooz\node_modules`.
+- `E:\LocalExile-port\data` was extracted with `scripts/dev/extract-data.ps1` (includes `game-files.zip`).
+- Copied from `E:\LocalExile\data` (secrets/saves, **never commit**): `login-keys.json`, `instance-secret.bin`,
+  `saves.db`, `saves.db-shm`, `saves.db-wal`.
+- Ports: Auth `20493`, Patch `8080`, Gateway `6112`; test character `SurvivorMvp`, account `survivormvp`,
+  password `mvp-survivors-1`.
 
 ## Resume commands
 
 ```
 cd E:\LocalExile-port
-git status                      # branch port/survivors-mode
+git status                                  # branch port/survivors-mode
 dotnet build GameServer.slnx
-powershell -ExecutionPolicy Bypass -File scripts\dev\live.ps1
+powershell -ExecutionPolicy Bypass -File scripts\dev\live.ps1     # ~2.5 min
 python scripts\dev\client_control.py login:survivormvp --password-stdin   # password mvp-survivors-1
 python scripts\dev\client_control.py character:play:SurvivorMvp
+python scripts\dev\client_control.py command "/god on"
 python scripts\dev\client_control.py command "/survivors start"
-python scripts\dev\client_control.py command "/survivors level"
+python scripts\dev\client_control.py command "/survivors level"    # dev: open the choice window at once
+python scripts\dev\client_control.py command "/survivors herald"   # dev: learn a herald at once
 python scripts\dev\client_control.py command "/survivors status"
 ```
 
-The worktree needs `data/` (extracted with `scripts/dev/extract-data.ps1`; `Client/` and
-`Tools/ooz/node_modules` are junctions to `E:\LocalExile`), `data/login-keys.json` and `data/saves.db`
-copied from `E:\LocalExile\data` (secrets and saves, never committed).
+## Gotchas learned this session
+
+- **Build while the game runs** fails with `MSB3027/MSB3021` file locks: stop the client and the servers first.
+- **Fork PR checks**: every pushed commit's `docs-scan` waits for the maintainer (`Wrathen`) to approve the workflow
+  run — the check shows "Waiting for Wrathen to approve this commit". That is the only reason the PR is "blocked".
+- **docs-scan rules**: no hidden control characters (U+0007 etc.) and **no BOM** in added files; external links need
+  maintainer review. The scan posts a comment with the exact file/line.
+- **Reward inventory** (`0x600`): register it with `0xc0` before any `0xbf`, or the client dies with
+  "Got an inventory set change for an inventory that isn't in the set".
+- Run skill ids start at `0x0300` (outside the gem band); the bar puts them from slot 3 (Q).
+- `ResolveProjectileDefinition` is private to `game.dll`; the survivors file lives in that assembly so it can call it.
+- Heralds have no projectile: they are a `Herald` skill kind with an aura pulse, and their buff row comes from
+  `GrantedEffects.ActiveSkill → ActiveSkills.Id → BuffDefinitions.Id`.
+
+## Next steps
+
+1. **Verify every projectile gem and support** (issue #503): run with `Game_SURVIVORS_MAX_ALIVE=10`, check each gem's
+   icon/flight/kill/cooldown and each support's effect; note the gems with no cast animation.
+2. **Per-gem cast animations** (documented in `Agents/docs/game/survivors-mode.md` "Needs testing").
+3. **Get PR #502 merged**: ask the maintainer to approve the workflow run / review; the branch is conflict-free and green.
+4. Port the status entry: `Agents/status/skills-and-combat.md` still describes the old branch; update it on the port
+   branch (the docs file is already ported).
+5. Optional: grow `UniqueCatalog` definitions used by the item offers; more blessings; herald variants.
