@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace LocalExile;
 
@@ -12,6 +14,31 @@ static class Platform
     /// <summary>A file on PATH; null when there is none.</summary>
     public static string? OnPath(string file) => (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
         .Select(folder => Path.Combine(folder, file)).FirstOrDefault(File.Exists);
+
+    /// <summary>The prefix the client runs in: one of LocalExile's own, so its settings and saved login outlive any install and
+    /// every install has them, and no other Path of Exile ever sees them. Login keys are in data\, so nothing there depends on it.</summary>
+    public static string GamePrefix => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "LocalExile", "wine-prefix");
+
+    /// <summary>LocalExile's first settings, in the prefix it chose (one the shell names is the player's, and never written): this
+    /// install's from before the prefix was shared, when it has them, and the network mode the server needs. Once the file exists
+    /// nothing here touches it, so what the player sets in game stays. scripts/dev/platform-linux.ps1 does the same.</summary>
+    public static void InitializeGameSettings(string prefix)
+    {
+        const string Documents = "drive_c/users/steamuser/Documents/My Games/Path of Exile", Config = "production_Config.ini";
+        string folder = Path.Combine(prefix, Documents), settings = Path.Combine(folder, Config);
+        if (File.Exists(settings)) return;
+        Directory.CreateDirectory(folder);
+        string old = Path.GetFullPath(Path.Combine("data", "wine-prefix", Documents));
+        foreach (string name in new[] { "production_login.credentials", Config })
+            if (File.Exists(Path.Combine(old, name))) File.Copy(Path.Combine(old, name), Path.Combine(folder, name));
+        string text = File.Exists(settings) ? File.ReadAllText(settings) : "";
+        text = NetworkMode().IsMatch(text) ? NetworkMode().Replace(text, "networking_type=predictive")
+            : text.TrimEnd() + "\r\n[NETWORKING]\r\nnetworking_type=predictive\r\n";
+        // The byte-order mark is how the client writes this file.
+        File.WriteAllText(settings, text.TrimStart(), new UTF8Encoding(true));
+    }
+
+    static Regex NetworkMode() => new(@"(?m)^networking_type=[^\r\n]*");
 
     /// <summary>The Windows clients running on this machine under Wine: their PIDs. A client shows its Windows path as its first
     /// argument, whose drive letter Proton picks, so it is told by that file's name and by the folder it runs in.</summary>

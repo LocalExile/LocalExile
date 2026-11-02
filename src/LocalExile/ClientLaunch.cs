@@ -34,15 +34,16 @@ static class ClientLaunch
         return client;
     }
 
-    /// <summary>The client through umu-run, in this install's own prefix unless the shell names one: the patched client trusts
-    /// this install's keys. A first start sets up the prefix and may download Proton.</summary>
+    /// <summary>The client through umu-run, in LocalExile's own prefix unless the shell names one (Platform.GamePrefix). A first
+    /// start sets up the prefix and may download Proton.</summary>
     static void UnderProton(ProcessStartInfo start)
     {
         string runner = Environment.GetEnvironmentVariable("Game_CLIENT_RUNNER") is { Length: > 0 } own ? own : "umu-run";
         if (Platform.OnPath(runner) is null) throw new LauncherException(ExitCode.ClientStart, $"{runner} was not found: install umu-launcher, which runs the client under Proton");
         start.ArgumentList.Insert(0, start.FileName);
         start.FileName = runner;
-        string prefix = Path.GetFullPath(Path.Combine("data", "wine-prefix"));
+        string prefix = Platform.GamePrefix;
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WINEPREFIX"))) Platform.InitializeGameSettings(prefix);
         Directory.CreateDirectory(prefix);
         foreach (var (name, value) in new[] { ("WINEPREFIX", prefix), ("PROTONPATH", "GE-Proton"), ("GAMEID", "umu-238960") })
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(name))) start.Environment[name] = value;

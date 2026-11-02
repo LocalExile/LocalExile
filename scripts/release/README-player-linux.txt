@@ -6,9 +6,12 @@ Path of Exile 3.29.3b client.
 
 TO PLAY
 Run ./LocalExile in a terminal and answer its questions. The first start copies the client if you choose that, extracts the
-game data (several minutes; each step is reported), has you create a local account, and sets up Proton in data/wine-prefix,
-which can take a few minutes more. Later starts take about a minute. In game, set Options > Game > Network Mode to
-Predictive once.
+game data (several minutes; each step is reported), has you create a local account, and sets up Proton, which can take a
+few minutes more. Later starts take about a minute.
+
+YOUR GAME SETTINGS
+Graphics, keys and your saved login are in ~/.local/share/LocalExile/wine-prefix. Every LocalExile of yours shares them, they
+stay when you delete this folder, and your normal Path of Exile does not use them.
 
 ALWAYS START THE GAME WITH ./LocalExile
 Started any other way (the game's own executable, Steam, the official launcher), the client contacts the official patch

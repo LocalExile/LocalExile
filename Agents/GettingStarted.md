@@ -51,14 +51,17 @@ runs under Proton, through [umu-launcher](https://github.com/Open-Wine-Component
 |---|---|---|
 | .NET 10 SDK, with the ASP.NET Core targeting pack | on Arch it is a separate package, `aspnet-targeting-pack`; without it builds fail with `NETSDK1226` | `dotnet build GameServer.slnx` |
 | PowerShell 7: `dotnet tool install --global PowerShell` (`~/.dotnet/tools` on PATH) | runs the scripts | `pwsh --version` |
-| umu-launcher | runs the client; the first start creates `data/wine-prefix` and may download Proton | `umu-run --help` |
+| umu-launcher | runs the client; the first start creates LocalExile's prefix and may download Proton | `umu-run --help` |
 | Node.js, `npm install` in `Tools/ooz`, Python 3.9+ | as on Windows | `node --version`; `python3 --version` |
 
 - Run the scripts as `pwsh scripts/dev/live.ps1`, with `/` in paths, and every other command as this guide gives it.
 - Step 2 is not needed. For step 3, `cp -r --reflink=auto "<your install>" Client` copies the client, and on a
   copy-on-write filesystem (btrfs, XFS) takes no extra space.
-- The client's settings are in `data/wine-prefix/pfx/drive_c/users/steamuser/Documents/My Games/Path of Exile`.
-- These settings go through to the client: `WINEPREFIX` (default `data/wine-prefix`), `PROTONPATH` (default `GE-Proton`),
+- The client's settings and saved login are in `~/.local/share/LocalExile/wine-prefix`, under
+  `drive_c/users/steamuser/Documents/My Games/Path of Exile`: one prefix for every checkout and release of this user, kept when
+  an install is deleted, and used by no other Path of Exile. The first start there sets Network Mode to Predictive, starting
+  from this install's older settings in `data/wine-prefix` if it has any.
+- These settings go through to the client: `WINEPREFIX` (default the prefix above; a prefix named here is never written by LocalExile), `PROTONPATH` (default `GE-Proton`),
   `GAMEID` (default `umu-238960`), `Game_CLIENT_RUNNER` (default `umu-run`), and anything else in the shell. On a laptop
   with two GPUs, `__NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRARY_NAME=nvidia` picks
   an NVIDIA GPU.
