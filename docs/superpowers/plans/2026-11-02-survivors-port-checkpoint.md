@@ -83,6 +83,9 @@ damage number:
   Live: Fireball `spell_projectile_unarmed` index 386, Tornado Shot `attack1_unarmed` index 28, Storm Burst
   `spell_aoe_unarmed` index 335, Herald of Ash `spell_buff_unarmed` index 367, each with its speed.
   `SurvivorsAnimationTests` walks every class x weapon stance x kind and asserts every catalogue skill maps to a clip.
+  A Frida probe (`trace-player-hit-animation.js`) confirmed the client side: the body controller accepted index 386 and
+  switched its clip to 386; a second probe showed Fireball projectile objects receiving index 1 (`fireball_explode`)
+  at impact.
 - **Projectile and hit animations.** The server-drawn survivor projectile now carries the projectile type's flight and
   impact clips from `projectile-clips.json` (Fireball impact 1, Spark impact 0, ...); Fireball plays its area explosion
   and Kinetic Blast its cluster visual. A live Fireball trace shows `projectile Metadata/Projectiles/Fireball ...

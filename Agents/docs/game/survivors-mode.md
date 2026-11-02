@@ -205,6 +205,11 @@ included. Its speed is the clip's natural length over the cast interval, so a 0.
 plays at its own pace. `data/animation-contacts.json` now carries each class's rig `indices` (extractor version 4);
 the `/survivors matrix` command and the trace print the chosen clip and index.
 
+A Frida probe on the live 3.29.3b client (`trace-player-hit-animation.js`) confirmed the route: a cast `0x1b2`
+(object 4096) requested index 386, the body controller accepted it and switched its clip to 386
+(`spell_projectile_unarmed`); Fireball's projectile objects received index 1 (`fireball_explode`) at impact. The
+client's own `0x1b2` handler is the same for both.
+
 The survivor projectile is the server's own object, so it now carries the projectile type's flight and impact clips
 from `projectile-clips.json` (`MonsterProjectilePresentation`): Fireball's `fireball_explode`, Spark's
 `electrical_explode`, Ice Spear's `frozenspear_impact`, Ethereal Knives' `end` and the rest. The impact clip is the
@@ -373,9 +378,6 @@ checks the whole catalogue in CI.
 
 ## Needs testing
 
-- **Cast animation playback on the local player**: the server sends the stance's rig clip through 0x1b2 and the trace
-  shows the clip, index and speed, but whether the client keeps that clip over a moving player's walk animation is a
-  visual check; the packet route itself is verified live.
 - **DOT gems**: Caustic Arrow, Vaal Caustic Arrow, Soulrend and poison builds need a monster ground/DOT model before
   their non-hit damage can be shown; the hit portion works today.
 - **Tornado Shot's secondary arrows**: the client predicts and draws them in the real game; here the run hides the
