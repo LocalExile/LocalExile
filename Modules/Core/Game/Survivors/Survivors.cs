@@ -444,6 +444,7 @@ static partial class Game
     {
         double last = conn.Clock.Elapsed.TotalSeconds, nextSpawn = 0, nextBoss = SurvivorsBossIntervalSeconds,
             nextRing = SurvivorsBossIntervalSeconds / 2, nextReport = 10, nextSweep = 0;
+        DateTime nextOffer = DateTime.UtcNow.AddSeconds(10);
         int bossesSpawned = 0, lastKills = run.Kills;
         bool carried = false;
         var horde = new HashSet<uint>();
@@ -455,6 +456,13 @@ static partial class Game
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 double step = now - last;
                 last = now;
+                // The choice is mandatory: if the window was closed (a stray click), it comes back; the clock is
+                // stopped meanwhile, so this runs before the paused-step check.
+                if (conn.SurvivorsOffer is not null && run.Offer.Count > 0 && DateTime.UtcNow >= nextOffer)
+                {
+                    nextOffer = DateTime.UtcNow.AddSeconds(10);
+                    await SurvivorsReopenOffer(remote, stream, ciphers, conn, run);
+                }
                 if (conn.Paused || step <= 0)
                 {
                     await Task.Delay(SurvivorsStepMs);
@@ -952,6 +960,7 @@ static partial class Game
         if (listed.Count == 0) return;
         conn.SurvivorsOffer = shown;
         conn.SurvivorsOfferNames = names;
+        conn.SurvivorsOfferList = listed;
         conn.SurvivorsOfferItems = offeredItems.Count > 0 ? offeredItems : null;
         // The choice pauses the run: the clock stops, so monsters, spawns, casts and recovery wait for the pick.
         lock (conn.Monsters)
@@ -963,6 +972,21 @@ static partial class Game
             $"0x00c0 survivors level {run.Level}: {listed.Count} choice(s) offered");
         await Send(remote, stream, ciphers, InstanceNpcs.OpenQuestReward(SurvivorsOfferInventory, 0),
             "0x0087 survivors level-up window");
+    }
+
+    /// <summary>
+    /// Sends the level-up window again: a stray click while running can close it, and the choice is mandatory, so the
+    /// run would otherwise stay paused with nothing to click. The offered items keep their ids, so the picks still map.
+    /// </summary>
+    internal static async Task SurvivorsReopenOffer(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, SurvivorsRun run)
+    {
+        if (conn.SurvivorsOfferList is not { Count: > 0 } listed || conn.SurvivorsOffer is null) return;
+        await Send(remote, stream, ciphers,
+            InstanceInventories.AddInventory(SurvivorsOfferInventory, NpcShops.Tab, NpcShops.Manager, listed),
+            $"0x00c0 survivors level {run.Level}: {listed.Count} choice(s) offered again");
+        await Send(remote, stream, ciphers, InstanceNpcs.OpenQuestReward(SurvivorsOfferInventory, 0),
+            "0x0087 survivors level-up window (reopened)");
     }
 
     /// <summary>A click in the level-up window (C→S 0x88/0x8a). False when the id is not one of its choices.</summary>
@@ -1000,6 +1024,7 @@ static partial class Game
         var offered = conn.SurvivorsOffer?.Keys.ToList() ?? [];
         conn.SurvivorsOffer = null;
         conn.SurvivorsOfferNames = null;
+        conn.SurvivorsOfferList = null;
         conn.SurvivorsOfferItems = null;
         var items = ItemsOf(conn);
         await Send(remote, stream, ciphers,

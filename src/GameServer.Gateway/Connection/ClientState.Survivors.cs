@@ -11,6 +11,8 @@ sealed partial class ClientState
     public Dictionary<uint, string>? SurvivorsOfferNames;
     /// <summary>The unique items the window shows by inventory item id (the pick equips that very item).</summary>
     public Dictionary<uint, Item>? SurvivorsOfferItems;
+    /// <summary>The window's inventory items as dealt, so a closed window can be sent again.</summary>
+    public List<InventoryItem>? SurvivorsOfferList;
     /// <summary>The reward inventory's revision for the level-up window (S→C 0xbf).</summary>
     public uint SurvivorsOfferRevision;
     /// <summary>This connection's clock was stopped for the level-up window and must restart after the pick.</summary>
