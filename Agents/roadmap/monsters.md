@@ -38,8 +38,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 4. Server design
 
-- **Monster movement on the client's pathfinder:** monsters still use the fitted `WalkEstimator`.
-  `ClientPathfinder` already paths them exactly as the client does.
+- **The client's monster controller:** monsters walk the client's own path (`PlayerWalk`, `ClientPathfinder`).
   The decision loop now uses 50 ms game time and repaths no faster than 100 ms after a three-cell target change.
   Native response, turning, attack pacing and pause controls pass; official monster controller rules remain separate.
   The estimate walks at the client's rolled speed (the status's monster walk speed entry).

@@ -1732,7 +1732,6 @@ static class KingInMists
                     if (conn.Monsters.TryGetValue(wisp, out var light))
                     {
                         light.Walk.Teleport(path[at].X, path[at].Y, now);
-                        light.CollisionPosition = (path[at].X, path[at].Y);
                     }
                 await Program.Send(remote, stream, ciphers, InstanceProtocol.Teleport(wisp, path[at].X, path[at].Y), null);
             }

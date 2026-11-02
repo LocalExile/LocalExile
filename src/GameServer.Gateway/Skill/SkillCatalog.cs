@@ -413,6 +413,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>A movement skill (ActiveSkillType Movement: Leap Slam, Whirling Blades, Flame Dash …): the player ends
     /// where it was aimed.</summary>
     public bool IsMovement(int effectRow) => _movementEffects.Value.Contains(effectRow);
+    public bool IsChannelled(int effectRow) => _skillTypes.Channel.Value.Contains(effectRow);
     public bool IsTravel(int effectRow) => _skillTypes.Travel.Value.Contains(effectRow);
     public bool IsGuard(int effectRow) => _skillTypes.Guard.Value.Contains(effectRow);
     /// <summary>A skill that needs a shield (ActiveSkillType RequiresShield: Shield Charge, Shield Crush …).</summary>
@@ -524,7 +525,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Instant = Of("Instant"); Movement = Of("Movement"); Attack = Of("Attack"); Melee = Of("Melee");
             Spell = Of("Spell"); Projectile = Of("Projectile"); Warcry = Of("Warcry"); Aura = Of("Aura");
             Curse = Of("AppliesCurse"); AddedAura = Of("Aura", added: true); Brand = Of("Brand");
-            Travel = Of("Travel"); Guard = Of("Guard");
+            Travel = Of("Travel"); Guard = Of("Guard"); Channel = Of("Channel");
             Strike = Of("MeleeSingleTarget"); Vaal = Of("Vaal"); Nova = Of("Nova"); RequiresShield = Of("RequiresShield");
             SelfTargeted = new(() =>
             {
@@ -546,6 +547,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public Lazy<HashSet<int>> AddedAura { get; }
         public Lazy<HashSet<int>> Brand { get; }
         public Lazy<HashSet<int>> Travel { get; }
+        public Lazy<HashSet<int>> Channel { get; }
         public Lazy<HashSet<int>> Guard { get; }
         public Lazy<HashSet<int>> Strike { get; }
         public Lazy<HashSet<int>> Vaal { get; }

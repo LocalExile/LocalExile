@@ -216,7 +216,7 @@ public static class InstanceProtocol
     /// a u32 target object id), compact ints: the actor's position when the action starts (+0x2c/+0x30 → action +0x158)
     /// and the target (+0x24/+0x28 → action +0x130, where the client's own 0x25 keeps its target), u16 skill id (+0x34),
     /// u16 sequence (+0x36 → action +0x11a). For a predicted local actor (sequence ≥ 0) the handler only compares the
-    /// position pair with where the client thinks the actor is and teleports it there when they are ~92+ units apart
+    /// position pair with where the client thinks the actor is and teleports it there when they are 92+ grid cells apart
     /// (live 2026-10-16: sending the target in that pair teleported the player on long clicks, onto unwalkable cells).
     /// Otherwise it looks the skill up in the actor's granted skills and starts the action (0x141ee97f0 → 0x141e8cf10).
     /// </summary>
@@ -234,6 +234,15 @@ public static class InstanceProtocol
         CompactInt(w, posX); CompactInt(w, posY); CompactInt(w, targetX); CompactInt(w, targetY);
         return w.U16(skillId).U16(sequence).ToArray();
     }
+
+    /// <summary>
+    /// A server-driven action that starts now: 0x1ab, then 0x1ac in the same tick, as GGG sends them. A server-created
+    /// action that paths waits at its target for that 0x1ac (0x141e94720, Actor flag 0x10); one still walking swings when
+    /// it gets there.
+    /// </summary>
+    public static byte[] ActionStartedNow(uint objectId, int posX, int posY, int targetX, int targetY, ushort skillId, ushort sequence,
+        ushort flags, uint targetObjectId) =>
+        [.. ActionStarted(objectId, posX, posY, targetX, targetY, skillId, sequence, flags, targetObjectId), .. ActionEnded(objectId)];
 
     public const ushort ActionTargetId = 0x1ad;
 
@@ -342,6 +351,8 @@ public static class InstanceProtocol
     /// </summary>
     public static byte[] EnterWakeZone(uint objectId) => new LoginWriter().U16(EnterWakeZoneId).U32(objectId).U32(0).U16(0).ToArray();
 
+    public static byte[] LeaveWakeZone(uint objectId) => new LoginWriter().U16(LeaveWakeZoneId).U32(objectId).U32(0).U16(0).ToArray();
+
     public const ushort RemoveObjectId = 0x2bb;
 
     /// <summary>S→C 0x2bb (world group, header only, read 0x141f92000): remove an object (the world handler's "remove
@@ -407,6 +418,24 @@ public static class InstanceProtocol
     public static byte[] Teleport(uint objectId, int x, int y, uint height = FollowTerrain, float worldZ = 0) =>
         new LoginWriter().U16(TeleportId).U32(objectId).U32(0).U16(0).U32((uint)x).U32((uint)y)
             .U32(height).U32(BitConverter.SingleToUInt32Bits(worldZ)).ToArray();
+
+    /// <summary>S→C 0x128 (class 0x1435dc7c0, read 0x1421a64b0): where objects are, in grid cells: compact count, then
+    /// u32 object, u32 x, u32 y. The client (case 0x50 of 0x14214a190, not in lockstep) puts the player on the first record
+    /// when it is 20 or more cells from it, and then puts every listed object on its record; otherwise only the objects
+    /// 20 or more cells from theirs. It logs "Resyncing id" for each. The first record must be the player.</summary>
+    public const ushort ResyncId = 0x128;
+    public static byte[] Resync(IReadOnlyCollection<(uint Id, int X, int Y)> objects)
+    {
+        var w = new LoginWriter().U16(ResyncId);
+        CompactInt(w, objects.Count);
+        foreach (var (id, x, y) in objects) w.U32(id).U32((uint)x).U32((uint)y);
+        return w.ToArray();
+    }
+
+    /// <summary>S→C 0x2b0 (Positioned): object header, u8, u8; two zeros stop the object blocking paths. GGG sends it about
+    /// 165 ms after a monster's life reaches 0, with the object id repeated in the header's order key.</summary>
+    public static byte[] StopBlocking(uint objectId) =>
+        new LoginWriter().U16(0x2b0).U32(objectId).U32(objectId).U16(0x7000).U8(0).U8(0).ToArray();
 
     /// <summary>The network's signed compact int (writer 0x141fa3c50, reader 0x141fa3d60): 1 byte for -0x40..0x3f, then
     /// 2/3/4 bytes with prefixes 0x80/0xc0/0xe0 (6/5/4 value bits in the first byte), else 0xf0 + 4 bytes, big-endian.</summary>

@@ -61,6 +61,15 @@ PORT_VARIABLES = {"patch": "Game_PATCH_TCP_PORT", "login": "Game_LOGIN_PORT", "c
 SESSION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,23}")
 
 
+def keep_agent(session):
+    """Leaves Frida's agent loaded in the client for good: a script with nothing in it outlives this session. Two tools
+    attached at once crash the client inside frida-agent.dll (0xc0000409) as the agent comes and goes under them, within two
+    attach and detach cycles in a fight. With the agent resident it survives. Only for the LocalExile client."""
+    script = session.create_script("", name="localexile-keep-agent")
+    script.load()
+    script.eternalize()
+
+
 def session_name(value):
     """'' and 'default' are the client as before; others are named sessions (live.ps1 -Session)."""
     if not value or value == DEFAULT_SESSION:
@@ -519,6 +528,7 @@ class ClientControl:
         if self.pid is None:
             raise RuntimeError(f"Client (session {self.client_session}) is not running; use game:open after starting the local servers")
         self.session = self.device.attach(self.pid)
+        keep_agent(self.session)
         self.detached = False
         self.session.on("detached", lambda *unused: setattr(self, "detached", True))
         self.script = self.session.create_script(AGENT.read_text(encoding="utf-8"), name="localexile-client-control")

@@ -129,8 +129,43 @@ static partial class Game
         (int X, int Y) from, (int X, int Y) stop, double departedAt, double arrivedAt) =>
         AttackContactDelay(conn, attackSeconds, approach: arrivedAt > departedAt && stop != from);
 
+    // How often the player's walk up to a monster paths again, and when the estimate stops following it.
+    const double SwingFollowSeconds = .1, SwingFollowLimitSeconds = 3;
+
+    // The walk-up's own goal: the monster's size (StopRange - 2, its ObjectSize - 1) comes off the distance first.
+    static bool SwingInReach(SpawnedMonster m, (int X, int Y) from, (int X, int Y) target, double reach) =>
+        Dist(from, target) - Math.Max(m.StopRange - 2, 0) <= reach;
+
+    // Walks up to a monster until it is in reach, whenever it moves or bodies cut the way: the client's action keeps going
+    // until then, whatever the first path said, and its tick paths it again. Already in reach, the swing starts at once.
+    // Null when another action replaced this one.
+    internal static async Task<((int X, int Y) Stop, double Arrive)?> FollowMonsterToSwing(ClientState conn,
+        SpawnedMonster m, double reach, Func<bool> current, Func<double, double, Task<bool>> until,
+        (int X, int Y) stop, double arrive, double now)
+    {
+        double giveUp = now + SwingFollowLimitSeconds;
+        lock (conn.Monsters)
+            if (arrive <= now && SwingInReach(m, stop, m.Walk.Position(now), reach)) return (stop, arrive);
+        while (true)
+        {
+            double next = arrive > now ? Math.Min(arrive, now + SwingFollowSeconds) : now + SwingFollowSeconds;
+            if (!await until(next, now) || !current()) return null;
+            using (ProjectileMutation(conn))
+            {
+                now = ProjectileWorldTime(conn);
+                if (!current()) return null;
+                var target = m.Walk.Position(now);
+                bool done = m.Life == 0 || now >= giveUp;
+                if (now >= arrive && (done || SwingInReach(m, stop, target, reach))) return (stop, arrive);
+                if (done) continue;
+                (_, stop, arrive) = conn.Walk.Approach(target.X, target.Y, reach, now, tolerance: m.StopRange - 2);
+                if (arrive <= now && SwingInReach(m, stop, target, reach)) return (stop, arrive);
+            }
+        }
+    }
+
     // The player uses a skill on a monster (C→S 0x24, e.g. the default attack on a left click). The client walks into range
-    // first, so the server walks its estimate too (WalkEstimator.Approach, reach = the weapon's MaxAttackDistance in cells,
+    // first, so the server walks its estimate too (PlayerWalk.Approach, reach = the weapon's MaxAttackDistance in cells,
     // centre to centre) and only then starts the swing: it echoes the action aimed at the monster (0x1ab, flags | 0x80 +
     // target id) and, at the contact point (AttackContactDelay: the attack animation's contact keyframe), lowers the monster's life (0x1b1) by the unarmed damage
     // (Characters.dat MinDamage..MaxDamage raised by the increased melee physical damage stats). Any later action (a move, another click) cancels both.
@@ -172,12 +207,19 @@ static partial class Game
         }
         Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} seq 0x{use.Sequence:x4} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
             $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now)
+        bool Current() => conn.ActionCount == action && (!ranged || OrdinaryRangedReleaseCurrent(conn, action, projectileEpoch));
+        async Task<bool> Until(double at, double from)
         {
-            if (ranged) { if (!await WaitProjectileTime(conn, arrive, projectileEpoch)) return; }
-            else await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+            if (ranged) return await WaitProjectileTime(conn, at, projectileEpoch);
+            await Task.Delay(TimeSpan.FromSeconds(at - from));
+            return true;
         }
-        if (conn.ActionCount != action || (ranged && !OrdinaryRangedReleaseCurrent(conn, action, projectileEpoch))) { Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} cancelled before the swing"); return; }
+        if (await FollowMonsterToSwing(conn, m, weapon.Range, Current, Until, stop, arrive, now) is not { } swing)
+        {
+            Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} cancelled before the swing");
+            return;
+        }
+        (stop, arrive) = swing;
         now = conn.Clock.Elapsed.TotalSeconds;
         SkillCriticalRoll criticalRoll;
         lock (conn.Monsters)
@@ -186,12 +228,13 @@ static partial class Game
             conn.NextAttackAt = AttackTiming.After(now, conn.NextAttackAt, duration);
             criticalRoll = CaptureSkillCriticalRoll(conn, SkillCatalog.FirstSkillId);
         }
-        if (Dist(stop, target) > weapon.Range + 2)
+        if (!SwingInReach(m, stop, target, weapon.Range + 2))
         {
             Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} out of reach: {Dist(stop, target):0.0} > {weapon.Range}");
             return;
         }
-        var actionBytes = InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId);
+        // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
+        byte[] actionBytes = [.. InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)];
         string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s";
         if (ordinaryProjectile is { } projectileId)
         {
@@ -384,15 +427,21 @@ static partial class Game
                 }, out var approachTicket, reserve: false, requestedAt: requestedAt)) return;
             Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
                 $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s (t={now:0.000})");
-            if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-            if (conn.ActionCount != action || approachTicket?.Current(conn) == false)
+            async Task<bool> Walked(double at, double from)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(at - from));
+                return true;
+            }
+            if (await FollowMonsterToSwing(conn, m, weapon.Range, () => conn.ActionCount == action && approachTicket?.Current(conn) != false,
+                Walked, stop, arrive, now) is not { } swing)
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x} cancelled before the swing");
                 return;
             }
+            (stop, arrive) = swing;
             now = conn.Clock.Elapsed.TotalSeconds;
             lock (conn.Monsters) target = m.Walk.Position(now);
-            if (Dist(stop, target) > weapon.Range + 2)
+            if (!SwingInReach(m, stop, target, weapon.Range + 2))
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x} out of reach: {Dist(stop, target):0.0} > {weapon.Range}");
                 return;
@@ -405,7 +454,7 @@ static partial class Game
             if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, target,
                 use.TargetId, sequence: use.Sequence, actionToken: action, cooldownUse: cooldownUse);
             await Send(remote, stream, ciphers,
-                InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+                [.. InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)],
                 $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} on monster 0x{use.TargetId:x} ({m.Label}) from ({stop.X}, {stop.Y}) to ({target.X}, {target.Y}), flags 0x{use.Flags:x4} (t={conn.Clock.Elapsed.TotalSeconds:0.000})",
                 still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
@@ -417,6 +466,8 @@ static partial class Game
         double castAt = conn.Clock.Elapsed.TotalSeconds;
         int castAction = 0;
         (int X, int Y) aim = default, stand = default;
+        int chargeBonus = gem.Name is null ? 0 : ShieldChargeBonusPct(conn, use.SkillId, gem.Effect), chargeToken = 0;
+        bool moves = gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect);
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
             gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
             () =>
@@ -426,16 +477,26 @@ static partial class Game
                 aim = m.Walk.Position(castAt);
                 stand = conn.Walk.Position(castAt);
                 conn.Walk.Order(stand.X, stand.Y, castAt);
+                // A movement skill aimed at a monster travels as one aimed at the ground does.
+                if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
+                else if (moves)
+                {
+                    var landing = MovementLanding(conn, gem.Effect, stand, aim);
+                    conn.Walk.Teleport(landing.X, landing.Y, castAt);
+                }
             }, out var spellUse, requestedAt: requestedAt)) return;
+        if (chargeToken != 0) _ = RunShieldCharge(remote, stream, ciphers, conn, chargeToken, conn.Walk.ArrivesAt,
+            use.SkillId, use.Sequence, spellUse?.ActionToken ?? castAction, spellUse);
         bool spellAcknowledged = false;
         bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect);
         if (spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim,
             use.TargetId, sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
         await Send(remote, stream, ciphers,
-            InstanceProtocol.ActionStarted(PlayerId, stand.X, stand.Y, aim.X, aim.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+            [.. InstanceProtocol.ActionStarted(PlayerId, stand.X, stand.Y, aim.X, aim.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)],
             $"0x01ab player skill 0x{use.SkillId:x4} cast on monster 0x{use.TargetId:x} ({m.Label}) from ({stand.X}, {stand.Y}) to ({aim.X}, {aim.Y}), flags 0x{use.Flags:x4} (t={castAt:0.000})",
             still: () => spellAcknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                 () => spellUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, castAction)));
+        if (moves) ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
         if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim, use.TargetId, sequence: use.Sequence,
             actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
@@ -1285,6 +1346,8 @@ static partial class Game
             .Any(s => s.Item2 != 0 && Stats.Name(s.Item1).StartsWith("skill_cannot_be_stunned", StringComparison.Ordinal))))
         { Trace("unsupported skill immunity"); return null; }
         if (PlayerHasEnergyShieldForRecovery(conn, Get)) { Trace("energy shield present"); return null; }
+        // A freeze already holds the player, and its action factor would stretch the recovery a hundredfold.
+        if (conn.ElementalAilments.ActionFactor(now) == 0) { Trace("frozen"); return null; }
         double chance = PlayerHitRecovery.Chance(damage, conn.PlayerMaxLife, Get);
         float seconds = PlayerHitRecovery.Duration(Get, PlayerActionFactor(conn));
         if (seconds <= 0 || Random.Shared.NextDouble() * 100 >= chance
@@ -1294,7 +1357,8 @@ static partial class Game
         conn.Antiquarian.Stunned(now, conn.PlayerMaxLife, Get(AntiquarianEffects.StunRecoverySource));
         int action = Interlocked.Increment(ref conn.ActionCount);
         conn.ChannelSkill = 0; conn.NextAttackAt = now;
-        var at = conn.Walk.Position(now); conn.Walk.Teleport(at.X, at.Y, now);
+        // The client stops for the recovery and then goes on with its walk (live 2026-11-01: 30 cells apart when this ended it).
+        conn.Walk.Pause(now, seconds);
         return new(conn.ProjectileEpoch, action, conn.HitRecovery.Until, seconds);
     }
 
@@ -1306,7 +1370,9 @@ static partial class Game
                 double remaining = recovery.Until - conn.Clock.Elapsed.TotalSeconds;
                 if (!conn.ProjectileActive(recovery.Epoch) || conn.PlayerLife == 0 || conn.Paused
                     || conn.ActionCount != recovery.Action || remaining <= 0) return null;
-                return InstanceProtocol.ActorAnimation(PlayerId, (float)Math.Min(remaining, recovery.Seconds), PlayerHitRecovery.TakeHitAnimation);
+                // The stun pins the player where the server has it: GGG sends the resync in the same tick as every stun.
+                return [.. InstanceProtocol.ActorAnimation(PlayerId, (float)Math.Min(remaining, recovery.Seconds), PlayerHitRecovery.TakeHitAnimation),
+                    .. ResyncPacketLocked(conn, conn.Clock.Elapsed.TotalSeconds)];
             }
         });
 
@@ -1380,6 +1446,13 @@ static partial class Game
             $"0x02ba monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1");
     }
 
+    const double CorpseBlockDelaySeconds = .165;
+
+    // The server stops counting a dead body at once. The client keeps walking around it until it is told.
+    internal static void StopCorpseBlocking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m) =>
+        SendAfter(CorpseBlockDelaySeconds, () => Send(remote, stream, ciphers, InstanceProtocol.StopBlocking(id), $"0x02b0 corpse of 0x{id:x} stops blocking",
+            still: () => { lock (conn.Monsters) return !conn.Closed && !conn.LeavingArea && ReferenceEquals(conn.Monsters.GetValueOrDefault(id), m); }));
+
     // A monster died (its life reached 0 from the player's attack or skill): the player gains its experience when near
     // enough and it drops its items around where it fell (ItemDrops). Its corpse stays where it fell for as long as the
     // player is in the area (it stays in Monsters as Dead: no AI, no body collision); leaving does not save it.
@@ -1391,6 +1464,7 @@ static partial class Game
     static async Task MonsterKilledBy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, bool playerKill)
     {
+        StopCorpseBlocking(remote, stream, ciphers, conn, id, m);
         double now = conn.Clock.Elapsed.TotalSeconds;
         (int X, int Y) at, player;
         bool alive, blocked;

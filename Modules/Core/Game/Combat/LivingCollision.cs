@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -16,14 +17,84 @@ static partial class Game
                 {
                     await CorrectMonsterCollisions(remote, stream, ciphers, conn);
                     await PushOutOfCollision(remote, stream, ciphers, conn, living: true);
+                    await ShowFreeze(remote, stream, ciphers, conn);
+                    await ReleaseHeldMove(remote, stream, ciphers, conn);
+                    await KeepWakeZone(remote, stream, ciphers, conn);
                 }
                 PublishPlayerPose(conn);
+                if (ServerTrace.Sync) TraceSync(conn);
                 if ((frames++ & 1) == 0) await SyncInstancePlayers(remote, stream, ciphers, conn);
                 await Task.Delay(50);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
         finally { conn.Instance.RemovePlayer(conn.PeerId); }
+    }
+
+    // The client does not stop for is_frozen (live 2026-11-01), and virtual_action_speed_+% at -100, which would stop it,
+    // divides its action clips by zero. A hit's recovery for as long as the freeze lasts stops it where it stands and lets
+    // it go on with its walk after, as the server's walk does.
+    internal static async Task ShowFreeze(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        lock (conn.Monsters)
+        {
+            if (conn.FreezeShown == conn.FreezeGeneration) return;
+            conn.FreezeShown = conn.FreezeGeneration;
+        }
+        await Send(remote, stream, ciphers, [], "0x01d1 player frozen", atGate: () =>
+        {
+            lock (conn.Monsters)
+            {
+                double now = conn.Clock.Elapsed.TotalSeconds, left = conn.ElementalAilments.FreezeUntil(now) - now;
+                if (left <= 0 || conn.PlayerLife == 0 || conn.LeavingArea || conn.Paused) return null;
+                return [.. InstanceProtocol.ActorAnimation(PlayerId, (float)left, PlayerHitRecovery.TakeHitAnimation),
+                    .. ResyncPacketLocked(conn, now)];
+            }
+        });
+    }
+
+    // A click that came during a hit's recovery or a freeze: the walk starts when that ends, as the client's does.
+    internal static async Task ReleaseHeldMove(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        InstanceProtocol.UseSkillAtLocation use;
+        (int X, int Y) from;
+        int action;
+        using (ProjectileMutation(conn))
+        {
+            if (conn.HeldMove is not { } held) return;
+            double now = ProjectileWorldTime(conn);
+            if (PlayerActionBlocked(conn, now, now)) return;
+            conn.HeldMove = null;
+            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
+            use = held;
+            action = Interlocked.Increment(ref conn.ActionCount);
+            from = conn.Walk.Order(use.X, use.Y, Math.Max(conn.HitRecovery.Until, now - MonsterAiCadence.StepSeconds));
+            conn.ChannelSkill = 0;
+        }
+        await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
+            $"0x01ab held move to ({use.X}, {use.Y}) from ({from.X}, {from.Y})", still: () => PlayerActionCurrent(conn, action));
+    }
+
+    // Game_TRACE=sync: where the server has the player and the monsters now, on the QPC clock of
+    // scripts/re/frida/trace-sync.js. scripts/re/sync_report.py compares the two.
+    internal static void TraceSync(ClientState conn)
+    {
+        if (!conn.PlayerSent) return;
+        var line = new System.Text.StringBuilder();
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            var p = conn.Walk.Position(now);
+            line.Append($"[sync] qpc={System.Diagnostics.Stopwatch.GetTimestamp()} peer={conn.PeerId:x} speed={conn.Walk.Speed:0.###} ");
+            line.Append($"moving={(conn.Walk.Moving(now) ? 1 : 0)} p={p.X},{p.Y} m=");
+            foreach (var (id, m) in conn.Monsters)
+            {
+                if (m.Dead || m.Life <= 0) continue;
+                var at = m.Walk.Position(now);
+                line.Append($"{id:x}:{at.X},{at.Y};");
+            }
+        }
+        Console.WriteLine(line);
     }
 
     internal static void PublishPlayerPose(ClientState conn)
@@ -92,108 +163,67 @@ static partial class Game
             });
     }
 
-    // The client steps every walker a cell at a time and checks each step (0x141e32710): the cell's walk value must be at
-    // least the walker's size + 1, and no other body may be within reach (0x141e47a40 → 0x141e47ca0: the Chebyshev distance
-    // less that body's size below the walker's size + 1). A blocked step ends the walk where it stands, without a new path
-    // (callback 0x1401d81f4, not the segment handler: live 2026-11-01). A walk whose path began on a blocked cell steps
-    // through bodies until its first free step (WalksThrough); terrain still stops it. A path cut short by the search is
-    // walked to its end and then paths again from there at once (0x141e7bec0 → 0x141e7b920: 213 of 213 live). The player's
-    // walk is the same code. The client moves nobody for any other reason, so each pass replays the steps taken since the
-    // last one, the player's and every monster's in time order, each against the cells the others hold at that moment.
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, System.Runtime.CompilerServices.StrongBox<double>> SteppedUntil = new();
-    const uint PlayerKey = 0;
-
     internal static Task CorrectMonsterCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        using (ProjectileMutation(conn, phase: "collision"))
-        {
-            double now = ProjectileWorldTime(conn);
-            var stepped = SteppedUntil.GetValue(conn, _ => new(now));
-            double from = Math.Min(stepped.Value, now);
-            stepped.Value = now;
-            var monsters = new Dictionary<uint, SpawnedMonster>();
-            var cells = new Dictionary<uint, (int X, int Y)>();
-            var sizes = new Dictionary<uint, int>();
-            foreach (var (id, m) in conn.Monsters)
-            {
-                if (!LivingCollision.Blocks(m)) { m.CollisionPosition = null; continue; }
-                monsters[id] = m;
-                sizes[id] = LivingCollision.Size(m);
-                cells[id] = m.Walk.Position(from);
-            }
-            var player = conn.Walk;
-            bool playerWalks = conn.PlayerSent && conn.PlayerLife > 0;
-            if (playerWalks)
-            {
-                sizes[PlayerKey] = player.Size;
-                cells[PlayerKey] = player.Position(from);
-            }
-            var others = new List<ClientPathfinder.Blocker>(conn.StationaryBlockers);
-            foreach (var peer in conn.Instance.PlayersExcept(conn.PeerId))
-                if (peer.Life > 0) others.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
-            bool Blocked(uint self, (int X, int Y) cell)
-            {
-                var bodies = new List<ClientPathfinder.Blocker>(others);
-                foreach (var (id, at) in cells)
-                    // Phasing (Quartz Flask): the player and the monsters pass each other.
-                    if (id != self && !(conn.Phasing && (id == PlayerKey || self == PlayerKey))) bodies.Add(new(at.X, at.Y, sizes[id]));
-                return ClientPathfinder.ObjectBlocks(bodies, cell.X, cell.Y, sizes[self] + 1, sizes[self] + 4);
-            }
-            var pending = cells.Keys.ToDictionary(id => id, _ => from);
-            for (int round = 0; round < 8 && pending.Count > 0; round++)
-            {
-                var steps = new List<(double At, uint Id, (int X, int Y) Cell)>();
-                foreach (var (id, since) in pending)
-                    foreach (var (at, cell) in id == PlayerKey ? player.Steps(since, now) : monsters[id].Walk.Steps(since, now))
-                        steps.Add((at, id, cell));
-                steps.Sort((a, b) => a.At != b.At ? a.At.CompareTo(b.At) : a.Id.CompareTo(b.Id));
-                var stopped = new HashSet<uint>();
-                foreach (var (at, id, cell) in steps)
-                {
-                    if (stopped.Contains(id)) continue;
-                    bool isPlayer = id == PlayerKey;
-                    bool floor = isPlayer ? player.Floor(cell.X, cell.Y)
-                        : conn.Layout.WalkableFor(cell.X, cell.Y, sizes[id]) && !conn.Barrier.Contains(cell);
-                    // The player's bounded escape through estimated bodies (PlayerWalk.Walk) is not checked against them.
-                    bool body = floor && !(isPlayer && player.EscapingCrowd(at)) && Blocked(id, cell);
-                    bool through = isPlayer ? player.WalksThrough : monsters[id].Walk.WalksThrough;
-                    if (!floor || body && !through)
-                    {
-                        if (isPlayer) player.StopAt(at);
-                        else monsters[id].Walk.Teleport(cells[id].X, cells[id].Y, at);
-                        stopped.Add(id);
-                        continue;
-                    }
-                    if (!body)
-                    {
-                        if (isPlayer) player.WalksThrough = false;
-                        else monsters[id].Walk.WalksThrough = false;
-                    }
-                    cells[id] = cell;
-                }
-                pending.Clear();
-                foreach (var id in cells.Keys)
-                {
-                    if (stopped.Contains(id)) continue;
-                    if (id == PlayerKey)
-                    {
-                        if (player.Reached || player.ArrivesAt > now) continue;
-                        double at = player.ArrivesAt;
-                        player.Repath(at);
-                        pending[id] = at;
-                    }
-                    else
-                    {
-                        var walk = monsters[id].Walk;
-                        if (walk.Reached || walk.ArrivesAt > now) continue;
-                        double at = walk.ArrivesAt;
-                        walk.Order(walk.Target.X, walk.Target.Y, at);
-                        pending[id] = at;
-                    }
-                }
-            }
-            foreach (var (id, m) in monsters) m.CollisionPosition = m.Walk.Position(now);
-        }
+        using (ProjectileMutation(conn, phase: "collision")) StepWalkers(conn, ProjectileWorldTime(conn));
         return Task.CompletedTask;
+    }
+
+    // The client steps every walker a cell at a time and checks each step (0x141e32710): the cell's walk value must be at
+    // least the walker's size + 1, and no other body may be within reach (0x141e47a40 → 0x141e47ca0: the Chebyshev distance
+    // less that body's size below the walker's size + 1). A blocked step ends the walk where it stands, with no new path
+    // (0x141e7bc20); a chaser's next order paths it again. A walk whose path began on a blocked cell steps through bodies
+    // until its first free step; terrain still stops it. A path cut short by the search is walked to its end and then paths
+    // again from there at once (0x141e7bec0 → 0x141e7b920). The client moves nobody for any other reason, so this replays
+    // the steps taken since the last pass, the player's and every monster's in time order, each against the cells the others
+    // hold at that moment. Called under conn.Monsters.
+    internal static void StepWalkers(ClientState conn, double now)
+    {
+        double from = conn.WalkersSteppedTo;
+        if (now <= from) return;
+        conn.WalkersSteppedTo = now;
+        var walks = new Dictionary<uint, GameServer.Core.World.PlayerWalk>();
+        foreach (var (id, m) in conn.Monsters)
+            if (LivingCollision.Blocks(m)) walks[id] = m.Walk;
+        if (conn.PlayerSent && conn.PlayerLife > 0) walks[PlayerId] = conn.Walk;
+        var pending = new Dictionary<uint, double>();
+        foreach (var (id, walk) in walks)
+            if (walk.ArrivesAt > from) pending[id] = from;
+        if (pending.Count == 0 && walks.Values.All(w => w.Reached)) return;
+        using var frame = conn.BeginMonsterBlockerFrame(from);
+        for (int round = 0; round < 8; round++)
+        {
+            var steps = new List<(double At, uint Id, (int X, int Y) Cell)>();
+            foreach (var (id, since) in pending)
+                foreach (var (at, cell) in walks[id].Steps(since, now)) steps.Add((at, id, cell));
+            steps.Sort((a, b) => a.At != b.At ? a.At.CompareTo(b.At) : a.Id.CompareTo(b.Id));
+            var stopped = new HashSet<uint>();
+            foreach (var (at, id, cell) in steps)
+            {
+                if (stopped.Contains(id)) continue;
+                var walk = walks[id];
+                bool floor = walk.Floor(cell.X, cell.Y);
+                bool body = floor && ClientPathfinder.ObjectBlocks(id == PlayerId ? frame.ForPlayer : frame.For(id),
+                    cell.X, cell.Y, walk.Size + 1, walk.Size + 4);
+                if (!floor || body && !walk.WalksThrough)
+                {
+                    walk.StopAt(at);
+                    stopped.Add(id);
+                    continue;
+                }
+                if (!body) walk.WalksThrough = false;
+                if (id == PlayerId) frame.MovePlayer(cell.X, cell.Y);
+                else frame.Move(id, cell.X, cell.Y);
+            }
+            pending.Clear();
+            foreach (var (id, walk) in walks)
+            {
+                if (walk.Reached || walk.ArrivesAt > now) continue;
+                double at = walk.ArrivesAt;
+                walk.Repath(at);
+                pending[id] = at;
+            }
+            if (pending.Count == 0) break;
+        }
     }
 }

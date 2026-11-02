@@ -9,6 +9,20 @@ static partial class Game
     // and with Game_GATEWAY_ENTER=1 enter area (0x21) + wake zone; 0x25 (move) → 0x1ab echo;
     // 0x24 on an area transition → change area (0x2b2, then 0x27 with the new instance) or, with Ctrl, the instance chooser (0xae).
     // Anything else is logged in hex: those are the next messages to map.
+    // The most a hold on the server has been seen to outlast the client's is 33 ms.
+    const double HoldEndGraceSeconds = .06;
+
+    // How long the hold on the player still has to run, if it is within limit; else 0.
+    static double HoldEndsWithin(ClientState conn, double limit)
+    {
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            double left = Math.Max(conn.HitRecovery.Until, conn.ElementalAilments.FreezeUntil(now)) - now;
+            return left <= limit ? Math.Max(left, 0) : 0;
+        }
+    }
+
     internal static async Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt = 0)
     {
@@ -30,8 +44,27 @@ static partial class Game
             // Native TakeHit blocks predicted action starts too. Buffered normal actions must not restart the server's
             // movement/cast timeline during that same recovery. Flasks and instant skills retain their own paths.
             if (id is InstanceProtocol.UseSkillAtLocationId or InstanceTransfer.UseSkillOnObjectId or InstanceProtocol.ChannelUpdateId)
+            {
+                // The client buffers a click from the last part of a hold and sends it as its own hold ends, which can be a
+                // few ms before the server's. On localhost it arrives inside them: dropped, the client acts alone.
+                while (HoldEndsWithin(conn, HoldEndGraceSeconds) is > 0 and var left)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(left + .001));
+                    readAt = 0;
+                }
                 lock (conn.Monsters)
-                    if (PlayerActionBlocked(conn, conn.ClockAt(readAt), conn.Clock.Elapsed.TotalSeconds)) continue;
+                {
+                    if (PlayerActionBlocked(conn, conn.ClockAt(readAt), conn.Clock.Elapsed.TotalSeconds))
+                    {
+                        // The client starts the newest click when it can again: the server walks it then (ReleaseHeldMove).
+                        if (id != InstanceProtocol.ChannelUpdateId)
+                            conn.HeldMove = id == InstanceProtocol.UseSkillAtLocationId && InstanceProtocol.ReadUseSkillAtLocation(bytes) is var held
+                                && SkillsFor(conn).ActionName(held.SkillId) == "Move" ? held : null;
+                        continue;
+                    }
+                    conn.HeldMove = null;
+                }
+            }
             if (id == InstanceProtocol.UseSkillAtLocationId)
             {
                 // Echo the action so the client runs it (Move on a ground click); an attack gem is paced and may be movement
@@ -71,7 +104,7 @@ static partial class Game
                     lock (conn.Monsters) projectileEpoch = conn.ProjectileEpoch;
                     // Release work must not block serial input dispatch: resume/move can invalidate a queued echo.
                     _ = ConfirmAndLaunchOrdinaryRanged(remote, stream, ciphers, conn,
-                        InstanceProtocol.ActionStarted(PlayerId, shot.X, shot.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
+                        [.. InstanceProtocol.ActionStarted(PlayerId, shot.X, shot.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags), .. InstanceProtocol.ActionEnded(PlayerId)],
                         $"0x01ab ranged attack ({ordinaryProjectile}) at ({use.X}, {use.Y}) from ({shot.X}, {shot.Y}) (t={at:0.000})",
                         (use.X, use.Y), duration, shot.Action, projectileEpoch, ordinaryProjectile, use.Slot, shot.CriticalRoll);
                     continue;
@@ -135,9 +168,11 @@ static partial class Game
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
                     // there at its own speed instead (ShieldCharge.cs).
                     if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
-                    else if (gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect)
-                        && (conn.Layout.Walkable is not { } canWalk || canWalk(use.X, use.Y)))
-                        conn.Walk.Teleport(use.X, use.Y, at);
+                    else if (gem.Name is not null && LandsAtAim(conn, gem.Effect))
+                    {
+                        var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y));
+                        conn.Walk.Teleport(landing.X, landing.Y, at);
+                    }
                     conn.ChannelSkill = cast ? use.SkillId : (ushort)0;
                     conn.ChannelSkillSequence = use.Slot;
                 }
@@ -162,7 +197,7 @@ static partial class Game
                     (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
                 bool acknowledged = false;
                 Func<Task> echo = () => Send(remote, stream, ciphers,
-                    InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
+                    [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags), .. cast ? InstanceProtocol.ActionEnded(PlayerId) : []],
                     $"0x01ab action started {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
                     still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                         () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
@@ -172,6 +207,10 @@ static partial class Game
                 if (cooldownUse?.Current(conn) == false) continue;
                 if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, (px, py), (use.X, use.Y), sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
+                // The server lands a movement skill at once, and the client can refuse it or take its time (a Lightning Warp
+                // often does neither, live 2026-11-01): the resync settles which, once the action is over.
+                if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect))
+                    ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);
                 if (!PlayerActionCurrent(conn, action)) continue;
                 string mode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";
                 if (mode == "teleport")
@@ -280,6 +319,7 @@ static partial class Game
                 var command = InstanceItems.ReadCommand(bytes);
                 if (command.Id == InstanceItems.DestroyCursorItemCommand) await DestroyHeldItem(remote, stream, ciphers, conn);
                 else if (command.Id == InstanceItems.WarpToHideoutCommand) await WarpToHideout(remote, stream, ciphers, conn, "/hideout");
+                else if (command.Id == InstanceItems.ForceResyncCommand) await SendResync(remote, stream, ciphers, conn, "the client asked");
                 else Console.WriteLine($"[gateway] {remote} <= 0x0016 command {command} (not handled)");
             }
             else if (id == InstanceWaypoints.VisitHideoutId)

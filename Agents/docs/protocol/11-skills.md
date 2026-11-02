@@ -549,7 +549,7 @@ No generator output changes are needed: the multiplier is already extracted.
 ## 5. Combat timing (Gateway `Attack`)
 
 1. C→S 0x24 arrives when the player clicks, before the client walks into range. The server walks its position estimate
-   toward the monster and stops at the first cell within `MaxAttackDistance` (`WalkEstimator.Approach`).
+   toward the monster and stops at the first cell within `MaxAttackDistance` (`PlayerWalk.Approach`).
 2. On arrival it starts the swing: the 0x1ab echo (from the stop cell, aimed at the monster). Echoing at the click made
    the client swing on the spot, out of range.
 3. At the swing's contact point it rolls the accuracy check and, on a hit, lowers the monster's life with 0x1b1. The
@@ -1587,8 +1587,10 @@ Lunaris) has its self-targeted Novas centred on the aimed point
 use) with and without the stat is not checked live yet; the Gateway log's 0x01ab line shows it.
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
-cell when the skill starts (`SkillCatalog.IsMovement`); it kept the starting cell before, and a later resync pulled the
-player back there (live 2026-10-23). Shield Charge instead walks there at its charge speed and hits on the way (§10k).
+cell when the skill starts (`Game.LandsAtAim`); it kept the starting cell before, and a later resync pulled the
+player back there (live 2026-10-23). A resync follows at the end of the action, and aimed at a monster the skill lands on
+it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks there at its charge speed and hits on the way
+(§10k).
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y, the player's cell) every few frames while the button is held, and **C→S 0x199** (2 bytes) when it is let go
@@ -1894,7 +1896,7 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   a transfer cancels the retry and takes ownership of visual cleanup.
   Live pause held the projectile at (289, 220) for 1.2 seconds, with no removal until the game resumed.
   Local validation captures: `logs/projectile-collision-live.json` and `logs/projectile-fixed-height-live.json`.
-  These remain estimates: monster positions are integer `WalkEstimator` samples, movement between samples is a
+  These remain estimates: monster positions are integer `PlayerWalk` samples, movement between samples is a
   straight chord, the radius is shared across monsters, and the client has its own cell stepping/network delay.
   Static wall checks use a captured two-dimensional grid, not object/doodad colliders or three-dimensional geometry.
   Sharp turns between samples or long scheduling stalls can still differ from the client. This is not an official
@@ -2507,6 +2509,11 @@ adds it to the pools' movement speed from the use until its own walk arrives (`S
 sends the player stats at both ends. Its walk estimate goes to the aimed cell at that speed instead of the generic
 movement skill's teleport (§9a). Verified live: `movement_velocity_+%` 22 → 112 → 22, the charge twice as fast; the
 first stats update arrives after the client has started the charge, and the client takes it up mid-charge.
+
+**Route.** The charge runs no path search. The setup lays a straight line to the aim, up to its maximum distance
+(below); an aim off the floor moves back along the line to the first cell the mover can stand on. Each step is checked
+as a walk's is ([07](07-latency-visibility-movement.md) §5), so the first blocked step ends the run, on a body as on a
+wall. A charge from inside a ring does not move at all (`PlayerWalk.Charge`).
 
 **Hits.** The client's (`trace-charge-hits.js`, four charges): kind 0 at its position as it starts and then about every
 100 ms (every ~8 cells at charge speed) within 8 cells (`0x141a6d760` returns the range), kind 1 within 16 cells where

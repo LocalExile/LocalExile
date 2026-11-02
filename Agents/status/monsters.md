@@ -11,7 +11,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [14](../docs/protocol/14-monster-packs.md) §2.
 - Monsters: `/spawn_mob <row, Id or name>[@level] [friendly] [rarity] [name]`, `/mobs`, `/despawn`, `/mob_walk`,
   `/ai`: any of 10 345 of the 10 691 MonsterVarieties at a level and rarity, with full life for its level, hostile
-  (red) or friendly, that chases the player when near (Move action 0x1ab, client pathing).
+  (red) or friendly, that chases the player when near (its attack aimed at the player, 0x1ab, client pathing).
   Code: `MonsterObject`, `MonsterCatalog.cs`, Gateway.
   Docs: [10](../docs/protocol/10-chat-and-commands.md) §5.
 - Monster packs in areas: on entry the area fills with its MonsterPacks at the area level (The Coast: crab and Drowned
@@ -78,7 +78,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `MonsterMods.cs`, `Program.MonsterMods.cs`, `MagicProperties.cs`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §5.
 - Monster decisions use 50 ms of elapsed game time, with no catch-up burst after pauses or slow steps.
-  Chase repaths use a separate 100 ms budget and require at least three cells of Manhattan target change.
+  A melee chase repeats every 200 ms ([07](../docs/protocol/07-latency-visibility-movement.md) §5). A Move chase has a
+  separate 100 ms budget and requires at least three cells of Manhattan target change.
   A ranged chaser stands off one cell inside its reach (MonsterVarieties `MaximumAttackDistance`: the Sand Spitter's
   30), moving inward only when that ring is full, instead of taking a melee contact cell (`MonsterSurround.Asker.Ranged`;
   live 2026-10-29: Spitters came in close). `MinimumAttackDistance` is not read yet.

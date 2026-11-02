@@ -144,6 +144,8 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
   the default client by the PID `live.ps1` records (`walkmaps.py --record data\clients\default.json`), and only when
   that process's start time and launch path (this checkout's `Client\`) match the record, as the bridge checks it: a
   stale record names no client. Other checkouts' clients may run.
+- **Frida's agent stays in the client.** Two tools attached at once crash it (`frida-agent.dll`, 0xc0000409) as the
+  agent comes and goes under them, so every tool leaves it loaded (`keep_agent` in `client_control.py`).
 - **Only next to checkouts that have this.** A checkout whose `client_control.py`, `walkmaps.py` and `live.ps1`
   predate these sessions finds its client by process name: any other `Game.patched.exe` beside its client stops its
   bridge ("Multiple patched clients") or attaches it to the wrong client, and its `live.ps1` stops every client and every
