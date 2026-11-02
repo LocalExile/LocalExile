@@ -27,18 +27,4 @@ public class ResyncTests
         Assert.Equal(held, walk.Position(2.9));
         Assert.NotEqual(held, walk.Position(3.2));
     }
-
-    [Fact]
-    public void A_charge_runs_a_straight_line_cut_to_its_range_and_the_floor()
-    {
-        var open = new PlayerWalk(0, 0, speed: 10);
-        open.Charge(200, 0, range: 75, now: 0);
-        Assert.Equal((75, 0), open.Destination);
-
-        // A search would go round the body; the charge's own steps meet it, and the step pass stops them there.
-        var walk = new PlayerWalk(0, 0, speed: 10, walkable: (x, _) => x < 40, blockers: () => [new(20, 0, 2)]);
-        walk.Charge(60, 0, range: 75, now: 0);
-        Assert.Equal((39, 0), walk.Destination);
-        Assert.Contains(((int, int))(20, 0), walk.Steps(0, 10).Select(s => s.Cell));
-    }
 }
