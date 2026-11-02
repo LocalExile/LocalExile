@@ -29,7 +29,7 @@ static partial class Game
     /// </summary>
     internal sealed record SurvivorsHeraldImpact(string Ao, int Ms);
 
-    static readonly IReadOnlyDictionary<string, SurvivorsHeraldImpact> SurvivorsHeraldImpacts =
+    internal static readonly IReadOnlyDictionary<string, SurvivorsHeraldImpact> SurvivorsHeraldImpacts =
         new Dictionary<string, SurvivorsHeraldImpact>(StringComparer.Ordinal)
         {
             ["HeraldOfAsh"] = new("Metadata/Effects/Spells/herald/fire/flameherald_explode.ao", 958),
@@ -39,7 +39,7 @@ static partial class Game
             ["HeraldOfPurity"] = new("Metadata/Effects/Spells/herald/light/slam_impact/slam_impact.ao", 1000),
         };
 
-    static SurvivorsHeraldImpact? SurvivorsHeraldImpactFor(ClientState conn, SurvivorsSkill skill) =>
+    internal static SurvivorsHeraldImpact? SurvivorsHeraldImpactFor(ClientState conn, SurvivorsSkill skill) =>
         SkillsFor(conn).EffectId(skill.Effect) is { } id && SurvivorsHeraldImpacts.TryGetValue(id, out var impact)
             ? impact : null;
 

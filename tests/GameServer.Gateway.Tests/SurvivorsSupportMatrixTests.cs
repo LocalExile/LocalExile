@@ -109,6 +109,16 @@ public sealed class SurvivorsSupportMatrixTests
             Assert.True(pairs > 150, $"only {pairs} legal skill/support pairs");
             Assert.Equal(0, unimplemented);
 
+            // Every herald's pulse has its own hit effect: the five gems map to the game's .ao for that hit.
+            var heraldEffects = catalog.Where(s => s.Kind == SurvivorsSkillKind.Herald)
+                .Select(s => (s.Name, Impact: Game.SurvivorsHeraldImpactFor(conn, s))).ToList();
+            Assert.Equal(5, heraldEffects.Count);
+            Assert.All(heraldEffects, herald => Assert.NotNull(herald.Impact));
+            Assert.Equal(["HeraldOfAgony", "HeraldOfAsh", "HeraldOfIce", "HeraldOfPurity", "HeraldOfThunder"],
+                Game.SurvivorsHeraldImpacts.Keys.Order());
+            Assert.All(Game.SurvivorsHeraldImpacts.Values,
+                impact => Assert.StartsWith("Metadata/Effects/Spells/herald/", impact.Ao, StringComparison.Ordinal));
+
             // The named cases the live matrix prints: an attack refuses the spell-only and area-only supports, while a
             // spell accepts Faster Casting and refuses Area when the skill has no area type; Added Fire is legal on any
             // damaging attack or spell even when its physical base is empty.
