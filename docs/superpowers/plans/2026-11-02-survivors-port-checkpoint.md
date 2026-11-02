@@ -6,60 +6,74 @@ The survivors feature was written against the pre-refactor tree (`Program.*` par
 This branch is the port, based directly on `dfcdc8f3`.
 
 - Worktree: `E:\LocalExile-port`
-- Branch: `port/survivors-mode` (commit `2ae80933` "wip: port survivors mode...")
+- Branch: `port/survivors-mode`
 - Build: `dotnet build GameServer.slnx` - **0 errors, 0 warnings**
-- Playable: **no** - the `/survivors` command is not registered yet (see Next 1)
+- Playable: **yes**, verified live in the new tree (2026-11-02, 20:2x-20:3x)
 
-## Done
+## Verified live in the new architecture
+
+- `/survivors start|stop|status` work; the run spawns its horde, casts Fireball, monsters die
+  (`fireball-explosion ... damage=23 life=0/15`), and the skill bar and cooldowns go out
+  (`0x0053`, `0x01ce` per target + the `0x02ba` cooldown trailer).
+- `/survivors level` (dev) grants run experience at once; the reward window opened with three named
+  choices (`Ball Lightning`, `Freezing Pulse`, `Soulrend`), and `/survivors status` lists their ids.
+- Picking a skill learns it (`Learned Burning Arrow, rank 1.`), republishes the Actor skills and the bar.
+- A unique item appeared as a choice (`Stasis Prison`) and the pick equipped it:
+  `0x00bf survivors unique Carnal Armour equipped in row 1` and `Equipped Stasis Prison.`
+  (the new `UniqueCatalog` has many more uniques than the old two).
+
+## Done in the port
 
 | Piece | Where |
 |---|---|
-| Core rules, run state, tests | `src/GameServer.Core/World/SurvivorsMode.cs`, `tests/GameServer.Core.Tests/SurvivorsRunTests.cs` (unchanged from the old branch) |
-| Adapter (spawner, casts, offers, area carry) | `Modules/Core/Game/Survivors/Survivors.cs` (`static partial class Game`) |
-| Per-connection state | `src/GameServer.Gateway/Connection/ClientState.Survivors.cs` (`Survivors`, offer maps, catalog, item ids, pause flag) |
-| Run skills as Actor skills | `PlayerSkills` appends `SurvivorsGrantedSkills`; `SendSkillBar` places their ids from slot 3 (Q) and works without a saved bar; `SendSkills` resends the bar while a run is live |
-| Loot hidden | `DropLoot` returns early during a run; gold auto-loot skipped in `Player.cs` |
+| Core rules, run state, tests | `src/GameServer.Core/World/SurvivorsMode.cs`, `tests/GameServer.Core.Tests/SurvivorsRunTests.cs` |
+| Adapter (spawner, casts, offers, items, area carry) | `Modules/Core/Game/Survivors/Survivors.cs` (`static partial class Game`) |
+| Per-connection state | `src/GameServer.Gateway/Connection/ClientState.Survivors.cs` |
+| `/survivors` command | `GameModule.Load` -> `module.OnChatCommand("survivors", ...)` -> `Game.SurvivorsCommand` |
+| Run skills as Actor skills | `PlayerSkills` appends `SurvivorsGrantedSkills`; `SendSkillBar` places them from slot 3 (Q) and works without a saved bar; `SendSkills` resends the bar while a run is live |
+| Unique requirements waived | `RequiredLevel = 0` on the offered item; `virtual_*_for_requirements` raised in `FinalPlayerStatsFrom` while `SurvivorsItemIds` is non-empty; `Progression.cs` removes those ids from the inactive set |
+| Loot hidden | `DropLoot` returns early during a run; `SendGroundItems` returns early; gold auto-loot skipped; `StartSurvivors` sends `0x02bb RemoveObject` for every item in `Instance.Ground` |
 | Damage quartered | `CommitMonsterHitLocked` (after Fortification) uses `SurvivorsRules.IncomingDamage` |
-| Reward-window click | `VendorsFeature.BuyFromShop` / `CtrlBuyFromShop` call `Game.ChooseSurvivorsSkill` before the shop/NPC paths |
+| Reward-window click | `VendorsFeature.BuyFromShop` / `CtrlBuyFromShop` call `Game.ChooseSurvivorsSkill` first |
 | Area entry | `Modules/Core/Game/Player/Messages.cs` calls `ResumeSurvivors` after `PopulateArea` |
-| Monster scaling | `SurvivorsMonsterMods` builds `MonsterModSet` with `maximum_life_+%` / `damage_+%` (the new `SpawnMonster` has no life/damage scale parameters) |
+| Monster scaling | `SurvivorsMonsterMods` builds `MonsterModSet` with `maximum_life_+%` / `damage_+%` |
 
-## Next
+## Tests
 
-1. **`/survivors` command** (the only thing that keeps the mode unplayable). Register it in
-   `GameModule.Load` with `module.OnChatCommand("survivors", "/survivors [start|stop|pick <1-3>|status] (dev: ...)",
-   async c => await SurvivorsCommand(c))`, and port the body from
-   `E:\LocalExile\src\GameServer.Gateway\Program.Commands.cs` (search `.Add("survivors"`). It needs
-   `conn = ConnOf(c.Player)`, `(remote, stream, ciphers) = conn.Wire`, and the same start/stop/pick/status branches.
-   `StartSurvivors`, `EndSurvivors`, `ApplySurvivorsChoice`, `SurvivorsClock` already exist in `Survivors.cs` with the
-   old signatures (all take `remote/stream/ciphers/conn`).
-2. **Run end**: `SendSkills` after `conn.Survivors = null` must prune the run ids from `conn.ClientSkillIds` and resend
-   the bar (the old code did it in `EndSurvivors`; check that the new `ClientSkillIds` bookkeeping still matches).
-3. **Unique items**: `UniqueCatalog` changed (`All` is `GameDataCatalog.Uniques`, `Create(Definition, Random)` exists).
-   `SurvivorsItemPool` and `SurvivorsEquip` compiled, but the pool/equip path has not been exercised; the item's
-   `RequiredLevel = 0` and the `virtual_*_for_requirements` override still need to be ported into the new stats build
-   (old `Program.Progression.cs` `inactive.ExceptWith(conn.SurvivorsItemIds)`, and `FinalPlayerStatsCore`'s override -
-   both must be re-applied in `Modules/Core/Game/...`).
-4. **Tests**: Core/Data suites run anywhere; the Gateway suite needs extracted `data/` in `E:\LocalExile-port`
-   (`scripts/dev/extract-data.ps1`, or a junction to `E:\LocalExile\data` only if the data version matches).
-5. **Live**: `scripts/dev/live.ps1` in the worktree (needs `data/`), then `/survivors start`, a level-up pick, an item
-   pick, and an area change.
-6. **PR**: push `port/survivors-mode` to the fork and force-update `feat/survivors-mode-preview` so PR #502 becomes
-   mergeable; drop the "needs a port" paragraph from its body, keep the preview note. Issue #503 (verify every
-   projectile skill and its supports) stays open.
+- Core: 455 passed (includes the 19 survivors tests).
+- Data: 45 passed.
+- Gateway: 48 passed, 5 failed: `PhreciaFourClassesTests.Each_class_is_admitted_with_its_own_opt_in` (4 cases)
+  and `BehemothRuntimeTests.Provider_retirement_releases_owned_state...` - both unrelated to the survivors
+  code (league admission / worker retirement) and failing in this environment.
 
-## Old branch, kept as reference
+## Open items
 
-`E:\LocalExile` branch `feat/survivors-mode` (PR #502, draft) still has the pre-refactor implementation; use it as the
-source of the adapter logic and the docs (`Agents/docs/game/survivors-mode.md`). The port copies the docs too once the
-feature runs again.
+1. **Ground items still visible during a run.** The server log for the session has **no**
+   `0x02b9 create world item` lines at all, yet the client shows a pile of items with gold prices
+   (Iron Greaves, Glass Shank, Scroll of Wisdom ...). So those objects are not created by the survivors
+   or drop paths in this session - they look like the area's own pre-placed stock (the fork's gold
+   vendor) or client-cached objects. Decide: hide every world object the client has at run start
+   (needs their ids from the shop/instance), or accept them as the area's scenery.
+2. Area change at 02:00 in the new tree (`ResumeSurvivors` + carry) not exercised yet.
+3. Push `port/survivors-mode` to the fork and update PR #502 (title/body: drop "needs port", keep the
+   preview note); issue #503 (verify every projectile skill and its supports) stays open.
+4. Port the docs (`Agents/docs/game/survivors-mode.md` still lives on the old branch) and the preview
+   image into the new tree.
 
-## API notes for the next session
+## Resume commands
 
-- `Send(remote, stream, ciphers, bytes, log)` - no `conn` (unchanged from the old adapter).
-- `Game` is `static partial class Game` (no namespace), assembly `game.dll`; a new file under `Modules/Core/Game/` is
-  part of it automatically.
-- `ResolveProjectileDefinition` is private to `game.dll` - callable from our file, not from modules.
-- `SpawnMonster(..., mods: MonsterModSet, extraStats: ..., owned: ...)` - scaling is a `MonsterModSet`.
-- `ProjectilesFor(...)`, `ProjectileRuntime.Time`, `ProjectileUse`, `ProjectileOffense` keep their old shapes.
-- `ItemsOf`, `PlayerInventories`, `ShapeOf`, `SendEquipment`, `SendCharacterStats` keep their old shapes in the new tree.
+```
+cd E:\LocalExile-port
+git status                      # branch port/survivors-mode
+dotnet build GameServer.slnx
+powershell -ExecutionPolicy Bypass -File scripts\dev\live.ps1
+python scripts\dev\client_control.py login:survivormvp --password-stdin   # password mvp-survivors-1
+python scripts\dev\client_control.py character:play:SurvivorMvp
+python scripts\dev\client_control.py command "/survivors start"
+python scripts\dev\client_control.py command "/survivors level"
+python scripts\dev\client_control.py command "/survivors status"
+```
+
+The worktree needs `data/` (extracted with `scripts/dev/extract-data.ps1`; `Client/` and
+`Tools/ooz/node_modules` are junctions to `E:\LocalExile`), `data/login-keys.json` and `data/saves.db`
+copied from `E:\LocalExile\data` (secrets and saves, never committed).
