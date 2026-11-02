@@ -339,8 +339,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   GGG's server sends no object for ordinary bow arrows either, so the live client draws them itself (live capture
   2026-10-29, [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named
-  after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); it is the
-  basic straight-flight arrow only.
+  after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); the
+  terminal secondary group is in Partly working.
   Projectiles spawn at the captured terrain height + the releasing clip's keyframe height (the bow 16 steps, a wand
   12, the Sand Spitter's spit 9; `Game_PROJECTILE_HEIGHT`, 5 steps, without rig data) on natural ground; without a
   capture they use the bare offset.
@@ -654,10 +654,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   `number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more` on top of the generic projectile additions, so
   bow/quiver modifiers and passives such as Master Fletcher add primary arrows. The arrow inputs are gated to a real
   bow and do not reach wand, spell or melee projectiles; the selected-skill panel also publishes the arrow total.
-  Tornado Shot still emits only its straight primary arrows: the terminal secondary arrow group is not modelled yet.
+  The terminal secondary group is a separate change (implemented in #549).
   Automated tests cover the bow/wand separation and the panel rows; no native check yet.
   Code: `GatewayProjectileModifiers.cs`, `GatewayProjectileDefaults.cs`, `ProjectilePanel.cs`;
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) section 3.
+- Tornado Shot terminal secondaries: each primary arrow pierces its contacts and emits three
+  `TornadoShotSecondaryArrow` flights at its endpoint, spaced around the client's native terminal RNG ray
+  (`[sequence, mother-derived byte, owner, repeats]`). The client predicts the primary and secondary arrows itself
+  (Frida: seven local and seven server `TornadoShotArrow` objects for one use), so the server hides both and only
+  simulates their damage; one secondary per set can hit an enemy, and the children keep
+  support Pierce/Fork/Chain. Their range uses the client's 0.3 s secondary action lifetime (a Frida trace caps the
+  final callback at 300 ms), so projectile speed scales it, and Point Blank/Far Shot distance includes the primary
+  leg. Tests cover the profile, the client RNG vector, the 300 ms lifetime and the continued PB/Far Shot distance; the
+  2026-11-02 live check confirmed the single primary origin, the fan and the damage.
+  Code: `GatewayProjectileSkillProfiles.cs`, `ProjectileStages.cs`, `ProjectileTypes.cs`, `Projectiles.cs`;
+  wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
+  [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
 
 - Selected supported-spell panel: final linked-support damage replaces both spell and inherited hand ranges,
   clearing removed types and updating pre-critical average/DPS from the supported cast time.
