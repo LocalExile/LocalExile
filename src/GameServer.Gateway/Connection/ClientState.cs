@@ -779,6 +779,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool LockstepServed { get; init; }
     public readonly GameServer.Core.World.LockstepHold LockstepHold = new();
     public ushort LockstepSequence;
+    // The object use (C→S 0x18f) the next frame starts.
+    public InstanceTransfer.UseSkillOnObject? LockstepUse;
     // The character's activated waypoints (WorldAreas Ids, kept in its save) and whether this connection was reached
     // by waypoint travel (the player then appears next to the area's waypoint).
     public readonly HashSet<string> Waypoints = [];

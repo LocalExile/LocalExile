@@ -46,12 +46,23 @@ static partial class Game
     static byte[] LockstepActionStart(ClientState conn, (int X, int Y) from, (int X, int Y) target, ushort sequence) =>
         InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, target.X, target.Y, conn.LockstepHold.Skill, sequence, conn.LockstepHold.Flags);
 
-    // Differs from GGG: it serves every skill and object use in lockstep. Only walking is served here so far (07 §6): the
+    // Differs from GGG: a monster out of its wake zone stands on its server as on the client, so nothing needs placing when
+    // it comes back. Ours walks on out there, and a lockstep client skips 0x128 (case 0x50 of 0x14214a190), so a returner
+    // would stay on its old cell until its next action. 0x1b7 is not gated by the network mode.
+    static byte[] LockstepPlace(List<(uint Id, int X, int Y)> back) =>
+        [.. back.SelectMany(m => InstanceProtocol.Teleport(m.Id, m.X, m.Y))];
+
+    // Differs from GGG: it reports the object's cell as the target. The client replaces the target with the object's own
+    // position when it starts the action (0x1421940a0), and this path has no cell for every kind of object.
+    static byte[] LockstepObjectStart((int X, int Y) from, InstanceTransfer.UseSkillOnObject use, ushort sequence) =>
+        InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, from.X, from.Y, use.SkillId, sequence, use.Flags, targetObjectId: use.TargetId);
+
+    // Differs from GGG: it serves every skill in lockstep. Only walking and object use are served here so far (07 §6): the
     // rest is ignored, and said once per connection in the log.
     static void NotServedInLockstep(string remote, ClientState conn, ushort id)
     {
         if (conn.WarnedLockstep) return;
         conn.WarnedLockstep = true;
-        Console.WriteLine($"[gateway] {remote} <= 0x{id:x4}: only walking is served in lockstep so far, the request is ignored");
+        Console.WriteLine($"[gateway] {remote} <= 0x{id:x4}: skills are not served in lockstep yet, the request is ignored");
     }
 }

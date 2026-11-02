@@ -137,6 +137,12 @@ public static class InstanceProtocol
     /// an object, instead of 0x24. C→S 0x0196 (u16 skill): release that skill.</summary>
     public const ushort LockstepUseOnObjectId = 0x018f, LockstepSkillStopId = 0x0196;
 
+    /// <summary>C→S 0x018f. The u8 is the sender's own: with bit 0 set a predictive client starts nothing either
+    /// (0x14215f700), and GGG answers it with nothing.</summary>
+    public static (uint ObjectId, ushort SkillId, ushort Flags, byte Extra) ReadLockstepUseOnObject(byte[] b) =>
+        (BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(2)), BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(6)),
+         BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(8)), b[10]);
+
     /// <summary>
     /// What the client sends to move instead of 0x25 when it runs in lockstep (Options → Network Mode; "auto" chose it
     /// on localhost, live 2026-10-18): 0x018e (15 bytes: i32, i32 offsets from the player, u16 skill id 0x2909 Move, u16

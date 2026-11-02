@@ -40,6 +40,13 @@ public sealed class LockstepHold
         if (!_pending) _target = null;
     }
 
+    /// <summary>Another action took over: nothing is held or waiting any more.</summary>
+    public void Clear()
+    {
+        _target = null;
+        _pending = _held = false;
+    }
+
     /// <summary>The target a Move should start for in this frame, if any: a new one, or the held one when the walk has
     /// stopped short of it. <paramref name="walking"/> and <paramref name="here"/> are the server's walk at this frame.</summary>
     public (int X, int Y)? Due(bool walking, (int X, int Y) here)

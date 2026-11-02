@@ -382,7 +382,7 @@ Everything above is the client's **Predictive** network mode (Options → Game �
 70 ms (`0x142148880`), so it picks lockstep on localhost. A fourth value, `hybrid`, is disabled in the client.
 
 The Gateway serves a lockstep client only on a connection confirmed as local, with `Game_LOCKSTEP=1` (`LockstepLink`),
-and so far only its walking. Any other connection gets a message box asking for Predictive (once per connection).
+and so far only walking and object use. Any other connection gets a message box asking for Predictive (once per connection).
 
 **Server frames.** In lockstep the client's world does not run on its own clock: it runs **server frames**. S→C
 **0x2b6** (u8) sets the frame length in ms (`0x141645fa0` stores the zero-extended byte as u32 at world `+0x11c`);
@@ -438,11 +438,13 @@ started. Sequences go up by one, top bit set. A click during a swing waits, and 
 | Only confirmed local connections, opted in | Any connection, any latency | A port's corrections are only worth the delay when it is a frame or two |
 | Frames laid over a clock, late ones sent at once | Frames are ticks of its world | The walks run on the clock |
 | Sends 0x2b6 | Never | The client's default is not traced |
+| Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours walks on out there, and 0x128 is skipped here |
+| An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |
 | Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |
-| Only walking is served | Everything | Not built yet |
+| Only walking and object use are served | Everything | Not built yet |
 
-Still to serve: every other action through the lockstep messages (0x018f for NPCs, stashes, transitions, items), held
-and channelled skills, and monsters' keys. Stuns and movement skills resync with 0x128 today, which does nothing here.
+Still to serve: skills, held and channelled ones included, and monsters' keys. Movement skills resync with 0x128 today,
+which does nothing here.
 
 ## 7. More client messages seen
 
@@ -469,4 +471,4 @@ and channelled skills, and monsters' keys. Stuns and movement skills resync with
   Routes through a tight crowd differ for the same reason.
 - A monster told to swing that the player then leaves walks after the player on the client while the server stands for the
   attack's time; the gap stays while both chase.
-- Lockstep (§6): object use (0x018f), skills, monsters' order keys.
+- Lockstep (§6): skills, monsters' order keys.

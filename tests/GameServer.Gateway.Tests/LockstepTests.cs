@@ -33,6 +33,7 @@ public class LockstepTests
         Assert.Equal(new ushort[] { 0x018f, 0x0196 }, framed.Select(m => m.Id));
         Assert.Empty(unknown);
         Assert.All(framed, m => Assert.True(InstanceProtocol.IsLockstepRequest(m.Id)));
+        Assert.Equal(((uint)0x1f1, (ushort)0x266, (ushort)0x400, (byte)0), InstanceProtocol.ReadLockstepUseOnObject(framed[0].Bytes));
 
         var hold = new LockstepHold();
         var (here, walking) = ((0, 0), true);
@@ -62,6 +63,11 @@ public class LockstepTests
         Assert.Equal((30, 0), hold.Due(true, here));
         hold.Release();
         hold.Update((31, 0));
+        Assert.Null(hold.Due(false, here));
+
+        // An object use takes over from a held walk.
+        hold.Press((40, 0), 0x2909, 0x0400);
+        hold.Clear();
         Assert.Null(hold.Due(false, here));
     }
 }
