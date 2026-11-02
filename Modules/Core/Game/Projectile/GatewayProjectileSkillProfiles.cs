@@ -59,9 +59,9 @@ static class GatewayProjectileSkillProfiles
 
         // Rolling Magma lobs its orb onto the aim, where it explodes, then chains along the ground: each of its chains
         // (number_of_chains, 2 at level 1) is a bounce forward and another explosion, which may hit the same monsters.
-        // The client's bounces go straight on without seeking an enemy (Frida 2026-11-01, trace-chain-decisions.js); the
-        // wiki gives 16 between impacts (and a 14 base radius, SkillArea.BaseRadius). shortcut: the client takes 375 ms
-        // per bounce, slower than this flight at the orb's speed, so a bounce's hits land ~0.1 s early.
+        // The client's bounces go straight on without seeking an enemy (Frida 2026-11-01, trace-chain-decisions.js).
+        // shortcut: 16 cells between impacts and the 14-cell base radius (SkillArea.BaseRadius) are not read from the
+        // client; it takes 375 ms per bounce, slower than this flight at the orb's speed, so a bounce's hits land ~0.1 s early.
         else if (effect == "RollingMagma")
             p = p with
             {
