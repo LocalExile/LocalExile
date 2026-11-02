@@ -13,8 +13,8 @@ static partial class Game
     // monster packs. The run's own skills cast themselves at the nearest monster, so the player only moves.
     const int SurvivorsStepMs = 100;
 
-    /// <summary>The unique boss of the area arrives this often, in run seconds.</summary>
-    internal const double SurvivorsBossIntervalSeconds = 135;
+    /// <summary>The ring wave cadence: a closing ring 67.5 s into every stage, one per 135 s cycle.</summary>
+    internal const double SurvivorsRingIntervalSeconds = 135;
 
     /// <summary>The area's boss arrives this long after a stage starts: its death is what opens the next stage.</summary>
     internal const double SurvivorsBossDelaySeconds = 15;
@@ -575,7 +575,7 @@ static partial class Game
         double stageStart = stage * SurvivorsRules.StageSeconds;
         double last = conn.Clock.Elapsed.TotalSeconds, nextSpawn = 0,
             nextBoss = Math.Max(stageStart + SurvivorsBossDelaySeconds, run.Elapsed + 5),
-            nextRing = Math.Max(stageStart + SurvivorsBossIntervalSeconds / 2, run.Elapsed + 10),
+            nextRing = Math.Max(stageStart + SurvivorsRingIntervalSeconds / 2, run.Elapsed + 10),
             nextReport = 10, nextSweep = 0;
         string bossName = roster.Bosses.Count > 0 ? roster.Bosses[0].Name : "";
         uint stageBoss = 0;
@@ -651,7 +651,7 @@ static partial class Game
                 // Halfway through the stage a ring of the moment's weakest closes in on the player.
                 if (run.Elapsed >= nextRing)
                 {
-                    nextRing = stageStart + SurvivorsBossIntervalSeconds;
+                    nextRing = stageStart + SurvivorsRingIntervalSeconds;
                     await SpawnSurvivorsRing(remote, stream, ciphers, conn, run, roster, horde);
                 }
                 foreach (var (skill, rank) in run.Skills)
