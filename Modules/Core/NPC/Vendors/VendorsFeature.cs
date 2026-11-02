@@ -235,19 +235,21 @@ static class VendorsFeature
         var notes = new List<string>();
         var window = prepared ?? BuildWindow(conn,npc,notes);
         var tabs = window.Tabs;
+        bool nativeTabs = window.Key.Length > 0;
         foreach (var n in notes) Console.WriteLine($"[gateway] {remote} shop {npc.Npc.Name}: {n}");
         // One manager-1 inventory per tab (S→C 0xc0), then 0x8c lists them with their names.
         var ids = tabs.Select((_, i) => NpcShops.FirstTabId + (uint)i).ToList();
         lock (conn.Npcs) conn.Shop = new OpenShop(npc, tabs.SelectMany((t, i) => t.Items.Select(item => (Tab: ids[i], Item: item))).ToDictionary(p => p.Item.Id)) { StockKey = window.Key, Finite = window.Finite };
         for (int i = 0; i < tabs.Count; i++)
-            await Send(remote, stream, ciphers, InstanceInventories.AddInventory(ids[i], NpcShops.Tab, NpcShops.Manager, tabs[i].Items),
+            await Send(remote, stream, ciphers, InstanceInventories.AddInventory(ids[i], nativeTabs ? NpcShops.NativeTab : NpcShops.Tab,
+                NpcShops.Manager, tabs[i].Items, nativeTabs ? (byte)0x60 : null),
                 $"0x00c0 shop tab {ids[i]} \"{tabs[i].Name}\" (manager {NpcShops.Manager}) of {npc.Npc.Name}: {tabs[i].Items.Count} items");
         conn.InNpcTalk = false;
         // 0x8c's u16 is the window kind (0x14073ee60, +0x5f0: 0 buy, 1-4 haggle/deal/exchange/expedition, 9 Azmeri, 10 black
         // market, 11 unset), its u8 the async trade mode ("Merchant" title, +78 height, 0x14073d570). The NPC's DialogueStyle
         // picks the window, not the u8 (0x140dcccf0). A tab's compact value is its colour (0x14073d570: ARGB, 0 the default).
         await Send(remote, stream, ciphers, InstanceNpcs.Dialogue(npcObject, 0, false, ids,
-            [.. tabs.Select(t => new InstanceNpcs.Choice(unchecked((int)t.TabColour), t.Name))]),
+            nativeTabs ? [] : [.. tabs.Select(t => new InstanceNpcs.Choice(unchecked((int)t.TabColour), t.Name))]),
             $"0x008c open the buy window of {npc.Npc.Name} with tabs {string.Join(", ", tabs.Select(t => t.Name))}");
     }
 

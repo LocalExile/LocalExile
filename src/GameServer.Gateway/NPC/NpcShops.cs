@@ -11,6 +11,8 @@ static class NpcShops
     /// tab bar up over the title. Inventories.dat row 83 (CraftPredictionScratch, kind 0x0f) only gives the client a generic
     /// grid type.</summary>
     public static readonly InstanceInventories.Slot Tab = new(83, 0x0f, 12, 11);
+    // All seven original 3.29.3b vendor captures use this descriptor, with flags 0x60.
+    public static readonly InstanceInventories.Slot NativeTab = new(117, 71, 12, 11);
 
     /// <summary>A sell offer grid (the player's and the NPC's side of the sell window): the main inventory's row and size,
     /// so every item fits (the client checks a drop against the row, 0x141d628f0; row 83 refused everything).</summary>

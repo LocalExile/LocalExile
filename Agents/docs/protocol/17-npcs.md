@@ -483,7 +483,14 @@ One third of finite slots expires per level, retaining each offer for three leve
 Purchases remain sold until that slot expires. Reopening/relogging does not reroll surviving instances.
 Currency and gem offers replenish; Siosa accepts inventory currency only.
 Prices come from native item costs, including all currencies and unidentified surcharges, with explicit prices first.
-Tabs use the existing generic vendor grid; precise official placement is not reproduced.
+Ordinary shops send the captured inventory descriptor (kind 71, row 117, 12×11, flags 0x60)
+and an empty custom-label list in 0x8c, leaving labels to the client.
+Goods sort equipment by width descending, height descending, then BaseItemTypes row; supplies follow in shop order.
+Packing scans columns before rows. Replaying the captured item sequence reproduces all 269 goods positions,
+including Kirac's Unmaking at (0,0), scarab at (0,1), then ascending map tiers down columns.
+Equipment size/base ordering matches all 220 captured campaign equipment items.
+Gem presentation remains approximate: campaign captures mix colours/supports, and Lilly has level-group row breaks
+and eight tabs. The current colour/support grouping and compact row packing do not reproduce those gem layouts.
 
 KiracLevels.dat contains 16 progression rows: MapAreaLevelOffered, MapCompletion, ShopRerollCost.
 The first rows are (68,0,1000), (69,1,1500), (70,3,2000), (71,6,2500), (72,12,3000).

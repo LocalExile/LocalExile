@@ -36,6 +36,8 @@ public class VendorItemLevelTests
         Assert.Contains((catalog.Find("Gold")!.Hash,8000u),map.Price);
         Assert.Contains((catalog.Find("Orb of Chance")!.Hash,4u),map.Price);
         Assert.Equal(82,NpcShops.CampaignItemLevel("Metadata/NPC/Epilogue/KiracHideout",ItemRarity.Rare,82));
+        var inventory = InstanceInventories.AddInventory(1024,NpcShops.NativeTab,NpcShops.Manager,[],0x60);
+        Assert.Equal(new byte[] {71,117,12,11,0x60},inventory[7..12]);
     }
 
     [Fact]
@@ -89,6 +91,14 @@ public class VendorItemLevelTests
             catalog,skills,[],items.NewItemId,LeagueRules.Standard,false,notes,random:new Random(2),account:stash);
         var kirac=Kirac(name);
         Assert.Equal(18,kirac.Finite.Count);
+        var kiracItems = Assert.Single(kirac.Tabs).Items;
+        Assert.Equal("Orb of Unmaking",catalog.ByHash(kiracItems[0].Item.TypeHash)!.Name);
+        Assert.Equal("Kalguuran Scarab",catalog.ByHash(kiracItems[1].Item.TypeHash)!.Name);
+        for (int i=0;i<kiracItems.Count;i++)
+        {
+            Assert.Equal(i/11,kiracItems[i].X);
+            Assert.Equal(i%11,kiracItems[i].Y);
+        }
         Assert.All(kirac.Tabs.SelectMany(t=>t.Items).Where(i=>catalog.ByHash(i.Item.TypeHash)!.Class=="MapKey"),
             i=>Assert.Equal("Metadata/Items/Maps/MapKeyTier1",catalog.ByHash(i.Item.TypeHash)!.Id));
         Assert.Equal(1000,KiracProgress.For(stash).ShopRerollCost);

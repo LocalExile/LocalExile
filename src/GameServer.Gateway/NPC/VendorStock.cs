@@ -156,7 +156,7 @@ static class VendorStock
         if (profile.Kind == "Kirac") Supply("Orb of Unmaking");
         var tabs = new List<NpcShops.ShopTab>();
         var finite = new Dictionary<uint, Guid>();
-        void Pack(string name, IEnumerable<(Item Item, Guid? Token)> source)
+        void Pack(string name, IEnumerable<(Item Item, Guid? Token)> source, bool columns = false)
         {
             var page = new List<InventoryItem>(); bool[,] occupied = new bool[12,11]; int number = 1;
             void Flush() { tabs.Add(new(number == 1 ? name : $"{name} {number}", page)); page = []; occupied = new bool[12,11]; number++; }
@@ -165,8 +165,13 @@ static class VendorStock
                 var type = items.ByHash(item.TypeHash)!;
                 (byte X, byte Y)? Free()
                 {
-                    for (byte y = 0; y + type.Height <= 11; y++) for (byte x = 0; x + type.Width <= 12; x++)
+                    for (byte outer = 0; outer < (columns ? 12 : 11); outer++)
+                    for (byte inner = 0; inner < (columns ? 11 : 12); inner++)
+                    {
+                        byte x = columns ? outer : inner, y = columns ? inner : outer;
+                        if (x + type.Width > 12 || y + type.Height > 11) continue;
                         if (!Enumerable.Range(x,type.Width).Any(xx => Enumerable.Range(y,type.Height).Any(yy => occupied[xx,yy]))) return (x,y);
+                    }
                     return null;
                 }
                 var cell = Free(); if (cell is null) { Flush(); cell = Free(); }
@@ -176,7 +181,23 @@ static class VendorStock
             }
             if (page.Count > 0) Flush();
         }
-        Pack("Goods", goods);
+        if (profile.Kind == "Kirac")
+        {
+            int Order(Item item)
+            {
+                string id = items.ByHash(item.TypeHash)!.Id;
+                if (id == "Metadata/Items/Scarabs/ScarabSettlers1") return 1;
+                const string maps = "Metadata/Items/Maps/MapKeyTier";
+                return id.StartsWith(maps, StringComparison.Ordinal) && int.TryParse(id[maps.Length..], out int tier)
+                    ? tier + 1 : 0;
+            }
+            Pack("Goods", goods.OrderBy(g => Order(g.Item)), columns:true);
+        }
+        else
+            Pack("Goods", goods.OrderBy(g => g.Token is null ? 1 : 0)
+                .ThenByDescending(g => items.ByHash(g.Item.TypeHash)!.Width)
+                .ThenByDescending(g => items.ByHash(g.Item.TypeHash)!.Height)
+                .ThenBy(g => g.Token is null ? 0 : items.ByHash(g.Item.TypeHash)!.Row), columns:true);
         foreach (int colour in new[] {1,2,3,4}) foreach (bool support in new[] {false,true})
         {
             var offers = new List<(Item, Guid?)>();

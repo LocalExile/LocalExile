@@ -83,7 +83,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Exact affix prices and special league/unique recipes remain partial; real-client recipe verification is pending.
   See [vendor recipes](../docs/protocol/24-vendor-recipes.md) for supported cases and explicit limitations.
   Live visibility verification pending; see protocol/17-npcs.md.
-- Vendor-specific quest/class gems replace the default Nessa bypass; native Kirac refresh UI remains unmapped.
+- Gem stock is quest/class-specific; exact gem layouts and Kirac's native refresh UI remain open.
 
 ## Not working yet
 
