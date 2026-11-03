@@ -48,7 +48,7 @@ especially immediately after damage; this change does not implement a full share
 | `0x141e678d0` | Life constructor: life/mana/ES pools at +0x178/+0x1c8/+0x210; native recovery keys 0x58e/0x58f/0x590 |
 | `0x141e65df0` | Pool constructor stores the native recovery key at pool+0x1c |
 | `0x141e6a190` | Life tick invokes each pool's step with its time argument |
-| `0x141e6b320` | Pool step reads its recovery rate, divides by 60 and multiplies by tick duration |
+| `0x141e6b320` | Pool step reads its recovery rate, divides by 60 and multiplies by tick duration; only a rate above 0 is added, so a negative rate cannot drain a pool |
 | `0x141e6a600` | Adds recovery, carries fractional points at +0x28, updates current at +0x30, clamps to the unreserved maximum |
 | `0x141e69fb0` | Applies incoming current/reserved values to a pool |
 

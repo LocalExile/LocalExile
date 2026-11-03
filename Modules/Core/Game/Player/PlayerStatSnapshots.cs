@@ -8,6 +8,10 @@ static partial class Game
     // construction must not acknowledge anything: remember exactly the pair this packet encodes.
     internal static byte[] PlayerStatsUpdateAtGate(ClientState conn, IReadOnlyList<(uint Key, int Value)> stats)
     {
+        // Under a trap's degeneration the pools only fall: the client steps them up by these rates between updates.
+        if (conn.TrapDegenPerSecond > 0 && Stats.Key("life_recovery_per_minute") is uint lifeKey
+            && Stats.Key("energy_shield_recovery_per_minute") is uint shieldKey)
+            stats = [.. stats.Select(s => s.Key == lifeKey || s.Key == shieldKey ? (s.Key, 0) : s)];
         var packet = InstanceEntities.StatsUpdate(PlayerId, stats);
         uint? counterKey = Stats.Key(RecentEnemyHits.Counter), chanceKey = Stats.Key(RecentEnemyHits.VirtualChance);
         int? count = null, chance = null;

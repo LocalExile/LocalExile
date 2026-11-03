@@ -34,6 +34,9 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>
     public SkillCatalog.MonsterProjectileInfo? Projectile { get; init; }
+    /// <summary>A summoning skill (SkillCatalog.MonsterSummon, the Labyrinth's Immolator): its action brings monsters
+    /// ahead of the summoner instead of a hit (Program.MonsterSwing). Null for an attack.</summary>
+    public SkillCatalog.MonsterSummonInfo? Summon { get; init; }
     /// <summary>Whether this is a spell skill rather than a melee/ranged attack. A spell's cast duration comes from the
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
@@ -125,6 +128,11 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
     public uint? OwnerId { get; init; }
+    // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
+    // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
+    public uint? SummonerId;
+    public bool NoRewards;
+    public double SummonReadyAt;
     public double RampageBlindUntil;
     public int StunSerial;
     /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>
@@ -502,6 +510,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // spike traps close, by id.
     public readonly Dictionary<uint, AreaPopulation.RoomObject> TrialObjects = [];
     public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> DoorBarriers = [];
+    // Cells server objects' Hull projectile shapes close to the server's projectiles, as the client stamps them into its
+    // own projectile map (a trial's dart turrets). Changed and read under the Monsters lock.
+    public readonly HashSet<(int X, int Y)> ProjectileWalls = [];
     // Cells quest walls and closed doors close to the player's walk estimate (QuestBarriers): the union of
     // QuestRoomObjects' and DoorBarriers' cells.
     public volatile IReadOnlySet<(int X, int Y)> Barrier = new HashSet<(int X, int Y)>();
@@ -683,6 +694,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public uint? SentEnergyShield;
     public bool? SentRechargeActive;
     public int? SentEsRecoveryRate;
+    // A trap's degeneration on the player (a trial roomba), points a second, energy shield first: RunResourceRecovery
+    // deals it, and while it runs the client is sent no recovery rates to predict a rise with.
+    public double TrapDegenPerSecond;
     // (MonsterVarieties row, level) pairs already registered with 0x20 on this connection.
     public readonly HashSet<(int Row, byte Level)> MonsterTypes = [];
     // The open sell window (Sell Items): what the player offered and what the NPC offers back.
@@ -782,7 +796,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // set, so two at once could send an older set last.
     public readonly SemaphoreSlim QuestGate = new(1, 1);
 
-    /// <summary>The character's league quest flags (client ids, Quests.League); not saved: every character has the same.</summary>
+    /// <summary>The character's league quest flags (client ids, Quests.League): every character's, and at login those the
+    /// account saved in its league (AccountStash.LeagueQuestFlags, Game.SetLeagueQuestFlags).</summary>
     public HashSet<int> LeagueQuestFlags = [.. Quests.League.EveryCharacter, .. Program.Bench.UnlockFlags];
 
     /// <summary>The hideout doodads created in this area (the map device), by object id.</summary>

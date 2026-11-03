@@ -33,6 +33,9 @@ sealed class PackCatalog(string folder = "data")
         /// fight brings (<see cref="AreaPopulation.LaterForms"/>) and the bosses a map boss override leaves out
         /// (<see cref="MapBossOverride"/>).</summary>
         public IReadOnlySet<int> Absent { get; init; } = new HashSet<int>();
+
+        /// <summary>How much denser than the ordinary its scattered packs stand (the Labyrinth's: LabyrinthTrials.PackDensity).</summary>
+        public double Density { get; init; } = 1;
     }
 
     /// <summary>The weight of a map's own packs (Maps.dat MonsterPacksKeys), which have none for the area.</summary>
@@ -56,10 +59,38 @@ sealed class PackCatalog(string folder = "data")
         foreach (int pack in d.MapPacks.GetValueOrDefault(row) ?? [])
             if (pack < d.Packs.Count && d.Packs[pack].Entries.Count > 0 && !scattered.Any(s => s.Item1.Row == pack))
                 scattered.Add((d.Packs[pack], MapPackWeight));
-        return new AreaPacks(areaId, d.Areas[row].Level, scattered, named, d.Areas[row].Bosses);
+        // A Labyrinth room area has no packs in the data: ours (LabyrinthTrials.RoomSetPacks), each row below 0.
+        double density = 1;
+        if (scattered.Count == 0 && LabyrinthTrials.RoomSetPacks(areaId) is { Count: > 0 } labyrinth)
+        {
+            density = LabyrinthTrials.PackDensity;
+            int Row(string id) => VarietyRows.Value.GetValueOrDefault(id, -1);
+            for (int i = 0; i < labyrinth.Count; i++)
+            {
+                var p = labyrinth[i];
+                List<(int, int)> entries = [.. p.Varieties.Select(Row).Where(v => v >= 0).Select(v => (v, 1))];
+                List<int> leaders = [.. (p.Leaders ?? []).Select(Row).Where(v => v >= 0)];
+                if (entries.Count > 0)
+                    scattered.Add((new Pack(-1 - i, "labyrinth-" + p.Id, p.Min, p.Max, leaders.Count > 0 ? 100 : 0, leaders.Count > 0 ? 1 : 0, leaders, entries,
+                        new Dictionary<int, int>()), MapPackWeight));
+            }
+        }
+        return new AreaPacks(areaId, d.Areas[row].Level, scattered, named, d.Areas[row].Bosses) { Density = density };
     }
 
     public Pack? Find(string id) => _data.Value?.Packs.FirstOrDefault(p => p.Id == id);
+
+    // MonsterVarieties rows by Id, for the Labyrinth's packs.
+    readonly Lazy<Dictionary<string, int>> VarietyRows = new(() =>
+    {
+        string file = Path.Combine(folder, "tables", "MonsterVarieties.json");
+        var rows = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (!File.Exists(file)) return rows;
+        using var doc = GameTables.Open(file);
+        int row = 0;
+        foreach (var v in doc.RootElement.EnumerateArray()) { if (v.GetProperty("Id").GetString() is { } id) rows.TryAdd(id, row); row++; }
+        return rows;
+    });
 
     private static (List<Pack>, List<(string, int, int[])>, Dictionary<int, List<int>>)? Load(string folder)
     {
@@ -124,7 +155,13 @@ static class AreaPopulation
 
     /// <summary>A server object of a room the client placed (an NPC, a quest blocker): its type and model, grid cell,
     /// angle (radians) and scale, through the room's placement.</summary>
-    public sealed record RoomObject(string Type, string Model, int X, int Y, float Angle, float Scale);
+    /// <summary>A room's server object in grid cells; <paramref name="Height"/> is its line's fixed height (world z, down),
+    /// null to stand on the terrain; <paramref name="Mirrored"/> whether its room is placed mirrored (orientation codes 4–7).</summary>
+    public sealed record RoomObject(string Type, string Model, int X, int Y, float Angle, float Scale, float? Height = null, bool Mirrored = false);
+
+    /// <summary>A quest room placed where the client placed it (<see cref="FitRooms"/>): its points and server objects
+    /// in grid cells (a Trial of Ascendancy's room: its traps, its pack points and monsters).</summary>
+    public sealed record PlacedRoom(string Path, IReadOnlyList<RoomPoint> Points, IReadOnlyList<RoomObject> Objects);
 
     static bool IsMonsterPoint(string name) => BossPoint(name) is not null || name.StartsWith("%area%-", StringComparison.Ordinal);
 
@@ -200,9 +237,14 @@ static class AreaPopulation
     public readonly record struct PackScale(double Size = 1, int ExtraNormal = 0, int ExtraMagic = 0, int ExtraRare = 0,
         int RareIncrease = 0, int MagicIncrease = 0);
 
+    /// <param name="roomPacks">Points of rooms whose "normal", "magic" and "rare" points place one of the area's scattered
+    /// packs of that rarity (a Trial of Ascendancy's rooms: the Lower Prison trial's plaque platform).</param>
+    /// <param name="scatterable">Where a scattered pack may have its centre, besides the walk map (not among a trial's
+    /// traps); null: anywhere.</param>
     public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
         IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
-        PackScale scale = default, bool unassignedAtArrival = false)
+        PackScale scale = default, bool unassignedAtArrival = false, IReadOnlyList<RoomPoint>? roomPacks = null,
+        Func<int, int, bool>? scatterable = null)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
@@ -285,6 +327,15 @@ static class AreaPopulation
         // The scattered packs: random deep cells away from the arrival, the area transitions and other packs.
         var packs = area.Scattered.Where(s => s.Pack.Entries.Any(e => spawnable(e.Variety))).ToList();
         if (packs.Count == 0) return spawns;
+        foreach (var p in roomPacks ?? [])
+            if (p.Name switch { "normal" => MonsterRarity.Normal, "magic" => MonsterRarity.Magic, "rare" => MonsterRarity.Rare, _ => (MonsterRarity?)null }
+                is { } rarity)
+            {
+                var pack = PickPack(packs, rng);
+                AddPack(spawns, taken, walkable, (p.X, p.Y), pack, rarity, true, rng, spawnable);
+                centres.Add((p.X, p.Y));
+                notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): {pack.Id}");
+            }
         var depth = Depth(w, h, walkable);
         var candidates = new List<(int X, int Y)>();
         for (int y = 0; y < h; y += 3)
@@ -293,7 +344,7 @@ static class AreaPopulation
         int walkableCells = depth.Count(d => d > 0);
         double size = scale.Size > 0 ? scale.Size : 1;
         int wanted = (int)Math.Round(walkableCells / (double)CellsPerPack
-            * SystemSettings.Default.MonsterPackDensityMultiplier * size)
+            * SystemSettings.Default.MonsterPackDensityMultiplier * size * area.Density)
             + scale.ExtraNormal + scale.ExtraMagic + scale.ExtraRare;
         if (wanted <= 0) return spawns;
         Shuffle(candidates, rng);
@@ -301,7 +352,8 @@ static class AreaPopulation
         foreach (var c in candidates)
         {
             if (plans.Count >= wanted) break;
-            if (Near(c, arrival, SpawnClearance) || transitions.Any(t => Near(c, t, TransitionClearance)) || centres.Any(o => Near(c, o, PackSpacing))) continue;
+            if (Near(c, arrival, SpawnClearance) || transitions.Any(t => Near(c, t, TransitionClearance)) || centres.Any(o => Near(c, o, PackSpacing))
+                || scatterable is not null && !scatterable(c.X, c.Y)) continue;
             centres.Add(c);
             plans.Add((c, PickPack(packs, rng)));
         }
@@ -472,7 +524,7 @@ static class AreaPopulation
     /// <paramref name="generated"/>, the Gateway's own generation of the seed is used even where a capture exists (the
     /// capture tour's records compare the two fits).</summary>
     internal static (List<RoomPoint> Points, List<RoomObject> Objects, List<string> Captured) FitRooms(string areaId, uint seed, List<string> notes,
-        string folder, bool generated = false)
+        string folder, bool generated = false, List<PlacedRoom>? placedRooms = null)
     {
         string walkability = Path.Combine(folder, "walkability");
         string capture = Path.Combine(walkability, $"{areaId}_seed{seed}.doodads.json");
@@ -555,7 +607,7 @@ static class AreaPopulation
                     foreach (var d in room.Doodads.Where(d => d.Type is not null))
                     {
                         var g = At(d.X, d.Y);
-                        objects.Add(new RoomObject(d.Type!, d.Model, g.X, g.Y, TurnAngle(a, b, cc, dd, d.Angle), d.Scale));
+                        objects.Add(new RoomObject(d.Type!, d.Model, g.X, g.Y, TurnAngle(a, b, cc, dd, d.Angle), d.Scale, d.Height));
                     }
                     notes.Add($"room {path.Split('/')[^1]} at ({ox}, {oy}) turn [{a} {b}; {cc} {dd}]: {hits}/{plain.Count} doodads match; " +
                         string.Join(", ", room.Points.Select(p => $"{p.Name} at {At(p.X, p.Y)}")));
@@ -595,11 +647,13 @@ static class AreaPopulation
                 objects.RemoveRange(fittedObjects, objects.Count - fittedObjects);
                 foreach (var placement in questPlacements)
                 {
+                    int first = objects.Count;
                     foreach (var d in room.Doodads.Where(d => d.Type is not null))
                     {
                         var g = placement.Place(new RoomPoint(d.Type!, (int)MathF.Round(d.X), (int)MathF.Round(d.Y), d.Angle));
-                        objects.Add(new RoomObject(d.Type!, d.Model, g.X, g.Y, g.Angle, d.Scale));
+                        objects.Add(new RoomObject(d.Type!, d.Model, g.X, g.Y, g.Angle, d.Scale, d.Height));
                     }
+                    placedRooms?.Add(new PlacedRoom(path, [.. room.Points.Select(placement.Place)], objects.GetRange(first, objects.Count - first)));
                     if (!capturedRooms.Contains(path)) capturedRooms.Add(path);
                     notes.Add($"room {path.Split('/')[^1]} at its captured placement ({placement.X}, {placement.Y}) code {placement.Code}: quest objects " +
                         string.Join(", ", objects.Skip(fittedObjects).Where(o => RoomFile.IsQuestObject(o.Type)).Select(o => $"{o.Type} at ({o.X}, {o.Y})")));
@@ -636,7 +690,7 @@ static class AreaPopulation
         return (roomX + (int)Math.Round(a * localX + b * localY), roomY + (int)Math.Round(c * localX + d * localY));
     }
 
-    sealed record RoomData(IReadOnlyList<RoomPoint> Points, IReadOnlyList<(string Model, float X, float Y, string? Type, float Angle, float Scale)> Doodads);
+    sealed record RoomData(IReadOnlyList<RoomPoint> Points, IReadOnlyList<(string Model, float X, float Y, string? Type, float Angle, float Scale, float? Height)> Doodads);
     sealed record RoomIndex(Dictionary<string, List<string>> Areas, Dictionary<string, RoomData> Rooms);
 
     // data/room-points.json (scripts/re/atlas room-points): the rooms with monster or start points per area. Game data: stays in data/.
@@ -651,12 +705,14 @@ static class AreaPopulation
         var rooms = doc.RootElement.GetProperty("rooms").EnumerateObject().ToDictionary(r => r.Name, r => new RoomData(
             [.. r.Value.GetProperty("points").EnumerateArray().Select(p => new RoomPoint(p.GetProperty("name").GetString() ?? "",
                 (int)Math.Round(p.GetProperty("x").GetDouble()), (int)Math.Round(p.GetProperty("y").GetDouble()),
-                p.TryGetProperty("angle",out var angle)?angle.GetSingle():0))],
+                p.TryGetProperty("angle",out var angle)?angle.GetSingle():0)),
+                .. LabyrinthTrials.RoomPacks.GetValueOrDefault(r.Name, [])],
             [.. r.Value.GetProperty("doodads").EnumerateArray().Select(d => (d.GetProperty("model").GetString() ?? "",
                 (float)d.GetProperty("x").GetDouble(), (float)d.GetProperty("y").GetDouble(),
                 d.TryGetProperty("type", out var t) ? t.GetString() : null,
                 d.TryGetProperty("angle", out var an) ? (float)an.GetDouble() : 0f,
-                d.TryGetProperty("scale", out var sc) ? (float)sc.GetDouble() : 1f))]), StringComparer.OrdinalIgnoreCase);
+                d.TryGetProperty("scale", out var sc) ? (float)sc.GetDouble() : 1f,
+                d.TryGetProperty("z", out var z) ? (float?)z.GetDouble() : null))]), StringComparer.OrdinalIgnoreCase);
         return new RoomIndex(areas, rooms);
     }
 }
