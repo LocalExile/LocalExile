@@ -181,7 +181,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Verified with the real client in The Lower Prison (2026-10-31).
   Its spike traps cascade round their ring from the lever towards the door (the plaque room's as a checkerboard), rise
   over a stretched Emerge animation (0x1d1), hit a player on their tile for LbRetractableTrap's share of life and energy
-  shield, bleed for a second and wall their tile while they show; matched by eye against the original game.
+  shield, bleed for a second and wall their tile while they show. The checkerboard timing follows client trigger data;
+  original server timing is not verified.
   Not built: the other traps, the trials' monsters, the toggling, multi and timed levers of the other trials, and
   league-wide trials (league quest flags are not saved).
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.

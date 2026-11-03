@@ -4,7 +4,7 @@ The trials in the acts that open each Labyrinth tier (#450, roadmap "The Labyrin
 [roadmap/world.md](../../roadmap/world.md)).
 The Lower Prison's Normal trial is verified with the real client: its door, lever, Locked Door, plaque and the
 Trial Plaque window work.
-Its spike traps (the cascade ring and the plaque room's checkerboard) are matched against the original game by eye.
+Its spike trap patterns were compared with the original game by eye; checkerboard timing uses client trigger data.
 The other traps, the trials' monsters and the other trials' puzzles are not built yet.
 
 ## Where a trial is
@@ -106,12 +106,13 @@ The Emerge action (0x1ab, basic action 0x0101) played the plain clip, and the sp
 cascade stand up at once and lower slowly.
 The spikes are up from about 100 ms to 1000 ms (the stretched clip's half), and lowering until 2000 ms.
 
-**The pattern.** The real timers are the rooms' `Trigger_PulsePrisonWG`, `Trigger_Delay_4_0WG` and
-`Trigger_Delay_4_2WG` lines: server objects with no `.ot` or model, absent from `room-points.json`.
-So the pattern is fitted by eye against the original (live 2026-10-31):
+**The pattern.** The rooms name `Trigger_PulsePrisonWG`, `Trigger_Delay_4_0WG` and `Trigger_Delay_4_2WG` as server
+objects, absent from `room-points.json`. The corresponding non-WG client `.ot` files contain timing fields; WG
+resolution and original server behavior have not been verified. The pattern is:
 - a ring (every trap side by side with two others) cascades from its trap nearest the trial's lever, straight towards
   its trap nearest the trial's doors and on round, 450 ms a trap, starting again at once;
-- any other chain fires as a checkerboard: the tiles of the start's colour, then the others 2 s later, every 4 s.
+- any other chain fires as a checkerboard: the tiles of the start's colour, then the others 2.5 s later, every 5 s.
+  The non-WG delay triggers specify `trigger_frequency = 5000` and start delays of 0 and 2500.
 
 **What it does.** The cascade traps do not answer a step (the spikes that do are another trap, in Izaro's rooms).
 - A player on the tile while the spikes are up is hit once: `LbRetractableTrap`'s stat set (GrantedEffectStatSets

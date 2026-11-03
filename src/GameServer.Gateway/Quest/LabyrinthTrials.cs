@@ -49,8 +49,7 @@ static class LabyrinthTrials
     /// lowered them (live 2026-10-31: the wall stands while any spike shows, lowering ones too).</summary>
     public static (double From, double To) SpikeWallWindow => (SpikeHitWindow.From, SpikeAnimationSeconds);
 
-    /// <summary>How the spikes cycle (our own numbers: the real server's timers are the rooms' <c>Trigger_*</c> lines,
-    /// server objects the client has no file for). A chain of spike traps fires as a wave, one trap
+    /// <summary>How the spikes cycle. A chain of spike traps fires as a wave, one trap
     /// <see cref="SpikeStepSeconds"/> after the other, so several stand up at once (live 2026-10-31, the original game: a
     /// cascade towards the door), and starts again as soon as it has gone round (live 2026-10-31: it
     /// does not stop). The cascade traps fire
@@ -58,10 +57,9 @@ static class LabyrinthTrials
     /// <remarks><c>/trial_spike_step</c> (dev) changes it from the next wave on.</remarks>
     public static double SpikeStepSeconds = 0.45;
 
-    /// <summary>A checkerboard chain's step: its two halves fire two seconds apart, every four (our reading of the room's
-    /// <c>Trigger_Delay_4_0WG</c> / <c>Trigger_Delay_4_2WG</c> lines; live 2026-10-31: they rise together, as a
-    /// checkerboard).</summary>
-    public const double SpikeCheckerSeconds = 2;
+    /// <summary>A checkerboard chain's step: two halves fire 2.5 seconds apart, every 5 seconds, as suggested by the
+    /// room's trigger names and the corresponding client <c>Trigger_Delay_4_0</c> / <c>Trigger_Delay_4_2</c> data.</summary>
+    public const double SpikeCheckerSeconds = 2.5;
 
     /// <summary>A chain's step: <see cref="SpikeCheckerSeconds"/> for a checkerboard, else <see cref="SpikeStepSeconds"/>.</summary>
     public static double SpikeStep(bool checker) => checker ? SpikeCheckerSeconds : SpikeStepSeconds;

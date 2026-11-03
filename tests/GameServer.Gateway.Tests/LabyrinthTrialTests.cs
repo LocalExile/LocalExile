@@ -51,6 +51,14 @@ public sealed class LabyrinthTrialTests
     }
 
     [Fact]
+    public void CheckerboardSpikeGroupsAlternateEveryTwoAndAHalfSeconds()
+    {
+        double step = LabyrinthTrials.SpikeStep(checker: true);
+        Assert.Equal(2.5, step);
+        Assert.Equal(5.0, LabyrinthTrials.SpikeWaveSeconds(2, step));
+    }
+
+    [Fact]
     public void TrialsTakeTheirAreaAndCompletionFlag()
     {
         const string json = """
