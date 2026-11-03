@@ -448,6 +448,14 @@ public sealed class WhispererRuntimeTests
             var expired = h.Wire.Drain(h.Receive);
             Has(expired, InstanceEntities.RemoveBuff(Program.PlayerId, activeBlind)); Has(expired, BlindStats(Program.PlayerId, 0));
             Assert.True(Game.PlayerUpdatesCurrent(ordinary, nextUpdates));
+            // Current main's lethal trap degeneration must not admit Mana recovery after death on the resumed writer.
+            ordinary.PlayerLife = 30; ordinary.PlayerMana = 23; ordinary.EnergyShield.SetMaximum(10, true);
+            ordinary.TrapDegenPerSecond = 100;
+            nextFast.Advance(7); nextFast = await nextSchedule.Next(Game.RecoveryStepMs);
+            Assert.Equal(0u, ordinary.PlayerLife); Assert.Equal(23u, ordinary.PlayerMana);
+            Assert.Equal(0u, ordinary.EnergyShield.Current); Assert.Null(ordinary.ResourceEffectsState);
+            Assert.Equal(0, currentState.Mana.SpentRemainder);
+            Has(h.Wire.Drain(h.Receive), InstanceProtocol.LifeUpdate(Program.PlayerId, 0));
             var reentered = h.NewConnection("replacement"); var nextState = Game.ResourceEffectsOf(reentered);
             Assert.Same(replacementSource, nextState.Source);
             Assert.False(Game.ResourceEffectsCurrent(reentered, effects));

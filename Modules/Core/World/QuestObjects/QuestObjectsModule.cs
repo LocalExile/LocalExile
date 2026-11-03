@@ -71,6 +71,8 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             if (kill.CommittedOutput is { } output) output.AddRange(CommitTutorialGem(kill.Conn, false, kill.At.X, kill.At.Y));
             else kill.Later(() => DropTutorialGem(remote, stream, ciphers, kill.Conn, false, kill.At.X, kill.At.Y));
         });
+        // A trial dart's slow on the player's movement speed.
+        On(GameEvents.PlayerStatSources, WithDartSlow);
         On(GameEvents.NpcTalk, async (conn, id, npc) =>
         {
             if (npc.Npc.Id.StartsWith(LabyrinthTrials.GlyphPrefix, StringComparison.Ordinal))
@@ -99,6 +101,12 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             lock (conn.GlyphNests)
                 nests = [.. conn.GlyphNests.Where(e => Dist((e.Value.At.X, e.Value.At.Y), at) <= radius).Select(e => (e.Key, e.Value))];
             foreach (var (id, nest) in nests) await OpenRhoaNestCore(remote, stream, ciphers, conn, id, nest);
+        });
+        // A cast near a Labyrinth smashable wall breaks it (not this module's cast: it goes on).
+        On(GameEvents.SkillCast, (conn, effect, skillId, from, current) =>
+        {
+            _ = BreakSmashableWalls(conn, from);
+            return null;
         });
         On(GameEvents.ObjectUse, async (conn, use, requestedAt) =>
         {

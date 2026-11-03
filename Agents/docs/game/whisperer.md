@@ -134,8 +134,8 @@ This dispatch boundary does not promise that every mid-command file-watcher race
 
 ## Current-main reconciliation
 
-The isolated candidate reconstructs source `a8afe49e1036868c4a27e45a9b32e2e400f0ee14` on main
-`ec522f1876690c0b203636bf78b508f308365163`.
+The isolated candidate reconstructs source `a8afe49e1036868c4a27e45a9b32e2e400f0ee14`, reconciled with main
+`64b14bd6898408bb1d9f916327ef3fb8807bcffd` and its Labyrinth room traps.
 It retains lockstep/server-frame dispatch beside resource activation and the current area-owner bridge.
 Living collision keeps freeze presentation, held-move release, wake-zone maintenance and main's walker stepping.
 The removed sweep, collision-position cache, crowd escape and Mercy modules stay removed.
@@ -146,6 +146,9 @@ The cache includes the captured Blind reduction and computes each hand's own rat
 The quest fixture registers the actual campaign tables and uses QuestObjects instead of deleted Mercy.
 Accepted quest-item drops commit synchronously; remaining campaign kill effects use the current Game drainer.
 The bounded quest operation cannot yield between phase creation and its remaining spawns or NPC mutations.
+Trap degeneration shares the current scheduled recovery writer, can kill after ES absorption, and publishes death
+through the same epoch/cipher gate as lethal ailments.
+A resumed-writer regression verifies that lethal degeneration cannot grant Mana recovery after death.
 
 Exactly two new Gateway Facts remain; no Core or Data tests are added.
 No production data paths, generators, extraction manifests or client archives are changed.

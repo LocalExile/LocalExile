@@ -6,6 +6,25 @@ using GameServer.Core.Diagnostics;
 
 static partial class Game
 {
+    // Sets or clears league quest flags (Quests.League ids, such as a Trial of Ascendancy's): saved with the account's stash
+    // in the character's league, so every character of the league has them, then sent as the player's league flag set.
+    internal static async Task SetLeagueQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<int> flags, bool on = true)
+    {
+        List<int> wanted = [.. flags], all;
+        lock (conn.Monsters)
+            if (HardcoreProgressBlocked(conn)) return;
+        PersonalStashOf(conn).ChangeLeagueQuestFlags(wanted, on);
+        lock (conn.Monsters)
+        {
+            if (on) conn.LeagueQuestFlags.UnionWith(wanted); else conn.LeagueQuestFlags.ExceptWith(wanted);
+            all = [.. conn.LeagueQuestFlags.Order()];
+        }
+        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: league quest flag(s) {string.Join(", ", wanted)} {(on ? "set" : "cleared")}");
+        if (!conn.PlayerSent) return;
+        await Send(remote, stream, ciphers, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(all)),
+            $"0x02ba player league quest flags: {string.Join(", ", all)}");
+    }
+
     // Sets or clears quest flags for the character (saved at once) and sends the player's flag set again; one change at a
     // time per connection (QuestGate), so a background sync never interleaves with another change.
     internal static async Task SetQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<string> flags, bool on = true)

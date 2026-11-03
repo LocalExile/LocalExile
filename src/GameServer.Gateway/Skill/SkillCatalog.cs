@@ -851,6 +851,36 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         _monsterProjectiles.Value.TryGetValue(effectRow, out var projectile)
             ? projectile with { MinimumRange = MonsterProjectileMinimumRange(effectRow) } : null;
 
+    /// <summary>What a monster's summoning skill brings: its stat set's <c>alternate_minion</c> (a SummonedSpecificMonsters
+    /// Id, whose MonsterVarietiesKey is the monster), <c>number_of_monsters_to_summon</c>, <c>summon_specific_monsters_in_front_offset</c>
+    /// (world units ahead of the summoner) and <c>summoned_monsters_no_drops_or_experience</c>, with the effect's cast time
+    /// and cooldown (seconds). The Labyrinth's Immolator (<c>SummonLabyrinthFireSkeleton</c>): one Ember Claimant 114
+    /// units ahead, a 2.17 s cast, 3 s cooldown. Null for any other skill.</summary>
+    public sealed record MonsterSummonInfo(int Variety, int Count, double Offset, bool NoRewards, double CastSeconds, double CooldownSeconds);
+
+    public MonsterSummonInfo? MonsterSummon(int effectRow, int level)
+    {
+        var stats = EffectStats(effectRow, level);
+        int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        if (Get("alternate_minion") is not (> 0 and var minion) || !_summonedMonsters.Value.TryGetValue(minion, out int variety)) return null;
+        return new(variety, Math.Max(1, Get("number_of_monsters_to_summon")), Get("summon_specific_monsters_in_front_offset"),
+            Get("summoned_monsters_no_drops_or_experience") != 0, CastMs(effectRow) / 1000.0, CooldownMs(effectRow, level) / 1000.0);
+    }
+
+    // SummonedSpecificMonsters: Id → MonsterVarietiesKey.
+    private readonly Lazy<Dictionary<int, int>> _summonedMonsters = new(() =>
+    {
+        string path = Path.Combine(folder, "tables", "SummonedSpecificMonsters.json");
+        var result = new Dictionary<int, int>();
+        if (!File.Exists(path)) return result;
+        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        foreach (var r in doc.RootElement.EnumerateArray())
+            if (r.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.Number
+                && r.TryGetProperty("MonsterVarietiesKey", out var v) && v.ValueKind == JsonValueKind.Number)
+                result.TryAdd(id.GetInt32(), v.GetInt32());
+        return result;
+    });
+
     /// <summary>The skill's <c>projectile_minimum_range</c> (a constant of its stat set, so level 1 reads it), 0 without.</summary>
     private int MonsterProjectileMinimumRange(int effectRow)
     {
