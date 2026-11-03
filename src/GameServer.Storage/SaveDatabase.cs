@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using GameServer.Core.Diagnostics;
 using Microsoft.Data.Sqlite;
 
@@ -21,6 +22,7 @@ public sealed class SaveDatabase : IDisposable
     readonly Lock _gate = new();
     SqliteTransaction? _tx;
     List<Action>? _undo;
+    static readonly Lazy<PacketLogQueue> SlowTransactions = new(() => new(Console.WriteLine));
 
     public string Path { get; }
 
@@ -65,28 +67,46 @@ public sealed class SaveDatabase : IDisposable
     /// </summary>
     public T Atomically<T>(Func<T> work)
     {
-        lock (_gate)
+        long start = Stopwatch.GetTimestamp(), entered = start, begun = start, worked = start, committed = start;
+        bool outer = false;
+        try
         {
-            if (_tx is not null) return work();
-            _tx = _db.BeginTransaction();
-            _undo = [];
-            try
+            lock (_gate)
             {
-                T result = work();
-                _tx.Commit();
-                return result;
+                if (_tx is not null) return work();
+                outer = true;
+                entered = Stopwatch.GetTimestamp();
+                _tx = _db.BeginTransaction();
+                begun = Stopwatch.GetTimestamp();
+                _undo = [];
+                try
+                {
+                    T result = work();
+                    worked = Stopwatch.GetTimestamp();
+                    _tx.Commit();
+                    committed = Stopwatch.GetTimestamp();
+                    return result;
+                }
+                catch
+                {
+                    Undo();
+                    throw;
+                }
+                finally
+                {
+                    _tx.Dispose();
+                    _tx = null;
+                    _undo = null;
+                }
             }
-            catch
-            {
-                Undo();
-                throw;
-            }
-            finally
-            {
-                _tx.Dispose();
-                _tx = null;
-                _undo = null;
-            }
+        }
+        finally
+        {
+            if (outer && committed > start && Stopwatch.GetElapsedTime(start, committed).TotalMilliseconds >= 50)
+                SlowTransactions.Value.Write($"[saves] slow transaction ms: wait={Stopwatch.GetElapsedTime(start, entered).TotalMilliseconds:0.0} "
+                    + $"begin={Stopwatch.GetElapsedTime(entered, begun).TotalMilliseconds:0.0} "
+                    + $"work={Stopwatch.GetElapsedTime(begun, worked).TotalMilliseconds:0.0} "
+                    + $"commit={Stopwatch.GetElapsedTime(worked, committed).TotalMilliseconds:0.0}");
         }
     }
 

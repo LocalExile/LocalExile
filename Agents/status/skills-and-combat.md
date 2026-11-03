@@ -656,6 +656,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Ice Shot primary hits use native IceArrow and deal damage (live 2026-11-03); cone splash remains unimplemented.
+
 - Attack-speed admission: gem attacks now use the supported attack speed (gem and support stats plus the inherent
   GrantedEffectsPerLevel multiplier) for both the admission gate and the swing interval, instead of mixing it with
   `SkillAttackSeconds`. Tornado Shot's -20% and player/bow attack speed apply. Projectile speed adds the player's

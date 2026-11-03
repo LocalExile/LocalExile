@@ -96,7 +96,8 @@ static class ItemMoves
     /// <summary>A price paid: what it took from the main inventory's stacks and from the stash's (either may be null).</summary>
     public sealed record Price(PlayerInventories.Payment? Inventory, AccountStash.Payment? Stash);
 
-    public sealed record VendorPurchase(IReadOnlyList<Price> Payments, IReadOnlyList<InventoryItem> Bought);
+    public sealed record VendorPurchase(IReadOnlyList<Price> Payments, IReadOnlyList<InventoryItem> Bought,
+        PlayerInventories.Placement? Equipped = null);
 
     public static VendorPurchase? PurchaseVendor(PlayerInventories items, AccountStash? stash, AccountStash gold,
         Item offer, ItemCatalog catalog, Func<Item, PlayerInventories.Shape?> shapeOf, Func<bool> consume,
@@ -104,9 +105,14 @@ static class ItemMoves
     {
         if (offer.Price.Count == 0 || offer.Price.Any(p => p.Amount == 0)) return null;
         byte row = destination ?? Main;
-        if (row != Main && row != Cursor) return null;
+        bool equipment = row is >= 1 and <= 11 or 14 or 15 or 102;
+        if (row != Main && row != Cursor && !equipment) return null;
         var bought = offer with { Price = [] };
-        if (destination is null)
+        if (equipment)
+        {
+            if (items.PreviewPurchase(row, x, y, bought, shapeOf) is null) return null;
+        }
+        else if (destination is null)
         {
             if (!items.Fits(Main, bought, shapeOf)) return null;
         }
@@ -134,6 +140,13 @@ static class ItemMoves
             }
             else payments.Add(Pay(items,stash,currency,(int)amount)
                 ?? throw new InvalidOperationException("Vendor payment changed during purchase"));
+        if (equipment)
+        {
+            items.Add(Cursor, 0, 0, bought);
+            var equipped = items.Place(row, x, y, shapeOf, out var why)
+                ?? throw new InvalidOperationException($"Vendor equipment placement changed during purchase: {why}");
+            return new(payments, [equipped.Placed], equipped);
+        }
         if (destination is not null) return new(payments,[items.Add(row,x,y,bought)]);
         var into = items.AddStacked(Main,bought,shapeOf);
         if (into.Left != 0) throw new InvalidOperationException("Vendor item no longer fits after payment");

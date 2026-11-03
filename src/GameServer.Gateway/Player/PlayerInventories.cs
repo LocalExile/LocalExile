@@ -146,14 +146,21 @@ sealed class PlayerInventories
         return result;
     }
 
-    Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false)
+    // Vendor preflight uses the same placement checks without putting an unpaid item on the cursor.
+    public Placement? PreviewPurchase(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf) =>
+        PlaceCore(row, x, y, shapeOf, out _, incoming: new InventoryItem(0, 0, 0, item), preview: true);
+
+    Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false,
+        InventoryItem? incoming = null, bool preview = false)
     {
         lock (_lock)
         {
             why = "";
             if (row == Cursor || row >= InstanceInventories.PlayerDefaults.Length) { why = "not an inventory to place into"; return null; }
-            if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
-            var held = cursor[0];
+            var cursor = ItemsIn(Cursor);
+            if (incoming is null && cursor.Count == 0) { why = "nothing held"; return null; }
+            if (incoming is not null && cursor.Count != 0) { why = "something held"; return null; }
+            var held = incoming ?? cursor[0];
             if (shapeOf(held.Item) is not { } shape) { why = "unknown item type"; return null; }
             var slot = InstanceInventories.PlayerDefaults[row];
             List<InventoryItem> inTheWay;
@@ -177,6 +184,7 @@ sealed class PlayerInventories
             }
             if (inTheWay.Count > 1) { why = $"{inTheWay.Count} items in the way"; return null; }
             if (inTheWay.Any(i => _offered.ContainsKey(i.Id))) { why = "an item offered for sale is in the way"; return null; }
+            if (preview) return new(row, held with { X = (byte)x, Y = (byte)y }, held, inTheWay.FirstOrDefault());
             var items = ItemsIn(row);
             int amount = one ? 1 : held.Item.StackSize;
             if (inTheWay is [var under] && under.Item.TypeHash == held.Item.TypeHash && shape.MaxStack > 1 && under.Item.StackSize < shape.MaxStack)

@@ -5,6 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Faustus spawns in hideouts with native dialogue; Currency Exchange remains unsupported ([21](../docs/protocol/21-hideouts.md)).
 - Heist Locker is placed in each hideout and opens its native window (0x7b kind 0x37).
   The native window handler and visible state were verified through the real client.
   Its placement supports the hideout editor; storage transfers were not added by this change.
