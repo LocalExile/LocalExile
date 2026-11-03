@@ -132,9 +132,7 @@ static partial class Game
                 {
                     target = due;
                     action = Interlocked.Increment(ref conn.ActionCount);
-                    // On the frame, not at: the client starts this walk at the frame's start, and at can be up to a timer
-                    // tick later, which sets the walk's steps apart from the client's until the next start snaps it back.
-                    from = conn.Walk.Order(target.X, target.Y, frameStart);
+                    from = conn.Walk.Order(target.X, target.Y, at);
                     conn.ChannelSkill = 0;
                     sequence = NextLockstepSequence(conn);
                 }

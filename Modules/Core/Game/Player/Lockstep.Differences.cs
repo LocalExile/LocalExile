@@ -32,6 +32,7 @@ static partial class Game
                     await Send(remote, stream, ciphers, InstanceProtocol.FrameEnd(), null);
                     conn.ServerFrame++;
                 }
+                conn.LockstepFrame = (first + ended * frame, first + (ended + 1) * frame);
                 await ProbeLockstepLatency(remote, stream, ciphers, conn);
                 await StartLockstepActions(remote, stream, ciphers, conn, first + ended * frame);
             }
