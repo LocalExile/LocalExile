@@ -786,6 +786,12 @@ physical damage over time taken (armour stops hits only), three times while its 
 Not modelled: Crimson Dance's stacks, aggravated bleeding, the weapons' fixed `local_chance_to_bleed_on_hit_25%` /
 `_50%` and critical-only chances, and support more multipliers.
 
+**Hit poison on monsters (`MonsterPoisons.cs`).** `PoisonOnHitLocked` rolls the caster's and the skill's poison chance
+and the monster's avoidance on every landed hit with physical or chaos damage. Each poison's damage per second (a roll
+in the non-critical or critical range) and duration are the hit's panel poison rows (`MonsterPoisons.Settings.From`),
+captured at the same places as the ignite's: the landed hit already carries the hit's increases and the monster's
+resistance, so it cannot be the base.
+
 ## 3a. Impale contacts and reflected damage
 
 `ImpaleStats` resolves unconditional general + attack/spell chance, the attacking weapon's local chance, general

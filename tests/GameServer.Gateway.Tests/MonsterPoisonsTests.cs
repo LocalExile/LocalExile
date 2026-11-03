@@ -57,20 +57,26 @@ public sealed class MonsterPoisonsTests
     }
 
     // Poison is gated on its own type: a chaos prohibition stops it on a physical-only hit, another type's does not.
+    // Its damage and duration are the hit's poison rows, not the landed hit, which already carries the hit's increases.
     [Fact]
     public void A_chaos_prohibition_stops_poison_from_a_physical_hit()
     {
         var conn = new ClientState(new(1, "poison", 300, 300, 100, 100, null, []), 1, 1);
         var physical = DamagePacket.Of(DamageType.Physical, 100, 100);
-        bool Poisons(params (string Name, int Value)[] stats)
+        var rows = new MonsterPoisons.Settings(100, Min: 10, Max: 10, CriticalMin: 20, CriticalMax: 20, Seconds: 2);
+        SpawnedMonster Poisoned(bool critical, params (string Name, int Value)[] stats)
         {
             var m = new SpawnedMonster("poisoned", new(105, 100, 0), 0, 0, 1000);
             var player = stats.Append((Name: "chance_to_poison_on_hit_%", Value: 100))
                 .ToDictionary(s => Program.Stats.Key(s.Name) ?? throw new InvalidOperationException(s.Name), s => s.Value);
-            Game.PoisonOnHitLocked(conn, m, physical, spell: false, critical: false, player, null, now: 10, new Random(1));
-            return m.Poisons.Poisoned;
+            Game.PoisonOnHitLocked(conn, m, physical, spell: false, critical, player, null, rows, now: 10, new Random(1));
+            return m;
         }
+        bool Poisons(params (string Name, int Value)[] stats) => Poisoned(false, stats).Poisons.Poisoned;
 
+        Assert.Equal(10, Poisoned(false).Poisons.TotalDps(10.5));
+        Assert.Equal(20, Poisoned(true).Poisons.TotalDps(10.5));
+        Assert.Equal(12, Poisoned(false).Poisons.Until, 6);
         Assert.True(Poisons());
         Assert.False(Poisons(("base_deal_no_chaos_damage", 1)));
         Assert.False(Poisons(("deal_no_non_physical_damage", 1)));

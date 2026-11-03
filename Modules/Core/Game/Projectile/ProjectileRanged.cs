@@ -57,6 +57,7 @@ static partial class Game
                     Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
                     ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
                     Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),
+                    Poison = MonsterPoisons.Settings.From(ailmentRows, "main_hand", Get),
                     Bleed = BleedSettings(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources, melee: false, bow: !wand),
                     CriticalRoll = criticalRoll, Leech = captured.Leech,
                     AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
