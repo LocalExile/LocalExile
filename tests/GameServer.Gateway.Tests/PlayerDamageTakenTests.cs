@@ -122,15 +122,30 @@ public class PlayerDamageTakenTests
         Assert.Equal(14, PlayerDamageTaken.FromMana(33, 0, Hit((DamageType.Physical, 33)), 1000, With(("keystone_mana_shield", 1))));
         Assert.Equal(0, PlayerDamageTaken.FromMana(100, 0, Hit((DamageType.Fire, 100)), 1000, With()));
 
-        // With no ward or energy shield, the hit pool takes Mind Over Matter's 40 of a 100 hit from mana.
-        var conn = new ClientState(new(1, "mana-before-life", 100, 100, 100, 100, null, []), 0, 1);
+        // With no ward or energy shield, the hit pool takes Mind Over Matter's 40 of a 100 hit from mana. The pool only takes
+        // hits while the game's rules are active and the player lives.
+        var conn = new ClientState(new(1, "mana-before-life", 100, 100, 100, 100, null, []), 0, 1) { PlayerLife = 100 };
         var stats = new Dictionary<uint, int> { [Program.Stats.Key("keystone_mana_shield")!.Value] = 1 };
-        lock (conn.Monsters)
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = global::Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        global::Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        try
         {
-            conn.PlayerMana = 100;
-            Assert.Equal(60, global::Game.DamagePlayerHit(conn, 100, 0, conn.Clock.Elapsed.TotalSeconds, stats,
-                Hit((DamageType.Physical, 100))));
-            Assert.Equal(60u, conn.PlayerMana);
+            lock (conn.Monsters)
+            {
+                conn.PlayerMana = 100;
+                Assert.Equal(60, global::Game.DamagePlayerHit(conn, 100, 0, conn.Clock.Elapsed.TotalSeconds, stats,
+                    Hit((DamageType.Physical, 100))));
+                Assert.Equal(60u, conn.PlayerMana);
+            }
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            global::Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
         }
     }
 
