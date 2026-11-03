@@ -5,7 +5,7 @@ using System.Text;
 enum LatencyPhase
 {
     InputQueue, Handler, SendWait, SendHold, WireWait, WireHold, SocketWrite,
-    CombatWait, CombatHold, ChannelLate, Surround, BlockerBuild, Message, Count,
+    CombatWait, CombatHold, ChannelLate, Surround, BlockerBuild, Message, SnapshotBuild, Count,
 }
 
 /// <summary>Monotonic server timings, independent of the client's tick/latency display. No account/character tags.</summary>

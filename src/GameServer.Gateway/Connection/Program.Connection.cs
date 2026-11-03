@@ -358,7 +358,11 @@ partial class Program
             if (still is not null && !still()) return;
             if (atGate is not null)
             {
-                if (atGate() is not { } current) return;
+                byte[]? current;
+                long snapshotAt = Stopwatch.GetTimestamp();
+                try { current = atGate(); }
+                finally { performance.Elapsed(LatencyPhase.SnapshotBuild, snapshotAt); }
+                if (current is null) return;
                 bytes = current;
             }
             if (log is not null)
