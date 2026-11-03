@@ -224,6 +224,10 @@ base's weights add up to less than 1 the rest gives a rare, and a unique outside
 ([13](13-items.md) §5) 3–6 cells around the corpse, on a walkable cell when the walk map is known. `Game_DROPS=0` turns
 it off.
 
+The frozen `.ot` data sets `monster_delay_item_drops_millis`: ArakaaliBoss has 3500 and TheElderUber has 12000.
+These are monster-specific values, not a default for ordinary monsters; inherited child overrides apply.
+Official capture has not yet pinned the reference instant within those bosses' scripted death sequences.
+
 ## Open
 
 - Phrecia client compatibility, special ascendancy gameplay and native Labyrinth/Altar acquisition (#151).

@@ -445,6 +445,7 @@ static partial class Game
             last = tickNow;
             if (conn.LeavingArea || conn.Paused || seconds <= 0) continue;
             await Program.ServerHooks.Tick(PlayerOf(conn), seconds);
+            await SendDelayedLoot(remote, stream, ciphers, conn);
             if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
             {
                 leechContext = currentLeech;

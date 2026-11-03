@@ -21,7 +21,11 @@ sealed class InstancePresence
 sealed partial class InstanceState
 {
     public InstanceState() : this(null) { }
-    internal InstanceState(InstancePresence? presence) => Presence = presence ?? new();
+    internal InstanceState(InstancePresence? presence, TimeProvider? clock = null)
+    {
+        Presence = presence ?? new();
+        Ground = new(clock);
+    }
 
     internal InstancePresence Presence { get; }
     public void PublishPlayer(InstancePlayer player) => Presence.PublishPlayer(player);

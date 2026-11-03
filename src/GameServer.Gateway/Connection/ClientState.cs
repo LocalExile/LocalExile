@@ -295,6 +295,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public volatile string? CloseReason;
     // The Escape menu's pause (C→S 0x1d4) stops the Clock: walks, cooldowns and flask effects stand still meanwhile.
     public bool Paused => !Clock.IsRunning;
+    public readonly HashSet<uint> ShownDelayedLoot = [];
     // A transfer invalidates flights even during the gap after PendingTransfer is consumed by Transfer.
     // Guarded by Monsters, like projectile impact commits and pause changes.
     public bool LeavingArea;
