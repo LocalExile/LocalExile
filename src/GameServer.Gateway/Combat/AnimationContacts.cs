@@ -16,7 +16,13 @@ readonly record struct ContactPoint(float X, float Y, float Z)
 }
 
 /// <summary>A rig clip's length, its contact keyframe's time (ms) and, when the keyframe carries one, its position.</summary>
-readonly record struct AnimationClip(int Length, int Contact, ContactPoint? Point);
+readonly record struct AnimationClip(int Length, int Contact, ContactPoint? Point, uint Index = uint.MaxValue);
+
+/// <summary>The kind of cast a run skill plays: an attack swing, or a spell projectile / area / buff cast.</summary>
+enum CastAnimationKind { Attack, Projectile, Area, Buff }
+
+/// <summary>A rig animation the client can play with 0x1b2 kind 0: its name, index and natural length.</summary>
+readonly record struct CastAnimationClip(string Name, uint Index, int LengthMs);
 
 /// <summary>
 /// The "contact" keyframe of the character classes' animations (data/animation-contacts.json, written by
@@ -69,19 +75,66 @@ sealed class AnimationContacts(string folder = "data")
     /// attack: the class's <c>attack1_&lt;weapon&gt;</c> clip, then its shield/dual-wield variant, then any attack1 of that
     /// weapon. The client stretches the clip to the attack time, so the server pays the hit at this fraction of it.</summary>
     public double AttackContact(string animatedObject, WeaponProfile weapon) =>
-        AttackClip(animatedObject, weapon) is { } clip ? (double)clip.Contact / clip.Length : DefaultAttackContact;
+        AttackClip(animatedObject, weapon) is { } found ? (double)found.Clip.Contact / found.Clip.Length : DefaultAttackContact;
 
     /// <summary>Where the same keyframe lies in the model's space (the Ranger's attack1_bow: 5.5 cells in front, 16 steps
     /// up), or null without rig data for the class or weapon.</summary>
-    public ContactPoint? AttackContactPoint(string animatedObject, WeaponProfile weapon) => AttackClip(animatedObject, weapon)?.Point;
+    public ContactPoint? AttackContactPoint(string animatedObject, WeaponProfile weapon) => AttackClip(animatedObject, weapon)?.Clip.Point;
 
-    private AnimationClip? AttackClip(string animatedObject, WeaponProfile weapon)
+    /// <summary>
+    /// The rig clip a run skill's cast plays through 0x1b2 kind 0 (a clip change, which does not touch the action
+    /// state, unlike 0x1d1's input lock). The weapon's own stance clip comes first, then the unarmed one, then any clip
+    /// of the same kind: the older rigs name spells <c>spell_projectile_*</c>, the newer ones <c>spellprojectile_*</c>.
+    /// </summary>
+    public CastAnimationClip? CastClip(string animatedObject, WeaponProfile weapon, CastAnimationKind kind)
+    {
+        if (!_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
+        if (kind == CastAnimationKind.Attack)
+            return AttackClip(animatedObject, weapon) is { } found && found.Clip.Index != uint.MaxValue
+                ? new(found.Name, found.Clip.Index, found.Clip.Length) : null;
+        string main = WeaponSuffix(weapon) ?? "unarmed";
+        string[] names = kind switch
+        {
+            CastAnimationKind.Projectile =>
+                [$"spell_projectile_{main}", $"spellprojectile_{main}", $"spell_upwards_{main}",
+                 "spell_projectile_unarmed", "spellprojectile_unarmed", "spell_upwards_unarmed"],
+            CastAnimationKind.Area =>
+                [$"spell_aoe_{main}", $"spellaoe_{main}", $"spell_aoe_{main.Replace("staff", "stave")}",
+                 "spell_aoe_unarmed", "spellaoe_unarmed"],
+            _ =>
+                [$"spell_buff_{main}", $"spellbuff_{main}", "spell_buff_unarmed", "spellbuff_unarmed"],
+        };
+        foreach (string name in names)
+            if (actor.Clips.TryGetValue(name, out var clip) && clip.Length > 0 && clip.Index != uint.MaxValue)
+                return new(name, clip.Index, clip.Length);
+        string[] prefixes = kind switch
+        {
+            CastAnimationKind.Projectile => ["spell_projectile_", "spellprojectile_", "spell_upwards_"],
+            CastAnimationKind.Area => ["spell_aoe", "spellaoe"],
+            _ => ["spell_buff", "spellbuff"],
+        };
+        foreach (string prefix in prefixes)
+            foreach (var (name, clip) in actor.Clips.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+                if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && clip.Length > 0 && clip.Index != uint.MaxValue)
+                    return new(name, clip.Index, clip.Length);
+        return null;
+    }
+
+    /// <summary>The suffix the class ACT uses for this weapon's stance clips.</summary>
+    static string? WeaponSuffix(WeaponProfile weapon) =>
+        weapon.Unarmed ? "unarmed" : weapon.Bow ? "bow" : weapon.Staff ? "staff"
+        : weapon.Sword && weapon.TwoHandMelee ? "2hsword" : weapon.Mace ? "maul"
+        : weapon.Sword ? "sword" : weapon.Dagger ? "dagger" : weapon.Claw ? "claw" : weapon.Wand ? "wand"
+        : weapon.Axe ? (weapon.TwoHandMelee ? "2hsword" : "sword") : null;
+
+    private (string Name, AnimationClip Clip)? AttackClip(string animatedObject, WeaponProfile weapon)
     {
         if (!_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
         var anims = actor.Clips;
         string? main = weapon.Unarmed ? "unarmed" : weapon.Bow ? "bow" : weapon.Staff ? "staff"
-            : weapon.Sword && weapon.TwoHandMelee ? "2hsword" : weapon.Mace && weapon.TwoHandMelee ? "maul"
-            : weapon.Sword ? "sword" : weapon.Dagger ? "dagger" : weapon.Claw ? "claw" : weapon.Wand ? "wand" : null;
+            : weapon.Sword && weapon.TwoHandMelee ? "2hsword" : weapon.Mace ? "maul"
+            : weapon.Sword ? "sword" : weapon.Dagger ? "dagger" : weapon.Claw ? "claw" : weapon.Wand ? "wand"
+            : weapon.Axe ? (weapon.TwoHandMelee ? "2hsword" : "sword") : null;
         if (main is null) return null;
         string[] candidates = weapon.Shield
             ? [$"attack1_{main}_shield", $"attack1_{main}"]
@@ -89,9 +142,9 @@ sealed class AnimationContacts(string folder = "data")
             ? [$"attack1_{main}_{main}", $"attack1_{main}"]
             : [$"attack1_{main}"];
         foreach (string name in candidates)
-            if (anims.TryGetValue(name, out var a) && a.Length > 0) return a;
+            if (anims.TryGetValue(name, out var a) && a.Length > 0) return (name, a);
         foreach (var (name, a) in anims.OrderBy(kv => kv.Key, StringComparer.Ordinal))
-            if (name.StartsWith($"attack1_{main}", StringComparison.Ordinal) && a.Length > 0) return a;
+            if (name.StartsWith($"attack1_{main}", StringComparison.Ordinal) && a.Length > 0) return (name, a);
         return null;
     }
 
@@ -123,9 +176,15 @@ sealed class AnimationContacts(string folder = "data")
             if (ao.Value.TryGetProperty("positions", out var listed) && listed.ValueKind == JsonValueKind.Object)
                 foreach (var entry in listed.EnumerateObject())
                     if (Point(entry.Value) is { } point) positions[entry.Name] = point;
+            var indices = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
+            if (ao.Value.TryGetProperty("indices", out var listedIndices) && listedIndices.ValueKind == JsonValueKind.Object)
+                foreach (var entry in listedIndices.EnumerateObject())
+                    if (entry.Value.ValueKind == JsonValueKind.Number && entry.Value.TryGetUInt32(out uint index))
+                        indices[entry.Name] = index;
             var clips = ao.Value.GetProperty("animations").EnumerateObject()
                 .ToDictionary(a => a.Name, a => new AnimationClip(a.Value[0].GetInt32(), a.Value[1].GetInt32(),
-                    positions.TryGetValue(a.Name, out var point) ? point : null));
+                    positions.TryGetValue(a.Name, out var point) ? point : null,
+                    indices.GetValueOrDefault(a.Name, uint.MaxValue)), StringComparer.OrdinalIgnoreCase);
             var pools = new Dictionary<string, DefaultWandContact[]>(StringComparer.Ordinal);
             if (ao.Value.TryGetProperty("defaultWand", out var wand))
                 foreach (var stance in wand.EnumerateObject())

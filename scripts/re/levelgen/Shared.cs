@@ -17,7 +17,7 @@ static class Shared
     {
         if (_fs is not null) return _fs;
         string root = Root();
-        var oodle = new NodeOodleDecoder("node", Path.Combine(root, @"Tools\ooz\ooz_worker.mjs"));
+        var oodle = new NodeOodleDecoder("node", Path.Combine(root, "Tools", "ooz", "ooz_worker.mjs"));
         return _fs = GameFileSystem.Open(Path.Combine(root, "Client", "Content.ggpk"), oodle);
     }
 

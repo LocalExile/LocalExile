@@ -51,8 +51,7 @@ static partial class Game
             // shattered one kept only that it was frozen.
             double now = ProjectileWorldTime(conn);
             var k = session.OnKill.For(m.Ignites.Burning || m.Ignites.DiedBurning, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
-                m.Ailments.ShockedAtDeath(now),
-                m.Ailments.Shattered || m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0);
+                m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
             static double Amount(int flat, int pct, uint maximum) => Math.Max(0, Math.Floor(flat + maximum * (double)pct / 100));
             uint life = conn.PlayerLife, mana = conn.PlayerMana;
             conn.PlayerLife = RecoveryPool.Advance(life, conn.PlayerMaxLife, Amount(k.Life, k.LifePct, conn.PlayerMaxLife),

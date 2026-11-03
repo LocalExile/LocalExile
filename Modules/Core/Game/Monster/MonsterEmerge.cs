@@ -45,7 +45,7 @@ sealed class MonsterEmerge(string folder = "data")
     public const byte UnrisenState = 1;
 
     private readonly Lazy<Dictionary<string, EmergeKind>> _types = new(() => LoadTypes(folder));
-    private readonly Lazy<Dictionary<string, double>> _clips = new(() => LoadClips(folder));
+    private readonly Lazy<Dictionary<string, (double Seconds, int Index)>> _clips = new(() => LoadClips(folder));
     private readonly Lazy<ushort?> _action = new(() => LoadAction(folder));
 
     /// <summary>The Emerge basic action's skill id (ActionTypes HASH16 &amp; 0x3fff: 0x0101), null without the table.</summary>
@@ -71,7 +71,11 @@ sealed class MonsterEmerge(string folder = "data")
 
     /// <summary>How long the variety's Emerge clip plays, in seconds (<see cref="DefaultSeconds"/> when unknown).</summary>
     public double Seconds(MonsterCatalog.Variety v) =>
-        _clips.Value.TryGetValue(v.Id, out double s) && s > 0 ? s : DefaultSeconds;
+        _clips.Value.TryGetValue(v.Id, out var clip) && clip.Seconds > 0 ? clip.Seconds : DefaultSeconds;
+
+    /// <summary>The variety's Emerge clip's index in its rig (0x1b2 plays it), or null when unknown.</summary>
+    public uint? ClipIndex(MonsterCatalog.Variety v) =>
+        _clips.Value.TryGetValue(v.Id, out var clip) && clip.Index >= 0 ? (uint)clip.Index : null;
 
     /// <summary>The rise, in GGG's order and tick: the Transitionable step (0x2ba), then the Emerge action in place aimed
     /// at the monster itself, with the 0x1ac that starts its clip.</summary>
@@ -200,16 +204,16 @@ sealed class MonsterEmerge(string folder = "data")
     }
 
     // monster-takehit.json: each variety's "emerge" clip length (ms) → seconds.
-    static Dictionary<string, double> LoadClips(string folder)
+    static Dictionary<string, (double Seconds, int Index)> LoadClips(string folder)
     {
         string path = Path.Combine(folder, "monster-takehit.json");
         if (!File.Exists(path)) return [];
         using var doc = GameTables.Open(path);
-        var clips = new Dictionary<string, double>();
+        var clips = new Dictionary<string, (double, int)>();
         foreach (var p in doc.RootElement.EnumerateObject())
             if (p.Value.ValueKind == JsonValueKind.Object && p.Value.TryGetProperty("emerge", out var e) && e.ValueKind == JsonValueKind.Object
                 && e.TryGetProperty("length", out var l) && l.ValueKind == JsonValueKind.Number)
-                clips[p.Name] = l.GetDouble() / 1000;
+                clips[p.Name] = (l.GetDouble() / 1000, e.TryGetProperty("index", out var i) && i.ValueKind == JsonValueKind.Number ? i.GetInt32() : -1);
         return clips;
     }
 

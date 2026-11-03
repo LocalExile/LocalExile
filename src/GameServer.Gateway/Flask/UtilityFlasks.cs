@@ -223,7 +223,12 @@ static class UtilityFlasks
     /// <summary>A utility flask's effect under way: the flask (item id and flask-bar cell), its buffs on the player, what it
     /// applies, and when it started and ends (connection clock seconds, which stop while the game is paused).</summary>
     public sealed record Active(uint ItemId, byte Slot, string Name, Utility Flask, ushort Buff, ushort? ExtraBuff,
-        IReadOnlyList<Source> Stats, double Started, double Ends);
+        IReadOnlyList<Source> Stats, double Started, double Ends)
+    {
+        internal long Activation { get; set; }
+        public double Ends { get; set; } = Ends;
+        public double ExpiryRate { get; set; } = 1;
+    }
 
     /// <summary>Whether a flask's effect ends when the flask leaves its cell of the flask bar (picked up, swapped, moved).
     /// Not confirmed by any source (poewiki, the Fandom mirror, Path of Building and the forum don't say); a flask works
@@ -235,14 +240,35 @@ static class UtilityFlasks
     public static bool LeftItsCell(Active e, IEnumerable<InventoryItem> bar, bool ends = EndsWhenFlaskLeavesItsCell) =>
         ends && !bar.Any(i => i.Id == e.ItemId && i.X == e.Slot);
 
-    /// <summary>The utility flasks running on one connection, at most one per flask. One ticker ends them
-    /// (Program.RunUtilityFlasks): <see cref="Start"/> hands out its ticket when none runs, and it stops when nothing runs
-    /// any more (<see cref="End"/>) or when it exits for any other reason (<see cref="TickerExited"/>).</summary>
+    /// <summary>The utility flasks running on one connection, at most one per flask. The current area recovery writer
+    /// ends them. Legacy ticker tickets remain available to callers of Start/End; activation identities distinguish
+    /// a pending End edge from any subsequent accepted use of the same item.</summary>
     public sealed class Effects
     {
         readonly List<Active> _active = [];
         readonly Lock _lock = new();
         int _ticker, _lastTicket;
+        long _activation;
+        readonly Dictionary<uint, long> _latest = [];
+        double expiryRate = 1;
+        public void SetExpiryRate(double now, double rate)
+        {
+            lock (_lock)
+            {
+                rate = Math.Max(.25, rate);
+                foreach (var effect in _active)
+                {
+                    effect.Ends = RecipientEffectTime.RetimedDeadline(effect.Ends, now, expiryRate, rate);
+                    effect.ExpiryRate = rate;
+                }
+                expiryRate = rate;
+            }
+        }
+
+        internal bool IsLatest(uint item, long activation)
+        {
+            lock (_lock) return _latest.GetValueOrDefault(item) == activation;
+        }
 
         /// <summary>The effect of this flask (item id) still running, or null.</summary>
         public Active? Of(uint itemId)
@@ -257,6 +283,10 @@ static class UtilityFlasks
         {
             lock (_lock)
             {
+                effect.Activation = ++_activation;
+                effect.Ends = effect.Started + (effect.Ends - effect.Started) / expiryRate;
+                effect.ExpiryRate = expiryRate;
+                _latest[effect.ItemId] = effect.Activation;
                 _active.RemoveAll(a => a.ItemId == effect.ItemId);
                 _active.Add(effect);
                 if (_ticker != 0) return null;
@@ -453,9 +483,9 @@ static class UtilityFlasks
     /// extra buff (Onslaught: same duration, no cell, so it shows in the buff row with its countdown).</summary>
     public static IEnumerable<byte[]> StartPackets(Active e, uint player)
     {
-        yield return Flasks.Buff(player, e.Buff, e.Flask.BuffRow, e.Slot, e.Ends - e.Started);
+        yield return Flasks.Buff(player, e.Buff, e.Flask.BuffRow, e.Slot, (e.Ends - e.Started) * e.ExpiryRate);
         if (e.Flask.Extra is { } x && e.ExtraBuff is ushort extra)
-            yield return InstanceEntities.AddBuff(player, extra, x.BuffRow, player, u68: BitConverter.SingleToUInt32Bits((float)(e.Ends - e.Started)));
+            yield return InstanceEntities.AddBuff(player, extra, x.BuffRow, player, u68: BitConverter.SingleToUInt32Bits((float)((e.Ends - e.Started) * e.ExpiryRate)));
     }
 
     /// <summary>S→C 0x1c2 for an effect that ends: its buff and the extra buff.</summary>

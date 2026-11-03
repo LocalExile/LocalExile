@@ -14,14 +14,8 @@ static class ItemWeaponStats
         // Keep signed sources wide until the completed item value is bounded. Multiple native mod sections can
         // contribute to the same local key, including opposing values that cancel before scaling.
         var local = new Dictionary<string, long>();
-        foreach (var mod in item.Mods)
-            if (mods.ByHash(mod.Hash) is { } row)
-                for (int i = 0; i < row.Stats.Count && i < mod.Values.Count; i++)
-                    if (row.Stats[i].Local)
-                    {
-                        string name = row.Stats[i].Id;
-                        local[name] = local.GetValueOrDefault(name) + mod.Values[i];
-                    }
+        foreach (var (name, value) in ItemModStats.Values(item, mods, local: true))
+            local[name] = local.GetValueOrDefault(name) + value;
         return Calculate(basis, name => local.GetValueOrDefault(name), item.Quality);
     }
 

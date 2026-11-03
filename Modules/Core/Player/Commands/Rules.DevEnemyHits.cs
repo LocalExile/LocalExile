@@ -53,7 +53,7 @@ static partial class CommandsRules
             var taken = DamagePacket.Of(type, dealt, dealt);
             RecoupHitLocked(conn, taken, now, stats);
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife
-                - DamagePlayerHit(conn, type == DamageType.Chaos ? 0 : dealt, type == DamageType.Chaos ? dealt : 0, now, stats,
+                - DamagePlayerHitTyped(conn, type == DamageType.Physical ? dealt : 0, type is not (DamageType.Physical or DamageType.Chaos) ? dealt : 0, type == DamageType.Chaos ? dealt : 0, now, stats,
                     taken) + gainedLife));
             if (block) conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
             conn.EnergyShield.Recover(onBlock.EnergyShield);

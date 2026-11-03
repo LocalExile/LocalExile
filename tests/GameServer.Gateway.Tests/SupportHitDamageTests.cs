@@ -167,7 +167,8 @@ public sealed class SupportHitDamageTests
         // Elemental Focus stops a critical hit's chill, freeze and shock.
         {
             static List<MonsterElementalAilments.Effect> Hit(Func<string, int> attacker) =>
-                new MonsterElementalAilments().Inflict(500, 500, critical: true, threshold: 1000, now: 0, attacker, _ => 0, new Random(1));
+                new MonsterElementalAilments().Inflict(DamagePacket.Of(DamageType.Cold, 500, 500).Add(DamageType.Lightning,
+                    new DamageRange(500, 500)), critical: true, threshold: 1000, now: 0, attacker, _ => 0, new Random(1));
             Assert.Equal(3, Hit(Flags()).Count);
             Assert.Empty(Hit(Flags("cannot_inflict_status_ailments")));
             Assert.Equal([MonsterElementalAilments.Kind.Shock], Hit(Flags("never_freeze_or_chill")).Select(e => e.Kind));
@@ -178,7 +179,8 @@ public sealed class SupportHitDamageTests
         {
             static int None(string _) => 0;
             static List<MonsterElementalAilments.Effect> Hit(double cold, double lightning, bool critical, Func<string, int> attacker) =>
-                new MonsterElementalAilments().Inflict(cold, lightning, critical, 100, 0, attacker, None, new Random(1));
+                new MonsterElementalAilments().Inflict(DamagePacket.Of(DamageType.Cold, cold, cold).Add(DamageType.Lightning,
+                    new DamageRange(lightning, lightning)), critical, 100, 0, attacker, None, new Random(1));
             Func<string, int> overcharge = s => s == "support_pure_shock_shock_as_though_damage_+%_final" ? 690 : 0;
             Func<string, int> ailments = s => s == "non_damaging_ailments_as_though_damage_+%_final" ? 100 : 0;
 

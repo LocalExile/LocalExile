@@ -55,6 +55,9 @@ param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+# Linux runs this same script under PowerShell 7 (pwsh), with what only Windows has in platform-linux.ps1. Windows
+# PowerShell 5.1 has no $IsLinux, so on Windows this is false and that file is never read.
+if ($IsLinux) { . (Join-Path $PSScriptRoot 'platform-linux.ps1') }
 if ($Release -and $Debug) { throw '-Release and -Debug cannot be combined' }
 $configurationFile = Join-Path $repo 'data\live-configuration.txt'
 $remembered = if (Test-Path $configurationFile) { Get-Content $configurationFile -TotalCount 1 } else { $null }
@@ -109,8 +112,9 @@ function Get-SessionName([string]$name) {
 # Whether a process (Win32_Process) names a path inside this checkout on its command line or as its executable. A git
 # worktree nested in it (.claude\worktrees\<name>) is another checkout.
 function Test-Here($process) {
+    $s = [regex]::Escape([IO.Path]::DirectorySeparatorChar)
     $null -ne $process -and [regex]::IsMatch("$($process.CommandLine)|$($process.ExecutablePath)",
-        [regex]::Escape("$repo\") + '(?!\.claude\\worktrees\\)', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        [regex]::Escape($repo) + $s + "(?!\.claude${s}worktrees$s)", [Text.RegularExpressions.RegexOptions]::IgnoreCase)
 }
 
 # This checkout's patched clients. Each checkout reaches the shared client through its own Client\ path, which tells
@@ -299,6 +303,7 @@ function Get-Python([string]$purpose) {
 # this script through a pipe (an AI agent's shell tool, `| Select-Object`) would wait until they exit. Started this way
 # (ShellExecute) they inherit the environment (the Game_* settings) but no handles. -PassThru returns the cmd wrapper.
 function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [string]$err, [switch]$PassThru) {
+    if ($IsLinux) { $p = Start-LinuxDetached $exe $arguments $log $err; if ($PassThru) { $p }; return }
     $line = (@($exe) + $arguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
     # The outer quotes: cmd /c strips the first and the last quote of a line that starts with one (a quoted executable).
     $p = Start-Process cmd.exe -ArgumentList "/c `"$line 1>`"$log`" 2>`"$err`"`"" -WorkingDirectory $repo -WindowStyle Hidden -PassThru
@@ -324,8 +329,11 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
     $ggpk = Join-Path $repo 'Client\Content.ggpk'
     $list = @(& dotnet $patch gateway $ggpk 2>$null | Where-Object { "$_" -match '^[^;]*;[^;]*;' })
     if ($LASTEXITCODE -eq 0 -and $list.Count -and -not @($list | Where-Object { "$_" -notmatch "^[^;]*;[^;]*;127\.0\.0\.1:$loginPort;" }).Count) { return }
-    & dotnet $patch gateway $ggpk --login "127.0.0.1:$loginPort" 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { return }
+    # Windows' file lock fails this write while a client runs. Linux has no such lock: the same refusal comes from here.
+    if (-not ($IsLinux -and @(Get-CimInstance Win32_Process -Filter "Name = 'Game.patched.exe'" -ErrorAction SilentlyContinue).Count)) {
+        & dotnet $patch gateway $ggpk --login "127.0.0.1:$loginPort" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { return }
+    }
     $message = 'could not select local login server (a client holds the GGPK); close all clients and retry'
     if ($Strict) { throw $message }
     Write-Warning "$message. The client's own Log In may go to another login server; client_control.py logs in by port."
@@ -398,7 +406,8 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
             Start-SessionLauncher $session $folder $record $stack $nullifier
             return
         }
-        $p = Start-Process (Join-Path $client 'Game.patched.exe') -ArgumentList '--patching-server', "127.0.0.1:$($stack.Ports.patch)" -WorkingDirectory $folder -PassThru
+        $p = if ($IsLinux) { Start-WineClient $client $stack.Ports.patch }
+            else { Start-Process (Join-Path $client 'Game.patched.exe') -ArgumentList '--patching-server', "127.0.0.1:$($stack.Ports.patch)" -WorkingDirectory $folder -PassThru }
         $started = try { $p.StartTime.ToFileTimeUtc() } catch { $null }
         if ($null -eq $started -or $p.HasExited) {
             Remove-Item $record -ErrorAction SilentlyContinue
@@ -461,6 +470,8 @@ if ($Agent) {
     if (-not $Session) { $Session = 'agent' }
     $Nullifier = [switch]$true
 }
+# Before anything is recorded: Get-Stack writes data\stack.json.
+if ($IsLinux -and -not $Stop) { Assert-LinuxSupport ([bool]$Walkmaps) ($Session -and $Session -ne 'default' -and -not $NoClient -and -not $Only) }
 $stack = if ($Agent) { Get-AgentStack $PortBase } else { Get-Stack $PortBase }
 $session = Get-SessionName $Session
 $nullifierMode = $Nullifier -or "$env:Game_CLIENT_NULLIFIER" -in '1', 'true'
@@ -664,7 +675,7 @@ $serverEnv = @{
     Game_AUTH_CONTROL_PORT = "$($stack.Ports.control)"; Game_GATEWAY_PORT = "$($stack.Ports.gateway)"
     Game_PATCH_URL = if ($env:Game_PATCH_URL -and -not $stack.Base) { $env:Game_PATCH_URL } else { "http://127.0.0.1:$($stack.Ports.patchWeb)" }
     Game_PATCH_WEB_ROOT = if ($stack.Base) { $null } else { $env:Game_PATCH_WEB_ROOT }
-    Game_PACKET_DUMPS = if ($env:Game_PACKET_DUMPS) { $env:Game_PACKET_DUMPS } else { 'logs\packets' }
+    Game_PACKET_DUMPS = if ($env:Game_PACKET_DUMPS) { $env:Game_PACKET_DUMPS } else { Join-Path 'logs' 'packets' }
     Game_HOT_RELOAD_LOG = if ($Watch) { Join-Path $out 'live-gateway.err' } else { $null }
 }
 $envBefore = @{}
