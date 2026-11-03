@@ -13,6 +13,26 @@ The existing `/survivors` diagnostics and restart controls are available only to
 Starting a fresh run removes carried, worn and flask items; stopping a run removes its transient skills.
 Ordinary leagues do not load these modules for their players.
 
+## Run shape
+
+The run is a 15-minute horde: 14 monsters alive at the start, 500 by the bell, refilled every 0.08 s by a quarter of
+the gap (at most 8 a step) from five consecutive tiers of the area's roster.
+Monster damage grows +180% over the run, and monster hits on the player deal 45% of their damage (Fortitude lowers it
+1/1.2 a level), so standing still is not safe.
+Every 20 s a ring of the area's ranged varieties (archers, wands, mortars) spawns at 22 cells and shoots: the player
+has to move, not just out-heal.
+A stage boss arrives 15 s in and gates the way onward; after it, another boss rises every 60 s, rolling the reference's
+ladder.
+Stage changes pick a random area at the run clock's growing level (1 at the start, 20 by the bell), never a town
+(towns have no monster packs); the current area is skipped when another is available.
+
+Run skills are every gem the client can draw: a projectile gem flies its own `Projectiles` row, an area gem (Ice Nova,
+Firestorm and the like) casts a **nova pulse** around the player with the gem's own area hit, and a Herald pulses its
+aura. Heralds and areas share the pulse pipeline; an area gem's pulse radius is the run's 48-cell base grown by its
+rank and increased area.
+No monster kill drops items or gold, on either the melee or the projectile path; the ground is also swept every run
+second.
+
 ## Native reward window
 
 The level-up choice uses the client's quest-reward inventory, not a custom UI.
@@ -63,7 +83,7 @@ Requirements resume when the run ends; a new run clears previous rewards.
 ## Limits
 
 - No custom arena, cards or clock HUD; the normal skill bar and reward window are reused.
-- Non-projectile skills other than the run's Herald pulses are not offered.
+- Area gems pulse around the player; a gem with neither a projectile nor an area type (Arc, a curse) is still not offered.
 - Caustic ground, Soulrend's debuff and poison inputs are not integrated into these automatic casts.
 - Conditional unique mechanics depend on the existing stat and combat implementation, not merely catalogue presence.
 - A complete fresh-character 15-minute balance run and broader per-gem native acceptance remain follow-up work.

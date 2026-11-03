@@ -647,6 +647,7 @@ static partial class Game
     // Strand, until it is picked up (PlayerInventories.StartWeapon): put once into each instance it enters outside towns.
     internal static async Task PlaceStartWeapon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (!GameEvents.AllowsLoot(conn)) return;
         if (ItemsOf(conn).StartWeapon is not { } weapon || WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true }) return;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         var ground = new WorldItemObject(x, y, weapon);

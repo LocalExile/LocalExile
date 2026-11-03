@@ -246,7 +246,7 @@ static partial class SurvivorsRunRules
             var roster = SurvivorsRosterFor(conn);
             var lines = new List<string>
             {
-                "--- Survivors curve (Azeroth Survivors: 14 -> 220 horde, +75% life, +90% damage, 6 bosses) ---:",
+                "--- Survivors curve (14 -> 500 horde, +75% life, +180% damage, a boss a minute) ---:",
                 " time   horde  monster life  monster damage  boss life  boss xp  rank damage",
             };
             for (int step = 0; step <= 7; step++)
