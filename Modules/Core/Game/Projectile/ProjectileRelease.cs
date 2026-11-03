@@ -81,7 +81,14 @@ static partial class Game
         int? cast = attack ? 0 : CastMs(conn, gem.Effect, skillId);
         if (cast is null) return Task.CompletedTask;
         double acceptedAt = conn.Clock.Elapsed.TotalSeconds;
-        double delay = attack ? AttackReleaseDelay(AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), false))
+        // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
+        double? thrown = attack && SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow"
+            ? SpectralThrowRelease.Delay(conn, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
+                ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject, WeaponProfileFor(conn, activeSet: true),
+                SupportedAttackSeconds(conn, skillId))
+            : null;
+        double delay = thrown is { } swing ? swing
+            : attack ? AttackReleaseDelay(AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), false))
             : cast.Value / 1000d * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
         int epoch = conn.ProjectileEpoch;
         // Paid attacks survive Move unless their recipe opts into cancellable windup (e.g. release-time costs).
@@ -149,6 +156,20 @@ static partial class Game
                         }
                 }
             };
+        if (SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow")
+        {
+            double thrown = use.Profile.Speed;
+            return use with
+            {
+                // Its hits showed no blood or particles without the 0x1af the ordinary arrow sends (live 2026-11-02).
+                Payload = (ProjectileOffense)use.Payload! with { HitPacket = true, ActionSequence = sequence },
+                Profile = use.Profile with
+                {
+                    Legs = _ => new SpectralThrowLegs(thrown), LegLeash = SpectralThrowLegs.Leash(thrown), ReturnOvershoot = 0,
+                    ReturnSpeedMultiplier = use.Profile.ReturnSpeedMultiplier * SpectralThrowLegs.ReturnSpeedMultiplier
+                }
+            };
+        }
         if (SkillsFor(conn).EffectId(gem.Effect) is not ("Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")) return use;
         // The client's life is the skill record's skill_effect_duration, in whole milliseconds.
         double life = Math.Round(1000 * SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own)) / 1000;
@@ -265,7 +286,8 @@ static partial class Game
             // 2026-10-29, 0x141ebdf30 from the action at 0x141e938c0): a server object for them was a second fireball.
             // An attack gem's does not: Burning Arrow's action 0x415 started and created no projectile until the server's
             // 0x2b9, as the default attack's arrow (Frida 2026-10-31).
-            ClientPredicted = spell,
+            // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
+            ClientPredicted = spell || SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow",
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
             Presentation = release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };

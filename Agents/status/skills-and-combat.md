@@ -341,6 +341,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   GGG's server sends no object for ordinary bow arrows either, so the live client draws them itself (live capture
   2026-10-29, [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named
+  after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); it is the
+  basic straight-flight arrow only: the secondary arrows from the target point are not modelled yet.
+  Spectral Throw fires `Metadata/Projectiles/ThrownWeapon`, pierces every enemy and hits again on its return, with blood
+  on each hit; the client draws the weapon, and the server flies the same slowing, resting and returning path. Partial:
+  hit timing still needs tuning. The return flies at a constant average speed where the client's accelerates, and
+  its hits vary most on monsters walking toward the thrower. The release follows the Melee combo only for the Witch
+  and Scion with a one-handed sword, mace or axe and a shield; the server assumes the combo alternates on every throw,
+  and when the client starts it over is not known. A wall stops the weapon without a return. The transfigured and Vaal
+  versions are not mapped.
   after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); the
   terminal secondary group is in Partly working.
   Rolling Magma fires `Metadata/Projectiles/MagmaOrbShort` (same fallback; every cast was refused before) and lands on

@@ -1744,6 +1744,15 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   bounces straight on even beside monsters (`trace-chain-decisions.js`). The client reads the budget from the skill
   record it holds, which is only resent with the skill list: with 0 there (the server's ground chains are not
   `Chain`) the orb stopped at its first impact, and after the fix it bounced only once the gem was socketed again.
+  Spectral Throw's row is `Metadata/Projectiles/ThrownWeapon` (1000). Its action (ThrownWeaponProjectile, HASH16
+  0xcf7b) draws its own weapon, as a spell does, so the server sends none. Frida 2026-11-02
+  (`scripts/re/frida/trace-projectile-path.js`, Positioned path of the client's object): the weapon slows evenly to a
+  stop 42 cells out over 0.85 s whatever the aim, rests 0.26 s, then speeds back to the thrower in about 0.84 s.
+  The release is not a throw clip: the class ACTs map `SpectralThrow = "@Melee"`, and with a one-handed sword, mace or
+  axe and a shield (there is no one-handed mace or axe stance) that Melee alternates the views
+  `attack_sword_shield_01a`/`01b` of `doublestrike_sword_shield`. Each view plays at its length over its ACT
+  `attack_time` outside its slow span, which stretches as §4 describes (Scion: 0.886 and 1.686, measured). The Witch's
+  01b played at 1.45 instead of 2.8, which is unexplained.
 - **Pierce.** Pierce Support's `projectile_base_number_of_targets_to_pierce` (2 at level 1, 4 at level 20) and the other
   pierce stats give a hit budget of 1 + pierce: the projectile passes through that many monsters, each hit landing as
   the glide reaches its cell; the support's more Projectile Damage is part of `SupportedHit`. `always_pierce` is
