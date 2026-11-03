@@ -175,32 +175,58 @@ public sealed class LabyrinthTrialTests
     }
 
     [Fact]
-    public void LabyrinthRoomSpikesRiseFromTheirTrigger()
+    public void LabyrinthRoomLinksWirePuzzlesAndSpikeChains()
     {
-        // 1_Labyrinth_P_straight seed 1's spiketraps_2_2: a diagonal line of four traps turned 315°, its
-        // Trigger_CascadeFastWG past its (760, 781) end (live 2026-11-01: they rise one after the other from there).
-        (int, int, float)[] line = [(744, 797, 5.498f), (712, 829, 5.498f), (728, 813, 5.498f), (760, 781, 5.498f)];
-        Assert.Equal([(0, 1), (0, 3), (0, 2), (0, 0)], LabyrinthTrials.TriggeredSpikes(line, [(769, 772)]));
-        Assert.Equal(new LabyrinthTrials.SpikeTrigger(5, 0.2, 0), LabyrinthTrials.Trigger("Metadata/Terrain/Labyrinth/Traps/Trigger_CascadeFastWG"));
+        // ElegantHouse bottleneck_01's links (live 2026-11-01, as the original): cranks 1 and 2 count on handler 5, which
+        // opens doors 69 and 68 and spends the cranks; each crank turns its gears (1 → 44 → 13), which stop as it comes back
+        // up; an opened door disables the lever outside it (68 → 3, 69 → 4).
+        const string P = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/";
+        string[] types = [.. Enumerable.Repeat("Metadata/MiscellaneousObjects/Doodad", 70)];
+        (types[1], types[2], types[3], types[4], types[5]) = (P + "Switch_Reset_16", P + "Switch_Reset_16", P + "Switch_Once", P + "Switch_Once", P + "Counter_Handler");
+        (types[13], types[44], types[68], types[69]) = (P + "TimerGears", P + "TimerGears", P + "Door_Counter", P + "Door_Counter");
+        GameServer.Data.Terrain.Generation.PlacedLink L(int from, int to, string name) => new(from, to, name);
+        var wiring = new LabyrinthWiring(types, [L(1, 5, "counter"), L(1, 44, "next"), L(2, 5, "counter"), L(3, 68, "next"), L(4, 69, "next"),
+            L(5, 69, "transition1"), L(5, 68, "transition2"), L(5, 2, "transition3"), L(5, 1, "transition4"), L(44, 13, "next"),
+            L(68, 3, "disable1"), L(69, 4, "disable1")]);
 
-        // Two triggers on the same square of four share it as a checkerboard; a trap no trigger reaches keeps the chains.
-        (int, int, float)[] square = [(100, 100, 0), (123, 100, 0), (100, 123, 0), (123, 123, 0), (400, 400, 0)];
-        Assert.Equal([(0, 0), (1, 0), (1, 0), (0, 0), (-1, 0)], LabyrinthTrials.TriggeredSpikes(square, [(90, 100), (133, 100)]));
+        Assert.Equal([(1, LabyrinthWiring.Change.On), (44, LabyrinthWiring.Change.On), (13, LabyrinthWiring.Change.On)], wiring.Turn(1, true));
+        Assert.Equal([(1, LabyrinthWiring.Change.Off), (44, LabyrinthWiring.Change.Off), (13, LabyrinthWiring.Change.Off)], wiring.Turn(1, false));
+        wiring.Turn(1, true);
+        var opened = wiring.Turn(2, true);
+        Assert.Equal([(2, LabyrinthWiring.Change.On), (5, LabyrinthWiring.Change.On), (69, LabyrinthWiring.Change.On), (4, LabyrinthWiring.Change.Disabled),
+            (68, LabyrinthWiring.Change.On), (3, LabyrinthWiring.Change.Disabled), (2, LabyrinthWiring.Change.Spent), (1, LabyrinthWiring.Change.Spent)], opened);
+        Assert.Empty(wiring.Turn(1, false));
+        Assert.Equal(16, LabyrinthWiring.CrankSeconds(P + "Switch_Reset_16"));
+
+        // The Lower Prison trial's spikes: a chain of 16 round its room fires as a wave along its links; two zigzag chains
+        // side by side rise as a checkerboard's colours.
+        (int, int)[] traps = [(1058, 483), (1058, 460), (1058, 437), (1081, 391), (1012, 621), (989, 644), (989, 621), (989, 667)];
+        var spikes = LabyrinthTrials.LinkedSpikes(traps, [(0, 1), (1, 2), (2, 3), (4, 5), (6, 7)], []);
+        Assert.Equal([0, 1, 2, 3], spikes.Take(4).Select(s => s.Order));
+        Assert.All(spikes.Take(4), s => Assert.False(s.Checker));
+        Assert.All(spikes.Skip(4), s => Assert.True(s.Checker));
+        Assert.Equal([0, 0, 1, 1], spikes.Skip(4).Select(s => s.Order));
     }
 
     [Fact]
-    public void LabyrinthRoombasRunTheRailsTheirScratchesMark()
+    public void LabyrinthRoombasFollowTheirLinkedRails()
     {
-        // 1_Labyrinth_OH_end seed 1's indoor_trap_var2_2 (live 2026-11-01, the original): the ground roomba goes round
-        // rails 0 3 4 (its scratches; one lies on the slant from 0 to 2 too), the flying one round 1 2 5 6.
-        (int, int)[] rails = [(456, 184), (488, 238), (501, 238), (498, 184), (456, 226), (516, 222), (506, 212)];
-        (int, int)[] scratches = [(499, 184), (477, 184), (456, 184), (456, 227), (486, 195), (474, 206), (465, 216), (456, 205)];
+        // OutdoorHouse indoor_trap_var2_2 (live 2026-11-01, the original): the ground roomba comes in from its reset rail 1
+        // to a ring of three, the flying one from rail 2 round the same three the other way.
+        (int, int)[] rails = [(118, 114), (86, 60), (73, 60), (76, 114), (118, 72), (0, 0), (0, 0), (0, 0), (118, 72), (118, 114), (76, 114), (58, 76), (68, 86)];
+        (int, int, bool)[] links = [(0, 4, false), (1, 12, false), (2, 11, false), (3, 0, false), (4, 3, false), (8, 9, false), (9, 10, false),
+            (10, 8, false), (11, 8, false), (12, 3, false)];
+        var ground = LabyrinthTrials.LinkedPath(rails, links, 1);
+        Assert.Equal([(86, 60), (68, 86), (76, 114), (118, 114), (118, 72)], ground.Rails);
+        Assert.True(ground.Ring && ground.FromFirst);
+        Assert.Equal(2, ground.Loop);
+        var flying = LabyrinthTrials.LinkedPath(rails, links, 2);
+        Assert.Equal([(73, 60), (58, 76), (118, 72), (118, 114), (76, 114)], flying.Rails);
 
-        var paths = LabyrinthTrials.RoombaPaths(rails, [(487, 213, MathF.PI / 2), (515, 239, 0.262f)], null, scratches, [false, true]);
-
-        Assert.True(paths[0]!.Ring);
-        Assert.Equal([rails[0], rails[3], rails[4]], paths[0]!.Rails.OrderBy(r => Array.IndexOf(rails, r)));
-        Assert.True(paths[1]!.Ring);
-        Assert.Equal([rails[1], rails[2], rails[5], rails[6]], paths[1]!.Rails.OrderBy(r => Array.IndexOf(rails, r)));
+        // 2x2_trap_05: a loop whose third rail teleports back to its start.
+        (int, int)[] loop = [(241, 202), (218, 173), (218, 127), (242, 272)];
+        var jumping = LabyrinthTrials.LinkedPath(loop, [(0, 1, false), (1, 2, false), (2, 3, true), (3, 0, false)], 0);
+        Assert.True(jumping.Ring);
+        Assert.Equal([((218, 127), (242, 272))], jumping.Jumps);
     }
 }

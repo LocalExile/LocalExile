@@ -69,7 +69,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     the floor graph from the rooms the server sends.
   - Deepwater (2): the 3.29 league's DeepwaterEncounter and DeepwaterEncounterVoyage, built from a biome grid the
     server sends; the only seed-1 traces the port does not match.
-- The daily Labyrinth layout is step 2 of [The Labyrinth](#the-labyrinth).
+- The daily Labyrinth layout is step 1 of [The Labyrinth](#the-labyrinth).
 - **Done when:** any seed gets its layout without a capture.
 
 ## 3. Gameplay
@@ -126,23 +126,19 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. The trial traps in the Labyrinth's own rooms: the trials' kinds run there ([status](../status/world.md),
-     "Trials of Ascendancy"), wired by the rooms' links, with their puzzles and the tiles' doorway rollers and blades;
-     left are the tiles' smashable and hidden walls, then the rooms' monsters
-     ([labyrinth-trials](../docs/game/labyrinth-trials.md), "The Labyrinth's own rooms").
-  2. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra
+  1. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra
      data (`0x141ec7220`: seed, node, difficulty; [03](../docs/protocol/03-area-and-world.md)).
      The node's LabyrinthNodeOverrides and secrets then apply in `LabyrinthPass`; the levelgen gate stays green.
-  3. A run: the plaza's device opens a tier once its required trials are done (Labyrinths `RequiredTrials`), and each
+  2. A run: the plaza's device opens a tier once its required trials are done (Labyrinths `RequiredTrials`), and each
      room is an instance linked by the layout's connections.
      No waypoints inside; a portal out, a death or a logout ends the run.
      Find what the client sends at the device and at a type 5 transition before choosing a server state.
-  4. Izaro: three Aspirant's Trials, each ending when he loses a third of his life (the boss stages of
+  3. Izaro: three Aspirant's Trials, each ending when he loses a third of his life (the boss stages of
      `BossFights.cs`); the third opens the Ascendancy Chamber and its Izaro chests (LabyrinthIzaroChests).
-  5. The Ascendancy Chamber: the Altar (`LabyrinthAscendancyDevice`) chooses the ascendancy on the first Normal run,
+  4. The Ascendancy Chamber: the Altar (`LabyrinthAscendancyDevice`) chooses the ascendancy on the first Normal run,
      awards the tier's two points through `AscendancyProgress` and sets the tier's quest flag (Labyrinths
      `QuestFlag`); agree the shared code with #151.
-  6. The Cruel and Merciless trials, then secrets and darkshrines, the Divine Font (LabyrinthCraftOptions),
+  5. The Cruel and Merciless trials, then secrets and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
      Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type
      `LabyrinthMonsterTotem`: Endless Pain, Hazard, Drought, Sting, Unending Lethargy, Frost, Fire, Storm, Vaal Totem,
