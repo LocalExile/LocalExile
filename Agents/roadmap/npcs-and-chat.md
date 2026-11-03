@@ -28,6 +28,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   See [vendor recipes](../docs/protocol/24-vendor-recipes.md) for the remaining scope.
   The opt-in development Nessa catalogue retains legacy MapWorlds and unique map identities.
   Complete unique modifiers and unique-area routing remain separate follow-up work.
+  Nessa now stocks generic Map (Tier N) keys, the tier-17 Nightmare Map, an Originator Maps tab and separate unique
+  map identities. Complete unique modifiers and unique-area routing remain separate follow-up work.
   Quest-stage variants of town NPCs (Dialla withered, Innocence in Bannon's place, Lilly in town) and the league NPCs
   of the town rooms (`TownNpcs`, [17](../docs/protocol/17-npcs.md) §2).
 - **Done when:** talk options play their text, Nessa and Tarkleigh trade, and town NPCs follow quest progress.

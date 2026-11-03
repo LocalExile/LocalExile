@@ -27,6 +27,13 @@ sealed class PlayerElementalAilments
         lock (effects) return effects.Where(e => e.Kind == kind && e.From <= now && now < e.Until)
             .Select(e => e.Magnitude).DefaultIfEmpty().Max();
     }
+    /// <summary>When the freeze on the player ends; <paramref name="now"/> without one.</summary>
+    public double FreezeUntil(double now)
+    {
+        lock (effects) return effects.Where(e => e.Kind == Kind.Freeze && e.From <= now && now < e.Until)
+            .Select(e => e.Until).DefaultIfEmpty(now).Max();
+    }
+
     /// <summary>Action speed is one additive bucket: chill/freeze and the character's own action_speed_-% sum, then the
     /// result multiplies attack, cast and movement pacing. A positive <paramref name="statReduction"/> is slower; a
     /// negative value (Tailwind, Acceleration Shrine) is faster. Changing Seasons (chill_effect_is_reversed): the chill on

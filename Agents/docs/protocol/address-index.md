@@ -448,6 +448,7 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x141bae2b0` / `0x141bae0c0` / `0x141bb8840` | Fn | phase target contains/insert / history deep copy |
 | `0x141bae1d0` / `0x141baf5f0` | Fn | erase own target reservation / dispatch local continuation reason |
 | `0x141baea60` / `0x141baef40` / `0x141baf2a0` | Fn | Chain candidates / ranking flags / redirect |
+| `0x141bb6530` | Fn | chain budget (vtable +0x638): `virtual_number_of_chains_for_projectiles` from the skill record; Rolling Magma's ground bounces spend it ([11](11-skills.md#10-projectiles-experimental)) |
 | `0x141baf130 → 0x141bb09c0` | Fn | random/terrain Bounce, previously mislabelled Return |
 | `0x141bb04f0` / `0x141bb0710` | Fn | actual Return qualification / phase mutation and redirect-or-clone |
 | `0x14195dde0` / `0x14195de60` | Fn | hit handle reader / sequence-derived-stage comparator |
