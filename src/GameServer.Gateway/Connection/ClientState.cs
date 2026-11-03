@@ -837,6 +837,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public double LockstepNextProbeAt;
     // The frame now being sent, on Clock (PlayerWalk.FrameOf).
     public (double Start, double End)? LockstepFrame;
+    // A lockstep client ends an action on a frame, up to two after the server's clock, and loses an order that comes first.
+    public double LockstepActionTail => LockstepClient ? .066 : 0;
     (double Start, double End)? LockstepFrameOf(double at) =>
         LockstepClient && LockstepFrame is { } frame ? (Math.Min(at, frame.Start), frame.End) : null;
     public readonly GameServer.Core.World.LockstepHold LockstepHold = new();
