@@ -349,7 +349,7 @@ static partial class QuestobjectsRules
                 {
                     double now = conn.Clock.Elapsed.TotalSeconds;
                     if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) return;
-                    double factor = now < conn.Walk.ArrivesAt ? LabyrinthTrials.SpikeBleedMovingFactor : 1;
+                    double factor = conn.Walk.Moving(now) ? LabyrinthTrials.SpikeBleedMovingFactor : 1;
                     dealt = (int)Math.Round(bleed.PerSecond * factor * SpikeBleedTickSeconds);
                     long lifeDamage = conn.EnergyShield.Damage(dealt, false, now);
                     conn.PlayerLife = (uint)Math.Max(0, conn.PlayerLife - lifeDamage);

@@ -53,6 +53,7 @@ faulted one attack later), and the server only sees the disconnect, so these are
 
 | Category | Lines |
 |---|---|
+| `sync` | `[sync] qpc=…`: the server's cell for the player and every monster, every 50 ms, compared with the client's by `scripts/re/sync_report.py` ([07](../protocol/07-latency-visibility-movement.md) §5) |
 | `move` | `[move-trace] qpc=…` for C→S 0x24/0x25/0x190/0x191 as read and S→C 0x1ab/0x1b7/0x1ba as written, on the QPC clock of `scripts/re/frida/trace-movement.js` ([07](../protocol/07-latency-visibility-movement.md)); `Game_MOVE_TRACE=1` still works |
 | `latency` | a `[latency]` summary every interval instead of only slow ones ([07](../protocol/07-latency-visibility-movement.md)); `Game_LATENCY_METRICS=1` still works |
 | `ticks` | every 50th 0x1b tick with its bytes |

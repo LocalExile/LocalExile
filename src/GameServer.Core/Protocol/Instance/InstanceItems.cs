@@ -42,6 +42,11 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
 {
     public byte ItemLevel { get; init; } = 1;
     public byte Quality { get; init; }
+
+    /// <summary>The map quality's AlternateQualityTypes row, from a map quality chisel; null is quantity quality (what
+    /// <see cref="Quality"/> alone means). A different chisel replaces it. Maps and map keys only.</summary>
+    public byte? AlternateQualityType { get; init; }
+
     public const byte MaximumDefenceBaseRoll = 31;
     public const byte SpecialDefenceBaseRoll = 32;
     byte defenceBaseRoll;
@@ -351,6 +356,12 @@ public static class InstanceItems
 
     /// <summary>Commands.dat row 44 (WarpToHideout, "/hideout") + 1: the chat command that goes to the hideout.</summary>
     public const byte WarpToHideoutCommand = 45;
+
+    /// <summary>Commands.dat row 35 <c>SetAFK</c> + 1.</summary>
+    public const byte AfkCommand = 36;
+    /// <summary>Commands row 7 "ForceResync" (the client's <c>oos</c>): sent by the network update 0x142148880 when more than
+    /// three of the player's commenced actions (Actor +0x22c, 0x141e94c60) have had no 0x1ac, one forgiven every 5 s.</summary>
+    public const byte ForceResyncCommand = 8;
 
     /// <summary>
     /// C→S 0x16 (class 0x1435bff00, write 0x141f91480, sender 0x14215c3b0): a chat command from Commands.dat with

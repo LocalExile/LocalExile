@@ -103,6 +103,13 @@ its Area1/Area2. The AtlasNode Ids are saved per character (module data `complet
 
 ## 6. Still open
 
-The 0x1a3 bits 0x4 / 0x8 / 0x10, and bytes `+0x71` / `+0x72` / `+0x70`, are unread. They are the next place to look
-for bonus objectives, Voidstones and Atlas passive points from completion. Same method: string or texture in the
-Atlas UI → drawer flag → writer → displacement on the instance → dispatcher case → `/raw`.
+`+0x70` (instance +0xd0f8) is the Voidstone T16 mask: bits 0–3 the four sockets / quadrants, bit 4 every regular map
+(`AtlasNode.VoidstoneSlot` none → drawer index 4 at `0x1407b357f`, tier 16). Each occupied socket sets its own bit
+(and all four also set bit 4). An empty socket's bit stays clear so C→S 0xf6 still works. Putting a stone on or
+taking it off (0xf6 or 0x28 from inventory 40) resends 0x1a3 so the open Atlas rebuilds. `+0x71` is the socketed count.
+The 0x1a3 bits 0x4 / 0x8 / 0x10, and bytes `+0x71` / `+0x72`, are unread (bonus objectives, Memory lines, Atlas
+passive points). The native Voidstone socket click is C→S 0xf6
+(u32 item id). Voidstone *drops*
+come from `AtlasVoidstoneSlots` (item + `GrantAtlasUpgrade1`–`4`); the first matching boss kill sockets them on
+the character. Same method for the unread bits: string or texture in the Atlas UI → drawer flag → writer →
+displacement on the instance → dispatcher case → `/raw`.

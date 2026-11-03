@@ -59,8 +59,10 @@ static partial class Game
             startedAt = conn.Clock.Elapsed.TotalSeconds;
             var from = attacker.Walk.Position(startedAt); var to = weapon.Walk.Position(startedAt);
             attacker.BusyUntil = startedAt + attack.Seconds;
-            return InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y,
-                attack.SkillId, MonsterActionSequence, 0x0408, targetObjectId: targetId);
+            return attack.InPlace ? InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y,
+                    attack.SkillId, conn.NextActionSequence(), 0x0408, targetObjectId: targetId)
+                : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, to.X, to.Y,
+                    attack.SkillId, conn.NextActionSequence(), 0x0408, targetId);
         }, "Monster attacks Rampage weapon")) return;
         if (!await WaitMonsterActionTime(conn, id, attacker, action, startedAt + attack.Seconds / 2)) return;
         await SendMonsterAction(remote, stream, ciphers, conn, id, attacker, action, () =>

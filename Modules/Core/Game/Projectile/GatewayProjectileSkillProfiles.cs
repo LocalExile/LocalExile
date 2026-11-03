@@ -7,6 +7,7 @@ static class GatewayProjectileSkillProfiles
     // User-tuned feel values, not official timings or frame measurements. Keep fractional milliseconds.
     public const double ClusterDelaySeconds = 0;
     public const double ClusterIntervalSeconds = 1d / 30;
+    public const double RollingMagmaBounceCells = 16;
     public static IReadOnlyList<string> Effects { get; } = Array.AsReadOnly(new[]
         { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY" });
 
@@ -57,7 +58,21 @@ static class GatewayProjectileSkillProfiles
         else if (effect is "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")
             p = p with { HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(0.66)) };
 
+        // Rolling Magma lobs its orb onto the aim, where it explodes, then chains along the ground: each of its chains
+        // (number_of_chains, 2 at level 1) is a bounce forward and another explosion, which may hit the same monsters.
+        // The client's bounces go straight on without seeking an enemy (Frida 2026-11-01, trace-chain-decisions.js).
+        // shortcut: 16 cells between impacts and the 14-cell base radius (SkillArea.BaseRadius) are not read from the
+        // client; it takes 375 ms per bounce, slower than this flight at the orb's speed, so a bounce's hits land ~0.1 s early.
+        else if (effect == "RollingMagma")
+            p = p with
+            {
+                Lobbed = true, DirectDamage = false, GroundBounceDistance = RollingMagmaBounceCells,
+                EndArea = new("rolling-magma", 0), EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
+            };
+
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows);
+        // Its chains bounce on the ground instead of seeking another monster.
+        if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);

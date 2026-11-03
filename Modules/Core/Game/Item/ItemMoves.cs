@@ -96,6 +96,50 @@ static class ItemMoves
     /// <summary>A price paid: what it took from the main inventory's stacks and from the stash's (either may be null).</summary>
     public sealed record Price(PlayerInventories.Payment? Inventory, AccountStash.Payment? Stash);
 
+    public sealed record VendorPurchase(IReadOnlyList<Price> Payments, IReadOnlyList<InventoryItem> Bought);
+
+    public static VendorPurchase? PurchaseVendor(PlayerInventories items, AccountStash? stash, AccountStash gold,
+        Item offer, ItemCatalog catalog, Func<Item, PlayerInventories.Shape?> shapeOf, Func<bool> consume,
+        byte? destination = null, byte x = 0, byte y = 0) => Saves.Atomically<VendorPurchase?>(() =>
+    {
+        if (offer.Price.Count == 0 || offer.Price.Any(p => p.Amount == 0)) return null;
+        byte row = destination ?? Main;
+        if (row != Main && row != Cursor) return null;
+        var bought = offer with { Price = [] };
+        if (destination is null)
+        {
+            if (!items.Fits(Main, bought, shapeOf)) return null;
+        }
+        else
+        {
+            if (shapeOf(bought) is not { } shape) return null;
+            var grid = InstanceInventories.PlayerDefaults[row];
+            if (x + shape.Width > grid.Width || y + shape.Height > grid.Height
+                || items.Items(row).Any(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width
+                    && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)) return null;
+        }
+        var costs = offer.Price.GroupBy(p => p.TypeHash).Select(g => (Currency:g.Key, Amount:g.Sum(p => (long)p.Amount))).ToArray();
+        foreach (var (currency, amount) in costs)
+        {
+            if (amount <= 0 || amount > int.MaxValue || catalog.ByHash(currency) is not { } type) return null;
+            if (type.Class == ItemDrops.GoldClass ? gold.Gold < amount
+                : (long)items.Count(Main,currency) + (stash?.CountOf(currency) ?? 0) < amount) return null;
+        }
+        if (!consume()) return null;
+        var payments = new List<Price>();
+        foreach (var (currency, amount) in costs)
+            if (catalog.ByHash(currency)!.Class == ItemDrops.GoldClass)
+            {
+                if (gold.TrySpendGold(amount) is null) throw new InvalidOperationException("Vendor gold changed during purchase");
+            }
+            else payments.Add(Pay(items,stash,currency,(int)amount)
+                ?? throw new InvalidOperationException("Vendor payment changed during purchase"));
+        if (destination is not null) return new(payments,[items.Add(row,x,y,bought)]);
+        var into = items.AddStacked(Main,bought,shapeOf);
+        if (into.Left != 0) throw new InvalidOperationException("Vendor item no longer fits after payment");
+        return new(payments,[.. into.Changed, .. into.Added]);
+    });
+
     public sealed record BenchResult(InventoryItem Changed, IReadOnlyList<Price> Payments);
 
     /// <summary>Where a bench Ctrl + click (C→S 0xe9) moved an item: out of <see cref="From"/>, now <see cref="Placed"/> in
@@ -113,6 +157,52 @@ static class ItemMoves
         byte from = intoBench ? Main : PlayerInventories.CraftingBench, to = intoBench ? PlayerInventories.CraftingBench : Main;
         if (items.Items(from).FirstOrDefault(i => i.Id == itemId) is not { } item || shapeOf(item.Item) is not { } shape) return null;
         var cell = intoBench ? (items.Items(to).Count == 0 ? ((byte)0, (byte)0) : null)
+            : items.FreeCell(to, shape.Width, shape.Height, shapeOf);
+        if (cell is null || items.Remove(from, itemId) is not { } taken) return null;
+        return new(from, to, items.Put(to, taken with { X = cell.Value.X, Y = cell.Value.Y }));
+    });
+
+    /// <summary>
+    /// Ctrl + click with the map device open (C→S 0xe8): a map/fragment from the main inventory into Map1's first free
+    /// cell, or a device item back into the inventory. Null when the item is missing, the class is refused, or there is
+    /// no room. The item's current inventory wins if the packet's direction flag disagrees.
+    /// </summary>
+    public static BenchMove? MoveToMapDevice(PlayerInventories items, uint itemId,
+        Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically<BenchMove?>(() =>
+    {
+        byte main = Main, device = PlayerInventories.MapDevice;
+        byte from;
+        InventoryItem item;
+        if (items.Items(main).FirstOrDefault(i => i.Id == itemId) is { } inMain) { from = main; item = inMain; }
+        else if (items.Items(device).FirstOrDefault(i => i.Id == itemId) is { } inDevice) { from = device; item = inDevice; }
+        else return null;
+        byte to = from == main ? device : main;
+        if (shapeOf(item.Item) is not { } shape) return null;
+        if (to == device && !MapDevice.AcceptsClass(shape.Class)) return null;
+        if (items.FreeCell(to, shape.Width, shape.Height, shapeOf) is not { } cell
+            || items.Remove(from, itemId) is not { } taken) return null;
+        return new(from, to, items.Put(to, taken with { X = cell.X, Y = cell.Y }));
+    });
+
+    /// <summary>
+    /// C→S 0xf6: a Voidstone between the main inventory (or the cursor) and AtlasUpgrades1 (row 39, 4×1).
+    /// Into the Atlas it sits at <paramref name="slot"/>; back out it takes the first free inventory cell.
+    /// Null when the item is missing, the slot is taken, or there is no room.
+    /// </summary>
+    public static BenchMove? MoveToAtlasUpgrade(PlayerInventories items, uint itemId, byte slot,
+        Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically<BenchMove?>(() =>
+    {
+        byte main = Main, atlas = PlayerInventories.AtlasUpgrades, cursor = Cursor;
+        byte from;
+        InventoryItem item;
+        if (items.Items(main).FirstOrDefault(i => i.Id == itemId) is { } inMain) { from = main; item = inMain; }
+        else if (items.Items(atlas).FirstOrDefault(i => i.Id == itemId) is { } inAtlas) { from = atlas; item = inAtlas; }
+        else if (items.Items(cursor).FirstOrDefault(i => i.Id == itemId) is { } held) { from = cursor; item = held; }
+        else return null;
+        byte to = from == atlas ? main : atlas;
+        if (shapeOf(item.Item) is not { } shape) return null;
+        (byte X, byte Y)? cell = to == atlas
+            ? (slot > 3 || items.Items(to).Any(i => i.X == slot) ? null : ((byte)slot, (byte)0))
             : items.FreeCell(to, shape.Width, shape.Height, shapeOf);
         if (cell is null || items.Remove(from, itemId) is not { } taken) return null;
         return new(from, to, items.Put(to, taken with { X = cell.Value.X, Y = cell.Value.Y }));

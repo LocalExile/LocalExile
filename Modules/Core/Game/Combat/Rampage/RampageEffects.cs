@@ -239,7 +239,6 @@ static partial class Game
                 now + .35 * (1 + own.Get("base_stun_duration_+%") / 100.0));
             target.BusyUntil = Math.Max(target.BusyUntil, target.FlinchUntil);
             var at = target.Walk.Position(now); target.Walk.Teleport(at.X, at.Y, now);
-            target.CollisionPosition = at;
             target.LastTarget = null;
             // Capture the accepted mutation before any LifeUpdate await or deferred projectile output.
             stun = new(id, target, target.StunSerial, target.ActionGeneration, conn.IncomingHitEpoch,
