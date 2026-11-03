@@ -1277,7 +1277,7 @@ public sealed class WhispererRuntimeTests
         var c = h.NewConnection("phase" + Guid.NewGuid().ToString("N"), optional: false, area: Game.MavenNucleus.Area);
         var frozen = h.NewConnection("frozen" + Guid.NewGuid().ToString("N"), optional: false);
         var moving = h.NewConnection("held" + Guid.NewGuid().ToString("N"), optional: false);
-        Task? pending = null;
+        Task? pending = null, ai = null;
         try
         {
             Game.CombatLifetime = oldOwner; Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(oldOwner));
@@ -1290,12 +1290,19 @@ public sealed class WhispererRuntimeTests
             pending = Game.PublishMinionOutcomes("handoff", wire, ciphers, c);
             await wire.Held.Task;
             Assert.False(pending.IsCompleted);
-            // Stable-operation alternative: all authoritative spawns commit before the phase's first held send.
+            // One cipher transaction admits every phase actor and its complete creation batch.
             Assert.Single(c.Monsters.Values, m => m.Variety?.Id == Game.MavenNucleus.Nucleus);
             Assert.Equal(4, c.Monsters.Values.Count(m => m.Variety?.Id == Game.MavenNucleus.Phase2Cores[0]));
             var identities = c.Monsters.Keys.ToArray();
             var ringVariety = Game.Monsters.Find(Game.MavenNucleus.Phase2Cores[0])!;
-            Assert.DoesNotContain((ringVariety.Row, (byte)68), c.MonsterTypes);
+            Assert.Contains((ringVariety.Row, (byte)68), c.MonsterTypes);
+            Assert.True(wire.Plain.Reader.TryRead(out var creationBatch));
+            foreach (uint id in identities.Where(id => id != 42))
+                Has(creationBatch!, InstanceProtocol.EnterWakeZone(id));
+            // Run the real planner while creation owns the cipher gate. Its output must queue after this batch.
+            c.AiEnabled = true; c.EntryProtection.End(0, (0, 0), action: true);
+            c.Walk.Teleport(100, 100, 0);
+            ai = Game.StepMonsterAi("handoff", wire, ciphers, c, new MonsterAiCadence());
 
             // Freeze and movement lose the cipher gate before retirement; neither may acknowledge/mutate early.
             double now = frozen.Clock.Elapsed.TotalSeconds;
@@ -1314,11 +1321,11 @@ public sealed class WhispererRuntimeTests
             game.GetField("CombatLifetime", flags)!.SetValue(null, owner);
             Program.SetGameLogic((IGameLogic)Activator.CreateInstance(assembly.GetType("GameServer.Modules.Game.GameLogic")!,
                 flags, null, [owner], null)!);
-            wire.Release.TrySetResult(); await pending; await freeze; await move;
+            wire.Release.TrySetResult(); await pending; await ai; await freeze; await move;
             Assert.NotEqual(frozen.FreezeGeneration, frozen.FreezeShown);
             Assert.Same(click, moving.HeldMove); Assert.Equal(action, moving.ActionCount);
             Assert.Equal((100, 100), moving.Walk.Position(0));
-            Assert.NotEmpty(c.Minions.OutputQueue);
+            Assert.Empty(c.Minions.OutputQueue);
             await (Task)Call("PublishMinionOutcomes", "handoff", wire, ciphers, c)!;
             await (Task)Call("ShowFreeze", "handoff", wire, ciphers, frozen)!;
             await (Task)Call("ReleaseHeldMove", "handoff", wire, ciphers, moving)!;

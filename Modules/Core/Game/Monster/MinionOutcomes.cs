@@ -134,13 +134,15 @@ static partial class Game
                 await conn.QuestGate.WaitAsync();
                 try
                 {
-                    lock (conn.Monsters)
+                    await Send(remote, stream, ciphers, [], "accepted quest kill effects", atGate: () =>
                     {
+                        using var mutation = ProjectileMutation(conn);
                         if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
-                            || !ReferenceEquals(state.OutputQueue[0], output)) return;
-                        CommitQuestKillOperation(remote, stream, ciphers, conn, output);
+                            || !ReferenceEquals(state.OutputQueue[0], output)) return null;
+                        var packets = CommitQuestKillOperation(remote, stream, ciphers, conn, output);
                         state.OutputQueue.RemoveAt(0);
-                    }
+                        return packets;
+                    });
                 }
                 finally { conn.QuestGate.Release(); }
                 continue;

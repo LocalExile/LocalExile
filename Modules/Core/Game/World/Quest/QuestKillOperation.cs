@@ -3,16 +3,16 @@ using GameServer.Core.Protocol.Login;
 
 static partial class Game
 {
-    // Stable-operation contract: an admitted quest kill completes synchronously under QuestGate + Monsters.
+    // An admitted quest kill completes synchronously under QuestGate -> cipher -> level -> Monsters.
     // Helpers may await only captured Send or synchronously completed helpers. No module continuation or
-    // callback survives the scope; only Gateway packet values cross replacement. A replacement cannot take
-    // the mutation lock until this admitted operation finishes, including one-shot unlocks and phase extras.
+    // callback survives the scope. One cipher batch orders every creation before dependent actor output.
+    // The mutation scope finishes one-shot unlocks and phase extras before replacement can take it.
     [ThreadStatic] static List<PlayerMinions.Output>? QuestKillCommitOutput;
 
-    static void CommitQuestKillOperation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    static byte[] CommitQuestKillOperation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, PlayerMinions.Output receipt)
     {
-        if (receipt.Target?.Variety is not { } variety) return;
+        if (receipt.Target?.Variety is not { } variety) return [];
         if (QuestKillCommitOutput is not null) throw new InvalidOperationException("Nested quest kill transaction");
         var packets = new List<PlayerMinions.Output>();
         QuestKillCommitOutput = packets;
@@ -22,7 +22,17 @@ static partial class Game
                 receipt.At!.Value, dropsCommitted: true);
             if (!commit.IsCompleted) throw new InvalidOperationException("Quest kill commit must not yield");
             commit.GetAwaiter().GetResult();
-            conn.Minions.OutputQueue.InsertRange(1, packets);
+            // The caller owns the cipher gate and the normal level -> actor mutation scope.
+            // Publish every creation before an AI sender can acquire that gate for these actors.
+            return [.. packets.SelectMany(output => output.Kind switch
+            {
+                PlayerMinions.OutputKind.MonsterType => conn.MonsterTypes.Add(output.MonsterType!.Value)
+                    ? GameServer.Core.Protocol.Instance.InstanceEntities.MonsterTypes([output.MonsterType.Value]) : [],
+                PlayerMinions.OutputKind.QuestFlags => QuestFlagPresentation(conn) ?? [],
+                PlayerMinions.OutputKind.QuestTransition => QuestTransitionPresentation(conn, output.TargetId!.Value, output.Transition!) ?? [],
+                PlayerMinions.OutputKind.Passives => PassivesMessage(conn).Bytes,
+                _ => output.Packet,
+            })];
         }
         finally { QuestKillCommitOutput = null; }
     }
