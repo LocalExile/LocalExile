@@ -14,6 +14,9 @@ sealed class SurvivorsState
     public bool Entered;
     /// <summary>The survivors run of this connection (Modules/Survivors), null when none is active.</summary>
     public SurvivorsRun? Survivors;
+    /// <summary>This connection's client has the reward inventory from 0xc0: 0xbf before it is fatal
+    /// ("Got an inventory set change for an inventory that isn't in the set").</summary>
+    public bool SurvivorsOfferInventoryRegistered;
     /// <summary>The level-up window's choice per offered item id, null when the window is closed.</summary>
     public Dictionary<uint, SurvivorsChoice>? SurvivorsOffer;
     /// <summary>The display name of each offered item, for the chat line that confirms a pick.</summary>

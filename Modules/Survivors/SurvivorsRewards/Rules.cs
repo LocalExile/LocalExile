@@ -304,6 +304,7 @@ static partial class SurvivorsRewards
             InstanceInventories.AddInventory(SurvivorsOfferInventory, NpcShops.Tab, NpcShops.Manager, listed),
             $"0x00c0 survivors level {run.Level}: {listed.Count} choice(s) offered", still: () => ownership.Current);
         if (!ownership.Current) return;
+        StateOf(conn).SurvivorsOfferInventoryRegistered = true;
         await Send(remote, stream, ciphers, InstanceNpcs.OpenQuestReward(SurvivorsOfferInventory, 0),
             "0x0087 survivors level-up window", still: () => ownership.Current);
         if (!ownership.Current) return;
@@ -356,9 +357,13 @@ static partial class SurvivorsRewards
             StateOf(conn).SurvivorsOfferItems = null;
         })) return false;
         var items = ItemsOf(conn);
-        await Send(remote, stream, ciphers,
-            InstanceItems.InventoryChange(SurvivorsOfferInventory, ++StateOf(conn).SurvivorsOfferRevision, offered, [], NpcShops.Manager),
-            $"0x00bf survivors offer cleared after choosing {name}", still: () => ownership.Current);
+        // 0xbf before the offer inventory's 0xc0 is fatal on the client: skip the clear when this connection never
+        // registered that inventory (a pick that raced the area change or the window's first packets).
+        if (StateOf(conn).SurvivorsOfferInventoryRegistered)
+            await Send(remote, stream, ciphers,
+                InstanceItems.InventoryChange(SurvivorsOfferInventory, ++StateOf(conn).SurvivorsOfferRevision, offered, [], NpcShops.Manager),
+                $"0x00bf survivors offer cleared after choosing {name}", still: () => ownership.Current);
+        StateOf(conn).SurvivorsOfferInventoryRegistered = false;
         if (!ownership.Current) return false;
         var catalog = SurvivorsCatalogFor(conn);
         string target = chosen.Target >= 0 && chosen.Target < catalog.Count ? catalog[chosen.Target].Name : "the skill";

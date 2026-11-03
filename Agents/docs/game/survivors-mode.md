@@ -1,4 +1,4 @@
-# Survivors league (preview)
+# Survivors league
 
 Survivors is a separate character-creation league, not a switch for an ordinary character.
 Its parent is Void: event rewards cannot migrate into Standard.
@@ -15,16 +15,37 @@ Ordinary leagues do not load these modules for their players.
 
 ## Run shape
 
-The run is a 15-minute horde: 14 monsters alive at the start, 220 by the bell, refilled every 0.12 s by a sixth of
-the gap (at most 4 a step) from three consecutive tiers of the area's roster, exactly the reference's curve.
+The run is a seven-stage horde: 14 monsters alive at the start, 220 at the reference run's end, refilled every 0.12 s by
+a sixth of the gap (at most 4 a step) from three consecutive tiers of the area's roster, exactly the reference's curve.
 Monster life and damage both grow +250% over the run, and monster hits on the player deal 60% of their damage
 (Fortitude lowers it 1/1.2 a level), so standing still is not safe.
 Every 20 s a ring of the area's ranged varieties (archers, wands, mortars) spawns at 22 cells and shoots; a closing
 surround ring follows halfway through each 135 s boss cycle: the player has to move, not just out-heal.
-A stage boss arrives 15 s in and gates the way onward; after it, another boss rises every 60 s, rolling the reference's
-ladder.
+Each 2-minute stage runs its horde and its area's own champions (the lore boss 15 s in, another every 60 s); when the
+stage's clock ends the horde stops spawning and a **gate boss** rises with its servants. Only its death opens the way
+onward, and the seventh gate boss wins the run. The clock keeps running through the gate fight, so the reference's
+horde curve caps rather than ending the run.
+A run has **no entry protection**: the 60 s grace period is removed when the run starts and at every stage, so the
+horde and the gate boss press from the first second.
 Stage changes follow the run's fixed area list, one Act 1 area per stage (The Twilight Strand, The Coast, The Mud Flats,
 …), so every stage has monsters; a town is never a stage.
+
+### Gate bosses
+
+Seven bosses, one per stage, each on a real model that fits the area (Hillock, Merveil, the Abyssal slug, Abberath,
+the Weaver, Admiral Darnaw, the Incarnation of Fear), given its own name, damage type, move cycle and servants, and
+scaled up through `base_actor_scale_+%`: the client's big boss bar follows the model's `BossHealthBar`.
+The move repertoire is a **slam** around the boss (dodge out of its reach), a **burst** telegraphed under the player
+(dodge out of the aimed circle before the contact), a **fan** or **ring** of the area's own projectiles, and a **blink**;
+each kit cycles its own subset, summons its servants (capped at 12) and enrages below half life (faster moves, +20%
+damage).
+The boss's life follows the stage's average build, not the player's own: the reference boss ladder scaled from its old
+105 s window to 120 s (`Game_SURVIVORS_BOSS_LIFE`, default 3, tunes the ladder). A stronger build kills it faster, a
+weaker one slower. Its hits are scaled to the player's own pool so a missed hit removes about a seventh of effective
+life; armour, evasion, block and resistance then buy the tanky build its extra hits instead of turning one into a
+one-shot.
+A scripted boss skips the ordinary monster AI (`SpawnedMonster.Scripted`) and its built-in stage scripts; the
+controller drives every action and phase.
 
 A run starts with **no run skill**: the opening window offers the first skill, and the next skill is offered once the
 current one holds every support it can take, so the player builds the skill set rather than receiving a fixed gem.
@@ -56,6 +77,8 @@ The chat line that opens the window names the skill each choice applies to (`Add
 and `/survivors status` prints the same labels.
 S→C `0xc0` must register inventory `0x600` before any `0xbf` change for it.
 Reversing that order crashes the client with "Got an inventory set change for an inventory that isn't in the set".
+For the same reason a stage change waits while a reward window is open, and a pick that races the window's first packets
+skips its `0xbf` clear instead of sending it to an unregistered inventory.
 S→C `0x87` opens the window; its ordinary C→S `0x88`/`0x8a` item id selects the reward.
 S→C `0xbf` removes the offered ids and `0x84` with object 0 closes the dialogue.
 
@@ -106,7 +129,7 @@ Requirements resume when the run ends; a new run clears previous rewards.
 - Area gems pulse around the player; a gem with neither a projectile nor an area type (Arc, a curse) is still not offered.
 - Caustic ground, Soulrend's debuff and poison inputs are not integrated into these automatic casts.
 - Conditional unique mechanics depend on the existing stat and combat implementation, not merely catalogue presence.
-- A complete fresh-character 15-minute balance run and broader per-gem native acceptance remain follow-up work.
+- A complete fresh-character seven-stage balance run and broader per-gem native acceptance remain follow-up work.
 
 `/survivors status`, `pick`, `test`, `link`, `matrix`, `rank`, `unique`, `uniques` and `curve` expose diagnostics.
 `Game_SURVIVORS_TRACE=1` records cast inputs; `Game_SURVIVORS_MAX_ALIVE` and

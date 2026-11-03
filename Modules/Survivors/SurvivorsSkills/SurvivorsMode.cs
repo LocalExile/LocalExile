@@ -138,6 +138,40 @@ public static class SurvivorsRules
     public static int BossExperience(int index) =>
         BossExperienceTable[BossLadderIndex(index)];
 
+    /// <summary>The gate fight's length for the stage's average build: the reference time a stage boss has always been
+    /// balanced against. A stronger build kills faster; a weaker one takes longer.</summary>
+    public const double BossGateSeconds = 120;
+
+    /// <summary>The old stage boss had 105 s from its 15 s arrival to the 120 s gate, so the ladder's life ratios are
+    /// calibrated to that window; the gate fight stretches the same budget to <see cref="BossGateSeconds"/>.</summary>
+    public const double BossCalibrationSeconds = 105;
+
+    /// <summary>The gate boss's life, from the tier pool top the stage draws from: the reference ladder scaled to the
+    /// gate window and the run's clock. Game_SURVIVORS_BOSS_LIFE tunes the whole ladder from a playtest.</summary>
+    public static int BossGateLife(int poolTop, int stage, double elapsed) =>
+        Math.Max(1, (int)Math.Round(Math.Max(1, poolTop) * BossLifeRatio(stage) * MonsterLifeScale(elapsed)
+            * BossGateLifeFactor * BossGateSeconds / BossCalibrationSeconds));
+
+    /// <summary>A playtest multiplier over the reference ladder: the ladder's own window was the old 105 s stage boss,
+    /// so 3 stretches a starter build's fight toward the two-minute gate; <c>Game_SURVIVORS_BOSS_LIFE</c> overrides it.</summary>
+    public static double BossGateLifeFactor =>
+        double.TryParse(Environment.GetEnvironmentVariable("Game_SURVIVORS_BOSS_LIFE"), out double factor) && factor > 0
+            ? factor : 3;
+
+    /// <summary>Missed gate-boss hits that kill: the base target, before the player's own defences buy their extra hits.</summary>
+    public const int BossHitsToDie = 7;
+
+    /// <summary>How many of the player's effective life the boss's hit removes (before the real mitigation pipeline):
+    /// physical armour eats a fixed share of a boss-sized hit; the other types go through resistance.</summary>
+    public static int BossHitDamage(int pool, int resistance, DamageType type, double multiplier = 1) =>
+        Math.Max(1, (int)Math.Round(Math.Max(1, pool)
+            / (BossHitsToDie * Math.Clamp(TakenFraction(resistance, type), 0.05, 1)) * Math.Max(0, multiplier)));
+
+    /// <summary>The share of a boss hit its type leaves after the player's flat resistance (physical uses armour's
+    /// approximate share at this size; the hit pipeline still applies the real armour roll).</summary>
+    public static double TakenFraction(int resistance, DamageType type) => type == DamageType.Physical
+        ? 0.7 : 1 - Math.Clamp(resistance, 0, 75) / 100.0;
+
     /// <summary>A run skill's reach: +8% radius per rank, before the run's area blessings and supports.</summary>
     public static double SkillRadius(int rank) => 1 + 0.08 * (Math.Max(1, rank) - 1);
 

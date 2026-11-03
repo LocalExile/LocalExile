@@ -124,6 +124,7 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsRunTests().An_invalid_choice_changes_nothing();
         new SurvivorsRunTests().A_second_level_up_does_not_overwrite_an_open_offer();
         new SurvivorsRunTests().The_clock_ignores_paused_and_broken_steps();
+        new SurvivorsRunTests().The_gate_boss_scales_to_the_stage_and_the_player();
         new SurvivorsSupportMatrixTests().Every_support_moves_its_own_number_on_every_skill_it_can_support();
         new SurvivorsSupportMatrixTests().A_run_skill_uses_the_reference_s_thirty_percent_a_rank();
         new SurvivorsSupportMatrixTests().Area_gems_join_the_catalogue_and_cast_an_area_pulse();
@@ -160,6 +161,7 @@ public sealed class SurvivorsLeagueTests
             var old = SurvivorsRunRules.BindRun(conn, run);
             var state = SurvivorsSkills.StateOf(conn);
             state.SurvivorsOffer = new() { [1] = choice };
+            state.SurvivorsOfferInventoryRegistered = true;
             state.SurvivorsCatalog = [];
             conn.PlayerLife = 1;
             Assert.True(gate.Wait(0));

@@ -452,4 +452,28 @@ public class SurvivorsRunTests
 
         Assert.Equal(2.5, run.Elapsed, 6);
     }
+
+    public void The_gate_boss_scales_to_the_stage_and_the_player()
+    {
+        // The gate fights for the stage's average build: the old 105 s ladder at its 3x playtest stretch, 120 s window.
+        Assert.Equal(92_297, SurvivorsRules.BossGateLife(1_000, 0, 0));
+        Assert.Equal(617_143, SurvivorsRules.BossGateLife(1_000, 6, 720));
+        Assert.True(SurvivorsRules.BossGateLife(1_000, 6, 720) > SurvivorsRules.BossGateLife(1_000, 0, 0));
+
+        // A missed hit removes a seventh of the player's pool after mitigation; resistance and armour buy the extra hits.
+        Assert.Equal(7, SurvivorsRules.BossHitsToDie);
+        int physical = SurvivorsRules.BossHitDamage(7_000, 0, DamageType.Physical);
+        Assert.Equal(1_000, Math.Round(physical * SurvivorsRules.TakenFraction(0, DamageType.Physical)));
+        int fire = SurvivorsRules.BossHitDamage(7_000, 75, DamageType.Fire);
+        Assert.Equal(1_000, Math.Round(fire * SurvivorsRules.TakenFraction(75, DamageType.Fire)));
+        Assert.Equal(1_000, Math.Round(SurvivorsRules.BossHitDamage(7_000, 0, DamageType.Fire, 0.5)
+            * SurvivorsRules.TakenFraction(0, DamageType.Fire) * 2));
+
+        // Seven locations, seven different gate bosses, each with its own move set and adds.
+        var kits = Enumerable.Range(0, 7).Select(SurvivorsRunRules.SurvivorsBossFor).ToList();
+        Assert.Equal(7, kits.Select(kit => kit.Model).Distinct().Count());
+        Assert.Equal(7, kits.Select(kit => kit.Name).Distinct().Count());
+        Assert.All(kits, kit => Assert.True(kit.Moves.Count >= 2, $"{kit.Name} has too few moves"));
+        Assert.All(kits, kit => Assert.True(kit.Adds > 0 && kit.SummonSeconds > 0, $"{kit.Name} summons nothing"));
+    }
 }

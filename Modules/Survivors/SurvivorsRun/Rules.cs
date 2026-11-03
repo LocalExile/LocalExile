@@ -23,7 +23,7 @@ static partial class SurvivorsRunRules
     /// <summary>The ring wave cadence: a closing ring halfway through each 135 s boss cycle, as the reference does.</summary>
     internal const double SurvivorsRingIntervalSeconds = 135;
 
-    /// <summary>The area's boss arrives this long after a stage starts: its death is what opens the next stage.</summary>
+    /// <summary>The area's own champion arrives this long after a stage starts; the gate boss comes at the stage's end.</summary>
     internal const double SurvivorsBossDelaySeconds = 15;
 
     /// <summary>The areas a run moves through, one "level" every <see cref="SurvivorsRules.StageSeconds"/> (Act 1).</summary>
@@ -130,11 +130,13 @@ static partial class SurvivorsRunRules
         StateOf(conn).SurvivorsCatalog = catalog;
         StateOf(conn).SurvivorsSupports = supports;
         StateOf(conn).Stage = 0;
+        // A run has no entry protection: the horde (and later the gate boss) must start pressing at once.
+        if (InGracePeriod(conn)) await EndGracePeriod(remote, stream, ciphers, conn, action: true);
         await conn.Commands!.Reply(
             "--- Survivors ---:\n" +
-            $"Survive {SurvivorsRules.VictorySeconds / 60:0} minutes. Your skills cast themselves at the nearest monster. " +
-            $"Every {SurvivorsRules.StageSeconds / 60:0.#} minutes the run moves to the next area, but only after the " +
-            $"area's lore boss falls.\n" +
+            $"Survive seven stages. Your skills cast themselves at the nearest monster. " +
+            $"Every {SurvivorsRules.StageSeconds / 60:0.#} minutes the stage's gate boss rises: kill it to move on, " +
+            $"and the seventh gate boss wins the run.\n" +
             (only is int chosen
                 ? $"Start: {catalog[chosen].Name}. "
                 : "Choose your first skill in the opening window; the next skill is offered once the current one has " +
@@ -474,7 +476,7 @@ static partial class SurvivorsRunRules
             offer = "\n" + string.Join("\n", lines);
         }
         await conn.Commands!.Reply(
-            $"--- Survivors ---\n{SurvivorsClock(run.Elapsed)} of {SurvivorsRules.VictorySeconds / 60:0} minutes, " +
+            $"--- Survivors ---\n{SurvivorsClock(run.Elapsed)}, stage {StateOf(conn).Stage + 1}/{SurvivorsLevels.Length}, " +
             $"{run.Kills} kills, run level {run.Level}, {run.Skills.Count} skill(s), {run.PendingChoices} choice(s) waiting, " +
             $"horde up to {run.TargetAlive} of {run.MaxAlive}." + offer);
     }
@@ -482,8 +484,10 @@ static partial class SurvivorsRunRules
     internal static async Task RunSurvivors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         SurvivorsRun run, SurvivorsRoster roster, IReadOnlyList<SurvivorsSkill> catalog, int stage, CancellationToken token)
     {
-        // Each stage is one area and one lore boss: the boss arrives 15 s in, and the way out opens only after it falls.
-        double stageStart = stage * SurvivorsRules.StageSeconds;
+        // Each stage is one area: two minutes of horde (with its champions), then a gate boss whose death opens the
+        // way onward. The stage's clock starts when the run enters it, not on the run's global clock: the gate fight
+        // itself takes time, so a global boundary would make the next stage's gate spawn on arrival.
+        double stageStart = run.Elapsed;
         double last = conn.Clock.Elapsed.TotalSeconds, nextSpawn = 0,
             nextBoss = Math.Max(stageStart + SurvivorsBossDelaySeconds, run.Elapsed + 5),
             nextRing = Math.Max(stageStart + SurvivorsRingIntervalSeconds / 2, run.Elapsed + 10),
@@ -491,7 +495,8 @@ static partial class SurvivorsRunRules
             nextReport = 10, nextSweep = 0;
         string bossName = roster.Bosses.Count > 0 ? roster.Bosses[0].Name : "";
         uint stageBoss = 0;
-        bool bossSpawned = false, bossDefeated = false, bossWarned = false;
+        bool bossSpawned = false, gateSpawned = false, gateDefeated = false;
+        SurvivorsBossFight? gateFight = null;
         int bossNumber = 0;
         // Every boss's id and the run experience its kill pays in total (the ordinary unique kill pays 50 of it).
         var bossBonuses = new Dictionary<uint, int>();
@@ -511,9 +516,9 @@ static partial class SurvivorsRunRules
                     continue;
                 }
                 run.Advance(step);
+                if (InGracePeriod(conn)) await EndGracePeriod(remote, stream, ciphers, conn, action: true);
                 if (conn.PlayerLife == 0) { await EndSurvivors(remote, stream, ciphers, conn, "defeat"); break; }
-                if (run.Elapsed >= SurvivorsRules.VictorySeconds) { await EndSurvivors(remote, stream, ciphers, conn, "victory"); break; }
-                // Bosses pay their ladder experience when they fall; only the stage gate's death opens the way.
+                // The stage's own champions pay their ladder experience when they fall.
                 foreach (var (id, total) in bossBonuses.ToList())
                 {
                     bool dead;
@@ -522,25 +527,33 @@ static partial class SurvivorsRunRules
                     bossBonuses.Remove(id);
                     int bonus = total - SurvivorsRules.ExperienceForKill(MonsterRarity.Unique);
                     if (bonus > 0) run.RecordExperience(bonus);
-                    if (id == stageBoss)
-                    {
-                        bossDefeated = true;
-                        await conn.Commands!.Reply($"{bossName} falls. The way onward opens. +{total} run experience.");
-                    }
-                    else await conn.Commands!.Reply($"A guardian falls. +{total} run experience.");
+                    await conn.Commands!.Reply(id == stageBoss
+                        ? $"{bossName} falls. +{total} run experience."
+                        : id == gateFight?.BossId
+                            ? $"The gate boss falls. +{total} run experience."
+                            : $"A guardian falls. +{total} run experience.");
                 }
-                if (run.Elapsed >= (stage + 1) * SurvivorsRules.StageSeconds && stage + 1 < SurvivorsLevels.Length)
+                // The two-minute stage ends with its gate boss; only its death opens the way onward or wins the run.
+                if (!gateSpawned && run.Elapsed - stageStart >= SurvivorsRules.StageSeconds)
                 {
-                    bool sealedByBoss = SurvivorsRules.WaySealed(roster.Bosses.Count, bossDefeated);
-                    if (sealedByBoss)
+                    gateSpawned = true;
+                    gateFight = await SpawnSurvivorsGateBoss(remote, stream, ciphers, conn, roster, run, stage, horde, token);
+                    if (gateFight is not null) bossBonuses[gateFight.BossId] = SurvivorsRules.BossExperience(stage);
+                }
+                // No cell for it: do not seal the run behind a boss that never arrived; the way opens instead.
+                bool gateCleared = gateSpawned && (gateFight is null || gateFight.Defeated);
+                // A reward window still holds the client's 0x600 inventory set: changing area while it is open makes the
+                // client crash on the set change ("Got an inventory set change for an inventory that isn't in the set").
+                // The clock is paused for the window, so waiting here costs the run nothing.
+                if (gateCleared && !gateDefeated && StateOf(conn).SurvivorsOffer is null)
+                {
+                    gateDefeated = true;
+                    if (stage + 1 >= SurvivorsLevels.Length)
                     {
-                        if (!bossWarned)
-                        {
-                            bossWarned = true;
-                            await conn.Commands!.Reply($"The way is sealed until {bossName} falls.");
-                        }
+                        await EndSurvivors(remote, stream, ciphers, conn, "victory");
+                        break;
                     }
-                    else if (AreaTransitionCatalog.HashOf(SurvivorsLevels[stage + 1]) is { } nextArea)
+                    if (AreaTransitionCatalog.HashOf(SurvivorsLevels[stage + 1]) is { } nextArea)
                     {
                         var transfer = new PendingTransfer(nextArea, 0, false);
                         StateOf(conn).StageTransfer = transfer;
@@ -553,7 +566,7 @@ static partial class SurvivorsRunRules
                         break;
                     }
                 }
-                if (now >= nextSpawn)
+                if (!gateSpawned && now >= nextSpawn)
                 {
                     nextSpawn = now + SurvivorsRules.SpawnIntervalSeconds;
                     await SpawnSurvivorsWave(remote, stream, ciphers, conn, run, roster, horde);
@@ -564,8 +577,8 @@ static partial class SurvivorsRunRules
                     nextSweep = now + 1;
                     await SurvivorsClearGround(remote, stream, ciphers, conn);
                 }
-                // The stage gate boss arrives 15 s in; after it, a boss every minute keeps the pressure on.
-                if (roster.Bosses.Count > 0 && run.Elapsed >= nextBoss)
+                // The stage's champions arrive 15 s in and every minute after; the gate phase stops new hordes and rings.
+                if (!gateSpawned && roster.Bosses.Count > 0 && run.Elapsed >= nextBoss)
                 {
                     if (!bossSpawned)
                     {
@@ -593,13 +606,13 @@ static partial class SurvivorsRunRules
                     }
                 }
                 // Halfway through the stage a ring of the moment's weakest closes in on the player.
-                if (run.Elapsed >= nextRing)
+                if (!gateSpawned && run.Elapsed >= nextRing)
                 {
                     nextRing = run.Elapsed + SurvivorsRingIntervalSeconds;
                     await SpawnSurvivorsRing(remote, stream, ciphers, conn, run, roster, horde);
                 }
                 // Every twenty seconds a ring of archers/wands shoots from 22 cells: standing still is not safe.
-                if (run.Elapsed >= nextRanged)
+                if (!gateSpawned && run.Elapsed >= nextRanged)
                 {
                     nextRanged = run.Elapsed + SurvivorsRules.RangedWaveIntervalSeconds;
                     await SpawnSurvivorsRangedRing(remote, stream, ciphers, conn, run, roster, horde);
