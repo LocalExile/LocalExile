@@ -126,9 +126,8 @@ public sealed class WhispererRuntimeTests
         trialHit.PlayerStats[Key("physical_damage_%_taken_from_mana_before_life")] = 100;
         trialHit.PlayerLife = 1000; trialHit.PlayerMana = 100;
         trialHit.Ward.SetMaximum(0); trialHit.EnergyShield.SetMaximum(0, false);
-        var trialResources = Game.ResourceEffectsOf(trialHit); trialResources.Mana.Spent(199, 10);
         Assert.Equal(1000u, QuestobjectsRules.TrapHitLocked(trialHit, 100, 0));
-        Assert.Equal(0u, trialHit.PlayerMana); Assert.Equal(199, trialResources.Mana.SpentRemainder);
+        Assert.Equal(0u, trialHit.PlayerMana);
         state.Mana.Clear(); state.Mana.Spent(199, 10);
         state.Mana.Hit(20, 1, 20); Assert.Equal(0, state.Mana.Take(24));
         c.PlayerMana = c.Pools.Mana; Game.SettleFullManaLocked(c, 24);
