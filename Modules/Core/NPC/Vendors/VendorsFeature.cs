@@ -32,6 +32,8 @@ static class VendorsFeature
         var items = ItemsOf(conn);
         var stash = StashOf(conn);
         var catalog = ItemsFor(conn);
+        if (row is byte requested && LevelTooLow(conn, requested, offer.Item.Item) is { } low)
+        { await conn.Commands!.Reply(low); return; }
         var before = items.Items(PlayerInventories.MainInventory).Select(i => i.Id).ToArray();
         bool finite = shop.Finite.TryGetValue(id,out var token);
         bool Consume() => !finite || shop.StockKey is { } key && VendorStock.Consume(CharacterName(conn),key,token,PersonalStashOf(conn));
@@ -43,7 +45,20 @@ static class VendorsFeature
         foreach (var payment in purchase.Payments) await SendStashPayment(remote,stream,ciphers,conn,stash,payment.Stash);
         await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
             items.NextRevision(PlayerInventories.MainInventory),before,items.Items(PlayerInventories.MainInventory)),"0x00bf vendor payment and purchase");
-        if (row is byte destination && destination != PlayerInventories.MainInventory)
+        if (purchase.Equipped is { } equipped)
+        {
+            if (equipped.Row == PlayerInventories.Flask)
+                equipped = equipped with { Placed = EmptyIfEquippedInHostileArea(conn, items, equipped.Placed) };
+            await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(equipped.Row),
+                items.NextRevision(equipped.Row),equipped.Displaced is { } old ? [old.Id] : [],[equipped.Placed]),
+                "0x00bf vendor item equipped");
+            if (equipped.Displaced is { } displaced)
+                await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                    items.NextRevision(PlayerInventories.Cursor),[],[displaced]),"0x00bf replaced equipment to cursor");
+            await SendEquipment(remote,stream,ciphers,conn,items);
+            if (equipped.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote,stream,ciphers,conn);
+        }
+        else if (row is byte destination && destination != PlayerInventories.MainInventory)
             await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(destination),
                 items.NextRevision(destination),[],purchase.Bought),"0x00bf vendor item to cursor");
         await Send(remote,stream,ciphers,InstanceItems.InventoryChange(offer.Tab,shop.NextRevision(offer.Tab),[id],
