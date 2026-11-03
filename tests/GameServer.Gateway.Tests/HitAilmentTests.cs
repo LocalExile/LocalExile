@@ -61,7 +61,9 @@ public sealed class HitAilmentTests
         var settings = Bleed();
         // The club's physical damage: the main hand's bleeding rows for 5 s, and no chance without a source.
         Assert.Equal(0, settings.Chance);
-        Assert.True(settings.Max > 0 && settings.CriticalMax >= settings.Max);
+        Assert.True(settings.Max > 0);
+        // Character.ot's +50% damage over time multiplier for ailments from critical strikes.
+        Assert.Equal(1.5, settings.CriticalMax / settings.Max, 2);
         Assert.Equal(5, settings.Seconds, 6);
         // Its poison reads the same rows: 30% of the physical damage a second, against the bleed's 70%.
         Assert.Equal(3.0 / 7, Game.DefaultAttackPoison(conn, Game.CharacterPlayerStats(conn)).Max / settings.Max, 2);

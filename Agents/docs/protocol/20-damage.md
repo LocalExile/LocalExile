@@ -727,7 +727,7 @@ ignite. A critical strike always ignites; otherwise `base_chance_to_ignite_%`, `
 `damage_+%`, `damage_over_time_+%`, `elemental_damage_+%`, `fire_damage_+%`, `fire_damage_over_time_+%`,
 `burn_damage_+%`, `ignite_damage_+%`, `base_ailment_damage_+%`) × the Frenzy charges' more damage × (1 + the damage
 over time multipliers `dot_multiplier_+`, `fire_dot_multiplier_+`, `ignite_dot_multiplier_+`, and on a critical strike
-50 + `critical_ailment_dot_multiplier_+`). Hit-only modifiers (spell, area, attack damage, critical multiplier, lucky or
+`critical_ailment_dot_multiplier_+`). Hit-only modifiers (spell, area, attack damage, critical multiplier, lucky or
 triple damage, penetration) never reach it. It lasts 4 s × (1 + `ignite_duration_+%`) × (1 −
 `base_self_ignite_duration_-%` of the monster).
 The "deal Damage faster" modifiers (`faster_burn_%`, `damaging_ailments_deal_damage_+%_faster`) multiply its damage per
@@ -747,7 +747,7 @@ the ailment's buckets instead of the hit's: each converted portion keeps the inc
 generic, attack or spell, melee, area and projectile damage, damage over time (generic and the ailment type's),
 `bleeding_damage_+%` / `burn_damage_+%` / `base_poison_damage_+%`, elemental damage for ignite, then the
 damage-over-time multipliers (`dot_multiplier_+`, the type's, and `critical_ailment_dot_multiplier_+` for the critical
-rows: critical strikes give ailments nothing else) and the Frenzy Charges' more multiplier, times the base percentage
+rows, with Character.ot's base 50 in `PanelStatDefaults`: critical strikes give ailments nothing else) and the Frenzy Charges' more multiplier, times the base percentage
 (70 / 90 / 30) and 60. The "from only Chaos Damage" rows use the chaos portion alone and show with a
 `chaos_damage_chance_to_poison_%` source. Pinned PoB CalcOffence (16de4b82, `calcAilmentDamage` and the bleed /
 poison / ignite sections) composes the same buckets. Not modelled: conditional sources, stacking, "as though dealing
