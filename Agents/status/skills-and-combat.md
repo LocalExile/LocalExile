@@ -1094,6 +1094,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Frostblink damage, chilled ground, enemy-dependent recovery and shared Blink cooldown groups remain unsupported.
   The skill bar keeps its slots when skills are re-sent or a gem is socketed again (the saved bar goes out as 0x53)
   ([11](../docs/protocol/11-skills.md) §9, §11).
+  A slot's "Always Attack Without Moving" (C→S 0x4f) is saved and goes back in 0x53, so it stays ticked.
 - **Auras (the simple set is verified live).** Reservation is read from GrantedEffectsPerLevel (`ManaReservationFlat`
   / `ManaReservationPercent`), reduced by the passive/mastery reservation efficiency and sent as the Life pool's
   reserved mana (and in every 0x1b1 mana update).
@@ -1432,7 +1433,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   range for the panel rows and the hit (Hyrri's Demise, (Replica) Iron Commander, Replica Alberon's Warpath per 80
   Strength despite its `_per_50_strength` id; [20](../docs/protocol/20-damage.md) §2b).
   The 3.29 whole-type item prohibitions ("Cannot deal non-Chaos Damage", "Deal no Physical Damage", ...) share one list:
-  hits, the bleed, ignite and poison rows (each gated on its own type) and the caster's outgoing DoT drop those types.
+  hits, the bleed, ignite and poison rows (each gated on its own type), the poison hits inflict and the caster's
+  outgoing DoT drop those types.
   Automated tests only; the native check is pending.
   Ordinary player energy shield derives from equipment, intelligence and passives.
   Equipment ES uses the saved variable base roll and native rounding before and after local modifiers and quality.
