@@ -123,10 +123,16 @@ sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem 
 
 sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    public double ReceivedActionFactor = 1;
+    public double ReceivedActionUntil;
+    public bool ReceivedActionFloor;
+    public double RecipientDebuffRate = 1;
     /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
     public bool Asleep;
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
+    /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
+    public bool Scripted { get; init; }
     public uint? OwnerId { get; init; }
     // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
@@ -174,6 +180,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public readonly ImpaleState Impale = new();
     // The player's ignites on it (MonsterIgnites.cs), under the Monsters lock.
     public readonly MonsterIgnites Ignites = new();
+    // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
+    public readonly MonsterPoisons Poisons = new();
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
     public readonly MonsterElementalAilments Ailments = new();
     // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.
@@ -304,6 +312,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // A transfer invalidates flights even during the gap after PendingTransfer is consumed by Transfer.
     // Guarded by Monsters, like projectile impact commits and pause changes.
     public bool LeavingArea;
+    // Auth accepted the destination; PendingTransfer is already consumed before this handoff.
+    public bool TransferAccepted;
     public readonly RecentEnemyHits RecentEnemyHits = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
     // The King in the Mists' Portent Vapors: stacks taken from his Mystic Fetishes and when they expire. The server
@@ -331,6 +341,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // A failed transfer retains history but cannot revive a swing from before the attempted transfer.
     public void InvalidateIncomingHits(bool clear = true)
     {
+        if (PlayerLife == 0 || Closed)
+        { PaidChannel = null; NonChaosDotBypassCarry = NonChaosDotTakenCarry = 0; }
         lock (Monsters)
         {
             IncomingHitEpoch++;
@@ -362,6 +374,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
             PendingTransfer = transfer;
             RampageTransferAt = ProjectileRuntimeState is { Active: true } runtime
                 ? runtime.NowTicks / 120000d : Clock.Elapsed.TotalSeconds;
+            ResourceEffectsState?.Freeze(RampageTransferAt.Value);
             LeavingArea = true;
             RetireOwnedCombat();
             InvalidateIncomingHits(clear: false);
@@ -373,7 +386,14 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         }
     }
 
-    public void ResumeAfterFailedTransfer() { lock (Monsters) LeavingArea = false; }
+    public void ResumeAfterFailedTransfer()
+    {
+        lock (Monsters)
+        {
+            ResourceEffectsState?.Resume(Clock.Elapsed.TotalSeconds);
+            LeavingArea = false;
+        }
+    }
 
     // Successful transfers retire all source-area workers independently of any particular carried mechanic.
     public void Retire() { lock (Monsters) RageRetired = true; }
@@ -420,7 +440,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                     (all ??= [.. fixedOnes]).Add(new(x, y, LivingCollision.Size(m)));
                 }
             foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
-                if (peer.Life > 0) (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+                if (peer.Life > 0 && peer.Owner is not null) (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
             return all is null ? fixedOnes : new GameServer.Core.World.BlockerSet(all);
         }
     }
@@ -529,8 +549,12 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly WardState Ward = new();
     public readonly AntiquarianCombatState Antiquarian = new();
     public readonly TimedLifeRecovery EnduringCryRecovery = new();
+    /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>
+    public readonly PetrifiedBloodState PetrifiedBlood = new();
     /// <summary>Lifetap Support's life-paid costs, spent-Life counter and buff (Combat/Lifetap.cs).</summary>
     public readonly LifetapState Lifetap = new();
+    /// <summary>The invisible leech recovery buffs shown on the resource orbs (Combat/Leech.cs).</summary>
+    public readonly LeechDisplayState LeechDisplay = new();
     // Life Recoup of the hits the player took (Game.RecoupHitLocked), paid by the resource recovery loop.
     public readonly RecoupRecovery LifeRecoup = new();
     public double SentEnduringCryUntil = double.NaN;
@@ -676,7 +700,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                 if (playerLife > 0 && value == 0)
                 {
                     VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
-                    Rage.Clear(); Rampage.Clear(); RetireOwnedCombat();
+                    Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
                 }
                 playerLife = value;
             }

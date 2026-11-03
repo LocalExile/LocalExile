@@ -107,7 +107,9 @@ sealed class GemSupports(string folder = "data")
         return e.Row;
     }
 
-    static bool Compatible(Effect support, IReadOnlySet<int> types, int[] minionTypes, int? weapon) =>
+    /// <summary>The game's support eligibility: the skill types (or its minions') must satisfy the support's allowed
+    /// expression, must not match its excluded one, and the weapon restriction must fit.</summary>
+    internal static bool Compatible(Effect support, IReadOnlySet<int> types, int[] minionTypes, int? weapon) =>
         (Matches(support.Allowed, types, true) || !support.IgnoreMinions && minionTypes.Length > 0
             && Matches(support.Allowed, minionTypes.ToHashSet(), false))
         && !Matches(support.Excluded, types, false)

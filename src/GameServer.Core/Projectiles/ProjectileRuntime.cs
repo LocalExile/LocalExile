@@ -431,6 +431,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     void Publish(ProjectileEventKind kind, ProjectileEntity p, ProjectileEndReason? reason = null) =>
         world.Publish(new(kind, p, Now, p.Position, reason));
 
+    /// <summary>Retires one owner's live flights and delayed areas without disturbing other actors' uses.</summary>
+    public void Discard(Func<ProjectileUse, bool> matches)
+    {
+        foreach (var p in projectiles.Values.Where(p => matches(p.Use)).ToArray())
+            End(p, ProjectileEndReason.Teardown, allowReturn: false);
+        foreach (var pair in pendingAreas.Where(pair => matches(pair.Value.Use)).ToArray())
+            pendingAreas.Remove(pair.Key);
+    }
+
     public void Clear()
     {
         foreach (var p in projectiles.Values.ToArray()) End(p, ProjectileEndReason.Teardown, allowReturn: false);

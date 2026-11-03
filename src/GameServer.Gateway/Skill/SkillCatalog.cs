@@ -661,6 +661,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // yet, so both the gem and its transfigured (Spectrum) version take the combined arrow's art.
     // Rolling Magma (once Magma Orb) creates MagmaOrbShort (Frida 2026-11-01, trace-projectile-create.js); without the row every
     // cast was refused while the client drew its orb.
+    // Spectral Throw's is ThrownWeapon; without it every use was refused (live 2026-11-02).
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -681,6 +682,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["ElementalHit"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
+        ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
@@ -779,6 +781,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>The skill's <c>projectile_minimum_range</c> in world units (the Spitter's 50): a lob lands no closer
         /// to the monster than this. 0 without the stat.</summary>
         public int MinimumRange { get; init; }
+        /// <summary>The spread of a multi-projectile release: a fan by default, a full turn for a ring.</summary>
+        public double SpreadRadians { get; init; } = Math.PI / 6;
         /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
         /// fallback, and a boss skill may name its own).</summary>
         public double AreaRadius { get; init; }

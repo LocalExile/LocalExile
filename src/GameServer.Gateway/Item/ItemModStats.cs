@@ -13,8 +13,15 @@ static class ItemModStats
     /// boots and belt (Inventories.dat rows 1-10). The second weapon set (14, 15) and the flasks (11) do not.</summary>
     public static readonly byte[] EquipmentRows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
+    /// <summary>The item-local stats that raise the effect of the item's own explicit modifiers: every explicit one,
+    /// or only that side (Simplex and Focused Amulets, the Simplex ring bases, Subsume the Source). Mods.dat carries no
+    /// damage-type tags, so the weapon-tree variants that name a damage category are not modelled here.</summary>
+    const string ExplicitEffect = "local_explicit_mod_effect_+%", PrefixEffect = "local_prefix_mod_effect_+%",
+        SuffixEffect = "local_suffix_mod_effect_+%";
+
     /// <summary>The summed values of the stats on these items' mods, by Stats.dat Id: global ones, or with
-    /// <paramref name="local"/> the item's own.</summary>
+    /// <paramref name="local"/> the item's own. An explicit modifier counts with the item's increased effect applied
+    /// (<see cref="Effect"/>).</summary>
     public static Dictionary<string, int> Sum(IEnumerable<Item> items, ModCatalog mods, bool local = false)
     {
         var sum = new Dictionary<string, int>();
@@ -29,11 +36,58 @@ static class ItemModStats
 
     static IEnumerable<(string Id, int Value)> Values(IEnumerable<Item> items, ModCatalog mods, bool local = false)
     {
-        foreach (var mod in items.SelectMany(i => i.Mods))
+        foreach (var item in items)
+            foreach (var value in Values(item, mods, local))
+                yield return value;
+    }
+
+    /// <summary>One item's stats by Stats.dat Id, local or global. An explicit modifier's values include the
+    /// item's own increased effect for its list (all, prefix or suffix); the effect stats themselves stay raw, so
+    /// they never scale each other. Implicits, enchants and the other lists are unchanged.</summary>
+    public static IEnumerable<(string Id, int Value)> Values(Item item, ModCatalog mods, bool local = false)
+    {
+        var effect = Effect(item, mods);
+        foreach (var mod in item.Mods)
+            if (mods.ByHash(mod.Hash) is { } row)
+            {
+                int percent = EffectPercent(mod, row, effect);
+                for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+                    if (row.Stats[s].Local == local)
+                        yield return (row.Stats[s].Id,
+                            IsEffectStat(row.Stats[s].Id) ? mod.Values[s] : Scale(mod.Values[s], percent));
+            }
+    }
+
+    /// <summary>The item's own increased-effect stats, summed raw: explicit (every explicit modifier), prefix and
+    /// suffix (only that side). The stats are local, so they are read here rather than from the character's list.</summary>
+    static (int Explicit, int Prefix, int Suffix) Effect(Item item, ModCatalog mods)
+    {
+        int explicitAll = 0, prefix = 0, suffix = 0;
+        foreach (var mod in item.Mods)
             if (mods.ByHash(mod.Hash) is { } row)
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
-                    if (row.Stats[s].Local == local) yield return (row.Stats[s].Id, mod.Values[s]);
+                    switch (row.Stats[s].Id)
+                    {
+                        case ExplicitEffect: explicitAll += mod.Values[s]; break;
+                        case PrefixEffect: prefix += mod.Values[s]; break;
+                        case SuffixEffect: suffix += mod.Values[s]; break;
+                    }
+        return (explicitAll, prefix, suffix);
     }
+
+    /// <summary>How much the item's effect stats raise this modifier: only explicit affixes are affected, by the
+    /// all-explicit stat plus the stat for their own side.</summary>
+    static int EffectPercent(ItemMod mod, ModCatalog.Mod row, (int Explicit, int Prefix, int Suffix) effect) =>
+        mod.Section != ModSection.Explicit ? 0
+        : effect.Explicit + (row.GenerationType == ItemRolls.Prefix ? effect.Prefix
+            : row.GenerationType == ItemRolls.Suffix ? effect.Suffix : 0);
+
+    static bool IsEffectStat(string id) => id is ExplicitEffect or PrefixEffect or SuffixEffect;
+
+    /// <summary>The game's increased-effect multiplication on one integer value, rounded down like the Adorned's
+    /// jewel effect (Items.AdornedJewel).</summary>
+    static int Scale(int value, int percent) => percent == 0 ? value
+        : (int)Math.Clamp(Math.Floor((decimal)value * (100 + (long)percent) / 100), int.MinValue, int.MaxValue);
 
     /// <summary>Wide per-key attribute totals: retain them until complete raw-key replacement and bucket scaling.</summary>
     public static Dictionary<string, long> RawAttributes(IEnumerable<Item> items, ModCatalog mods)

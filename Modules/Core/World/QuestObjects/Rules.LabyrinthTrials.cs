@@ -1187,10 +1187,11 @@ static partial class QuestobjectsRules
 
     // Under conn.Monsters: a trap's hit of so much physical damage on the player, energy shield first, which may kill them.
     // The life left, or null when the player is dead already (or a hardcore death holds them).
-    static uint? TrapHitLocked(ClientState conn, int damage, double now)
+    internal static uint? TrapHitLocked(ClientState conn, int damage, double now)
     {
         if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) return null;
-        long before = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage, 0, now, CharacterPlayerStats(conn));
+        long before = conn.PlayerLife, lifeDamage = DamagePlayerHitTyped(conn, damage, 0, 0, now, CharacterPlayerStats(conn),
+            GameServer.Core.World.DamagePacket.Of(GameServer.Core.World.DamageType.Physical, damage, damage));
         conn.PlayerLife = (uint)Math.Max(0, before - lifeDamage);
         if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
         RecordHardcoreDeath(conn);
@@ -1211,6 +1212,7 @@ static partial class QuestobjectsRules
                 "0x01b3 player hide_mini_life_bar = 1");
         await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
             $"0x01b1 player hit by {trap} for {damage}, life {life}/{conn.PlayerMaxLife}{(life == 0 ? " (dies)" : "")}");
+        await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana after {trap}");
         if (life == 0) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
         return life > 0;
     }

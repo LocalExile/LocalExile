@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Server-driven player bots (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. Local only for now. -->
+
+  <!-- Not in Directory.Build.props' InternalsVisibleTo list (that file is shared), so not Game's and Program's internals yet. -->
+  <ItemGroup>
+    <Using Remove="Program" />
+    <Using Remove="Game" />
+  </ItemGroup>
+
+</Project>

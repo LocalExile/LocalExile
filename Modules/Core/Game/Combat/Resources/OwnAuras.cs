@@ -60,8 +60,7 @@ static partial class Game
             {
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
-                conn.PlayerMana = Math.Min(conn.PlayerMana,
-                    (uint)AuraCatalog.UnreservedMana(conn.Pools, conn.Auras.Values));
+                conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
             }
     }
 
@@ -76,17 +75,29 @@ static partial class Game
             var gone = conn.Auras.Values.Where(a => InTown(conn)
                 || !available.TryGetValue(a.SkillId, out int effect) || effect != a.Effect).ToArray();
             foreach (var aura in gone) conn.Auras.Remove(aura.SkillId);
+            foreach (var aura in conn.Auras.Values.Where(a => a.EffectId == "TemporalChains").ToArray())
+            {
+                var reservation = SupportedReservation(conn, aura.SkillId);
+                if (reservation is null) { conn.Auras.Remove(aura.SkillId); conn.AuraStatsDirty = true; continue; }
+                var repriced = aura with { ManaFlat = reservation.Value.Flat, ManaPercent = reservation.Value.Percent };
+                if (repriced == aura) continue;
+                conn.Auras[aura.SkillId] = repriced;
+                if (RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent) > conn.Pools.Mana) conn.Auras.Remove(aura.SkillId);
+                conn.AuraStatsDirty = true;
+            }
             if (gone.Length > 0)
             {
                 conn.AuraStatsDirty = true;
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
-                conn.PlayerMana = Math.Min(conn.PlayerMana,
-                    (uint)AuraCatalog.UnreservedMana(conn.Pools, conn.Auras.Values));
+                conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
             }
         }
         if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
             RestoreRememberedAuras(conn, CharacterSaves.Load(CharacterName(conn))?.ActiveAuras ?? []);
+        SuspendPetrifiedBloodIfUnavailable(conn);
+        if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
+            RestoreRememberedPetrifiedBlood(conn);
     }
 
     // Called under the send gate and Monsters lock. Diff against what actually reached this object,
@@ -120,6 +131,19 @@ static partial class Game
             packets.Add(InstanceEntities.PlayerSkillsChange(PlayerId, PlayerSkills(conn), []));
             packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana,
                 (uint)ReservedMana(conn), pool: ManaPool));
+        }
+        var petrified = conn.PetrifiedBlood;
+        if (petrified.PresentedBuff != 0 && (!petrified.Active || petrified.Buff != petrified.PresentedBuff))
+        {
+            packets.Add(InstanceEntities.RemoveBuff(PlayerId, petrified.PresentedBuff));
+            petrified.PresentedBuff = 0;
+        }
+        if (petrified.Active && petrified.PresentedBuff == 0)
+        {
+            packets.Add(InstanceEntities.AddBuff(PlayerId, petrified.Buff, PetrifiedBlood.BuffRow, PlayerId,
+                petrified.SkillId, activeSkill: SkillsFor(conn).ActionHash(petrified.Effect) is ushort hash
+                    ? (petrified.SkillId, hash) : null));
+            petrified.PresentedBuff = petrified.Buff;
         }
         if (Lifetap.Presentation(conn) is { } lifetap) packets.Add(lifetap);
         packets.Add(snapshot());

@@ -127,6 +127,7 @@ partial class Program
                 conn.Wire = (remote, stream, ciphers);
                 conn.Commands = Commands(remote, stream, ciphers, conn);
                 HotReload.Register(conn);
+                InGame[conn] = 0;
                 conn.ArriveAtWaypoint = WaypointArrivals.TryRemove(ticket, out _) || HideoutCatalog.ByArea(layout.Hash) is not null;
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
                 int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
@@ -221,6 +222,7 @@ partial class Program
             try { Logic.Left(left); }
             catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
             left.Instance.RemovePlayer(left.PeerId);
+            InGame.TryRemove(left, out _);
             Instances.Leave(left.Instance);
         }
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });

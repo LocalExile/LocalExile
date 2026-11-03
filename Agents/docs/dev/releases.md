@@ -16,6 +16,8 @@ Contributors keep working from a checkout with `live.ps1` ([GettingStarted](../.
 To build it again, delete the draft and start the workflow again.
 The same package builds by hand in a clean checkout: `.\scripts\release\build-release.ps1 -Version 0.2.0`
 (in `artifacts\release\`; it needs the .NET SDK and npm).
+Under pwsh on Linux the same script builds `LocalExile-v<version>-linux-x64.zip`: native servers, the system's Python,
+the client under Proton through umu-run, no `LocalExileGUI`. The workflow does not build it yet.
 
 ## Versions
 

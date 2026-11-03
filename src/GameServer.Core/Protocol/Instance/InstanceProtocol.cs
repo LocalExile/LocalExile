@@ -91,7 +91,7 @@ public static class InstanceProtocol
         InstanceItems.PickUpItemId => 13, InstanceItems.PlaceItemId => 18,
         InstanceItems.InventoryRequestId => InstanceItems.InventoryRequestLength, InstanceItems.UseItemId => InstanceItems.UseItemLength, InstanceItems.UseItemOnId => InstanceItems.UseItemOnLength, InstanceItems.UseItemOnPassiveId => InstanceItems.UseItemOnPassiveLength, InstanceItems.UseFlaskId => InstanceItems.UseFlaskLength, InstanceItems.UseItemTypeOnId => InstanceItems.UseItemTypeOnLength,
         InstanceItems.ItemActionId => InstanceItems.ItemActionLength, InstanceItems.SplitStackId => InstanceItems.SplitStackLength, InstanceItems.SocketGemId => 16,
-        InstanceItems.UnsocketGemId => 17, BindSkillId => 5, ExitToCharacterSelectId => 2,
+        InstanceItems.UnsocketGemId => 17, BindSkillId => 5, AttackInPlaceId => 4, SlotMask52Id => 4, ExitToCharacterSelectId => 2,
         InstanceItems.LevelUpGemId => 14, InstanceItems.LockGemId => InstanceItems.LockGemLength,
         InstanceEntities.AllocatePassiveId => 7, InstanceEntities.MasteryEffectId => InstanceEntities.MasteryEffectLength, InstanceEntities.RefundPassiveId => InstanceEntities.RefundPassiveLength,
         InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength, InstanceMapDevice.SelectMapId => InstanceMapDevice.SelectMapLength, InstanceMapDevice.MoveId => InstanceMapDevice.MoveLength, InstanceMapDevice.SocketId => InstanceMapDevice.SocketLength, InstanceEntities.AtlasAllocateId => InstanceEntities.AtlasAllocateLength, InstanceEntities.AtlasRefundId => InstanceEntities.AtlasRefundLength,
@@ -196,12 +196,14 @@ public static class InstanceProtocol
 
     /// <summary>
     /// S→C 0x53 (instance group, class 0x1435dc4c0, read 0x14219f600, dispatcher case 0x13): the skill bar, being tested.
-    /// 26 raw bytes = 13 × u16 skill ids by slot (+0x10, copied with memcpy, so little-endian like the blobs), then u16
-    /// +0x2a, u16 +0x2c (unknown, 0). The skill bar's rebuild 0x140ae0fb0 (bar vtable +0x390, subscribed to instance
+    /// 26 raw bytes = 13 × u16 skill ids by slot (+0x10, copied with memcpy, so little-endian like the blobs), then two
+    /// raw (little-endian) u16 slot bitmasks: +0x2a, "Always Attack Without Moving" (bit = slot, C→S 0x4f), and +0x2c
+    /// (C→S 0x52). Case 0x13 copies them to instance +0xcfd0 / +0xcfd2 after the rebuild, so a bar sent with 0 clears
+    /// both options. The skill bar's rebuild 0x140ae0fb0 (bar vtable +0x390, subscribed to instance
     /// +0xaf78) takes exactly such an array: each id is looked up in the ActiveSkillManager (+0x158, by +0x40) and put in
     /// its slot (vtable +0x398), an unknown id clears the slot (+0x3a0). Slot 2 is the right mouse button (C→S 0x4e).
     /// </summary>
-    public static byte[] SkillBar(IReadOnlyList<ushort> skillIds, ushort u2a = 0, ushort u2c = 0)
+    public static byte[] SkillBar(IReadOnlyList<ushort> skillIds, ushort attackInPlaceSlots = 0, ushort slotMask52 = 0)
     {
         var w = new LoginWriter().U16(SkillBarId);
         for (int i = 0; i < SkillBarSlots; i++)
@@ -209,8 +211,17 @@ public static class InstanceProtocol
             ushort id = i < skillIds.Count ? skillIds[i] : (ushort)0;
             w.U8((byte)id).U8((byte)(id >> 8));
         }
-        return w.U16(u2a).U16(u2c).ToArray();
+        return w.U8((byte)attackInPlaceSlots).U8((byte)(attackInPlaceSlots >> 8)).U8((byte)slotMask52).U8((byte)(slotMask52 >> 8)).ToArray();
     }
+
+    public const ushort AttackInPlaceId = 0x4f, SlotMask52Id = 0x52;
+
+    /// <summary>
+    /// C→S 0x4f and 0x52 (4 bytes, class 0x1435bf968, writer 0x141f93160): u8 slot, u8 on. 0x4f is a slot's "Always
+    /// Attack Without Moving" (sender 0x140aed580; the client sets bit slot of instance +0xcfd0 itself, live 2026-11-02
+    /// 004F0301). 0x52 sets bit slot of +0xcfd2 (0x142165750; binding a skill, 0x140ade430, clears it), meaning unknown.
+    /// </summary>
+    public static (byte Slot, bool On) ReadSlotOption(ReadOnlySpan<byte> m) => (m[2], m[3] != 0);
 
     public const ushort BindSkillId = 0x4e;
 

@@ -108,7 +108,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     {
         if (item.Rarity != ItemRarity.Magic || item.Components.Contains("Flask") || !TryModifiable(item, out var type))
             return null;
-        return AddAffix(item, MaxAffixesPerSide(type), random) is not { } added ? null
+        return AddAffix(item, MaxAffixesPerSide(type, item), random) is not { } added ? null
             : added with { Rarity = ItemRarity.Rare, Identified = true, NameWords = RareName(type, random) };
     }
 
@@ -137,7 +137,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     {
         if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out var type))
             return null;
-        return AddAffix(item, MaxAffixesPerSide(type), random);
+        return AddAffix(item, MaxAffixesPerSide(type, item), random);
     }
 
     /// <summary>Chaos Orb's validated rare reroll: every unprotected explicit affix is replaced by 4-6 new weighted
@@ -150,15 +150,22 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
         return Roll(item, ItemRarity.Rare, random, respectMetamods: true) with { Identified = true };
     }
 
-    /// <summary>The rare per-side limit from <c>system_settings</c>; jewel classes have their own, lower defaults.</summary>
-    (int Prefix, int Suffix) MaxAffixesPerSide(ItemCatalog.BaseType type) =>
-        type.Class is "Jewel" or "AbyssJewel"
+    /// <summary>The rare per-side limit from <c>system_settings</c>, adjusted by the item's own
+    /// local_maximum_prefixes_allowed_+ / local_maximum_suffixes_allowed_+ (Simplex and Focused Amulets and the
+    /// Simplex ring bases); jewel classes have their own, lower defaults. A side never goes below zero.</summary>
+    (int Prefix, int Suffix) MaxAffixesPerSide(ItemCatalog.BaseType type, Item item)
+    {
+        var (prefix, suffix) = type.Class is "Jewel" or "AbyssJewel"
             ? (_settings.RareJewelMaxPrefixes, _settings.RareJewelMaxSuffixes)
             : (_settings.RareMaxPrefixes, _settings.RareMaxSuffixes);
+        var local = ItemModStats.Local(item, catalog.Mods);
+        return (Math.Max(0, prefix + local.GetValueOrDefault("local_maximum_prefixes_allowed_+")),
+            Math.Max(0, suffix + local.GetValueOrDefault("local_maximum_suffixes_allowed_+")));
+    }
 
     /// <summary>The rare per-side limit for this item, or three/three when its base is unknown.</summary>
     public (int Prefix, int Suffix) RareMaxAffixes(Item item) =>
-        catalog.ByHash(item.TypeHash) is { } type ? MaxAffixesPerSide(type) : (3, 3);
+        catalog.ByHash(item.TypeHash) is { } type ? MaxAffixesPerSide(type, item) : (3, 3);
 
     /// <summary>The number of rare affixes: the ordinary weighted 4-6 (jewels 3-4), extended by however far the
     /// configured caps exceed the class default (six ordinary, four jewel) and capped at the two caps' sum. With the
@@ -170,11 +177,11 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
         return Math.Min(cap, weighted + extra);
     }
 
-    (int Count, int MaxPrefix, int MaxSuffix) RarePlan(ItemCatalog.BaseType type, Random rng)
+    (int Count, int MaxPrefix, int MaxSuffix) RarePlan(ItemCatalog.BaseType type, Item item, Random rng)
     {
         bool jewel = type.Class is "Jewel" or "AbyssJewel";
         int weighted = jewel ? (rng.Next(20) < 13 ? 3 : 4) : rng.Next(12) switch { < 8 => 4, < 11 => 5, _ => 6 };
-        var (maxPrefix, maxSuffix) = MaxAffixesPerSide(type);
+        var (maxPrefix, maxSuffix) = MaxAffixesPerSide(type, item);
         return (RareAffixCount(weighted, maxPrefix, maxSuffix, jewel ? 4 : 6), maxPrefix, maxSuffix);
     }
 
@@ -335,7 +342,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
             ? (fixedShape.Count, fixedShape.MaxEach, fixedShape.MaxEach)
             : rarity == ItemRarity.Magic
                 ? (rng.Next(1, 3), 1, 1)
-                : RarePlan(t, rng);
+                : RarePlan(t, item, rng);
         var generation = new MetacraftRules(item with { Mods = kept }, catalog.Mods);
         var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel), item.Influences)
             .Where(p => !respectMetamods || generation.Allows(p.Mod)).ToList();

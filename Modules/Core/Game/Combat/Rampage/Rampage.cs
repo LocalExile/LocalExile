@@ -6,7 +6,8 @@ static partial class Game
 {
     internal static GameServer.Modding.IModuleLifetime? CombatLifetime;
     internal static bool CurrentGameRules => CombatLifetime is { IsActive: true }
-        && Program.GameLogicOrNull is GameServer.Modules.Game.GameLogic;
+        && Program.GameLogicOrNull is GameServer.Modules.Game.GameLogic logic
+        && ReferenceEquals(logic.Lifetime, CombatLifetime);
     internal static bool CurrentRampageWork => CurrentGameRules && (Program.ProjectileOutputGuard.Value?.Invoke() ?? true);
     internal static readonly RampageWorld RetiredRampageWorld = new();
 

@@ -56,6 +56,9 @@ public sealed record LeagueRules
     public bool SellsMaps { get; init; }
     /// <summary>The development assortment of every gem at the vendors that have it.</summary>
     public bool FullGemStock { get; init; }
+    /// <summary>Nessa's development tabs (Awakened Gems, Exceptional Gems, Maps, Originator Maps, Unique Maps) follow her
+    /// progression tabs; <see cref="FullGemStock"/> replaces those instead.</summary>
+    public bool DevelopmentShopTabs { get; init; }
     /// <summary>The only NPC id endings whose gem tabs exist; null: every gem vendor's.</summary>
     public IReadOnlyList<string>? GemVendors { get; init; }
     /// <summary>Support gems are in the gem tabs.</summary>

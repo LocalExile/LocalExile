@@ -31,6 +31,15 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Start: trace the client's start cell and each leg's start time per frame (`scripts/re/frida/trace-spark-legs.js`)
   next to the server's `spark seq=` lines, then start the server's legs from the same cell and frame.
   Done when: every drawn spark hit deals damage once, and no damage lands without one.
+- **Spectral Throw hit timing:** the skill deals damage (Status), but its hits can land before or after the drawn
+  weapon reaches a monster, most on the return toward monsters walking at the thrower.
+  The server's return flies at a constant average speed where the client's accelerates from rest.
+  Its Melee combo release is known only for the Witch and Scion with sword, mace or axe and shield, and when the client
+  starts the combo over at 01a is not known.
+  Start: trace the client's weapon (`scripts/re/frida/trace-projectile-path.js`) next to the server's hit lines on one
+  clock, with pauses and default attacks between throws; then read every class and stance's Melee views from the ACT
+  and .ao in `scripts/re/anim_contacts.py` instead of `SpectralThrowRelease`'s table.
+  Done when: each hit lands as the drawn weapon reaches the monster, out and back, for every class and weapon.
 - **Ice Nova with Spell Echo:** the server sends Ice Nova no `spell_repeat_count`, so Spell Echo only speeds it up.
   Its action has two repeats: after a ring its update (`0x141c00180`) waits 0.3 s and rings again while +0x320 is under
   the count and bytes +0x2b8 and +0x2b9 are equal, and its slot 0x460 (`0x1412df740`) jumps to the spell base's replay
@@ -151,8 +160,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Attack-hand alias composition now includes attack-only sources, linked supports and each active hand's local
   modifiers, with automated lifecycle checks.
   Display prohibitions and weapon-local/non-base combat penetration now have automated source/lifecycle/contact
-  coverage. Verify the updated rows and contacts natively; off-hand attack selection and remaining conditional
-  penetration sources still need implementation and validation.
+  coverage. Verify the updated rows and contacts natively; off-hand attack selection and the conditional penetration
+  forms not read yet (Zealotry's critical-only, Enmity's Embrace's overcapped fire, recent kill or block, flask,
+  tincture, while chilled, single-skill) still need implementation and validation.
   Selected ailment duration/effect coefficients now include real Unbound Ailments contributions, with 24
   source/link/override regressions. Validate the twelve aliases natively, then complete ailment chance/eligibility,
   damaging ranges, duration/application and stacking; a correct coefficient alone does not prove those consumers.
@@ -358,6 +368,10 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Arcane Might's six modern contracts share attack/panel consumers, maximum independent grants and skill quality.
   Normal Crown and mastery lifecycle have automated coverage; their native acceptance remains pending.
   Earlier Whisperer raw-stat native checks do not establish this expanded composition's native behavior.
+  Whisperer's modular port adds generic typed-hit Recoup, actual spending and shared strongest Blind consumers.
+  Deterministic production-state controls cover the combined resource/transfer/retirement boundaries and reload-safe
+  utility End automation and atomic paid recovery; exact-head native/reload acceptance remains in the validation boundary.
+  **Next:** complete exact-head full suites and native resource/Blind acceptance; see [Whisperer](../docs/game/whisperer.md).
   Iron Will/Strength provenance and missing upstream conditional spell producers require separate work.
   Unsupported skill/variant execution and unrelated Crown leech remain separate; see
   [Arcane Might boundaries](../docs/game/arcane-might.md) and [20](../docs/protocol/20-damage.md) §2c.
@@ -382,7 +396,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Critical elemental ignore and non-critical penetration now compose with it on the same rolled packet.
   Rerun critical ignore against a rebuilt final DLL: the previous combined run used the preceding #225 artifact.
   Recheck the resolved bow-contact and target-modifier composition natively before claiming new combined proof.
-  Special ES mechanics, conditional penetration, skill Exposure, damaging and alternative ailments on monsters
+  Special ES mechanics, the remaining conditional penetration, skill Exposure, damaging and alternative ailments on monsters
   (beyond the player's ignites) and further added-damage/support effects remain open.
   The player's ignites on monsters exist (`MonsterIgnites`), but only Abberath's Fury's footstep hits call them: the
   default attack, gems, projectiles and bows need their flat (pre-increase) fire packet passed to `IgniteFromHit` next
@@ -400,7 +414,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Production use during an active walk still needs measurement; native manual walk-stop experiments passed.
   Its departure/arrival damage, chilled ground, enemy-dependent recovery and shared Blink groups remain open.
   Extend terrain and movement restrictions from native evidence before accepting other instant movement skills.
-- **Start:** special ES mechanics, skill Exposure, conditional penetration and the remaining critical strike stats
+- **Start:** special ES mechanics, skill Exposure, the remaining conditional penetration and critical strike stats
   from the stats both sides already carry; monster skills beyond the first granted effect (ranged, spells).
   Extend player stun rules to ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
   Spell base critical chance now comes from each skill's level and shares its panel/combat calculation.
@@ -448,8 +462,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   and find what 0x1c1's +0x82 u16 does.
   The shatter visual (the server ends a shattered monster's ailments and spreads nothing from it; the packet that
   removes the corpse is not known), unique/boss
-  thresholds and the monster variety's own immunities remain open, as do chill, freeze and ignite proliferation and a
-  native check of the shock proliferation radius's area scaling.
+  thresholds and the monster variety's own immunities remain open, as do ignite proliferation and a native check of
+  the proliferation radius's area scaling.
   See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
 - Ordinary supported monster basic contacts now exercise ignite/chill/freeze/shock and final avoidance.
   Finish dedicated native buff icons and source/threshold/conditional-immunity parity before claiming a general ailment engine.

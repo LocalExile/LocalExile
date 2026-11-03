@@ -31,9 +31,13 @@ static partial class Game
         public required Dictionary<string, int> MainLocal, OffLocal;
         public required uint PlayerLife, PlayerMaxLife;
         public required bool EnergyShieldRecharging;
+        /// <summary>Petrified Blood runs and Life is above Low Life: the client's own recovery step must not raise it
+        /// above the Low Life boundary, so <c>life_recovery_per_minute</c> is published as 0.</summary>
+        public required bool PetrifiedBloodRecoveryCapped;
         public required double LifeRegenerationToEnergyShield;
         /// <summary>Walking when the head was read: the while-moving regeneration in the Recovery rows (PanelStats.WhileMoving).</summary>
         public required bool Moving;
+        public int BlindLess;
         public required int BloodChargesHeld;
         public required bool BloodChargesShown;
         /// <summary>is_ignited, is_chilled, is_frozen, is_shocked, after reconciliation.</summary>
@@ -58,8 +62,9 @@ static partial class Game
 
         public bool Matches(StatSnapshotTailInputs o) =>
             ReferenceEquals(Skills, o.Skills) && ReferenceEquals(Items, o.Items) && ClassRow == o.ClassRow
-            && PlayerLife == o.PlayerLife && PlayerMaxLife == o.PlayerMaxLife
+            && BlindLess == o.BlindLess && PlayerLife == o.PlayerLife && PlayerMaxLife == o.PlayerMaxLife
             && EnergyShieldRecharging == o.EnergyShieldRecharging
+            && PetrifiedBloodRecoveryCapped == o.PetrifiedBloodRecoveryCapped
             && LifeRegenerationToEnergyShield.Equals(o.LifeRegenerationToEnergyShield) && Moving == o.Moving
             && BloodChargesHeld == o.BloodChargesHeld && BloodChargesShown == o.BloodChargesShown
             && SuppressionChance == o.SuppressionChance && AttackEffectId == o.AttackEffectId
@@ -116,16 +121,22 @@ static partial class Game
         var mainRow = items.Items(PlayerInventories.Weapon1);
         var offRow = items.Items(PlayerInventories.Offhand1);
         var (bloodHeld, bloodShown) = BloodChargePanelInputs(conn);
+        var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
+            name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
+        uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
         return new()
         {
-            Stats = stats, RawOverrides = rawOverrides, DevSet = devSet, Pools = conn.Pools,
+            Stats = stats, RawOverrides = rawOverrides, DevSet = devSet, Pools = conn.Pools with { Evasion = PlayerEvasion(conn, stats) },
             Skills = SkillsFor(conn), Items = ItemsFor(conn), ClassRow = conn.ClassRow,
             MainRow = mainRow, OffRow = offRow,
             MainInactive = [.. mainRow.Select(i => IsInactive(conn, i.Id))], OffInactive = [.. offRow.Select(i => IsInactive(conn, i.Id))],
             MainLocal = mainLocal, OffLocal = offLocal,
             PlayerLife = conn.PlayerLife, PlayerMaxLife = conn.PlayerMaxLife,
             EnergyShieldRecharging = conn.EnergyShield.Recharging,
-            LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving,
+            PetrifiedBloodRecoveryCapped = conn.PetrifiedBlood.Active && conn.PlayerLife > 0
+                && (long)conn.PlayerLife + recoveryMargin
+                    >= (uint)((long)conn.PlayerMaxLife * LowLifeThresholdPct(stats) / 100),
+            LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving, BlindLess = PlayerBlindValue(conn, stats).Less,
             BloodChargesHeld = bloodHeld, BloodChargesShown = bloodShown,
             Ailments = [], SuppressionChance = 0,
             AttackEffectId = SkillEffectId(conn, SkillCatalog.FirstSkillId),
@@ -192,10 +203,13 @@ static partial class Game
         if (stage == StatSnapshotStage.Panels)
         {
             foreach (var (stat, value) in PanelStats.Compute(Get, n => mainLocal.GetValueOrDefault(n), n => offLocal.GetValueOrDefault(n),
-                playerLevel: pools.Level)
+                playerLevel: pools.Level, mainArmed: WeaponIn(inputs.Skills, inputs.Items, inputs.ClassRow, ActiveMainHand()) is not null,
+                offArmed: OffhandWeaponFor() is not null)
                 .Concat(PanelStats.FromPools(Get, pools))
                 .Concat(PanelStats.Defence(Get, pools, Monsters.BaseDamage(pools.Level), Monsters.BaseAccuracy(pools.Level)))
                 .Concat(PanelStats.Recovery(PanelStats.WhileMoving(Get, inputs.Moving), pools.Life, pools.Mana))
+                // Leech limits and the client display use the full maximum pool. Petrified Blood caps only the
+                // recovery actually applied, not the instance's contribution or its displayed cap.
                 .Concat(LeechLimits.Compute(Get, pools.Life, pools.Mana, pools.EnergyShield,
                     name => Stats.Key(name) is uint key && rawOverrides.TryGetValue(key, out int value) ? value : null,
                     OnLowLife(stats)))
@@ -212,6 +226,10 @@ static partial class Game
             // Reap's Blood Charges: the count held, the maximum and the rows' gate (BloodChargePanelRows).
             foreach (var (stat, value) in BloodChargePanelRows(inputs.BloodChargesHeld, inputs.BloodChargesShown, Get))
                 if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
+            // Petrified Blood: the client's Life step reads life_recovery_per_minute, not the display total, and it
+            // only clamps to the maximum pool. Publish 0 while the buff stops non-flask recovery at Low Life.
+            if (inputs.PetrifiedBloodRecoveryCapped && Stats.Key("life_recovery_per_minute") is uint lifeRecovery)
+                stats[lifeRecovery] = 0;
             // Derive once from the resolved final rating, after pools and explicit stat replacements. Only this
             // temporary dictionary changes; repeated builds and removal cannot feed the bonus back into raw sources.
             if ((Get(ArmourAttackDamage.Per450Armour) != 0 || Get(ArmourAttackDamage.Per450Evasion) != 0)
@@ -272,7 +290,7 @@ static partial class Game
         foreach (uint key in SuppressionChanceKeys) stats[key] = inputs.SuppressionChance;
         if (Stats.Key("main_hand_critical_strike_multiplier") is uint multiplier)
             stats[multiplier] = AttackMultiplier(stats);
-        var accuracy = OrdinaryAccuracy(inputs.Skills, inputs.AttackEffectId, pools, stats, mainLocal);
+        var accuracy = OrdinaryAccuracy(inputs.Skills, inputs.AttackEffectId, pools, stats, mainLocal) with { Rating = TimedBlind.Apply(pools.Accuracy, inputs.BlindLess) };
         foreach (var (name, evasion) in new[]
         {
             ("main_hand_chance_to_hit_%", Monsters.BaseEvasion(pools.Level) ?? 0),
@@ -283,7 +301,7 @@ static partial class Game
         // The Off Hand rows of a dual-wielded default attack; the flag clears when nothing is swung with the off hand.
         if (Stats.Key("skill_uses_off_hand") is uint usesOffHand && !devSet.Contains(usesOffHand)) stats[usesOffHand] = 0;
         foreach (var (name, value) in OffHandPanelStats(OffhandWeaponFor, ActiveOffHand, () => pools, Profile, inputs.Items,
-            () => AttackMultiplier(stats), stats, mainLocal, offLocal, stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), own: null) ?? [])
+            () => AttackMultiplier(stats), stats, mainLocal, offLocal, stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), own: null, blindLess: inputs.BlindLess) ?? [])
             if (Stats.Key(name) is uint key && !devSet.Contains(key)) stats[key] = value;
         if (Stats.Key("virtual_on_low_life") is uint lowLife)
             stats[lowLife] = OnLowLife(stats) ? 1 : 0;

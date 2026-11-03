@@ -44,6 +44,7 @@ static partial class Game
         var profile = new ProjectileProfile(projectile.Metadata)
         {
             Speed = speed, Radius = projectile.CollisionRadius, Count = Math.Max(1, projectile.Count), Lobbed = projectile.Lobbed,
+            SpreadRadians = projectile.SpreadRadians,
             // A lobbed shot's range is its landing distance; a straight one flies on past the aim.
             Range = projectile.Lobbed ? landing : Math.Max(distance, a.Range) * 1.5 + 5,
             DirectDamage = !projectile.Lobbed,

@@ -6,7 +6,8 @@ using GameServer.Core.World;
 /// <c>base_stun_recovery_+%</c>, the panel's Stun Recovery row reads <c>stun_recovery_+%</c>. Each display stat is its
 /// own value plus every unconditional source below: the base form, and the combined stats that apply to it too (Avoid
 /// Elemental Ailments counts for each avoid row, "increased Duration of Elemental Ailments" for each duration).
-/// Main hand / off hand rows also add that weapon's local stats (its own chance to bleed, penetration, life gain on hit).
+/// Main hand / off hand rows also add that weapon's local stats (its own chance to bleed, penetration, life gain on hit) and,
+/// while the hand holds a weapon, the "with Weapons" penetration.
 /// Conditional stats (while, if, per charge, against …) are not counted. Flags (cannot be, immune to) are 1 when any
 /// source is set. The pools' own stats (life, mana, armour, evasion, attributes, resistances, suppression, block,
 /// movement and attack speed, crit) are not here: <see cref="CharacterStats"/> computes those, and
@@ -21,8 +22,10 @@ static class PanelStats
         public static implicit operator Src(string name) => new(name);
     }
 
-    /// <summary>A display stat and what it sums; <paramref name="Local"/> are the weapon's own stats (hand rows).</summary>
-    public sealed record Sum(string Display, Src[] Sources, bool Flag = false, Src[]? Local = null, Hand Hand = Hand.None);
+    /// <summary>A display stat and what it sums; <paramref name="Local"/> are the weapon's own stats (hand rows), and
+    /// <paramref name="Armed"/> the character's stats that count only while that hand holds a weapon ("with Weapons").</summary>
+    public sealed record Sum(string Display, Src[] Sources, bool Flag = false, Src[]? Local = null, Hand Hand = Hand.None,
+        Src[]? Armed = null);
 
     public enum Hand { None, Main, Off }
 
@@ -34,6 +37,7 @@ static class PanelStats
     const string ChargeDuration = "charge_duration_+%", BaseChargeDuration = "base_charge_duration_+%";
     const string LeechSpeed = "life_mana_es_leech_speed_+%";
     const string ElementalPenetration = "reduce_enemy_elemental_resistance_%", PenetrateElemental = "base_penetrate_elemental_resistances_%";
+    const string WeaponElementalPenetration = "reduce_enemy_elemental_resistance_with_weapons_%";
     const string IgniteChance = "base_chance_to_ignite_%", FreezeShockIgniteChance = "chance_to_freeze_shock_ignite_%";
 
     static readonly Src[] GlobalFlaskDurationSources =
@@ -94,13 +98,16 @@ static class PanelStats
             Local: ["local_attacks_impale_on_hit_%_chance"])),
         .. Hands(h => new($"{h}_attack_damage_penetrates_fire_resist_%", ["base_reduce_enemy_fire_resistance_%", ElementalPenetration,
             PenetrateElemental, "base_attack_damage_penetrates_fire_resist_%", "base_attack_damage_penetrates_elemental_resist_%"],
-            Local: ["local_fire_penetration_%", "local_elemental_penetration_%"])),
+            Local: ["local_fire_penetration_%", "local_elemental_penetration_%"],
+            Armed: ["reduce_enemy_fire_resistance_with_weapons_%", WeaponElementalPenetration])),
         .. Hands(h => new($"{h}_attack_damage_penetrates_cold_resist_%", ["base_reduce_enemy_cold_resistance_%", ElementalPenetration,
             PenetrateElemental, "base_attack_damage_penetrates_cold_resist_%", "base_attack_damage_penetrates_elemental_resist_%"],
-            Local: ["local_cold_penetration_%", "local_elemental_penetration_%"])),
+            Local: ["local_cold_penetration_%", "local_elemental_penetration_%"],
+            Armed: ["reduce_enemy_cold_resistance_with_weapons_%", WeaponElementalPenetration])),
         .. Hands(h => new($"{h}_attack_damage_penetrates_lightning_resist_%", ["base_reduce_enemy_lightning_resistance_%",
             ElementalPenetration, PenetrateElemental, "base_attack_damage_penetrates_lightning_resist_%",
-            "base_attack_damage_penetrates_elemental_resist_%"], Local: ["local_lightning_penetration_%", "local_elemental_penetration_%"])),
+            "base_attack_damage_penetrates_elemental_resist_%"], Local: ["local_lightning_penetration_%", "local_elemental_penetration_%"],
+            Armed: ["reduce_enemy_lightning_resistance_with_weapons_%", WeaponElementalPenetration])),
         .. Hands(h => new($"{h}_attack_damage_penetrates_chaos_resist_%", ["reduce_enemy_chaos_resistance_%",
             "base_attack_damage_penetrates_chaos_resist_%"],
             Local: ["local_chaos_penetration_%"])),
@@ -226,9 +233,10 @@ static class PanelStats
     ];
 
     /// <summary>Every display stat with a non-zero value, from the stats as the server holds them (<paramref name="get"/>:
-    /// by Stats.dat Id, 0 when absent) and each hand's local weapon stats.</summary>
+    /// by Stats.dat Id, 0 when absent) and each hand's local weapon stats, and whether each hand holds a weapon.</summary>
     public static List<(string Stat, int Value)> Compute(Func<string, int> get,
-        Func<string, int>? mainHand = null, Func<string, int>? offHand = null, int playerLevel = 1)
+        Func<string, int>? mainHand = null, Func<string, int>? offHand = null, int playerLevel = 1,
+        bool mainArmed = false, bool offArmed = false)
     {
         playerLevel = Math.Clamp(playerLevel, 1, Progression.MaxLevel);
         var result = new List<(string, int)>();
@@ -236,7 +244,8 @@ static class PanelStats
         {
             var local = sum.Hand switch { Hand.Main => mainHand, Hand.Off => offHand, _ => null };
             bool blocked = Penetration.IsElementalDisplay(sum.Display) && get(Penetration.ElementalProhibition) != 0;
-            int value = blocked ? 0 : Project(sum, RawSum(sum, get, local, playerLevel));
+            bool armed = sum.Hand switch { Hand.Main => mainArmed, Hand.Off => offArmed, _ => false };
+            int value = blocked ? 0 : Project(sum, RawSum(sum, get, local, playerLevel) + (armed ? Total(sum.Armed, get, playerLevel) : 0));
             if (value != 0 || blocked) result.Add((sum.Display, value));
         }
         return result;
@@ -266,6 +275,9 @@ static class PanelStats
         or "virtual_sap_duration_+%" or "virtual_sap_effect_+%"
         or "virtual_total_main_hand_impale_on_hit_%_chance" or "virtual_total_off_hand_impale_on_hit_%_chance"
         or "virtual_total_spell_impale_on_hit_%_chance"
+        || s.Display.Contains("_chance_to_poison_on_hit_%", StringComparison.Ordinal)
+        || s.Display.Contains("_chance_to_bleed_on_hit_%", StringComparison.Ordinal)
+        || s.Display.Contains("_chance_to_ignite_on_hit_%", StringComparison.Ordinal)
         || s.Display.Contains("_attack_damage_penetrates_", StringComparison.Ordinal)
         || s.Display.Contains("_leech_from_", StringComparison.Ordinal)
         || s.Display.EndsWith("_leech_speed_+%", StringComparison.Ordinal))];
@@ -274,14 +286,17 @@ static class PanelStats
     /// Derive each alias once, clamp the completed sum, and retain zero to clear a removed contribution.
     /// Published character aliases must not be passed back as raw seeds.</summary>
     public static List<(string Stat, int Value)> Selected(Func<string, int> character, Func<string, int> own,
-        int playerLevel = 1, Func<string, int>? mainHand = null, Func<string, int>? offHand = null)
+        int playerLevel = 1, Func<string, int>? mainHand = null, Func<string, int>? offHand = null,
+        bool mainArmed = false, bool offArmed = false)
     {
         int level = Math.Clamp(playerLevel, 1, Progression.MaxLevel);
         bool blockElemental = character(Penetration.ElementalProhibition) != 0 || own(Penetration.ElementalProhibition) != 0;
         long Combined(string name) => (long)character(name) + own(name);
         long SelectedSum(Sum sum) => Combined(sum.Display)
             + sum.Sources.Sum(s => Combined(s.Name) * s.Mul * (s.PerPlayerLevel ? level : 1) / s.Div)
-            + Total(sum.Local, sum.Hand switch { Hand.Main => mainHand, Hand.Off => offHand, _ => null }, level);
+            + Total(sum.Local, sum.Hand switch { Hand.Main => mainHand, Hand.Off => offHand, _ => null }, level)
+            + (sum.Hand switch { Hand.Main => mainArmed, Hand.Off => offArmed, _ => false }
+                ? sum.Armed?.Sum(s => Combined(s.Name) * s.Mul / s.Div) ?? 0 : 0);
         return [.. SelectedSums.Select(sum => (sum.Display,
             blockElemental && Penetration.IsElementalDisplay(sum.Display) ? 0 : Project(sum, SelectedSum(sum))))];
     }

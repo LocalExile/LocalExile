@@ -47,7 +47,11 @@ static partial class Game
             return;
         }
         // Pause is a barrier: commit the preceding combat interval before freezing the world clock.
-        using (ProjectileMutation(conn)) { if (pause) conn.Clock.Stop(); else conn.Clock.Start(); }
+        using (ProjectileMutation(conn))
+        {
+            foreach (var changed in GameEvents.PauseChanged.For(conn)) changed(conn, pause);
+            if (pause) conn.Clock.Stop(); else conn.Clock.Start();
+        }
         await Send(remote, stream, ciphers, InstancePause.State(pause), $"0x01d3 {(pause ? "paused" : "resumed")} (C→S 0x01d4 {(pause ? 1 : 0)})");
     }
 }

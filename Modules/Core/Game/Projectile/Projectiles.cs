@@ -36,15 +36,17 @@ static partial class Game
         readonly Dictionary<SpawnedMonster, int> generations = new(ReferenceEqualityComparer.Instance);
         int generation, seed;
         bool invalid;
+        readonly IDisposable? lifetime;
         public ProjectileRuntime Runtime { get; }
         public Task OutputCompleted { get; }
-        public bool Active => !invalid && Conn.ProjectileActive(epoch);
+        public bool Active => CurrentGameRules && !invalid && Conn.ProjectileActive(epoch);
 
         public ProjectileSession(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
         {
             (this.remote, this.stream, this.ciphers, Conn, epoch) = (remote, stream, ciphers, conn, conn.ProjectileEpoch);
             Runtime = new(this);
             OutputCompleted = RunOutput();
+            lifetime = CombatLifetime?.Own(new ConnectionProjectileRetirement(conn, this));
         }
 
         public void Start() => _ = Pump();
@@ -114,6 +116,7 @@ static partial class Game
             {
                 if (invalid) return;
                 invalid = true;
+                lifetime?.Dispose();
                 Runtime.Clear();
                 foreach (var visual in visuals.Values) Conn.ProjectileObjects.Remove(visual.Id);
                 visuals.Clear(); output.Writer.TryComplete();
@@ -130,6 +133,13 @@ static partial class Game
                 Conn.Closed = true; Invalidate(); stream.Close();
             }
         }
+        internal void PresentCharges() => Packet(() =>
+        {
+            _ = CharacterPlayerStats(Conn);
+            var (packet, changed) = CurrentChargePresentationLocked(Conn, remote);
+            if (changed) Conn.Minions.StatRevision++;
+            return packet;
+        });
         internal void Packet(byte[] bytes, string? log = null) => Packet(() => bytes, log);
         void Packet(Func<byte[]?> snapshot, string? log = null) => Enqueue(async () =>
         {
@@ -223,7 +233,8 @@ static partial class Game
             if (contact.Projectile.Use.Payload is HostileProjectileOffense hostile) return HostileHit(this, contact, hostile);
             // A server object's shot (a trial's dart trap): its own rule commits the hit.
             if (contact.Projectile.Use.Payload is ObjectProjectileOffense thrown) return thrown.Hit(this, contact);
-            if (contact.Projectile.Use.Payload is not ProjectileOffense shot) return ProjectileHitResult.Miss;
+            if (contact.Projectile.Use.Payload is not ProjectileOffense shot || shot.Valid?.Invoke() == false)
+                return ProjectileHitResult.Miss;
             if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
@@ -231,7 +242,7 @@ static partial class Game
             {
                 if (!RampageEffectCurrent(Conn, ownedEpoch) || !target.Hostile || target.OwnerId is not null)
                     return ProjectileHitResult.Miss;
-                if (!shot.Spell && !RampageAttackHits(target, shot.Accuracy, contact.At / (double)ProjectileRuntime.QuantaPerSecond, random))
+                if (!shot.Spell && !RampageAttackHits(Conn, contact.Target.Id, target, shot.Accuracy, contact.At / (double)ProjectileRuntime.QuantaPerSecond, random))
                     return ProjectileHitResult.Miss;
                 if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
@@ -309,6 +320,7 @@ static partial class Game
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
             ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
+            InflictMonsterBlind(Conn, contact.Target.Id, target, at, shot.Blind, contact.Projectile.ReactionRandomSource);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical);
             if (critical) Enqueue(() => MaybeCreateProfaneGround(remote, stream, ciphers, Conn, target.Walk.Position(at)));
             return ProjectileHitResult.Hit;
@@ -317,13 +329,15 @@ static partial class Game
         public void Publish(ProjectileEvent value)
         {
             var p = value.Projectile;
+            bool valid = p.Use.Payload is not ProjectileOffense owned || owned.Valid?.Invoke() != false;
+            if (!valid && value.Kind != ProjectileEventKind.End) return;
             int x = (int)Math.Round(value.Position.X), y = (int)Math.Round(value.Position.Y);
             var presentation = PresentationFor(p);
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"
                     + $" grid={Conn.Layout.Id}_seed{Conn.Seed} blocked={ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y)?.ToString() ?? "unknown"}");
-            if (presentation.EventEffect?.Invoke(value) is { } eventEffect)
+            if (valid && presentation.EventEffect?.Invoke(value) is { } eventEffect)
                 Effect(x, y, eventEffect, presentation.EffectLifetime,
                     value.Kind == ProjectileEventKind.Area ? value.Radius : null);
             // The client draws its own primary projectiles of a skill use; the server still simulates them (contacts,
@@ -534,8 +548,10 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
+            if (!CurrentGameWork) throw new OperationCanceledException("The Game generation retired");
             if (conn.ProjectileRuntime is { Active: true } current) return current;
             var session = new ProjectileSession(remote, stream, ciphers, conn);
+            if (!CurrentGameWork || !session.Active) { session.Invalidate(); throw new OperationCanceledException("The Game generation retired"); }
             conn.ProjectileRuntime = session; session.Start();
             return session;
         }

@@ -63,6 +63,14 @@ static class CommandsFeature
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.MovementVelocityPct, totalPct)]),
                 $"0x01b3 stats: movement_velocity_+% (key {StatKeys.MovementVelocityPct}) = {totalPct} ({conn.Pools.MovementVelocityPct} passive + {percent - 100} dev)");
         })
+        .Add("blind", "/blind [seconds] (dev: incoming Blind through normal immunity)", async args =>
+        {
+            double seconds = args.Length == 0 ? 4 : double.Parse(args[0], System.Globalization.CultureInfo.InvariantCulture);
+            if (!double.IsFinite(seconds) || seconds <= 0 || seconds > 60) throw new ArgumentException("seconds in (0, 60]");
+            bool accepted = Game.InflictPlayerBlind(conn, seconds);
+            await Game.SendBlind(remote, stream, ciphers, conn);
+            await conn.Commands!.Reply(accepted ? "Blind applied." : "Blind refused (immune or unavailable).");
+        })
         .Add("set_stat", "/set_stat <stat name or client key> <value|off> (off removes the dev replacement)", async args =>
         {
             uint stat = Stats.Key(args[0]) ?? throw new ArgumentException($"unknown stat {args[0]}");
@@ -72,7 +80,8 @@ static class CommandsFeature
             string sourceName = Stats.Name(stat) ?? args[0];
             bool rebuildLife = LifeManaPoolSources.IsLifeInput(sourceName) || InherentAttributeBonuses.IsLifeInput(sourceName);
             bool rebuildMana = LifeManaPoolSources.IsManaInput(sourceName) || stat == Stats.Key(StrengthMana.PerFourStrength)
-                || InherentAttributeBonuses.IsManaInput(sourceName) || stat == Stats.Key(PowerOfPurpose.RawFlag);
+                || InherentAttributeBonuses.IsManaInput(sourceName) || stat == Stats.Key(PowerOfPurpose.RawFlag)
+                || stat == Stats.Key(ManaRecoveryRules.PerDexterity);
             bool rebuildDefences = AttributeDefenceSources.IsInput(sourceName) || InherentAttributeBonuses.IsInput(sourceName);
             bool rebuildEnergyShield = sourceName == AttributeDefenceSources.EnergyShieldPerTenStrength
                 || InherentAttributeBonuses.IsEnergyShieldInput(sourceName);
@@ -794,7 +803,7 @@ static class CommandsFeature
                 ? $"Map portals will be created at {conn.PortalRotationDegrees:0.#}°."
                 : $"{rebuilt} map portal(s) rebuilt at {conn.PortalRotationDegrees:0.#}°.");
         })
-        .Add("item_mod", "/item_mod [implicit|explicit|enchant|scourge|hidden] <Mods row, Id or part of it> [values…] | /item_mod set [section] <mod> [values…] | /item_mod clear [section] (the held item; missing values are rolled)", async args =>
+        .Add("item_mod", "/item_mod [implicit|explicit|enchant|scourge|hidden] <Mods row, Id or part of it> [values…] | /item_mod set [section] <mod> [values…] | /item_mod remove [section] <mod> | /item_mod clear [section] (the held item; missing values are rolled)", async args =>
         {
             if (args.Length == 0) throw new ArgumentException("which mod?");
             ModSection? section = null;
@@ -821,6 +830,21 @@ static class CommandsFeature
                     if (index >= 0) mods[index] = replacement;
                     return i with { Mods = mods };
                 }, $"set {ItemsFor(conn).Mods.Describe(replacement)}");
+                return;
+            }
+            if (args[0].Equals("remove", StringComparison.OrdinalIgnoreCase))
+            {
+                args = args[1..];
+                if (args.Length == 0) throw new ArgumentException("which mod?");
+                ModSection? removeSection = null;
+                if (args.Length > 1 && ParseSection(args[0]) is { } parsed) { removeSection = parsed; args = args[1..]; }
+                if (ItemsFor(conn).Mods.Find(args[0]) is not { } removeMod) { await conn.Commands!.Reply($"No mod \"{args[0]}\" in Mods.dat"); return; }
+                if (ItemsOf(conn).Items(PlayerInventories.Cursor) is not [var held, ..]) { await conn.Commands!.Reply("Hold an item first"); return; }
+                if (!ItemModEdits.Contains(held.Item, removeMod.Hash, removeSection)) { await conn.Commands!.Reply($"The held item has no {removeMod.Id}"); return; }
+                var removed = held.Item.Mods.First(m => m.Hash == removeMod.Hash && (removeSection is null || m.Section == removeSection));
+                await ChangeHeldItem(remote, stream, ciphers, conn,
+                    i => ItemModEdits.Remove(i, removeMod.Hash, removeSection),
+                    $"removed {ItemsFor(conn).Mods.Describe(removed)}");
                 return;
             }
             if (args.Length > 1 && ParseSection(args[0]) is { } s) { section = s; args = args[1..]; }
@@ -1080,9 +1104,12 @@ static class CommandsFeature
                     "0x01b3 player hide_mini_life_bar = 1 (dev hit)");
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
                 $"0x01b1 player dev {type} hit for {dealt} ({amount} before {mitigation}), life {life}/{conn.PlayerMaxLife}");
+            if (hit.Mana != hit.ManaBefore)
+                await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})");
             if (life == 0)
                 await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league, dev hit)");
-            await conn.Commands!.Reply($"{type}: {amount} → {dealt} after {mitigation}; life {life}/{conn.PlayerMaxLife}.");
+            await conn.Commands!.Reply($"{type}: {amount} → {dealt} after {mitigation}; life {life}/{conn.PlayerMaxLife}" +
+                $"{(hit.Mana != hit.ManaBefore ? $", mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})" : "")}.");
         })
         .Add("suppression", "/suppression (Spell Suppression chance, roll and damage reduction)", async _ =>
         {
@@ -1184,6 +1211,8 @@ static class CommandsFeature
                     "0x01b3 player hide_mini_life_bar = 1 (dev spell hit)");
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
                 $"0x01b1 player dev spell {type} hit for {dealt} ({amount} before {mitigation}, suppression {(suppressed ? "yes" : "no")}), life {life}/{conn.PlayerMaxLife}");
+            if (hit.Mana != hit.ManaBefore)
+                await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})");
             if (life == 0)
                 await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league, dev spell hit)");
             double effective = DamageModel.EffectiveSuppressionChance(chance, lucky, unlucky);
@@ -1244,7 +1273,7 @@ static class CommandsFeature
                 $"0x01b1 player dev {(spell ? "spell" : "attack")} hit for {dealt} ({(blocked ? "blocked" : mitigation)}), life {life}/{conn.PlayerMaxLife}");
             if (mana != manaBefore)
                 await SendPlayerMana(remote, stream, ciphers, conn,
-                    $"0x01b1 player mana {mana} ({(blocked ? $"+{conn.Pools.ManaGainedOnBlock} on block" : "no block gain")})");
+                    $"0x01b1 player mana {mana} ({(long)mana - manaBefore:+0;-0}{(blocked ? ", blocked" : "")})");
             if (life == 0)
                 await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league, dev block hit)");
             await conn.Commands!.Reply($"{(spell ? "Spell" : "Attack")} hit: {amount} → {dealt}; {(blocked ? "blocked" : "not blocked")} ({chance}% chance); life {life}/{conn.PlayerMaxLife}.");

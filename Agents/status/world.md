@@ -94,6 +94,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Another character, including one reusing a deleted name, cannot inherit or join that state.
   Automated league/SSF instance checks pass.
   Shared peer presence preserves SSF town visibility while mutable world state remains private.
+  Other players walk with the Move action the client animates.
   Multi-client world joining and pickup boundaries remain covered by automated checks.
   See [league modes](../docs/game/league-modes.md).
 - **Predictive actor collision.** Player paths include living monsters and published players in the same instance.
