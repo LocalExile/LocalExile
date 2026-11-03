@@ -27,7 +27,8 @@ static partial class Game
         conn.PlayerMana -= (uint)fromMana;
         if (ResourceEffectsCurrent(conn, state)) state.Mana.Hit(at,
             (int)Math.Min(int.MaxValue, (long)physical + other + chaos), Get("damage_taken_goes_to_mana_%"));
-        return (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana);
+        // Petrified Blood sees the life loss after Ward, Energy Shield and Mana: it protects Life, not the other pools.
+        return PetrifiedBlood.PreventHitLifeLoss(conn, (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana), at);
     }
     internal static (int Physical, int Other, int Chaos) AbsorbPlayerWard(ClientState conn,
         int physical, int other, int chaos, double now, IReadOnlyDictionary<uint, int> stats)

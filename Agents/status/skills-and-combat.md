@@ -696,6 +696,27 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `GatewayProjectileSkillProfiles.cs`, `ProjectileStages.cs`, `ProjectileTypes.cs`, `Projectiles.cs`;
   wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
+- Petrified Blood: the 35% Mana reservation buff, its hit-only Life-loss split at half Life, the four-second deferred
+  loss, the non-flask recovery cap at Low Life and the Life cost above it are implemented. Life leech instances and
+  the client's leech display keep the full maximum-unreserved-Life cap; they are not removed at Low Life, but their
+  actual recovery is capped like regeneration and Recoup. Recoup is based on the hit before Petrified Blood and its
+  four-second instance also keeps running at Low Life; a level-21/20-quality gem's 30% deferred share is offset by 30%
+  Recoup as Life over the same four seconds. The invisible life/mana/energy-shield leech buffs are presented with the
+  full per-minute rate, so the client can draw the leech overlay; only the actual pool update is capped. The deferred
+  rate is presented with invisible BuffDefinitions 1796 (`slow_life_loss_from_hit_damage`), drawing the dark life-orb
+  overlay for the loss still owed.
+  Low Life uses the shared 50% default (`low_life_threshold_%_override` then `low_life_threshold_%`), not a fixed
+  half of maximum Life; the 3.29.3b Life mastery `Life4` sets the override to 55%. The client's own
+  `life_recovery_per_minute` is published as 0 inside a 250 ms regeneration margin of the cap and restored farther
+  below it, so its pool prediction cannot cross the boundary.
+  Activation, deactivation, saved intent across areas, death cleanup and the own-aura/received-buff presentation share
+  the existing aura send gate; the buff is not an aura and the aura restriction leaves it alone.
+  Not implemented: the buff-specific reservation-efficiency rows, the client tooltip's Life cost, and any non-hit
+  Life loss (damage over time and the already-deferred loss are not protected).
+  Automated tests cover the split, level-1/level-20 deferral, the threshold, the recovery cap (including a leech
+  instance retained above Low Life while its recovery is capped), and the Life cost; no native check yet. Code:
+  `Combat/PetrifiedBlood.cs`, `Combat/LowLife.cs`,
+  `Modules/Core/Game/Combat/PetrifiedBlood.cs`; docs: [20](../docs/protocol/20-damage.md) section 2i.
 - Shared Mana/Recoup and Blind: actual Whisperer nodes feed generic Game engines through the optional module.
   Typed hits preserve Ward/ES ordering; accepted skill/Vaal spending, continuous flask Life copying and Recoup
   share the existing resource writer, with synchronous lethal-Ignite cleanup before Mana recovery.

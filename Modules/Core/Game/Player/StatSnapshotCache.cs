@@ -31,6 +31,9 @@ static partial class Game
         public required Dictionary<string, int> MainLocal, OffLocal;
         public required uint PlayerLife, PlayerMaxLife;
         public required bool EnergyShieldRecharging;
+        /// <summary>Petrified Blood runs and Life is above Low Life: the client's own recovery step must not raise it
+        /// above the Low Life boundary, so <c>life_recovery_per_minute</c> is published as 0.</summary>
+        public required bool PetrifiedBloodRecoveryCapped;
         public required double LifeRegenerationToEnergyShield;
         /// <summary>Walking when the head was read: the while-moving regeneration in the Recovery rows (PanelStats.WhileMoving).</summary>
         public required bool Moving;
@@ -61,6 +64,7 @@ static partial class Game
             ReferenceEquals(Skills, o.Skills) && ReferenceEquals(Items, o.Items) && ClassRow == o.ClassRow
             && BlindLess == o.BlindLess && PlayerLife == o.PlayerLife && PlayerMaxLife == o.PlayerMaxLife
             && EnergyShieldRecharging == o.EnergyShieldRecharging
+            && PetrifiedBloodRecoveryCapped == o.PetrifiedBloodRecoveryCapped
             && LifeRegenerationToEnergyShield.Equals(o.LifeRegenerationToEnergyShield) && Moving == o.Moving
             && BloodChargesHeld == o.BloodChargesHeld && BloodChargesShown == o.BloodChargesShown
             && SuppressionChance == o.SuppressionChance && AttackEffectId == o.AttackEffectId
@@ -117,6 +121,9 @@ static partial class Game
         var mainRow = items.Items(PlayerInventories.Weapon1);
         var offRow = items.Items(PlayerInventories.Offhand1);
         var (bloodHeld, bloodShown) = BloodChargePanelInputs(conn);
+        var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
+            name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
+        uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
         return new()
         {
             Stats = stats, RawOverrides = rawOverrides, DevSet = devSet, Pools = conn.Pools with { Evasion = PlayerEvasion(conn, stats) },
@@ -126,6 +133,9 @@ static partial class Game
             MainLocal = mainLocal, OffLocal = offLocal,
             PlayerLife = conn.PlayerLife, PlayerMaxLife = conn.PlayerMaxLife,
             EnergyShieldRecharging = conn.EnergyShield.Recharging,
+            PetrifiedBloodRecoveryCapped = conn.PetrifiedBlood.Active && conn.PlayerLife > 0
+                && (long)conn.PlayerLife + recoveryMargin
+                    >= (uint)((long)conn.PlayerMaxLife * LowLifeThresholdPct(stats) / 100),
             LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving, BlindLess = PlayerBlindValue(conn, stats).Less,
             BloodChargesHeld = bloodHeld, BloodChargesShown = bloodShown,
             Ailments = [], SuppressionChance = 0,
@@ -198,6 +208,8 @@ static partial class Game
                 .Concat(PanelStats.FromPools(Get, pools))
                 .Concat(PanelStats.Defence(Get, pools, Monsters.BaseDamage(pools.Level), Monsters.BaseAccuracy(pools.Level)))
                 .Concat(PanelStats.Recovery(PanelStats.WhileMoving(Get, inputs.Moving), pools.Life, pools.Mana))
+                // Leech limits and the client display use the full maximum pool. Petrified Blood caps only the
+                // recovery actually applied, not the instance's contribution or its displayed cap.
                 .Concat(LeechLimits.Compute(Get, pools.Life, pools.Mana, pools.EnergyShield,
                     name => Stats.Key(name) is uint key && rawOverrides.TryGetValue(key, out int value) ? value : null,
                     OnLowLife(stats)))
@@ -214,6 +226,10 @@ static partial class Game
             // Reap's Blood Charges: the count held, the maximum and the rows' gate (BloodChargePanelRows).
             foreach (var (stat, value) in BloodChargePanelRows(inputs.BloodChargesHeld, inputs.BloodChargesShown, Get))
                 if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
+            // Petrified Blood: the client's Life step reads life_recovery_per_minute, not the display total, and it
+            // only clamps to the maximum pool. Publish 0 while the buff stops non-flask recovery at Low Life.
+            if (inputs.PetrifiedBloodRecoveryCapped && Stats.Key("life_recovery_per_minute") is uint lifeRecovery)
+                stats[lifeRecovery] = 0;
             // Derive once from the resolved final rating, after pools and explicit stat replacements. Only this
             // temporary dictionary changes; repeated builds and removal cannot feed the bonus back into raw sources.
             if ((Get(ArmourAttackDamage.Per450Armour) != 0 || Get(ArmourAttackDamage.Per450Evasion) != 0)

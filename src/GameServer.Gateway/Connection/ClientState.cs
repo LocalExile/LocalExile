@@ -549,8 +549,12 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly WardState Ward = new();
     public readonly AntiquarianCombatState Antiquarian = new();
     public readonly TimedLifeRecovery EnduringCryRecovery = new();
+    /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>
+    public readonly PetrifiedBloodState PetrifiedBlood = new();
     /// <summary>Lifetap Support's life-paid costs, spent-Life counter and buff (Combat/Lifetap.cs).</summary>
     public readonly LifetapState Lifetap = new();
+    /// <summary>The invisible leech recovery buffs shown on the resource orbs (Combat/Leech.cs).</summary>
+    public readonly LeechDisplayState LeechDisplay = new();
     // Life Recoup of the hits the player took (Game.RecoupHitLocked), paid by the resource recovery loop.
     public readonly RecoupRecovery LifeRecoup = new();
     public double SentEnduringCryUntil = double.NaN;
