@@ -97,6 +97,8 @@ static partial class SurvivorsRunRules
         {
             StateOf(conn).SurvivorsPausedByWindow = false;
             if (!conn.Clock.IsRunning) conn.Clock.Start();
+            await Send(remote, stream, ciphers, InstancePause.State(false),
+                "0x01d3 resumed (a previous window was closed)");
         }
         if (SurvivorsRosterFor(conn) is not { } roster)
         {

@@ -126,7 +126,7 @@ static partial class SurvivorsRunRules
     internal static void Release(ClientState conn, SurvivorsRun? expected = null)
     {
         ushort[] buffs;
-        bool closeWindow;
+        bool closeWindow, wasPaused;
         lock (conn.Monsters)
         {
             var state = StateOf(conn);
@@ -135,6 +135,7 @@ static partial class SurvivorsRunRules
             state.SurvivorsHeraldBuffs.Clear();
             state.SurvivorsHeraldSkills.Clear();
             closeWindow = state.SurvivorsOffer is not null;
+            wasPaused = state.SurvivorsPausedByWindow;
             state.Cancellation?.Cancel();
             var retired = state.Ownership;
             state.Ownership = null;
@@ -164,6 +165,9 @@ static partial class SurvivorsRunRules
             try
             {
                 var (remote, stream, ciphers) = conn.Wire;
+                if (wasPaused)
+                    await Send(remote, stream, ciphers, InstancePause.State(false),
+                        "0x01d3 resumed (the survivors run ended)");
                 foreach (ushort buff in buffs)
                     await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), "survivors retired aura");
                 if (closeWindow)

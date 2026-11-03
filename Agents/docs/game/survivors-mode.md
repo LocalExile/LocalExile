@@ -59,7 +59,9 @@ Reversing that order crashes the client with "Got an inventory set change for an
 S→C `0x87` opens the window; its ordinary C→S `0x88`/`0x8a` item id selects the reward.
 S→C `0xbf` removes the offered ids and `0x84` with object 0 closes the dialogue.
 
-The world clock stops for a choice.
+The world clock stops for a choice, and S→C `0x1d3` pauses the client's world with it (the Escape menu's own pause
+message): the server already stops ordering monster walks, but only `0x1d3` stops the client walking each monster to
+its last ordered cell. Closing the window (or the run ending) sends `0x1d3 00` and restarts the clock.
 Closing the window with a stray click or Escape accepts its first reward rather than leaving an invisible paused run.
 Disconnecting or unloading the run module releases its pause and cancels its ticker.
 An expired run cannot finish an old reward or launch another projectile into a replacement run.

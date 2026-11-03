@@ -293,6 +293,11 @@ static partial class SurvivorsRewards
         // The choice pauses the run: the clock stops, so monsters, spawns, casts and recovery wait for the pick.
             if (conn.Clock.IsRunning) { conn.Clock.Stop(); StateOf(conn).SurvivorsPausedByWindow = true; }
         })) return;
+        // Freeze the client's world too: the clock stops the server, but the client keeps walking every monster to its
+        // last ordered cell until 0x1d3 pauses the world (the Escape menu's own pause does the same).
+        await Send(remote, stream, ciphers, InstancePause.State(true),
+            "0x01d3 paused for the survivors window", still: () => ownership.Current);
+        if (!ownership.Current) return;
         // 0xc0 registers the reward inventory with its contents: 0xbf for an id the client does not know is fatal
         // ("Got an inventory set change for an inventory that isn't in the set").
         await Send(remote, stream, ciphers,
@@ -384,15 +389,20 @@ static partial class SurvivorsRewards
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 survivors offer closed", still: () => ownership.Current);
         if (!ownership.Current) return false;
         await SurvivorsOfferIfDue(remote, stream, ciphers, conn, run, catalog);
-        // Nothing left to choose: the run resumes where it paused.
+        // Nothing left to choose: the run resumes where it paused, and the client's world with it.
+        bool resumed = false;
         ownership.Commit(() =>
         {
             if (StateOf(conn).SurvivorsPausedByWindow && !run.NeedsOffer)
             {
                 StateOf(conn).SurvivorsPausedByWindow = false;
                 conn.Clock.Start();
+                resumed = true;
             }
         });
+        if (resumed)
+            await Send(remote, stream, ciphers, InstancePause.State(false),
+                "0x01d3 resumed after the survivors window", still: () => ownership.Current);
         return true;
     }
 }
