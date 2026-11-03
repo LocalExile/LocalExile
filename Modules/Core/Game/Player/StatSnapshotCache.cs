@@ -34,6 +34,7 @@ static partial class Game
         public required double LifeRegenerationToEnergyShield;
         /// <summary>Walking when the head was read: the while-moving regeneration in the Recovery rows (PanelStats.WhileMoving).</summary>
         public required bool Moving;
+        public int BlindLess;
         public required int BloodChargesHeld;
         public required bool BloodChargesShown;
         /// <summary>is_ignited, is_chilled, is_frozen, is_shocked, after reconciliation.</summary>
@@ -58,7 +59,7 @@ static partial class Game
 
         public bool Matches(StatSnapshotTailInputs o) =>
             ReferenceEquals(Skills, o.Skills) && ReferenceEquals(Items, o.Items) && ClassRow == o.ClassRow
-            && PlayerLife == o.PlayerLife && PlayerMaxLife == o.PlayerMaxLife
+            && BlindLess == o.BlindLess && PlayerLife == o.PlayerLife && PlayerMaxLife == o.PlayerMaxLife
             && EnergyShieldRecharging == o.EnergyShieldRecharging
             && LifeRegenerationToEnergyShield.Equals(o.LifeRegenerationToEnergyShield) && Moving == o.Moving
             && BloodChargesHeld == o.BloodChargesHeld && BloodChargesShown == o.BloodChargesShown
@@ -118,14 +119,14 @@ static partial class Game
         var (bloodHeld, bloodShown) = BloodChargePanelInputs(conn);
         return new()
         {
-            Stats = stats, RawOverrides = rawOverrides, DevSet = devSet, Pools = conn.Pools,
+            Stats = stats, RawOverrides = rawOverrides, DevSet = devSet, Pools = conn.Pools with { Evasion = PlayerEvasion(conn, stats) },
             Skills = SkillsFor(conn), Items = ItemsFor(conn), ClassRow = conn.ClassRow,
             MainRow = mainRow, OffRow = offRow,
             MainInactive = [.. mainRow.Select(i => IsInactive(conn, i.Id))], OffInactive = [.. offRow.Select(i => IsInactive(conn, i.Id))],
             MainLocal = mainLocal, OffLocal = offLocal,
             PlayerLife = conn.PlayerLife, PlayerMaxLife = conn.PlayerMaxLife,
             EnergyShieldRecharging = conn.EnergyShield.Recharging,
-            LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving,
+            LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving, BlindLess = PlayerBlindValue(conn, stats).Less,
             BloodChargesHeld = bloodHeld, BloodChargesShown = bloodShown,
             Ailments = [], SuppressionChance = 0,
             AttackEffectId = SkillEffectId(conn, SkillCatalog.FirstSkillId),
@@ -272,7 +273,7 @@ static partial class Game
         foreach (uint key in SuppressionChanceKeys) stats[key] = inputs.SuppressionChance;
         if (Stats.Key("main_hand_critical_strike_multiplier") is uint multiplier)
             stats[multiplier] = AttackMultiplier(stats);
-        var accuracy = OrdinaryAccuracy(inputs.Skills, inputs.AttackEffectId, pools, stats, mainLocal);
+        var accuracy = OrdinaryAccuracy(inputs.Skills, inputs.AttackEffectId, pools, stats, mainLocal) with { Rating = TimedBlind.Apply(pools.Accuracy, inputs.BlindLess) };
         foreach (var (name, evasion) in new[]
         {
             ("main_hand_chance_to_hit_%", Monsters.BaseEvasion(pools.Level) ?? 0),
@@ -283,7 +284,7 @@ static partial class Game
         // The Off Hand rows of a dual-wielded default attack; the flag clears when nothing is swung with the off hand.
         if (Stats.Key("skill_uses_off_hand") is uint usesOffHand && !devSet.Contains(usesOffHand)) stats[usesOffHand] = 0;
         foreach (var (name, value) in OffHandPanelStats(OffhandWeaponFor, ActiveOffHand, () => pools, Profile, inputs.Items,
-            () => AttackMultiplier(stats), stats, mainLocal, offLocal, stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), own: null) ?? [])
+            () => AttackMultiplier(stats), stats, mainLocal, offLocal, stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), own: null, blindLess: inputs.BlindLess) ?? [])
             if (Stats.Key(name) is uint key && !devSet.Contains(key)) stats[key] = value;
         if (Stats.Key("virtual_on_low_life") is uint lowLife)
             stats[lowLife] = OnLowLife(stats) ? 1 : 0;

@@ -711,7 +711,17 @@ static partial class Game
         foreach (var (key, value) in AuraCatalog.ResistanceStats(auras, bonus.AuraEffectPct, SkillsFor(conn), Stats))
             resistanceSources[key] = resistanceSources.GetValueOrDefault(key) + value;
         bonus = ResistanceOvercap.Applied(bonus, resistanceSources, devStats, ResistancePenalty(conn), Stats);
-        var pools = CharacterStats.For(SkillsFor(conn).ClassFor(conn.ClassRow), level, bonus);
+        var classInfo = SkillsFor(conn).ClassFor(conn.ClassRow);
+        int perDexterity = PoolSource(ManaRecoveryRules.PerDexterity, EquipmentStat(ManaRecoveryRules.PerDexterity));
+        var finalAttributes = (bonus.Attributes with
+        {
+            StrengthPct = bonus.Attributes.StrengthPct + bonus.StrengthPct + (long)bonus.AllAttributesPct,
+            DexterityPct = bonus.Attributes.DexterityPct + bonus.DexterityPct + (long)bonus.AllAttributesPct,
+            IntelligencePct = bonus.Attributes.IntelligencePct + bonus.IntelligencePct + (long)bonus.AllAttributesPct,
+        }).Apply((long)classInfo.Strength + bonus.Strength, (long)classInfo.Dexterity + bonus.Dexterity,
+            (long)classInfo.Intelligence + bonus.Intelligence);
+        bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
+        var pools = CharacterStats.For(classInfo, level, bonus);
         // The pure base critical stats (/set_stat too) sit outside the passive increases: the weapon override replaces
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.
         pools = pools with
@@ -1074,6 +1084,11 @@ static partial class Game
     // tree's start) and the allocated nodes.
     internal static async Task SendPassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (QuestKillCommitOutput is { } output)
+        {
+            output.Add(new([], "current quest reward tree", Kind: PlayerMinions.OutputKind.Passives));
+            return;
+        }
         // A queued publication must not restore a tree captured before a later allocation/refund or level change.
         await Send(remote, stream, ciphers, [], "0x0033 current passive skill tree",
             atGate: () => PassivesMessage(conn).Bytes);
@@ -1334,7 +1349,8 @@ static partial class Game
         if (leveled) await SendSkills(remote, stream, ciphers, conn);
     }
 
-    internal static (List<byte[]> Packets, bool Leveled) CommitGemExperience(ClientState conn, uint gain)
+    internal static (List<byte[]> Packets, bool Leveled) CommitGemExperience(ClientState conn, uint gain,
+        List<(byte Row, uint[] Items)>? projectRows = null)
     {
         lock (conn.Monsters)
         {
@@ -1364,9 +1380,15 @@ static partial class Game
                     Console.WriteLine($"[gateway] {CharacterName(conn)}'s {ItemsFor(conn).GemName(after)} gains experience " +
                         $"+{after.GemExperience - before.GemExperience} ({after.GemExperience}, level {ItemsFor(conn).GemLevel(after)})");
             }
-            var packets = changed.GroupBy(c => c.Row).Select(row =>
-                InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
-                    [.. row.Select(c => c.Item.Id)], [.. row.Select(c => c.Item)])).ToList();
+            var packets = new List<byte[]>();
+            foreach (var row in changed.GroupBy(c => c.Row))
+            {
+                uint[] ids = [.. row.Select(c => c.Item.Id)];
+                // Accepted output may wait behind a hook/refund/item move. Keep ids for a current row projection.
+                if (projectRows is not null) projectRows.Add((row.Key, ids));
+                else packets.Add(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
+                    ids, [.. row.Select(c => c.Item)]));
+            }
             return (packets, leveled);
         }
     }

@@ -21,7 +21,7 @@ static partial class Game
     internal static bool SpiritChieftainsWhenHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats, bool blocked,
         bool critical, long lifeLost)
     {
-        if (conn.PlayerLife == 0) return false;
+        if (!CurrentGameWork || conn.PlayerLife == 0) return false;
         if (blocked && TriggerSpiritChieftainLocked(conn, BlockFromUniqueTrigger, stats)) return true;
         return critical && TriggerSpiritChieftainLocked(conn, CritByUniqueTrigger, stats)
             || lifeLost * 100 >= (long)conn.PlayerMaxLife * 15 && TriggerSpiritChieftainLocked(conn, SavageHitFromUniqueTrigger, stats);
@@ -31,7 +31,8 @@ static partial class Game
     // (base_skill_effect_duration with the player's skill effect and minion duration: these skills are CreatesMinion), the cooldown with the player's recovery.
     static bool TriggerSpiritChieftainLocked(ClientState conn, string trigger, IReadOnlyDictionary<uint, int> stats)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (!CurrentGameWork) return false;
+        double now = AreaTime(conn);
         foreach (var grant in TriggeredGrantsLocked(conn, trigger))
         {
             var own = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
@@ -76,7 +77,7 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
-            if (conn.Closed || conn.LeavingArea) return null;
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
             var spirits = conn.SpiritChieftains;
             double now = conn.Clock.Elapsed.TotalSeconds;
             var active = conn.PlayerLife > 0 ? spirits.Active(now) : null;
@@ -98,6 +99,7 @@ static partial class Game
     static async Task SendSpiritChieftain(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         await Send(remote, stream, ciphers, [], null, atGate: () => SpiritChieftainPresentation(conn));
+        if (!CurrentGameWork) return;
         await SpiritChieftainMinion(remote, stream, ciphers, conn);
     }
 
@@ -115,12 +117,12 @@ static partial class Game
         double now;
         lock (conn.Monsters)
         {
-            if (conn.Closed || conn.LeavingArea) return;
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
             now = conn.Clock.Elapsed.TotalSeconds;
             bool alive = conn.PlayerLife > 0;
             summon = alive ? conn.SpiritChieftains.Pending : null;
-            conn.SpiritChieftains.Pending = null;
-            RemoveMinionBodiesLocked(conn, now, bytes);
+            if (!alive) conn.SpiritChieftains.Pending = null;
+            RemoveMinionBodiesLocked(conn, now);
             // The buff ends with the player's death (SpiritChieftains.End), so its minion does too.
             double until = alive ? conn.SpiritChieftains.Active(now)?.Until ?? now : now;
             foreach (var minion in conn.Minions.All.Where(m => m.Fights).ToArray())
@@ -131,14 +133,14 @@ static partial class Game
                 conn.Minions.Remove(minion.Id);
                 if (!current) continue;
                 m.Aggro = false; m.Dead = true; m.Life = 0;
-                conn.Minions.Bodies.Add((minion.Id, now + 1));
+                conn.Minions.Bodies.Add((minion.Id, m, now + 1));
                 bytes.AddRange(InstanceEntities.StatsUpdate(minion.Id, [(StatKeys.HideMiniLifeBar, 1)]));
                 bytes.AddRange(InstanceProtocol.LifeUpdate(minion.Id, 0));
                 Console.WriteLine($"[gateway] {CharacterName(conn)}: chieftain 0x{minion.Id:x} ({m.Label}) ends");
             }
         }
         if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], "0x01b1/0x02bb chieftain minion ends");
-        if (summon is null || now >= summon.Until) return;
+        if (!CurrentGameWork || summon is null || now >= summon.Until) return;
         if (Monsters.Find(summon.Variety.ToString()) is not { Supported: true } variety)
         {
             Console.WriteLine($"[gateway] {CharacterName(conn)}: {summon.Skill}: MonsterVarieties row {summon.Variety} cannot be created");
@@ -158,9 +160,12 @@ static partial class Game
         await SpawnMonster(remote, stream, ciphers, conn, variety, summon.Level, MonsterRarity.Normal, at.X, at.Y, friendly: true, mods: mods,
             extraStats: MinionStats, owned: (id, m) =>
             {
+                if (ReferenceEquals(conn.SpiritChieftains.Pending, summon)) conn.SpiritChieftains.Pending = null;
                 m.Aggro = true;
                 conn.Minions.Add(new(id, m, summon.Skill, variety.Name) { Until = summon.Until, Fights = true });
-            });
+            }, ownedCurrent: () => conn.PlayerLife > 0 && ReferenceEquals(conn.SpiritChieftains.Pending, summon)
+                && AreaTime(conn) < summon.Until);
+        if (!CurrentGameWork) return;
         Console.WriteLine($"[gateway] {CharacterName(conn)}: {summon.Skill} summons {variety.Name} at level {summon.Level} for "
             + $"{summon.Until - now:0.##} s");
     }

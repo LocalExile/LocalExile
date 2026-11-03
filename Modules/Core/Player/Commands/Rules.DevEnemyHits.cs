@@ -54,7 +54,7 @@ static partial class CommandsRules
             int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock + onBlock.Mana : 0;
             RecoupHitLocked(conn, DamagePacket.Of(type, dealt, dealt), now, stats);
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife
-                - DamagePlayerHit(conn, type == DamageType.Chaos ? 0 : dealt, type == DamageType.Chaos ? dealt : 0, now, stats) + gainedLife));
+                - DamagePlayerHitTyped(conn, type == DamageType.Physical ? dealt : 0, type is not (DamageType.Physical or DamageType.Chaos) ? dealt : 0, type == DamageType.Chaos ? dealt : 0, now, stats) + gainedLife));
             if (block) conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
             conn.EnergyShield.Recover(onBlock.EnergyShield);
             TrimLeechLocked(conn);

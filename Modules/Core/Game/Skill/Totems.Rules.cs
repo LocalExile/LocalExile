@@ -92,6 +92,7 @@ static partial class Game
     internal static async Task<uint?> CreateTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at)
     {
+        if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
         var stats = SupportedStats(conn, skillId);
         var own = SupportedSkill(conn, skillId).Stats;
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -120,7 +121,7 @@ static partial class Game
         {
             lock (conn.Monsters)
             {
-                if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return null;
+                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return null;
                 uint objectId = conn.NextObjectId++;
                 if (bodySize >= 0)
                 {
@@ -206,7 +207,7 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
-            if (conn.Closed || conn.LeavingArea) return null;
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
             var totems = conn.Totems;
             double now = conn.Clock.Elapsed.TotalSeconds;
             if (totems.Expire(now).Count > 0) TotemsDiedLocked(conn, now, CharacterPlayerStats(conn));

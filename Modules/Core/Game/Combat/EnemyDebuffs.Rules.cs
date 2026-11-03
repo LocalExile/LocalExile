@@ -19,7 +19,7 @@ static partial class Game
     /// the number taunted.</summary>
     internal static int TauntLocked(ClientState conn, (int X, int Y) at, int radius, double now, double seconds)
     {
-        if (conn.PlayerLife == 0 || seconds <= 0) return 0;
+        if (!CurrentGameWork || conn.PlayerLife == 0 || seconds <= 0) return 0;
         int taunted = 0;
         foreach (var m in conn.Monsters.Values)
         {
@@ -33,7 +33,7 @@ static partial class Game
 
     // The player tick (RunPlayerTick, 250 ms, not while paused) steps the player's debuffs on monsters.
     internal static Task TickPassiveAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        EnemyDebuffsTick(remote, stream, ciphers, conn, conn.Clock.Elapsed.TotalSeconds);
+        EnemyDebuffsTick(remote, stream, ciphers, conn, AreaTime(conn));
 
     // One step of the player's debuffs on monsters, worked out at the send gate so a removed monster gets none: a taunt
     // shows the taunted buff (408) for its time left and goes when it ends, the monster dies or the player dies (wiki: a
@@ -46,16 +46,24 @@ static partial class Game
     internal static async Task EnemyDebuffsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         ushort[] nodes;
-        lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+        lock (conn.Monsters)
+        {
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
+            nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+        }
         // Outside the lock: the first call loads the aura table from PassiveSkills.
         var all = PassiveBuffAuras.EnemyAurasFor(nodes, LeagueFor(conn).HardMode, EnemyAuraActs);
-        var auras = all.Where(a => a.Template != PassiveBuffAuras.BlindTemplate).ToList();
-        int? blindRadius = PassiveBuffAuras.BlindRadius(all);
         await Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
-                if (conn.Closed || conn.LeavingArea) return null;
+                if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
+                now = AreaTime(conn);
+                ushort[] currentNodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+                var current = nodes.SequenceEqual(currentNodes) ? all
+                    : PassiveBuffAuras.EnemyAurasFor(currentNodes, LeagueFor(conn).HardMode, EnemyAuraActs);
+                var auras = current.Where(a => a.Template != PassiveBuffAuras.BlindTemplate).ToList();
+                int? blindRadius = PassiveBuffAuras.BlindRadius(current);
                 var config = conn.EnemyDebuffs;
                 bool alive = conn.PlayerLife > 0;
                 var here = conn.Walk.Position(now);
@@ -168,7 +176,7 @@ static partial class Game
                 }
                 int? radius = conn.PlayerLife > 0 ? blindRadius : null;
                 HashSet<uint> inside = radius is int r
-                    ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && Dist(kv.Value.Walk.Position(now), here) <= r)
+                    ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && kv.Value.Mods.Effects["cannot_be_blinded"] == 0 && Dist(kv.Value.Walk.Position(now), here) <= r)
                         .Select(kv => kv.Key).ToHashSet()
                     : [];
                 foreach (var (id, buff, blinded) in conn.BlindAura.Reconcile(inside, conn.Monsters.ContainsKey, () => conn.NextBuff++))

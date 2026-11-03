@@ -364,6 +364,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
             PendingTransfer = transfer;
             RampageTransferAt = ProjectileRuntimeState is { Active: true } runtime
                 ? runtime.NowTicks / 120000d : Clock.Elapsed.TotalSeconds;
+            ResourceEffectsState?.Freeze(RampageTransferAt.Value);
             LeavingArea = true;
             RetireOwnedCombat();
             InvalidateIncomingHits(clear: false);
@@ -375,7 +376,14 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         }
     }
 
-    public void ResumeAfterFailedTransfer() { lock (Monsters) LeavingArea = false; }
+    public void ResumeAfterFailedTransfer()
+    {
+        lock (Monsters)
+        {
+            ResourceEffectsState?.Resume(Clock.Elapsed.TotalSeconds);
+            LeavingArea = false;
+        }
+    }
 
     // Successful transfers retire all source-area workers independently of any particular carried mechanic.
     public void Retire() { lock (Monsters) RageRetired = true; }
@@ -678,7 +686,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                 if (playerLife > 0 && value == 0)
                 {
                     VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
-                    Rage.Clear(); Rampage.Clear(); RetireOwnedCombat();
+                    Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
                 }
                 playerLife = value;
             }

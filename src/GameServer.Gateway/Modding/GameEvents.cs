@@ -32,11 +32,15 @@ sealed class GameEvent<T> where T : Delegate
 }
 
 /// <summary>A hostile monster died by the player's hand, inside the kill's commit. What sends messages goes in <see cref="Later"/>: it runs
-/// after the commit, in order, whichever way the kill came (a melee hit, a projectile).</summary>
+/// after the commit, in order, whichever way the kill came (a melee hit, a projectile). An atomic kill with
+/// CommittedOutput instead requires handlers to commit gameplay synchronously and append primitive output there.</summary>
 sealed record KillContext(ClientState Conn, SpawnedMonster Monster, string VarietyId, (int X, int Y) At)
 {
     // Attributed owned kills still dispatch league content; only owner-specific triggers filter this flag.
     public bool PlayerKill { get; init; } = true;
+    // An atomic kill supplies a primitive packet sink: handlers commit their drops now, rather than
+    // retaining a module's deferred mutation across a network await. Ordinary async kills keep Later.
+    public List<(byte[] Packet, string? Log)>? CommittedOutput { get; init; }
     public List<Func<Task>> Afterwards { get; } = [];
     public void Later(Func<Task> send) => Afterwards.Add(send);
 }
