@@ -119,13 +119,14 @@ static partial class Game
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedFortification.TryRemove(old, out _);
     }
 
-    internal static async Task RunFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RunFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
+        if (!PlayerUpdatesCurrent(conn, updates)) return;
         RestoreFortification(conn);
-        while (!conn.Closed && !conn.RageRetired)
+        while (PlayerUpdatesCurrent(conn, updates))
         {
-            await Task.Delay(32);
-            if (conn.Closed || conn.RageRetired) break;
+            await updates.Schedule.Wait(PlayerUpdateRole.Fortification, 32, updates.Stop.Token);
+            if (!PlayerUpdatesCurrent(conn, updates)) break;
             try
             {
                 await SendFortification(remote, stream, ciphers, conn);
@@ -148,7 +149,7 @@ static partial class Game
         {
             using (conn.Performance.Lock(conn.Monsters, "fortification"))
             {
-                if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.Paused) return null;
+                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.Paused) return null;
                 var session = FortificationOf(conn);
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 using var snapshot = session.Capture(now);

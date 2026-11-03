@@ -238,7 +238,7 @@ static partial class Game
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         var local = spell ? null : WeaponFor(conn).LocalSources;
-        var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, conn.Pools.Accuracy,
+        var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, PlayerAccuracy(conn, player),
             SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
             // Child stages and release specialization can introduce areas after this root is resolved.
@@ -260,7 +260,7 @@ static partial class Game
             AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
             PointBlank = Get("keystone_point_blank") != 0,
-            ReturnMultiplier = ProjectileReturn.DamageMore(Get),
+            ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindInputs(player, own),
             // A spell's action spawns its projectiles itself, every one of a volley, from where it stands (Frida
             // 2026-10-29, 0x141ebdf30 from the action at 0x141e938c0): a server object for them was a second fireball.
             // An attack gem's does not: Burning Arrow's action 0x415 started and created no projectile until the server's

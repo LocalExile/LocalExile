@@ -112,6 +112,8 @@ static partial class Game
             result[key] = replace ? value : ArcaneMight.IsGrant(key)
                 ? ArcaneMight.Combine(key, result.GetValueOrDefault(key), value) : result.GetValueOrDefault(key) + value;
         }
+        if (Stats.Key("mana_cost") is uint mana && own.TryGetValue(mana, out int baseCost))
+            result[mana] = ManaRecoveryRules.Cost(baseCost, name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0);
         return result;
     }
 
@@ -222,8 +224,9 @@ static partial class Game
     {
         var own = SupportedSkill(conn, skillId).Stats;
         long Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
-        return AttackAccuracyProfile.From(conn.Pools, CharacterPlayerStats(conn), Stats, own, MainHandLocalSources(conn))
-            with { Rating = AccuracyRating.Selected(conn.Pools, WeaponProfileFor(conn, activeSet: true), Own) };
+        var player = CharacterPlayerStats(conn);
+        return AttackAccuracyProfile.From(conn.Pools, player, Stats, own, MainHandLocalSources(conn))
+            with { Rating = PlayerBlindAccuracy(conn, AccuracyRating.Selected(conn.Pools, WeaponProfileFor(conn, activeSet: true), Own), player) };
     }
 
     internal static int SupportedCriticalChance(ClientState conn, ushort skillId) => SupportedCriticalChanceFor(conn, skillId, false);

@@ -18,14 +18,14 @@ static partial class Game
         int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own = null, int effect = -1) =>
         OffHandPanelStats(() => OffhandWeaponFor(conn), () => ActiveOffHand(conn), () => conn.Pools,
             () => WeaponProfileFor(conn, activeSet: true), ItemsFor(conn), () => AttackCriticalMultiplier(conn, player, effect, own),
-            player, mainLocal, offLocal, mainHandAttackSpeedPct, own);
+            player, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindValue(conn, player).Less);
 
     // The same rows from inputs read once (the stat snapshot's tail inputs), each asked where the line above asks conn.
     internal static List<(string Stat, int Value)>? OffHandPanelStats(Func<SkillCatalog.Unarmed?> offhandWeapon,
         Func<(Item Item, ItemCatalog.BaseType? Type)?> activeOffHand, Func<CharacterStats.Pools> currentPools,
         Func<WeaponProfile> weaponProfile, ItemCatalog catalog, Func<int> attackCriticalMultiplier,
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<string, int> mainLocal, IReadOnlyDictionary<string, int> offLocal,
-        int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own)
+        int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own, int blindLess = 0)
     {
         if (offhandWeapon() is null || activeOffHand() is not { Type: { } offType }) return null;
         var pools = currentPools();
@@ -38,6 +38,7 @@ static partial class Game
         long ownFlat = AccuracyRating.Flat(profile, n => Own(n), includeLocal: false), ownIncreased = AccuracyRating.Increased(profile, n => Own(n));
         int rating = localDifference == 0 && ownFlat == 0 && ownIncreased == 0 ? pools.Accuracy
             : AccuracyRating.Calculate(pools.AccuracyBase + localDifference + ownFlat, pools.AccuracyPct + ownIncreased);
+        rating = TimedBlind.Apply(rating, blindLess);
         var accuracy = AttackAccuracyProfile.From(pools, player, Stats, own, offLocal) with { Rating = rating };
         // Critical chance: the off-hand weapon's base with its local mods, the same override and global increases.
         int weaponBase = AddedBaseCriticalStrike.LocalWeaponChance(catalog.WeaponCritical(offType),

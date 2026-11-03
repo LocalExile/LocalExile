@@ -161,19 +161,25 @@ static partial class Game
 
     // Monsters with life regeneration (of the Hydra) regain life: every 0.5 s the server adds it and sends the new life
     // (0x1b1) of each one that changed, as it does for hits.
-    internal static async Task RunMonsterRegeneration(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RunMonsterRegeneration(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
+        if (!PlayerUpdatesCurrent(conn, updates)) return;
         const int StepMs = 500;
-        double last = conn.Clock.Elapsed.TotalSeconds;
+        double last = updates.Schedule.Now(conn);
         try
         {
-            while (!conn.Closed)
+            while (PlayerUpdatesCurrent(conn, updates))
             {
-                await Task.Delay(StepMs);
-                double now = conn.Clock.Elapsed.TotalSeconds, seconds = now - last;
+                await updates.Schedule.Wait(PlayerUpdateRole.MonsterRegeneration, StepMs, updates.Stop.Token);
+                double now = updates.Schedule.Now(conn), seconds = now - last;
                 last = now;
                 if (conn.Paused || seconds <= 0) continue;
-                var changed = RegenerateConnectionMonsters(conn, now, seconds);
+                List<(uint Id, uint Life)> changed;
+                using (ProjectileMutation(conn))
+                {
+                    if (!PlayerUpdatesCurrent(conn, updates)) return;
+                    changed = RegenerateConnectionMonsters(conn, now, seconds);
+                }
                 // Checked again in the send gate: a kill in between sends 0 first, and an older life after it would
                 // revive the monster on the client.
                 foreach (var (id, life) in changed)

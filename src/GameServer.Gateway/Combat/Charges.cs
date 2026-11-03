@@ -118,6 +118,9 @@ static class Charges
     /// left (seconds).</summary>
     public readonly record struct Carried(ChargeType Type, int Held, double Remaining);
 
+    /// <summary>A charge buff's count, original deadline, native instance and converted type.</summary>
+    public readonly record struct Shown(int Count, double ExpiresAt, ushort Buff, bool Converted = false);
+
     /// <summary>
     /// The charges a character holds: per type the number gained (on top of nothing: the minimum is added by
     /// <see cref="Effective"/>, not stored) and when they expire. Gaining refreshes the expiry of the whole type;
@@ -125,6 +128,7 @@ static class Charges
     /// </summary>
     public sealed class State
     {
+        internal readonly Shown[] Presented = new Shown[3];
         private readonly int[] held = new int[3];
         private readonly double[] expiresAt = [double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity];
 
@@ -235,4 +239,10 @@ static class Charges
                 }
         }
     }
+}
+
+// The charge values/deadlines are neutral data; replacement Game sessions keep accepted gains and expiry.
+sealed partial class ClientState
+{
+    internal readonly Charges.State PlayerChargeState = new();
 }

@@ -203,6 +203,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   paid refund and ordinary reload controls; historical whole-class evidence retains its original source scope.
   Final exact-head full-suite, review and native receipt revisions/results are recorded in the PR.
   Docs: [Behemoth consumers, legal builds and validation limits](../docs/game/behemoth.md).
+- Whisperer: the optional module supplies the actual Deadeye/Ranger descriptor and allocated node sources.
+  Generic Mana, spending, Recoup and shared Blind consumers run in Game with independent lifetime-owned state.
+  Two deterministic Gateway Facts cover actual admission, legal builds, paid refunds and resource/lifecycle composition,
+  including current-Game utility End automation and retained paid recovery across replacement.
+  Current-main local build, suites, independent review and bounded native checks cover the resource and reload paths.
+  Spatial forks, full Vaal/Rampage and the complete owned-minion matrix remain outside that acceptance.
+  Docs: [Whisperer consumers, legal builds and validation limits](../docs/game/whisperer.md).
 - Aristocrat: every node in its installed graph has a server consumer (gem levels and quality, attribute requirements,
   conditional ailment immunity, lowest-attribute damage, granted passive points), with Gateway coverage of legal builds,
   paid refunds and reload. Not yet checked with the real client: that needs the reviewed combined graph installed.
