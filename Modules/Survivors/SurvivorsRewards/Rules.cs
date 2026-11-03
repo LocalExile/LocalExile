@@ -137,6 +137,24 @@ static partial class SurvivorsRewards
             $"{equipment} equipment, {withStats} with stats, {missingRows} missing rows, {unsupported} unsupported");
     }
 
+    /// <summary>
+    /// A run starts with one life flask: the emptied character would otherwise have no recovery at all against the
+    /// horde. It is created with its full charges and refills from kills like any flask; the next run's reset clears it.
+    /// </summary>
+    internal static async Task SurvivorsGiveFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (StateOf(conn).Ownership is not { Current: true } ownership) return;
+        if (ItemsFor(conn).Find("Metadata/Items/Flasks/FlaskLife1") is not { } baseType) return;
+        var items = ItemsOf(conn);
+        if (items.Items(PlayerInventories.Flask).Count > 0) return;
+        InventoryItem placed = null!;
+        if (!ownership.Commit(() => placed = items.Add(PlayerInventories.Flask, 0, 0, ItemCatalog.Create(baseType)))) return;
+        await Send(remote, stream, ciphers,
+            InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
+                items.NextRevision(PlayerInventories.Flask), [], [placed]),
+            "0x00bf survivors life flask", still: () => ownership.Current);
+    }
+
     /// <summary>A new run starts from an empty character: every carried, worn and flask item is removed and the client
     /// is told row by row (0xbf), so nothing from an earlier run carries in.</summary>
     internal static async Task SurvivorsResetInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)

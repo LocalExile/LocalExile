@@ -120,6 +120,8 @@ static partial class SurvivorsRunRules
         var ownership = BindRun(conn, run);
         await SurvivorsResetInventory(remote, stream, ciphers, conn);
         if (!ownership.Current) return;
+        await SurvivorsGiveFlask(remote, stream, ciphers, conn);
+        if (!ownership.Current) return;
         StateOf(conn).SurvivorsCatalog = catalog;
         StateOf(conn).SurvivorsSupports = supports;
         StateOf(conn).Stage = 0;

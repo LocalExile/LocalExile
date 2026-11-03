@@ -33,6 +33,8 @@ Firestorm and the like) casts a **nova pulse** around the player with the gem's 
 aura. Heralds and areas share the pulse pipeline; an area gem's pulse radius is the run's 48-cell base grown by its
 rank and increased area. Melee area skills (Cyclone, Ground Slam, Cleave) are attacks and stay out of the pool.
 A cast clip plays only while the player stands still: while moving it would replace the walk clip and read as strafing.
+Every run starts with one **Small Life Flask** in the flask bar, full, refilled by kills like any flask, so the emptied
+character still has recovery.
 No monster kill drops items or gold, on either the melee or the projectile path; the ground is also swept every run
 second.
 
