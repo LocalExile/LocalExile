@@ -147,7 +147,7 @@ Offsets are inside the component object. "If bN" means that bit of the component
 | if f1 & 0x10: u32 +0x2a0 | | |
 
 Other bits only set flags: f0 0x01 → `+0x1e5|0x10`, f0 0x80 → `+0x1e6|2` (the object keeps its rotation while it glides with 0x1ba, live 2026-10-21), f0 0x02 → mount/parent lookups (stat keys
-`0x7700c879`, `0x31fb1f01`), f1 0x20 → `+0x1e7|2`. The object is then inserted into the spatial index
+`0x7700c879`, `0x31fb1f01`), f1 0x20 → `+0x1e7|2` (no static position: the walk grid gets the object's Hull only while its TriggerableBlockage is blocked, [labyrinth-trials](../game/labyrinth-trials.md#unblocking-a-door)). The object is then inserted into the spatial index
 (23×23 buckets, no bounds check: see [03](03-area-and-world.md#6-spatial-index-where-a-bad-position-crashes)).
 
 ### 4.1 Component 1 (`0x1421c2f40`, stats-like), 10 bytes minimal

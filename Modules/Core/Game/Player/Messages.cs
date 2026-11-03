@@ -601,6 +601,9 @@ static partial class Game
                         Console.WriteLine($"[gateway] {remote} arrived by waypoint, but {conn.Layout.Id} seed {conn.Seed} has no captured waypoint " +
                             $"(run live.ps1 -Walkmaps): spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY}){(conn.Layout.Walkable is null ? ", no walk map either: the player may stand outside the map" : "")}");
                     RecordVisit(conn);
+                    // An area with a Trial of Ascendancy gives the Lord's Labyrinth quest, before the player object carries the flags.
+                    if (LabyrinthTrials.For(conn.Layout.Id) is not null && !conn.HasQuestFlag(Quests.LabyrinthQuestReceived))
+                        await SetQuestFlags(remote, stream, ciphers, conn, [Quests.LabyrinthQuestReceived]);
                     await SendPlayer(remote, stream, ciphers, conn);
                     await PlayerEnteredArea(remote, stream, ciphers, conn);
                     await SendWaypoints(remote, stream, ciphers, conn);

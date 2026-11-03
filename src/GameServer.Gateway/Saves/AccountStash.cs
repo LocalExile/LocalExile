@@ -42,7 +42,10 @@ sealed partial class AccountStash
     public sealed record SavedTab(string Name, byte Type, byte R, byte G, byte B, List<CharacterSaves.SavedPlacement> Items, uint Affinities = 0,
         ushort? Position = null, uint Colour = 0, ulong UniqueCategory = 0, ushort Parent = ushort.MaxValue);
 
-    public sealed record Save(List<SavedTab> Tabs, int LastTab = 0, uint NextItemId = FirstItemId, uint Gold = 0, System.Text.Json.JsonElement? Delve = null, Dictionary<string, string>? ModuleData = null)
+    /// <summary>LeagueQuestFlags: the league quest flags (client ids, Quests.League) the account's characters set in this
+    /// stash's league, such as a Trial of Ascendancy's: every character of the league has them.</summary>
+    public sealed record Save(List<SavedTab> Tabs, int LastTab = 0, uint NextItemId = FirstItemId, uint Gold = 0, System.Text.Json.JsonElement? Delve = null, Dictionary<string, string>? ModuleData = null,
+        List<int>? LeagueQuestFlags = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -94,6 +97,7 @@ sealed partial class AccountStash
     bool OwnId(uint id) => id >= _firstItemId && id < _firstItemId + ItemIdRange;
     uint _gold;
     Dictionary<string, string> _moduleData = [];
+    SortedSet<int> _leagueQuestFlags = [];
     ModCatalog? _mods;  // to save mods by their Mods.dat Id
     Dictionary<string, JsonElement>? _unknown;  // fields of a newer build's save, written back as they are
     bool _stale;  // dropped after a failed save: the database has the stash as it is
@@ -150,6 +154,7 @@ sealed partial class AccountStash
             stash._nextItemId = Math.Max(save?.NextItemId is uint next && stash.OwnId(next) ? next : firstItemId, used + 1);
             stash._gold = save?.Gold ?? 0;
             stash._moduleData = save?.ModuleData is { } saved ? new(saved) : [];
+            stash._leagueQuestFlags = [.. save?.LeagueQuestFlags ?? []];
             // A save from before Delve was a module: its equipment becomes that module's text.
             if (save?.Delve is { } legacy) stash._moduleData.TryAdd("delve", legacy.GetRawText());
             stash._unknown = save?.Unknown;
@@ -180,7 +185,8 @@ sealed partial class AccountStash
         List<(int Tab, string Items)> tabs;
         lock (_lock)
         {
-            header = new Save([.. _tabs.Select(t => t.Saved with { Items = [] })], _lastTab, _nextItemId, _gold, null, new(_moduleData)) { Unknown = _unknown };
+            header = new Save([.. _tabs.Select(t => t.Saved with { Items = [] })], _lastTab, _nextItemId, _gold, null, new(_moduleData),
+                [.. _leagueQuestFlags]) { Unknown = _unknown };
             var write = _itemsInHeader ? Enumerable.Range(0, _tabs.Count) : changedTabs.Distinct();
             tabs = [.. write.Select(i => (i, JsonSerializer.Serialize(
                 _tabs[i].Items.Select(it => new CharacterSaves.SavedPlacement(it.Id, it.X, it.Y, CharacterSaves.ToSaved(it.Item, _mods))).ToList(), Opts)))];
@@ -210,6 +216,22 @@ sealed partial class AccountStash
         Persist();
         return true;
     });
+
+    /// <summary>The league quest flags saved for the account's characters in this stash's league.</summary>
+    public IReadOnlyList<int> LeagueQuestFlags { get { lock (_lock) return [.. _leagueQuestFlags]; } }
+
+    /// <summary>Sets (or clears) league quest flags; whether any changed (only then is the stash saved).</summary>
+    public bool ChangeLeagueQuestFlags(IEnumerable<int> flags, bool on = true)
+    {
+        lock (_lock)
+        {
+            var before = _leagueQuestFlags.Count;
+            if (on) _leagueQuestFlags.UnionWith(flags); else _leagueQuestFlags.ExceptWith(flags);
+            if (_leagueQuestFlags.Count == before) return false;
+        }
+        Persist();
+        return true;
+    }
 
     /// <summary>Adds gold (or takes it, with a negative amount, down to 0); the account's gold after.</summary>
     public uint AddGold(long delta)
