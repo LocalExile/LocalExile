@@ -47,6 +47,8 @@ static partial class Game
                 var captured = OrdinaryRangedShot.Capture(WeaponFor(conn), character, SkillsFor(conn).EffectStats(effect, 1), Stats,
                     PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier);
                 bool wand = projectileId == OrdinaryRangedAttack.Wand;
+                var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false, Projectile: true),
+                    SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(character, Stats, attack: true), Get);
                 var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
                     captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
                 { SkillStats = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
@@ -54,9 +56,8 @@ static partial class Game
                     VsProfaneCriticalChance = AttackCriticalChanceVsProfane(conn, character, release: true),
                     Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
                     ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
-                    Ignite = MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Projectile: true),
-                        SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(character, Stats, attack: true), Get),
-                        "main_hand", Get),
+                    Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),
+                    Bleed = BleedSettings(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources, melee: false, bow: !wand),
                     CriticalRoll = criticalRoll, Leech = captured.Leech,
                     AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
                     AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,

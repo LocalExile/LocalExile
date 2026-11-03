@@ -317,6 +317,7 @@ static partial class Game
                 AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
                     at, contact.Projectile.ReactionRandomSource);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
+            if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0) BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at);
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
             ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);

@@ -1,0 +1,95 @@
+using System.Net.Sockets;
+using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
+
+static partial class Game
+{
+    /// <summary>The wiki's Bleeding: a moving enemy takes 200% more damage from it (the trial spike traps' bleed too).</summary>
+    internal const double BleedMovingMore = 3;
+
+    /// <summary>
+    /// What an attack's hit can bleed with (wiki Bleeding), in the shape of an ignite (<see cref="MonsterIgnites.Settings"/>):
+    /// the context's bleeding rows (<see cref="AilmentPanelStats"/>: 70% of the hit's physical damage per second through
+    /// the ailment's buckets) and the chance from bleed_on_hit_with_attacks_% and the weapon's
+    /// local_chance_to_bleed_on_hit_% (the panel's virtual_total_main_hand_chance_to_bleed_on_hit_%), with
+    /// bleed_on_melee_attack_chance_% for a melee and bleed_on_bow_attack_chance_% for a bow attack; global_bleed_on_hit
+    /// or the weapon's local_bleed_on_hit always bleed. It lasts 5 s × (1 + bleed_duration_+%, base_bleed_duration_+% and
+    /// base_all_ailment_duration_+%); faster_bleed_% and damaging_ailments_deal_damage_+%_faster multiply its damage per
+    /// second and divide its duration, as ignite's faster stats do. cannot_cause_bleeding and never_damaging_ailments stop
+    /// it; a physical prohibition already leaves its rows empty.
+    /// </summary>
+    internal static MonsterIgnites.Settings BleedSettings(IEnumerable<(string Stat, int Value)> rows, string hand,
+        Func<string, int> get, IReadOnlyDictionary<string, int>? local, bool melee, bool bow)
+    {
+        if (get("cannot_cause_bleeding") != 0 || get("never_damaging_ailments") != 0) return MonsterIgnites.Settings.None;
+        double faster = Math.Max(0, 1 + ((double)get("faster_bleed_%") + get("damaging_ailments_deal_damage_+%_faster")) / 100.0);
+        if (faster <= 0) return MonsterIgnites.Settings.None;
+        var r = rows.ToDictionary(x => x.Stat, x => x.Value);
+        double Row(string bound, string kind) =>
+            r.GetValueOrDefault($"{bound}_bleeding_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
+        int Local(string name) => local?.GetValueOrDefault(name) ?? 0;
+        long chance = get("global_bleed_on_hit") != 0 || Local("local_bleed_on_hit") != 0 ? 100
+            : (long)get("bleed_on_hit_with_attacks_%") + Local("local_chance_to_bleed_on_hit_%")
+                + (melee ? get("bleed_on_melee_attack_chance_%") : 0) + (bow ? get("bleed_on_bow_attack_chance_%") : 0);
+        double seconds = Ailments.BleedDurationSeconds * Math.Max(0, 1 + ((double)get("bleed_duration_+%")
+            + get("base_bleed_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster;
+        return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
+            Row("minimum", "critical"), Row("maximum", "critical"), seconds);
+    }
+
+    /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield
+    /// (<paramref name="weapon"/>) brings no main-hand local chance.</summary>
+    internal static MonsterIgnites.Settings SupportedBleed(ClientState conn, ushort skillId, bool spell,
+        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, bool melee = false)
+    {
+        if (spell) return MonsterIgnites.Settings.None;
+        var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+        return BleedSettings(SupportedAilmentRows(conn, skillId, "main_hand", weapon), "main_hand",
+            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
+            weapon is null ? MainHandLocalSources(conn) : null, melee, bow: false);
+    }
+
+    /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
+    internal static MonsterIgnites.Settings DefaultAttackBleed(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        var weapon = WeaponFor(conn);
+        return BleedSettings(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
+            SupportedAttackDamage.Raw(weapon, Get), DamageStats.Conversion(player, Stats, attack: true), Get),
+            "main_hand", Get, weapon.LocalSources, melee: true, bow: false);
+    }
+
+    // Called under the combat lock at an accepted attack hit that dealt physical damage and left the monster alive: the
+    // hit's bleed and the packets of the monster's bleeding buff (BuffDefinitions "bleeding", its timer to the last bleed's
+    // end), or null. Unlike ignite a critical strike rolls the chance too, then bleeds with the critical rows (wiki
+    // Bleeding). The target's avoid_bleed_% and base_avoid_bleed_% avoid it; immune_to_bleeding and cannot_gain_bleeding
+    // stop it.
+    internal static List<byte[]>? BleedOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now)
+    {
+        if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row
+            || !RandomRolls.Chance(settings.Chance, 100, conn.IgniteRandom)) return null;
+        var e = target.Mods.Effects;
+        if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e["avoid_bleed_%"] + e["base_avoid_bleed_%"],
+                e["immune_to_bleeding"] != 0 || e["cannot_gain_bleeding"] != 0 || e["base_cannot_gain_bleeding"] != 0,
+                conn.IgniteRandom)) return null;
+        return ShowDotBuffLocked(conn, id, target.Bleeds, row, now);
+    }
+
+    internal static string BleedingLog(uint id, SpawnedMonster target, bool critical, double now) =>
+        $"monster 0x{id:x} ({target.Label}) bleeding{(critical ? " from a critical hit" : "")} for {target.Bleeds.Until - now:0.##} s";
+
+    internal static void BleedOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now) =>
+        QueueDotBuff(session, BleedOnHitLocked(session.Conn, id, target, settings, critical, now),
+            BleedingLog(id, target, critical, now));
+
+    /// <summary>A bleeding monster's mitigation: its physical damage over time taken (resistance, damage taken, Pride;
+    /// armour stops hits only), times <see cref="BleedMovingMore"/> while it moves.</summary>
+    internal static double BleedTaken(SpawnedMonster m, double now) =>
+        MonsterDotTaken(m, DamageType.Physical, now) * (m.Walk.Moving(now) ? BleedMovingMore : 1);
+
+    // One tick of the bleeding monsters (RunPlayerTick), as BurnIgnited: only the strongest bleed deals damage.
+    internal static Task BleedMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        TickStrongestDots(remote, stream, ciphers, conn, m => m.Bleeds, BleedTaken, "bled to death");
+}

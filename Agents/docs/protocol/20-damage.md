@@ -710,15 +710,14 @@ The modelled damaging ailments are:
 | Ailment | Damage type | Base | Duration |
 |---|---|---|---|
 | Ignite | fire | 90% of the hit's fire damage per second | 4 s |
-| Bleed | physical | 70% of the hit's physical damage per second (200% while moving is not modelled) | 5 s |
+| Bleed | physical | 70% of the hit's physical damage per second, three times while the target moves | 5 s |
 | Poison | chaos | 30% of the hit's physical + chaos damage per second, stacking | 2 s |
 
 `Ailments.Ignite/Bleed/Poison` build the effect from a hit packet. Pass the **converted base packet before hit-only
 increased/more modifiers**; the method's `increasedPct`/`more` arguments are the ailment-specific multipliers, so a
 caller cannot double-count hit modifiers. For a specific hit pass its rolled packet; for expected damage pass the
 average range. The caller applies the target's resistance. The player's chill, freeze and shock on monsters are
-modelled ([below](#outgoing-chill-freeze-and-shock-on-monsters)), and so are his ignites (below); critical ailment
-damage and the other damaging ailments' chance, application and duration on monsters are not modelled yet. Righteous
+modelled ([below](#outgoing-chill-freeze-and-shock-on-monsters)), and so are his ignites and bleeds (below). Righteous
 Fire still uses its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignite.
 
 **The player's ignites on monsters** (`MonsterIgnites.cs`, the wiki's Ignite): `IgniteFromHit` decides a landed hit's
@@ -770,6 +769,22 @@ applies the monster's capped fire resistance and damage taken, carries fractions
 burn does. The monster wears the native `ignited` buff (BuffDefinitions row 0, flame visual 2) with its timer to the
 last ignite's end, re-sent (the old instance removed first) with each new ignite and removed at expiry or death. Not modelled:
 ignite proliferation, "as though dealing more", support more multipliers and the panel's unmodelled buckets.
+
+**Hit bleed on monsters (`MonsterBleeds.cs`, the wiki's Bleeding).** Attacks only: the default attack, a melee or area
+attack's sweep, an attack gem's projectile and the ordinary bow or wand shot read the context's bleeding rows above
+(`BleedSettings`, as the ignite's). The chance is `bleed_on_hit_with_attacks_%` + the main hand's local
+`local_chance_to_bleed_on_hit_%` (the panel's `virtual_total_main_hand_chance_to_bleed_on_hit_%`), plus
+`bleed_on_melee_attack_chance_%` for a melee or `bleed_on_bow_attack_chance_%` for a bow attack; `global_bleed_on_hit`
+or the weapon's `local_bleed_on_hit` always bleed. Unlike ignite a critical strike rolls the chance too, then bleeds
+from the critical rows. It lasts 5 s × (1 + `bleed_duration_+%` + `base_bleed_duration_+%` +
+`base_all_ailment_duration_+%`), and `faster_bleed_%` works as `faster_burn_%` does. `cannot_cause_bleeding` and
+`never_damaging_ailments` stop it; the monster's `avoid_bleed_%` / `base_avoid_bleed_%` avoid it and
+`immune_to_bleeding` / `cannot_gain_bleeding` refuse it. A monster's bleeds are a second strongest-only set with the
+ignites' rules (`SpawnedMonster.Bleeds`); the player tick (`BleedMonsters`) deals the strongest through the monster's
+physical damage over time taken (armour stops hits only), three times while its walk moves. It wears the native
+`bleeding` buff (BuffDefinitions row 140, the one the trial spike traps put on the player) timed as the ignited one.
+Not modelled: Crimson Dance's stacks, aggravated bleeding, the weapons' fixed `local_chance_to_bleed_on_hit_25%` /
+`_50%` and critical-only chances, and support more multipliers.
 
 ## 3a. Impale contacts and reflected damage
 
@@ -1218,9 +1233,8 @@ mitigation are composed as described in the [projectile module](../game/projecti
   supported incoming shock path are implemented. The monsters' base resistances are in §4, with penetration.
 - Remaining skill-specific increased/more/effectiveness mechanics beyond the documented packet and support paths.
   Weapon-local and character flat ranges retain conversion history and their separate scopes.
-- Outgoing ailments beyond projectile and granted-skill ignite (§3) and chill, freeze and shock: melee/area attack
-  ignite, bleed, poison; alternative ailments (scorch, brittle, sap); the shatter visual and the on-death effects Shatter
-  suppresses; bleed movement bonus; poison stacking.
+- Outgoing ailments beyond ignite, bleed, poison (§3), chill, freeze and shock: alternative ailments (scorch, brittle,
+  sap); the shatter visual and the on-death effects Shatter suppresses; Crimson Dance and aggravated bleeding.
   Supported incoming elemental ailments are bounded by [Gambler](../game/gambler.md#incoming-elemental-ailments).
 - Per-monster damage conversion and monster-specific mitigation.
 - Damage reflection, specialized leech conversions/conditions, conditional gain on hit, and Mana and Energy Shield

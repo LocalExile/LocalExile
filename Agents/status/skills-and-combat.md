@@ -1513,7 +1513,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Elemental Equilibrium removes the Exposure of a hit's elements and inflicts -25% Exposure of the others.
   Not yet: Exposure from skills and auras, aura-dependent penetration, other added damage,
   increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)),
-  except the player's chill, freeze and shock on monsters and his ignites.
+  except the player's chill, freeze and shock on monsters and his ignites and bleeds.
   Projectile hits ignite from the panel's ignite rows captured at release, and the default attack and melee or area
   skills from the same rows at their hit; Abberath's Fury's footstep hits work out
   their own (90% of the hit's flat fire per second for 4 s, the ignite increases, damage over time multipliers, +50% on
@@ -1523,6 +1523,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   They burn on while the player is dead (unverified), with no progress from a dead Hardcore character's kills.
   The melee and area ignite and the footstep ignite are not checked with the real client (`MonsterIgnites.cs`,
   [20](../docs/protocol/20-damage.md) §3).
+  Attack hits (the default attack, melee and area attacks, attack projectiles and bow shots) bleed monsters from the
+  panel's bleeding rows with the attack bleed chances, for 5 s and the bleed duration stats: only the strongest bleeds,
+  three times while the monster moves, with one timed `bleeding` buff and kills (`MonsterBleeds.cs`; not checked with
+  the real client; no Crimson Dance or aggravation).
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
   `action_speed_cannot_be_reduced_below_base` keeps the action factor at 1 under chill and freeze (Gateway coverage,

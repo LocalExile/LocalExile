@@ -140,8 +140,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Spirit/Abyss-jewel counting remain open; these changes do not certify entire charge rows.
   Every panel row now has a server derivation (the 2026-10-29 batch in Status covers the Defence estimates, off-hand,
   effective critical, secondary and damaging-ailment rows; the owner's live run of 2026-10-29 passed them, the converted
-  charges and the Blood Charges); what remains for #75 is actual ailment application behind the ailment rows (projectile
-  ignite now applies; melee/area ignite, bleed and poison do not), Reap's
+  charges and the Blood Charges); what remains for #75 is actual ailment application behind the ailment rows (ignite
+  and bleed apply from them; poison works out its own from the hit), Reap's
   damage over time debuff and Vaal Reap's temporary Blood Charge maximum, and executing the secondary hits (Bear Trap,
   Herald of Ice) whose rows are display-only. Deferred (2026-10-29, owner's decision): Spirit and Siphoning Charges. Their only 3.29
   player sources are unique mods (`maximum_spirit_charges_per_abyss_jewel_equipped`,
@@ -397,7 +397,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Rerun critical ignore against a rebuilt final DLL: the previous combined run used the preceding #225 artifact.
   Recheck the resolved bow-contact and target-modifier composition natively before claiming new combined proof.
   Special ES mechanics, the remaining conditional penetration, skill Exposure, damaging and alternative ailments on monsters
-  (beyond the player's ignites) and further added-damage/support effects remain open.
+  (beyond the player's ignites and bleeds) and further added-damage/support effects remain open.
   An attack's packet goes through `MaximumAttackDamage.Apply` after conversion first (Devout of Ryslatha's more maximum
   damage scales attack ailments too), with a regression test.
   Ordinary Frostblink's bounded ground-instant acceptance passed actual Q, retry and invalid-request checks.
