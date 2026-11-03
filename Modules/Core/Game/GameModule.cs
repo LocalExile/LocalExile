@@ -13,10 +13,6 @@ public sealed class GameModule : IModule
     {
         Rules.CombatLifetime = module.Lifetime;
         Program.SetGameLogic(new GameLogic());
-        // The survivors dev mode: /survivors start|stop|pick|status (Agents/docs/game/survivors-mode.md).
-        module.OnChatCommand("survivors",
-            "/survivors [start | stop | pick <1-3> | status] (dev: a Vampire Survivors-style run on this area's monsters)",
-            command => Rules.SurvivorsCommand(command));
     }
 }
 

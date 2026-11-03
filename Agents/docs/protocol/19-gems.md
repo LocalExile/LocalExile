@@ -228,14 +228,15 @@ sets the offer's `QuestFlag` (the "taken" flag) in one save. The Gateway now off
 offer 3 after `/quest_flag a1q4-PlacedGlyphs`: the six Witch gems, claim, flag and repeat refusal.
 
 **Local Nessa shop.** This checkout restores Nessa's full testing assortment independently of character class and
-quest completion (`NpcShops.Tabs`, `fullGemStock`). Every writable gem with a positive drop level and a creatable
-variant is included, including transfigured, Trarthan and creatable Vaal variants. Red/green/blue skill and support
-tabs stay separate; White Skills contains both white active and support gems. Full 12-by-12 pages continue as
-numbered tabs instead of dropping overflow. These colour tabs are permanent development tools: they must always
-contain the complete creatable assortment without quest or class gates, so command and mechanic development
-does not depend on completing the campaign.
+quest completion (`NpcShops.Tabs`, `fullGemStock`). Every writable gem with a positive drop level has a tab.
+Awakened Gems and Exceptional Gems are separate tabs; the ordinary red/green/blue skill and support tabs contain the
+creatable ordinary variants (transfigured, Trarthan and creatable Vaal) and leave awakened and exceptional gems out;
+legacy alternate rows the catalog cannot create stay out of the colour tabs too.
+White Skills contains both white active and support gems. Full 12-by-12 pages continue as numbered tabs instead of
+dropping overflow. These tabs are permanent development tools: they must always contain the complete assortment
+without quest or class gates, so command and mechanic development does not depend on completing the campaign.
 The separate Skills tab is the future gameplay shop: only ordinary gems unlocked by the character's quest flags
-and class through GemVendorStock.Stock, at the existing vendor prices. Without progression input it is empty;
+and class through GemVendorStock.Stock, at the existing vendor prices. It is shown only when it has stock;
 alternative variants are not unlocked implicitly. Active gems precede supports; each kind groups red, green, blue
 and white gems, then orders by drop level and name within each colour. Supports start at column zero of the next
 row, leaving the active row's remaining cells empty; if necessary they continue on the next page. It also paginates
@@ -246,10 +247,11 @@ price and receives a fresh player inventory ID; the shop template retains its ID
 A manager-1 remove/add refresh keeps it visible and available for another purchase without reopening the shop.
 An unpaid or failed purchase leaves the template available and grants nothing; payment and delivery remain atomic.
 Other vendors and Nessa's non-gem goods remain finite.
-Variant indices survive purchase and save/reload. Existing catalog exclusions still apply to placeholders and
-unsupported awakened rows. The client data does not provide the former Anomalous/Divergent/Phantasmal quality
-variants; those names are not fabricated. Automated stock/serialization tests cover this local assortment;
-its updated client display still needs a live check. Other vendors retain quest progression below.
+Variant indices survive purchase and save/reload. Existing catalog exclusions still apply to placeholders. The
+Awakened tab deliberately restores the rows 3.29 disables for normal play; the client display of those rows still
+needs a live check. The client data does not provide the former Anomalous/Divergent/Phantasmal quality variants;
+those names are not fabricated. Automated stock/serialization tests cover this local assortment; its updated client
+display still needs a live check. Other vendors retain quest progression below.
 
 **Vendors.** The currency/flask/jewellery vendors that also sell gems (`GemVendorStock.Sells`: Nessa, Yeena,
 Clarissa, Petarus and Vanja, Lani, Lilly Roth, Siosa) give seven tabs - Red/Green/Blue Skills and Support, White

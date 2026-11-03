@@ -5,6 +5,9 @@ using GameServer.Core.World;
 sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int CriticalChance,
     int CriticalMultiplier, string Label)
 {
+    /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>
+    public object? Owner { get; init; }
+    public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
     public Penetration.PerType Penetration { get; init; }
     public HitResistances.Mods ResistanceMods { get; init; }

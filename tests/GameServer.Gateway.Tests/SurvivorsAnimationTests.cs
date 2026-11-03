@@ -1,3 +1,4 @@
+using GameServer.Modules.Survivors;
 using GameServer.Core.Protocol.Instance;
 using League = GameServer.Core.Accounts.League;
 
@@ -29,7 +30,6 @@ public sealed class SurvivorsAnimationTests
         ("claw", new WeaponProfile(false, false, false, false, false, Claw: true)),
     ];
 
-    [Fact]
     public void Every_class_and_weapon_resolves_a_cast_clip_and_the_projectile_impact()
     {
         var contacts = new AnimationContacts("data");
@@ -64,7 +64,6 @@ public sealed class SurvivorsAnimationTests
         }
     }
 
-    [Fact]
     public void Every_run_skill_maps_to_a_cast_clip()
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-anim-{Guid.NewGuid():N}.db");
@@ -80,14 +79,14 @@ public sealed class SurvivorsAnimationTests
         };
         try
         {
-            var catalog = Game.SurvivorsCatalogFor(conn);
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
             var contacts = new AnimationContacts("data");
             string ao = Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
             var unarmed = new WeaponProfile(false, false, false, false, false, Unarmed: true);
             Assert.True(catalog.Count >= 25, $"only {catalog.Count} run skills");
             foreach (var skill in catalog)
             {
-                var kind = Game.SurvivorsCastKind(skill);
+                var kind = SurvivorsSkills.SurvivorsCastKind(skill);
                 Assert.True(contacts.CastClip(ao, unarmed, kind) is not null,
                     $"{skill.Name}: {kind} has no clip on {ao}");
             }

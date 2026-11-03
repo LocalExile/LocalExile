@@ -39,16 +39,12 @@ static partial class Game
         int max = ShieldChargeMaxDistance(conn, skillId);
         lock (conn.Monsters)
         {
-            var start = conn.Walk.Position(at);
-            double distance = Dist(start, (x, y));
-            if (distance > max)
-                (x, y) = (start.X + (int)((x - start.X) * max / distance), start.Y + (int)((y - start.Y) * max / distance));
             run.Percent = percent;
-            run.Start = start;
+            run.Start = conn.Walk.Position(at);
             run.MaxDistance = Math.Max(1, max);
             int token = ++run.Token;
             RecomputePoolsAndSpeed(conn);
-            conn.Walk.Order(x, y, at);
+            conn.Walk.Charge(x, y, max, at);
             return token;
         }
     }
@@ -103,7 +99,9 @@ static partial class Game
         Task Hit((int X, int Y) at, int radius, ISet<uint>? once) => gem.Name is null ? Task.CompletedTask
             : AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at, immediate: true, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, damageMore: More(at), radiusOverride: radius, once: once);
-        for (double tick = conn.Clock.Elapsed.TotalSeconds; tick < arrivesAt; tick += ShieldChargePathSeconds)
+        // The step pass may end the run early, on a body or a wall.
+        double Arrival() => Math.Min(arrivesAt, conn.Walk.ArrivesAt);
+        for (double tick = conn.Clock.Elapsed.TotalSeconds; tick < Arrival(); tick += ShieldChargePathSeconds)
         {
             double wait = tick - conn.Clock.Elapsed.TotalSeconds;
             if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
@@ -111,7 +109,7 @@ static partial class Game
             if (!Current()) return;
             await Hit(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), ShieldChargePathRadius, pathHit);
         }
-        double rest = arrivesAt - conn.Clock.Elapsed.TotalSeconds;
+        double rest = Arrival() - conn.Clock.Elapsed.TotalSeconds;
         if (rest > 0) await Task.Delay(TimeSpan.FromSeconds(rest));
         if (!ShieldChargeRuns.TryGetValue(conn, out var run) || run.Token != token || conn.Closed) return;
         await Hit(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), ShieldChargeEndRadius, null);

@@ -1,458 +1,73 @@
-# Survivors mode (MVP)
-
-![Survivors preview](../../../docs/preview/survivors-mode-preview.png)
-
-A Vampire Survivors-style run inside the normal client ([issue #84](https://github.com/LocalExile/LocalExile/issues/84)).
-The horde is the current area's own monsters, the run's skills cast themselves, and the player's only job is to move.
-
-The mode lives in the `game` module (`Modules/Core/Game/Survivors/Survivors.cs`, `static partial class Game`); its core
-model is `src/GameServer.Core/World/SurvivorsMode.cs`, and per-connection state is
-`src/GameServer.Gateway/Connection/ClientState.Survivors.cs`.
-
-The structure follows Azeroth Survivors's rules (wave clock,
-auto-cast skills, a choice on every level). No code from it, or from any other project, was copied.
-
-## Commands
-
-| Command | Does |
-|---|---|
-| `/survivors start` | Starts a run in the current area. Needs an area with monster packs (The Coast, not a town or hideout). |
-| `/survivors status` | Clock, kills, run level, learned skills and the horde target. |
-| `/survivors pick <1-3>` | Takes a choice without the window (the window's click does the same). |
-| `/survivors level` | Dev: banks a few run levels at once, so the choice window can be tested without waiting for kills. |
-| `/survivors herald` | Dev: learns the first Herald gem at once, for watching its aura pulse. |
-| `/survivors test <gem>` | Dev: restarts the run with exactly that gem (rank 1), for the per-gem verification pass. |
-| `/survivors link <support>` | Dev: links that support to the first learned skill when the game's skill types allow it. |
-| `/survivors matrix [gem]` | Dev: prints every support's effect on that gem's interval, radius, speed, crit, leech and hit, through the live cast's own computation. |
-| `/survivors unique <name>` | Dev: creates and equips a named unique, for checking its mods on the character and on casts. |
-| `/survivors uniques` | Dev: sweeps the whole unique catalogue and reports creatable/equippable items, missing Mods rows and mods with no stat effect. |
-| `/survivors rank <1-8>` | Dev: sets every learned skill to that rank. |
-| `/survivors stop` | Ends the run and prints the result. |
-
-A run also ends on death, on victory at 15:00, or when the area changes.
-
-## Run skills
-
-The run starts with the first skill the item catalogue resolves (normally **Fireball**). Each level-up opens the client's
-own reward window with three choices drawn from the reference's weighted pool: a skill rank (1.2), a new skill (1.0),
-a support (0.9), a blessing rank (0.8), a new blessing (0.5) and — every third run level — a unique item (0.4). With
-everything mastered the window offers the reference's **Healthstone**, a full heal. There are six skill slots (six
-blessings, five supports a skill), matching Azeroth Survivors' `MAX_ABILITIES` / `MAX_PASSIVES`.
-Clicking an item sends the window's normal C→S `0x88`; the server maps the item id to the choice, clears the window and
-applies it.
-
-**Skills** are every skill gem whose projectile metadata the client can draw and the projectile runtime can resolve, so
-the catalogue grows with the item data. A gem with no projectile (Ice Nova, Arc) has no flight the client can draw here
-and is left out.
-
-**Supports** are real support gems linked to one skill, up to five per skill (the level-up offers them once a skill
-slot is full, and only when the game's ActiveSkillTypes allow the link; heralds take none). Each one contributes the
-stats of the support gem at the skill's rank (the run has no gem experience of
-its own), and the cast pipeline reads them exactly as Path of Building does:
-
-| Support | Stat it links (level 1) | Effect on the linked skill |
-|---|---|---|
-| Added Fire Damage | `physical_damage_%_to_add_as_fire` 25 | 25% of the hit's physical damage gained as extra fire; a pure elemental spell gains nothing |
-| Added Cold Damage | `global_minimum/maximum_added_cold_damage` 4-6 | flat cold added to the hit, scaled by the skill's damage effectiveness |
-| Added Lightning Damage | `global_minimum/maximum_added_lightning_damage` 1-8 | flat lightning added to the hit, scaled by the skill's damage effectiveness |
-| Faster Casting | `base_cast_speed_+%` 20 | increased cast speed: interval ÷ 1.2, additive with the Haste blessing |
-| Increased Area of Effect | `base_skill_area_of_effect_+%` 30 | radius × √1.3 (PoB's calcRadius), not ×1.3 |
-| Increased Critical Strikes | `additional_base_critical_strike_chance` 200, `critical_strike_chance_+%` 60 | +2% base chance, then 60% increased chance |
-| Faster Projectiles | `base_projectile_speed_+%` 50, `projectile_damage_+%` 20 | 50% increased projectile speed and 20% increased projectile damage |
-| Life Leech | `life_leech_from_any_damage_permyriad` 200 | 2% of the damage each hit deals leeched as life |
-
-**Blessings** are run-local passives shown as support gems, mirroring Azeroth Survivors' passives:
-
-| Blessing | Item | Effect per level | Reference passive |
-|---|---|---|---|
-| Might | Added Fire Damage Support | +10% increased damage | Might +10% |
-| Haste | Faster Casting Support | +8% increased cast speed | Arcane Intellect +8% |
-| Area | Increased Area of Effect Support | +10% increased area (radius × √1.1) | Amplify Magic +10% |
-| Critical | Increased Critical Strikes Support | +5 percentage points of base critical chance | Blessing of Kings +5% |
-| Leech | Life Leech Support | 0.2% of damage leeched as life | (PoE addition) |
-| Wisdom | Enlighten Support | +8% run experience | Blessing of Wisdom +8% |
-| Fortitude | Fortify Support | 1/1.2 less damage taken a level (25% → 10.1%) | Power Word: Fortitude +20% life |
-| Swiftness | Faster Projectiles Support | +10% increased projectile speed | Aspect of the Pack +10% speed |
-
-Neither the character's stats nor its save change: every blessing and support is read by the run's own calculation.
-The supports and blessings are summed into the same stat dictionary the gem uses, so one source cannot mean one thing
-to the flight and another to the hit.
-
-## Gem formulas
-
-A run skill is the gem at **gem level = run rank** (1-8). The cast reads the gem's own rows, not a hand-written table:
-
-- **Base hit**: `spell_minimum/maximum_base_*_damage` from `GrantedEffectStatSetsPerLevel` (`HitDamage`). An attack gem
-  uses a nominal weapon of 45-90% of the starting tier pool's median life, scaled by the gem's `DamageEffectiveness`
-  (`10000 + offset`, e.g. Burning Arrow 280%); Poisonous Concoction uses its own added chaos damage instead.
-- **Damage**: the Gateway's Path of Building port (`PlayerHitDamage.Resolve`, pinned PoB 16de4b82 `calcDamage`):
-  conversion and gain, `increased` buckets (generic, spell/attack, projectile, area, elemental, typed) and each
-  `more` multiplier. Added damage is multiplied by the skill's damage effectiveness, the gem's own base is not.
-- **Critical**: `(base + additional base) × (1 + increased / 100)`, capped at 100%; the multiplier is 150% plus the
-  gems' `base_critical_strike_multiplier_+`. Ice Spear's second form raises both (see below). A critical hit is ×1.5.
-- **Cast time**: the gem's `GrantedEffects.CastTime` (Fireball 0.75 s, Spark 0.6 s, Tornado Shot 1.0 s), 7% shorter per
-  rank, divided by the increased cast speed, floored at 200 ms.
-- **Ailments**: the hit's fire portion can ignite (`base_chance_to_ignite_%`, 90% of the fire damage a second for 4 s,
-  +50% multiplier on a critical hit); cold and lightning hits chill/freeze/shock through the normal monster-ailment
-  thresholds. Poison is not simulated (the monster poison DOT has no server model yet).
-- **Rank curve**: a run skill's base is the gem's own first-level row (its identity: base damage, effectiveness,
-  conversion, crit), and the run then applies the reference's **+30% damage a rank** (3.1× at rank 8), with the
-  gem-level crit/effectiveness and each support layered on top.
-- **Damage anchor**: the catalogue's median rank-1 spell hit lands for the **starting tier pool's** median monster
-  life (the three weakest varieties), not the area's whole-roster median: the opening kill takes one or two hits, and
-  the tier ladder plus the rank curve carry the rest.
-
-Per-gem mechanics the shared projectile rules carry: Fireball explodes in an area, Kinetic Blast's impact blooms into
-four cluster explosions, Tornado Shot's arrow fires three secondary arrows, Spark wanders on its native seeded legs and
-forgets hits every 0.66 s, Ice Spear changes form (×4 speed, infinite pierce, +600% critical chance) after 35% of its
-range, Ball Lightning pulses area damage every 0.2 s along its slow flight, Storm Burst pulses every 400 ms, Lightning
-Arrow chains to three nearby enemies, Cobra Lash chains three times, Freezing Pulse/Frostbolt/Soulrend/Vaal Caustic
-Arrow/Vaal Lightning Arrow always pierce, Vaal Burning Arrow pierces three targets and explodes, Vaal Spark and
-Lightning Trap fire twelve and nine projectiles, and every other gem uses its own projectile count, pierce, chain, fork
-and area from its stat set.
-
-## Heralds
-
-Herald gems (**Herald of Ash**, **of Ice**, **of Thunder**, **of Agony**, **of Purity**) are run skills of their own kind:
-they have no projectile, so a cast is an **aura pulse** around the player - every hostile within 12 cells (grown by the
-skill's rank and the run's area) takes the skill's damage. Learning one puts the gem's aura buff on the player (S->C
-0x1c1, the BuffDefinitions row from the effect's ActiveSkills row), so the client draws the herald and its icon; the
-buffs are removed when the run ends. Each hit also sends the impact packet (0x1af) with the gem's own damage-type
-code, so its elemental hit particles play on the monster, and plays the herald's own hit effect at up to three struck
-targets (the wave still damages every target): Ash's `flameherald_explode.ao`, Ice's `iceherald_explode.ao`, Thunder's
-`lightning_strike_herald.ao` (the bolt from above), Agony's `mortarimpact.ao` and Purity's `slam_impact.ao`, each
-removed when its clip ends. Kills from a pulse feed the run like any other.
-
-A level-up window can be closed by a stray click while running; closing it takes the first reward, so the run never
-stays paused with nothing to click.
-
-## Unique items
-
-Every third run level the window offers one **unique item** from the full Path of Building-derived `UniqueCatalog`
-(1299 definitions; `Mageblood`, `Crown of Eyes`, `The Searing Touch` and the rest) beside the skills. The item is
-created when the offer is dealt, so the pick equips exactly the item the window showed: `PlayerInventories.Add` puts it
-into the first free equipment row its class fits (the main inventory when every slot is taken), the client gets the
-inventory change and, for a visible slot, the equipment update, and the character's stats are published again.
-
-Unlike blessings, a unique is a real item on the character: it stays equipped, is saved with the character and keeps
-its mods. A run waives its requirements while it lasts, because a low-level character could not otherwise wear it:
-the item's **level requirement is sent as 0** (`Item.RequiredLevel`; the client keeps that byte and refuses an equip
-above the player's level), the three `virtual_*_for_requirements` stats go to 1000 while a run item is worn (the client's
-attribute check), and `ClientState.SurvivorsItemIds` keeps the item out of the server's inactive set so its mods count.
-After the run the item follows the normal requirements again. An item already taken in the run, or already worn by the
-character (matched by its name word), is not offered again.
-
-**The run's casts read the character's stats**, so a unique's mods actually change the run: `FinalPlayerStats` (passives
-and equipped uniques) is merged into every cast's stat dictionary beside the gem, its supports and the blessings. That
-gives the hit the unique's increased/more damage, conversion and added damage, cast speed, critical chance and
-multiplier, area, projectile speed, penetration/resistance modifiers, leech and ailment chance/duration through the same
-`PlayerHitDamage.Resolve` pipeline. An attack gem also swings the **equipped weapon** (local damage, local added damage,
-attack time and local critical chance), so a unique weapon's own numbers matter; with no weapon it uses the mode's
-nominal weapon. Only items
-that fit an equipment row are offered: a jewel or flask has nowhere to go in a character whose inventory is emptied at
-the start, so it would be a wasted reward.
-
-## Difficulty and power curve
-
-The numbers follow Azeroth Survivors' `data.rs` / `enemies.rs` / `hud.rs` (read 2026-11-03); `/survivors curve` prints
-the table in game.
-
-| Time | Horde alive | Monster life | Monster damage | Boss life (× the tier pool top) | Boss XP |
-|---|---|---|---|---|---|
-| 0:00 | 14 | ×1.00 | ×1.00 | ×26.92 | 60 |
-| 2:08 | 43 | ×1.11 | ×1.13 | ×25.71 | 120 |
-| 4:17 | 73 | ×1.21 | ×1.26 | ×49.41 | 200 |
-| 6:25 | 102 | ×1.32 | ×1.39 | ×31.82 | 300 |
-| 8:34 | 132 | ×1.43 | ×1.51 | ×50.00 | 400 |
-| 10:42 | 161 | ×1.54 | ×1.64 | ×47.62 | 500 |
-| 12:51 | 191 | ×1.64 | ×1.77 | ×60.00 | 600 |
-| 15:00 | 220 | ×1.75 | ×1.90 | ×60.00 | 600 |
-
-- **Horde**: 14 → 220 alive (`SurvivorsRules.TargetAlive`), refilled every 0.12 s with `ceil(gap/6)` bodies, at most
-  four a tick (`SpawnRefill`). The spawner draws from a sliding pool of three consecutive tiers over thirty steps of
-  the run (`WavePool`) — the area's own varieties, weakest first.
-- **Surround wave**: 28 + 60·progress bodies on a 26-cell ring at 67.5 s into each area.
-- **Clock**: +75% monster life and +90% monster damage over the run, applied as `maximum_life_+%` / `damage_+%` on
-  every horde spawn (normal, magic, rare and boss alike).
-- **Power**: six skill slots, eight ranks; +30% damage and ×0.93 interval a rank; one more projectile at ranks 3, 5
-  and 7; +8% radius a rank; six blessings at the reference's per-level values. A mastered build is roughly 20× its
-  starting damage per skill, which keeps pace with the tier ladder the way the reference's six abilities do.
-
-**Mapping deviations.** The mode fights real PoE monsters with a real character, so absolute numbers cannot be copied:
-the boss ladder is a ratio over the area's top tier, and Fortitude's +20% life becomes 1/1.2 less damage taken. The
-reference's ground XP gems and magnet passive have no counterpart (experience is paid on the kill, and the instance's
-loot sweep stays off), movement speed is client-owned, and the reward window is the client's quest-reward window, so
-card rarity colours are not reproduced.
-
-## Boss gate
-
-Each stage is one area with its lore boss. The boss is the area's own unique from `MonsterPacks` (the same one the
-normal area spawns), arrives 15 run-seconds into the stage, and announces itself with the area's name. Its life is the
-**tier pool the area is drawing from at that stage** × the reference's ladder `[26.92, 25.71, 49.41, 31.82, 50, 47.62,
-60]` × the clock's life scale, and its kill pays the reference's boss experience `60, 120, 200, 300, 400, 500, 600`
-(the ordinary unique kill's 50 XP is part of that total). The 120-second timer no longer opens the way by itself: when
-it runs out and the boss still lives, the run stays in the area and says "The way is sealed until <boss> falls."
-Killing the boss marks the stage cleared; the next area opens at the next tick, with the run level, skills, blessings
-and uniques carried over. An area with no boss (a town-like layout) has no gate.
-
-`Game_SURVIVORS_STAGE_SECONDS` (at least 15) shortens the stage for verification; the default is 120.
-
-## Skill bar
-
-The run's learned skills are published as **Actor skills** (`0x02ba` with the actor's skill list) under ids from
-`0x0300`, above the gem band and away from every ActionTypes id, so a socketed gem never takes one. Each record is the
-real gem's effect at the run skill's rank, with one stored use and its cast interval as `CooldownMs`; the client's own
-skill manager then draws the gem's icon. The ids go into the free slots of the saved skill bar with `0x0053` (sent,
-never saved: they belong to the run), and every cast sends the cooldown trailer of `0x02ba` (`PlayerSingleUseCooldowns`)
-with the real time to the next cast. On the run's end the skills are published again without them and the bar is resent,
-so the slots clear.
-
-Clicking one of those slots does not cast: the run casts for the player, and the client's own action would spawn a second
-projectile next to the server's. The use packet is dropped (C→S `0x25`, logged).
-
-## Support links follow the game's skill types
-
-The eight support gems are not linked freely. `GemSupports.Compatible` applies the same
-`AllowedActiveSkillTypes` / `ExcludedActiveSkillTypes` / `SupportWeaponRestrictions` rules the game's own gem links use:
-the level-up offer only pairs a support with a skill it can support, and `/survivors link` refuses an illegal pair by
-name. Heralds take no supports: the real gem is a buff (its damage is the buff's burn/shatter, not a hit), so these
-damage supports have nothing to modify; the run's aura pulse is the mode's own effect.
-
-The full matrix over the run's projectile skills: every one has 6-8 compatible supports (Faster Casting is spell-only,
-Increased Area needs an area skill), and `SurvivorsSupportMatrixTests` walks every skill x every support at rank 1 and
-rank 8 through the same `SurvivorsComputeCast` the live cast uses, asserting the support's own number moves:
-
-| Support | Gem stat (level 1) | What the matrix sees |
-|---|---|---|
-| Added Fire | `physical_damage_%_to_add_as_fire` 25 | 25% of the physical hit added as fire; a skill with no physical damage (Fireball) legitimately does not change |
-| Added Cold | `global_minimum/maximum_added_cold_damage` 4-6 | cold added at the gem's damage effectiveness |
-| Added Lightning | `global_minimum/maximum_added_lightning_damage` 1-8 | lightning added at the gem's damage effectiveness |
-| Faster Casting | `base_cast_speed_+%` 20 | cast interval down, unless the 200 ms floor is already reached |
-| Increased Area | `base_skill_area_of_effect_+%` 30 | radius up by √(1 + increased) |
-| Increased Critical | `additional_base_critical_strike_chance` 200 + `critical_strike_chance_+%` 60 | critical chance up |
-| Faster Projectiles | `base_projectile_speed_+%` 50 + `projectile_damage_+%` 20 | projectile speed and hit damage up |
-| Life Leech | `life_leech_from_any_damage_permyriad` 200 | the shot's leech coefficient becomes non-zero |
-
-The matrix also caught an area double count: the character's `skill_area_of_effect_+%` already contains the player's
-base area (`PanelStats`), so the cast now removes `base_skill_area_of_effect_+%` from the player's final stats before
-`SkillArea.Increased` adds the gem's and each support's own base once.
-
-## Cast, projectile and hit animations
-
-A run cast plays the character's own stance clip with **0x1b2 kind 0**, not 0x1d1: 0x1d1 is the Animation.dat recovery
-route, which cancels the player's action and locks input for its duration, so it would freeze a mode whose player has
-to keep moving. 0x1b2 only replaces the rig clip. The clip comes from the class ACT by weapon stance:
-`attack1_<weapon>` for attacks, `spell_projectile_<weapon>`, `spell_aoe_<weapon>` and `spell_buff_<weapon>` for spells,
-with the unarmed clip as fallback and the newer rigs' `spellprojectile_*` / `spellaoe_*` / `spellbuff_*` names
-included. Its speed is the clip's natural length over the cast interval, so a 0.2 s cast plays fast and a 1 s cast
-plays at its own pace. `data/animation-contacts.json` now carries each class's rig `indices` (extractor version 4);
-the `/survivors matrix` command and the trace print the chosen clip and index.
-
-A Frida probe on the live 3.29.3b client (`trace-player-hit-animation.js`) confirmed the route: a cast `0x1b2`
-(object 4096) requested index 386, the body controller accepted it and switched its clip to 386
-(`spell_projectile_unarmed`); Fireball's projectile objects received index 1 (`fireball_explode`) at impact. The
-client's own `0x1b2` handler is the same for both.
-
-A Herald's aura pulse plays its gem's own hit art at up to three struck targets (`flameherald_explode`,
-`iceherald_explode`, `lightning_strike_herald`, `mortarimpact`, `slam_impact`), each as a `Metadata/Effects/...` .ao
-object created at the target and removed when its clip ends.
-
-The survivor projectile is the server's own object, so it now carries the projectile type's flight and impact clips
-from `projectile-clips.json` (`MonsterProjectilePresentation`): Fireball's `fireball_explode`, Spark's
-`electrical_explode`, Ice Spear's `frozenspear_impact`, Ethereal Knives' `end` and the rest. The impact clip is the
-skill's hit animation and plays where the projectile stops. Fireball also plays its area explosion and Kinetic Blast
-its cluster visual. A Herald's aura pulse sends the 0x1af hit package with the gem's own damage-type code (fire, cold,
-lightning or chaos particles) instead of the physical default. Monsters keep their 0x1d1 `TakeHit` flinch and the
-0x1af hit package (blood, particles, the critical bit).
-
-## Between runs
-
-Every `/survivors start` empties the character first: all carried, worn and flask items are removed (one `0xbf` per
-inventory row), so nothing from an earlier run carries in.
-
-## Rules
-
-| Rule | Value |
-|---|---|
-| Run length | 900 s |
-| Levels (areas) | the run moves to the next area every 120 s, but **only after that area's lore boss falls**; the boss is the area's own `MonsterPacks` unique (e.g. Hillock in the Twilight Strand), arrives 15 s into the stage and holds the way sealed while alive |
-| Monsters kept alive | 14 at the start growing to the cap (220) at the end |
-| Spawn cadence | every 0.12 s, `ceil(gap/6)` at most 4 per step, on a 30-38 cell ring around the player |
-| Roster | the area's own `MonsterPacks`, deduplicated, ordered by the life the client gives the variety at the area level; a sliding pool of three consecutive tiers over thirty steps of the run is drawn from |
-| Rarity | 15% magic after 20% of the run, 3% rare after 50% |
-| Boss | the area's own `WorldAreas` unique boss, once per stage, 15 s in; its life is the current tier pool top × 26.92/25.71/49.41/31.82/50/47.62/60 × the clock's life scale; while it lives the way onward stays sealed |
-| Ring wave | halfway through the stage (67.5 s), a closing ring of the weakest pool tier: 28 bodies at the start, 88 by the end |
-| Monster scaling | life ×(1 + 0.75 × progress), damage ×(1 + 0.9 × progress) |
-| Cast | each learned skill casts on the gem's own cast time, 7% shorter per rank, divided by increased cast speed (floor 200 ms); an empty cast retries in 200 ms |
-| Targets | one projectile per target in 34 cells: the nearest, or the toughest for Pyroblast, Aimed Shot, Exorcism and Starfire, up to the gem's projectile count |
-| Projectiles | the gem's own count, pierce, chain, fork and split; one more target at ranks 3, 5 and 7 |
-| Damage | PoB calcDamage: the gem's first-level base + added × effectiveness, converted, increased/more, then the reference's +30% a rank; the catalogue's median rank-1 hit equals the starting tier pool's median monster life |
-| Radius | the gem's area radius × √(1 + increased area); the rank still grows a Herald's aura 8% per rank |
-| Critical | (base + additional base) × (1 + increased), capped at 100%, ×1.5 damage |
-| Run experience | 2 normal, 4 magic, 10 rare, 50 unique; a boss pays 60/120/200/300/400/500/600 instead |
-| Level curve | `5 + 10 × (level − 1)` below 20, then `195 + 13 × (level − 20)`, then `455 + 16 × (level − 40)` |
-| Incoming hits | monster hits on the player deal 25% of their damage during a run; Fortitude reduces that by 1/1.2 a level |
-
-## Packets
-
-The mode adds no message layouts.
-
-- **Spawns**: `0x2b9` create monster + `0x01a9` wake zone, reusing the normal monster pipeline.
-- **Skills**: the projectile runtime's own server-created objects (the payload is sent with the client-predicted flag
-  off, so the server, not the client, draws the projectile), plus `0x01af` on contact, `0x01b1` life and `0x01b2`
-  flinch.
-- **Level-up window**: `0x00c0` registers inventory `0x600` with the three gems (a `0x00bf` for an id the client does
-  not know is fatal: "Got an inventory set change for an inventory that isn't in the set"), `0x0087` opens the reward
-  window, and the pick is the window's usual C→S `0x88`/`0x8a`. Clearing sends `0x00bf` with the offered ids removed.
-- **Chat**: `0x0017` for the run's own lines.
-
-## Verified live (2026-11-02)
-
-The mode was first built on the pre-refactor Gateway and then ported to the game module on top of main (dfcdc8f3):
-the run starts, the skills cast and kill, the reward window offers skills/supports/blessings/uniques, and a unique item
-is equipped (Stasis Prison into the body-armour row).
-
-An ungeared level-1 Witch in `1_1_1`, driven through `scripts/dev/client_control.py`:
-
-- `/survivors start` reported 15 minutes, 14 monsters, 120 at most, the area and its base damage; the bar went out with
-  the default attack on the left mouse button and **Fireball on Q** (`0x0053 slot 0 0x0102, slot 3 0x0300`), and the two
-  mouse slots stayed empty.
-- Every level-up sent `0x00c0` (inventory `0x600`, three items) and `0x0087` (the window) and paused the clock; taking
-  an item cleared it with `0x00bf`, published the new skills (`0x02ba`, five skills: the attack and four run skills) and
-  the bar again (`slot 3 0x0300, slot 4 0x0304, slot 5 0x0312, slot 6 0x0316`).
-- Supports linked through the window: "Linked Faster Projectiles Support to Static Tether", "Linked Added Cold Damage
-  Support to Lightning Trap".
-- Each cast sent one `0x1ce` per target and the actor's cooldown trailer (`0x02ba … 1.20/1.20 s`). Sampling one skill
-  icon's brightness over a second showed the bar's cooldown sweep (168 → 340 of 765 as the skill recovered), and four
-  skills sat on Q/W/E/R.
-- With the client-predicted flag on, the server sent no projectile object and the client still drew each shot (a
-  Fireball trail over the horde), while the server's simulation kept scoring kills (160 kills at 00:44).
-- Halfway between bosses the closing ring spawned and surrounded the player (a visible ring of 28 bodies at ~26 cells).
-- `/survivors stop` and the connection's exit both ended the run and put the skills off the Actor.
-
-The first attempt sent `0x00bf` for `0x600` before the inventory was registered and the client showed
-"Got an inventory set change for an inventory that isn't in the set"; the `0x00c0` registration above is the fix.
-
-## What is deliberately out of the MVP
-
-- No custom arena or boundary, no run save.
-- Only projectile gems are offered: a skill with no flight (Arc, a nova, a curse) has no visual here yet.
-- Some projectile gems have no cast animation of their own yet: the server casts them and the client draws the shot, but
-  the character may stand still through the cast. The per-gem animations are a later pass (see "Needs testing").
-- Damage-over-time components of a gem (Caustic Arrow's caustic ground, Soulrend's debuff, poison) are not simulated:
-  the monster poison DOT and ground effects have no server model yet, so those gems currently live on their hit damage.
-- The run window is the quest-reward window: it lists gems, not custom cards with upgrade text.
-- The unique pool is the full `UniqueCatalog` seed generated from Path of Building (1299 definitions; the 1072 that fit
-  an equipment row are offered). Jewels, flasks and maps are left out because the run's emptied character has nowhere
-  to put them.
-- No loot, gold or gem experience from run kills: `DropLoot` is skipped while a run is active.
-- No HUD panel for the run's clock; the skills themselves are on the normal skill bar.
-
-## Gem and support verification (2026-11-02, late)
-
-`Game_SURVIVORS_TRACE=1` writes one line per cast with the mechanics actually used; `/survivors test <gem>` restarts
-the run with one gem, `/survivors link <support>` links a support to the first skill, and `/survivors rank <n>` sets
-the rank. With `Game_SURVIVORS_MAX_ALIVE=10` the whole catalogue was walked:
-
-| Gem | What the trace showed |
-|---|---|
-| Fireball | Fire 18-28 at rank 1; one shot killed two monsters through the explosion; rank 8: Fire 211-320, interval 0.45 s |
-| Riptide | Cold 100-150 (its speed-10 data row is lifted to 800 units/s) |
-| Caustic Arrow | Physical 2.28-4.55 + Chaos 3.42-6.83, 60% conversion |
-| Spark | 4 projectiles, `spark seq` legs wandering, 2 s duration |
-| Vaal Spark | 12 projectiles of the 100-spark spiral, Lightning 2-24, 3 s duration |
-| Ice Spear | 2 projectiles, Cold 44-66, second form armed at 35% of range |
-| Freezing Pulse | `pierce -1`; one projectile hit two targets in a line |
-| Lightning Arrow | 50/50 physical/lightning, 3 chains |
-| Burning Arrow | Fire 29-58, 100% physical converted |
-| Vaal Burning Arrow | Fire 40-81, pierce 3 |
-| Ethereal Knives | 10 projectiles, Physical 14-22; Added Fire added exactly 25% (Fire 3.5-5.5) |
-| Storm Burst | Physical 6-8 + Lightning 6-8, 0.2 s channel, `storm-burst` pulses |
-| Lightning Trap | 9 projectiles of the ring |
-| Ball Lightning | Lightning 4-94, radius pulses every 0.2 s along a slow flight (multiple hits per monster) |
-| Tornado Shot | piercing arrow, three secondary arrows at the end |
-| Kinetic Blast | four `kinetic-blast` cluster hits from one impact |
-| Static Tether | Lightning 8-12, 5 s duration |
-| Shadow Blades | 3 projectiles, Physical 4-6 |
-| Frostbolt / Soulrend | `pierce -1`; Cold 18-26 / Chaos 42-62 |
-| Cobra Lash | 3 chains; one cast hit four monsters; 60% physical to chaos |
-| Flammable Shot | Physical 6-12 (its data is an unused development skill) |
-| Poisonous Concoction | Chaos 22-33 as an unarmed throw |
-| Vaal Caustic Arrow | Physical 11-23 + Chaos 17-39, `pierce -1` |
-| Vaal Lightning Arrow | Physical/Lightning 3.7-7.4, `pierce -1`, 9 redirects |
-
-Supports on Fireball, measured from the same trace: Added Cold added Cold 12-18 (4-6 × its 300% damage
-effectiveness), Faster Casting took the interval 0.75 → 0.63 s, Increased Area took the radius 4 → 4.6 (√1.3),
-Increased Critical Strikes took the chance 5% → 11.2% ((5 + 2) × 1.6), Faster Projectiles took the hit ×1.2 and
-the flight speed ×1.5. Ethereal Knives + Added Fire confirmed the physical-only rule. The remaining supports (Added
-Lightning, Life Leech) use the same shared pipeline, and Life Leech's coefficient is read by `LeechSources` on each hit.
-
-## Boss and unique verification (2026-11-02, late)
-
-**Boss gate.** With `Game_SURVIVORS_STAGE_SECONDS=15` (so the stage boundary and the 15 s boss delay meet), the run
-showed the whole flow live:
-
-```
-Hillock guards The Twilight Strand. Defeat it to open the way onward.
-Hillock falls. The way onward opens.
---- Level 2 --- Moving to The Coast.
-The way is sealed until Fire Fury falls.
-Fire Fury guards The Coast. Defeat it to open the way onward.
-Fire Fury falls. The way onward opens.
---- Level 3 --- Moving to The Mud Flats.
-```
-
-The first stage's Hillock died before the timer (the normal case, transition at the stage boundary); the second stage
-proved the sealed branch: the boundary arrived while the boss was not yet dead, the run stayed and said so, and the
-transition happened the moment Fire Fury died.
-
-**Uniques.** `/survivors uniques` swept the full catalogue:
-
-```
-1299 definitions: 1299 create, 0 unsupported base type(s), 1072 fit an equipment row,
-1071 with a recognized stat, 0 with a missing Mods.dat row.
-No stat found: Tabula Rasa
-```
-
-Every equipment unique resolves its `Mods.dat` rows and leaves a stat on the character; Tabula Rasa is the one whose
-identity is its white sockets, not a stat. The survivors pool now offers only items that fit an equipment row (no
-jewels, flasks or maps), so no reward is wasted. Equipping **The Searing Touch** raised Fireball's cast from
-`Fire 20.35-31.65, Cold 27.13-40.70` to `Fire 44.56-69.32, Cold 39.61-59.42`; an equipped **Doomfletch** raised
-Tornado Shot's hit from `Physical 10.35-20.70` (the nominal unarmed weapon) to `Physical 28-80` (the bow's own local
-damage). The character's `FinalPlayerStats` is merged into every cast, so a unique's damage, cast speed, crit, area,
-projectile speed, penetration, leech and ailment mods all reach the run. A regression test (`UniqueCatalogueTests`) now
-checks the whole catalogue in CI.
-
-## Reference alignment (2026-11-03)
-
-The mode's difficulty and power curves were put back on Azeroth Survivors' numbers and checked live with
-`Game_SURVIVORS_STAGE_SECONDS=30`, `Game_SURVIVORS_MAX_ALIVE=220`:
-
-- `/survivors curve` printed the 14 → 220 horde, ×1.00 → ×1.75 life, ×1.00 → ×1.90 damage and the boss ladder.
-- The area's opening anchor and boss target: The Twilight Strand, 7 tiers, anchor 23 life, boss 0 **619** life; The
-  Coast, 15 tiers, anchor 18, top 37.
-- The live boss spawned with **625** life (Hillock, stage 0, summoned at 15 s), and the second with **532** (Fire Fury,
-  stage 1); their deaths printed `+60` and `+120 run experience`, and the way opened to The Coast at the stage tick.
-- The level-up window offered a mix of new skills, skill ranks, supports and blessings; six skills were learned and
-  `/survivors rank 8` put Fireball at `Fire 43.67-67.93` with the 200 ms floor, exactly 3.1× its rank-1 anchor.
-- The cast animation stayed `spell_projectile_unarmed` index 386 and the Herald pulse `spell_buff_unarmed` 367.
-
-## Needs testing
-
-- **DOT gems**: Caustic Arrow, Vaal Caustic Arrow, Soulrend and poison builds need a monster ground/DOT model before
-  their non-hit damage can be shown; the hit portion works today.
-- **Tornado Shot's secondary arrows**: the client predicts and draws them in the real game; here the run hides the
-  server copies and only simulates their damage, so they are not separately visible.
-- **Unique mechanics that are not plain stats**: the sweep proves every equipment unique's Mods rows resolve to
-  character stats, but conditional lines (per charge, at full life, on block, "while you have…") are only as good as
-  `PlayerHitDamage`/`FinalPlayerStats` model them; each such unique still deserves its own live check. An equipped
-  weapon's local damage, local added damage, attack time and local critical chance are used by attack gems.
-- **Boss balance on a fresh character**: the boss ladder and its experience are live-verified, but the whole 15-minute
-  run has not been played end to end on a level-appropriate character; a weak build can hold a stage open indefinitely
-  (which is the intended gate, not a bug).
-
-## Tuning
-
-`Game_SURVIVORS_MAX_ALIVE` (10-400, default 220) changes how many monsters a run keeps alive.
-`Game_SURVIVORS_STAGE_SECONDS` (at least 15, default 120) shortens the stage timer for a verification run.
-`Game_SURVIVORS_TRACE=1` prints one line per cast with the mechanics, damage, critical chance and interval it used.
+# Survivors league (preview)
+
+Survivors is a separate character-creation league, not a switch for an ordinary character.
+Its parent is Void: event rewards cannot migrate into Standard.
+Entering from a town or hideout goes to The Twilight Strand; the first hostile area starts the run automatically.
+Stage changes carry the run, learned skills and granted equipment; a fresh login starts a fresh run.
+Ordinary exits and waypoint travel are refused during a run, so they cannot bypass its stage gate or erase progress.
+Carry is bound to Auth's destination ticket, not the character name; a failed transfer retains the current run.
+Run progress is not saved across server restarts.
+
+The three modules under `Modules/Survivors/` separate automatic skills, rewards and the run's lifecycle.
+The existing `/survivors` diagnostics and restart controls are available only to characters in this league.
+Starting a fresh run removes carried, worn and flask items; stopping a run removes its transient skills.
+Ordinary leagues do not load these modules for their players.
+
+## Native reward window
+
+The level-up choice uses the client's quest-reward inventory, not a custom UI.
+S→C `0xc0` must register inventory `0x600` before any `0xbf` change for it.
+Reversing that order crashes the client with "Got an inventory set change for an inventory that isn't in the set".
+S→C `0x87` opens the window; its ordinary C→S `0x88`/`0x8a` item id selects the reward.
+S→C `0xbf` removes the offered ids and `0x84` with object 0 closes the dialogue.
+
+The world clock stops for a choice.
+Closing the window with a stray click or Escape accepts its first reward rather than leaving an invisible paused run.
+Disconnecting or unloading the run module releases its pause and cancels its ticker.
+An expired run cannot finish an old reward or launch another projectile into a replacement run.
+
+## Skill presentation
+
+Run skills use Actor ids from `0x0300`, outside the socketed-gem band and basic-action ids.
+Their records carry one stored use and a cooldown duration; both are needed for the native cooldown sweep.
+S→C `0x53` binds them to free slots from Q onward without saving them to the character's skill bar.
+The `0x1ce` instant action and `0x2ba` single-use cooldown trailer update the sweep.
+Manual input for a run skill is consumed: otherwise a client action can duplicate the server-created projectile.
+
+Cast animation uses **`0x1b2` kind 0**, not `0x1d1`.
+The latter cancels the player's action and locks movement for its duration.
+The former replaces the rig clip without taking over the player's action.
+A 3.29.3b Frida trace confirmed Fireball's `spell_projectile_unarmed` clip 386 reaching the body controller.
+Fireball's projectile received impact clip 1 (`fireball_explode`) through the same handler.
+Class/weapon clip indices come from `animation-contacts.json`; flight and impact clips come from `projectile-clips.json`.
+
+The projectile is server-created (`ClientPredicted=false`); the instant action presents its cooldown, not its flight.
+Fireball and Kinetic Blast additionally create their area effects.
+
+Heralds are run-specific damage pulses, not reproductions of the ordinary Herald trigger mechanics.
+Their aura and icon use the effect's ActiveSkills/BuffDefinitions row through `0x1c1`.
+Hits use `0x1af` with the appropriate damage-type code and the Herald's own impact art at up to three targets:
+Ash `flameherald_explode`, Ice `iceherald_explode`, Thunder `lightning_strike_herald`,
+Agony `mortarimpact`, Purity `slam_impact`.
+The effect object is removed after its clip ends.
+
+## Reward equipment
+
+The reward is rolled when the window is dealt; selecting it equips the exact item that was shown.
+The item's level requirement is sent as 0, and the native attribute check reads the three
+`virtual_*_for_requirements` stats while granted equipment is worn.
+The server separately exempts granted item ids from inactive-equipment resolution.
+Removing an id only from the inactive set is insufficient: its item must also join the active stat-source list.
+Requirements resume when the run ends; a new run clears previous rewards.
+
+## Limits
+
+- No custom arena, cards or clock HUD; the normal skill bar and reward window are reused.
+- Non-projectile skills other than the run's Herald pulses are not offered.
+- Caustic ground, Soulrend's debuff and poison inputs are not integrated into these automatic casts.
+- Conditional unique mechanics depend on the existing stat and combat implementation, not merely catalogue presence.
+- A complete fresh-character 15-minute balance run and broader per-gem native acceptance remain follow-up work.
+
+`/survivors status`, `pick`, `test`, `link`, `matrix`, `rank`, `unique`, `uniques` and `curve` expose diagnostics.
+`Game_SURVIVORS_TRACE=1` records cast inputs; `Game_SURVIVORS_MAX_ALIVE` and
+`Game_SURVIVORS_STAGE_SECONDS` bound native verification runs.

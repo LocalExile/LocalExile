@@ -463,10 +463,11 @@ public static partial class InstanceInventories
     /// u8 +0x28, u8 +0x29. Flags bit 0: <see cref="Slot.SingleItem"/>, bit 1: <see cref="Slot.Equipment"/>. 0x141d625f0 files the id under its row; UI such as the flask bar looks it up by row (row 11).
     /// Each item (0x1421f5680): u32 id, u8 x, u8 y, the item (<see cref="Item.Wire"/>).
     /// </summary>
-    public static byte[] AddInventory(uint inventoryId, Slot slot, byte manager = 0, IReadOnlyList<InventoryItem>? items = null)
+    public static byte[] AddInventory(uint inventoryId, Slot slot, byte manager = 0, IReadOnlyList<InventoryItem>? items = null,
+        byte? flags = null)
     {
         var w = new LoginWriter().U16(InstanceEntities.AddInventoryId).U8(manager).U32(inventoryId)
-            .U8(slot.Kind).U8(slot.Row).U8(slot.Width).U8(slot.Height).U8(slot.Flags);
+            .U8(slot.Kind).U8(slot.Row).U8(slot.Width).U8(slot.Height).U8(flags ?? slot.Flags);
         InstanceProtocol.CompactUInt(w, (uint)(items?.Count ?? 0));
         foreach (var it in items ?? []) w.U32(it.Id).U8(it.X).U8(it.Y).Bytes(it.Item.Wire());
         return w.U8(0).U8(0).ToArray();
@@ -601,6 +602,9 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
 
+    /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
+    public float Rotation { get; init; }
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -633,9 +637,9 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
         {
             switch (c)
             {
-                // x, y, f32 +0x29c, u16 team (+0x1e0; the player is team 0: 0 = friendly, green outline; 1 = hostile, red),
-                // flags; flags1 0x02 + (hidden 0, shown 1) as for the player.
-                case "Positioned": w.I32(GridX).I32(GridY).U32(0).U16(Team).U8(0).U8(0x02).U8(0).U8(1); break;
+                // x, y, f32 rotation (+0x29c), u16 team (+0x1e0; the player is team 0: 0 = friendly, green outline;
+                // 1 = hostile, red), flags; flags1 0x02 + (hidden 0, shown 1) as for the player.
+                case "Positioned": w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(0x02).U8(0).U8(1); break;
                 case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // base magic properties (0x142201d70, Instance.MagicProperties): u16 flags (bits 0-2 rarity → +0x7c,
                 // 0 = normal; bit 3 identified → +0x78, which gates the name and the explicit list), u8 +0x7a, the mod
@@ -826,6 +830,34 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
             w.U32(Parent).F32(0).F32(0).U32((uint)RootBone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(RootBone))
                 .U8(AttachWithoutRotation).U8(0).F32(0).F32(0).F32(0);
         w.U8(0);                                                    // tasks
+        return w.ToArray();
+    }
+}
+
+/// <summary>
+/// The Crux of Nothingness's central shrine (<c>Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/RitualPillar2</c>):
+/// Positioned, BaseEvents, Animated, StateMachine, Stats, the type's read order (Positioned first, then the .ot's
+/// sections). The arena's <c>HugeRitualShrine01_01.ao</c> is explicit art because the type itself names no model.
+/// <c>active_pillars</c> 0 plays <c>idle_inactive</c>; 1, 2 and 3 play <c>idle_active_01</c>, <c>_02</c> and <c>_03</c>
+/// (quarter, half and full).
+/// </summary>
+public sealed record RitualPillarObject(int GridX, int GridY, float Rotation, string Model, StateMachineData States)
+{
+    public static readonly string[] Components = ["Positioned", "BaseEvents", "Animated", "StateMachine", "Stats"];
+
+    /// <summary>StateMachine in the component order above; 0x2ba updates use this index.</summary>
+    public const byte StateMachineComponentIndex = 3;
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        w.U8(0).U8(0);                                                              // object flags, base data entry count
+        // Positioned: the room's static blocking object, team 0 and shown (as the hideout doodads).
+        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);
+        w.U8(1).WStr32(Model);                                                      // Animated: explicit art
+        States.Write(w);                                                            // StateMachine: active_pillars
+        w.Stats([]).U32(0).U32(0).U8(0);                                            // Stats: the .ot's own stat defaults
+        w.U8(0);                                                                    // tasks
         return w.ToArray();
     }
 }

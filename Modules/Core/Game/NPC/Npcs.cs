@@ -79,13 +79,7 @@ static partial class Game
     // 0x84 with object 0, which ends the dialogue.
     internal static async Task CloseNpcDialogue(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        // A survivors level-up window is a mandatory choice: a stray click while running can close it, and the run
-        // would stay paused with nothing to click. Closing it takes the first reward, so the run always goes on.
-        if (conn.Survivors is { } survivors && conn.SurvivorsOffer is not null && survivors.Offer.Count > 0)
-        {
-            await ApplySurvivorsChoice(remote, stream, ciphers, conn, survivors.Offer[0]);
-            return;
-        }
+        if (await GameEvents.AnyRewardClosing(conn)) return;
         await GameEvents.RunNpcDialogueClosing(conn);
         uint id = conn.TalkingTo;
         if (id != 0 && conn.InNpcTalk && !IsWoundedExile())

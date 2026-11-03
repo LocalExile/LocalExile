@@ -91,11 +91,11 @@ public static class InstanceProtocol
         InstanceItems.PickUpItemId => 13, InstanceItems.PlaceItemId => 18,
         InstanceItems.InventoryRequestId => InstanceItems.InventoryRequestLength, InstanceItems.UseItemId => InstanceItems.UseItemLength, InstanceItems.UseItemOnId => InstanceItems.UseItemOnLength, InstanceItems.UseItemOnPassiveId => InstanceItems.UseItemOnPassiveLength, InstanceItems.UseFlaskId => InstanceItems.UseFlaskLength, InstanceItems.UseItemTypeOnId => InstanceItems.UseItemTypeOnLength,
         InstanceItems.ItemActionId => InstanceItems.ItemActionLength, InstanceItems.SplitStackId => InstanceItems.SplitStackLength, InstanceItems.SocketGemId => 16,
-        InstanceItems.UnsocketGemId => 17, BindSkillId => 5, ExitToCharacterSelectId => 2,
+        InstanceItems.UnsocketGemId => 17, BindSkillId => 5, AttackInPlaceId => 4, SlotMask52Id => 4, ExitToCharacterSelectId => 2,
         InstanceItems.LevelUpGemId => 14, InstanceItems.LockGemId => InstanceItems.LockGemLength,
         InstanceEntities.AllocatePassiveId => 7, InstanceEntities.MasteryEffectId => InstanceEntities.MasteryEffectLength, InstanceEntities.RefundPassiveId => InstanceEntities.RefundPassiveLength,
-        InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength, InstanceMapDevice.SelectMapId => InstanceMapDevice.SelectMapLength, InstanceEntities.AtlasAllocateId => InstanceEntities.AtlasAllocateLength, InstanceEntities.AtlasRefundId => InstanceEntities.AtlasRefundLength,
-        SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2,
+        InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength, InstanceMapDevice.SelectMapId => InstanceMapDevice.SelectMapLength, InstanceMapDevice.MoveId => InstanceMapDevice.MoveLength, InstanceMapDevice.SocketId => InstanceMapDevice.SocketLength, InstanceEntities.AtlasAllocateId => InstanceEntities.AtlasAllocateLength, InstanceEntities.AtlasRefundId => InstanceEntities.AtlasRefundLength,
+        SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, LockstepUseOnObjectId => 11, LockstepSkillStopId => 4,
         UseInstantSkillAtLocationId => 12, UseInstantSkillId => 8,
         InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
         InstanceMicrotransactions.SkillPickId => InstanceMicrotransactions.SkillPickLength,
@@ -133,14 +133,39 @@ public static class InstanceProtocol
 
     public const ushort LockstepMoveStartId = 0x018e, LockstepMoveUpdateId = 0x0192, LockstepMoveStopId = 0x0195;
 
+    /// <summary>C→S 0x018f (11 bytes, writer 0x141f924b0: u32 object, u16 skill, u16 flags, u8): lockstep's use of a skill on
+    /// an object, instead of 0x24. C→S 0x0196 (u16 skill): release that skill.</summary>
+    public const ushort LockstepUseOnObjectId = 0x018f, LockstepSkillStopId = 0x0196;
+
+    /// <summary>C→S 0x018f. Flags 0x0401 and u8 0 on a free player; flags 0x0001 and u8 3 for a request made during a swing,
+    /// which GGG serves when the swing ends.</summary>
+    public static (uint ObjectId, ushort SkillId, ushort Flags, byte Extra) ReadLockstepUseOnObject(byte[] b) =>
+        (BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(2)), BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(6)),
+         BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(8)), b[10]);
+
+    /// <summary>S→C 0x194 (id only, instance group, handled on arrival): tells the client to go AFK. It answers at once with
+    /// C→S 0x16 <see cref="InstanceItems.AfkCommand"/> and the text "This player is AFK." and changes nothing else until a
+    /// server replies to that, so it is a round trip the server can start.</summary>
+    public static byte[] AfkRequest() => [0x01, 0x94];
+
+    /// <summary>C→S 0x0196: the skill released.</summary>
+    public static ushort ReadLockstepSkillStop(byte[] b) => BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(2));
+
+    /// <summary>S→C 0x1ae: the channelled action of this sequence is over (object header, u16 sequence, u8 1).</summary>
+    public static byte[] ChannelFinished(uint objectId, ushort sequence) =>
+        new LoginWriter().U16(0x1ae).U32(objectId).U32(0).U16(0).U16(sequence).U8(1).ToArray();
+
     /// <summary>
     /// What the client sends to move instead of 0x25 when it runs in lockstep (Options → Network Mode; "auto" chose it
     /// on localhost, live 2026-10-18): 0x018e (15 bytes: i32, i32 offsets from the player, u16 skill id 0x2909 Move, u16
     /// flags 0x0400 / 0x0402, u8), then 0x0192 (10 bytes: two i32) and 0x0195 (id only). Lengths from 26 captures of each,
     /// every one alone in its chunk; the layout is inferred, not read from the client's serializers. The server does not
-    /// answer them, so in lockstep the player is never drawn and cannot move: the Gateway asks for Predictive instead.
+    /// answer them unless the connection serves lockstep (LockstepLink): anywhere else the Gateway asks for Predictive.
     /// </summary>
     public static bool IsLockstepMovement(ushort id) => id is LockstepMoveStartId or LockstepMoveUpdateId or LockstepMoveStopId;
+
+    /// <summary>Anything only a client in lockstep sends for its actions.</summary>
+    public static bool IsLockstepRequest(ushort id) => IsLockstepMovement(id) || id is LockstepUseOnObjectId or LockstepSkillStopId;
 
     /// <summary>
     /// C→S 0x018e (lockstep; sender 0x14215f700 when the network mode +0x984 is 2): use a skill at a location, the target
@@ -171,12 +196,14 @@ public static class InstanceProtocol
 
     /// <summary>
     /// S→C 0x53 (instance group, class 0x1435dc4c0, read 0x14219f600, dispatcher case 0x13): the skill bar, being tested.
-    /// 26 raw bytes = 13 × u16 skill ids by slot (+0x10, copied with memcpy, so little-endian like the blobs), then u16
-    /// +0x2a, u16 +0x2c (unknown, 0). The skill bar's rebuild 0x140ae0fb0 (bar vtable +0x390, subscribed to instance
+    /// 26 raw bytes = 13 × u16 skill ids by slot (+0x10, copied with memcpy, so little-endian like the blobs), then two
+    /// raw (little-endian) u16 slot bitmasks: +0x2a, "Always Attack Without Moving" (bit = slot, C→S 0x4f), and +0x2c
+    /// (C→S 0x52). Case 0x13 copies them to instance +0xcfd0 / +0xcfd2 after the rebuild, so a bar sent with 0 clears
+    /// both options. The skill bar's rebuild 0x140ae0fb0 (bar vtable +0x390, subscribed to instance
     /// +0xaf78) takes exactly such an array: each id is looked up in the ActiveSkillManager (+0x158, by +0x40) and put in
     /// its slot (vtable +0x398), an unknown id clears the slot (+0x3a0). Slot 2 is the right mouse button (C→S 0x4e).
     /// </summary>
-    public static byte[] SkillBar(IReadOnlyList<ushort> skillIds, ushort u2a = 0, ushort u2c = 0)
+    public static byte[] SkillBar(IReadOnlyList<ushort> skillIds, ushort attackInPlaceSlots = 0, ushort slotMask52 = 0)
     {
         var w = new LoginWriter().U16(SkillBarId);
         for (int i = 0; i < SkillBarSlots; i++)
@@ -184,8 +211,17 @@ public static class InstanceProtocol
             ushort id = i < skillIds.Count ? skillIds[i] : (ushort)0;
             w.U8((byte)id).U8((byte)(id >> 8));
         }
-        return w.U16(u2a).U16(u2c).ToArray();
+        return w.U8((byte)attackInPlaceSlots).U8((byte)(attackInPlaceSlots >> 8)).U8((byte)slotMask52).U8((byte)(slotMask52 >> 8)).ToArray();
     }
+
+    public const ushort AttackInPlaceId = 0x4f, SlotMask52Id = 0x52;
+
+    /// <summary>
+    /// C→S 0x4f and 0x52 (4 bytes, class 0x1435bf968, writer 0x141f93160): u8 slot, u8 on. 0x4f is a slot's "Always
+    /// Attack Without Moving" (sender 0x140aed580; the client sets bit slot of instance +0xcfd0 itself, live 2026-11-02
+    /// 004F0301). 0x52 sets bit slot of +0xcfd2 (0x142165750; binding a skill, 0x140ade430, clears it), meaning unknown.
+    /// </summary>
+    public static (byte Slot, bool On) ReadSlotOption(ReadOnlySpan<byte> m) => (m[2], m[3] != 0);
 
     public const ushort BindSkillId = 0x4e;
 
@@ -216,7 +252,7 @@ public static class InstanceProtocol
     /// a u32 target object id), compact ints: the actor's position when the action starts (+0x2c/+0x30 → action +0x158)
     /// and the target (+0x24/+0x28 → action +0x130, where the client's own 0x25 keeps its target), u16 skill id (+0x34),
     /// u16 sequence (+0x36 → action +0x11a). For a predicted local actor (sequence ≥ 0) the handler only compares the
-    /// position pair with where the client thinks the actor is and teleports it there when they are ~92+ units apart
+    /// position pair with where the client thinks the actor is and teleports it there when they are 92+ grid cells apart
     /// (live 2026-10-16: sending the target in that pair teleported the player on long clicks, onto unwalkable cells).
     /// Otherwise it looks the skill up in the actor's granted skills and starts the action (0x141ee97f0 → 0x141e8cf10).
     /// </summary>
@@ -225,15 +261,24 @@ public static class InstanceProtocol
     public static byte[] ActionEnded(uint objectId) => new LoginWriter().U16(0x1ac).U32(objectId).U32(0).U16(0).ToArray();
 
     public static byte[] ActionStarted(uint objectId, int posX, int posY, int targetX, int targetY, ushort skillId, ushort sequence, ushort flags,
-        uint? targetObjectId = null)
+        uint? targetObjectId = null, ushort header = 0)
     {
         // Flags bit 0x80: a u32 target object id follows the flags (an action aimed at an object, like C→S 0x24).
-        var w = new LoginWriter().U16(ActionStartedId).U32(objectId).U32(0).U16(0)
+        var w = new LoginWriter().U16(ActionStartedId).U32(objectId).U32(0).U16(header)
             .U16((ushort)(targetObjectId is null ? flags & 0xff7f : flags | 0x80));
         if (targetObjectId is { } t) w.U32(t);
         CompactInt(w, posX); CompactInt(w, posY); CompactInt(w, targetX); CompactInt(w, targetY);
         return w.U16(skillId).U16(sequence).ToArray();
     }
+
+    /// <summary>
+    /// A server-driven action that starts now: 0x1ab, then 0x1ac in the same tick, as GGG sends them. A server-created
+    /// action that paths waits at its target for that 0x1ac (0x141e94720, Actor flag 0x10); one still walking swings when
+    /// it gets there.
+    /// </summary>
+    public static byte[] ActionStartedNow(uint objectId, int posX, int posY, int targetX, int targetY, ushort skillId, ushort sequence,
+        ushort flags, uint targetObjectId) =>
+        [.. ActionStarted(objectId, posX, posY, targetX, targetY, skillId, sequence, flags, targetObjectId), .. ActionEnded(objectId)];
 
     public const ushort ActionTargetId = 0x1ad;
 
@@ -342,6 +387,8 @@ public static class InstanceProtocol
     /// </summary>
     public static byte[] EnterWakeZone(uint objectId) => new LoginWriter().U16(EnterWakeZoneId).U32(objectId).U32(0).U16(0).ToArray();
 
+    public static byte[] LeaveWakeZone(uint objectId) => new LoginWriter().U16(LeaveWakeZoneId).U32(objectId).U32(0).U16(0).ToArray();
+
     public const ushort RemoveObjectId = 0x2bb;
 
     /// <summary>S→C 0x2bb (world group, header only, read 0x141f92000): remove an object (the world handler's "remove
@@ -407,6 +454,24 @@ public static class InstanceProtocol
     public static byte[] Teleport(uint objectId, int x, int y, uint height = FollowTerrain, float worldZ = 0) =>
         new LoginWriter().U16(TeleportId).U32(objectId).U32(0).U16(0).U32((uint)x).U32((uint)y)
             .U32(height).U32(BitConverter.SingleToUInt32Bits(worldZ)).ToArray();
+
+    /// <summary>S→C 0x128 (class 0x1435dc7c0, read 0x1421a64b0): where objects are, in grid cells: compact count, then
+    /// u32 object, u32 x, u32 y. The client (case 0x50 of 0x14214a190, not in lockstep) puts the player on the first record
+    /// when it is 20 or more cells from it, and then puts every listed object on its record; otherwise only the objects
+    /// 20 or more cells from theirs. It logs "Resyncing id" for each. The first record must be the player.</summary>
+    public const ushort ResyncId = 0x128;
+    public static byte[] Resync(IReadOnlyCollection<(uint Id, int X, int Y)> objects)
+    {
+        var w = new LoginWriter().U16(ResyncId);
+        CompactInt(w, objects.Count);
+        foreach (var (id, x, y) in objects) w.U32(id).U32((uint)x).U32((uint)y);
+        return w.ToArray();
+    }
+
+    /// <summary>S→C 0x2b0 (Positioned): object header, u8, u8; two zeros stop the object blocking paths. GGG sends it about
+    /// 165 ms after a monster's life reaches 0, with the object id repeated in the header's order key.</summary>
+    public static byte[] StopBlocking(uint objectId) =>
+        new LoginWriter().U16(0x2b0).U32(objectId).U32(objectId).U16(0x7000).U8(0).U8(0).ToArray();
 
     /// <summary>The network's signed compact int (writer 0x141fa3c50, reader 0x141fa3d60): 1 byte for -0x40..0x3f, then
     /// 2/3/4 bytes with prefixes 0x80/0xc0/0xe0 (6/5/4 value bits in the first byte), else 0xf0 + 4 bytes, big-endian.</summary>

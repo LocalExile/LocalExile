@@ -25,11 +25,8 @@ static partial class Game
         try
         {
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
-            // A survivors run's own skills are Actor skills too: the client puts their gems on the skill bar.
-            var run = conn.Survivors is { } survivors && conn.SurvivorsCatalog is { } catalog
-                ? SurvivorsGrantedSkills(conn, survivors, catalog) : [];
             return [.. SkillsFor(conn).PlayerDefaults(player),
-                .. GemSkills(conn, player, character, panelSources!), .. run];
+                .. GemSkills(conn, player, character, panelSources!), .. GameEvents.ExtraSkills(conn)];
         }
         finally { StatsScope.Value = outer; }
     }
@@ -108,11 +105,7 @@ static partial class Game
         // weapon up from the off hand's own final stats (it derives nothing itself, 11-skills.md §4).
         foreach (var (k, v) in WeaponStats(conn, WeaponOf(conn, mainHand), stats)) stats[k] = v;
         foreach (var (k, v) in CosmeticStats(conn).Where(s => !ActorScale.IsInput(s.Stat))) stats.TryAdd(k, v);
-        // A survivors run's uniques also waive their attribute requirements: the client's equip check reads these.
-        if (conn.SurvivorsItemIds.Count > 0)
-            foreach (var name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
-                "virtual_intelligence_for_requirements" })
-                if (Stats.Key(name) is uint key) stats[key] = Math.Max(stats.GetValueOrDefault(key), 1000);
+        foreach (var build in GameEvents.FinalStatsBuilding.For(conn)) build(conn, stats);
         return stats.Select(kv => (kv.Key, kv.Value));
     }
 
@@ -240,7 +233,7 @@ static partial class Game
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         // Devout of Garukhan: the while-moving evasion rating, and the while-moving regeneration in the recovery below.
         double statsAt = conn.Clock.Elapsed.TotalSeconds;
-        bool moving = statsAt < conn.Walk.ArrivesAt;
+        bool moving = conn.Walk.Moving(statsAt);
         var recovery = PanelStats.WhileMoving(Get, moving);
         if (Stats.Key("evasion_rating") is uint evasionKey && !devSet.Contains(evasionKey)) stats[evasionKey] = PlayerEvasion(conn, statsAt);
         ConfigureFortificationRecovery(conn, conn.Pools.Life, Get);
@@ -489,7 +482,7 @@ static partial class Game
             }
             if (Stats.Key("virtual_extra_critical_rolls") is uint criticalRolls)
                 stats[criticalRolls] = CriticalExtraRollsFor(conn, playerStats, own);
-            if (singleSources.Contains(effect) && SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, playerStats, own) is { } cooldown
+            if (singleSources.Contains(effect) && WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, playerStats, own)) is { } cooldown
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
                 stats[recoveryKey] = cooldown.RecoveryPercent;
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);
@@ -507,6 +500,18 @@ static partial class Game
                     .All(n => Stats.Key(n) is uint k && stats.GetValueOrDefault(k) != 0)
                 && Stats.Key("virtual_self_targeted_skills_target_location_instead") is uint novaKey)
                 stats[novaKey] = 1;
+            // Parallel volley (0x141bb89d0): the client reads virtual_additional_projectiles_fire_parallel_x_dist;
+            // without it the distance is zero and parallel projectiles collapse onto each other.
+            if (Stats.Key("virtual_additional_projectiles_fire_parallel_x_dist") is uint virtualParallelXKey
+                && !stats.ContainsKey(virtualParallelXKey))
+            {
+                int parallelX = 0;
+                if (Stats.Key("volley_additional_projectiles_fire_parallel_x_dist") is uint volleyX && stats.TryGetValue(volleyX, out int vx) && vx > 0)
+                    parallelX = vx;
+                else if (Stats.Key("greater_volley_additional_projectiles_fire_parallel_x_dist") is uint gVolleyX && stats.TryGetValue(gVolleyX, out int gvx) && gvx > 0)
+                    parallelX = gvx;
+                if (parallelX > 0) stats[virtualParallelXKey] = parallelX;
+            }
             if (SkillsFor(conn).IsSpell(effect) && !SkillsFor(conn).IsAttack(effect) && Stats.Key("spell_critical_strike_chance") is uint critKey)
                 stats[critKey] = SupportedCriticalChance(conn, id);
             // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.
@@ -699,15 +704,16 @@ static partial class Game
     internal static string? SkillBarEntry(ClientState conn, ushort skillId) =>
         skillId == 0 ? "" : SkillEffectId(conn, skillId) ?? (SkillsFor(conn).ActionName(skillId) is { } a ? "Action/" + a : null);
 
-    // The saved skill bar as the player's current skill ids, sent with Sâ†’C 0x53. The default attack goes on slot 0 (left
+    // The saved skill bar as the player's current skill ids, sent with S→C 0x53 together with the saved per-slot option
+    // masks (0x53 sets them, so 0 would clear "Always Attack Without Moving"). The default attack goes on slot 0 (left
     // mouse button) only when nothing at all was saved for that slot; nothing is sent without a saved bar, so the client
     // keeps its own default.
     internal static async Task SendSkillBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         FillSkillBar(conn);
-        var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar;
-        // Without a saved bar the client keeps its own default, unless a run's skills need a place.
-        if (saved is not { Count: > 0 } bar && conn.Survivors is null) return;
+        var save = CharacterSaves.Load(CharacterName(conn));
+        var saved = save?.SkillBar;
+        if (saved is not { Count: > 0 } && GameEvents.ExtraSkills(conn).Count == 0) return;
         var ids = new ushort[InstanceProtocol.SkillBarSlots];
         var byEffect = GemSkillEffects(conn).Select(g => (g.Id, Effect: SkillsFor(conn).EffectId(g.Effect)))
             .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(conn, SkillCatalog.FirstSkillId)))
@@ -720,17 +726,11 @@ static partial class Game
                 else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
             }
         if (saved is not { Count: > 0 } || !saved.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
-        // A run's skills take the free slots from Q on (slots 0-2 are the mouse buttons in the client's own layout),
-        // and are not saved: they belong to the run, not to the character.
-        if (conn.Survivors is { } run && conn.SurvivorsCatalog is { } catalog)
-            foreach (var id in SurvivorsGrantedSkills(conn, run, catalog).Select(s => s.Id))
-            {
-                int free = Array.IndexOf(ids, (ushort)0, 3);
-                if (free < 3) break;
-                ids[free] = id;
-            }
-        await Send(remote, stream, ciphers, InstanceProtocol.SkillBar(ids),
-            $"0x0053 skill bar: {string.Join(", ", ids.Select((id, i) => id == 0 ? null : $"slot {i} 0x{id:x4}").OfType<string>())}");
+        foreach (var build in GameEvents.SkillBarBuilding.For(conn)) build(conn, ids);
+        ushort attackInPlace = save?.AttackInPlaceSlots ?? 0, mask52 = save?.SkillBarMask52 ?? 0;
+        await Send(remote, stream, ciphers, InstanceProtocol.SkillBar(ids, attackInPlace, mask52),
+            $"0x0053 skill bar: {string.Join(", ", ids.Select((id, i) => id == 0 ? null : $"slot {i} 0x{id:x4}").OfType<string>())}" +
+            $", attack in place 0x{attackInPlace:x4}, 0x52 mask 0x{mask52:x4}");
     }
 
     // Puts the skills that are nowhere on the saved bar into its empty slots (SkillBarLayout), leaving every other slot as
@@ -1124,8 +1124,8 @@ static partial class Game
         // bar first (FillSkillBar: the right mouse button, then Q W E R T …), so it goes out with the bar.
         FillSkillBar(conn);
         var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar?.Values;
-        // A run's skills are not saved on the bar (SendSkillBar places them), so any change of them resends it.
-        if (conn.Survivors is not null
+        // Transient league skills are not part of the saved bar.
+        if (GameEvents.ExtraSkills(conn).Count > 0
             || added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
             await SendSkillBar(remote, stream, ciphers, conn);
         // The same recalculation may have changed which worn weapons qualify.

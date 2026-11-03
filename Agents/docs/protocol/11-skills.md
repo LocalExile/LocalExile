@@ -549,7 +549,7 @@ No generator output changes are needed: the multiplier is already extracted.
 ## 5. Combat timing (Gateway `Attack`)
 
 1. C→S 0x24 arrives when the player clicks, before the client walks into range. The server walks its position estimate
-   toward the monster and stops at the first cell within `MaxAttackDistance` (`WalkEstimator.Approach`).
+   toward the monster and stops at the first cell within `MaxAttackDistance` (`PlayerWalk.Approach`).
 2. On arrival it starts the swing: the 0x1ab echo (from the stop cell, aimed at the monster). Echoing at the click made
    the client swing on the spot, out of range.
 3. At the swing's contact point it rolls the accuracy check and, on a hit, lowers the monster's life with 0x1b1. The
@@ -883,6 +883,11 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   which drops a server-driven monster's queued attack in the same frame (traced: created, queued, both checks passed,
   then neither current nor queued). The server walks the monster itself, so the skill is non-pathing. Only on the
   skill: on the monster's Stats component it also stops its Move action from pathing (the monsters stood still).
+- **A monster's spell skills carry cast-time stats, not the attack duration.** `MonsterAttack.Spell` sends
+  `base_spell_cast_time_ms` (0x2a9), `virtual_base_spell_cast_time_ms` (0x24b9), `hundred_times_casts_per_second`
+  (0x2aa) and `casting_spell` (0x1b6); only attacks send `main_hand_attack_duration_ms`. The client's cast-duration
+  path reads the virtual base when the action starts; a utility spell sent with only attack stats crashed the client in
+  that path (`0xc0000005` at `0x19e0daf`, live 2026-10-31, the King's hex/teleport actions).
 - **AI** (`RunMonsterAi`, `MonsterAiCadence`): decisions run at 50 ms intervals of elapsed game time.
   A late wake runs one decision and schedules the next from the current time; it never replays missed steps.
   Pause freezes game time, and disabled AI or a dead player does not accumulate work to replay afterward.
@@ -1060,7 +1065,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
 - **Casting.** At the ground: C→S 0x25 with the gem skill's id. A **spell** stops where it stands and the server echoes
   0x1ab from there (no walk). An **attack** (ActiveSkillType Attack: Holy Strike, Ground Slam …) follows bit 0 of the
   message's flags, the client's **"Always Attack Without Moving"** setting (live 2026-10-25: 0x400 with it off, 0x401
-  with it on; the setting itself also arrives as C→S 0x16 command 8):
+  with it on; a skill bar slot's setting arrives as C→S 0x4f, §11):
   - bit 0 set: the player swings from where it stands; the server echoes 0x1ab there and pays at the swing.
   - bit 0 clear: a point **within the weapon's reach** is a swing at the ground, even with nothing standing there (live
     2026-10-26: standing and swinging at empty ground must cost the skill's mana, as it does on the client); the server
@@ -1582,8 +1587,10 @@ Lunaris) has its self-targeted Novas centred on the aimed point
 use) with and without the stat is not checked live yet; the Gateway log's 0x01ab line shows it.
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
-cell when the skill starts (`SkillCatalog.IsMovement`); it kept the starting cell before, and a later resync pulled the
-player back there (live 2026-10-23). Shield Charge instead walks there at its charge speed and hits on the way (§10k).
+cell when the skill starts (`Game.LandsAtAim`); it kept the starting cell before, and a later resync pulled the
+player back there (live 2026-10-23). A resync follows at the end of the action, and aimed at a monster the skill lands on
+it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks there at its charge speed and hits on the way
+(§10k).
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y, the player's cell) every few frames while the button is held, and **C→S 0x199** (2 bytes) when it is let go
@@ -1719,13 +1726,24 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
   Animated, BaseEvents and Projectile, so the blob is Positioned, one Animated byte and the tasks byte
   (`ProjectileObject`; the Animated component is index 1), then 0x1a9 (wake zone). The real link between a skill and
-  its projectile is unknown; the Gateway matches the Id. Multiple projectiles are one object each, spread around the
+  its projectile is unknown; the Gateway matches the Id, then the Id with a `Royale`, `AltX`, `AltY` or `AltZ` suffix
+  removed: 3.29 files the Royale and transfigured duplicates of a skill under its own name plus a suffix, and those
+  duplicates fire the base skill's row (the Lightning Arrow gem grants `LightningArrowRoyale`, whose row is
+  `Metadata/Projectiles/LightningArrow`). `ProjectileFallbacks` covers the effects no suffix rule reaches, because their
+  row is named otherwise (Elemental Hit's `ElementalHitArrowCombined`). Multiple projectiles are one object each, spread around the
   aim (`ProjectileSpread`: `number_of_additional_projectiles`, `projectile_spread_radius` or 10°,
   `Game_PROJECTILE_SPREAD`); the client also spawns its own copies of a gem use's volley (above), so those objects
   are no longer sent. Kinetic Blast's effect is ClusterBurst, which names no
   Projectiles row, so it falls back to the wand attack's `Metadata/Projectiles/WandProjectile` (3260) and plays
   `Metadata/Effects/Spells/cluster_burst/big.ao` where it lands; a landing on bare ground runs one area hit of the
-  skill's radius (its secondary explosions are not modelled).
+  skill's radius (its secondary explosions are not modelled). Rolling Magma (once Magma Orb) creates
+  `Metadata/Projectiles/MagmaOrbShort`, one client object per cast (Frida 2026-11-01, `trace-projectile-create.js`).
+  Its ground bounces are the shared terminal `0x141ba68c0` with no contact, once per impact: the action's chain budget
+  (`0x141bb6530`, vtable +0x638) is the skill record's `virtual_number_of_chains_for_projectiles`, and the executed
+  count +0x458 goes 0, 1, 2 across the impacts, 375 ms apart; the enemy search `0x141baea60` never runs, so the orb
+  bounces straight on even beside monsters (`trace-chain-decisions.js`). The client reads the budget from the skill
+  record it holds, which is only resent with the skill list: with 0 there (the server's ground chains are not
+  `Chain`) the orb stopped at its first impact, and after the fix it bounced only once the gem was socketed again.
 - **Pierce.** Pierce Support's `projectile_base_number_of_targets_to_pierce` (2 at level 1, 4 at level 20) and the other
   pierce stats give a hit budget of 1 + pierce: the projectile passes through that many monsters, each hit landing as
   the glide reaches its cell; the support's more Projectile Damage is part of `SupportedHit`. `always_pierce` is
@@ -1878,7 +1896,7 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   a transfer cancels the retry and takes ownership of visual cleanup.
   Live pause held the projectile at (289, 220) for 1.2 seconds, with no removal until the game resumed.
   Local validation captures: `logs/projectile-collision-live.json` and `logs/projectile-fixed-height-live.json`.
-  These remain estimates: monster positions are integer `WalkEstimator` samples, movement between samples is a
+  These remain estimates: monster positions are integer `PlayerWalk` samples, movement between samples is a
   straight chord, the radius is shared across monsters, and the client has its own cell stepping/network delay.
   Static wall checks use a captured two-dimensional grid, not object/doodad colliders or three-dimensional geometry.
   Sharp turns between samples or long scheduling stalls can still differ from the client. This is not an official
@@ -2492,6 +2510,11 @@ sends the player stats at both ends. Its walk estimate goes to the aimed cell at
 movement skill's teleport (§9a). Verified live: `movement_velocity_+%` 22 → 112 → 22, the charge twice as fast; the
 first stats update arrives after the client has started the charge, and the client takes it up mid-charge.
 
+**Route.** The charge runs no path search. The setup lays a straight line to the aim, up to its maximum distance
+(below); an aim off the floor moves back along the line to the first cell the mover can stand on. Each step is checked
+as a walk's is ([07](07-latency-visibility-movement.md) §5), so the first blocked step ends the run, on a body as on a
+wall. A charge from inside a ring does not move at all (`PlayerWalk.Charge`).
+
 **Hits.** The client's (`trace-charge-hits.js`, four charges): kind 0 at its position as it starts and then about every
 100 ms (every ~8 cells at charge speed) within 8 cells (`0x141a6d760` returns the range), kind 1 within 16 cells where
 it arrives, and kind 2 (range 28) as the end phase starts. The Gateway lands kind 0 and 1 on its own walk
@@ -2577,9 +2600,18 @@ failed I/O, allocation limits, actual official values and every skill's successf
   when a skill is **added** to an existing player (0x2ba): it took the first free slot after socketing Fireball. Skills in
   the creation blob, or added before the HUD exists, stay unbound.
 - **S→C 0x53** (instance group, class `0x1435dc4c0`, read `0x14219f600`): `13 × u16` skill ids by slot (raw bytes, so
-  little-endian; basic actions by their own id, Move = 0x2909), then u16 +0x2a and u16 +0x2c (sent 0). The bar (vtable `0x14319d870`) rebuilds from such an array in
+  little-endian; basic actions by their own id, Move = 0x2909), then two raw u16 slot bitmasks +0x2a and +0x2c (below). The bar (vtable `0x14319d870`) rebuilds from such an array in
   vtable +0x390 `0x140ae0fb0`: it looks each id up in the ActiveSkillManager and fills the slot; an unknown id (0)
   clears it. Without 0x53 the bar is empty after every area change and login.
+- **C→S 0x4f "Always Attack Without Moving"** (4 bytes, class `0x1435bf968`, writer `0x141f93160`, sender
+  `0x140aed580`): `u8 slot, u8 on` (live 2026-11-02: `004F0301`, slot 3 on). The sender itself sets or clears bit
+  `slot` of instance +0xcfd0, which the skill use reads (`0x14216ac84`) and the slot's option box shows (`0x140ae6cfe`).
+  The use reads the bit of the first slot holding its skill id (`0x14216ac30` searches the bar's ids at instance
+  +0xc7d8), so two slots with the same skill both follow the first one's setting (live 2026-11-02, slots 2 and 3).
+  C→S **0x52** is the same class for a second mask at +0xcfd2 (senders `0x142165750`, and the bind `0x140ade430`, which
+  clears the slot's bit; read by `0x140123b33` indexed by input key − 7); its option is not identified. Case 0x13 copies
+  0x53's +0x2a to +0xcfd0 and +0x2c to +0xcfd2 after the rebuild, so every 0x53 replaces both masks: a bar sent with 0
+  cleared the option at the next skill update. The Gateway saves both masks with the bar and sends them back.
 - **The 0x20 skill update can take a bound skill off the bar**: live 2026-10-21, Haste's slot emptied when its aura went
   on (the aura's stats resend every skill record), and the area change's 0x53 brought it back. A gem taken out and
   socketed again did not get its slot back either. `SendSkills` therefore sends the saved bar (0x53) after every
@@ -3631,7 +3663,7 @@ Automated parsed-dispatch coverage does not constitute native verification.
 - Skill record fields +0xc0/+0xc4 still have unproved semantic names.
 - Projectiles: their height above the ground and model orientation (§10), collision, the explosion, the real
   skill → projectile link; damage for ground casts.
-- The meaning of 0x53's two trailing u16.
+- Which slot option C→S 0x52 / 0x53's +0x2c mask is (§11).
 
 ### Aura lifecycle: town suppression and death
 

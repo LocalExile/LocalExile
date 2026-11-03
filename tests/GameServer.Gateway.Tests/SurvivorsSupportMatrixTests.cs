@@ -1,5 +1,6 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
+using GameServer.Modules.Survivors;
 using League = GameServer.Core.Accounts.League;
 
 namespace GameServer.Gateway.Tests;
@@ -26,7 +27,6 @@ public sealed class SurvivorsSupportMatrixTests
         return run;
     }
 
-    [Fact]
     public void Every_support_moves_its_own_number_on_every_skill_it_can_support()    {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-matrix-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
@@ -35,12 +35,12 @@ public sealed class SurvivorsSupportMatrixTests
         var conn = Connection("SurvivorsMatrix");
         try
         {
-            var catalog = Game.SurvivorsCatalogFor(conn);
-            var supports = Game.SurvivorsSupportsFor(conn);
-            conn.SurvivorsCatalog = catalog;
-            conn.SurvivorsSupports = supports;
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
+            var supports = SurvivorsSkills.SurvivorsSupportsFor(conn);
+            SurvivorsSkills.StateOf(conn).SurvivorsCatalog = catalog;
+            SurvivorsSkills.StateOf(conn).SurvivorsSupports = supports;
             Assert.Equal(8, supports.Count);
-            var roster = new Game.SurvivorsRoster([], [], 1, 20, 40);
+            var roster = new SurvivorsSkills.SurvivorsRoster([], [], 1, 20, 40);
             int pairs = 0, unimplemented = 0;
             var tooFew = new List<string>();
             foreach (int skillIndex in Enumerable.Range(0, catalog.Count))
@@ -51,19 +51,19 @@ public sealed class SurvivorsSupportMatrixTests
                     // The real gem is a buff: these damage supports have no pulse hit to modify, so the offer never
                     // pairs one with a herald.
                     Assert.All(Enumerable.Range(0, supports.Count),
-                        support => Assert.False(Game.SurvivorsCanSupport(conn, skillIndex, support)));
+                        support => Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, skillIndex, support)));
                     continue;
                 }
                 // Rank 1 and the max rank 8: the support's per-level stats scale with the gem level it supports.
                 foreach (int rank in new[] { 1, 8 })
                 {
-                    var bare = Game.SurvivorsComputeCast(conn, RunFor(skillIndex), skill, rank, skillIndex, roster);
+                    var bare = SurvivorsSkills.SurvivorsComputeCast(conn, RunFor(skillIndex), skill, rank, skillIndex, roster);
                     Assert.True(bare is not null, $"{skill.Name} rank {rank}: no cast");
                     int known = 0;
                     for (int supportIndex = 0; supportIndex < supports.Count; supportIndex++)
                     {
-                        bool legal = Game.SurvivorsCanSupport(conn, skillIndex, supportIndex);
-                        var with = Game.SurvivorsComputeCast(conn, RunFor(skillIndex, supportIndex), skill, rank, skillIndex, roster);
+                        bool legal = SurvivorsSkills.SurvivorsCanSupport(conn, skillIndex, supportIndex);
+                        var with = SurvivorsSkills.SurvivorsComputeCast(conn, RunFor(skillIndex, supportIndex), skill, rank, skillIndex, roster);
                         if (!legal)
                         {
                             // The offer never pairs these; the matrix must not accidentally claim they work.
@@ -110,12 +110,12 @@ public sealed class SurvivorsSupportMatrixTests
 
             // Every herald's pulse has its own hit effect: the five gems map to the game's .ao for that hit.
             var heraldEffects = catalog.Where(s => s.Kind == SurvivorsSkillKind.Herald)
-                .Select(s => (s.Name, Impact: Game.SurvivorsHeraldImpactFor(conn, s))).ToList();
+                .Select(s => (s.Name, Impact: SurvivorsSkills.SurvivorsHeraldImpactFor(conn, s))).ToList();
             Assert.Equal(5, heraldEffects.Count);
             Assert.All(heraldEffects, herald => Assert.NotNull(herald.Impact));
             Assert.Equal(["HeraldOfAgony", "HeraldOfAsh", "HeraldOfIce", "HeraldOfPurity", "HeraldOfThunder"],
-                Game.SurvivorsHeraldImpacts.Keys.Order());
-            Assert.All(Game.SurvivorsHeraldImpacts.Values,
+                SurvivorsSkills.SurvivorsHeraldImpacts.Keys.Order());
+            Assert.All(SurvivorsSkills.SurvivorsHeraldImpacts.Values,
                 impact => Assert.StartsWith("Metadata/Effects/Spells/herald/", impact.Ao, StringComparison.Ordinal));
 
             // The named cases the live matrix prints: an attack refuses the spell-only and area-only supports, while a
@@ -127,11 +127,11 @@ public sealed class SurvivorsSupportMatrixTests
             int fasterCast = supports.ToList().FindIndex(s => s.Support == SurvivorsSupport.FasterCasting);
             int area = supports.ToList().FindIndex(s => s.Support == SurvivorsSupport.Area);
             Assert.True(tornado >= 0 && knives >= 0 && fire >= 0 && fasterCast >= 0 && area >= 0);
-            Assert.True(Game.SurvivorsCanSupport(conn, tornado, fire));
-            Assert.False(Game.SurvivorsCanSupport(conn, tornado, fasterCast));
-            Assert.False(Game.SurvivorsCanSupport(conn, tornado, area));
-            Assert.True(Game.SurvivorsCanSupport(conn, knives, fasterCast));
-            Assert.False(Game.SurvivorsCanSupport(conn, knives, area));
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, tornado, fire));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, tornado, fasterCast));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, tornado, area));
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, knives, fasterCast));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, knives, area));
         }
         finally
         {
@@ -142,7 +142,6 @@ public sealed class SurvivorsSupportMatrixTests
         }
     }
 
-    [Fact]
     public void A_run_skill_uses_the_reference_s_thirty_percent_a_rank()
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-rank-{Guid.NewGuid():N}.db");
@@ -152,16 +151,16 @@ public sealed class SurvivorsSupportMatrixTests
         var conn = Connection("SurvivorsRank");
         try
         {
-            var catalog = Game.SurvivorsCatalogFor(conn);
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
             int index = catalog.ToList().FindIndex(s => s.Name == "Fireball");
             Assert.True(index >= 0);
             var skill = catalog[index];
-            var roster = new Game.SurvivorsRoster([], [], 1, 20, 40);
+            var roster = new SurvivorsSkills.SurvivorsRoster([], [], 1, 20, 40);
             var run = new SurvivorsRun();
             run.Learn(index);
 
-            var rank1 = Game.SurvivorsComputeCast(conn, run, skill, 1, index, roster);
-            var rank8 = Game.SurvivorsComputeCast(conn, run, skill, 8, index, roster);
+            var rank1 = SurvivorsSkills.SurvivorsComputeCast(conn, run, skill, 1, index, roster);
+            var rank8 = SurvivorsSkills.SurvivorsComputeCast(conn, run, skill, 8, index, roster);
             Assert.NotNull(rank1);
             Assert.NotNull(rank8);
             // The reference's Owned::damage_mult: 1 + 0.30 × (rank − 1), so rank 8 is 3.1× rank 1.

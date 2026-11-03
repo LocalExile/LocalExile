@@ -9,7 +9,7 @@ static partial class Game
     // An interaction dispatched before a hit may not capture a new token after that hit cancels the old action.
     internal static bool TryBeginObjectWalk(ClientState conn, double requestedAt, int x, int y, double reach,
         out (int Action, double Now, (int X, int Y) Here, (int X, int Y) Stop, double Arrive) started,
-        bool centreRange = false)
+        bool centreRange = false, int tolerance = -1)
     {
         started = default;
         using (ProjectileMutation(conn))
@@ -18,7 +18,7 @@ static partial class Game
             if (conn.Closed || conn.PlayerLife == 0 || PlayerActionBlocked(conn, requestedAt, now)) return false;
             int action = Interlocked.Increment(ref conn.ActionCount);
             conn.ChannelSkill = 0;
-            var (here, stop, arrive) = centreRange ? conn.Walk.Approach(x, y, reach, now) : conn.Walk.WalkUpTo(x, y, (int)reach, now);
+            var (here, stop, arrive) = centreRange ? conn.Walk.Approach(x, y, reach, now, tolerance) : conn.Walk.WalkUpTo(x, y, (int)reach, now);
             started = (action, now, here, stop, arrive);
             return true;
         }
@@ -319,6 +319,12 @@ static partial class Game
     // 0x2b2 now; the move itself (0x27) once the client acknowledges with 0x2cb.
     internal static async Task ChangeArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PendingTransfer t, string why)
     {
+        foreach (var check in GameEvents.TravelRefusal.For(conn))
+            if (check(conn, t) is { } refusal)
+            {
+                await conn.Commands!.Reply(refusal);
+                return;
+            }
         if (!conn.TryBeginAreaChange(t, out var projectiles)) return;
         await Program.ServerHooks.PlayerLeaving(PlayerOf(conn), "left the area");
         // Remove outstanding visuals while the old world still exists, before 0x2b2. If Auth refuses the transfer,
@@ -397,8 +403,10 @@ static partial class Game
             ResumeVitalsAfterFailedTransfer(conn);
             conn.ResumeAfterFailedTransfer();
             Console.WriteLine($"[gateway] {remote} transfer failed: {r.Error}");
+            foreach (var resolved in GameEvents.TransferResolved.For(conn)) await resolved(conn, t, r);
             return;
         }
+        foreach (var resolved in GameEvents.TransferResolved.For(conn)) await resolved(conn, t, r);
         CarryCharges(conn, r.Ticket);
         CarryFortification(conn, r.Ticket);
         CarryRampage(conn, r.Ticket);

@@ -74,6 +74,7 @@ static partial class Game
     internal static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now)
     {
+        if (target.Invulnerable) return;
         var e = target.Mods.Effects;
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
@@ -122,7 +123,14 @@ static partial class Game
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)
+            {
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+                if (m.Poisons.Buff is ushort pbuff)
+                {
+                    await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, pbuff), null);
+                    m.Poisons.Buff = null;
+                }
+            }
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) burnt to death by ignite" : null);
             if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);

@@ -18,8 +18,6 @@ public sealed class WalkEstimator
     private readonly Func<IReadOnlyList<ClientPathfinder.Blocker>>? _blockers;
     private readonly int _size;
     private readonly ClientPathfinder.SearchLimit _limit;
-    private (int X, int Y) _target;
-    private bool _reached = true;
 
     /// <param name="walkable">Whether a grid cell is walkable (all cells when null).</param>
     /// <param name="speed">Client walking speed in grid units per second (~37 measured live).</param>
@@ -32,43 +30,9 @@ public sealed class WalkEstimator
         (_w, _h) = (width, height);
         (_blockers, _size, _limit) = (blockers, size, limit);
         _path = [(x, y)];
-        _target = (x, y);
     }
 
     public double Speed => _speed;
-
-    /// <summary>The cell the current order walks to.</summary>
-    public (int X, int Y) Target => _target;
-
-    /// <summary>Whether the current path ends on <see cref="Target"/>. A path the search cut short (the client's expansion
-    /// limit) is walked to its end, and then the client paths again from there (0x141e7bec0 → 0x141e7b920).</summary>
-    public bool Reached => _reached;
-
-    /// <summary>The path began on a blocked cell (0x141e4d890's out flag → Positioned +0x1e5 &amp; 4): the walker steps
-    /// through bodies until its first free step; terrain still stops it (0x141e32710).</summary>
-    public bool WalksThrough { get; set; }
-
-    /// <summary>The steps of the current walk after <paramref name="from"/> up to <paramref name="to"/>: when each cell is
-    /// entered, in order (the Bresenham cells of each segment, as <see cref="Position"/> reports them).</summary>
-    public List<(double At, (int X, int Y) Cell)> Steps(double from, double to)
-    {
-        var steps = new List<(double, (int, int))>();
-        for (int i = 1; i < _path.Count; i++)
-        {
-            double start = _t0 + _cumulative[i - 1] / _speed, end = _t0 + _cumulative[i] / _speed;
-            if (end <= from) continue;
-            if (start > to) break;
-            var line = ClientPathfinder.Line(_path[i - 1], _path[i]).ToList();
-            int n = line.Count - 1;
-            for (int k = 1; k <= n; k++)
-            {
-                double at = start + (end - start) * k / n;
-                if (at > to) return steps;
-                if (at > from) steps.Add((at, line[k]));
-            }
-        }
-        return steps;
-    }
 
     /// <summary>Changes the walking speed from <paramref name="now"/> on (e.g. a movement speed stat changed); the walk in
     /// progress continues from where it is.</summary>
@@ -101,27 +65,13 @@ public sealed class WalkEstimator
     }
 
     /// <summary>A new walk order at <paramref name="now"/>. Returns where the actor is now (what the echo must report).
-    /// As in the client, the step in progress keeps its elapsed fraction: chase orders come every ~125 ms, under one step
-    /// at low speeds, and rounding to a cell on each gained up to √2 of the speed on diagonals (13 cells off, live
-    /// 2026-11-01), which the client never corrects for a monster.</summary>
+    /// As in the client, the step in progress keeps its elapsed fraction: rounding to a cell on every order gained up to √2
+    /// of the speed on diagonals.</summary>
     public (int X, int Y) Order(int targetX, int targetY, double now)
     {
         var here = At(now, out double fraction);
-        _target = (targetX, targetY);
-        if (_blockers is null)
-        {
-            _path = FindPath(here, _target);
-            _reached = _path.Count > 0 && _path[^1] == _target;
-            WalksThrough = false;
-        }
-        else
-        {
-            var bodies = _blockers();
-            _path = ClientPathfinder.FindPath(here, _target, _walkable, _w, _h, bodies, _size, 0, 0, -1, _limit, out _reached);
-            WalksThrough = !_walkable(here.X, here.Y) || ClientPathfinder.ObjectBlocks(bodies, here.X, here.Y, _size + 1, _size + 4);
-        }
-        // No step to take: the client ends the action instead of pathing again (0x141e7b920 with nothing found).
-        if (_path.Count < 2) _reached = true;
+        _path = _blockers is null ? FindPath(here, (targetX, targetY))
+            : ClientPathfinder.FindPath(here, (targetX, targetY), _walkable, _w, _h, _blockers(), _size, limit: _limit);
         if (_path.Count == 0) _path = [here];
         _cumulative = new double[_path.Count];
         for (int i = 1; i < _path.Count; i++)
@@ -138,9 +88,6 @@ public sealed class WalkEstimator
         _path = [(x, y)];
         _cumulative = [0];
         _t0 = now;
-        _target = (x, y);
-        _reached = true;
-        WalksThrough = false;
     }
 
     /// <summary>When the current walk ends.</summary>
@@ -159,7 +106,6 @@ public sealed class WalkEstimator
         if (stop < 0) stop = _path.Count - 1;   // unreachable: stop where the path ends (the caller checks the reach)
         _path = _path[..(stop + 1)];
         _cumulative = _cumulative[..(stop + 1)];
-        _reached = true;
         return (here, _path[^1], ArrivesAt);
     }
 

@@ -266,6 +266,9 @@ static class PanelStats
         or "virtual_sap_duration_+%" or "virtual_sap_effect_+%"
         or "virtual_total_main_hand_impale_on_hit_%_chance" or "virtual_total_off_hand_impale_on_hit_%_chance"
         or "virtual_total_spell_impale_on_hit_%_chance"
+        || s.Display.Contains("_chance_to_poison_on_hit_%", StringComparison.Ordinal)
+        || s.Display.Contains("_chance_to_bleed_on_hit_%", StringComparison.Ordinal)
+        || s.Display.Contains("_chance_to_ignite_on_hit_%", StringComparison.Ordinal)
         || s.Display.Contains("_attack_damage_penetrates_", StringComparison.Ordinal)
         || s.Display.Contains("_leech_from_", StringComparison.Ordinal)
         || s.Display.EndsWith("_leech_speed_+%", StringComparison.Ordinal))];

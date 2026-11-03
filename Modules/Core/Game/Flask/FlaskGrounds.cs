@@ -125,7 +125,7 @@ static partial class Game
         // Consecrated ground around the stationary player: stationary is the walk having ended (as ChargeGains reads it).
         bool alive = conn.PlayerLife > 0;
         var here = conn.Walk.Position(now);
-        var (stale, make) = state.Stationary(alive && now >= conn.Walk.ArrivesAt && !InTown(conn), here);
+        var (stale, make) = state.Stationary(alive && !conn.Walk.Moving(now) && !InTown(conn), here);
         if (stale?.Object is uint old)
             await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(old), $"0x02bb remove effect 0x{old:x} (stationary consecrated ground)");
         if (make > 0)

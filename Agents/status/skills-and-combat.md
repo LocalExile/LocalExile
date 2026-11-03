@@ -343,6 +343,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named
   after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); the
   terminal secondary group is in Partly working.
+  Rolling Magma fires `Metadata/Projectiles/MagmaOrbShort` (same fallback; every cast was refused before) and lands on
+  the aim, explodes and bounces straight on once per chain, each impact an area hit (verified live 2026-11-01: damage at
+  every impact, 3 impacts at level 1). The base radius 14 and 16 cells between impacts are not read from the client;
+  its slower bounces (375 ms each) mean a bounce's hits land about 0.1 s early.
   Projectiles spawn at the captured terrain height + the releasing clip's keyframe height (the bow 16 steps, a wand
   12, the Sand Spitter's spit 9; `Game_PROJECTILE_HEIGHT`, 5 steps, without rig data) on natural ground; without a
   capture they use the bare offset.
@@ -651,6 +655,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §9.
 
 ## Partly working
+
+- Survivors league and three optional modules: [client presentation and limits](../docs/game/survivors-mode.md).
 
 - Attack-speed admission: gem attacks now use the supported attack speed (gem and support stats plus the inherent
   GrantedEffectsPerLevel multiplier) for both the admission gate and the swing interval, instead of mixing it with
@@ -1081,6 +1087,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Frostblink damage, chilled ground, enemy-dependent recovery and shared Blink cooldown groups remain unsupported.
   The skill bar keeps its slots when skills are re-sent or a gem is socketed again (the saved bar goes out as 0x53)
   ([11](../docs/protocol/11-skills.md) §9, §11).
+  A slot's "Always Attack Without Moving" (C→S 0x4f) is saved and goes back in 0x53, so it stays ticked.
 - **Auras (the simple set is verified live).** Reservation is read from GrantedEffectsPerLevel (`ManaReservationFlat`
   / `ManaReservationPercent`), reduced by the passive/mastery reservation efficiency and sent as the Life pool's
   reserved mana (and in every 0x1b1 mana update).
@@ -1415,6 +1422,13 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Righteous Fire's burn uses the DoT tick model.
   A damage-type immunity (`*_immunity`, `elemental_damage_immunity`) zeroes that type on the player's hits, from the
   same sources the panel's Immune rows use (`DamageImmunities.cs`).
+  Global added attack damage per complete group of final Strength, Dexterity or Intelligence joins the raw attack
+  range for the panel rows and the hit (Hyrri's Demise, (Replica) Iron Commander, Replica Alberon's Warpath per 80
+  Strength despite its `_per_50_strength` id; [20](../docs/protocol/20-damage.md) §2b).
+  The 3.29 whole-type item prohibitions ("Cannot deal non-Chaos Damage", "Deal no Physical Damage", ...) share one list:
+  hits, the bleed, ignite and poison rows (each gated on its own type), the poison hits inflict and the caster's
+  outgoing DoT drop those types.
+  Automated tests only; the native check is pending.
   Ordinary player energy shield derives from equipment, intelligence and passives.
   Equipment ES uses the saved variable base roll and native rounding before and after local modifiers and quality.
   It absorbs non-chaos hits before life and recovers through regeneration and delayed, damage-interrupted recharge.

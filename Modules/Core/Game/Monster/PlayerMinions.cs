@@ -108,7 +108,6 @@ static partial class Game
                 {
                     var (x, y) = NextToPlayer(conn);
                     m.Walk = conn.NewMonsterWalk(minion.Id, x, y, m.Walk.Speed, LivingCollision.Size(m), false);
-                    m.CollisionPosition = (x, y);
                     m.LastTarget = null;
                     bytes.AddRange(InstanceProtocol.Teleport(minion.Id, x, y));
                 }

@@ -1,3 +1,4 @@
+using GameServer.Modules.Survivors;
 namespace GameServer.Gateway.Tests;
 
 // The survivors run's clock scale goes on top of a monster's rolled rarity mods (extraMods in SpawnMonster), so a magic
@@ -8,7 +9,6 @@ public sealed class MonsterModEffectsTests
     static MonsterModEffects Effects(params (string Name, int Value)[] stats) =>
         new(stats.ToDictionary(s => s.Name, s => s.Value));
 
-    [Fact]
     public void Extra_effects_add_to_a_rolled_monster_s_own_mods()
     {
         var rolled = Effects(("monster_life_+%_final_from_rarity", 100), ("damage_+%", 20));
@@ -24,14 +24,12 @@ public sealed class MonsterModEffectsTests
         Assert.Equal(20, rolled["damage_+%"]);
     }
 
-    [Fact]
     public void Adding_no_effects_keeps_the_same_set()
     {
         var rolled = Effects(("damage_+%", 20));
         Assert.Same(rolled, rolled.Plus(MonsterModEffects.None));
     }
 
-    [Fact]
     public void A_single_stat_can_be_replaced_by_its_solved_value()
     {
         var rolled = Effects(("maximum_life_+%", 10), ("damage_+%", 20));

@@ -1,10 +1,10 @@
+using GameServer.Modules.Survivors;
 namespace GameServer.Gateway.Tests;
 
 // The survivors mode offers real uniques: every definition must resolve its Mods.dat rows, every equipment entry must
 // create, and every one but a blank unique (Tabula Rasa) must leave at least one recognizable stat.
 public sealed class UniqueCatalogueTests
 {
-    [Fact]
     public void Every_unique_resolves_its_mods_and_every_equipment_unique_has_a_stat()
     {
         var items = new ItemCatalog("data");

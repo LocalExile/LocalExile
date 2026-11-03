@@ -29,7 +29,7 @@ static class CharacterSaves
         ItemRarity Rarity = ItemRarity.Normal, bool Identified = true, List<SavedMod>? Mods = null, List<uint>? Name = null,
         int GemVariant = 0, bool Corrupted = false, byte Fractured = 0, bool Mirrored = false, byte GemFlags = 0, ushort? Visual = null,
         byte DefenceBaseRoll = 0, ItemInfluence Influences = ItemInfluence.None, bool Split = false, bool Synthesised = false,
-        bool Foreseeing = false, uint ForeseeSeed = 0);
+        bool Foreseeing = false, uint ForeseeSeed = 0, byte? AlternateQualityType = null);
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
 
@@ -53,7 +53,8 @@ static class CharacterSaves
     /// (every gem of that type wears it). ClusterPassives: the cluster jewel nodes the client allocated (its expansion
     /// layout ids, not PassiveSkillGraphIds). QuestRefundsCredited: the quest flags whose QuestStaticRewards refund
     /// points the save has had (<see cref="CreditQuestRefunds(Save)"/>). PantheonMajor / PantheonMinor: the chosen
-    /// Pantheon gods, by PantheonPanelLayout Id (<see cref="SetPantheon"/>).</summary>
+    /// Pantheon gods, by PantheonPanelLayout Id (<see cref="SetPantheon"/>). AttackInPlaceSlots / SkillBarMask52: the skill
+    /// bar's per-slot bitmasks sent back with S→C 0x53 (<see cref="SetSkillBarOption"/>).</summary>
     public sealed record Save(Dictionary<byte, List<SavedPlacement>> Inventories, Dictionary<int, string>? SkillBar = null,
         uint? Experience = null, List<ushort>? Passives = null, List<string>? Waypoints = null, List<string>? Visited = null,
         List<string>? QuestFlags = null, ushort? ExtraPassivePoints = null,
@@ -67,7 +68,8 @@ static class CharacterSaves
         ushort? Sulphite = null, Dictionary<ushort, string>? Tattoos = null,
         Dictionary<ushort, ushort>? TattooKeystones = null, List<List<ushort>>? AtlasPassivePresets = null,
         ushort? AtlasPassivePoints = null, string? SelectedAtlasLayout = null, Dictionary<string, string>? ModuleData = null,
-        List<string>? QuestRefundsCredited = null, string? PantheonMajor = null, string? PantheonMinor = null)
+        List<string>? QuestRefundsCredited = null, string? PantheonMajor = null, string? PantheonMinor = null,
+        ushort? AttackInPlaceSlots = null, ushort? SkillBarMask52 = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -200,6 +202,15 @@ static class CharacterSaves
         var bar = save.SkillBar is null ? new Dictionary<int, string>() : new Dictionary<int, string>(save.SkillBar);
         bar[slot] = entry;
         return save with { SkillBar = bar };
+    });
+
+    /// <summary>Sets or clears a skill bar slot's bit in one of the two option masks (C→S 0x4f "Always Attack Without
+    /// Moving", or 0x52).</summary>
+    public static void SetSkillBarOption(string character, bool attackInPlace, byte slot, bool on) => Update(character, save =>
+    {
+        ushort mask = (attackInPlace ? save.AttackInPlaceSlots : save.SkillBarMask52) ?? 0;
+        mask = on ? (ushort)(mask | 1 << slot) : (ushort)(mask & ~(1 << slot));
+        return attackInPlace ? save with { AttackInPlaceSlots = mask } : save with { SkillBarMask52 = mask };
     });
 
     /// <summary>Records the character's inventories and its start weapon still on the ground, keeping the rest of the save.</summary>
@@ -495,7 +506,7 @@ static class CharacterSaves
         i.Links is null ? null : [.. i.Links], i.GemExperience, i.Rarity, i.Identified,
         [.. i.Mods.Select(m => new SavedMod(mods?.ByHash(m.Hash)?.Id ?? $"0x{m.Hash:x4}", m.Section, [.. m.Values]))],
         i.NameWords.Count == 0 ? null : [.. i.NameWords], i.GemVariant, i.Corrupted, i.FracturedCount, i.Mirrored, i.GemFlags, i.Rarity == ItemRarity.Unique ? i.VisualIdentity : null,
-        i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed);
+        i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType);
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -514,7 +525,7 @@ static class CharacterSaves
                 : [.. (s.Sockets ?? []).Select(k => new ItemSocket(k.Colour, k.Gem is null ? null : FromSaved(k.Gem, catalog)))],
             Links = emptyResonator ? null : s.Links, Rarity = s.Rarity, Identified = s.Identified, NameWords = s.Name ?? [], Corrupted = s.Corrupted, FracturedCount = s.Fractured, Mirrored = s.Mirrored,
             Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised,
-            Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed,
+            Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
         return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);

@@ -120,9 +120,9 @@ static partial class Game
         IEnumerable<ushort>? nodes = null, int? level = null)
     {
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
-        // A survivors run's own uniques are never held inactive: drop them from the previous set before it is reused.
-        if (conn.SurvivorsItemIds.Count > 0)
-            before = new HashSet<uint>((before ?? []).Where(id => !conn.SurvivorsItemIds.Contains(id)));
+        var exemptions = GameEvents.ExemptItems(conn);
+        if (exemptions.Count > 0)
+            before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
         var (sources, attributes, inactive, worn) = EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot(), nodes, level);
         lock (conn.Monsters)
             if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired)
@@ -178,13 +178,13 @@ static partial class Game
             .Concat(treeJewels.Select(i => i with { Item = AdornedJewel(i.Item, adorned) }))
             .ToArray();
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
-        // A survivors run's own uniques are never held inactive: drop them from the previous set before it is reused.
-        if (conn.SurvivorsItemIds.Count > 0)
-            before = new HashSet<uint>((before ?? []).Where(id => !conn.SurvivorsItemIds.Contains(id)));
+        var exemptions = GameEvents.ExemptItems(conn);
+        if (exemptions.Count > 0)
+            before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
         // The sum below is a pure function of these inputs (items are immutable records), and the combat paths ask for
         // it many times a second (every monster hit): reuse the last result while none of them changed.
         var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level,
-            before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. conn.SurvivorsItemIds.Order()]);
+            before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. exemptions.Order()]);
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
         // A timeless jewel replaces (or augments) the stats of allocated ordinary nodes in its radius. The item is a
@@ -497,14 +497,13 @@ static partial class Game
                 .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god);
             return (ForRequirements("strength", str), ForRequirements("dexterity", dex), ForRequirements("intelligence", intel));
         }, before, ItemsFor(conn).Mods);
-        // A survivors run's own uniques are worn whatever the character's level or attributes: the run granted them.
-        // They must join the active list too, not just leave the inactive set, or their mods never reach the stats.
-        if (conn.SurvivorsItemIds.Count > 0)
+        // Exempt items must join the active list as well as leave the inactive set, so their mods reach the stats.
+        if (exemptions.Count > 0)
         {
-            var exempt = wornItems.Where(w => conn.SurvivorsItemIds.Contains(w.Id) && inactive.Contains(w.Id))
+            var exempt = wornItems.Where(w => exemptions.Contains(w.Id) && inactive.Contains(w.Id))
                 .Select(w => w.Item).ToList();
             if (exempt.Count > 0) active = [.. active, .. exempt];
-            inactive.ExceptWith(conn.SurvivorsItemIds);
+            inactive.ExceptWith(exemptions);
         }
         var rawAttributes = RawAttributes(active);
         var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats));

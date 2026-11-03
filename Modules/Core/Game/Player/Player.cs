@@ -435,7 +435,7 @@ static partial class Game
         var criticalContext = CriticalContext(conn);
         var leechContext = LeechContext(conn);
         var ailments = conn.ElementalAilments.Snapshot(last);
-        bool moving = last < conn.Walk.ArrivesAt;
+        bool moving = conn.Walk.Moving(last);
         while (!conn.Closed && !conn.RageRetired)
         {
             await Task.Delay(PlayerTickMs);
@@ -474,6 +474,7 @@ static partial class Game
             await TickPassiveAuras(remote, stream, ciphers, conn);
             await PushOutOfCollision(remote, stream, ciphers, conn);
             await BurnIgnited(remote, stream, ciphers, conn);
+            await TickPoisons(remote, stream, ciphers, conn);
             var rf = conn.RighteousFire;
             if (conn.PlayerLife == 0)
             {
@@ -490,7 +491,7 @@ static partial class Game
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [.. SuppressionChanceKeys.Select(k => (k, chance))]),
                     $"0x01b3 player Spell Suppression chance {chance}%");
             }
-            if (tickNow < conn.Walk.ArrivesAt is var nowMoving && nowMoving != moving)
+            if (conn.Walk.Moving(tickNow) is var nowMoving && nowMoving != moving)
             {
                 moving = nowMoving;
                 await SendWhileMovingStats(remote, stream, ciphers, conn);
@@ -500,9 +501,9 @@ static partial class Game
             if (conn.Layout.Waypoint is { } waypoint
                 && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (waypoint.GridX, waypoint.GridY)) <= WaypointActivationRange)
                 await ActivateWaypoint(remote, stream, ciphers, conn, "the player came near");
-            // Gold within the configured auto-loot radius is picked up without a click; a survivors run hides all loot.
+            // Gold within the configured auto-loot radius is picked up unless a league system suppresses loot.
             var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            foreach (var (id, gold) in conn.Survivors is null
+            foreach (var (id, gold) in GameEvents.AllowsLoot(conn)
                 ? conn.Instance.Ground.Within(at.X, at.Y, SystemSettings.Default.GoldAutoLootRadius, IsGold)
                 : [])
             {
@@ -588,7 +589,7 @@ static partial class Game
                 {
                     recoveryStats = CharacterPlayerStatsCore(conn, out lifeRate);
                     manaRate = PanelStats.ManaPerMinute(
-                        PanelStats.WhileMoving(RecoveryStat, conn.Clock.Elapsed.TotalSeconds < conn.Walk.ArrivesAt), conn.Pools.Mana) / 60;
+                        PanelStats.WhileMoving(RecoveryStat, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds)), conn.Pools.Mana) / 60;
                     zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
                     convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
                     burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
@@ -821,7 +822,7 @@ static partial class Game
             fullEnergyShield = conn.PlayerLife > 0 && conn.EnergyShield.Full;
             hitRecently = now - conn.LastEnemyHitAt <= RecentlySeconds;
         }
-        return (CharacterStats.SuppressionChance(conn.Pools, fullLife, moving: now < conn.Walk.ArrivesAt, hitRecently,
+        return (CharacterStats.SuppressionChance(conn.Pools, fullLife, moving: conn.Walk.Moving(now), hitRecently,
                 fullEnergyShield),
             Math.Max(0, conn.Pools.SpellSuppressionEffect),
             conn.Pools.SpellSuppressionLucky, conn.Pools.SpellSuppressionUnlucky);
@@ -850,7 +851,7 @@ static partial class Game
 
     // The evasion rating monster attacks roll against: the while-moving rating during a walk (Devout of Garukhan).
     internal static int PlayerEvasion(ClientState conn, double now) =>
-        now < conn.Walk.ArrivesAt && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion;
+        conn.Walk.Moving(now) && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion;
 
     // The death screen's buttons (C→S 0x54). Both hide the screen (0x55 with bit1) and give the player full life; "at
     // checkpoint" revives next to the area's activated waypoint, else at its arrival point (teleport 0x1b7, AreaLayout.Checkpoint),

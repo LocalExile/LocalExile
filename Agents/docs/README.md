@@ -82,6 +82,7 @@ This research does not change the production simulator or certify native/officia
 | [game/fortification.md](game/fortification.md) | melee-hit protection and the explicit server model |
 | [game/arcane-might.md](game/arcane-might.md) | spell increased/reduced transfer to attacks, source inventory and implementation boundaries |
 | [game/maps.md](game/maps.md) | 3.29 maps and the Atlas: the 20 generic map bases, tiers, drops, Voidstones (rules to build to) |
+| [game/king-in-the-mists.md](game/king-in-the-mists.md) | The King in the Mists: Crux entry, both forms, phase data, skills, loot and implementation boundaries |
 | [game/gambler.md](game/gambler.md) | Gambler node checklist, incoming elemental ailments and read-only opt-in |
 | [game/aristocrat.md](game/aristocrat.md) | Aristocrat node checklist: gem levels/quality, attribute requirements and conditional immunities |
 | [game/ancestral-commander.md](game/ancestral-commander.md) | Ancestral Commander node checklist: every node but Spirit of Rakiata has a consumer (Deathrattle, the strike nodes, the four Spirits and Forest of Ancestors partly); read-only opt-in |
@@ -103,6 +104,7 @@ This research does not change the production simulator or certify native/officia
 | [re/ascendancy-client-3.29.3b.md](re/ascendancy-client-3.29.3b.md) | native identity and point evidence |
 | [re/hinekora-lock.md](re/hinekora-lock.md) | Hinekora's Lock state, C→S 0x29c / S→C 0x29f preview and the native commit evidence |
 | [game/league-modes.md](game/league-modes.md) | Hardcore deaths, SSF isolation, Ruthless native rules and editable balance |
+| [game/survivors-mode.md](game/survivors-mode.md) | Survivors league and modules: run, rewards, native window/animations, limits |
 
 ## Working notes (history)
 - `re/007`–`010`: the notes these documents were consolidated from (login TCP, handshake, message tables, live instance

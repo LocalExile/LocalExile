@@ -43,8 +43,7 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 
     public int this[string stat] => stats.GetValueOrDefault(stat);
 
-    /// <summary>These effects with another set's stats added on top (the survivors run's clock scale over a rolled
-    /// rarity's mods); a stat neither set has stays absent.</summary>
+    /// <summary>These effects with another set's stats added on top; absent stats stay absent.</summary>
     public MonsterModEffects Plus(MonsterModEffects other)
     {
         if (other.Stats.Count == 0) return this;
@@ -53,12 +52,22 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         return new MonsterModEffects(sum);
     }
 
-    /// <summary>These effects with one stat added (the survivors boss's life solved for its ladder target).</summary>
+    /// <summary>These effects with one stat added.</summary>
     public MonsterModEffects Plus(string stat, int value)
     {
         if (value == 0) return this;
         var sum = new Dictionary<string, int>(Stats, StringComparer.Ordinal) { [stat] = this[stat] + value };
         return new MonsterModEffects(sum);
+    }
+
+    /// <summary>Adds these stats (a map's monster life/damage) on top of the monster's own mods.</summary>
+    public MonsterModEffects Combine(IReadOnlyDictionary<string, int> extra)
+    {
+        if (extra.Count == 0) return this;
+        var merged = new Dictionary<string, int>(stats);
+        foreach (var (id, value) in extra)
+            if (value != 0) merged[id] = merged.GetValueOrDefault(id) + value;
+        return new MonsterModEffects(merged);
     }
 
     /// <summary>Maximum life: the base for the level and variety × (1 + maximum_life_+%) × (1 +
@@ -140,7 +149,8 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     /// shock, Glacial Wave's chill and the player's debuffs on it, which add to it) added (increased/reduced), and for
     /// spells the rare mod's rare_monster_mod_spell_damage_taken_+%_final (less).</summary>
     public double DamageTaken(bool spell, double increasedPct = 0) => Math.Max(0, 1 + (this["base_damage_taken_+%"] + increasedPct) / 100.0)
-        * (spell ? Math.Max(0, 1 + this["rare_monster_mod_spell_damage_taken_+%_final"] / 100.0) : 1);
+        * (spell ? Math.Max(0, 1 + this["rare_monster_mod_spell_damage_taken_+%_final"] / 100.0) : 1)
+        * Math.Max(0, 1 + this["map_monster_damage_taken_+%_final_from_atlas_keystone"] / 100.0);
 
     /// <summary>The chance to block an attack (monster_base_block_%), capped at Monster.ot's maximum_block_%.</summary>
     public int BlockChance => Math.Clamp(this["monster_base_block_%"], 0, MaxBlock);
