@@ -15,18 +15,16 @@ Ordinary leagues do not load these modules for their players.
 
 ## Run shape
 
-The run is a 15-minute horde: 14 monsters alive at the start, 500 by the bell, refilled every 0.08 s by a quarter of
-the gap (at most 8 a step) from five consecutive tiers of the area's roster; the early ramp is steep (about 290 alive
-by the halfway bell).
+The run is a 15-minute horde: 14 monsters alive at the start, 220 by the bell, refilled every 0.12 s by a sixth of
+the gap (at most 4 a step) from three consecutive tiers of the area's roster, exactly the reference's curve.
 Monster life and damage both grow +250% over the run, and monster hits on the player deal 60% of their damage
 (Fortitude lowers it 1/1.2 a level), so standing still is not safe.
-Every 12 s a ring of the area's ranged varieties (archers, wands, mortars) spawns at 22 cells and shoots; a closing
-surround ring follows every 45 s: the player has to move, not just out-heal.
+Every 20 s a ring of the area's ranged varieties (archers, wands, mortars) spawns at 22 cells and shoots; a closing
+surround ring follows halfway through each 135 s boss cycle: the player has to move, not just out-heal.
 A stage boss arrives 15 s in and gates the way onward; after it, another boss rises every 60 s, rolling the reference's
 ladder.
-Stage changes pick a random area at the run clock's growing level (1 at the start, 20 by the bell), never a town
-(towns have no monster packs); the pool keeps only areas whose packs resolve to at least three spawnable varieties, so
-a stage never lands somewhere with nothing to fight, and the current area is skipped when another is available.
+Stage changes follow the run's fixed area list, one Act 1 area per stage (The Twilight Strand, The Coast, The Mud Flats,
+…), so every stage has monsters; a town is never a stage.
 
 Run skills are every gem the client can draw: a projectile gem flies its own `Projectiles` row, an area gem (Ice Nova,
 Firestorm and the like) casts a **nova pulse** around the player with the gem's own area hit, and a Herald pulses its

@@ -44,10 +44,10 @@ public static class SurvivorsRules
     // clock, carries the pressure curve.
     public const double VictorySeconds = 900;
     public const double BossEverySeconds = 60;
-    public const double SpawnIntervalSeconds = 0.08;
-    public const int DefaultMaxAlive = 500;
-    public const int MaxSpawnPerStep = 8;
-    public const int SpawnDivisor = 4;
+    public const double SpawnIntervalSeconds = 0.12;
+    public const int DefaultMaxAlive = 220;
+    public const int MaxSpawnPerStep = 4;
+    public const int SpawnDivisor = 6;
     public const int MaxSkills = 6;
     public const int MaxRank = 8;
     public const int MaxBlessings = 6;
@@ -85,9 +85,9 @@ public static class SurvivorsRules
 
     public static double Progress(double elapsed) => Math.Clamp(elapsed / VictorySeconds, 0, 1);
 
-    /// <summary>The horde: 14 alive at the start, 500 by the end, with a steeper early ramp so the screen fills.</summary>
+    /// <summary>The horde: 14 alive at the start, 220 by the end (the reference's 14 → 220 linear curve).</summary>
     public static int TargetAlive(double elapsed, int maxAlive = DefaultMaxAlive) =>
-        Math.Clamp((int)Math.Round(14 + Math.Pow(Progress(elapsed), 0.8) * (Math.Max(14, maxAlive) - 14)), 1, Math.Max(14, maxAlive));
+        Math.Clamp((int)(14 + Progress(elapsed) * Math.Max(0, Math.Max(14, maxAlive) - 14)), 1, Math.Max(14, maxAlive));
 
     /// <summary>How many bodies the spawner adds this tick: a sixth of the gap, at most four (the reference's refill
     /// every 0.12 s).</summary>
@@ -98,18 +98,17 @@ public static class SurvivorsRules
         rosterCount <= 0 ? 0 : Math.Clamp(1 + (int)(Progress(elapsed) * rosterCount), 1, rosterCount);
 
     /// <summary>
-    /// The sliding tier pool: the roster laid over thirty steps of the run, the spawner drawing from five
-    /// consecutive tiers. The first five at the start, the last five at the bell. Each index is clamped into
-    /// the roster, so a short area swims through all of its varieties instead of overrunning.
+    /// The reference's sliding tier pool: the roster laid over thirty steps of the run, the spawner drawing from three
+    /// consecutive tiers (data.rs <c>wave_pool</c>). The first three at the start, the last three at the bell.
     /// </summary>
     public static int[] WavePool(double elapsed, int rosterCount)
     {
         if (rosterCount <= 0) return [];
-        if (rosterCount <= 5) return [.. Enumerable.Range(0, rosterCount)];
+        if (rosterCount <= 3) return [.. Enumerable.Range(0, rosterCount)];
         int step = Math.Clamp((int)(Progress(elapsed) * 30.0), 0, 30);
-        int span = rosterCount - 5;
+        int span = rosterCount - 3;
         int first = step <= 1 ? 0 : Math.Clamp((step - 1) * span / 27, 0, span);
-        return [first, first + 1, first + 2, first + 3, first + 4];
+        return [first, first + 1, first + 2];
     }
 
     /// <summary>A run skill's interval: 1.2 s, 7% shorter per rank, floored at 200 ms.</summary>
@@ -147,10 +146,10 @@ public static class SurvivorsRules
     public static double MonsterDamageScale(double elapsed) => 1 + 2.5 * Progress(elapsed);
 
     /// <summary>How often the horde sends a ring of ranged monsters (archers/wands) for the player to dodge.</summary>
-    public const double RangedWaveIntervalSeconds = 12;
+    public const double RangedWaveIntervalSeconds = 20;
 
-    /// <summary>The bodies in a ranged ring: eight at the start, twenty by the bell.</summary>
-    public static int RangedWaveCount(double progress) => 8 + (int)Math.Round(Math.Clamp(progress, 0, 1) * 12);
+    /// <summary>The bodies in a ranged ring: six at the start, sixteen by the bell.</summary>
+    public static int RangedWaveCount(double progress) => 6 + (int)Math.Round(Math.Clamp(progress, 0, 1) * 10);
 
     public const double Range = 34;
 

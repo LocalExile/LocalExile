@@ -9,32 +9,32 @@ public class SurvivorsRunTests
     public void The_horde_grows_from_fourteen_to_the_cap()
     {
         Assert.Equal(14, SurvivorsRules.TargetAlive(0));
-        Assert.Equal(293, SurvivorsRules.TargetAlive(450));
-        Assert.Equal(500, SurvivorsRules.TargetAlive(900));
-        Assert.Equal(500, SurvivorsRules.TargetAlive(9000));
+        Assert.Equal(117, SurvivorsRules.TargetAlive(450));
+        Assert.Equal(220, SurvivorsRules.TargetAlive(900));
+        Assert.Equal(220, SurvivorsRules.TargetAlive(9000));
         Assert.Equal(14, SurvivorsRules.TargetAlive(0, maxAlive: 25));
         Assert.Equal(25, SurvivorsRules.TargetAlive(900, maxAlive: 25));
     }
 
-    public void The_spawner_refills_a_quarter_of_the_gap_at_most_eight()
+    public void The_spawner_refills_a_sixth_of_the_gap_at_most_four()
     {
         Assert.Equal(0, SurvivorsRules.SpawnRefill(0));
         Assert.Equal(1, SurvivorsRules.SpawnRefill(1));
-        Assert.Equal(2, SurvivorsRules.SpawnRefill(6));
+        Assert.Equal(1, SurvivorsRules.SpawnRefill(6));
         Assert.Equal(2, SurvivorsRules.SpawnRefill(7));
-        Assert.Equal(6, SurvivorsRules.SpawnRefill(24));
-        Assert.Equal(8, SurvivorsRules.SpawnRefill(500));
+        Assert.Equal(4, SurvivorsRules.SpawnRefill(24));
+        Assert.Equal(4, SurvivorsRules.SpawnRefill(220));
     }
 
     public void The_roster_walks_its_tier_pool_over_the_run()
     {
-        // The widened pool: five consecutive tiers over thirty steps of a 30-tier roster.
-        Assert.Equal([0, 1, 2, 3, 4], SurvivorsRules.WavePool(0, 30));
-        Assert.Equal([12, 13, 14, 15, 16], SurvivorsRules.WavePool(450, 30));
-        Assert.Equal([25, 26, 27, 28, 29], SurvivorsRules.WavePool(900, 30));
-        Assert.Equal([5, 6, 7, 8, 9], SurvivorsRules.WavePool(900, 10));
-        Assert.Equal([0, 1, 2, 3, 4], SurvivorsRules.WavePool(0, 5));
-        Assert.Equal([0, 1, 2, 3], SurvivorsRules.WavePool(450, 4));
+        // The reference's wave_pool: three consecutive tiers over thirty steps of a 30-tier roster.
+        Assert.Equal([0, 1, 2], SurvivorsRules.WavePool(0, 30));
+        Assert.Equal([14, 15, 16], SurvivorsRules.WavePool(450, 30));
+        Assert.Equal([27, 28, 29], SurvivorsRules.WavePool(900, 30));
+        Assert.Equal([7, 8, 9], SurvivorsRules.WavePool(900, 10));
+        Assert.Equal([0, 1, 2], SurvivorsRules.WavePool(0, 3));
+        Assert.Equal([0, 1], SurvivorsRules.WavePool(450, 2));
         Assert.Empty(SurvivorsRules.WavePool(450, 0));
     }
 
@@ -76,7 +76,7 @@ public class SurvivorsRunTests
         Assert.Equal(8, SurvivorsRules.MaxRank);
         Assert.Equal(900, SurvivorsRules.VictorySeconds);
         Assert.Equal(60, SurvivorsRules.BossEverySeconds);
-        Assert.Equal(0.08, SurvivorsRules.SpawnIntervalSeconds, 6);
+        Assert.Equal(0.12, SurvivorsRules.SpawnIntervalSeconds, 6);
     }
 
     public void A_run_skill_gains_a_projectile_at_ranks_three_five_and_seven()
@@ -121,24 +121,18 @@ public class SurvivorsRunTests
         Assert.Equal(48, SurvivorsSkills.SurvivorsHeraldRadius, 6);
     }
 
-    public void The_horde_gets_a_ranged_ring_wave_every_twelve_seconds()
+    public void The_horde_gets_a_ranged_ring_wave_every_twenty_seconds()
     {
-        Assert.Equal(12, SurvivorsRules.RangedWaveIntervalSeconds);
-        Assert.Equal(8, SurvivorsRules.RangedWaveCount(0));
-        Assert.Equal(20, SurvivorsRules.RangedWaveCount(1));
+        Assert.Equal(20, SurvivorsRules.RangedWaveIntervalSeconds);
+        Assert.Equal(6, SurvivorsRules.RangedWaveCount(0));
+        Assert.Equal(16, SurvivorsRules.RangedWaveCount(1));
     }
 
-    public void A_run_moves_to_random_areas_near_a_growing_level()
+    public void A_run_moves_through_the_act_s_areas_in_order()
     {
-        Assert.Equal(("1_1_1", 1), SurvivorsAreas.Next([], 0, new Random(1)));
-        var pool = new List<(string Id, int Level)> { ("A", 1), ("B", 2), ("C", 20), ("D", 30) };
-        var early = SurvivorsAreas.Next(pool, 0, new Random(1));
-        Assert.Contains(early.Level, new[] { 1, 2, 3 });
-        var late = SurvivorsAreas.Next(pool, 1, new Random(1));
-        Assert.InRange(late.Level, 18, 20);
-        // The current area is not picked again when the window has another one.
-        var different = SurvivorsAreas.Next(pool, 0, new Random(1), exclude: early.Id);
-        Assert.NotEqual(early.Id, different.Id);
+        // The original fixed progression: Act 1's areas, one stage each.
+        Assert.Equal(["1_1_1", "1_1_2", "1_1_3", "1_1_5", "1_1_6", "1_1_9", "1_1_11_2"],
+            SurvivorsRunRules.SurvivorsLevels);
     }
 
     public void Experience_follows_monster_rarity()

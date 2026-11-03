@@ -20,14 +20,15 @@ static partial class SurvivorsRunRules
     // monster packs. The run's own skills cast themselves at the nearest monster, so the player only moves.
     internal const int SurvivorsStepMs = 100;
 
-    /// <summary>The ring wave cadence: a closing ring every 45 s, so standing in the open is punished.</summary>
-    internal const double SurvivorsRingIntervalSeconds = 45;
+    /// <summary>The ring wave cadence: a closing ring halfway through each 135 s boss cycle, as the reference does.</summary>
+    internal const double SurvivorsRingIntervalSeconds = 135;
 
     /// <summary>The area's boss arrives this long after a stage starts: its death is what opens the next stage.</summary>
     internal const double SurvivorsBossDelaySeconds = 15;
 
-    /// <summary>The area a run opens in, before its stages start moving to random hunting grounds.</summary>
-    internal const string SurvivorsStartArea = "1_1_1";
+    /// <summary>The areas a run moves through, one "level" every <see cref="SurvivorsRules.StageSeconds"/> (Act 1).</summary>
+    internal static readonly string[] SurvivorsLevels =
+        ["1_1_1", "1_1_2", "1_1_3", "1_1_5", "1_1_6", "1_1_9", "1_1_11_2"];
 
     /// <summary>A run that changed area: the run continues on the next connection.</summary>
     internal sealed record SurvivorsCarry(SurvivorsRun Run, int Stage, DateTime At, IReadOnlyCollection<uint>? ItemIds = null,
@@ -519,7 +520,7 @@ static partial class SurvivorsRunRules
                     }
                     else await conn.Commands!.Reply($"A guardian falls. +{total} run experience.");
                 }
-        if (run.Elapsed >= (stage + 1) * SurvivorsRules.StageSeconds)
+                if (run.Elapsed >= (stage + 1) * SurvivorsRules.StageSeconds && stage + 1 < SurvivorsLevels.Length)
                 {
                     bool sealedByBoss = SurvivorsRules.WaySealed(roster.Bosses.Count, bossDefeated);
                     if (sealedByBoss)
@@ -530,22 +531,17 @@ static partial class SurvivorsRunRules
                             await conn.Commands!.Reply($"The way is sealed until {bossName} falls.");
                         }
                     }
-                    else
+                    else if (AreaTransitionCatalog.HashOf(SurvivorsLevels[stage + 1]) is { } nextArea)
                     {
-                        var next = SurvivorsAreas.Next(SurvivorsAreas.For(conn), SurvivorsRules.Progress(run.Elapsed),
-                            Random.Shared, exclude: conn.Layout.Id);
-                        if (AreaTransitionCatalog.HashOf(next.Id) is { } nextArea)
-                        {
-                            var transfer = new PendingTransfer(nextArea, 0, false);
-                            StateOf(conn).StageTransfer = transfer;
-                            PendingRuns[conn] = new SurvivorsCarry(run, stage + 1, DateTime.UtcNow,
-                                [.. StateOf(conn).SurvivorsItemIds], conn.Character);
-                            carried = true;
-                            string nextName = AreaTransitionCatalog.NameOf(nextArea) ?? next.Id;
-                            await conn.Commands!.Reply($"--- Level {stage + 2} ---\nMoving to {nextName}.");
-                            await ChangeArea(remote, stream, ciphers, conn, transfer, "survivors level");
-                            break;
-                        }
+                        var transfer = new PendingTransfer(nextArea, 0, false);
+                        StateOf(conn).StageTransfer = transfer;
+                        PendingRuns[conn] = new SurvivorsCarry(run, stage + 1, DateTime.UtcNow,
+                            [.. StateOf(conn).SurvivorsItemIds], conn.Character);
+                        carried = true;
+                        string nextName = AreaTransitionCatalog.NameOf(nextArea) ?? SurvivorsLevels[stage + 1];
+                        await conn.Commands!.Reply($"--- Level {stage + 2} ---\nMoving to {nextName}.");
+                        await ChangeArea(remote, stream, ciphers, conn, transfer, "survivors level");
+                        break;
                     }
                 }
                 if (now >= nextSpawn)
