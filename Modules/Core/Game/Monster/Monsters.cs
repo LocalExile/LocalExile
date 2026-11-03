@@ -481,22 +481,26 @@ static partial class Game
                 // A chill slows the swing by its action speed, as the native clip does.
                 // A walking player has already gone farther on the client, unless both run on frames: no swing right at
                 // the edge of the reach.
-                // A lockstep client's monster waits for no 0x1ac: a chase order's walk-up swings the moment it gets there
-                // (0x141e94720), on the client's frame, and "there" is the cell the order named: the walk-up ends when the
-                // player comes within the reach on the way, or at the path's end whether or not the player is still in
-                // reach (live 2026-11-03: Drowned swinging 10.8 to 14.3 cells from a kiting player, 7.8 to 9 from the cell
-                // their order aimed at). So a melee monster under its chase is already swinging from that moment; the
-                // server takes that swing as its own instead of ordering a second one, which the client would only play
-                // after the first, or chasing on, which left the client's monster standing through its swing with the
-                // chase orders queued behind it and snapped it 10 to 17 cells at the swing's end. GGG's server, being the
-                // client's own simulation, swings at that same moment. The hit still asks the reach at the contact. A walk
-                // that ended short, at a blocked step or with no path found, is no arrival: the client's monster, with
-                // its own view of the bodies, may still be walking (live: 16 cells on, snapped back 18 at the next order),
-                // so the chase goes on and is ordered again on its cadence.
+                // A lockstep client's monster waits for no 0x1ac: a chase order's walk-up swings the moment the player is
+                // in its reach (0x141e94720), on the client's frame: on the way, or at the walk's end with the player still
+                // there. A walk that ends with the player gone on is no swing: the client's action goes on after the live
+                // player, pathing again until it is in reach (live 2026-11-03: in 32 of 34 silences of the server the
+                // client's monster stood in its swing with the player 7 to 9 cells off; in the other 3 it walked 8 to 19
+                // cells on after a player 9 to 16 cells off and the next order snapped it back). So the server takes the
+                // client's swing as its own only with the player in reach of the estimate now, 2 cells inside it while the
+                // player walks (a running player's cell differs by a cell or two between the two sides at one instant,
+                // and chasing on costs less than a swing the client does not make), instead of ordering a second swing, which
+                // the client would only play after the first, or chasing on, which left the client's monster standing
+                // through its swing with the chase orders queued behind it; a walk that ended out of reach is ordered
+                // again on its cadence. GGG's server, being the client's own simulation, swings at that same moment. The
+                // hit still asks the reach at the contact.
                 if (conn.LockstepClient && m.Hostile && m.Attack is { InPlace: false } chase && m.LastTarget is not null
-                    && m.SwingGeneration is null && (d <= chase.Range || m.Walk.ArrivesAt <= now && m.Walk.ReachedGoal))
+                    && m.SwingGeneration is null && d <= chase.Range - (conn.Walk.Moving(now) ? MovingReachMargin : 0))
                 {
-                    double begun = Math.Min(now, m.Walk.ArrivesAt);
+                    // The client's swing began at its walk's end when that was within the last AI step, else just now.
+                    double begun = Math.Max(Math.Min(now, m.Walk.ArrivesAt), now - MonsterAiCadence.StepSeconds);
+                    if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) swings from its chase at ({mx}, {my}): player ({px}, {py}) {d:0.0} away, "
+                        + $"walk {(m.Walk.ArrivesAt <= now ? "ended" : "under way")} toward {m.LastTarget}, reached goal {m.Walk.ReachedGoal}, begun {now - begun:0.000} s ago (t={now:0.000})");
                     // In reach on the way: the client's monster stops where it is for the swing.
                     if (m.Walk.ArrivesAt > now) m.Walk.Order(mx, my, now);
                     m.BusyUntil = begun + MonsterSwingSeconds(conn, m, begun) / action + conn.LockstepActionTail;
@@ -531,6 +535,8 @@ static partial class Game
                 {
                     if (!cadence.TryAttackChase(m, now)) continue;
                     var walk = m.Walk.Approach(px, py, melee.Range - 1, now, LivingCollision.PlayerSize);
+                    if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) chase walk from {walk.Here} to {walk.Stop}, arrives in {walk.At - now:0.000} s, "
+                        + $"reached goal {m.Walk.ReachedGoal}, player ({px}, {py}) {d:0.0} away (t={now:0.000})");
                     m.LastTarget = (px, py);
                     m.SwingGeneration = null;
                     plan.Chases.Add((id, m, ++m.ActionGeneration, walk.Here, (px, py)));

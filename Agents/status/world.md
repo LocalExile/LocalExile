@@ -203,8 +203,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   confirmed as local, or `Game_LOCKSTEP=network` on any connection, the player walks, uses objects and uses skills;
   a held default attack (bow, wand, one-hand sword) repeats once per attack time at a monster or at the ground, and a
   Move cuts a swing short at its clip's lock_cancelling keyframe (a bow) or its contact (a wand, a sword), as on the
-  client; a melee monster's chase swings where its walk-up ends, in reach of the player or at the cell its order
-  named, as on the client; a bow's or wand's attack walks to where its line to the monster is clear on the projectile
+  client; a melee monster's chase swings once the player is in its reach, on the way or at its walk's end, and goes on
+  after the player otherwise, as on the client; a bow's or wand's attack walks to where its line to the monster is clear on the projectile
   grid, as on the client (an attack gem's line threshold is taken to be the bow's). Without it the player is
   drawn but cannot move or
   use objects, and the Gateway asks for Predictive once per connection

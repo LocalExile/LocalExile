@@ -495,17 +495,17 @@ monster and at the ground alike. A held attack's next use, at a monster or at
 the ground, waits for the attack time of the one before (`NextAttackAt`): one sent as soon as the player was free came
 0.4 s into a 0.645 s swing and was queued to its end, with the server's swing and hit ahead of the client's by as much.
 
-A melee monster's chase order (an attack aimed at the player) swings by itself on a lockstep client when its walk-up gets
-there, since the client waits for no 0x1ac (`0x141e94720`), and "there" is the cell the order named: the walk-up ends
-when the player comes within the reach on the way, or at the path's end whether or not the player is still in reach
-(live 2026-11-03, pack fights: Drowned swinging 10.8 to 14.3 cells from a kiting player, 7.8 to 9 from the cell their
-order aimed at, with the orders sent during the 2.4 s swing queued and the last of them run at its end). The Gateway
-counts that swing from its estimate's arrival, or from the tick the player came within reach of the walking estimate
-(`MonsterAiPlan.ArrivedSwings`), instead of ordering a second one, which the client only played after the first, or
-chasing on, which left the estimate 10 to 17 cells ahead of the standing monster by the swing's end. A walk the server
-cut short (a step found blocked, no path found) is no arrival: the client's monster may still be walking on its own view
-of the bodies (16 cells on, snapped back 18 by the next order when the server had declared the swing), so such a chase
-is ordered again on its cadence (`PlayerWalk.ReachedGoal`). A ranged monster's
+A melee monster's chase order (an attack aimed at the player) swings by itself on a lockstep client once the player is
+in its reach, since the client waits for no 0x1ac (`0x141e94720`): on the way, or at its walk's end with the player still
+there. With the player gone on it does not swing at the cell the order named: its action goes on after the live player,
+pathing again until it is in reach (live 2026-11-03, pack fights with the AI trace: in 32 of 34 silences of the server
+the client's Drowned stood in its swing with the player 7 to 9 cells off; in the other 3 it walked 8 to 19 cells on
+after a player 9 to 16 cells off, and the next order snapped it back). The Gateway counts that swing from the tick the
+player is within reach of its estimate, 2 cells inside the reach while the player walks, since a running player's cell
+differs by a cell or two between the two sides at one instant and chasing on costs less than a swing the client does
+not make (`MonsterAiPlan.ArrivedSwings`), instead of ordering a second one, which the client only played
+after the first, or chasing on, which left the estimate 10 to 17 cells ahead of the standing monster by the swing's
+end; a walk that ended out of reach, cut short or not, is ordered again on its cadence. A ranged monster's
 in-place attack leaves its Move running on a lockstep client as on a predictive one: per-frame, the shot's clip starts on
 the order's frame and the Sand Spitter walks on to its Move's target (377 shots ordered mid-Move: 1.4 cells left at the
 median, 4.2 at the 90th percentile, 7.6 at most), so the estimate keeps its walk; where its path is longer than the

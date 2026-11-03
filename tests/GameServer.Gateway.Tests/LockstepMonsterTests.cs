@@ -15,9 +15,9 @@ public class LockstepMonsterTests
         Attack = new(0x3188, 2.0, 8, DamagePacket.Empty), Aggro = true, LastTarget = (100, 100),
     };
 
-    // A melee chase order's walk-up swings by itself on a lockstep client when it gets there, so the server takes that
-    // swing from the walk-up's end instead of ordering a second one; a walk-up still under way, and a predictive client,
-    // get the swing order as before.
+    // A melee chase order's walk-up swings by itself on a lockstep client once the player is in its reach, so the server
+    // takes that swing instead of ordering a second one; a walk-up still out of reach, and a predictive client, get the
+    // chase or swing order as before.
     [Fact]
     public void A_chase_walk_up_that_got_there_swings_without_a_second_order_on_a_lockstep_client()
     {
@@ -29,8 +29,9 @@ public class LockstepMonsterTests
         conn.Monsters[0x3001] = walking;
         var plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 1);
         Assert.Equal([0x3000u], plan.ArrivedSwings.Select(s => s.Id));
-        Assert.Equal(0, plan.ArrivedSwings[0].BegunAt);
-        Assert.Equal(2.0 + conn.LockstepActionTail, arrived.BusyUntil, 3);
+        // In reach while standing: the swing began within the last AI step.
+        Assert.Equal(1 - MonsterAiCadence.StepSeconds, plan.ArrivedSwings[0].BegunAt, 6);
+        Assert.Equal(1 - MonsterAiCadence.StepSeconds + 2.0 + conn.LockstepActionTail, arrived.BusyUntil, 3);
         Assert.Null(arrived.LastTarget);
         Assert.Equal(arrived.ActionGeneration, arrived.SwingGeneration);
         Assert.DoesNotContain(0x3000u, plan.Swings.Select(s => s.Id));
@@ -44,13 +45,14 @@ public class LockstepMonsterTests
         Assert.Contains(0x3002u, plan.ArrivedSwings.Select(s => s.Id));
         Assert.Equal(4.5, plan.ArrivedSwings.Single(s => s.Id == 0x3002u).BegunAt, 6);
         Assert.False(met.Walk.Moving(4.6));
-        // At the path's end with the player gone on: it swings there all the same (the hit asks the reach).
+        // At the path's end with the player gone on: no swing there (the client's monster goes on after the player), the
+        // chase is ordered again.
         var late = Drowned(new PlayerWalk(120, 100, 8));
         late.Walk.Order(118, 100, now: 0);   // a two-cell walk, over at 0.25 s, ending 18 cells from the player
         conn.Monsters[0x3003] = late;
         plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 6);
-        Assert.Contains(0x3003u, plan.ArrivedSwings.Select(s => s.Id));
-        Assert.Equal(late.Walk.ArrivesAt, plan.ArrivedSwings.Single(s => s.Id == 0x3003u).BegunAt, 6);
+        Assert.DoesNotContain(0x3003u, plan.ArrivedSwings.Select(s => s.Id));
+        Assert.Contains(0x3003u, plan.Chases.Select(c => c.Id));
         // A walk that a body stopped short is no arrival: the chase goes on (ordered again) instead of a swing there.
         var blocked = Drowned(new PlayerWalk(130, 100, 8));
         blocked.Walk.Order(100, 100, now: 0);
