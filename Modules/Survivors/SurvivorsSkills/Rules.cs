@@ -148,6 +148,26 @@ static partial class SurvivorsSkills
         return false;
     }
 
+    /// <summary>
+    /// One offer choice as the chat and /survivors status read it. A support names the skill it links to and a rank
+    /// names the skill it raises, so the window's gem icons are never ambiguous about which skill they upgrade.
+    /// </summary>
+    internal static string SurvivorsChoiceLabel(SurvivorsRun run, SurvivorsChoice choice, string name,
+        IReadOnlyList<SurvivorsSkill> catalog)
+    {
+        string target = choice.Target >= 0 && choice.Target < catalog.Count ? catalog[choice.Target].Name : "?";
+        return choice.Kind switch
+        {
+            SurvivorsChoiceKind.NewSkill => $"New skill: {name}",
+            SurvivorsChoiceKind.SkillRank => $"{name} -> rank {run.RankOf(choice.Index) + 1}",
+            SurvivorsChoiceKind.Support => $"{name} -> {target}",
+            SurvivorsChoiceKind.Blessing => $"{name} -> level {run.BlessingLevel((SurvivorsBlessing)choice.Index) + 1}",
+            SurvivorsChoiceKind.Item => $"Unique: {name}",
+            SurvivorsChoiceKind.Heal => "Healthstone: restores all life",
+            _ => name,
+        };
+    }
+
     /// <summary>The monsters the current area can draw a horde from, weakest first, and the run skills' base damage:
     /// <see cref="WeaponDamage"/> is the starting tier pool's median life (one rank-1 cast ≈ one starting hit), and
     /// <see cref="TopLife"/> is the roster's strongest variety, for reporting. <see cref="Ranged"/> is the subset whose

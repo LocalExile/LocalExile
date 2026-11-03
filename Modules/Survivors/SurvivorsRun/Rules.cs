@@ -113,11 +113,13 @@ static partial class SurvivorsRunRules
             await conn.Commands!.Reply("No run skills are available: the item catalogue or the projectile definitions are missing.");
             return;
         }
-        // Every run starts from an empty character: no carried, worn or flask item survives into a new run.
+        // Every run starts from an empty character with no skill: the opening window offers the first one, and each
+        // following stage teaches the next, so the player chooses the build instead of receiving a fixed gem.
         var supports = SurvivorsSupportsFor(conn);
         roster = roster with { SkillScale = SurvivorsDamageScale(conn, catalog, roster) };
         var run = new SurvivorsRun(SurvivorsMaxAlive());
-        run.Learn(only ?? 0);
+        if (only is int pick) run.Learn(pick);
+        else run.RecordExperience(SurvivorsRules.LevelRequirement(1));
         var ownership = BindRun(conn, run);
         await SurvivorsResetInventory(remote, stream, ciphers, conn);
         if (!ownership.Current) return;
@@ -131,9 +133,13 @@ static partial class SurvivorsRunRules
             $"Survive {SurvivorsRules.VictorySeconds / 60:0} minutes. Your skills cast themselves at the nearest monster. " +
             $"Every {SurvivorsRules.StageSeconds / 60:0.#} minutes the run moves to the next area, but only after the " +
             $"area's lore boss falls.\n" +
-            $"Start: {catalog[0].Name}. Each level opens the reward window with three upgrades (six skill slots, six " +
-            "blessings, supports and uniques); /survivors stop ends the run. The run's skills and their cooldowns are " +
-            "on your skill bar. /survivors curve prints the difficulty and power curve.");
+            (only is int chosen
+                ? $"Start: {catalog[chosen].Name}. "
+                : "Choose your first skill in the opening window; the next skill is offered once the current one has " +
+                  "all its supports. ") +
+            "Each level opens the reward window (six choices, says which skill each upgrade is for, and always lists " +
+            "the supports a skill is missing); /survivors stop ends the run. /survivors curve prints the difficulty and " +
+            "power curve.");
         if (!ownership.Current) return;
         Console.WriteLine($"[gateway] {remote} survivors run started in {conn.Layout.Id} at level {roster.Level}: " +
             $"{roster.Varieties.Count} varieties, {roster.Bosses.Count} boss(es), {run.MaxAlive} alive at most, " +
@@ -455,12 +461,13 @@ static partial class SurvivorsRunRules
         if (run.Offer.Count > 0 && StateOf(conn).SurvivorsOffer is { } shown)
         {
             var lines = new List<string>();
+            var catalog = StateOf(conn).SurvivorsCatalog ?? SurvivorsCatalogFor(conn);
             foreach (var choice in run.Offer)
             {
                 uint id = shown.FirstOrDefault(e => e.Value == choice).Key;
-                string label = id != 0 && StateOf(conn).SurvivorsOfferNames?.GetValueOrDefault(id) is { } named
+                string name = id != 0 && StateOf(conn).SurvivorsOfferNames?.GetValueOrDefault(id) is { } named
                     ? named : choice.Kind.ToString();
-                lines.Add($"{lines.Count + 1}: {label} (0x{id:x8})");
+                lines.Add($"{lines.Count + 1}: {SurvivorsChoiceLabel(run, choice, name, catalog)} (0x{id:x8})");
             }
             offer = "\n" + string.Join("\n", lines);
         }

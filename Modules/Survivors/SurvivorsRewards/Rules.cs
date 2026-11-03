@@ -231,6 +231,7 @@ static partial class SurvivorsRewards
         var names = new Dictionary<uint, string>();
         var offeredItems = new Dictionary<uint, Item>();
         var listed = new List<InventoryItem>();
+        var labels = new List<string>();
         byte cell = 0;
         foreach (var choice in offer)
         {
@@ -279,6 +280,7 @@ static partial class SurvivorsRewards
             listed.Add(item);
             shown[item.Id] = choice;
             names[item.Id] = name;
+            labels.Add(SurvivorsChoiceLabel(run, choice, name, catalog));
             if (choice.Kind == SurvivorsChoiceKind.Item) offeredItems[item.Id] = created;
         }
         if (listed.Count == 0) return;
@@ -299,6 +301,11 @@ static partial class SurvivorsRewards
         if (!ownership.Current) return;
         await Send(remote, stream, ciphers, InstanceNpcs.OpenQuestReward(SurvivorsOfferInventory, 0),
             "0x0087 survivors level-up window", still: () => ownership.Current);
+        if (!ownership.Current) return;
+        // The window only shows gem icons; the chat line names the skill each upgrade is for and the supports a skill
+        // is missing, so a pick is never a guess.
+        if (conn.Commands is { } commands)
+            await commands.Reply("--- Upgrades ---:\n" + string.Join('\n', labels.Select((label, index) => $"{index + 1}: {label}")));
     }
 
     /// <summary>A click in the level-up window (C→S 0x88/0x8a). False when the id is not one of its choices.</summary>

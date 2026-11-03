@@ -26,6 +26,10 @@ ladder.
 Stage changes follow the run's fixed area list, one Act 1 area per stage (The Twilight Strand, The Coast, The Mud Flats,
 …), so every stage has monsters; a town is never a stage.
 
+A run starts with **no run skill**: the opening window offers the first skill, and the next skill is offered once the
+current one holds every support it can take, so the player builds the skill set rather than receiving a fixed gem.
+The window's chat line names the skill each upgrade applies to (a support shows `Support -> Skill`), and `/survivors
+status` prints the same labels.
 Run skills are every gem the client can draw: a projectile gem flies its own `Projectiles` row, an area gem (Ice Nova,
 Firestorm and the like) casts a **nova pulse** around the player with the gem's own area hit, and a Herald pulses its
 aura. Heralds and areas share the pulse pipeline; an area gem's pulse radius is the run's 48-cell base grown by its
@@ -45,6 +49,8 @@ eight supports; a gem that cannot is left out of the catalogue).
 **Rank-ups** appear only once that skill holds every support it can take, and a **new skill** only once every learned
 skill does; then the reference's weighted pool (blessing ranks, new blessings, a unique every third level) fills any
 remaining slots.
+The chat line that opens the window names the skill each choice applies to (`Added Cold Damage Support -> Fireball`),
+and `/survivors status` prints the same labels.
 S→C `0xc0` must register inventory `0x600` before any `0xbf` change for it.
 Reversing that order crashes the client with "Got an inventory set change for an inventory that isn't in the set".
 S→C `0x87` opens the window; its ordinary C→S `0x88`/`0x8a` item id selects the reward.
