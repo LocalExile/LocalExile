@@ -59,6 +59,8 @@ static partial class QuestobjectsRules
                 await SpawnNpc(remote, stream, ciphers, conn, npc, glyph.X, glyph.Y, glyph.Angle);
             else Console.WriteLine($"[gateway] {remote} trial monograph {glyph.Type}: unknown or unsupported NPC");
         }
+        // The statues wake only in the Labyrinth's own rooms (a trial's tiles keep theirs as they were).
+        if (!labyrinth) all = [.. all.Where(o => !LabyrinthTrials.IsStatueSpawner(o.Type))];
         var objects = all.Where(o => LabyrinthTrials.Handles(o.Type)).ToList();
         Console.WriteLine($"[gateway] {remote} {what}: {links.Count} room link(s), {Enumerable.Range(0, all.Count).Count(wiring.Graph.Wired)} wired object(s)");
         if (objects.Count == 0)
@@ -87,6 +89,7 @@ static partial class QuestobjectsRules
             }
             // A disabled lever shows pulled (it cannot be used), a spent crank down for good.
             byte state = o.Type == LabyrinthTrials.RailSwitchSwapped ? LabyrinthTrials.SwapClientState(o.Mirrored, open)
+                : LabyrinthTrials.IsStatueSpawner(o.Type) ? LabyrinthTrials.Open
                 : wiring.Graph.IsSpent(index) ? LabyrinthTrials.Spent
                 : open || wiring.Graph.IsDisabled(index) ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
@@ -119,8 +122,17 @@ static partial class QuestobjectsRules
                 conn.UpdateBarrier();
             }
         }
-        List<KeyValuePair<uint, AreaPopulation.RoomObject>> plates;
-        lock (conn.Monsters) plates = [.. conn.TrialObjects.Where(t => LabyrinthTrials.IsHotPlate(t.Value.Type))];
+        List<KeyValuePair<uint, AreaPopulation.RoomObject>> plates, statues;
+        lock (conn.Monsters)
+        {
+            plates = [.. conn.TrialObjects.Where(t => LabyrinthTrials.IsHotPlate(t.Value.Type))];
+            statues = [.. conn.TrialObjects.Where(t => LabyrinthTrials.IsStatueSpawner(t.Value.Type) && !conn.Instance.Transitioned(t.Value.Type, t.Value.X, t.Value.Y))];
+        }
+        if (statues.Count > 0)
+        {
+            Console.WriteLine($"[gateway] {remote} {what}: {statues.Count} statue(s) waiting to wake");
+            _ = WakeStatues(remote, stream, ciphers, conn, statues);
+        }
         if (plates.Count > 0)
         {
             // What burns: the hot plates and the half lines by the plates in the walls (server objects only, as those).
@@ -508,6 +520,66 @@ static partial class QuestobjectsRules
         }
         if (LabyrinthTrials.GoesWhenOpened(o.Type, o.Model)) _ = RemoveOpenedDoor(remote, stream, ciphers, conn, id);
         return true;
+    }
+
+    // The Labyrinth's statues (LabyrinthTrials.IsStatueSpawner): the spawner stands transitioned (its stone hidden), and its
+    // monster (LabyrinthTrials.StatueOf, normal, at the area's level) waits on the pedestal in its Emerge clip's first frame
+    // (0x1b2 at speed 0), turned as the statue, out of the AI. It wakes as the player comes within
+    // LabyrinthTrials.StatueWakeCells or hits it: its Emerge (the .act's wake clip: stepping down), busy until it has
+    // played. The instance keeps the statue spent once its monster stands (the monster is kept with the others).
+    static async Task WakeStatues(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        List<KeyValuePair<uint, AreaPopulation.RoomObject>> statues)
+    {
+        byte level = (byte)Math.Clamp(ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
+        var waiting = new List<(uint Mob, AreaPopulation.RoomObject Statue, MonsterCatalog.Variety Monster)>();
+        try
+        {
+            foreach (var (id, statue) in statues)
+            {
+                if (!conn.Instance.Transition(statue.Type, statue.X, statue.Y)) continue;
+                await Send(remote, stream, ciphers, InstanceEntities.BlockageUpdate(id, false), null);
+                if (Monsters.Find(LabyrinthTrials.StatueOf(statue.Type)) is not { Supported: true } monster)
+                {
+                    Console.WriteLine($"[gateway] {remote} statue at ({statue.X}, {statue.Y}): {LabyrinthTrials.StatueOf(statue.Type)} cannot be created");
+                    continue;
+                }
+                uint mob = await SpawnMonster(remote, stream, ciphers, conn, monster, level, MonsterRarity.Normal, statue.X, statue.Y, log: false);
+                lock (conn.Monsters)
+                    if (conn.Monsters.TryGetValue(mob, out var m)) (m.BusyUntil, m.Aggro) = (double.PositiveInfinity, false);
+                await Send(remote, stream, ciphers, InstanceProtocol.Orientation(mob, statue.Angle), null);
+                if (Emerges.ClipIndex(monster) is uint clip) await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(mob, 0, clip, 0), null);
+                waiting.Add((mob, statue, monster));
+            }
+            Console.WriteLine($"[gateway] {remote} statues: {waiting.Count} monster(s) waiting on their pedestals");
+            while (!conn.Closed && waiting.Count > 0)
+            {
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                (int X, int Y) here;
+                lock (conn.Monsters) here = conn.Walk.Position(now);
+                double reach = LabyrinthTrials.StatueWakeCells * LabyrinthTrials.StatueWakeCells;
+                foreach (var w in waiting.ToList())
+                {
+                    bool hit, gone;
+                    lock (conn.Monsters)
+                    {
+                        gone = !conn.Monsters.TryGetValue(w.Mob, out var m) || m.Dead;
+                        hit = !gone && m!.Life < m.MaxLife;
+                    }
+                    bool near = (w.Statue.X - here.X) * (double)(w.Statue.X - here.X) + (w.Statue.Y - here.Y) * (double)(w.Statue.Y - here.Y) <= reach;
+                    if (!gone && !near && !hit) continue;
+                    waiting.Remove(w);
+                    if (gone) continue;
+                    lock (conn.Monsters)
+                        if (conn.Monsters.TryGetValue(w.Mob, out var woken)) (woken.BusyUntil, woken.Aggro) = (now + Emerges.Seconds(w.Monster) + 0.3, true);
+                    if (Emerges.SkillId is ushort emerge)
+                        await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionStarted(w.Mob, w.Statue.X, w.Statue.Y, w.Statue.X, w.Statue.Y, emerge, 0xffff, 0x0408),
+                            .. InstanceProtocol.ActionEnded(w.Mob)], $"0x01ab statue monster 0x{w.Mob:x} {w.Monster.Name} at ({w.Statue.X}, {w.Statue.Y}) steps down");
+                }
+                await Task.Delay(200);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} statues stopped: {ServerLog.Describe(ex)}"); }
     }
 
     // The smashable walls within reach of a cast the player makes break (LabyrinthTrials.SmashReach: the cast stands for its

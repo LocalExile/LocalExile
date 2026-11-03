@@ -148,7 +148,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
      `LabyrinthMonsterTotem`: Endless Pain, Hazard, Drought, Sting, Unending Lethargy, Frost, Fire, Storm, Vaal Totem,
      some with Proximity Shield) that rise from the floor and debuff by an aura, sink when damaged and rise again
      (`ReviveAfterDuration`). The map trials' end rooms place them as points (`TrialsEndgame/*/end*.arm`), and
-     MonsterGroupEntries' group 35 lists them; no Normal, Cruel or Merciless room has one.
+     MonsterGroupEntries' group 35 lists them; no Normal, Cruel or Merciless room has one. The Merciless and Eternal
+     Labyrinths also have Argus (wiki), a boss in one room of the day's layout who drops a Treasure Key.
 - **Done when:** a character completes the six Normal trials, enters the day's Normal Labyrinth from the plaza,
   walks its rooms, defeats Izaro three times and chooses an ascendancy at the Altar, keeping it and its two points
   after a relog.

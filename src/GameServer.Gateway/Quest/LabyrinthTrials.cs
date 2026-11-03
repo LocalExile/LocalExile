@@ -682,6 +682,58 @@ static class LabyrinthTrials
     /// Live 2026-10-31, the original: no monsters among the traps.</summary>
     public const int TrapClearance = 25;
 
+    /// <summary>A pack of the Labyrinth's own rooms: its monsters (MonsterVarieties ids, one weight each), its size, and
+    /// the one that leads it, always one (a summoner among its minions: live 2026-11-02, the original).</summary>
+    public sealed record LabyrinthPack(string Id, string[] Varieties, int Min, int Max, string[]? Leaders = null);
+
+    /// <summary>How much denser than an ordinary area's the Labyrinth's packs stand (live 2026-11-02: about a fifth more
+    /// than the ordinary density looked right).</summary>
+    public const double PackDensity = 1.2;
+
+    const string Mon = "Metadata/Monsters/";
+
+    static readonly LabyrinthPack Contenders = new("contenders", [Mon + "Skeletons/SkeletonMeleeLabyrinth", Mon + "Skeletons/SkeletonBowLabyrinth", Mon + "Skeletons/SkeletonMeleeLabyrinth2"], 4, 7),
+        Claimants = new("claimants", [Mon + "Skeletons/SkeletonMeleeFireLabyrinth", Mon + "Skeletons/SkeletonMeleeFireShieldLabyrinth", Mon + "Skeletons/SkeletonMeleeColdLabyrinth",
+            Mon + "Skeletons/SkeletonMeleeColdShieldLabyrinth", Mon + "Skeletons/SkeletonMeleeLightningLabyrinth", Mon + "Skeletons/SkeletonMeleeLightningShieldLabyrinth"], 4, 7),
+        Deceivers = new("deceivers", [Mon + "Skeletons/SkeletonCasterColdLabyrinth", Mon + "Skeletons/SkeletonCasterFireLabyrinth", Mon + "Skeletons/SkeletonCasterLightningLabyrinth"], 3, 5),
+        Reanimators = new("reanimators", [Mon + "Skeletons/SkeletonMeleeLabyrinth", Mon + "Skeletons/SkeletonBowLabyrinth"], 3, 5, [Mon + "Necromancer/NecromancerLabyrinth"]),
+        Accursed = new("accursed", [Mon + "Skeletons/SkeletonMeleeLabyrinth2"], 3, 5,
+            [Mon + "Necromancer/NecromancerFireLabyrinth", Mon + "Necromancer/NecromancerColdLabyrinth", Mon + "Necromancer/NecromancerLightningLabyrinth"]),
+        Zombies = new("zombies", [Mon + "ZombieDismember/ZombieTarLabyrinth", Mon + "ZombieDismember/ZombieTarLabyrinth", Mon + "ZombieDismember/ZombieMoldy1Labyrinth",
+            Mon + "ZombieDismember/ZombieMoldy2Labyrinth", Mon + "ZombieDismember/ZombieMoldy3Labyrinth", Mon + "ZombieDismember/ZombieMoldyPoison1Labyrinth",
+            Mon + "ZombieDismember/ZombieMoldyPoison2Labyrinth", Mon + "ZombieDismember/ZombieMoldyPoison3Labyrinth"], 4, 7),
+        Crushers = new("crushers", [Mon + "Skeletons/SkeletonMeleeLargeLabyrinth"], 1, 2),
+        Ghosts = new("ghosts", [Mon + "GhostPirates/GhostPirateBlackLabyrinth", Mon + "GhostPirates/GhostPirateFlickerStrikeBlackLabyrinth", Mon + "GhostPirates/GhostPirateBlackBowLabyrinth"], 3, 5),
+        Spiders = new("spiders", [Mon + "Spiders/SpiderScale2Labyrinth", Mon + "Spiders/SpiderScale5Labyrinth"], 5, 8),
+        Needlebacks = new("needlebacks", [Mon + "Spiker/SpikerLabyrinth"], 2, 4),
+        Lurkers = new("lurkers", [Mon + "Grappler/GrapplerLabyrinth"], 2, 4),
+        Servants = new("servants", [Mon + "Undying/CityStalkerMaleLabyrinth", Mon + "Undying/CityStalkerFemaleLabyrinth", Mon + "Undying/CityStalkerMaleFreezingPulseLabyrinth",
+            Mon + "Undying/CityStalkerFemaleFreezingPulseLabyrinth"], 3, 5),
+        Dwellers = new("dwellers", [Mon + "Undying/UndyingOutcastWhirlingBladesLabyrinth", Mon + "Undying/UndyingOutcastPunctureLabyrinth"], 3, 6),
+        Slitherers = new("slitherers", [Mon + "Snake/SnakeScorpionIncaLabyrinth_"], 3, 5),
+        Marionettes = new("marionettes", [Mon + "Mannequin/MannequinLabyrinth"], 3, 5),
+        Devourers = new("devourers", [Mon + "RootSpiders/RootSpiderHiddenLabyrinth"], 1, 2),
+        Masses = new("masses", [Mon + "MossMonster/MossMonsterEmergeRollLabyrinth"], 1, 2),
+        Muck = new("muck", [Mon + "WaterElemental/WaterElementalPureLabyrinth"], 1, 3);
+
+    /// <summary>The packs scattered in a Labyrinth room area (ours): no MonsterPacks or MonsterGroups row names a Labyrinth
+    /// area, its monsters are the real server's choice among the <c>*Labyrinth</c> varieties. By the area's room set (its id's
+    /// code): live (2026-11-02, the original) the underground ones (Prison, Crypt) have undead and the like, the ones above
+    /// (ElegantHouse, DryGarden, OutdoorHouse, RuinedTemple) Maze Needlebacks, Shadow Lurkers and Devourers. None for
+    /// Izaro's rooms and the airlock.</summary>
+    public static IReadOnlyList<LabyrinthPack> RoomSetPacks(string areaId) =>
+        !InLabyrinth(areaId) ? [] : areaId.Split('_') is [_, "Labyrinth", var set, ..] ? set switch
+        {
+            "P" => [Contenders, Zombies, Reanimators, Crushers, Spiders],
+            "C" => [Claimants, Deceivers, Accursed, Ghosts, Spiders],
+            // ElegantHouse's Muck Elementals rise out of its fountains' water (live 2026-11-02).
+            "EH" => [Servants, Lurkers, Marionettes, Dwellers, Muck],
+            "DG" => [Needlebacks, Lurkers, Devourers, Masses, Slitherers],
+            "OH" => [Needlebacks, Lurkers, Dwellers, Muck, Slitherers],
+            "RT" => [Slitherers, Dwellers, Lurkers, Needlebacks],
+            _ => [],
+        } : [];
+
     /// <summary>A monograph's NPCTalk index (column 1): each has one row, 0 "Read" (NPCTalk 777–782).</summary>
     public const byte GlyphTalk = 0;
 
@@ -1334,6 +1386,7 @@ static class LabyrinthTrials
         [SmashableWall] = ["Positioned", "BaseEvents", "Animated", "Stats", "InteractionAction", "Transitionable", "TriggerableBlockage"],
         [HiddenWall] = ["Positioned", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage", "MinimapIcon"],
         [HiddenSwitch] = ["Positioned", "Transitionable", "BaseEvents", "Animated", "InteractionAction"],
+        [StatueSpawner] = ["Positioned", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage"],
         [LabyrinthWiring.OnceMultiSwitch] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
         [LabyrinthWiring.CrankPrefix] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
         [LabyrinthWiring.CrankPrefix + "_10"] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
@@ -1363,7 +1416,7 @@ static class LabyrinthTrials
 
     /// <summary>Whether a tile object is sent at its tile line's height (the smashable walls hang 101 up, their upper part
     /// in the floor without it; live 2026-11-01).</summary>
-    public static bool AtTileHeight(string type) => type is SmashableWall or HiddenWall;
+    public static bool AtTileHeight(string type) => type is SmashableWall or HiddenWall || IsStatueSpawner(type);
 
     /// <summary>Whether a door in this Transitionable state blocks the way.</summary>
     public static bool Blocks(string type, byte state) => type == OpenDoor ? state == Open : state == Closed;
@@ -1372,10 +1425,29 @@ static class LabyrinthTrials
     /// wall 6, a hidden switch 8.</summary>
     public static int Size(string type) => type switch { Plaque or Portal or SmashableWall => 5, HiddenSwitch => 7, _ => 3 };
 
-    public static bool Handles(string type) => Components.ContainsKey(Plate(type));
+    public static bool Handles(string type) => Components.ContainsKey(Kind(type));
+
+    // The Components row of a type: a plate's (Plate), a statue spawner's (they share StatueSpawner.ot's).
+    static string Kind(string type) => IsStatueSpawner(type) ? StatueSpawner : Plate(type);
+
+    /// <summary>The Labyrinth tiles' statues that wake (<c>Metadata/Monsters/Statue/*/Spawner_LabyrinthStatue*</c>,
+    /// extending <c>StatueSpawner.ot</c>: server-only, Transitionable, blocked; transitioned, its stone is hidden), and the
+    /// monster of its name (<see cref="StatueOf"/>), a stone statue itself with its glow (its .ao's attached
+    /// <c>statue_balls</c>), which waits on the pedestal in its Emerge clip's first frame and steps down when it wakes.</summary>
+    public const string StatueFolder = "Metadata/Monsters/Statue/", StatueSpawner = StatueFolder + "StatueSpawner";
+
+    public static bool IsStatueSpawner(string type) =>
+        type.StartsWith(StatueFolder, StringComparison.Ordinal) && type[(type.LastIndexOf('/') + 1)..].StartsWith("Spawner_", StringComparison.Ordinal);
+
+    /// <summary>The monster a statue spawner wakes into: <c>Spawner_X</c>'s <c>Metadata/Monsters/Statue/X</c> (every
+    /// Labyrinth one has its MonsterVarieties row so: Overgrown Colossus, Fencer, Archer, Maul and Martial Statues).</summary>
+    public static string StatueOf(string type) => StatueFolder + type[(type.LastIndexOf('/') + 1 + "Spawner_".Length)..];
+
+    /// <summary>How near the player a statue wakes (cells; ours).</summary>
+    public static double StatueWakeCells = 30;
 
     /// <summary>The Transitionable component's index in the type's component order.</summary>
-    public static byte TransitionableIndex(string type) => (byte)Array.IndexOf(Components[Plate(type)], "Transitionable");
+    public static byte TransitionableIndex(string type) => (byte)Array.IndexOf(Components[Kind(type)], "Transitionable");
 
     /// <summary>The trial in this area, or null.</summary>
     public static Trial? For(string areaId) => All.Value.GetValueOrDefault(areaId);
@@ -1450,7 +1522,7 @@ static class LabyrinthTrials
     public static byte[] Blob(string type, string model, int x, int y, float angle, float scale, byte state, float? height = null)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        foreach (string c in Components[Plate(type)])
+        foreach (string c in Components[Kind(type)])
             switch (c)
             {
                 // x, y, rotation, u16, flags0 (0x20: uniform scale, then the x / y stretches), flags1 0x02 (shown). A door
@@ -1462,7 +1534,7 @@ static class LabyrinthTrials
                 case "Positioned":
                     // A smashable wall keeps its static position: the client stamps its Hull (walking and projectiles) and
                     // its transition removes it (RemoveCollidability).
-                    bool scaled = scale != 1, blockage = Components[Plate(type)].Contains("TriggerableBlockage") && type != SmashableWall;
+                    bool scaled = scale != 1, blockage = Components[Kind(type)].Contains("TriggerableBlockage") && type != SmashableWall;
                     w.I32(x).I32(y).F32(angle).U16(0).U8((byte)((scaled ? 0x20 : 0) | (height is null ? 0 : 0x04))).U8((byte)(blockage ? 0x2a : 0x02));
                     if (scaled) w.F32(scale).F32(1).F32(1);
                     if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);

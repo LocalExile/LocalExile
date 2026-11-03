@@ -213,7 +213,12 @@ static partial class Game
         // Gardens trial's four Devourers) and its spawners' monsters (LabyrinthTrials.Spawners), rare.
         var trialRooms = placedRooms.Where(r => r.Objects.Any(o => o.Type is LabyrinthTrials.Plaque or LabyrinthTrials.IntroDoor)).ToList();
         var trapClear = new HashSet<(int X, int Y)>();
-        foreach (var trap in trialRooms.SelectMany(r => r.Objects).Where(o => o.Type.StartsWith("Metadata/Terrain/Labyrinth/Traps/", StringComparison.Ordinal)))
+        // The Labyrinth's own rooms keep their packs off their traps too: the generated rooms' and tiles' trap lines.
+        var labyrinthTraps = LabyrinthTrials.InLabyrinth(layout.Id) && ServerLevels.For(layout.Id, conn.Seed) is { } labyrinthLevel
+            ? labyrinthLevel.RoomObjects.Concat(labyrinthLevel.TileLabyrinthObjects).Select(o => (o.Type, o.X, o.Y))
+            : [];
+        foreach (var trap in trialRooms.SelectMany(r => r.Objects).Select(o => (o.Type, o.X, o.Y)).Concat(labyrinthTraps)
+                     .Where(o => o.Type.StartsWith("Metadata/Terrain/Labyrinth/Traps/", StringComparison.Ordinal)))
             for (int dy = -LabyrinthTrials.TrapClearance; dy <= LabyrinthTrials.TrapClearance; dy++)
                 for (int dx = -LabyrinthTrials.TrapClearance; dx <= LabyrinthTrials.TrapClearance; dx++)
                     trapClear.Add((trap.X + dx, trap.Y + dy));

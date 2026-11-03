@@ -455,6 +455,24 @@ wall) opens on its transition; the disguised `HiddenDoor_Switch` levers by it (`
 side of it are pulled (live 2026-11-01, the original: two on each side, either pair). The rooms' gates (`DryGarden_SmallGate`, `RuinedTemple_SmallGate`)
 swing open and stay; only the trials' bars go once opened (`LabyrinthTrials.GoesWhenOpened`).
 
+**Statues.** The DryGarden tiles place `Metadata/Monsters/Statue/*/Spawner_LabyrinthStatue*` (extending
+`StatueSpawner.ot`: server-only, Transitionable, blocked; its transition plays the statue's animation tree and hides
+its stone). Each wakes into the monster of its name (`Spawner_X` → `Metadata/Monsters/Statue/X`: Overgrown Colossus,
+Fencer, Archer, Maul, Martial Statue) the spawner stands transitioned (its stone hidden, its pedestal
+left), and the monster, a stone statue with its glow (its .ao's attached `statue_balls`), waits on the pedestal in its
+Emerge clip's first frame (`wake_*`, index from data/monster-takehit.json, 0x1b2 at speed 0), turned as the statue. As
+the player comes within `LabyrinthTrials.StatueWakeCells` (30, ours) or hits it, its Emerge plays: it steps down off
+the pedestal. The statue types have no Transitionable, so the emerge monsters' rise does not take them. Live
+(2026-11-01, the original): the waiting statue glows; a spawner breaking and a monster made apart looked jerky. No
+MonsterPacks or MonsterGroups row names a Labyrinth area: its other monsters are the server's own choice among the
+`*Labyrinth` varieties (Putrescent Contender, Maze Needleback, Shadow Lurker, the Claimants and Deceivers …). Ours
+(`LabyrinthTrials.RoomSetPacks`, scattered as any area's packs, `TrapClearance` off the rooms' and tiles' traps), by
+the area's room set: live (2026-11-02, the original) undead below ground (Prison, Crypt), Needlebacks, Shadow Lurkers
+and Devourers above, Muck Elementals out of ElegantHouse's fountains, a summoner always alone among its minions (the
+pack's boss member), and about a fifth denser than an ordinary area (`LabyrinthTrials.PackDensity`). The monsters'
+own skills (Shadow Lurkers' Discharge, the Putrescent Contenders' tar, the Needlebacks' death nova) wait on the
+monster skills of [roadmap/monsters](../../roadmap/monsters.md).
+
 **Mirrored rooms** (orientation codes 4–7) mirror a line's angle only, and the client draws a server object
 unmirrored, so a corner piece (`spinner_rail_corner`, `SpinnerStopper_Corner`) is sent a quarter turn back
 (`LabyrinthTrials.PlacedAngle`): a mirrored L is the L turned a quarter (live 2026-11-01: corners faced away).

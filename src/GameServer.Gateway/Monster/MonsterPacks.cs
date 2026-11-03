@@ -33,6 +33,9 @@ sealed class PackCatalog(string folder = "data")
         /// fight brings (<see cref="AreaPopulation.LaterForms"/>) and the bosses a map boss override leaves out
         /// (<see cref="MapBossOverride"/>).</summary>
         public IReadOnlySet<int> Absent { get; init; } = new HashSet<int>();
+
+        /// <summary>How much denser than the ordinary its scattered packs stand (the Labyrinth's: LabyrinthTrials.PackDensity).</summary>
+        public double Density { get; init; } = 1;
     }
 
     /// <summary>The weight of a map's own packs (Maps.dat MonsterPacksKeys), which have none for the area.</summary>
@@ -56,10 +59,38 @@ sealed class PackCatalog(string folder = "data")
         foreach (int pack in d.MapPacks.GetValueOrDefault(row) ?? [])
             if (pack < d.Packs.Count && d.Packs[pack].Entries.Count > 0 && !scattered.Any(s => s.Item1.Row == pack))
                 scattered.Add((d.Packs[pack], MapPackWeight));
-        return new AreaPacks(areaId, d.Areas[row].Level, scattered, named, d.Areas[row].Bosses);
+        // A Labyrinth room area has no packs in the data: ours (LabyrinthTrials.RoomSetPacks), each row below 0.
+        double density = 1;
+        if (scattered.Count == 0 && LabyrinthTrials.RoomSetPacks(areaId) is { Count: > 0 } labyrinth)
+        {
+            density = LabyrinthTrials.PackDensity;
+            int Row(string id) => VarietyRows.Value.GetValueOrDefault(id, -1);
+            for (int i = 0; i < labyrinth.Count; i++)
+            {
+                var p = labyrinth[i];
+                List<(int, int)> entries = [.. p.Varieties.Select(Row).Where(v => v >= 0).Select(v => (v, 1))];
+                List<int> leaders = [.. (p.Leaders ?? []).Select(Row).Where(v => v >= 0)];
+                if (entries.Count > 0)
+                    scattered.Add((new Pack(-1 - i, "labyrinth-" + p.Id, p.Min, p.Max, leaders.Count > 0 ? 100 : 0, leaders.Count > 0 ? 1 : 0, leaders, entries,
+                        new Dictionary<int, int>()), MapPackWeight));
+            }
+        }
+        return new AreaPacks(areaId, d.Areas[row].Level, scattered, named, d.Areas[row].Bosses) { Density = density };
     }
 
     public Pack? Find(string id) => _data.Value?.Packs.FirstOrDefault(p => p.Id == id);
+
+    // MonsterVarieties rows by Id, for the Labyrinth's packs.
+    readonly Lazy<Dictionary<string, int>> VarietyRows = new(() =>
+    {
+        string file = Path.Combine(folder, "tables", "MonsterVarieties.json");
+        var rows = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (!File.Exists(file)) return rows;
+        using var doc = GameTables.Open(file);
+        int row = 0;
+        foreach (var v in doc.RootElement.EnumerateArray()) { if (v.GetProperty("Id").GetString() is { } id) rows.TryAdd(id, row); row++; }
+        return rows;
+    });
 
     private static (List<Pack>, List<(string, int, int[])>, Dictionary<int, List<int>>)? Load(string folder)
     {
@@ -301,7 +332,7 @@ static class AreaPopulation
                 if (depth[y * w + x] >= CentreDepth) candidates.Add((x, y));
         int walkableCells = depth.Count(d => d > 0);
         int wanted = (int)Math.Round(walkableCells / (double)CellsPerPack
-            * SystemSettings.Default.MonsterPackDensityMultiplier);
+            * SystemSettings.Default.MonsterPackDensityMultiplier * area.Density);
         if (wanted <= 0) return spawns;
         Shuffle(candidates, rng);
         var plans = new List<((int X, int Y) At, PackCatalog.Pack Pack)>();
