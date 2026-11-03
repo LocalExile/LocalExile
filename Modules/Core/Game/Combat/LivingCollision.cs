@@ -117,8 +117,12 @@ static partial class Game
             { Stats = [.. (template.Stats ?? []).Where(s => s.Key != ActorScale.Final), (ActorScale.Final, scale)] };
         if (!conn.PlayerSent || conn.Closed || conn.LeavingArea || conn.Instance is null) return;
         var p = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        conn.Instance.PublishPlayer(new(conn.PeerId, conn.PeerType, template, p.X, p.Y, conn.PlayerLife, conn));
+        conn.Instance.PublishPlayer(new(conn.PeerId, conn.PeerType, template, p.X, p.Y, conn.PlayerLife, conn)
+            { Destination = conn.Walk.Destination });
     }
+
+    // Stats.dat use_town_stance (row 21140; a stat key is its row + 1).
+    const uint TownStanceStat = 21141;
 
     internal static async Task SyncInstancePlayers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
@@ -142,15 +146,36 @@ static partial class Game
                     // The beach wake-up is the owner's alone: observers get no action to end that stance with.
                     var player = peer.Template with { GridX = peer.X, GridY = peer.Y, Life = peer.Life,
                         Skills = [], QuestFlags = [], LeagueQuestFlags = [], WashedUp = false, Rotation = 0 };
+                    // In a town another player stands and walks in the town stance (Stats.dat use_town_stance): without it
+                    // the client drew every other player in its combat stance there.
+                    if (InTown(conn))
+                        player = player with { Stats = [.. (player.Stats ?? []).Where(s => s.Key != TownStanceStat), (TownStanceStat, 1)] };
                     packets.Add(InstanceEntities.CreateObject(peer.Id, peer.Type, player.Blob()));
                     packets.Add(InstanceProtocol.EnterWakeZone(peer.Id));
+                    // The client picks an actor's stance (animation set: "Town" in a town, else the weapon's; 0x141e97190)
+                    // when its equipment changes, not when it is created: without this every other player stood in the
+                    // combat stance (Frida 2026-11-01: the pick ran only for the local player, on its own 0x2ba).
+                    packets.Add(InstanceEntities.PlayerEquipmentUpdate(peer.Id, player.Equipped ?? []));
                 }
                 else
                 {
-                    if ((previous!.X, previous.Y) != (peer.X, peer.Y))
-                        packets.Add(Math.Max(Math.Abs(previous.X - peer.X), Math.Abs(previous.Y - peer.Y)) > 20
-                            ? InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff)
-                            : InstanceProtocol.MoveTo(peer.Id, peer.X, peer.Y, .1f, 0x7fffffff));
+                    // A walk is the Move action the client paths and animates (as monsters walk), started when the walk's
+                    // destination changes; a glide (MoveTo) slid a standing body across the floor. A jump without a walk
+                    // (a /tp, a resurrection) stays a teleport.
+                    const ushort Move = 0x2909;
+                    var destination = peer.Destination ?? (peer.X, peer.Y);
+                    var heading = previous!.Destination ?? (previous.X, previous.Y);
+                    if (destination != heading && destination != (peer.X, peer.Y))
+                        packets.Add(InstanceProtocol.ActionStarted(peer.Id, peer.X, peer.Y, destination.X, destination.Y, Move, 0xffff, 0x0408));
+                    else if (destination == (peer.X, peer.Y) && (previous.X, previous.Y) != (peer.X, peer.Y)
+                        && Math.Max(Math.Abs(previous.X - peer.X), Math.Abs(previous.Y - peer.Y)) > 20 && heading == (previous.X, previous.Y))
+                        packets.Add(InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
+                    else if (destination == (peer.X, peer.Y) && heading != destination)
+                    {
+                        // Stopped short of where it was going (a body in the way): the observers' walk stops there too.
+                        packets.Add(InstanceProtocol.ActionEnded(peer.Id));
+                        packets.Add(InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
+                    }
                     if (previous.Life != peer.Life)
                         packets.Add(InstanceProtocol.LifeUpdate(peer.Id, peer.Life));
                     int scale = (peer.Template.Stats ?? []).SingleOrDefault(s => s.Key == ActorScale.Final).Value;

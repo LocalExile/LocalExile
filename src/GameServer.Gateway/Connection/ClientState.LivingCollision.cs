@@ -8,7 +8,7 @@ sealed partial class ClientState
         if (Phasing) return result;
         // Deterministic arrival arbitration: the later actor moves, instead of both choosing the same exit.
         foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
-            if (peer.Id < PeerId && peer.Life > 0) result.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+            if (peer.Id < PeerId && peer.Life > 0 && peer.Owner is not null) result.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
         return new BlockerSet(result);
     }
 
