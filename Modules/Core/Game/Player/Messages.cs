@@ -538,7 +538,13 @@ static partial class Game
             {
                 var chat = InstanceChat.ReadChat(bytes);
                 Console.WriteLine($"[gateway] {remote} <= 0x0015 chat \"{chat.Text}\" (u8 {chat.U8})");
-                if (chat.IsCommand) await conn.Commands!.RunAsync(chat.Text);
+                if (chat.IsCommand)
+                {
+                    // A preceding slash command can finish a Game + Commands reload in this same batch.
+                    // Resolve the current league's builders after that wave, retaining Gateway sinks/mod fallback.
+                    conn.Commands = Program.Commands(remote, stream, ciphers, conn);
+                    await conn.Commands.RunAsync(chat.Text);
+                }
                 else await EchoChat(remote, stream, ciphers, conn, chat.Text);
             }
             else if (id == InstanceChat.JoinChannelId)
@@ -627,22 +633,12 @@ static partial class Game
                     if (!ServerLevels.IsSupported(conn.Layout.Id) && !CaptureTour.Active(CharacterName(conn)))
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     await Program.ServerHooks.AreaGenerated(PlayerOf(conn));
-                    _ = RunMonsterRegeneration(remote, stream, ciphers, conn);
+                    ActivateResourceEffects(conn, ProjectileWorldTime(conn));
                     _ = conn.LockstepServed ? RunLockstepFrames(remote, stream, ciphers, conn) : RunServerFrames(remote, stream, ciphers, conn);
-                    _ = RunMonsterAi(remote, stream, ciphers, conn);
-                    _ = ContinueTour(remote, stream, ciphers, conn);
-                    _ = RunLivingCollisions(remote, stream, ciphers, conn);
-                    _ = RunPlayerTick(remote, stream, ciphers, conn);
-                    _ = RunFootstepSkills(remote, stream, ciphers, conn);
-                    _ = RunResourceRecovery(remote, stream, ciphers, conn);
-                    _ = RunCharges(remote, stream, ciphers, conn);
-                    _ = RunFortification(remote, stream, ciphers, conn);
-                    _ = RunRage(remote, stream, ciphers, conn);
+                    Program.ActivatePlayerUpdates(conn);
                     _ = conn.RampageWorld;
                     lock (conn.Monsters)
                         if (conn.OwnedCombatState is RampageWorld world) EnsureRampageWorker(conn, world);
-                    _ = RunFlaskChargeRegen(remote, stream, ciphers, conn);
-                    _ = RunPlayerMinions(remote, stream, ciphers, conn);
                 }
             }
         }

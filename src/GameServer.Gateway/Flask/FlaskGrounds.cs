@@ -208,7 +208,7 @@ static class FlaskGrounds
             }
         }
 
-        /// <summary>Adds a ground: true when no ticker runs, so one has to start now (Program.RunFlaskGrounds).</summary>
+        /// <summary>Adds a ground; returns whether the legacy ticker flag was idle. Game's current area owner advances it.</summary>
         public bool Add(Ground ground)
         {
             lock (_lock)

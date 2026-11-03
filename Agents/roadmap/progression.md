@@ -34,7 +34,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** existing Phrecia capabilities and node sources are extracted into `Modules/PhreciaAscendancies`.
   Its league composition is independent of Idols; the latter has client data but no gameplay implementation.
   Behemoth now supplies its descriptor and sources with generation-bound shared Rampage/Vaal engines.
-  **Next:** validate this modular Behemoth candidate, then adapt the remaining class PRs in actual merge order.
+  Whisperer supplies its exact descriptor and generic Mana/Recoup/Blind consumers after the actual Behemoth merge.
+  **Next:** review and replay Whisperer's reconciled current-main candidate, then adapt the remaining class PRs.
   See [module scope and delivery](../docs/game/phrecia-modules.md).
 - **Known:** command selection, saved identities, separate point awards, paid refunds and ordinary/ascendancy
   graph connectivity now have automated coverage; see [scope and limitations](../docs/game/ascendancies.md).

@@ -49,7 +49,7 @@ static partial class Game
         double now, Random random)
     {
         var t = target.Monster;
-        if (m.Attack is not { } a || m.Dead || !conn.Minions.Fights(id) || !conn.Monsters.TryGetValue(id, out var self)
+        if (!CurrentGameWork || m.Attack is not { } a || m.Dead || !conn.Minions.Fights(id) || !conn.Monsters.TryGetValue(id, out var self)
             || !ReferenceEquals(self, m) || t.Dead || t.Life == 0 || !t.Hostile
             || !conn.Monsters.TryGetValue(target.Id, out var current) || !ReferenceEquals(current, t)) return null;
         var at = m.Walk.Position(now);
@@ -66,53 +66,95 @@ static partial class Game
     // player), and at the contact point (half the attack time) the hit lands (MinionHitLocked): 0x1af from the minion, then
     // the target's hit and death as for the player's hits. Its kills give the player their experience, items and quest
     // progress, but are not his for his on-kill effects.
-    static async Task MinionSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
-        SpawnedMonster m, (int X, int Y) from, MinionTarget target)
+    static void StartMinionSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        PlayerMinions.Attack attack)
     {
+        var updates = AreaUpdateContext.Value;
+        lock (conn.Monsters)
+        {
+            if (!CurrentGameWork || updates is null || !PlayerUpdatesCurrent(conn, updates)
+                || !updates.MinionAttacks.Add(attack)) return;
+        }
+        _ = Continue();
+        async Task Continue()
+        {
+            try { await MinionSwing(remote, stream, ciphers, conn, attack); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
+            finally { lock (conn.Monsters) updates.MinionAttacks.Remove(attack); }
+        }
+    }
+
+    internal static async Task MinionSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        PlayerMinions.Attack attack)
+    {
+        var rules = CombatLifetime;
+        var (id, m, from, targetId, targetMonster, toAt, contactAt) = attack;
+        var target = new MinionTarget(targetId, targetMonster, toAt, true, toAt);
+        bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules) && !conn.Closed && !conn.LeavingArea && conn.Minions.Fights(id)
+            && conn.Monsters.TryGetValue(id, out var held) && ReferenceEquals(held, m) && !m.Dead
+            && conn.Minions.Attacks.TryGetValue(id, out var pending) && ReferenceEquals(pending, attack);
+        lock (conn.Monsters) if (!Current()) return;
         var a = m.Attack!;
-        bool started = false;
-        await Send(remote, stream, ciphers,
-            a.InPlace ? InstanceProtocol.ActionStarted(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, 0x0408, targetObjectId: target.Id)
-                : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, 0x0408, target.Id),
-            $"0x01ab minion 0x{id:x} ({m.Label}) attacks monster 0x{target.Id:x}, attack time {a.Seconds:0.00} s", still: () =>
+        if (!attack.Started)
+            await Send(remote, stream, ciphers, [],
+                $"0x01ab minion 0x{id:x} ({m.Label}) attacks monster 0x{target.Id:x}, attack time {a.Seconds:0.00} s", atGate: () =>
+                {
+                    lock (conn.Monsters)
+                    {
+                        if (!Current() || attack.Started) return null;
+                        attack.Started = true;
+                        return a.InPlace
+                            ? InstanceProtocol.ActionStarted(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, 0x0408, targetObjectId: target.Id)
+                            : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, 0x0408, target.Id);
+                    }
+                });
+        while (true)
+        {
+            int wait;
+            lock (conn.Monsters)
             {
-                lock (conn.Monsters)
-                    return started = !conn.Closed && !conn.LeavingArea && conn.Minions.Fights(id) && !m.Dead
-                        && !target.Monster.Dead && target.Monster.Life > 0;
-            });
-        if (!started) return;
-        await Task.Delay(TimeSpan.FromSeconds(a.Seconds / 2));
+                if (!Current()) return;
+                double left = contactAt - AreaTime(conn);
+                wait = !conn.Paused && left <= 0 ? 0 : (int)Math.Clamp(Math.Ceiling(left * 1000), 1, 1000);
+            }
+            if (wait == 0) break;
+            await AreaWait(PlayerUpdateRole.MonsterAction, wait);
+        }
         (MonsterHit Hit, int Damage)? landed;
         (int X, int Y) at, to;
         while (true)
         {
-            await WhilePaused(conn);
             using (ProjectileMutation(conn))
             {
-                if (conn.Closed || conn.LeavingArea) return;
-                if (conn.Paused) continue;
-                double now = ProjectileWorldTime(conn);
-                (at, to) = (m.Walk.Position(now), target.Monster.Walk.Position(now));
-                landed = MinionHitLocked(conn, id, m, target, now, Random.Shared);
-                if (landed is { Hit.StageStarts: true } staged)
+                if (!Current()) return;
+                if (!conn.Paused)
                 {
-                    CommitBossStage(remote, stream, ciphers, conn, target.Id, target.Monster, now);
-                    landed = staged with { Hit = staged.Hit with { StageStarts = false } };
+                    conn.Minions.Attacks.Remove(id);
+                    double now = ProjectileWorldTime(conn);
+                    (at, to) = (m.Walk.Position(now), target.Monster.Walk.Position(now));
+                    landed = MinionHitLocked(conn, id, m, target, now, Random.Shared);
+                    if (landed is { Hit.StageStarts: true } staged)
+                    {
+                        CommitBossStage(remote, stream, ciphers, conn, target.Id, target.Monster, now);
+                        landed = staged with { Hit = staged.Hit with { StageStarts = false } };
+                    }
+                    if (landed is { } accepted)
+                    {
+                        conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(id, 0xffff, target.Id, flags: 0x4601, kind: 0x02,
+                            u34: 450, angle: HitAngle(to.X - at.X, to.Y - at.Y)),
+                            $"0x01af minion 0x{id:x} hit on monster 0x{target.Id:x}", target.Id, target.Monster));
+                        CommitMinionHitLocked(conn, target.Id, target.Monster, accepted.Hit, accepted.Damage, now, $"minion 0x{id:x} ({m.Label})");
+                    }
+                    break;
                 }
-                break;
             }
+            await AreaWait(PlayerUpdateRole.MonsterAction, 100);
         }
         if (landed is not { } hit)
         {
             Console.WriteLine($"[gateway] {remote} minion 0x{id:x} ({m.Label}) missed monster 0x{target.Id:x}");
             return;
         }
-        await Send(remote, stream, ciphers,
-            InstanceProtocol.ActionHit(id, 0xffff, target.Id, flags: 0x4601, kind: 0x02, u34: 450, angle: HitAngle(to.X - at.X, to.Y - at.Y)),
-            $"0x01af minion 0x{id:x} hit on monster 0x{target.Id:x}");
-        var deaths = new List<(uint Id, SpawnedMonster M)>();
-        await NotifyMonsterHit(remote, stream, ciphers, conn, target.Id, target.Monster, hit.Hit, hit.Damage, $"minion 0x{id:x} ({m.Label})",
-            deaths: deaths);
-        foreach (var (dead, monster) in deaths) await MonsterKilled(remote, stream, ciphers, conn, dead, monster, byMinion: true);
+        await PublishMinionOutcomesFor(remote, stream, ciphers, conn, rules);
     }
 }

@@ -27,7 +27,7 @@ static partial class Game
         {
             using (conn.Performance.Lock(conn.Monsters, "stats"))
             {
-                if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
+                if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
                 return WithOwnAuraChanges(conn, packet);
             }
         });

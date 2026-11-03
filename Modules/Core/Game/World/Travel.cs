@@ -225,8 +225,7 @@ static partial class Game
         // The pins need their areas' access quest flags first (the player object carried the ones known at creation).
         if (conn.PlayerSent)
         {
-            var flags = PlayerQuestFlags(conn);
-            await Send(remote, stream, ciphers, InstanceEntities.PlayerQuestFlagsUpdate(PlayerId, flags), $"0x02ba player quest flags: {flags.Count}");
+            await Send(remote, stream, ciphers, [], "0x02ba player quest flags (waypoints, current)", atGate: () => QuestFlagPresentation(conn));
         }
         await Send(remote, stream, ciphers, InstanceWaypoints.Waypoints(bits), $"0x004c waypoints: {bits.Count} activated ({why})");
     }
@@ -337,12 +336,13 @@ static partial class Game
     internal static async Task ContinueTour(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool starting = false)
     {
         // Tours record with scripts/walkmaps: without it a saved tour (data/tour-left.txt) is left alone.
-        if (!AreaLayouts.Recording) return;
+        if (!CurrentGameWork || !AreaLayouts.Recording) return;
         string character = CharacterName(conn);
         if (!starting && CaptureTour.Resume(character) is { } resumed)
         {
             Console.WriteLine($"[gateway] {remote} {resumed}");
             await conn.Commands!.Reply(resumed);
+            if (!CurrentGameWork) return;
             starting = true;
         }
         if (!CaptureTour.Active(character)) return;
@@ -350,6 +350,7 @@ static partial class Game
         {
             CaptureTour.MarkArrived(character);
             bool ok = await CaptureTour.WaitForCapture(character, conn.Layout.Id, conn.Seed);
+            if (!CurrentGameWork) return;
             Console.WriteLine($"[gateway] {remote} tour: {conn.Layout.Id} seed {conn.Seed} {(ok ? "captured" : "NOT captured (120 s; is live.ps1 -Walkmaps running?)")}");
             TourRecords.Write(conn.Layout.Id, conn.Seed, ok ? "captured" : "not captured", layout: conn.Layout);
         }
@@ -359,13 +360,15 @@ static partial class Game
         if (CaptureTour.Next(character) is not var (area, hash, seed))
         {
             await conn.Commands!.Reply($"Tour finished: {done}.");
+            if (!CurrentGameWork) return;
             return;
         }
         await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hash, 0, true, AtSpawn: true) { Seed = seed }, $"tour: {area} seed {seed}");
+        if (!CurrentGameWork) return;
         // A seed the client itself cannot generate ("Terrain generation failed" in Client/logs/Client.txt): the client
         // shows the exception and hangs. The stop goes to tour-failures.txt and the tour waits: nothing more is sent to
         // that client; after a restart (live.ps1) the next area load goes on.
-        for (var until = DateTime.UtcNow.AddMinutes(10); DateTime.UtcNow < until && CaptureTour.IsCurrent(character, area, seed); await Task.Delay(2000))
+        for (var until = DateTime.UtcNow.AddMinutes(10); DateTime.UtcNow < until && CaptureTour.IsCurrent(character, area, seed); await AreaWait(PlayerUpdateRole.Tour, 2000))
             if (CaptureTour.Failed(character, area, seed) is { } failure)
             {
                 Console.WriteLine($"[gateway] {remote} tour: {area} seed {seed} failed in the client ({failure}); waiting: restart the client with live.ps1 and log in, the tour goes on");
@@ -402,6 +405,7 @@ static partial class Game
         CarryCharges(conn, r.Ticket);
         CarryFortification(conn, r.Ticket);
         CarryRampage(conn, r.Ticket);
+        CarryResourceEffects(conn, r.Ticket);
         CarryAntiquarian(conn, r.Ticket);
         CarryRage(conn, r.Ticket);
         CarryVaalSouls(conn, r.Ticket);
