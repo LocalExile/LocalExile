@@ -68,21 +68,60 @@ static partial class Game
     internal static byte[] IgnitedBuff(uint id, ushort instance, double seconds) =>
         InstanceEntities.AddBuff(id, instance, IgnitedBuffRow, PlayerId, u68: BitConverter.SingleToUInt32Bits((float)seconds));
 
-    // Called under the combat lock at an accepted projectile hit that dealt fire damage and left the monster alive: the
-    // shot's ignite (MonsterIgnites.TryApply, its duration less by the target's base_self_ignite_duration_-%), and the
-    // monster's ignited buff.
-    internal static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
+    /// <summary>What a skill's hit can ignite with, as a projectile captures it at release: the skill's ignite rows in the
+    /// main hand for an attack (the spell's for a spell; <paramref name="weapon"/>: a shield skill's shield) and the
+    /// chance from <paramref name="player"/> and the skill's stats.</summary>
+    internal static MonsterIgnites.Settings SupportedIgnite(ClientState conn, ushort skillId, bool spell,
+        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null)
+    {
+        var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+        string hand = spell ? "spell" : "main_hand";
+        return MonsterIgnites.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon), hand,
+            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0);
+    }
+
+    /// <summary>The default melee attack's ignite, as the ordinary bow or wand shot's (<c>ProjectileRanged</c>): the panel's
+    /// main-hand rows from the weapon's raw packet and the character's conversion.</summary>
+    internal static MonsterIgnites.Settings DefaultAttackIgnite(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        return MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
+            SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(player, Stats, attack: true), Get),
+            "main_hand", Get);
+    }
+
+    // Called under the combat lock at an accepted hit that dealt fire damage and left the monster alive: the hit's ignite
+    // (MonsterIgnites.TryApply, its duration less by the target's base_self_ignite_duration_-%), and the packets of the
+    // monster's ignited buff, or null when it did not ignite.
+    internal static List<byte[]>? IgniteOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now)
     {
-        if (target.Invulnerable) return;
+        if (target.Invulnerable) return null;
         var e = target.Mods.Effects;
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
-                e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, session.Conn.IgniteRandom)) return;
-        var packets = ShowIgnitedLocked(session.Conn, id, target, now);
+                e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom)) return null;
+        return ShowIgnitedLocked(conn, id, target, now);
+    }
+
+    internal static string IgnitedLog(uint id, SpawnedMonster target, bool critical, double now) =>
+        $"monster 0x{id:x} ({target.Label}) ignited{(critical ? " by a critical hit" : "")} for {target.Ignites.Until - now:0.##} s";
+
+    internal static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now)
+    {
+        if (IgniteOnHitLocked(session.Conn, id, target, settings, critical, now) is not { } packets) return;
         for (int i = 0; i < packets.Count; i++)
-            session.Packet(packets[i], i < packets.Count - 1 ? null
-                : $"monster 0x{id:x} ({target.Label}) ignited{(critical ? " by a critical hit" : "")} for {target.Ignites.Until - now:0.##} s");
+            session.Packet(packets[i], i < packets.Count - 1 ? null : IgnitedLog(id, target, critical, now));
+    }
+
+    // Sends a hit's ignited-buff packets (IgniteOnHitLocked) after the lock.
+    static async Task SendIgnited(string remote, NetworkStream stream, ConnectionCiphers ciphers, List<byte[]>? packets,
+        string log)
+    {
+        if (packets is null) return;
+        for (int i = 0; i < packets.Count; i++)
+            await Send(remote, stream, ciphers, packets[i], i < packets.Count - 1 ? null : "0x01c1 " + log);
     }
 
     // One tick of the ignited monsters (RunPlayerTick): the strongest ignite's fire damage through the monster's

@@ -398,9 +398,6 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Recheck the resolved bow-contact and target-modifier composition natively before claiming new combined proof.
   Special ES mechanics, the remaining conditional penetration, skill Exposure, damaging and alternative ailments on monsters
   (beyond the player's ignites) and further added-damage/support effects remain open.
-  The player's ignites on monsters exist (`MonsterIgnites`), but only Abberath's Fury's footstep hits call them: the
-  default attack, gems, projectiles and bows need their flat (pre-increase) fire packet passed to `IgniteFromHit` next
-  ([20](../docs/protocol/20-damage.md) §3).
   An attack's packet goes through `MaximumAttackDamage.Apply` after conversion first (Devout of Ryslatha's more maximum
   damage scales attack ailments too), with a regression test.
   Ordinary Frostblink's bounded ground-instant acceptance passed actual Q, retry and invalid-request checks.
@@ -458,8 +455,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 ### Elemental ailment extensions
 
 - The player's chill, freeze and shock on monsters are implemented with Gateway coverage.
-  Check the chilled/frozen/shocked buffs, the sent `virtual_action_speed_+%` and the frozen pose with the real client,
-  and find what 0x1c1's +0x82 u16 does.
+  Check the sent `virtual_action_speed_+%` and the frozen pose with the real client.
   The shatter visual (the server ends a shattered monster's ailments and spreads nothing from it; the packet that
   removes the corpse is not known), unique/boss
   thresholds and the monster variety's own immunities remain open, as do ignite proliferation and a native check of

@@ -1514,14 +1514,15 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Not yet: Exposure from skills and auras, aura-dependent penetration, other added damage,
   increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)),
   except the player's chill, freeze and shock on monsters and his ignites.
-  Projectile hits ignite from the panel's ignite rows captured at release; Abberath's Fury's footstep hits work out
+  Projectile hits ignite from the panel's ignite rows captured at release, and the default attack and melee or area
+  skills from the same rows at their hit; Abberath's Fury's footstep hits work out
   their own (90% of the hit's flat fire per second for 4 s, the ignite increases, damage over time multipliers, +50% on
   a critical strike, and duration stats).
   Both add to the monster's one set of ignites: only the strongest burns, through the monster's fire resistance, every
   player tick, with one timed `ignited` buff and kills.
   They burn on while the player is dead (unverified), with no progress from a dead Hardcore character's kills.
-  The default melee attack and melee or area gems do not ignite yet; the footstep ignite has Gateway coverage only,
-  not checked with the real client (`MonsterIgnites.cs`, [20](../docs/protocol/20-damage.md) §3).
+  The melee and area ignite and the footstep ignite are not checked with the real client (`MonsterIgnites.cs`,
+  [20](../docs/protocol/20-damage.md) §3).
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
   `action_speed_cannot_be_reduced_below_base` keeps the action factor at 1 under chill and freeze (Gateway coverage,
