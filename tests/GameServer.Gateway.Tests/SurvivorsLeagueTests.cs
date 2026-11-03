@@ -48,7 +48,7 @@ public sealed class SurvivorsLeagueTests
         Assert.True(GameEvents.AllowsLoot(standard));
         Assert.Empty(GameEvents.ExemptItems(standard));
         Assert.Empty(GameEvents.ExtraSkills(standard));
-        Assert.Equal(25, GameEvents.AdjustIncomingDamage(survivor, 100));
+        Assert.Equal(45, GameEvents.AdjustIncomingDamage(survivor, 100));
         Assert.False(GameEvents.AllowsLoot(survivor));
         Assert.Contains(123u, GameEvents.ExemptItems(survivor));
         Assert.False(SurvivorsRunRules.TryClaimAdmission(standard));
@@ -96,7 +96,7 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsFormulasTests().The_way_onward_is_sealed_only_while_the_lore_boss_lives();
         new SurvivorsFormulasTests().Added_damage_is_scaled_by_the_skill_effectiveness();
         new SurvivorsRunTests().The_horde_grows_from_fourteen_to_the_cap();
-        new SurvivorsRunTests().The_spawner_refills_a_sixth_of_the_gap_at_most_four();
+        new SurvivorsRunTests().The_spawner_refills_a_quarter_of_the_gap_at_most_eight();
         new SurvivorsRunTests().The_roster_walks_its_tier_pool_over_the_run();
         new SurvivorsRunTests().A_run_skill_grows_in_damage_and_speed_with_its_rank();
         new SurvivorsRunTests().The_boss_ladder_and_its_experience_match_the_reference();
@@ -104,7 +104,8 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsRunTests().A_run_skill_gains_a_projectile_at_ranks_three_five_and_seven();
         new SurvivorsRunTests().Monsters_grow_tougher_and_hit_harder_over_a_run();
         new SurvivorsRunTests().A_run_hit_reaches_the_spawn_ring();
-        new SurvivorsRunTests().Incoming_monster_hits_are_quartered_and_fortitude_softens_them();
+        new SurvivorsRunTests().Incoming_monster_hits_are_taken_at_forty_five_percent_and_fortitude_softens_them();
+        new SurvivorsRunTests().The_herald_pulse_reaches_four_times_farther();
         new SurvivorsRunTests().Experience_follows_monster_rarity();
         new SurvivorsRunTests().Kills_level_the_run_and_queue_choices();
         new SurvivorsRunTests().A_unique_kill_can_grant_several_levels_at_once();

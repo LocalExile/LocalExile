@@ -15,7 +15,7 @@ namespace GameServer.Modules.Survivors;
 static partial class SurvivorsSkills
 {
     /// <summary>A herald's aura reaches this far around the player, in cells, before its rank and area grow it.</summary>
-    internal const double SurvivorsHeraldRadius = 12;
+    internal const double SurvivorsHeraldRadius = 48;
 
     /// <summary>
     /// The hit effect each Herald gem plays where its pulse strikes: the game's own <c>.ao</c> for the herald's impact

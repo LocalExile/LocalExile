@@ -42,11 +42,11 @@ public static class SurvivorsRules
     // and +90% monster damage over the run. The lore-boss gate keeps one boss per 120 s area; the ladder, not the wall
     // clock, carries the pressure curve.
     public const double VictorySeconds = 900;
-    public const double BossEverySeconds = 135;
-    public const double SpawnIntervalSeconds = 0.12;
-    public const int DefaultMaxAlive = 220;
-    public const int MaxSpawnPerStep = 4;
-    public const int SpawnDivisor = 6;
+    public const double BossEverySeconds = 60;
+    public const double SpawnIntervalSeconds = 0.08;
+    public const int DefaultMaxAlive = 500;
+    public const int MaxSpawnPerStep = 8;
+    public const int SpawnDivisor = 4;
     public const int MaxSkills = 6;
     public const int MaxRank = 8;
     public const int MaxBlessings = 6;
@@ -95,19 +95,18 @@ public static class SurvivorsRules
         rosterCount <= 0 ? 0 : Math.Clamp(1 + (int)(Progress(elapsed) * rosterCount), 1, rosterCount);
 
     /// <summary>
-    /// The reference's sliding tier pool: the roster laid over thirty steps of the run, the spawner drawing from three
-    /// consecutive tiers (data.rs <c>wave_pool</c>). The first three at the start, the last three at the bell. Each
-    /// index is clamped into the roster, so a short area swims through all of its varieties instead of overrunning.
+    /// The sliding tier pool: the roster laid over thirty steps of the run, the spawner drawing from five
+    /// consecutive tiers. The first five at the start, the last five at the bell. Each index is clamped into
+    /// the roster, so a short area swims through all of its varieties instead of overrunning.
     /// </summary>
     public static int[] WavePool(double elapsed, int rosterCount)
     {
         if (rosterCount <= 0) return [];
-        if (rosterCount <= 3) return [.. Enumerable.Range(0, rosterCount)];
+        if (rosterCount <= 5) return [.. Enumerable.Range(0, rosterCount)];
         int step = Math.Clamp((int)(Progress(elapsed) * 30.0), 0, 30);
-        int span = rosterCount - 3;
-        int first = step <= 1 ? 0 : (step - 1) * span / 27;
-        first = Math.Clamp(first, 0, span);
-        return [first, first + 1, first + 2];
+        int span = rosterCount - 5;
+        int first = step <= 1 ? 0 : Math.Clamp((step - 1) * span / 27, 0, span);
+        return [first, first + 1, first + 2, first + 3, first + 4];
     }
 
     /// <summary>A run skill's interval: 1.2 s, 7% shorter per rank, floored at 200 ms.</summary>
@@ -138,8 +137,8 @@ public static class SurvivorsRules
     /// <summary>Monster life over a run: +75% by the end, so a late kill takes several casts.</summary>
     public static double MonsterLifeScale(double elapsed) => 1 + 0.75 * Progress(elapsed);
 
-    /// <summary>Monster damage over a run: +90% by the end.</summary>
-    public static double MonsterDamageScale(double elapsed) => 1 + 0.9 * Progress(elapsed);
+    /// <summary>Monster damage over a run: +180% by the end, so standing still is punished.</summary>
+    public static double MonsterDamageScale(double elapsed) => 1 + 1.8 * Progress(elapsed);
 
     public const double Range = 34;
 
@@ -157,7 +156,7 @@ public static class SurvivorsRules
         return l < 20 ? 5 + (l - 1) * 10 : l < 40 ? 195 + (l - 20) * 13 : 455 + (l - 40) * 16;
     }
 
-    public const int IncomingDamagePercent = 25;
+    public const int IncomingDamagePercent = 45;
 
     /// <summary>Fortitude's mapping of the reference's +20% maximum life a level: 1/1.2 less damage taken a level
     /// (25% → 20.8 → 17.4 → 14.5 → 12.1 → 10.1).</summary>

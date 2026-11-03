@@ -9,32 +9,32 @@ public class SurvivorsRunTests
     public void The_horde_grows_from_fourteen_to_the_cap()
     {
         Assert.Equal(14, SurvivorsRules.TargetAlive(0));
-        Assert.Equal(117, SurvivorsRules.TargetAlive(450));
-        Assert.Equal(220, SurvivorsRules.TargetAlive(900));
-        Assert.Equal(220, SurvivorsRules.TargetAlive(9000));
+        Assert.Equal(257, SurvivorsRules.TargetAlive(450));
+        Assert.Equal(500, SurvivorsRules.TargetAlive(900));
+        Assert.Equal(500, SurvivorsRules.TargetAlive(9000));
         Assert.Equal(14, SurvivorsRules.TargetAlive(0, maxAlive: 25));
         Assert.Equal(25, SurvivorsRules.TargetAlive(900, maxAlive: 25));
     }
 
-    public void The_spawner_refills_a_sixth_of_the_gap_at_most_four()
+    public void The_spawner_refills_a_quarter_of_the_gap_at_most_eight()
     {
         Assert.Equal(0, SurvivorsRules.SpawnRefill(0));
         Assert.Equal(1, SurvivorsRules.SpawnRefill(1));
-        Assert.Equal(1, SurvivorsRules.SpawnRefill(6));
+        Assert.Equal(2, SurvivorsRules.SpawnRefill(6));
         Assert.Equal(2, SurvivorsRules.SpawnRefill(7));
-        Assert.Equal(4, SurvivorsRules.SpawnRefill(24));
-        Assert.Equal(4, SurvivorsRules.SpawnRefill(220));
+        Assert.Equal(6, SurvivorsRules.SpawnRefill(24));
+        Assert.Equal(8, SurvivorsRules.SpawnRefill(500));
     }
 
     public void The_roster_walks_its_tier_pool_over_the_run()
     {
-        // The reference's wave_pool: three consecutive tiers over thirty steps of a 30-tier roster.
-        Assert.Equal([0, 1, 2], SurvivorsRules.WavePool(0, 30));
-        Assert.Equal([14, 15, 16], SurvivorsRules.WavePool(450, 30));
-        Assert.Equal([27, 28, 29], SurvivorsRules.WavePool(900, 30));
-        Assert.Equal([7, 8, 9], SurvivorsRules.WavePool(900, 10));
-        Assert.Equal([0, 1, 2], SurvivorsRules.WavePool(0, 3));
-        Assert.Equal([0, 1], SurvivorsRules.WavePool(450, 2));
+        // The widened pool: five consecutive tiers over thirty steps of a 30-tier roster.
+        Assert.Equal([0, 1, 2, 3, 4], SurvivorsRules.WavePool(0, 30));
+        Assert.Equal([12, 13, 14, 15, 16], SurvivorsRules.WavePool(450, 30));
+        Assert.Equal([25, 26, 27, 28, 29], SurvivorsRules.WavePool(900, 30));
+        Assert.Equal([5, 6, 7, 8, 9], SurvivorsRules.WavePool(900, 10));
+        Assert.Equal([0, 1, 2, 3, 4], SurvivorsRules.WavePool(0, 5));
+        Assert.Equal([0, 1, 2, 3], SurvivorsRules.WavePool(450, 4));
         Assert.Empty(SurvivorsRules.WavePool(450, 0));
     }
 
@@ -72,8 +72,8 @@ public class SurvivorsRunTests
         Assert.Equal(5, SurvivorsRules.MaxBlessingLevel);
         Assert.Equal(8, SurvivorsRules.MaxRank);
         Assert.Equal(900, SurvivorsRules.VictorySeconds);
-        Assert.Equal(135, SurvivorsRules.BossEverySeconds);
-        Assert.Equal(0.12, SurvivorsRules.SpawnIntervalSeconds, 6);
+        Assert.Equal(60, SurvivorsRules.BossEverySeconds);
+        Assert.Equal(0.08, SurvivorsRules.SpawnIntervalSeconds, 6);
     }
 
     public void A_run_skill_gains_a_projectile_at_ranks_three_five_and_seven()
@@ -90,9 +90,9 @@ public class SurvivorsRunTests
         Assert.Equal(1, SurvivorsRules.MonsterLifeScale(0), 6);
         Assert.Equal(1.75, SurvivorsRules.MonsterLifeScale(900), 6);
         Assert.Equal(1, SurvivorsRules.MonsterDamageScale(0), 6);
-        Assert.Equal(1.9, SurvivorsRules.MonsterDamageScale(900), 6);
+        Assert.Equal(2.8, SurvivorsRules.MonsterDamageScale(900), 6);
         Assert.Equal(1.75, SurvivorsRules.MonsterLifeScale(9000), 6);
-        Assert.Equal(1.9, SurvivorsRules.MonsterDamageScale(9000), 6);
+        Assert.Equal(2.8, SurvivorsRules.MonsterDamageScale(9000), 6);
     }
 
     public void A_run_hit_reaches_the_spawn_ring()
@@ -100,17 +100,22 @@ public class SurvivorsRunTests
         Assert.Equal(34, SurvivorsRules.Range, 6);
     }
 
-    public void Incoming_monster_hits_are_quartered_and_fortitude_softens_them()
+    public void Incoming_monster_hits_are_taken_at_forty_five_percent_and_fortitude_softens_them()
     {
         Assert.Equal(0, SurvivorsRules.IncomingDamage(0));
         Assert.Equal(1, SurvivorsRules.IncomingDamage(3));
-        Assert.Equal(1, SurvivorsRules.IncomingDamage(7));
-        Assert.Equal(5, SurvivorsRules.IncomingDamage(20));
+        Assert.Equal(3, SurvivorsRules.IncomingDamage(7));
+        Assert.Equal(9, SurvivorsRules.IncomingDamage(20));
         Assert.Equal(2, SurvivorsRules.IncomingDamage(20, 10));
-        Assert.Equal(25, new SurvivorsRun().IncomingDamagePercent);
-        // The reference's +20% maximum life a level maps to 1/1.2 less damage taken (25 → 10 at level 5).
-        Assert.Equal([25, 21, 17, 14, 12, 10],
+        Assert.Equal(45, new SurvivorsRun().IncomingDamagePercent);
+        // The reference's +20% maximum life a level maps to 1/1.2 less damage taken (45 → 18 at level 5).
+        Assert.Equal([45, 38, 31, 26, 22, 18],
             Enumerable.Range(0, SurvivorsRules.MaxBlessingLevel + 1).Select(SurvivorsRules.FortitudeIncomingPercent));
+    }
+
+    public void The_herald_pulse_reaches_four_times_farther()
+    {
+        Assert.Equal(48, SurvivorsSkills.SurvivorsHeraldRadius, 6);
     }
 
     public void Experience_follows_monster_rarity()
