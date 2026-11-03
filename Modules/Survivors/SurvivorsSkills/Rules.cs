@@ -155,9 +155,9 @@ static partial class SurvivorsSkills
         IReadOnlyList<MonsterCatalog.Variety> Bosses, byte Level, int WeaponDamage, int TopLife, double SkillScale = 1);
 
     /// <summary>
-    /// Every skill gem whose projectile metadata the client can draw and the projectile runtime can resolve, so the
-    /// catalogue grows with the item data instead of a hand-written list. A gem with no projectile of its own (Arc, a
-    /// nova, a curse) has no flight the client can draw here and stays out of the run.
+    /// Every skill gem the client can draw: a projectile gem flies its own Projectiles row, a Herald pulses around
+    /// the player, and an area gem (a nova, Firestorm and the like: an area ActiveSkillType with no flight) pulses
+    /// around the player with its own area damage. A gem with neither flight nor area (Arc, a curse) stays out.
     /// </summary>
     internal static IReadOnlyList<SurvivorsSkill> SurvivorsCatalogFor(ClientState conn)
     {
@@ -172,10 +172,13 @@ static partial class SurvivorsSkills
             // Heralds have no flight: the run casts them as an aura pulse around the player. Any other gem with a
             // Projectiles row can fly here, even when its ActiveSkillTypes do not carry the Projectile flag (Storm Burst).
             bool herald = baseType.Name.StartsWith("Herald of", StringComparison.OrdinalIgnoreCase);
-            if (!herald && Skills.ProjectileFor(variant.Effect) is null) continue;
+            // An area gem without a flight: its ActiveSkillTypes carry the Area flag, so the run casts it as a pulse.
+            bool area = !herald && Skills.ProjectileFor(variant.Effect) is null
+                && Supports.Of(variant.Effect)?.Types.Contains(7) == true;
+            if (!herald && !area && Skills.ProjectileFor(variant.Effect) is null) continue;
             string metadata = Skills.ProjectileFor(variant.Effect)?.Id ?? "Metadata/Projectiles/Fireball";
             catalog.Add(new SurvivorsSkill(path, baseType.Name, SurvivorsDamageType(baseType.Name), variant.Effect, variant.Effect,
-                metadata, herald ? SurvivorsSkillKind.Herald : SurvivorsSkillKind.Projectile)
+                metadata, herald ? SurvivorsSkillKind.Herald : area ? SurvivorsSkillKind.Area : SurvivorsSkillKind.Projectile)
             {
                 CastTimeMs = SurvivorsCastTimeMs(conn, variant.Effect),
                 Attack = SkillsFor(conn).IsAttack(variant.Effect),
@@ -313,7 +316,8 @@ static partial class SurvivorsSkills
             if (inReach.Count == 0) return 0;
             origin = here;
         }
-        // A herald is an aura pulse: every hostile around the player takes the hit, and the client plays the gem's cast.
+        // A pulse skill (a herald's aura or an area gem's nova): every hostile around the player takes the hit, and the
+        // client plays the gem's cast.
         if (cast.Herald)
         {
             int struck = 0;
@@ -345,9 +349,9 @@ static partial class SurvivorsSkills
             if (struck == 0) return 0;
             await SurvivorsPlayCastAnimation(remote, stream, ciphers, conn, skill, cast.Interval);
             if (!ownership.Current) return 0;
-            ushort heraldId = SurvivorsSkillId(skillIndex);
-            await Send(remote, stream, ciphers, InstanceProtocol.InstantAction(PlayerId, heraldId, origin.X, origin.Y),
-                $"0x01ce survivors herald 0x{heraldId:x4} {skill.Name} around ({origin.X}, {origin.Y})", still: () => ownership.Current);
+            ushort pulseId = SurvivorsSkillId(skillIndex);
+            await Send(remote, stream, ciphers, InstanceProtocol.InstantAction(PlayerId, pulseId, origin.X, origin.Y),
+                $"0x01ce survivors pulse 0x{pulseId:x4} {skill.Name} around ({origin.X}, {origin.Y})", still: () => ownership.Current);
             if (!ownership.Current) return 0;
             await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, [origin], cast.Interval);
             return cast.Interval;
@@ -433,11 +437,12 @@ static partial class SurvivorsSkills
         });
     }
 
-    /// <summary>The stance clip family a run skill's cast plays: a herald buff, an attack swing, a spell projectile or
-    /// a spell area cast. The gem's own ActiveSkillTypes decide between projectile and area, so Fireball (both) is a
+    /// <summary>The stance clip family a run skill's cast plays: a herald buff, an area spell's nova, an attack swing or
+    /// a spell projectile. The gem's own ActiveSkillTypes decide between projectile and area, so Fireball (both) is a
     /// projectile cast, while Storm Burst (area without the projectile flag) is an area cast.</summary>
     internal static CastAnimationKind SurvivorsCastKind(SurvivorsSkill skill) =>
         skill.Kind == SurvivorsSkillKind.Herald ? CastAnimationKind.Buff
+        : skill.Kind == SurvivorsSkillKind.Area ? CastAnimationKind.Area
         : skill.Attack ? CastAnimationKind.Attack
         : Supports.Of(skill.Effect)?.Types.Contains(2) == true ? CastAnimationKind.Projectile
         : Supports.Of(skill.Effect)?.Types.Contains(7) == true ? CastAnimationKind.Area
@@ -483,6 +488,64 @@ static partial class SurvivorsSkills
                 * (1 + playerStats.GetValueOrDefault("damage_+%") / 100.0));
             return new(interval, skill, rank, 0, null, null, null, false, true, damage, radius);
         }
+        // The gem's own hit at rank 1 (a spell's base, or the equipped/nominal weapon for an attack), scaled by the
+        // run's rank curve. Shared by the area pulse and the projectile path.
+        DamagePacket RawDamage()
+        {
+            int effectiveness = SkillsFor(conn).DamageEffectiveness(skill.Effect, rank);
+            DamagePacket own;
+            if (spell)
+            {
+                // The gem's first-level row is its identity; the run's rank curve (the reference's +30% a rank) is applied
+                // once, below, to the whole hit, so the power curve is the reference's and the gem stays itself.
+                own = SkillsFor(conn).HitDamage(skill.Effect, 1);
+                own = DamageStats.RawAdded(own, Get, spell: true, effectiveness / 10_000.0);
+                own = SurvivorsGlobalAdded(own, Get, effectiveness);
+                own = own.Scale(roster.SkillScale);
+            }
+            else if (armedAttack)
+            {
+                // The equipped weapon's own hit (local damage, local added, attack added) at the gem's effectiveness.
+                own = SupportedAttackDamage.Raw(weapon, Get);
+                own = SurvivorsGlobalAdded(own, Get, 10_000);
+                own = SpellDamage.WithEffectiveness(own, effectiveness);
+            }
+            else
+            {
+                bool unarmed = Get("flask_throw_charges_used_per_projectile") != 0;
+                var nominal = unarmed ? DamagePacket.Empty
+                    : DamagePacket.Of(DamageType.Physical, roster.WeaponDamage * 0.45, roster.WeaponDamage * 0.9);
+                var added = DamageStats.RawAdded(DamagePacket.Empty, Get, spell: false);
+                added = SurvivorsGlobalAdded(added, Get, 10_000);
+                added = SpellDamage.WithEffectiveness(added, effectiveness);
+                own = SpellDamage.WithEffectiveness(nominal, effectiveness)
+                    .Add(added.Scale(roster.SkillScale));
+            }
+            // The reference's power curve: every run skill deals 30% more a rank above the first (3.1× at rank 8), on top
+            // of the gem's own effectiveness, supports and the character's stats.
+            return own.Scale(SurvivorsRules.SkillDamageMultiplier(rank));
+        }
+        var mergedKeys = SurvivorsKeyStats(merged);
+        var skillKeys = SurvivorsKeyStats(skillStats);
+        var conversion = DamageStats.Conversion(mergedKeys, Stats, skill.Attack);
+        List<(string Name, int Value)> supportMods = [];
+        foreach (int index in run.SupportsOf(skillIndex))
+            if (index >= 0 && index < supports.Count && supports[index].Effect >= 0)
+                foreach (var (key, value) in SkillsFor(conn).EffectStats(supports[index].Effect, rank))
+                    if (Stats.Name(key) is { Length: > 0 } name) supportMods.Add((name, value));
+        // An area gem has no flight: its cast is a pulse around the player with the gem's own area hit.
+        if (skill.Kind == SurvivorsSkillKind.Area)
+        {
+            var pulseRaw = RawDamage();
+            if (pulseRaw.IsZero) return null;
+            var pulse = PlayerHitDamage.Resolve(pulseRaw, Get, conversion, spell, area: true, projectile: false,
+                supportModifiers: supportMods);
+            if (pulse.IsZero) return null;
+            double pulseRadius = SurvivorsFormulas.AreaRadius(SurvivorsHeraldRadius * SurvivorsRules.SkillRadius(rank),
+                run.AreaIncreasedPercent + playerStats.GetValueOrDefault("skill_area_of_effect_+%"));
+            return new(interval, skill, rank, 0, null, null, null, false, true,
+                (int)Math.Max(1, pulse.AverageTotal), pulseRadius);
+        }
         if (SurvivorsDefinition(skill) is not { } definition) return null;
         int baseSpeed = SkillsFor(conn).Projectile(definition.Metadata)?.Speed ?? 1000;
         // Riptide's Projectiles row is a 10-unit placeholder: a projectile that slow cannot cross a cell.
@@ -499,52 +562,8 @@ static partial class SurvivorsSkills
             Radius = profile.Radius * Math.Sqrt(SkillArea.Modifier(Get, spell)),
             Count = 1,
         };
-
-        // PoB calcDamage: base + added × effectiveness, converted, then increased/more from the character, the gem, its
-        // supports and the run's blessings. A spell's own base is already final; an attack uses the run's nominal
-        // weapon, with added damage (the character's, a support's, the gem's) scaled like the rest of the run.
-        int effectiveness = SkillsFor(conn).DamageEffectiveness(skill.Effect, rank);
-        DamagePacket raw;
-        if (spell)
-        {
-            // The gem's first-level row is its identity; the run's rank curve (the reference's +30% a rank) is applied
-            // once, below, to the whole hit, so the power curve is the reference's and the gem stays itself.
-            raw = SkillsFor(conn).HitDamage(skill.Effect, 1);
-            raw = DamageStats.RawAdded(raw, Get, spell: true, effectiveness / 10_000.0);
-            raw = SurvivorsGlobalAdded(raw, Get, effectiveness);
-            raw = raw.Scale(roster.SkillScale);
-        }
-        else if (armedAttack)
-        {
-            // The equipped weapon's own hit (local damage, local added, attack added) at the gem's effectiveness.
-            raw = SupportedAttackDamage.Raw(weapon, Get);
-            raw = SurvivorsGlobalAdded(raw, Get, 10_000);
-            raw = SpellDamage.WithEffectiveness(raw, effectiveness);
-        }
-        else
-        {
-            bool unarmed = Get("flask_throw_charges_used_per_projectile") != 0;
-            var nominal = unarmed ? DamagePacket.Empty
-                : DamagePacket.Of(DamageType.Physical, roster.WeaponDamage * 0.45, roster.WeaponDamage * 0.9);
-            var added = DamageStats.RawAdded(DamagePacket.Empty, Get, spell: false);
-            added = SurvivorsGlobalAdded(added, Get, 10_000);
-            added = SpellDamage.WithEffectiveness(added, effectiveness);
-            raw = SpellDamage.WithEffectiveness(nominal, effectiveness)
-                .Add(added.Scale(roster.SkillScale));
-        }
-        // The reference's power curve: every run skill deals 30% more a rank above the first (3.1× at rank 8), on top
-        // of the gem's own effectiveness, supports and the character's stats.
-        raw = raw.Scale(SurvivorsRules.SkillDamageMultiplier(rank));
+        var raw = RawDamage();
         if (raw.IsZero) return null;
-
-        var mergedKeys = SurvivorsKeyStats(merged);
-        var skillKeys = SurvivorsKeyStats(skillStats);
-        var conversion = DamageStats.Conversion(mergedKeys, Stats, skill.Attack);
-        List<(string Name, int Value)> supportMods = [];
-        foreach (int index in run.SupportsOf(skillIndex))
-            if (index >= 0 && index < supports.Count && supports[index].Effect >= 0)
-                foreach (var (key, value) in SkillsFor(conn).EffectStats(supports[index].Effect, rank))
-                    if (Stats.Name(key) is { Length: > 0 } name) supportMods.Add((name, value));
         var hitDamage = PlayerHitDamage.Resolve(raw, Get, conversion, spell, area: false, projectile: true,
             supportModifiers: supportMods);
         var areaHit = PlayerHitDamage.Resolve(raw, Get, conversion, spell, area: true, projectile: true,

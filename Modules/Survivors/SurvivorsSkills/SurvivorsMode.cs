@@ -6,8 +6,9 @@ namespace GameServer.Modules.Survivors;
 
 public enum SurvivorsChoiceKind { NewSkill, SkillRank, Blessing, Support, Item, Heal }
 
-/// <summary>What a run skill does when it fires: a projectile at a target, or a herald's aura pulse around the player.</summary>
-public enum SurvivorsSkillKind { Projectile, Herald }
+/// <summary>What a run skill does when it fires: a projectile at a target, a herald's aura pulse around the player,
+/// or an area gem's nova pulse around the player.</summary>
+public enum SurvivorsSkillKind { Projectile, Herald, Area }
 
 /// <summary>
 /// A run skill: the gem whose item the level-up window shows, and the projectile it casts. <paramref name="Recipe"/>

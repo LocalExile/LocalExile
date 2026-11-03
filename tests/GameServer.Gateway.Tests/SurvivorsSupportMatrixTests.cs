@@ -54,6 +54,8 @@ public sealed class SurvivorsSupportMatrixTests
                         support => Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, skillIndex, support)));
                     continue;
                 }
+                // An area gem's cast is a pulse with no projectile Shot; its supports are checked in the area helper.
+                if (skill.Kind == SurvivorsSkillKind.Area) continue;
                 // Rank 1 and the max rank 8: the support's per-level stats scale with the gem level it supports.
                 foreach (int rank in new[] { 1, 8 })
                 {
@@ -169,6 +171,46 @@ public sealed class SurvivorsSupportMatrixTests
             // The interval is ×0.93 a rank, never below the 200 ms floor.
             Assert.Equal(rank1.Interval * Math.Pow(0.93, 7), rank8.Interval, 4);
             Assert.True(rank8.Interval < rank1.Interval);
+        }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!);
+            Program.SetGameLogic(previousLogic!);
+            Saves.Db.Dispose();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
+        }
+    }
+
+    public void Area_gems_join_the_catalogue_and_cast_an_area_pulse()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-area-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        Saves.Open(path);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = Connection("SurvivorsArea");
+        try
+        {
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
+            var areaSkills = catalog.Where(s => s.Kind == SurvivorsSkillKind.Area).ToList();
+            Assert.True(areaSkills.Count >= 5, $"only {areaSkills.Count} area skill(s) in the catalogue");
+            var skill = areaSkills[0];
+            int index = catalog.ToList().IndexOf(skill);
+            var roster = new SurvivorsSkills.SurvivorsRoster([], [], 1, 20, 40);
+            var run = new SurvivorsRun();
+            run.Learn(index);
+            var cast = SurvivorsSkills.SurvivorsComputeCast(conn, run, skill, 1, index, roster);
+            Assert.NotNull(cast);
+            Assert.True(cast!.Herald);
+            Assert.True(cast.HeraldDamage > 0);
+            Assert.True(cast.HeraldRadius > 0);
+            Assert.Equal(CastAnimationKind.Area, SurvivorsSkills.SurvivorsCastKind(skill));
+            // The real gem takes supports: the run's offer pairs it with the area support.
+            var supports = SurvivorsSkills.SurvivorsSupportsFor(conn);
+            SurvivorsSkills.StateOf(conn).SurvivorsCatalog = catalog;
+            SurvivorsSkills.StateOf(conn).SurvivorsSupports = supports;
+            int areaSupport = supports.ToList().FindIndex(s => s.Support == SurvivorsSupport.Area);
+            Assert.True(areaSupport >= 0);
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, index, areaSupport));
         }
         finally
         {

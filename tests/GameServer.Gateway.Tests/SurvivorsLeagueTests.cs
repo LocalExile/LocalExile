@@ -122,6 +122,7 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsRunTests().The_clock_ignores_paused_and_broken_steps();
         new SurvivorsSupportMatrixTests().Every_support_moves_its_own_number_on_every_skill_it_can_support();
         new SurvivorsSupportMatrixTests().A_run_skill_uses_the_reference_s_thirty_percent_a_rank();
+        new SurvivorsSupportMatrixTests().Area_gems_join_the_catalogue_and_cast_an_area_pulse();
         new SurvivorsAnimationTests().Every_class_and_weapon_resolves_a_cast_clip_and_the_projectile_impact();
         new SurvivorsAnimationTests().Every_run_skill_maps_to_a_cast_clip();
         new MonsterModEffectsTests().Extra_effects_add_to_a_rolled_monster_s_own_mods();
