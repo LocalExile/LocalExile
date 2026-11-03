@@ -8,7 +8,9 @@ static class VendorStock
     public sealed record Entry(Guid Token, int RefreshAt, CharacterSaves.SavedItem Item, bool Sold = false,
         List<Cost>? Price = null);
     public sealed record State(int Level, List<Entry> Entries, int OfferedTier = 0);
-    public sealed record Window(List<NpcShops.ShopTab> Tabs, string Key, Dictionary<uint, Guid> Finite);
+    /// <summary>A buy window. With a <paramref name="Key"/> its tabs are the native ones the client labels itself, unless
+    /// <paramref name="Labelled"/>: development tabs added after them need their names sent.</summary>
+    public sealed record Window(List<NpcShops.ShopTab> Tabs, string Key, Dictionary<uint, Guid> Finite, bool Labelled = false);
 
     public static string Key(string npc, string league) => "vendors.stock." + league + "." +
         (VendorCatalog.Default.Find(npc) is { Kind: "Kirac" } ? "Kirac" : npc);

@@ -84,7 +84,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [vendor recipes](../docs/protocol/24-vendor-recipes.md) for supported cases and explicit limitations.
   Live visibility verification pending; see protocol/17-npcs.md.
 - Captured gem grouping is restored; uncaptured classes/vendors use documented ordering, and Kirac refresh UI remains open.
-- Nessa's opt-in development catalogue keeps separate awakened/exceptional gems and generic/originator/unique maps.
+- Nessa's development catalogue (awakened/exceptional gems, generic/originator/unique maps) is the optional
+  `NessaDevelopmentTabs` module: after her progression tabs or replacing them, live-checked; no league lists it.
   Standard uses progression stock; full unique modifiers, unique-area routing and the updated development display remain partial.
   See [17](../docs/protocol/17-npcs.md#vendor-evidence-and-local-policy).
 - **Player bots** (PlayerBots module, off by default): bots are created over time and visit the towns between quests.
