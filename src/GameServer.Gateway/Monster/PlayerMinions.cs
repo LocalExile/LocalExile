@@ -40,16 +40,36 @@ sealed class PlayerMinions
     /// within the radius (cells).</summary>
     internal sealed record Explosion(DamageType Type, int LifePct, int Radius);
 
+    // A reserved contact is host-owned data, so the replacement area owner can finish the same
+    // attack at its accepted deadline without keeping an old Game callback alive.
+    internal sealed record Attack(uint Id, SpawnedMonster Monster, (int X, int Y) From, uint TargetId,
+        SpawnedMonster Target, (int X, int Y) To, double ContactAt)
+    {
+        internal bool Started;
+    }
+    internal readonly Dictionary<uint, Attack> Attacks = [];
+    // Accepted gameplay finishes under Monsters; only neutral output/projection data crosses Game replacement.
+    internal enum OutputKind { Packet, Life, Experience, Flinch, Remove, Vaal, QuestFlags, QuestKill, QuestTransition, QuestRoomRemove, PlayerKill, Charges, Passives, GemInventory, MonsterType }
+    internal sealed record Output(byte[] Packet, string? Log, uint? TargetId = null, SpawnedMonster? Target = null,
+        OutputKind Kind = OutputKind.Packet, double Until = 0, int Action = 0,
+        AreaTransitionObject? Transition = null, GameServer.Modding.MonsterInfo? Kill = null, IReadOnlyList<AcceptedCharges>? Charges = null, byte? InventoryRow = null, IReadOnlyList<uint>? ItemIds = null, (int X, int Y)? At = null, (ushort Row, byte Level)? MonsterType = null);
+    internal sealed record AcceptedCharges(bool KillEvent, bool Critical, MonsterRarity Rarity, string? Effect,
+        IReadOnlyDictionary<uint, int>? Skill, bool Primary, double At, bool Killed = false, bool Frozen = false);
+    internal sealed record FlaskReward(MonsterRarity Rarity, IReadOnlyDictionary<uint, double>? CritGains = null);
+    internal readonly List<Output> OutputQueue = [];
+    internal readonly List<FlaskReward> FlaskRewards = [];
+    internal readonly HashSet<SpawnedMonster> Rewarded = [];
+    internal long StatRevision, PresentedStatRevision, AccountRevision, PresentedAccountRevision;
     readonly Dictionary<uint, Minion> minions = [];
 
     public IReadOnlyCollection<Minion> All => minions.Values;
     public bool Owns(uint id) => minions.ContainsKey(id);
     public bool Fights(uint id) => minions.TryGetValue(id, out var m) && m.Fights;
     public void Add(Minion minion) => minions[minion.Id] = minion;
-    public void Remove(uint id) => minions.Remove(id);
+    public void Remove(uint id) { minions.Remove(id); Attacks.Remove(id); }
 
     /// <summary>Ended minions' bodies still in the area and when they go (Game.PlayerMinionsTick).</summary>
-    public readonly List<(uint Id, double At)> Bodies = [];
+    public readonly List<(uint Id, SpawnedMonster Monster, double At)> Bodies = [];
 
     /// <summary>Relic summons that triggers queued (Program.TriggerElementalRelicLocked); the next minion step makes them.</summary>
     public int PendingRelics;

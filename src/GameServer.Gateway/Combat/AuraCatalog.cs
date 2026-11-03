@@ -18,8 +18,10 @@ static class AuraCatalog
         if (aura.SourceBuff is ushort source)
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, source, aura.BuffRow,
                 player, aura.SkillId, auraSource: true, displayState: 0);
-        yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
-            player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null);
+        // An enemy hex aura has a source on its caster, never a received self curse.
+        if (aura.EffectId != "TemporalChains")
+            yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
+                player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null);
     }
 
     public static IEnumerable<byte[]> EndPackets(Aura aura, uint player)
@@ -51,6 +53,7 @@ static class AuraCatalog
         ["Envy"] = 828,
         // Pride's buff is on nearby enemies; the same row also draws the player's aura icon (BuffVisuals 1098).
         ["Pride"] = PrideBuffRow,
+        ["TemporalChains"] = 69,
     };
 
     /// <summary>Pride's BuffDefinitions row: the enemy debuff, also the player's aura icon.</summary>

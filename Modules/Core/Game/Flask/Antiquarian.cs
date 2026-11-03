@@ -40,30 +40,7 @@ static partial class Game
 
     // Called under the combat lock after block/mitigation. Ward absorbs once, before ES, and never absorbs DoT.
     internal static int DamagePlayerHit(ClientState conn, int nonChaos, int chaos, double now,
-        IReadOnlyDictionary<uint, int> stats)
-    {
-        // /god immune: nothing reaches the ward, energy shield or life.
-        if (conn.Immune) return 0;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        (nonChaos, chaos) = TotemsTakeHitLocked(conn, nonChaos, chaos, now, stats);
-        int total = (int)Math.Min(int.MaxValue, (long)nonChaos + chaos);
-        conn.Ward.Advance(now);
-        bool wasBroken = conn.Ward.Broken;
-        int remaining = conn.Ward.Damage(total, now, Get);
-        int absorbed = total - remaining;
-        // Ordered absorption keeps chaos bypassing ES. The supported shared Ward bypass is applied per component.
-        int nonChaosEligible = nonChaos - (int)((long)nonChaos * Math.Clamp(Get("base_damage_bypass_ward_%"), 0, 100) / 100);
-        int nonChaosAbsorbed = Math.Min(nonChaosEligible, absorbed);
-        int lifeDamage = conn.EnergyShield.Damage(nonChaos - nonChaosAbsorbed, false, now)
-            + conn.EnergyShield.Damage(Math.Max(0, chaos - (absorbed - nonChaosAbsorbed)), true, now);
-        if (!wasBroken && conn.Ward.Broken
-            && conn.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
-        {
-            conn.Pools = PoolsFor(conn, conn.Pools.Level);
-            conn.ApplyMovementSpeed();
-        }
-        return lifeDamage;
-    }
+        IReadOnlyDictionary<uint, int> stats) => DamagePlayerHitTyped(conn, 0, nonChaos, chaos, now, stats);
 
     internal static void ClearAntiquarianOnDeath(ClientState conn)
     {

@@ -22,19 +22,20 @@ static partial class Game
 
     // Every 100 ms of game time from area entry (a pause holds it): PlayerMinionsTick, then LinkSkillsTick (a link to a
     // minion that just ended sees it gone). A failed step is logged and the next one runs; a closed connection ends the loop.
-    static async Task RunPlayerMinions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task RunPlayerMinions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
         // Loads the relic trigger's tables now, so that no step or hit loads them under the Monsters lock.
         _ = RelicTriggerOf(conn);
-        while (!conn.Closed)
+        while (PlayerUpdatesCurrent(conn, updates))
         {
-            await Task.Delay(100);
-            if (conn.Closed) break;
+            await updates.Schedule.Wait(PlayerUpdateRole.Minions, 100, updates.Stop.Token);
+            if (!PlayerUpdatesCurrent(conn, updates)) break;
             if (conn.Paused) continue;
             try
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = updates.Schedule.Now(conn);
                 await PlayerMinionsTick(remote, stream, ciphers, conn, now);
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
                 await LinkSkillsTick(remote, stream, ciphers, conn, now);
             }
             catch (Exception ex) when (ex is not (IOException or ObjectDisposedException))
@@ -54,17 +55,24 @@ static partial class Game
     /// </summary>
     internal static async Task PlayerMinionsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
+        var rules = CombatLifetime;
+        bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
+        foreach (var tick in GameEvents.CompanionTick.For(conn))
+        {
+            if (!Current()) return;
+            await tick(remote, stream, ciphers, conn, now);
+        }
         var ended = new List<PlayerMinions.Minion>();
         var bytes = new List<byte>();
         int summons;
         bool aurasChanged = false, linksEnded = false;
-        lock (conn.Monsters)
+        using (ProjectileMutation(conn))
         {
-            if (conn.Closed || conn.LeavingArea) return;
+            if (!Current() || conn.Closed || conn.LeavingArea) return;
             bool keep = conn.PlayerLife > 0 && RelicTriggerOf(conn) is not null;
             summons = keep ? conn.Minions.PendingRelics : 0;
-            conn.Minions.PendingRelics = 0;
-            RemoveMinionBodiesLocked(conn, now, bytes);
+            if (!keep) conn.Minions.PendingRelics = 0;
+            RemoveMinionBodiesLocked(conn, now);
             // The relics; the Spirit chieftains end in SpiritChieftainMinion.
             foreach (var minion in conn.Minions.All.Where(m => IsRelicSkill(m.Skill)).ToArray())
             {
@@ -72,7 +80,11 @@ static partial class Game
                 bool current = conn.Monsters.TryGetValue(minion.Id, out var held) && ReferenceEquals(held, m);
                 if (current && keep && !m.Dead && m.Life > 0 && now < minion.Until) continue;
                 conn.Minions.Remove(minion.Id);
-                if (minion.OwnerBuff != 0) { bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, minion.OwnerBuff)); aurasChanged = true; }
+                if (minion.OwnerBuff != 0)
+                {
+                    conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, minion.OwnerBuff), "minion owner aura ends"));
+                    aurasChanged = true;
+                }
                 if (!current) continue;
                 if (keep) ended.Add(minion);
                 else if (conn.PlayerLife > 0 && conn.Links.On(minion.Id) is { } link)
@@ -82,25 +94,28 @@ static partial class Game
                     linksEnded = true;
                 }
                 m.Aggro = false; m.Dead = true; m.Life = 0;
-                conn.Minions.Bodies.Add((minion.Id, now + 1));
-                bytes.AddRange(InstanceEntities.StatsUpdate(minion.Id, [(StatKeys.HideMiniLifeBar, 1)]));
-                bytes.AddRange(InstanceProtocol.LifeUpdate(minion.Id, 0));
+                conn.Minions.Bodies.Add((minion.Id, m, now + 1));
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(minion.Id, [(StatKeys.HideMiniLifeBar, 1)]), "minion ends", minion.Id, m));
+                conn.Minions.OutputQueue.Add(new([], "minion life 0", minion.Id, m, PlayerMinions.OutputKind.Life));
             }
             if (linksEnded) { LinksChangedLocked(conn); aurasChanged = true; }
+            if (bytes.Count > 0) conn.Minions.OutputQueue.Add(new([.. bytes], "links to refunded minions end"));
+            if (aurasChanged) conn.Minions.StatRevision++;
+            foreach (var minion in ended) CommitMinionExplosionLocked(remote, stream, ciphers, conn, minion, now);
         }
-        if (bytes.Count > 0)
-            await Send(remote, stream, ciphers, [.. bytes], $"0x01b1/0x02bb player minions end: {string.Join(", ", ended.Select(m => $"{m.Kind} 0x{m.Id:x}"))}");
-        foreach (var minion in ended) await MinionExplodes(remote, stream, ciphers, conn, minion, now);
-        for (int i = 0; i < summons; i++) await SummonElementalRelic(remote, stream, ciphers, conn, now);
+        await PublishMinionOutcomesFor(remote, stream, ciphers, conn, rules);
+        if (!Current()) return;
+        for (int i = 0; i < summons && Current(); i++) await SummonElementalRelic(remote, stream, ciphers, conn, now);
 
-        bytes.Clear();
+        bytes.Clear(); aurasChanged = false;
         lock (conn.Monsters)
         {
-            if (conn.Closed || conn.LeavingArea) return;
+            if (!Current() || conn.Closed || conn.LeavingArea) return;
             var here = conn.Walk.Position(now);
             foreach (var minion in conn.Minions.All)
             {
                 var m = minion.Monster;
+                bytes.Clear();
                 // RelicTeleport: the AI follows within the aggro range only (MonsterVarieties MaxAgroRange, 150 for the
                 // relics), so from beyond it the minion jumps to him (as /mob_tp). shortcut: the threshold is the aggro
                 // range, the game's is not in the data (RelicTeleport has no stats).
@@ -111,16 +126,19 @@ static partial class Game
                     m.LastTarget = null;
                     bytes.AddRange(InstanceProtocol.Teleport(minion.Id, x, y));
                 }
+                if (bytes.Count > 0) conn.Minions.OutputQueue.Add(new([.. bytes], "minion teleport", minion.Id, m));
+                bytes.Clear();
                 if (minion.OwnerAura is not { } aura) continue;
                 bool inside = conn.PlayerLife > 0 && Dist(minion.Monster.Walk.Position(now), here) <= aura.Radius;
                 if (inside == (minion.OwnerBuff != 0)) continue;
                 aurasChanged = true;
                 if (inside) bytes.AddRange(InstanceEntities.AddBuff(PlayerId, minion.OwnerBuff = conn.NextBuff++, aura.BuffRow, minion.Id));
                 else { bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, minion.OwnerBuff)); minion.OwnerBuff = 0; }
+                conn.Minions.OutputQueue.Add(new([.. bytes], "minion aura changed", minion.Id, m));
             }
+            if (aurasChanged) conn.Minions.StatRevision++;
         }
-        if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], "0x01b7/0x01c1/0x01c2 player minion teleports and auras on the player");
-        if (aurasChanged) await SendCharacterStats(remote, stream, ciphers, conn, "minion auras");
+        await PublishMinionOutcomesFor(remote, stream, ciphers, conn, rules);
     }
 
     /// <summary>The auras the player's minions cast on him, as raw stats. The strongest of one aura applies (wiki Aura):
@@ -146,6 +164,7 @@ static partial class Game
     // shortcut: Combat Focus's element exclusions (RandomElement skills) are not modelled; every element can come.
     static async Task SummonElementalRelic(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
+        if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
         var player = CharacterPlayerStats(conn);
         int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
         MonsterCatalog.Variety? variety;
@@ -157,7 +176,7 @@ static partial class Game
         (int X, int Y) at;
         lock (conn.Monsters)
         {
-            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || RelicTriggerOf(conn) is not { } relic) return;
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Minions.PendingRelics == 0 || RelicTriggerOf(conn) is not { } relic) return;
             var own = SkillsFor(conn).EffectStats(relic.Grant.Effect, relic.Grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
             int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
             (element, string id) = RelicVarieties[conn.Minions.Random.Next(RelicVarieties.Length)];
@@ -167,6 +186,7 @@ static partial class Game
             if (conn.Minions.All.FirstOrDefault(m => m.Skill == skill && m.Kind == element.ToString()) is { } same)
             {
                 same.Until = now + seconds;
+                conn.Minions.PendingRelics--;
                 Console.WriteLine($"[gateway] {remote} {element} Relic 0x{same.Id:x}: duration refreshed to {seconds:0.##} s");
                 return;
             }
@@ -175,7 +195,12 @@ static partial class Game
             variety = Monsters.Find(id);
             at = NextToPlayer(conn);
         }
-        if (variety is null) { Console.WriteLine($"[gateway] {remote} {element} Relic: no MonsterVarieties row"); return; }
+        if (variety is null)
+        {
+            lock (conn.Monsters)
+                if (CurrentGameWork && conn.Minions.PendingRelics > 0) conn.Minions.PendingRelics--;
+            Console.WriteLine($"[gateway] {remote} {element} Relic: no MonsterVarieties row"); return;
+        }
         var aura = RelicAura(conn, variety, level);
         bool teleports = variety.GrantedEffects?.Any(e => SkillsFor(conn).EffectId(e) == "RelicTeleport") == true;
         // The player's increased minion life raises its life (on its Stats as maximum_life) and so its explosion.
@@ -183,10 +208,15 @@ static partial class Game
             ? MonsterModSet.None with { Effects = new(new Dictionary<string, int> { ["maximum_life_+%"] = moreLife }) }
             : MonsterModSet.None;
         await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal, at.X, at.Y, friendly: true,
-            mods: mods, extraStats: MinionStats, owned: (id, m) => conn.Minions.Add(new(id, m, skill, element.ToString())
+            mods: mods, extraStats: MinionStats, owned: (id, m) =>
             {
-                Until = now + seconds, OwnerAura = aura, Explodes = new(element, lifePct, RelicExplosionRadius), Teleports = teleports,
-            }));
+                conn.Minions.PendingRelics--;
+                conn.Minions.Add(new(id, m, skill, element.ToString())
+                {
+                    Until = now + seconds, OwnerAura = aura, Explodes = new(element, lifePct, RelicExplosionRadius), Teleports = teleports,
+                });
+            }, ownedCurrent: () => conn.PlayerLife > 0 && conn.Minions.PendingRelics > 0 && RelicTriggerOf(conn) is not null);
+        if (!CurrentGameWork) return;
         Console.WriteLine($"[gateway] {remote} {element} Relic summoned at level {level} for {seconds:0.##} s" +
             (aura is null ? "" : $", {aura.EffectId} within {aura.Radius} cells: {string.Join(", ", aura.Stats.Select(s => $"{Stats.Name(s.Key)} {s.Value}"))}"));
     }
@@ -215,7 +245,7 @@ static partial class Game
     // living monster within the radius, mitigated as any hit (resistances, the player's debuffs on the monster). It is the
     // minion's hit, not the player's: no hit-recently, no on-kill charges; the kills give the player their experience and
     // items, and count as a nearby ally's for the relic trigger.
-    static async Task MinionExplodes(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static void CommitMinionExplosionLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PlayerMinions.Minion minion, double now)
     {
         if (minion.Explodes is not { } blast) return;
@@ -223,7 +253,7 @@ static partial class Game
         int amount;
         using (ProjectileMutation(conn))
         {
-            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
             var at = minion.Monster.Walk.Position(now);
             amount = (int)Math.Min(int.MaxValue, minion.Monster.MaxLife * (long)blast.LifePct / 100);
             var packet = DamagePacket.Of(blast.Type, amount, amount);
@@ -238,13 +268,10 @@ static partial class Game
                     hit = hit with { StageStarts = false };
                 }
                 hits.Add((id, m, hit, damage));
+                CommitMinionHitLocked(conn, id, m, hit, damage, now, $"{minion.Kind} Relic explosion");
             }
         }
-        var deaths = new List<(uint Id, SpawnedMonster M)>();
-        foreach (var (id, m, hit, damage) in hits)
-            await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, hit, damage, $"{minion.Kind} Relic explosion", deaths: deaths);
-        foreach (var (id, m) in deaths) await MonsterKilled(remote, stream, ciphers, conn, id, m, byMinion: true);
-        Console.WriteLine($"[gateway] {remote} {minion.Kind} Relic 0x{minion.Id:x} explodes for {amount} {blast.Type} within {blast.Radius} cells: {hits.Count} hit, {deaths.Count} killed");
+        Console.WriteLine($"[gateway] {remote} {minion.Kind} Relic 0x{minion.Id:x} explodes for {amount} {blast.Type} within {blast.Radius} cells: {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
     }
 
     // A cell 3 cells from the server's estimate of the player, walkable if the walk map says so.

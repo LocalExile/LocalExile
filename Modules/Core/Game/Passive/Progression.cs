@@ -74,6 +74,8 @@ static partial class Game
             conn.UnearnedQuestFlags = [.. Quests.EveryCharacter.Except(save?.QuestFlags ?? [])];
             // An unearned endgame flag is not the character's (Quests.EndgameOnly): PlayerQuestFlags sends it where it is needed.
             conn.QuestFlags = [.. save?.QuestFlags ?? [], .. Quests.EveryCharacter.Where(f => !(Quests.EndgameOnly.Contains(f) && conn.UnearnedQuestFlags.Contains(f)))];
+            // The league's (SetLeagueQuestFlags): every character of the account in this league shares them.
+            conn.LeagueQuestFlags.UnionWith(PersonalStashOf(conn).LeagueQuestFlags);
             conn.ExtraPassivePoints = save?.ExtraPassivePoints ?? 0;
             conn.RefundPoints = save?.RefundPoints ?? 0;
             // The chosen Pantheon gods (the Pantheon module chooses and applies them; the Player object shows them).
@@ -120,6 +122,9 @@ static partial class Game
         IEnumerable<ushort>? nodes = null, int? level = null)
     {
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
+        var exemptions = GameEvents.ExemptItems(conn);
+        if (exemptions.Count > 0)
+            before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
         var (sources, attributes, inactive, worn) = EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot(), nodes, level);
         lock (conn.Monsters)
             if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired)
@@ -131,7 +136,16 @@ static partial class Game
                         string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                             $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
             }
-        return (WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources)))))), attributes);
+        sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources))))));
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            int Get(string name) => Stats.Key(name) is uint k ? conn.PlayerStats.GetValueOrDefault(k, sources.GetValueOrDefault(k)) : 0;
+            FortificationOf(conn).SetExpiryRate(now, RecipientEffectTime.Rate(1, Get));
+            conn.UtilityFlaskEffects.SetExpiryRate(now, RecipientEffectTime.Rate(16, Get));
+            conn.ElementalAilments.SetExpiryRate(now, RecipientEffectTime.Rate(2, Get));
+        }
+        return (sources, attributes);
     }
 
     // Shared equipment/passive resolver. The requirement snapshot uses this without publishing caches or pools.
@@ -175,10 +189,13 @@ static partial class Game
             .Concat(treeJewels.Select(i => i with { Item = AdornedJewel(i.Item, adorned) }))
             .ToArray();
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
+        var exemptions = GameEvents.ExemptItems(conn);
+        if (exemptions.Count > 0)
+            before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
         // The sum below is a pure function of these inputs (items are immutable records), and the combat paths ask for
         // it many times a second (every monster hit): reuse the last result while none of them changed.
         var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level,
-            before, [.. conn.ClusterPassives.Order()], conn.TattooRevision);
+            before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. exemptions.Order()]);
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
         // A timeless jewel replaces (or augments) the stats of allocated ordinary nodes in its radius. The item is a
@@ -491,6 +508,14 @@ static partial class Game
                 .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god);
             return (ForRequirements("strength", str), ForRequirements("dexterity", dex), ForRequirements("intelligence", intel));
         }, before, ItemsFor(conn).Mods);
+        // Exempt items must join the active list as well as leave the inactive set, so their mods reach the stats.
+        if (exemptions.Count > 0)
+        {
+            var exempt = wornItems.Where(w => exemptions.Contains(w.Id) && inactive.Contains(w.Id))
+                .Select(w => w.Item).ToList();
+            if (exempt.Count > 0) active = [.. active, .. exempt];
+            inactive.ExceptWith(exemptions);
+        }
         var rawAttributes = RawAttributes(active);
         var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
@@ -527,7 +552,7 @@ static partial class Game
     /// <summary>The inputs of CharacterStatSources' passive and equipment sum, compared by value (items by reference).</summary>
     internal sealed record StatSourcesKey(ushort[] Nodes, IReadOnlyDictionary<ushort, ushort> Masteries,
         GameServer.Core.Protocol.Instance.InventoryItem[] Worn, Dictionary<uint, int> Dev, int ClassRow, bool God, int Level,
-        IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision)
+        IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems)
     {
         public bool Matches(StatSourcesKey o) =>
             ClassRow == o.ClassRow && God == o.God && Level == o.Level && TattooRevision == o.TattooRevision
@@ -536,7 +561,8 @@ static partial class Game
             && Worn.Length == o.Worn.Length && Worn.Zip(o.Worn).All(p => p.First.Id == p.Second.Id
                 && p.First.X == p.Second.X && ReferenceEquals(p.First.Item, p.Second.Item))
             && Dev.Count == o.Dev.Count && Dev.All(kv => o.Dev.TryGetValue(kv.Key, out int v) && v == kv.Value)
-            && (Before ?? new HashSet<uint>()).SetEquals(o.Before ?? new HashSet<uint>());
+            && (Before ?? new HashSet<uint>()).SetEquals(o.Before ?? new HashSet<uint>())
+            && RunItems.AsSpan().SequenceEqual(o.RunItems);
     }
 
     internal sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,
@@ -687,6 +713,11 @@ static partial class Game
         int MagebloodGet(string name) => Stats.Key(name) is uint k
             ? devStats.TryGetValue(k, out int value) ? value : sources.GetValueOrDefault(k) : 0;
         bonus = UtilityFlasks.Apply(bonus, UtilityStats(conn, MagebloodGet, level));
+        // Final movement modifiers (a trial dart's labyrinth_arrow_movement_speed_+%_final): movement_velocity_+% is the
+        // whole speed the client walks and the panel shows, so (1 + increased) × (1 + final) − 1 (the original under the
+        // darts: +19% became −52%).
+        if (Stats.Key(LabyrinthTrials.ArrowSlowStat) is uint arrowSlow && sources.GetValueOrDefault(arrowSlow) is int slowFinal and not 0)
+            bonus = bonus with { MovementVelocityPct = (int)Math.Round((100.0 + bonus.MovementVelocityPct) * (100 + slowFinal) / 100) - 100 };
         // "Movement Speed cannot be modified to below Base Value" (PoB CalcDefence: max(mod, 1)). The client bounds
         // movement_velocity_+% below by 0 instead of -100 from the same raw flag (0x14251cbd0).
         if (EquipmentInput("movement_speed_cannot_be_reduced_below_base") != 0)
@@ -704,7 +735,17 @@ static partial class Game
         foreach (var (key, value) in AuraCatalog.ResistanceStats(auras, bonus.AuraEffectPct, SkillsFor(conn), Stats))
             resistanceSources[key] = resistanceSources.GetValueOrDefault(key) + value;
         bonus = ResistanceOvercap.Applied(bonus, resistanceSources, devStats, ResistancePenalty(conn), Stats);
-        var pools = CharacterStats.For(SkillsFor(conn).ClassFor(conn.ClassRow), level, bonus);
+        var classInfo = SkillsFor(conn).ClassFor(conn.ClassRow);
+        int perDexterity = PoolSource(ManaRecoveryRules.PerDexterity, EquipmentStat(ManaRecoveryRules.PerDexterity));
+        var finalAttributes = (bonus.Attributes with
+        {
+            StrengthPct = bonus.Attributes.StrengthPct + bonus.StrengthPct + (long)bonus.AllAttributesPct,
+            DexterityPct = bonus.Attributes.DexterityPct + bonus.DexterityPct + (long)bonus.AllAttributesPct,
+            IntelligencePct = bonus.Attributes.IntelligencePct + bonus.IntelligencePct + (long)bonus.AllAttributesPct,
+        }).Apply((long)classInfo.Strength + bonus.Strength, (long)classInfo.Dexterity + bonus.Dexterity,
+            (long)classInfo.Intelligence + bonus.Intelligence);
+        bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
+        var pools = CharacterStats.For(classInfo, level, bonus);
         // The pure base critical stats (/set_stat too) sit outside the passive increases: the weapon override replaces
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.
         pools = pools with
@@ -760,6 +801,10 @@ static partial class Game
         conn.Ward.SetMaximum(conn.PlayerLife > 0 ? pools.Ward : 0);
         conn.AppliedAdrenaline = conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds);
         ConfigureFortificationRecovery(conn, pools.Life, sources);
+        pools = pools with { EnergyShield = IncomingResourceDefences.Maximum(pools.EnergyShield,
+            pools.Life, pools.Mana, pools.EnergyShieldPct,
+            EquipmentInput("maximum_life_%_to_add_as_maximum_energy_shield"),
+            EquipmentInput("mana_%_to_add_as_energy_shield")) };
         return pools with
         {
             FortificationRevision = FortificationOf(conn).Revision,
@@ -1067,6 +1112,11 @@ static partial class Game
     // tree's start) and the allocated nodes.
     internal static async Task SendPassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (QuestKillCommitOutput is { } output)
+        {
+            output.Add(new([], "current quest reward tree", Kind: PlayerMinions.OutputKind.Passives));
+            return;
+        }
         // A queued publication must not restore a tree captured before a later allocation/refund or level change.
         await Send(remote, stream, ciphers, [], "0x0033 current passive skill tree",
             atGate: () => PassivesMessage(conn).Bytes);
@@ -1327,7 +1377,8 @@ static partial class Game
         if (leveled) await SendSkills(remote, stream, ciphers, conn);
     }
 
-    internal static (List<byte[]> Packets, bool Leveled) CommitGemExperience(ClientState conn, uint gain)
+    internal static (List<byte[]> Packets, bool Leveled) CommitGemExperience(ClientState conn, uint gain,
+        List<(byte Row, uint[] Items)>? projectRows = null)
     {
         lock (conn.Monsters)
         {
@@ -1357,9 +1408,15 @@ static partial class Game
                     Console.WriteLine($"[gateway] {CharacterName(conn)}'s {ItemsFor(conn).GemName(after)} gains experience " +
                         $"+{after.GemExperience - before.GemExperience} ({after.GemExperience}, level {ItemsFor(conn).GemLevel(after)})");
             }
-            var packets = changed.GroupBy(c => c.Row).Select(row =>
-                InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
-                    [.. row.Select(c => c.Item.Id)], [.. row.Select(c => c.Item)])).ToList();
+            var packets = new List<byte[]>();
+            foreach (var row in changed.GroupBy(c => c.Row))
+            {
+                uint[] ids = [.. row.Select(c => c.Item.Id)];
+                // Accepted output may wait behind a hook/refund/item move. Keep ids for a current row projection.
+                if (projectRows is not null) projectRows.Add((row.Key, ids));
+                else packets.Add(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
+                    ids, [.. row.Select(c => c.Item)]));
+            }
             return (packets, leveled);
         }
     }

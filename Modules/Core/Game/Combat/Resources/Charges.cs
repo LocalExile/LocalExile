@@ -17,7 +17,7 @@ static partial class Game
     // A ticket nobody connects with (a failed load) is forgotten after a few minutes.
     internal static readonly ConcurrentDictionary<uint, (DateTime At, List<Charges.Carried> Charges)> CarriedCharges = new();
 
-    internal static ChargeSession ChargesOf(ClientState conn) => ChargeSessions.GetValue(conn, _ => new ChargeSession());
+    internal static ChargeSession ChargesOf(ClientState conn) => ChargeSessions.GetValue(conn, _ => new ChargeSession(conn.PlayerChargeState));
 
     // A player hit on a monster that landed (Attack, AreaSkillHit, a projectile's impact): its "on hit", "on critical
     // strike" and "on non-critical strike" gains. effect: the gem skill's GrantedEffects row (-1: the default attack).
@@ -284,20 +284,21 @@ static partial class Game
     // counts the stats use changed, the pools, the walk speed and the stats (SendChargeStats). The character's stats are
     // worked out outside the Monsters lock, and only while events wait (their gain chances); the limits come with every
     // stats change (ChargeSession.Observe through WithCharges).
-    internal static async Task RunCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RunCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
+        if (!PlayerUpdatesCurrent(conn, updates)) return;
         var session = ChargesOf(conn);
         if (CarriedCharges.TryRemove(conn.Ticket, out var entry) && entry.Charges is var carried)
             lock (conn.Monsters)
             {
-                session.State.Restore(carried, conn.Clock.Elapsed.TotalSeconds);
+                session.State.Restore(carried, updates.Schedule.Now(conn));
                 Console.WriteLine($"[gateway] {remote} charges carried from the last area: " +
                     string.Join(", ", carried.Select(c => $"{c.Held} {Charges.Name(c.Type)} ({c.Remaining:0.0} s left)")));
             }
-        while (!conn.Closed && !conn.RageRetired)
+        while (PlayerUpdatesCurrent(conn, updates))
         {
-            await Task.Delay(TimeSpan.FromSeconds(ChargeSession.StepSeconds));
-            if (conn.Closed || conn.RageRetired) break;
+            await updates.Schedule.Wait(PlayerUpdateRole.Charges, (int)(ChargeSession.StepSeconds * 1000), updates.Stop.Token);
+            if (!PlayerUpdatesCurrent(conn, updates)) break;
             if (conn.LeavingArea || conn.Paused) continue;
             try
             {
@@ -309,17 +310,20 @@ static partial class Game
                     stats = name => Stats.Key(name) is uint key ? final.GetValueOrDefault(key) : 0;
                     weapon = WeaponProfileFor(conn);
                 }
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = updates.Schedule.Now(conn);
                 ChargeSession.StepResult step;
-                List<ChargeSession.BuffChange> buffs;
+                bool presentationPending;
                 using (ProjectileMutation(conn))
                 {
-                    if (conn.Closed || conn.RageRetired) break;
+                    if (!PlayerUpdatesCurrent(conn, updates)) break;
                     if (conn.LeavingArea) continue;
                     now = ProjectileWorldTime(conn);
+                    var recipient = CharacterPlayerStats(conn);
+                    session.State.SetExpiryRate(now, RecipientEffectTime.Rate(3,
+                        name => Stats.Key(name) is uint k ? recipient.GetValueOrDefault(k) : 0));
                     step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: conn.Walk.Moving(now),
                         inTown: InTown(conn), Random.Shared);
-                    buffs = session.Presentation(now, () => conn.NextBuff++);
+                    presentationPending = ChargePresentationPending(session);
                     if (step.CountsChanged)
                     {
                         conn.Pools = PoolsFor(conn, conn.Pools.Level);
@@ -327,15 +331,26 @@ static partial class Game
                     }
                 }
                 foreach (string line in step.Log) Console.WriteLine($"[gateway] {remote} {line} (t={now:0.000})");
-                foreach (var change in buffs)
-                    foreach (var (packet, label) in ChargeBuffs.Packets(change, PlayerId))
-                        await Send(remote, stream, ciphers, packet, label);
-                if (step.CountsChanged)
+                bool countsChanged = step.CountsChanged;
+                if (presentationPending)
+                    await Send(remote, stream, ciphers, [], null, atGate: () =>
+                    {
+                        lock (conn.Monsters)
+                        {
+                            if (!PlayerUpdatesCurrent(conn, updates) || conn.LeavingArea) return null;
+                            var (packet, changed) = CurrentChargePresentationLocked(conn, remote);
+                            countsChanged |= changed;
+                            return packet;
+                        }
+                    });
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+                if (countsChanged)
                 {
                     await SendChargeStats(remote, stream, ciphers, conn,
                         string.Join(", ", Charges.Types.Select(t => $"{session.Effective(t)} {Charges.Label(t, session.Converted(t))}")));
                 }
             }
+            catch (OperationCanceledException) when (updates.Stop.IsCancellationRequested) { return; }
             catch (Exception ex) when (ex is not (IOException or ObjectDisposedException))
             {
                 if (!conn.Closed) Console.WriteLine($"[gateway] {remote} charges: {ServerLog.Describe(ex)}");
@@ -349,7 +364,7 @@ static partial class Game
     // the same moment) takes the full SendCharacterStats.
     internal static async Task SendChargeStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
-        if (conn.Closed || conn.LeavingArea || conn.RageRetired) return;
+        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
         var skills = PlayerSkills(conn);
         if (!conn.ClientSkillIds.SetEquals(skills.Select(s => s.Id)))
         {

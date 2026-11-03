@@ -87,6 +87,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Nessa's opt-in development catalogue keeps separate awakened/exceptional gems and generic/originator/unique maps.
   Standard uses progression stock; full unique modifiers, unique-area routing and the updated development display remain partial.
   See [17](../docs/protocol/17-npcs.md#vendor-evidence-and-local-policy).
+- **Player bots** (PlayerBots module, off by default): bots are created over time and visit the towns between quests.
+  Players see them walk with their class model and gear.
+  Quests are simulated out of sight; bots do not fight, trade or chat yet.
+  See [player bots](../docs/dev/player-bots.md).
 
 ## Not working yet
 

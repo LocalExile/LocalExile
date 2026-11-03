@@ -510,6 +510,8 @@ static partial class Game
     // The instance's items on the ground, where they were left (InstanceStore): dropped or looted on an earlier connection.
     internal static async Task SendGroundItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        // A survivors run keeps the ground clear: no loot reaches the client at all.
+        if (!GameEvents.AllowsLoot(conn)) return;
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
@@ -524,6 +526,7 @@ static partial class Game
     // enough charges, while dead, or when its recovery pools are full, nothing happens. A utility flask goes to UseUtilityFlask.
     internal static async Task UseFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint slot)
     {
+        if (!CurrentGameWork) return;
         var items = ItemsOf(conn);
         var flask = items.Items(PlayerInventories.Flask).FirstOrDefault(i => i.X == slot);
         if (flask is not null && ItemsFor(conn).ByHash(flask.Item.TypeHash) is { } utilityType && ItemsFor(conn).UtilityFlaskOf(utilityType) is { } utility)
@@ -552,9 +555,24 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {(conn.PlayerLife == 0 ? "dead" : $"{flask.Item.Charges}/{charges.MaxCharges} charges, a use needs {charges.ChargesPerUse}")}");
             return;
         }
-        bool canRecover;
+        bool canRecover, copyLife;
+        FlaskRecovery.Use r;
+        ResourceEffectsState recoveryOwner;
         lock (conn.Monsters)
-            canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerMaxLife, conn.PlayerMana, (uint)UnreservedMana(conn));
+        {
+            recoveryOwner = ResourceEffectsOf(conn);
+            r = FlaskRecovery.For(use, flask.Item, local,
+                name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
+            copyLife = ManaFlaskCopiesLife(r, character);
+            canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerMaxLife, conn.PlayerMana, (uint)UnreservedMana(conn))
+                || copyLife && conn.PlayerLife < conn.PlayerMaxLife;
+        }
+        bool CurrentRecovery()
+        {
+            lock (conn.Monsters) return ResourceEffectsCurrent(conn, recoveryOwner) && CurrentGameWork
+                && !conn.LeavingArea && conn.PlayerLife > 0
+                && items.Items(PlayerInventories.Flask).Any(i => i.Id == flask.Id && i.X == slot);
+        }
         if (!canRecover)
         {
             await Send(remote, stream, ciphers, InstanceItems.ItemUsed(flask.Item.TypeHash,
@@ -573,59 +591,9 @@ static partial class Game
                 await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (full pool, flask refused)");
             return;
         }
-        if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot) is not { } spent) return;
-        await Send(remote, stream, ciphers, InstanceItems.ItemUsed(spent.Item.TypeHash,
-            PlayerInventories.InventoryId(PlayerInventories.Flask), spent.Id), $"0x0263 flask {slot} used (native use sound)");
-        QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot);
-        if (use.LifePerUse > 0) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.LifeFlask, flask.Id, (byte)slot);
-        var r = FlaskRecovery.For(use, flask.Item, local,
-            name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0),
-            conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
-        Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {r.Life:0.#} life, {r.Mana:0.#} mana over {r.Seconds:0.##} s, " +
-            $"instantly {r.InstantLife:0.#} life, {r.InstantMana:0.#} mana{(r.ManaAtEnd > 0 ? $", {r.ManaAtEnd:0.#} mana at the end" : "")}" +
-            $"{(r.RemovesLife + r.RemovesMana > 0 ? $", removes {r.RemovesLife:0.#} life, {r.RemovesMana:0.#} mana" : "")}" +
-            $"{(r.ExtraLife > 0 ? $", {r.ExtraLife:0.#} more life over {FlaskRecovery.ExtraLifeSeconds} s" : "")}");
-        // The instant part and what the flask takes from the other pool (never below 1 life), at once. A monster may have
-        // killed the player while the charges went out: then nothing (FlaskRecovery.Instant), or the death screen would stay
-        // with 1 life.
-        uint lifeBefore, manaBefore, lifeAfter, manaAfter;
-        lock (conn.Monsters)
-        {
-            (lifeBefore, manaBefore) = (conn.PlayerLife, conn.PlayerMana);
-            if (FlaskRecovery.Instant(r, lifeBefore, manaBefore, conn.PlayerMaxLife, UnreservedMana(conn)) is not var (l, m))
-            {
-                Console.WriteLine($"[gateway] {remote} flask {slot} ({type.Name}): the player died meanwhile, no recovery");
-                return;
-            }
-            (conn.PlayerLife, conn.PlayerMana) = (lifeAfter, manaAfter) = (l, m);
-            TrimLeechLocked(conn);
-        }
-        if (lifeAfter != lifeBefore) await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, lifeAfter), $"0x01b1 player life {lifeAfter} (flask)");
-        if (manaAfter != manaBefore) await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {manaAfter} (flask)");
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        if (r.ExtraLife > 0)
-            conn.FlaskEffects.Start(new Flasks.Effect((byte)slot, 0, 0, r.ExtraLife / FlaskRecovery.ExtraLifeSeconds, 0, now, now + FlaskRecovery.ExtraLifeSeconds));
-        List<Flasks.Effect> effects;
-        lock (conn.Monsters)
-            effects = Flasks.RecoveryEffects(r, (byte)slot, now, () => conn.NextBuff++, FlaskEffectLifeBuffRow, FlaskEffectManaBuffRow);
-        foreach (var effect in effects) conn.FlaskEffects.Start(effect);
-        // Both rows are IsRecovery: 0x1c1 carries one u32 per GrantedStats entry, here base_life (or mana)
-        // _recovery_per_minute_from_flask. Without it the client misread the message and showed no life change after it
-        // (live 2026-10-20).
-        // The duration (+0x68, f32 seconds) and the flask-bar cell (source skill): the timer bar under the flask (Flasks.Buff).
-        // Game_FLASK_BUFF_DURATION=0 sends no duration (before 2026-10-25 a u32 in milliseconds went there, which the client
-        // read as a float of almost 0 s).
-        bool withDuration = Environment.GetEnvironmentVariable("Game_FLASK_BUFF_DURATION") != "0";
-        foreach (var effect in effects)
-        {
-            uint perMinute = (uint)Math.Round((effect.LifePerSecond + effect.ManaPerSecond) * 60);
-            double duration = effect.Ends - effect.Started;
-            if (FlaskBuffs)
-                await Send(remote, stream, ciphers, Flasks.Buff(PlayerId, effect.Buff, effect.BuffRow, (byte)slot,
-                    withDuration ? duration : null, [perMinute]),
-                    $"0x01c1 player buff {effect.Buff}: {(effect.BuffRow == FlaskEffectLifeBuffRow ? "flask_effect_life" : "flask_effect_mana")} " +
-                    $"(BuffDefinitions row {effect.BuffRow}), {perMinute} per minute, {(withDuration ? $"{duration:0.##} s" : "no duration")}");
-        }
+        if (!CurrentRecovery()) return;
+        await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentRecovery,
+            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife));
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
@@ -645,6 +613,7 @@ static partial class Game
     // Strand, until it is picked up (PlayerInventories.StartWeapon): put once into each instance it enters outside towns.
     internal static async Task PlaceStartWeapon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (!GameEvents.AllowsLoot(conn)) return;
         if (ItemsOf(conn).StartWeapon is not { } weapon || WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true }) return;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         var ground = new WorldItemObject(x, y, weapon);

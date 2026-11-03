@@ -52,6 +52,7 @@ public sealed class QuestObjectsModule : IModule, IDisposable
         {
             if (kill.Monster.Variety is not { } variety) return;
             var (remote, stream, ciphers) = kill.Conn.Wire;
+            if (kill.CommittedOutput is not null) { CommitAcceptedQuestKill(kill); return; }
             kill.Later(() => QuestKillEffects(remote, stream, ciphers, kill.Conn, kill.Monster, variety, kill.At));
         });
         // After a read that moved items, the quest items' flags (and the removal of those done with: the Medicine Chest once
@@ -67,8 +68,11 @@ public sealed class QuestObjectsModule : IModule, IDisposable
                 || CharacterSaves.Load(CharacterName(kill.Conn))?.Tutorial is not { ZombieKilled: false }) return;
             CharacterSaves.ChangeTutorial(CharacterName(kill.Conn), t => t with { ZombieKilled = true });
             var (remote, stream, ciphers) = kill.Conn.Wire;
-            kill.Later(() => DropTutorialGem(remote, stream, ciphers, kill.Conn, false, kill.At.X, kill.At.Y));
+            if (kill.CommittedOutput is { } output) output.AddRange(CommitTutorialGem(kill.Conn, false, kill.At.X, kill.At.Y));
+            else kill.Later(() => DropTutorialGem(remote, stream, ciphers, kill.Conn, false, kill.At.X, kill.At.Y));
         });
+        // A trial dart's slow on the player's movement speed.
+        On(GameEvents.PlayerStatSources, WithDartSlow);
         On(GameEvents.NpcTalk, async (conn, id, npc) =>
         {
             if (npc.Npc.Id.StartsWith(LabyrinthTrials.GlyphPrefix, StringComparison.Ordinal))
@@ -97,6 +101,12 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             lock (conn.GlyphNests)
                 nests = [.. conn.GlyphNests.Where(e => Dist((e.Value.At.X, e.Value.At.Y), at) <= radius).Select(e => (e.Key, e.Value))];
             foreach (var (id, nest) in nests) await OpenRhoaNestCore(remote, stream, ciphers, conn, id, nest);
+        });
+        // A cast near a Labyrinth smashable wall breaks it (not this module's cast: it goes on).
+        On(GameEvents.SkillCast, (conn, effect, skillId, from, current) =>
+        {
+            _ = BreakSmashableWalls(conn, from);
+            return null;
         });
         On(GameEvents.ObjectUse, async (conn, use, requestedAt) =>
         {

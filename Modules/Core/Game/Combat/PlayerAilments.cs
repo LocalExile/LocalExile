@@ -49,7 +49,9 @@ static partial class Game
         int damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
             MaxResistance(conn, DamageType.Fire), PlayerImmunities(conn).Contains(DamageType.Fire),
             source => DamageTakenFromBlindedPct(conn, source, stats));
-        int lifeDamage = conn.Immune ? 0 : conn.EnergyShield.Damage(damage, false, until);
+        damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry);
+        int lifeDamage = conn.Immune ? 0 : IncomingResourceDefences.DamageOverTime(conn.EnergyShield,
+            damage, Get(IncomingResourceDefences.BypassStat), until, ref conn.NonChaosDotBypassCarry);
         conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage);
         if (conn.PlayerLife == 0)
         {
@@ -98,7 +100,18 @@ static partial class Game
         return CharacterStatSources(conn).Stats.GetValueOrDefault(key);
     }
 
-    internal static double PlayerActionFactor(ClientState conn) =>
-        Math.Max(.01, conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds,
-            ActionSpeedReduction(conn)));
+    internal static double PlayerActionFactor(ClientState conn)
+    {
+        var sources = CharacterStatSources(conn).Stats;
+        return Math.Max(.01, PlayerActionFactorFrom(conn, name => Stats.Key(name) is uint k
+            ? conn.PlayerStats.GetValueOrDefault(k, sources.GetValueOrDefault(k)) : 0));
+    }
+
+    internal static double PlayerActionFactorFrom(ClientState conn, Func<string, int> get)
+    {
+        double extra = get("has_tailwind") == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get("tailwind_effect_on_self_+%") / 100d)) - 8;
+        double factor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, get("action_speed_-%") - extra)
+            * Math.Max(.01, 1 + get("temporal_chains_action_speed_+%_final") / 100d);
+        return get("action_speed_cannot_be_reduced_below_base") != 0 ? Math.Max(1, factor) : factor;
+    }
 }
