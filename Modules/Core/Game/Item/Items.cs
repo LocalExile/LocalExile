@@ -578,7 +578,9 @@ static partial class Game
             PlayerInventories.InventoryId(PlayerInventories.Flask), spent.Id), $"0x0263 flask {slot} used (native use sound)");
         QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot);
         if (use.LifePerUse > 0) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.LifeFlask, flask.Id, (byte)slot);
-        var r = FlaskRecovery.For(use, flask.Item, local, Get, conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
+        var r = FlaskRecovery.For(use, flask.Item, local,
+            name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0),
+            conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
         Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {r.Life:0.#} life, {r.Mana:0.#} mana over {r.Seconds:0.##} s, " +
             $"instantly {r.InstantLife:0.#} life, {r.InstantMana:0.#} mana{(r.ManaAtEnd > 0 ? $", {r.ManaAtEnd:0.#} mana at the end" : "")}" +
             $"{(r.RemovesLife + r.RemovesMana > 0 ? $", removes {r.RemovesLife:0.#} life, {r.RemovesMana:0.#} mana" : "")}" +
@@ -688,7 +690,7 @@ static partial class Game
                 await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove quest item 0x{id:x}: {questFlags.Remove} is set");
             return;
         }
-        if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true)) return;
+        if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true, tolerance: PickupTolerance)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 pick up world item 0x{id:x} at ({ground.GridX}, {ground.GridY}) {use} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         // Echo the interaction at once, from where the player is now (as a move's echo does): the client then walks to its

@@ -9,7 +9,8 @@ static partial class Game
         if (ResolveProjectilePanelParameters(effect) is not { } parameters) return;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         ProjectileProfile profile;
-        try { profile = parameters.Resolve(Get, 1); }
+        bool arrows = ArrowsForSkill(effect);
+        try { profile = parameters.Resolve(Get, 1, arrows); }
         catch (InvalidOperationException ex)
         {
             // An unavailable recipe must not prevent the rest of the skill list from reaching the client.
@@ -18,6 +19,11 @@ static partial class Game
         }
         Put("total_number_of_projectiles_to_fire", profile.Count);
         Put("virtual_total_number_of_projectiles", profile.Count);
+        if (arrows)
+        {
+            Put("total_number_of_arrows_to_fire", profile.Count);
+            Put("virtual_total_number_of_arrows", profile.Count);
+        }
         Put("projectile_number_of_targets_to_pierce", profile.CannotPierce || profile.Pierce < 0 ? 0 : profile.Pierce);
         Put("virtual_always_pierce", !profile.CannotPierce && profile.Pierce < 0 ? 1 : 0);
         Put("virtual_projectiles_cannot_pierce", profile.CannotPierce ? 1 : 0);
@@ -25,7 +31,9 @@ static partial class Game
         // Their applicable contributions are already included in the profile's combined budget.
         Put("arrow_number_of_targets_to_pierce", 0);
         Put("arrows_always_pierce", 0);
-        Put("virtual_number_of_chains_for_projectiles", profile.CannotChain ? 0 : profile.Chain);
+        // Ground bounces are the skill's chains too (Rolling Magma's display_projectiles_chain_when_impacting_ground): the
+        // client draws its own orb's bounces from this count, and with 0 it stopped at the first landing (live 2026-11-01).
+        Put("virtual_number_of_chains_for_projectiles", profile.CannotChain ? 0 : profile.Chain + profile.GroundChains);
         Put("virtual_number_of_forks_for_projectiles_final", profile.CannotFork ? 0 : profile.Fork);
         Put("virtual_projectiles_cannot_chain", profile.CannotChain ? 1 : 0);
         Put("virtual_projectiles_cannot_fork", profile.CannotFork ? 1 : 0);

@@ -63,7 +63,7 @@ static partial class Game
     internal static void LeechOnHitLocked(ClientState conn, SpawnedMonster target, DamagePacket taken,
         int directDamage, LeechSources sources)
     {
-        if (!target.Hostile || target.Dead || target.Life == 0 || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return;
+        if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return;
         var amounts = sources.Amounts(taken, directDamage);
         var session = LeechOf(conn);
         if (target.Mods.Effects["cannot_have_life_leeched_from"] != 0) amounts.Life = 0;

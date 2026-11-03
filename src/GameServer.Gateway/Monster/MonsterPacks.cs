@@ -202,13 +202,18 @@ static class AreaPopulation
     // A pack centre needs this many walkable cells to the nearest blocked cell; members stand within MemberRadius of it.
     const int CentreDepth = 5, MemberRadius = 9, MemberSpacing = 3;
 
+    /// <summary>A map's pack size and extra packs (MapMods): Size multiplies both how many packs and how many members.</summary>
+    public readonly record struct PackScale(double Size = 1, int ExtraNormal = 0, int ExtraMagic = 0, int ExtraRare = 0,
+        int RareIncrease = 0, int MagicIncrease = 0);
+
     /// <param name="roomPacks">Points of rooms whose "normal", "magic" and "rare" points place one of the area's scattered
     /// packs of that rarity (a Trial of Ascendancy's rooms: the Lower Prison trial's plaque platform).</param>
     /// <param name="scatterable">Where a scattered pack may have its centre, besides the walk map (not among a trial's
     /// traps); null: anywhere.</param>
     public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
         IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
-        IReadOnlyList<RoomPoint>? roomPacks = null, Func<int, int, bool>? scatterable = null)
+        PackScale scale = default, bool unassignedAtArrival = false, IReadOnlyList<RoomPoint>? roomPacks = null,
+        Func<int, int, bool>? scatterable = null)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
@@ -279,6 +284,12 @@ static class AreaPopulation
             var p = any[rng.Next(any.Count)];
             Bosses((p.X, p.Y), p.Name, rest);
         }
+        else if (rest.Count > 0 && unassignedAtArrival)
+        {
+            notes.Add($"no room point for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}: standing at arrival");
+            for (int i = 0; i < rest.Count; i++)
+                Bosses((arrival.X + (i + 1) * 4, arrival.Y), "mapboss", [rest[i]]);
+        }
         else if (rest.Count > 0 && bossPoints.Count > 0)
             notes.Add($"no room point for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}");
 
@@ -300,8 +311,10 @@ static class AreaPopulation
             for (int x = 0; x < w; x += 3)
                 if (depth[y * w + x] >= CentreDepth) candidates.Add((x, y));
         int walkableCells = depth.Count(d => d > 0);
+        double size = scale.Size > 0 ? scale.Size : 1;
         int wanted = (int)Math.Round(walkableCells / (double)CellsPerPack
-            * SystemSettings.Default.MonsterPackDensityMultiplier);
+            * SystemSettings.Default.MonsterPackDensityMultiplier * size)
+            + scale.ExtraNormal + scale.ExtraMagic + scale.ExtraRare;
         if (wanted <= 0) return spawns;
         Shuffle(candidates, rng);
         var plans = new List<((int X, int Y) At, PackCatalog.Pack Pack)>();
@@ -317,8 +330,10 @@ static class AreaPopulation
         var rarities = plans.Select(_ => RollRarity(rng.Next(100))).ToList();
         for (int i = 0; rarities.Count(r => r == MonsterRarity.Rare) < Math.Min(MinRares, plans.Count) && i < 100; i++)
             rarities[rng.Next(plans.Count)] = MonsterRarity.Rare;
+        Promote(rarities, MonsterRarity.Rare, scale.ExtraRare + (int)Math.Round(plans.Count * scale.RareIncrease / 100.0));
+        Promote(rarities, MonsterRarity.Magic, scale.ExtraMagic + (int)Math.Round(plans.Count * scale.MagicIncrease / 100.0));
         for (int i = 0; i < plans.Count; i++)
-            AddPack(spawns, taken, walkable, plans[i].At, plans[i].Pack, rarities[i], true, rng, spawnable);
+            AddPack(spawns, taken, walkable, plans[i].At, plans[i].Pack, rarities[i], true, rng, spawnable, packSize: size);
         notes.Add($"{plans.Count} scattered packs ({rarities.Count(r => r == MonsterRarity.Magic)} magic, {rarities.Count(r => r == MonsterRarity.Rare)} with a rare) " +
             $"for {walkableCells} walkable cells, {points.Count} room point(s), {spawns.Count} monsters");
         return spawns;
@@ -327,11 +342,21 @@ static class AreaPopulation
     /// <summary>A pack around <paramref name="at"/>; returns the members that are unique bosses. With
     /// <paramref name="uniqueBoss"/>, the pack's boss monster is unique when it says true, as the pack's rarity gives
     /// when false, and left out when null (that unique boss stands elsewhere already).</summary>
+    static void Promote(List<MonsterRarity> rarities, MonsterRarity rarity, int extra)
+    {
+        for (int i = 0; extra > 0 && i < rarities.Count; i++)
+            if (rarities[i] != rarity && (rarity != MonsterRarity.Rare || rarities[i] != MonsterRarity.Unique))
+            {
+                rarities[i] = rarity;
+                extra--;
+            }
+    }
+
     static List<int> AddPack(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, PackCatalog.Pack pack,
-        MonsterRarity rarity, bool withBoss, Random rng, Func<int, bool> spawnable, Func<int, bool?>? uniqueBoss = null)
+        MonsterRarity rarity, bool withBoss, Random rng, Func<int, bool> spawnable, Func<int, bool?>? uniqueBoss = null, double packSize = 1)
     {
         int rolled = rng.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1);
-        int count = Math.Max(1, (int)Math.Round(rolled * SystemSettings.Default.MonsterPackSizeMultiplier));
+        int count = Math.Max(1, (int)Math.Round(rolled * SystemSettings.Default.MonsterPackSizeMultiplier * (packSize > 0 ? packSize : 1)));
         var members = new List<(int Variety, bool Unique)>();
         for (int i = 0; i < count; i++)
         {
@@ -625,6 +650,14 @@ static class AreaPopulation
     // The 8 turns and flips of a room: grid offset = [[a, b], [c, d]] · room offset.
     static readonly (int, int, int, int)[] Turns =
         [(1, 0, 0, 1), (0, -1, 1, 0), (-1, 0, 0, -1), (0, 1, -1, 0), (-1, 0, 0, 1), (0, 1, 1, 0), (1, 0, 0, -1), (0, -1, -1, 0)];
+
+    /// <summary>A room-local cell (a .arm point or doodad) in world cells, through the room placement's orientation code
+    /// (the same <see cref="Turns"/> matrix the doodad fit uses).</summary>
+    public static (int X, int Y) LocalToWorld(int roomX, int roomY, int code, float localX, float localY)
+    {
+        var (a, b, c, d) = Turns[code & 7];
+        return (roomX + (int)Math.Round(a * localX + b * localY), roomY + (int)Math.Round(c * localX + d * localY));
+    }
 
     sealed record RoomData(IReadOnlyList<RoomPoint> Points, IReadOnlyList<(string Model, float X, float Y, string? Type, float Angle, float Scale, float? Height)> Doodads);
     sealed record RoomIndex(Dictionary<string, List<string>> Areas, Dictionary<string, RoomData> Rooms);

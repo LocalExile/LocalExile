@@ -636,7 +636,11 @@ static partial class Quests
     /// </summary>
     public static class League
     {
-        public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, AtlasUnlocked = 296, UnlockedMapDevice = 350;
+        public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, AtlasUnlocked = 296,
+            UnlockedMapDevice = 350;
+
+        /// <summary>Kirac's Purchase Items (NPCTalk column 16): the client hides the buy option without it.</summary>
+        public const int UsedMapDevice = 348;
 
         /// <summary>Niko met in a map: his Delve options (View Subterranean Chart, Visit Mine Encampment) need it. NPCTalk
         /// columns 15-18 are league quest flag ids (16 required, 18 refused: the first-meeting "Talk to Niko" has 68 there).</summary>
@@ -648,8 +652,8 @@ static partial class Quests
         /// NecropolisAreaUnlocked, DeepwaterBoatUnlocked (0x140a9bd50).</summary>
         public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419, 1834];
 
-        public static readonly int[] EveryCharacter = [UnlockedHideouts, HaveHideout, AtlasUnlocked, UnlockedMapDevice, DelveEncounterComplete,
-            .. WorldPanelPins];
+        public static readonly int[] EveryCharacter = [UnlockedHideouts, HaveHideout, AtlasUnlocked, UsedMapDevice, UnlockedMapDevice,
+            DelveEncounterComplete, .. WorldPanelPins];
 
         /// <summary>The bits the client keeps for these ids (id − 1).</summary>
         public static IEnumerable<int> Bits(IEnumerable<int> ids) => ids.Where(id => id > 0).Select(id => id - 1);
