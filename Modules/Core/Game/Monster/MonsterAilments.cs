@@ -193,13 +193,14 @@ static partial class Game
     /// <summary>
     /// The ailment buff on a monster (0x1c1): no duration (the server ends it with 0x1c2, so a pause cannot desync it).
     /// All three rows have the +0xff bool, so the reader takes a u16 (+0x82); chilled and shocked are IsRecovery and
-    /// carry their one GrantedStats value (action_speed_-%_from_chill, base_damage_taken_+%_from_shock). The magnitude
-    /// goes in both; what the client does with +0x82 is not known.
+    /// carry their one GrantedStats value (action_speed_-%_from_chill, base_damage_taken_+%_from_shock), the magnitude.
+    /// The client shows that value increased by +0x82 percent (a 15% shock with +0x82 15 shows 17%, live 2026-11-03),
+    /// so +0x82 is 0.
     /// </summary>
     // Freeze carries no value, so it is the one sent with its duration (u68): without one the client draws no icon under
     // the monster's life bar (live 2026-10-30). Chill and shock still end only by 0x1c2.
     internal static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0) =>
-        InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), PlayerId, u82: (ushort)magnitude,
+        InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), PlayerId, u82: 0,
             values: kind == Kind.Freeze ? null : [(uint)magnitude],
             u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null);
 }

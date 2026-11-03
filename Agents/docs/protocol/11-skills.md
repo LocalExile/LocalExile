@@ -2641,8 +2641,8 @@ failed I/O, allocation limits, actual official values and every skill's successf
   per GrantedStats entry when the row's `IsRecovery` (+0x7c) is set, then a u32-counted list of u32. A row with either
   flag needs those fields, or the client misreads the message and the ones after it (the flask buffs, rows 5 and 9:
   [13](13-items.md) §8). `InstanceEntities.AddBuff` writes that u16 as `u82`: the chilled, frozen and shocked rows 1-3
-  have the bool ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)); what the client does with +0x82 is
-  not known. The client reads the BuffDefinitions row in memory as the
+  have the bool ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)); the buff's shown value is increased
+  by +0x82 percent. The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435dd918`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2ba update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
   The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and

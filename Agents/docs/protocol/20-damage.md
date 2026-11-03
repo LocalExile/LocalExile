@@ -1538,8 +1538,9 @@ one, `0x141e11fb0` removes by instance, both skip one already being removed), an
 back to 1 below that range, so ailment changes take none of its instances and cannot meet another buff's. 0x1c2
 removes a buff at expiry, so a pause cannot desync it. All three rows have the +0xff bool, so 0x1c1 carries a u16 at
 +0x82 ([11](11-skills.md) §12); chilled and shocked are `IsRecovery` and carry their one GrantedStats value
-(`action_speed_-%_from_chill`, `base_damage_taken_+%_from_shock`). The magnitude goes in both; what the client does
-with +0x82 is not known. The player's own chill, freeze and shock use the same rows and instances on the player
+(`action_speed_-%_from_chill`, `base_damage_taken_+%_from_shock`), the magnitude. The buff shows that value increased
+by +0x82 percent (15 with +0x82 15 showed 17%, live 2026-11-03), so the Gateway sends 0 there. The player's own
+chill, freeze and shock use the same rows and instances on the player
 (`PlayerAilmentBuffs`, sent by the player tick when its ailments change), so they show in the buff bar. The chill is also sent as 0x1b3 `virtual_action_speed_+%` (−chill), which the native
 walk `0x141e7c0b0` and the action clips read; network stats run no calculators ([04](04-player-entity.md) §4.1a). A
 freeze is not sent there (−100 would divide the native clip by zero); the server stops the monster instead.
