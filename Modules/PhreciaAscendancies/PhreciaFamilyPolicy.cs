@@ -23,6 +23,7 @@ internal sealed class PhreciaFamilyPolicy : IAscendancyFamilyPolicy
         AristocratClass.Descriptor,
         BehemothClass.Descriptor,
         WhispererClass.Descriptor,
+        Classes.Harbinger.HarbingerClass.Descriptor,
         AncestralCommanderClass.Descriptor,
         PaladinClass.Descriptor,
         PolytheistClass.Descriptor,

@@ -76,6 +76,16 @@ static partial class Game
             var gone = conn.Auras.Values.Where(a => InTown(conn)
                 || !available.TryGetValue(a.SkillId, out int effect) || effect != a.Effect).ToArray();
             foreach (var aura in gone) conn.Auras.Remove(aura.SkillId);
+            foreach (var aura in conn.Auras.Values.Where(a => a.EffectId == "TemporalChains").ToArray())
+            {
+                var reservation = SupportedReservation(conn, aura.SkillId);
+                if (reservation is null) { conn.Auras.Remove(aura.SkillId); conn.AuraStatsDirty = true; continue; }
+                var repriced = aura with { ManaFlat = reservation.Value.Flat, ManaPercent = reservation.Value.Percent };
+                if (repriced == aura) continue;
+                conn.Auras[aura.SkillId] = repriced;
+                if (AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values) > conn.Pools.Mana) conn.Auras.Remove(aura.SkillId);
+                conn.AuraStatsDirty = true;
+            }
             if (gone.Length > 0)
             {
                 conn.AuraStatsDirty = true;

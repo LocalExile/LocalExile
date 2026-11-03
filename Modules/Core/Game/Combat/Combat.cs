@@ -625,6 +625,8 @@ static partial class Game
                     conn.ChannelSkill = skillId;
                     conn.ChannelSkillSequence = sequence;
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
+                    conn.PaidChannel = CombatLifetime is { IsActive: true } rules
+                        ? new(skillId, gem.Effect, action, conn.ChannelGeneration, rules) : null;
                 }
                 // Capture at paid admission, before output or release scheduling can catch up other hits.
                 recoveryGeneration = conn.ActionInterruptionGeneration;
@@ -668,6 +670,10 @@ static partial class Game
         }
         // The Portal skill: a town portal, as the Portal Scroll's, once its cast (2.5 s) is over.
         if (actionToken is not null && !PlayerActionCurrent(conn, action)) return false;
+        if (gem.Name is not null)
+            foreach (var handler in GameEvents.SkillCastAt.For(conn))
+                if (handler(conn, SkillsFor(conn).EffectId(gem.Effect), skillId, to,
+                    () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } accepted) return accepted;
         if (gem.Name is not null && GameEvents.RunSkillCast(conn, SkillsFor(conn).EffectId(gem.Effect), skillId, from,
                 () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } taken) return taken;
         if (gem.Name is not null && TotemVariety(conn, gem.Effect) is { } totem)
@@ -901,7 +907,10 @@ static partial class Game
                     conn.Performance.RecordMilliseconds(LatencyPhase.ChannelLate, (now - conn.NextChannelHitAt) * 1000);
                     conn.NextChannelHitAt = Math.Max(conn.NextChannelHitAt, now - 0.05) + SupportedChannelSeconds(conn, skillId);
                     // Payment and admission share the channel's generation check.
-                    if (!PayMana(conn, skillId, out cost, out lifeCost)) { conn.ChannelSkill = 0; conn.ChannelGeneration++; }
+                    if (!PayMana(conn, skillId, out cost, out lifeCost))
+                    { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; }
+                    else conn.PaidChannel = CombatLifetime is { IsActive: true } rules
+                        ? new(skillId, gem.Effect, action, generation, rules) : null;
                 }
                 if (!Running()) { await SendPlayerMana(remote, stream, ciphers, conn, "channel stopped"); return; }
                 if (cost > 0 || lifeCost > 0) await SendSkillCost(remote, stream, ciphers, conn, lifeCost, $"channel cost {cost} mana, {lifeCost} life");
@@ -920,6 +929,21 @@ static partial class Game
             return !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
                 && conn.ChannelSkill == skill && conn.ActionCount == action && conn.ChannelGeneration == generation
                 && conn.Clock.Elapsed.TotalSeconds - conn.LastChannelUpdateAt <= ChannelSilenceSeconds;
+    }
+
+    internal static bool PaidChannelCurrent(ClientState conn, ChannelPaymentReceipt receipt)
+    {
+        lock (conn.Monsters)
+        {
+            if (!CurrentGameWork || !ReferenceEquals(receipt, conn.PaidChannel)
+                || !ReferenceEquals(receipt.Rules, CombatLifetime) || !receipt.Rules.IsActive || conn.Paused
+                || !ChannelCurrent(conn, receipt.Skill, receipt.Action, receipt.Generation)
+                || PlayerActionBlocked(conn, conn.Clock.Elapsed.TotalSeconds, conn.Clock.Elapsed.TotalSeconds)) return false;
+            var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == receipt.Skill);
+            return gem.Name is not null && gem.Effect == receipt.Effect
+                && Supports.Of(gem.Effect)?.Types.Contains(47) == true
+                && GemSkillInstanceDisabled(conn, gem.Effect, receipt.Skill) is null;
+        }
     }
 
     // The radius in cells of a gem skill's hit around its aimed point (AreaSkillHit): its own

@@ -48,6 +48,12 @@ sealed record KillContext(ClientState Conn, SpawnedMonster Monster, string Varie
 /// <summary>Where the framework hands over to the Core modules.</summary>
 static class GameEvents
 {
+    // Optional gameplay shares the existing minion schedule and current connection writer.
+    public static readonly GameEvent<Func<string, NetworkStream, ConnectionCiphers, ClientState, double, Task>> CompanionTick = new();
+    public static readonly GameEvent<Func<ClientState, string, bool>> GrantedSkillExecutable = new();
+    public static readonly GameEvent<Action<ClientState>> TransientClosing = new();
+    public static readonly GameEvent<Action<ClientState, bool>> PauseChanged = new();
+    public static readonly GameEvent<Func<ClientState, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCastAt = new();
     public static readonly GameEvent<Action<KillContext>> Kill = new();
     /// <summary>Talking to an NPC starts; true when a module has its own dialogue for it.</summary>
     public static readonly GameEvent<Func<ClientState, uint, SpawnedNpc, Task<bool>>> NpcTalk = new();

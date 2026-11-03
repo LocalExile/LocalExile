@@ -288,6 +288,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Bounded modular native checks cover the three class sources, paid refunds, normal controls and reload re-entry.
   Historical whole-class checks below retain their original scope.
   Docs: [module boundary, scope and reload policy](../docs/game/phrecia-modules.md).
+  Harbinger has private combined gameplay coverage for companions, curses, recipient clocks and typed resources.
+  Its opt-in descriptor is registered; the publisher still owns native acceptance.
+  See [Harbinger](../docs/game/harbinger.md).
   Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.
   The native Labyrinth/Altar flow is separate (#151); other Phrecia class gameplay remains separate work.

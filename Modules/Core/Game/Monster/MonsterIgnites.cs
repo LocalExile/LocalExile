@@ -61,7 +61,7 @@ static partial class Game
         if (target.Ignites.Buff is ushort old) packets.Add(InstanceEntities.RemoveBuff(id, old));
         ushort buff = conn.NextBuff++;
         target.Ignites.Buff = buff;
-        packets.Add(IgnitedBuff(id, buff, target.Ignites.Until - now));
+        packets.Add(IgnitedBuff(id, buff, target.Ignites.RemainingBase(now)));
         return packets;
     }
 

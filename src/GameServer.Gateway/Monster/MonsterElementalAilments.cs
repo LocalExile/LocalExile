@@ -20,6 +20,14 @@ sealed class MonsterElementalAilments
         public bool OnKill { get; init; }
     }
     readonly List<Effect> effects = [];
+    double expiryRate = 1;
+    public void SetExpiryRate(double now, double rate)
+    {
+        rate = Math.Max(.25, rate);
+        for (int i = 0; i < effects.Count; i++)
+            effects[i] = effects[i] with { Until = RecipientEffectTime.RetimedDeadline(effects[i].Until, now, expiryRate, rate) };
+        expiryRate = rate;
+    }
     // The strongest shock another enemy's proliferation puts on this one, set again on every AI tick.
     Effect? spread;
     // What the client was last sent: each kind's magnitude, the action speed stat and the factor its walk speed carries.
@@ -40,7 +48,7 @@ sealed class MonsterElementalAilments
     public bool ShockedAtDeath(double now) => Active(Kind.Shock, now).Any(e => !e.OnKill && e.Magnitude > 0);
 
     /// <summary>Seconds until the last active effect of <paramref name="kind"/> ends (0 when none).</summary>
-    public double Remaining(Kind kind, double now) => Active(kind, now).Select(e => e.Until - now).DefaultIfEmpty().Max();
+    public double Remaining(Kind kind, double now) => Active(kind, now).Select(e => (e.Until - now) * expiryRate).DefaultIfEmpty().Max();
 
     /// <summary>Action speed: 0 while frozen, else less by the chill's effect.</summary>
     public double ActionFactor(double now) => Magnitude(Kind.Freeze, now) > 0 ? 0 : 1 - Magnitude(Kind.Chill, now) / 100;
@@ -203,7 +211,7 @@ sealed class MonsterElementalAilments
         // Brine Bound (freeze_minimum_duration_X_ms): a freeze that passes the threshold lasts at least this long, which no
         // duration modifier changes (wiki Brine Bound).
         if (kind == Kind.Freeze) seconds = Math.Max(seconds, attacker("freeze_minimum_duration_X_ms") / 1000.0);
-        effect = effect with { Until = now + seconds };
+        effect = effect with { Until = now + seconds / expiryRate };
         // A weaker one of the same sort that also ends sooner can never be the strongest again.
         effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until
             && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread));
