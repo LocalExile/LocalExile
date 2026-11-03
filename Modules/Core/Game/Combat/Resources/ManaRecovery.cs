@@ -1,4 +1,4 @@
-/// <summary>Stat-driven Mana costs and hit-only resource rules.</summary>
+/// <summary>Stat-driven Mana costs.</summary>
 static class ManaRecoveryRules
 {
     public const string PerDexterity = "X_mana_per_dexterity";
@@ -6,9 +6,6 @@ static class ManaRecoveryRules
     public static int Cost(int supportedBase, Func<string, int> player) => (int)Math.Clamp(decimal.Floor(
         Math.Max(0, supportedBase) * Math.Max(0m, 100m - player("base_mana_cost_-%"))
         * Math.Max(0m, 100m + player("mana_cost_+%")) / 10000m), 0, int.MaxValue);
-
-    public static uint FromMana(int physicalLifeDamage, uint availableMana, int percent) =>
-        (uint)Math.Min(availableMana, (long)Math.Max(0, physicalLifeDamage) * Math.Clamp(percent, 0, 100) / 100);
 }
 
 /// <summary>Owned mana-spend progress and exact hit recoup. ReminderTextRecoup pins four game seconds.</summary>

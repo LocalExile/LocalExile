@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using DamagePacket = GameServer.Core.World.DamagePacket;
 
 static partial class Game
 {
@@ -38,9 +39,10 @@ static partial class Game
         }
     }
 
-    // Called under the combat lock after block/mitigation. Ward absorbs once, before ES, and never absorbs DoT.
+    // Called under the combat lock after block/mitigation. Ward absorbs once, before ES, and never absorbs DoT; mana takes
+    // its share of what is left before Life. types: the hit's damage by type (only its proportions count).
     internal static int DamagePlayerHit(ClientState conn, int nonChaos, int chaos, double now,
-        IReadOnlyDictionary<uint, int> stats) => DamagePlayerHitTyped(conn, 0, nonChaos, chaos, now, stats);
+        IReadOnlyDictionary<uint, int> stats, DamagePacket types) => DamagePlayerHitTyped(conn, 0, nonChaos, chaos, now, stats, types);
 
     internal static void ClearAntiquarianOnDeath(ClientState conn)
     {

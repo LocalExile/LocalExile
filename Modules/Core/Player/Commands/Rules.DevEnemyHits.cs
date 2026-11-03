@@ -21,6 +21,9 @@ static partial class CommandsRules
             var stats = CharacterPlayerStats(conn);
             GainLifeBeforeEnemyHitLocked(conn, stats);
             int resistance = Resistance(conn, type), maximum = MaxResistance(conn, type);
+            // Avoidance rolls before block, as for a monster hit; an avoided hit still lands.
+            bool avoided = PlayerDamageTaken.Avoids(type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0,
+                conn.IncomingHitRandom);
             int blockChance = spell ? conn.Pools.SpellBlockChance : conn.Pools.BlockChance;
             bool luckyBlock = spell ? conn.Pools.SpellBlockLucky : conn.Pools.AttackBlockLucky;
             bool unluckyBlock = spell ? conn.Pools.SpellBlockUnlucky : conn.Pools.AttackBlockUnlucky;
@@ -31,18 +34,13 @@ static partial class CommandsRules
             bool armourRelevant = type == DamageType.Physical ? amount > 0
                 : PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) > 0
                     && DamageModel.Mitigate(amount, resistance, maximum) > 0;
-            var armour = IncomingArmourLocked(conn, !blocked && !immune && armourRelevant, priorContacts, stats);
-            int dealt = blocked || immune ? 0
-                : MitigateTakenWithArmour(conn, type, amount, resistance, maximum, armour.EffectiveArmour, stats);
-            if (type == DamageType.Physical && ranged && !spell && !blocked && !immune)
-            {
-                var reduction = PlayerDamageReduction(conn, stats);
-                dealt = FortificationDamageTaken(conn, AntiquarianEffects.RangedPhysical(
-                    PlayerHitMitigation.AfterResistance(conn.Pools, type, amount, reduction.Physical,
-                        reduction.Elemental, armour.EffectiveArmour), true,
-                    name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0));
-            }
-            string mitigation = immune ? "immunity"
+            var armour = IncomingArmourLocked(conn, !blocked && !immune && !avoided && armourRelevant, priorContacts, stats);
+            int dealt = immune || avoided ? 0 : MitigateTakenWithArmour(conn, type, amount, resistance, maximum, armour.EffectiveArmour,
+                stats, attack: !spell, ranged: ranged && !spell);
+            // A blocked hit deals only its share ("You take X% of Damage from Blocked Hits", 0 by default).
+            if (blocked) dealt = (int)Math.Round(dealt * PlayerDamageTaken.BlockedPct(type,
+                name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) / 100.0);
+            string mitigation = immune ? "immunity" : avoided ? "avoidance"
                 : MitigationLabel(conn, type, amount, resistance, maximum, armour.EffectiveArmour, stats);
             var suppression = suppress ? Suppression(conn) : default;
             bool suppressed = suppress && DamageModel.Suppresses(suppression.Chance,
@@ -52,9 +50,11 @@ static partial class CommandsRules
             var onBlock = blocked ? BlockRecovery(conn, stats) : default;
             int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock + onBlock.Life : 0;
             int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock + onBlock.Mana : 0;
-            RecoupHitLocked(conn, DamagePacket.Of(type, dealt, dealt), now, stats);
+            var taken = DamagePacket.Of(type, dealt, dealt);
+            RecoupHitLocked(conn, taken, now, stats);
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife
-                - DamagePlayerHitTyped(conn, type == DamageType.Physical ? dealt : 0, type is not (DamageType.Physical or DamageType.Chaos) ? dealt : 0, type == DamageType.Chaos ? dealt : 0, now, stats) + gainedLife));
+                - DamagePlayerHitTyped(conn, type == DamageType.Physical ? dealt : 0, type is not (DamageType.Physical or DamageType.Chaos) ? dealt : 0, type == DamageType.Chaos ? dealt : 0, now, stats,
+                    taken) + gainedLife));
             if (block) conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
             conn.EnergyShield.Recover(onBlock.EnergyShield);
             TrimLeechLocked(conn);

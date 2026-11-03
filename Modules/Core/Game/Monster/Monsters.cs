@@ -1072,7 +1072,13 @@ static partial class Game
         // Glacial Wave: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
         double lessened = m.Ailments.ChillDamageDealtFactor(now);
         if (lessened < 1) (rolled, baseHit) = (rolled.Scale(lessened), baseHit.Scale(lessened));
-        var mitigated = gambler.MitigateIncomingHit(rolled, type =>
+        // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
+        // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.
+        // Then each type taken may be avoided, and ignite reads only the damage dealt that lands.
+        var taken = PlayerDamageTaken.Avoid(PlayerDamageTaken.Shift(rolled, StatOf), StatOf, conn.IncomingHitRandom,
+            out var avoided);
+        baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
+        var mitigated = gambler.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
         var immune = PlayerImmunities(conn);
         // This remains the original next RNG draw when the feature is absent. Blocking never
@@ -1081,19 +1087,25 @@ static partial class Game
         bool armourRelevant = mitigated.Components.Any(c => !immune.Contains(c.Type)
             && Math.Round(c.Range.Min) > 0 && PlayerHitMitigation.ArmourPercent(conn.Pools, c.Type, StatOf) > 0);
         var armour = IncomingArmourLocked(conn, !blocked && armourRelevant, priorContacts, stats);
-        int rawDamage = (int)Math.Round(rolled[DamageType.Physical].Min);
+        int rawDamage = (int)Math.Round(taken[DamageType.Physical].Min);
         int damage = 0, chaosDamage = 0, physicalDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
-        double shockFactor = conn.ElementalAilments.DamageTakenFactor(now, DamageTakenFromBlindedPct(conn, id, stats));
+        int blindedPct = DamageTakenFromBlindedPct(conn, id, stats);
         foreach (var (type, range) in mitigated.Components)
         {
             int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
             value = PlayerHitMitigation.AfterResistance(conn.Pools, type, value,
                 reduction.Physical, reduction.Elemental, armour.EffectiveArmour,
                 PlayerHitMitigation.ArmourPercent(conn.Pools, type, StatOf));
+            // Flat damage taken after resistance and armour, then the multipliers: the increased damage taken adds to the
+            // shock's, and a blocked hit deals only its share (PlayerDamageTaken). Monster hits are attacks, and melee
+            // unless ranged.
+            if (!immune.Contains(type)) value = Math.Max(0, value + PlayerDamageTaken.Flat(type, attack: true, StatOf));
             if (type == DamageType.Physical)
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
-            value = (int)Math.Round(value * shockFactor);
+            value = (int)Math.Round(value * conn.ElementalAilments.DamageTakenFactor(now,
+                    blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged, StatOf))
+                * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             ailmentTaken = ailmentTaken.Add(type, new(value, value));
             if (type == DamageType.Chaos) chaosDamage += value;
             if (type == DamageType.Physical) physicalDamage += value;
@@ -1102,7 +1114,6 @@ static partial class Game
         damage = FortificationDamageTaken(conn, damage);
         chaosDamage = FortificationDamageTaken(conn, chaosDamage);
         physicalDamage = Math.Min(FortificationDamageTaken(conn, physicalDamage), Math.Max(0, damage - chaosDamage));
-        if (blocked) { damage = 0; chaosDamage = 0; physicalDamage = 0; }
         if (damage > 0)
         {
             int full = damage;
@@ -1115,10 +1126,12 @@ static partial class Game
         var onBlock = blocked ? BlockRecovery(conn, stats) : default;
         int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock + onBlock.Life : 0;
         int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock + onBlock.Mana : 0;
-        if (!blocked) RecoupHitLocked(conn, ailmentTaken.Select((_, r) =>
+        // A blocked hit recoups the share it deals (ailmentTaken holds it).
+        RecoupHitLocked(conn, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), now, stats);
         long lifeBefore = conn.PlayerLife;
-        int lifeDamage = DamagePlayerHitTyped(conn, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage, now, stats);
+        int lifeDamage = DamagePlayerHitTyped(conn, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage, now, stats,
+            ailmentTaken);
         conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, lifeBefore - lifeDamage + gainedLife));
         conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
         conn.EnergyShield.Recover(onBlock.EnergyShield);
@@ -1182,7 +1195,7 @@ static partial class Game
             $"{(hit.Blocked ? " (blocked)" : "")}, life {hit.Life}/{conn.PlayerMaxLife}{(hit.Life == 0 ? " (dies)" : "")}");
         if (hit.Mana != hit.ManaBefore)
             await SendPlayerMana(remote, stream, ciphers, conn,
-                $"0x01b1 player mana {hit.Mana} ({(hit.Blocked ? $"+{(long)hit.Mana - hit.ManaBefore} on block" : "no block gain")})");
+                $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0}{(hit.Blocked ? ", blocked" : "")})");
         if (!CurrentGameWork) return;
         if (hit.Life == 0)
             await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");

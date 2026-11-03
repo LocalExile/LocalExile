@@ -1,14 +1,15 @@
 static partial class Game
 {
-    // Accepted, mitigated hit components: Ward once, typed ES, then physical-only defensive Mana.
+    // Accepted, mitigated hit components: Ward once, typed ES, then defensive Mana (PlayerDamageTaken). types: the hit's
+    // damage by type (only its proportions count).
     internal static int DamagePlayerHitTyped(ClientState conn, int physical, int other, int chaos, double at,
-        IReadOnlyDictionary<uint, int> player)
+        IReadOnlyDictionary<uint, int> player, GameServer.Core.World.DamagePacket types)
     {
         if (conn.Immune) return 0;
         var state = ResourceEffectsOf(conn);
         if (!ResourceEffectsCurrent(conn, state) || conn.LeavingArea) return 0;
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        // Redirect the combined non-chaos hit before Ward, retaining the physical share for Mana.
+        // Redirect the combined non-chaos hit before Ward, retaining the physical share.
         int nonChaos = (int)Math.Min(int.MaxValue, (long)physical + other);
         var kept = TotemsTakeHitLocked(conn, nonChaos, chaos, at, player);
         physical = nonChaos == 0 ? 0 : (int)((long)physical * kept.NonChaos / nonChaos);
@@ -19,14 +20,14 @@ static partial class Game
         chaos = IncomingResourceDefences.Taken(chaos, Get);
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
         int bypass = Get(IncomingResourceDefences.BypassStat);
-        int physicalLife = IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at);
-        long rest = (long)IncomingResourceDefences.Damage(conn.EnergyShield, other, bypass, at)
-            + conn.EnergyShield.Damage(chaos, true, at);
-        uint mana = ManaRecoveryRules.FromMana(physicalLife, conn.PlayerMana, Get("physical_damage_%_taken_from_mana_before_life"));
-        conn.PlayerMana -= mana;
+        int nonChaosLife = (int)Math.Min(int.MaxValue, (long)IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at)
+            + IncomingResourceDefences.Damage(conn.EnergyShield, other, bypass, at));
+        int chaosLife = conn.EnergyShield.Damage(chaos, true, at);
+        int fromMana = PlayerDamageTaken.FromMana(nonChaosLife, chaosLife, types, (int)conn.PlayerMana, Get);
+        conn.PlayerMana -= (uint)fromMana;
         if (ResourceEffectsCurrent(conn, state)) state.Mana.Hit(at,
             (int)Math.Min(int.MaxValue, (long)physical + other + chaos), Get("damage_taken_goes_to_mana_%"));
-        return (int)Math.Min(int.MaxValue, physicalLife - (long)mana + rest);
+        return (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana);
     }
     internal static (int Physical, int Other, int Chaos) AbsorbPlayerWard(ClientState conn,
         int physical, int other, int chaos, double now, IReadOnlyDictionary<uint, int> stats)

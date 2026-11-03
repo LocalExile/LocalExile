@@ -1371,6 +1371,61 @@ second (3.7 at 185 ES); that regeneration correctly continues while recharge is 
 control recovered nothing during the recharge delay. See [recovery timing](../re/recovery-timing.md) for evidence and
 measurement limits. Recovery-cadence PR #159 is merged; this change extends its existing recovery loop.
 
+## Damage taken from hits
+
+The player's own stats change a monster's hit in three places (`PlayerDamageTaken`), in PoB `CalcDefence`'s order:
+before any mitigation the damage shift, after resistance and armour max(damage + flat, 0) × the taken multipliers, and
+after ward and energy shield the share mana takes.
+
+The damage shift ("X% of Physical Damage from Hits taken as Fire Damage") comes after the enemy auras' conversion and
+Glacial Wave's less damage. The rules come from the wiki's "Damage taken as" page and PoB's `damageShiftTable`:
+
+- Every shift reads the hit's original amounts at once, so damage shifts only once and in any direction: The Rat Cage's
+  fire taken as physical works next to physical taken as fire.
+- The source keeps max(100 - total, 0)%. A total over 100% is not scaled down, so it adds damage.
+- Each part is mitigated only as its final type: physical taken as fire skips armour.
+- Chill, freeze and shock read the shifted damage taken, so physical taken as cold can chill. Ignite reads the damage
+  dealt, the unshifted hit, so fire taken as physical still ignites on a critical strike.
+- The "from Hits" stats shift hits only. The `hit_and_dot` stats also shift damage over time, which is not read yet.
+- `base_fire_hit_damage_taken_%_as_physical_value_negated` is stored as -10 and shown as 10%.
+
+Then each type taken may be avoided (wiki Avoidance): "X% chance to Avoid Fire Damage from Hits" and the other types',
+plus "... Avoid Damage of each Type from Hits", capped at 75%. Each type rolls once in the packet's order, and a type
+without a chance draws nothing, so the rolls after it keep their order. An avoided type deals nothing, but the hit still
+lands, so when-hit effects happen. An ailment needs damage of a type that can inflict it, so an avoided type inflicts
+none: no chill, freeze or shock, and ignite reads only the dealt damage that lands (`Landed`), so avoided fire cannot
+ignite. Fire taken as physical keeps, for ignite, the share whose physical is not avoided; the wiki does not cover that
+case. Dev hits roll it too, before block.
+
+After mitigation, each type of the hit takes:
+
+- the flat stats, "+X Fire Damage taken from Hits" and the other types', and for physical "... from Attack Hits"
+  (monster hits are attacks), only on a type the hit has;
+- "X% increased Damage taken", the type's own, for an element "Elemental Damage taken", and on a melee hit "Damage
+  taken from Melee Attacks" (a monster attack that is not ranged), added to the shock's increase, as PoB adds them to
+  its `takenInc`;
+- on a blocked hit, its share: "You take X% of Damage from Blocked Hits" and Glancing Blows' 65%, plus "of Elemental
+  Damage" for an element.
+  It is 0 by default and may pass 100%. A blocked hit still applies no ailments (wiki Blocking); Life Recoup reads the
+  share it deals.
+
+Of what is left after ward and energy shield, mana takes its share before Life (wiki "Mana before Life"): Mind Over
+Matter's `keystone_mana_shield`, which has no value (its 40% is the keystone's text), plus
+`base_damage_removed_from_mana_before_life_%` and the type's own share (physical, lightning, chaos), at most 100% for
+each type. Ward and energy shield take the hit as a whole, so the hit's types weigh the non-chaos part's share. Mana
+pays at most what it has, rounded up as PoB does, and the rest stays on Life. Trial spikes and dev hits take it too.
+
+The dev `/hit`, `/spellhit` and `/blockhit` commands apply the same after-mitigation steps to their one type, and a
+ranged `/hit` now also takes the shock's increase.
+
+Not read: the conditional shift stats (while affected by a Purity, with four influenced items, during a flask), the
+ring-slot local stats, `physical_damage_from_hits_%_taken_as_random_element`, the Divine Flesh and Tempered by War
+keystones (their other effects, bypassing Energy Shield and less resistances, are not modelled), projectile and spell
+damage taken, the increased damage taken on damage over time (ignite ticks, Righteous Fire), and for Mana before Life:
+damage over time, Eldritch Battery's energy shield before it, the Focus and Clarity forms, and Mind Over Matter at
+maximum Power Charges; for avoidance: the per Frenzy Charge, while Phasing and soul gain prevention forms, and
+projectile avoidance.
+
 ## Incoming ordinary elemental ailments
 
 The Gateway's supported monster melee contact now calls `ApplyPlayerAilmentsLocked` after hit mitigation/block.

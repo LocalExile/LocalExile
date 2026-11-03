@@ -61,7 +61,7 @@ Retired monster contacts are refused before hit bookkeeping, and retired Rage pu
 |---|---|
 | 4174 an infinite pursuit | Final Dexterity adds flat Mana before increases; Intelligence's inherent Mana is removed |
 | 22720 we know all | Existing maximum-Mana attack lightning; signed -100% cost reduction doubles the supported cost |
-| 26415 don't panic yet | Nearest-totem redirection, Ward, typed ES, then physical-only defensive Mana; 20% post-Ward hit damage recouped as Mana |
+| 26415 don't panic yet | Nearest-totem redirection, Ward, typed ES, then defensive Mana ([20](../protocol/20-damage.md#damage-taken-from-hits)); 20% post-Ward hit damage recouped as Mana |
 | 53715 breathe deep | Accepted continuous Mana flask recovery also earns Life; independent queues and enduring Mana remain |
 | 2266 there is more | Existing maximum/minimum Power and Frenzy charge consumers |
 | 863 wait a little | Actual accepted Mana spending grants 10 Rage per 200, retaining the remainder |

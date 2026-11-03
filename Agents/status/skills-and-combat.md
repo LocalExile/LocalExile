@@ -1448,6 +1448,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   hits, the bleed, ignite and poison rows (each gated on its own type), the poison hits inflict and the caster's
   outgoing DoT drop those types.
   Automated tests only; the native check is pending.
+  Hits taken read damage taken and Mana before Life stats ([20](../docs/protocol/20-damage.md#damage-taken-from-hits)).
   Ordinary player energy shield derives from equipment, intelligence and passives.
   Equipment ES uses the saved variable base roll and native rounding before and after local modifiers and quality.
   It absorbs non-chaos hits before life and recovers through regeneration and delayed, damage-interrupted recharge.
