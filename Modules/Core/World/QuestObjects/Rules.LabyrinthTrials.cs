@@ -1265,7 +1265,7 @@ static partial class QuestobjectsRules
                     double now = conn.Clock.Elapsed.TotalSeconds;
                     // Dead of something else: the bleed ends, and its buff (removed below) with it.
                     if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) { bleed.Until = double.NegativeInfinity; break; }
-                    double factor = now < conn.Walk.ArrivesAt ? LabyrinthTrials.SpikeBleedMovingFactor : 1;
+                    double factor = conn.Walk.Moving(now) ? LabyrinthTrials.SpikeBleedMovingFactor : 1;
                     dealt = (int)Math.Round(bleed.PerSecond * factor * SpikeBleedTickSeconds);
                     long lifeDamage = conn.EnergyShield.Damage(dealt, false, now);
                     conn.PlayerLife = (uint)Math.Max(0, conn.PlayerLife - lifeDamage);
@@ -1849,9 +1849,9 @@ static partial class QuestobjectsRules
                 await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, instance, buffRow), null);
                 shown = (instance, buffRow);
             }
-            if (degen && !was)
+            if (degen && !was && CharacterPlayerStatsCore(conn, out double lifeRegen) is not null)
                 Console.WriteLine($"[gateway] {remote} {where}: degeneration {conn.TrapDegenPerSecond:0}/s (life {conn.PlayerMaxLife}, " +
-                    $"energy shield {conn.EnergyShield.Maximum}), life regeneration {LifeRegenPerSecond(conn):0.#}/s, life {conn.PlayerLife}, " +
+                    $"energy shield {conn.EnergyShield.Maximum}), life regeneration {lifeRegen:0.#}/s, life {conn.PlayerLife}, " +
                     $"energy shield {conn.EnergyShield.Current}");
             if (degen != was) await SendCharacterStats(remote, stream, ciphers, conn, degen ? where : "out of the trial's traps");
         }

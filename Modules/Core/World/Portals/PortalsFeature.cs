@@ -63,9 +63,9 @@ static class PortalsFeature
         }, $"map portal to {map.Area.Name}");
     }
 
-    // C→S 0x00d8, the map device window's Activate (21-hideouts.md §5): every slot must hold a map or a map fragment, and
-    // exactly one map. Then the slots are consumed, the map's area opens (the first portal taken makes its instance) and its
-    // portals appear around the device, replacing any open before. Otherwise nothing changes and the chat says why.
+    // C→S 0x00d8, the map device window's Activate (21-hideouts.md §5): one map (its affixes and the scarabs/fragments)
+    // or a MapDeviceRecipes set with no map. Then one item from each slot's stack is consumed, the area opens (the first
+    // portal taken makes its instance) and its portals appear around the device, replacing any open before. Otherwise the chat says why.
     internal static async Task ActivateMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (ushort Target, byte Index) activate)
     {
         HideoutCatalog.Doodad? device;
@@ -73,25 +73,47 @@ static class PortalsFeature
         var items = ItemsOf(conn);
         var slots = items.Items(PlayerInventories.MapDevice);
         Console.WriteLine($"[gateway] {remote} <= 0x00d8 activate the map device (target 0x{activate.Target:x4}, index {activate.Index}): " +
-            $"{string.Join(", ", slots.Select(i => Items.ByHash(i.Item.TypeHash)?.Name ?? $"0x{i.Item.TypeHash:x8}").DefaultIfEmpty("empty"))}");
+            $"{string.Join(", ", slots.Select(i =>
+            {
+                string name = Items.ByHash(i.Item.TypeHash)?.Name ?? $"0x{i.Item.TypeHash:x8}";
+                return i.Item.StackSize > 1 ? $"{name} ×{i.Item.StackSize}" : name;
+            }).DefaultIfEmpty("empty"))}");
         Task Tell(string text) => Send(remote, stream, ciphers, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
         if (device is null) { await Tell("There is no Map Device here."); return; }
-        var area = MapDevices.Value.Check([.. slots.Select(i => Items.ByHash(i.Item.TypeHash) is { } t
-            ? new MapDevice.Slot(i.Item.TypeHash, t.Class, t.Name) : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}"))], CharacterName(conn), out string why);
-        if (area is null)
+        var opening = MapDevices.Value.Check([.. slots.Select(i => Items.ByHash(i.Item.TypeHash) is { } t
+            ? new MapDevice.Slot(i.Item.TypeHash, t.Class, t.Name, t.Row, i.Item.Mods, i.Item.Quality)
+            { AlternateQualityType = i.Item.AlternateQualityType, Components = t.Components }
+            : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))], CharacterName(conn), Items.Mods, out string why);
+        if (opening is null)
         {
             Console.WriteLine($"[gateway] {remote} map device not activated: {why}");
             await Tell(why);
             return;
         }
-        // Every slot's item is consumed in one transaction: all of them or none.
-        var consumed = Saves.Atomically(() => slots.Where(i => items.Remove(PlayerInventories.MapDevice, i.Id) is not null).Select(i => i.Id).ToList());
+        var area = opening.Area;
+        // One from each slot's stack, in one transaction: leftover stacks stay in the device (a shop scarab stack is 20).
+        var consumed = Saves.Atomically(() =>
+        {
+            var gone = new List<uint>();
+            var left = new List<InventoryItem>();
+            foreach (var slot in slots)
+            {
+                if (items.ConsumeOne(PlayerInventories.MapDevice, slot.Id) is not { } take) continue;
+                gone.Add(slot.Id);
+                if (take.Left is { } remain) left.Add(remain);
+            }
+            return (gone, left);
+        });
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MapDevice),
-            items.NextRevision(PlayerInventories.MapDevice), consumed, []),
-            $"0x00bf inventory {PlayerInventories.InventoryId(PlayerInventories.MapDevice)}: the map device consumed {consumed.Count} item(s)");
+            items.NextRevision(PlayerInventories.MapDevice), consumed.gone, consumed.left),
+            $"0x00bf inventory {PlayerInventories.InventoryId(PlayerInventories.MapDevice)}: the map device consumed {consumed.gone.Count} slot(s)"
+            + (consumed.left.Count == 0 ? "" : $", {consumed.left.Count} stack(s) left"));
         await RemoveMapPortals(remote, stream, ciphers, conn);
-        var open = MapDevice.Activate(CharacterName(conn), area);
-        Console.WriteLine($"[gateway] {remote} map device opened {area.Name} ({area.Id}, 0x{area.Hash16:x4}, tier {area.Tier}): {open.PortalsLeft} portals");
+        var open = MapDevice.Activate(CharacterName(conn), area, opening.Mods, opening.ItemRow);
+        string extra = opening.Mods.ExtraMagicPacks > 0 || opening.Mods.PacksDropCards > 0
+            ? $", +{opening.Mods.ExtraMagicPacks} magic packs, {opening.Mods.PacksDropCards} pack(s) drop cards"
+            : "";
+        Console.WriteLine($"[gateway] {remote} map device opened {area.Name} ({area.Id}, 0x{area.Hash16:x4}, tier {area.Tier}, {opening.Mods}{extra}): {open.PortalsLeft} portals");
         await SpawnMapPortals(remote, stream, ciphers, conn, open);
     }
 
@@ -123,6 +145,26 @@ static class PortalsFeature
         if (!PlayerActionCurrent(conn, action)) return;
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.HideoutMapDeviceUi, use.TargetId),
             "0x007b open the map device window", still: () => PlayerActionCurrent(conn, action));
+    }
+
+    // C→S 0xe8: Ctrl + click with the Atlas map device open. A map/fragment in the inventory goes into Map1's first
+    // free cell; an item already in the slots goes back to the inventory. The client only sends this after the window's
+    // +0x10b8 check (0x14030e3e0 → 0x142167da0).
+    internal static async Task MoveToMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        InstanceMapDevice.Move request)
+    {
+        var items = ItemsOf(conn);
+        if (ItemMoves.MoveToMapDevice(items, request.ItemId, ShapeOf) is not { } move)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x00e8 Ctrl + click item {request.ItemId} on the map device: refused (not there, wrong class or no room) ({request})");
+            return;
+        }
+        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(move.From),
+            items.NextRevision(move.From), [request.ItemId], []),
+            $"0x00e8 Ctrl + click: item {request.ItemId} leaves row {move.From}");
+        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(move.To),
+            items.NextRevision(move.To), [], [move.Placed]),
+            $"0x00e8 Ctrl + click: item {request.ItemId} into row {move.To} at ({move.Placed.X}, {move.Placed.Y})");
     }
 
     // The character's open town portal (OpenPortals) on entering an area: in the area it stands in (the same instance), the

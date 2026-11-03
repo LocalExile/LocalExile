@@ -8,12 +8,12 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ### Gems: how they work
 
-Nessa's local full-colour assortment, alternative-variant pagination and separate progression-filtered Skills tab
-are implemented; see the gem-vendor entry in [status/gems.md](../status/gems.md). White Skills combines both white
-kinds. Verify the updated multi-page shop in the real client after Gateway restart. Future gameplay restrictions
-belong in Skills; the colour tabs must remain complete development tools independent of campaign progression.
-Gems have unlimited stock on all Nessa tabs; verify the native shop refresh after repeat purchases as part of the
-same live check. Automated payment, replenishment and save/reload coverage is in NessaGemPurchaseTests.
+Nessa's local full-colour assortment, Awakened and Exceptional splits, alternative-variant pagination and separate
+progression-filtered Skills tab are implemented; see the gem-vendor entry in [status/gems.md](../status/gems.md).
+White Skills combines both white kinds. Verify the updated multi-page shop in the real client after Gateway restart.
+Future gameplay restrictions belong in Skills; the colour tabs must remain complete development tools independent of
+campaign progression. Gems have unlimited stock on all Nessa tabs; verify the native shop refresh after repeat
+purchases as part of the same live check. Automated stock/serialization coverage is in NessaShopTabsTests.
 
 The gem system as agreed on 2026-10-20, built in the parts below (#62, #63, #64).
 What is known about the client and the data is in [19](../docs/protocol/19-gems.md).

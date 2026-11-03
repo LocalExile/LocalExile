@@ -118,6 +118,52 @@ static class ItemMoves
         return new(from, to, items.Put(to, taken with { X = cell.Value.X, Y = cell.Value.Y }));
     });
 
+    /// <summary>
+    /// Ctrl + click with the map device open (C→S 0xe8): a map/fragment from the main inventory into Map1's first free
+    /// cell, or a device item back into the inventory. Null when the item is missing, the class is refused, or there is
+    /// no room. The item's current inventory wins if the packet's direction flag disagrees.
+    /// </summary>
+    public static BenchMove? MoveToMapDevice(PlayerInventories items, uint itemId,
+        Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically<BenchMove?>(() =>
+    {
+        byte main = Main, device = PlayerInventories.MapDevice;
+        byte from;
+        InventoryItem item;
+        if (items.Items(main).FirstOrDefault(i => i.Id == itemId) is { } inMain) { from = main; item = inMain; }
+        else if (items.Items(device).FirstOrDefault(i => i.Id == itemId) is { } inDevice) { from = device; item = inDevice; }
+        else return null;
+        byte to = from == main ? device : main;
+        if (shapeOf(item.Item) is not { } shape) return null;
+        if (to == device && !MapDevice.AcceptsClass(shape.Class)) return null;
+        if (items.FreeCell(to, shape.Width, shape.Height, shapeOf) is not { } cell
+            || items.Remove(from, itemId) is not { } taken) return null;
+        return new(from, to, items.Put(to, taken with { X = cell.X, Y = cell.Y }));
+    });
+
+    /// <summary>
+    /// C→S 0xf6: a Voidstone between the main inventory (or the cursor) and AtlasUpgrades1 (row 39, 4×1).
+    /// Into the Atlas it sits at <paramref name="slot"/>; back out it takes the first free inventory cell.
+    /// Null when the item is missing, the slot is taken, or there is no room.
+    /// </summary>
+    public static BenchMove? MoveToAtlasUpgrade(PlayerInventories items, uint itemId, byte slot,
+        Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically<BenchMove?>(() =>
+    {
+        byte main = Main, atlas = PlayerInventories.AtlasUpgrades, cursor = Cursor;
+        byte from;
+        InventoryItem item;
+        if (items.Items(main).FirstOrDefault(i => i.Id == itemId) is { } inMain) { from = main; item = inMain; }
+        else if (items.Items(atlas).FirstOrDefault(i => i.Id == itemId) is { } inAtlas) { from = atlas; item = inAtlas; }
+        else if (items.Items(cursor).FirstOrDefault(i => i.Id == itemId) is { } held) { from = cursor; item = held; }
+        else return null;
+        byte to = from == atlas ? main : atlas;
+        if (shapeOf(item.Item) is not { } shape) return null;
+        (byte X, byte Y)? cell = to == atlas
+            ? (slot > 3 || items.Items(to).Any(i => i.X == slot) ? null : ((byte)slot, (byte)0))
+            : items.FreeCell(to, shape.Width, shape.Height, shapeOf);
+        if (cell is null || items.Remove(from, itemId) is not { } taken) return null;
+        return new(from, to, items.Put(to, taken with { X = cell.Value.X, Y = cell.Value.Y }));
+    });
+
     /// <summary>All currencies and the crafted item commit together, including multi-currency flask crafts.</summary>
     public static BenchResult? CraftAtBench(PlayerInventories items, AccountStash stash, BenchCrafting bench,
         int recipe, Random random) => Saves.Atomically<BenchResult?>(() =>

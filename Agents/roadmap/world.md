@@ -152,12 +152,12 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 4. Server design
 
-- **Lockstep network mode:** the server would decide every position and the client play it back by server frames,
-  which makes client and server identical by construction.
-  Found so far: the frame protocol (S→C 0x2b6 / 0x2b5, already sent), the client's lockstep messages (0x018e, 0x018f,
-  0x0192, 0x0195, 0x0196) and the target update 0x1ad.
-  Still needed: the client's action sequence (0x1ad is ignored without it), every action through the lockstep messages
-  (NPCs, stashes, transitions, items, skills), and stepping every object by the server's frames
+- **Predictive desync:** Shield Charge and the map device's walk are not traced, and two monsters racing for one cell can
+  swap places between client and server ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
+- **Lockstep network mode:** the server decides every action and the client plays it back by server frames, each
+  action start putting the client on the server's cell, which ends the parted copies of a crowd.
+  It works locally and over a network, off by default ([status](../status/world.md)).
+  Still needed: monsters' order keys, and a decision on turning it on
   ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
 - **HNC packets from the client** (type 0xDD): what the server should do with them
   ([07](../docs/protocol/07-latency-visibility-movement.md)).

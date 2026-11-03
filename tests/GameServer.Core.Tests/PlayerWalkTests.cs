@@ -9,45 +9,11 @@ public class PlayerWalkTests
             cx + (int)Math.Round(5 * Math.Cos(i * Math.PI / 8)), cy + (int)Math.Round(5 * Math.Sin(i * Math.PI / 8)), 2))];
 
     [Fact]
-    public void A_walker_enclosed_by_living_bodies_follows_the_click_out_around_the_stationary_blockers()
+    public void A_walker_enclosed_by_living_bodies_stays_inside_them()
     {
-        // The estimated bodies leave no gap: without a stationary fallback the walker stays inside the ring.
         var closed = new PlayerWalk(50, 50, speed: 37, blockers: () => Ring(50, 50));
         closed.Order(80, 50, now: 0);
         Assert.True(closed.Destination.X < 55);
-
-        var w = new PlayerWalk(50, 50, speed: 37, blockers: () => Ring(50, 50), stationary: () => []);
-        w.Order(80, 50, now: 0);
-        Assert.Equal((80, 50), w.Destination);
-
-        // Walls still hold: a target the walkable grid cannot reach keeps the walker where the fallback cannot go either.
-        var walled = new PlayerWalk(50, 50, speed: 37, walkable: (x, _) => x < 60, blockers: () => Ring(50, 50), stationary: () => []);
-        walled.Order(80, 50, now: 0);
-        Assert.True(walled.Destination.X < 60);
-    }
-
-    [Fact]
-    public void Clicking_an_occupied_destination_does_not_enable_crowd_escape()
-    {
-        var w = new PlayerWalk(50, 50, 37, blockers: () => [new(60, 50, 3)], stationary: () => []);
-        w.Order(60, 50, 0);
-        Assert.NotEqual((60, 50), w.Destination);
-        Assert.False(w.EscapingCrowd(0));
-    }
-
-    [Fact]
-    public void Crowd_escape_ends_on_arrival_teleport_or_replacement_order()
-    {
-        var w = new PlayerWalk(50, 50, 37, blockers: () => Ring(50, 50), stationary: () => []);
-        w.Order(80, 50, 0);
-        Assert.True(w.EscapingCrowd(0));
-        Assert.False(w.EscapingCrowd(w.ArrivesAt));
-        w.Teleport(50, 50, 1);
-        Assert.False(w.EscapingCrowd(1));
-        w.Order(80, 50, 1);
-        Assert.True(w.EscapingCrowd(1));
-        w.Order(50, 50, 1);
-        Assert.False(w.EscapingCrowd(1));
     }
 
     [Fact]
