@@ -145,13 +145,18 @@ object's size + 3 and tolerance = its size (an NPC, size 4: 7 and 4; the stash, 
   player 1, NPCs 4, the stash 2, monsters 1–3) may stand on a cell whose value is ≥ *s* + 1, so a monster of size 2
   needs ≥ 3 where the player needs ≥ 2. The player uses layer 0
   (Positioned `+0x2c0`), which is byte for byte `data/walkability/<area>_seed<n>.bin`, so walkable = value ≥ 2. Layer 1
-  only serves the goal check (a line test with threshold 1), which never fails on a walkable town cell.
+  is the projectile grid (`<area>_seed<n>.projectile.bin`: 0 stops projectiles, 1 … 5 a distance from what does): the
+  goal's line test reads it (below).
 - **Search.** A* in a 272 × 272-cell window (`0x110`, centred on the start). 8 neighbours in the order (0,1), (1,0),
   (0,−1), (−1,0), (1,1), (1,−1), (−1,−1), (−1,1) (`DAT_142fbf350`); no corner rule. Costs are 1 / 1.4142 and the
   heuristic is `|cell − target| + 0.001 × |cross(target − start, cell − target)|` (`0x141e4d7d0`; the distance less the
   tolerance, then the part outside [min, max], 0 inside), all in float32. The open list is MSVC `push_heap`/`pop_heap` on
   `{node, f}` with `a.f > b.f` (`0x141beb420`, `0x141beb2b0`), stale entries are skipped, and the goal is the first
-  popped node with h = 0.
+  popped node with h = 0 whose Bresenham line to the target, both ends included, holds the order's precision on layer 1
+  (`0x141d87160`; the precision is MoveTo's `+0x528`, 1 … 5: 1 for a Move or a melee attack, 3 for a bow's attack). A
+  node in range without that line is expanded like any other, so a bow's attack walks to the nearest cell it can
+  shoot from. When no node had it and the best node was the start, a monster's second search goes to the target itself
+  (min and max range 0).
 - **The player's limit is an ellipse.** For a mover with a Player component (`0x14013f1e0`) there is no expansion
   count; a neighbour n is searched only if `clamp(2 |target − start|, 20, 136) > |n − target| + |n − start|`.
 - **Other movers stop after 100 expansions** (1000 for a unique, ObjectMagicProperties `+0x144` = 3, or a pet with
@@ -234,10 +239,20 @@ and the hit lands at that clip's contact keyframe (`monster-contacts.json`).
 player (0.25 s for a monster, `0x141e8eb60`), and needs no word from the server to swing. The Gateway follows it: it
 paths again every 100 ms, for up to 3 s (`FollowMonsterToSwing`). In reach means the walk-up's own goal: the distance less
 the target's size within the weapon's range (WeaponTypes RangeMax: a bow or wand 120, the Rusted Sword 11; the client's
-search runs with max range 119 for the bow and 10 for the sword, live 2026-11-03). A ranged attack's walk-up also wants
-line of sight: in reach at 35 cells on the Strand the client walked 17 cells round whatever blocked the line, then shot,
-while the Gateway shot in place and its next start put the client back. That rule (its grid layer and test) is not
-known yet, so the Gateway does not model it; one such walk in four 50 s beach fights.
+search runs with max range 119 for the bow and 10 for the sword, live 2026-11-03), with the line to the target. MoveTo
+(`0x141e7b530`) first tests where the player stands (`0x141e7b260`): in range, and the line to the target on layer 1
+(the projectile grid) holding the action's precision (`0x141e8eb60` → MoveTo `+0x528`: 3 for the bow's attack, 1 for
+the sword's and for a Move) up to the target's body: the last cell at or above the precision within size + 1 of the
+target (`0x141d87500`). Failing that, the search's goal is the first cell in range whose whole line to the target holds
+the precision (the pathfinder above): the bow's attack walks to where it can shoot (in reach at 35 cells on the Strand the client
+walked 17 cells round a rock, then shot). When the ellipse holds no such cell the search returns nothing, and the goal
+is tested where the player stands at precision 1, which the order then keeps (`0x141e7b920`): a line without a 0 lets
+the shot go from there, a wall in it leaves the action without a path. The Gateway does the same
+(`ClientPathfinder.InReach`, `PlayerWalk.Approach`'s precision, `Combat.SwingInReach`) from the capture's
+`.projectile.bin` or the generated level's grid (`AreaLayout.Sight`). Live 2026-11-03 on the Strand: ten bow shots
+and one wand shot at Sand Spitters behind a rock's band each walked 10 to 14 cells on the client, and the Gateway's
+cell equalled the client's at every following start. The wand's precision is the bow's (traced); an attack gem's is
+taken to be (not traced). Without a projectile grid any cell in reach is the goal, as before.
 
 **Stun and freeze.** The client stops for a hit's recovery (0x1d1) and then goes on with its walk, so the server holds
 its walk for that long (`PlayerWalk.Pause`) instead of ending it. A held walker is not moving for anything that asks

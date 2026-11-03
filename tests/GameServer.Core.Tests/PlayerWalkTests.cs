@@ -67,6 +67,15 @@ public class PlayerWalkTests
         var (_, stop, at) = w.Approach(9, 5, reach: 8, now: 3);
         Assert.Equal((5, 5), stop);
         Assert.Equal(3, at, 3);
+
+        // A bow's walk-up where no cell has the line at precision 3 (a projectile grid of 2 throughout): the search finds
+        // nothing, the goal is tried where the walker stands at precision 1, and the order keeps that precision.
+        var low = new PlayerWalk(5, 5, speed: 10, sight: (_, _) => 2);
+        (_, stop, at) = low.Approach(9, 5, reach: 8, now: 3, tolerance: 1, precision: 3);
+        Assert.Equal((5, 5), stop);
+        Assert.Equal(3, at, 3);
+        Assert.True(low.ReachedGoal);
+        Assert.True(low.InReachOf((5, 5), (9, 5), 8, 1));
     }
 
     [Fact]
