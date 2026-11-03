@@ -80,6 +80,9 @@ Faustus, Isla, Sonja and Raulf in Kingsmarch, Kurai, Faustus, Adiyah, Whakano an
 Ailith (`ChayulaFarmerHub`) in the Monastery of the Keepers. Kingsmarch, the Rogue Harbour and the Monastery have not
 been placed live yet: their NPCs, stash and guild stash are offsets from the arrival (`StashCatalog.FromArrival`).
 Every hideout also gets Einhar (`EinharHideout`).
+Faustus uses `Metadata/NPC/League/Kalguur/VillageFaustusHideout`, whose OT supplies his model and gates it on
+`CanSeeFaustusInHideout` (QuestFlags row 3509); send the flag for hideout visits without saving quest progress.
+His native dialogue was checked in the Lush Hideout; Currency Exchange and asynchronous trade remain unsupported.
 
 Several town rooms do not start at (0, 0): the area has a border around the room. The atlas's grid placement for
 fixed layouts ([08](08-area-transitions.md) §6, step 10) assumes (0, 0), so its exits in those towns are probably off
