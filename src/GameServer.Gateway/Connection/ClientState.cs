@@ -106,6 +106,8 @@ sealed class NpcSale(SpawnedNpc npc, uint mine, uint theirs)
 // An open shop tab: the NPC, its inventory id (manager 1), the items left by id and the tab's 0xbf revision.
 sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem Item)> items)
 {
+    public string? StockKey { get; init; }
+    public Dictionary<uint, Guid> Finite { get; init; } = [];
     public SpawnedNpc Npc { get; } = npc;
 
     /// <summary>The items for sale by id, each with its tab's inventory id.</summary>

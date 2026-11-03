@@ -53,9 +53,9 @@ public sealed record LeagueRules
     /// <summary>NPC ids that refill life, mana and flasks when spoken to; an entry starting with * matches inside an id.</summary>
     public IReadOnlyList<string> VitalRefillNpcs { get; init; } = [];
     /// <summary>Nessa's map stock is for sale.</summary>
-    public bool SellsMaps { get; init; } = true;
+    public bool SellsMaps { get; init; }
     /// <summary>The development assortment of every gem at the vendors that have it.</summary>
-    public bool FullGemStock { get; init; } = true;
+    public bool FullGemStock { get; init; }
     /// <summary>The only NPC id endings whose gem tabs exist; null: every gem vendor's.</summary>
     public IReadOnlyList<string>? GemVendors { get; init; }
     /// <summary>Support gems are in the gem tabs.</summary>

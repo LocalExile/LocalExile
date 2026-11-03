@@ -96,6 +96,50 @@ static class ItemMoves
     /// <summary>A price paid: what it took from the main inventory's stacks and from the stash's (either may be null).</summary>
     public sealed record Price(PlayerInventories.Payment? Inventory, AccountStash.Payment? Stash);
 
+    public sealed record VendorPurchase(IReadOnlyList<Price> Payments, IReadOnlyList<InventoryItem> Bought);
+
+    public static VendorPurchase? PurchaseVendor(PlayerInventories items, AccountStash? stash, AccountStash gold,
+        Item offer, ItemCatalog catalog, Func<Item, PlayerInventories.Shape?> shapeOf, Func<bool> consume,
+        byte? destination = null, byte x = 0, byte y = 0) => Saves.Atomically<VendorPurchase?>(() =>
+    {
+        if (offer.Price.Count == 0 || offer.Price.Any(p => p.Amount == 0)) return null;
+        byte row = destination ?? Main;
+        if (row != Main && row != Cursor) return null;
+        var bought = offer with { Price = [] };
+        if (destination is null)
+        {
+            if (!items.Fits(Main, bought, shapeOf)) return null;
+        }
+        else
+        {
+            if (shapeOf(bought) is not { } shape) return null;
+            var grid = InstanceInventories.PlayerDefaults[row];
+            if (x + shape.Width > grid.Width || y + shape.Height > grid.Height
+                || items.Items(row).Any(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width
+                    && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)) return null;
+        }
+        var costs = offer.Price.GroupBy(p => p.TypeHash).Select(g => (Currency:g.Key, Amount:g.Sum(p => (long)p.Amount))).ToArray();
+        foreach (var (currency, amount) in costs)
+        {
+            if (amount <= 0 || amount > int.MaxValue || catalog.ByHash(currency) is not { } type) return null;
+            if (type.Class == ItemDrops.GoldClass ? gold.Gold < amount
+                : (long)items.Count(Main,currency) + (stash?.CountOf(currency) ?? 0) < amount) return null;
+        }
+        if (!consume()) return null;
+        var payments = new List<Price>();
+        foreach (var (currency, amount) in costs)
+            if (catalog.ByHash(currency)!.Class == ItemDrops.GoldClass)
+            {
+                if (gold.TrySpendGold(amount) is null) throw new InvalidOperationException("Vendor gold changed during purchase");
+            }
+            else payments.Add(Pay(items,stash,currency,(int)amount)
+                ?? throw new InvalidOperationException("Vendor payment changed during purchase"));
+        if (destination is not null) return new(payments,[items.Add(row,x,y,bought)]);
+        var into = items.AddStacked(Main,bought,shapeOf);
+        if (into.Left != 0) throw new InvalidOperationException("Vendor item no longer fits after payment");
+        return new(payments,[.. into.Changed, .. into.Added]);
+    });
+
     public sealed record BenchResult(InventoryItem Changed, IReadOnlyList<Price> Payments);
 
     /// <summary>Where a bench Ctrl + click (C→S 0xe9) moved an item: out of <see cref="From"/>, now <see cref="Placed"/> in

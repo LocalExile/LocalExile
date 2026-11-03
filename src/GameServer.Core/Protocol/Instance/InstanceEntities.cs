@@ -463,10 +463,11 @@ public static partial class InstanceInventories
     /// u8 +0x28, u8 +0x29. Flags bit 0: <see cref="Slot.SingleItem"/>, bit 1: <see cref="Slot.Equipment"/>. 0x141d625f0 files the id under its row; UI such as the flask bar looks it up by row (row 11).
     /// Each item (0x1421f5680): u32 id, u8 x, u8 y, the item (<see cref="Item.Wire"/>).
     /// </summary>
-    public static byte[] AddInventory(uint inventoryId, Slot slot, byte manager = 0, IReadOnlyList<InventoryItem>? items = null)
+    public static byte[] AddInventory(uint inventoryId, Slot slot, byte manager = 0, IReadOnlyList<InventoryItem>? items = null,
+        byte? flags = null)
     {
         var w = new LoginWriter().U16(InstanceEntities.AddInventoryId).U8(manager).U32(inventoryId)
-            .U8(slot.Kind).U8(slot.Row).U8(slot.Width).U8(slot.Height).U8(slot.Flags);
+            .U8(slot.Kind).U8(slot.Row).U8(slot.Width).U8(slot.Height).U8(flags ?? slot.Flags);
         InstanceProtocol.CompactUInt(w, (uint)(items?.Count ?? 0));
         foreach (var it in items ?? []) w.U32(it.Id).U8(it.X).U8(it.Y).Bytes(it.Item.Wire());
         return w.U8(0).U8(0).ToArray();

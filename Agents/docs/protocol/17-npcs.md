@@ -199,7 +199,7 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
 
 ## 5. Shops
 
-- **S→C 0x8c** (read `0x1421a1f60`): u32 BE NPC, u16 BE (NPCShop row), u8, u16 n + n × u32 BE inventory ids (one tab
+- **S→C 0x8c** (read `0x1421a1f60`): u32 BE NPC, u16 BE window kind (0 = buy), u8, u16 n + n × u32 BE inventory ids (one tab
   each, looked up in inventory manager 1, instance +0xca10, `0x14216aa30`), u16 m + m × (compact uint, wstr name, u8)
   tab names. Listener `0x140dcccf0` → VendorBuy (UI +0x7b8, vtable `0x1431356b8`, +0x380 = `0x14073d570`).
 - **C→S 0x88** (write `0x141f95380`): u32 BE shop item, u32 BE destination inventory (masked like 0x28's), u8 x, u8 y,
@@ -213,43 +213,26 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
 - **C→S 0x8a** (dispatcher case 0x8a): Ctrl + click on a shop item. Read from live bytes (2026-10-20, Nessa): u32 BE shop
   item, u8, u8 flags, compact uint (as 0x88's), u16 token (raw); `008A 00000061 00 00 00 A777`, 11 bytes. No cell: the
   Gateway puts the item into the main inventory (a stack onto stacks of its type, then the first free cell) and takes the
-  price from the inventory and then the stash, in one transaction (`ItemMoves.BuyToInventory`); with no room or not
+  price from the inventory and then the stash, in one transaction (`ItemMoves.PurchaseVendor`); with no room or not
   enough to pay, nothing happens.
-- **Prices**: item Base flag bit 7: u8 n + n × (u32 item type hash, compact uint amount), stored in the Base's +0xb8 list.
-  Ours: 1 Scroll of Wisdom for the ordinary stock; a gem vendor's unlevelled gems cost the currency of their level-1
-  character level requirement (`GemVendorStock.Price`): 1–7 Scroll of Wisdom, 8–15 Orb of Transmutation, 16–27 Orb of
-  Alteration, 28–37 Orb of Chance, 38+ Orb of Alchemy, one of it. The tooltip shows it under Cost, in red when the player
-  can't pay it: the client decides that itself, no server message needed (live 2026-10-20).
-- **Stock** is the server's (NPCShop only names shops): `NpcShops.Stock`.
-- **Several tabs**: one manager-1 inventory per tab (S→C 0xc0, ids from 0x400), all listed in 0x8c with their names
-  (the m × (compact uint index, wstr name, u8) list). `NpcShops.Tabs`: the NPC's stock in "Goods", and a gem vendor
-  (`GemVendorStock.Sells`: Nessa, Yeena, Clarissa, Petarus and Vanja, Lani, Lilly Roth, Siosa) also sells gems in seven
-  tabs by SkillGems GemColour and IsSupport: Red Skills, Red Support, Green Skills, Green Support, Blue Skills, Blue
-  Support, White Skills (2026-10-21; 3.29 progression 2026-10-26). 1 Scroll of Wisdom each, as everything.
-  The gem stock is `GemVendorStock`: the level-1 gems of every quest reward offer the character has completed (the
-  offer's reward is shown or was taken), filtered to the character's class, restricted to `ItemCatalog.ShopGems`
-  (creatable, dropping, not Vaal or awakened). Siosa (after `a3q12-DeliveredPages`) and Lilly Roth (after
-  `UnlockedLillyGemShop`) ignore the class restriction, and Lilly also the quest completion; the 3.29 cross-class
-  additions put Faster Attacks on Nessa after a1q2 and Faster Casting on Yeena after a2q4. Live 2026-10-26: Nessa
-  listed the Witch's a1q1 and a1q4 gems, then the a1q2 gems plus Faster Attacks after the flag; Lilly is unit-tested
-  only (the Act 6 town has no walk-map capture and spawns the player in water).
-  Nessa's development stock adds Awakened Gems and Exceptional Gems tabs and keeps the ordinary colour tabs ordinary
-  (transfigured, Trarthan and creatable Vaal variants stay there). Its progression-filtered Skills tab is shown only
-  when it has stock. `ItemCatalog.AwakenedShopGems` restores the whole awakened table (3.29 disables the non-exceptional
-  rows for normal play); `ExceptionalShopGems` is the GemTags "exceptional" set without the awakened rows.
-  Nessa's maps are separate tabs: "Maps" has one generic `Map (Tier N)` item (`MapKeyTier1` … `MapKeyTier16`) per tier
-  and the tier-17 `Nightmare Map` (`MapKeyNightmareBoss`); "Originator Maps" has a `Map (Tier 16)` and a `Nightmare Map`
-  carrying the `MapZanaInfluenced` implicit; "Unique Maps" has one identified unique item per UniqueMaps name, with
-  Words HASH32 and ItemVisualIdentity HASH16. These are catalogue identities; complete unique modifier sets and
-  unique-area device routing remain unimplemented. No numbered MapWorlds catalogue is mixed into Goods.
-  Goods2, Goods3 and later pages are created automatically when needed.
-  Tabs fill row by row. 0x8c's u16 is the window kind (`0x14073ee60`, +0x5f0), not an NPCShop row: 0 buy, 1-4 haggle,
+- **Prices**: Base flag bit 7 supplies u8 n + n × (u32 type hash, compact uint amount), stored at Base +0xb8.
+  Explicit prices override native costs; see [vendor evidence](#vendor-evidence-and-local-policy).
+- **Tabs**: ordinary shops use manager 1, inventory kind 71, row 117, 12×11, flags 0x60.
+  All tabs arrive together; 0x8c has no custom names, so the client supplies labels.
+  Standard disables the development catalogue (`FullGemStock` and `SellsMaps` default false).
+  Opting into `FullGemStock` retains Nessa's custom colour, Awakened Gems and Exceptional Gems tabs;
+  also enable `SellsMaps` for Maps, Originator Maps and Unique Maps. These bypass ordinary progression.
+  Awakened stock restores disabled rows; exceptional stock uses GemTags, excluding awakened rows.
+  Maps use generic tier keys and Nightmare Map; Originator Maps carry `MapZanaInfluenced`.
+  Unique maps have catalogue identities; full unique modifiers and unique-area routing remain incomplete.
+- **Custom tab protocol**: development tabs fill row by row. 0x8c's u16 is the window kind (`0x14073ee60`, +0x5f0), not an NPCShop row: 0 buy, 1-4 haggle,
   deal, exchange and expedition, 9 Azmeri, 10 black market, 11 unset; the Gateway sends 0. The window is chosen by the
   NPC's DialogueStyle (`0x14072b160`: not LEGACY → UI +0x7b8), not by the u8. The u8 is the async trade mode (title
   "Merchant", 78 more height, a report popup on the tabs; `0x14073d570`, `0x14073fdd0`); the Gateway sends 0. A tab's
   compact value is its colour, not an index (+0x24: ARGB, 0 the default brown; a small number has alpha 0, which drew no
   tab background). Tabs have 11 rows: 12 pushed the tab bar over the "Purchase" title (live 2026-10-31). The window's own
   "Select Items To Buy" (`0x14073bee0`) stays visible behind the first tabs; no server value removes it.
+
 - **Sell**: S→C 0xb8 (write `0x141d6acc0`): u32 BE other party (0 = NPC sale → VendorSell, UI +0x7c8), u32 BE your offer,
   u32 BE their offer (both manager-1 inventories, grids `0x140317440` / `0x140c605f0`), u8 flags, wstr name, u32 BE
   NPCs row, u16, u32 BE TradeWindowVisuals row, u16 (+0x54, shown as an error text when set), u16. The offer grids
@@ -314,3 +297,74 @@ enabling her prison reward; claiming sets `a1q2-NessaRewardTaken`. Tarkleigh's H
 check and rollback on failure/full inventory. The server removes all choices and ends dialogue after claiming.
 Live verified with OfflineWitch: Combustion Support from Nessa and Freezing Pulse from Tarkleigh, including the saved
 completion flags. Other quest scripts are not thereby implemented.
+
+## Vendor evidence and local policy
+
+### Sources and capture limits
+
+The reviewed [community snapshot](../../../scripts/re/vendor-stock/community-stock.json) compares
+[wiki vendor rewards](https://www.poewiki.net/wiki/List_of_vendor_rewards) with
+[PoEDB quest rewards](https://poedb.tw/us/QuestRewards). Only the wiki identifies vendors;
+agreement does not prove unlock timing or 3.29.3b parity. `snapshot.py` can refresh the source comparison.
+
+Original-client memory captures from 2026-11-02 cover one level-91 Luminary (base class Scion).
+Exact league mode and Atlas history were not recorded; Siosa was locked and not captured.
+Raw captures stay under ignored `Tools/re/out/vendor-research/live-2026-11-02/`.
+The capture/decoder helpers live in `scripts/re/vendor-stock/`.
+Stream reader `0x140dfb630` sets `+0x252` on short reads: discard that attempt and retain the successful retry.
+
+### Presentation and item identity
+
+All captured vendors use the descriptor in §5 and an empty custom-name list.
+Goods scan columns before rows. Equipment sorts by width descending, height descending, then BaseItemTypes row;
+supplies follow in shop order. Kirac places Unmaking at (0,0), the scarab at (0,1), then maps by ascending tier.
+Generated equipment rolls are observations, not fixed stock templates.
+
+[Gem layout groups](../../../scripts/re/vendor-stock/gem-layout.json) preserve captured ordering and row breaks.
+Campaign vendors mix colours/supports. Lilly separates them into seven sections; blue active gems overflow,
+producing eight tabs with 79, 54, 92, 53, 103, 10, 66 and 2 items.
+Locked groups consume no space. Other classes append uncaptured gems by level/base row;
+Siosa and later vendors use Lilly's ordering filtered to their stock. Those fallbacks remain unmeasured.
+Same-name legacy rows are not interchangeable: captured shops use SkillGemPhaseRun, SkillGemArcticArmour
+and SkillGemConvocationNew; the alternatives have missing prices or different progression.
+
+### Native prices and generation evidence
+
+Price resolver `0x1421e8f80` prioritizes explicit Base prices.
+`0x1421e8d70` selects the highest ItemCostPerLevel.Level not exceeding Mods item level, or level 1 without Mods.
+Thus offered gem experience does not change its price row. `0x1421ea0b0` selects rarity columns 1–4.
+`0x1421e9fd0` multiplies positive costs by stack size; negative costs contribute their absolute value.
+Unidentified magic adds one Wisdom; unidentified rare adds one Chance (`0x1421e9129`).
+Captured currency stacks were size 1; native full-stack conversion was not verified.
+Kirac's captured Kalguuran Scarab explicitly costs four Chaos Orbs; captured maps have item level 82.
+
+All 220 campaign equipment/flask observations match `town level + 2 - rarity` (normal=0, magic=1, rare=2).
+This high-level observation does not establish low-level scaling or Ruthless parity.
+[Official 3.21 notes](https://www.pathofexile.com/forum/view-thread/3361403) establish partial level-up rotation
+and possible rare stock, but not exact weights or retention ages.
+
+Mod-value roller `0x14242e480` uses ranges from `0x142430860`, RNG `0x1404d03d0` and context RNG pointer `+0x20`;
+byte `+0x18` selects alternate ranges. Callers include Delve; this is not a recovered vendor generator.
+Received mods instead use `0x142430380`: 16-bit mod hashes followed by signed values (`0x141e490e0`).
+Vendor messages carry rolled rarity, item level, visible modifiers, sockets and links, not a generation seed.
+No complete headless native generation ABI is verified; generation remains server-authoritative.
+
+### Unverified local choices and remaining gaps
+
+- Captured Scion additions have assumed unlocks: Volcanic Fissure at The Caged Brute, Mana-Infused Staff at
+  Sharp and Cruel, Conflagration/Holy Hammers at Sever the Right Hand.
+- Campaign Lilly's observed 459 gems are all-class after Fallen from Grace; Siosa uses A Fixture of Fate.
+  Hideout Lilly serves new characters without their own quest completion.
+  This server already places her in every hideout, so her presence grants access; account invitation gating is not modeled.
+  Later campaign membership unions the first four acts' unlocked class stock.
+  Act 1–4 gem levels use a character-requirement ceiling of 52; Siosa/Lilly gems stay level 1.
+- Equipment slot counts, rarity/base/quality/socket/link weights and three-level retention are local policy
+  in `VendorStock`, not recovered official probabilities. Low-level item scaling extends the observation as
+  `max(1, min(character level, town level) + 2 - rarity)`, including in Ruthless.
+- KiracLevels supplies native offered-area levels, completion thresholds and reroll costs.
+  Interpreting MapCompletion as distinct layouts, refreshing at unlock thresholds, and selecting the map
+  assortment are assumptions. Highest completed tier is stored independently; no X±1 rule is inferred.
+  Completion uses the owner's active-map unique-monster approximation. Earlier character Atlas records are
+  not migrated because reliable tier history is absent.
+- Kirac stock/progress is shared per account/league. `/vendor_refresh` charges the native progression cost;
+  the native refresh-button packet remains unmapped. Special league shops are outside this implementation.

@@ -1,22 +1,28 @@
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>
-/// 3.29 town gem vendors (17-npcs.md §5, 19-gems.md §5). A vendor sells the level-1 gems that a completed quest offered
-/// to the character's class: a quest is complete when its reward is available (the NPCTalk row is shown) or its reward
-/// was taken. The 3.29 exceptions are folded in: Siosa (after "A Fixture of Fate") and Lilly Roth (after her gem-shop
-/// unlock) ignore the class restriction, and every class can buy Faster Attacks from Nessa after The Caged Brute and
-/// Faster Casting from Yeena after Sharp and Cruel. Only gems the client's shop list has (<see cref="ItemCatalog.ShopGems"/>)
-/// are sold, so Vaal, awakened and placeholder gems stay out.
+/// Vendor-specific quest/class gem membership from the reviewed snapshot, joined to native quest offers.
+/// Siosa and campaign Lilly use their own all-class unlocks; hard mode keeps its native gem index.
 /// </summary>
 sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills, string folder = "data")
 {
+    // Cache immutable catalogues, never character stock: quest/class/rule filters are evaluated on every open.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemCatalog,
+        System.Collections.Concurrent.ConcurrentDictionary<(NpcCatalog Npcs, SkillCatalog Skills, bool Hard, bool Supports),
+            Lazy<GemVendorStock>>> Cache = new();
+
+    public static GemVendorStock For(ItemCatalog items, NpcCatalog npcs, SkillCatalog skills,
+        bool hardMode = false, bool supportGems = true) => Cache.GetOrCreateValue(items)
+        .GetOrAdd((npcs,skills,hardMode,supportGems), key => new(() => new(items,
+            QuestRewardCatalog.Load(hardMode:key.Hard,supportGems:key.Supports),key.Npcs,key.Skills))).Value;
+
     static readonly string[] CurrencyIds =
     [
         "Metadata/Items/Currency/CurrencyIdentification", "Metadata/Items/Currency/CurrencyUpgradeToMagic",
         "Metadata/Items/Currency/CurrencyRerollMagic", "Metadata/Items/Currency/CurrencyUpgradeRandomly",
         "Metadata/Items/Currency/CurrencyUpgradeToRare",
     ];
-    /// <summary>Lilly's gem shop opens with this flag (a6q4 "Fallen from Grace").</summary>
+    /// <summary>Campaign Lilly's gem shop opens with this flag (a6q4 "Fallen from Grace").</summary>
     public const string LillyUnlock = "UnlockedLillyGemShop";
 
     /// <summary>Siosa sells after a3q12 "A Fixture of Fate".</summary>
@@ -29,54 +35,54 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
         "Metadata/NPC/Act4/PetarusVanja", "Metadata/NPC/Act5/Lani", "Metadata/NPC/Act6/Lilly",
         "Metadata/NPC/Act7/YeenaTown", "Metadata/NPC/Act8/ClarissaTown", "Metadata/NPC/Act9/PetarusVanja",
         "Metadata/NPC/Act10/Lani", "Metadata/NPC/Act10/Lilly", "Metadata/NPC/Epilogue/Lani",
-        "Metadata/NPC/Epilogue/Lilly", "Metadata/NPC/Epilogue/Lilly2", "Metadata/NPC/Act3/Siosa",
+        "Metadata/NPC/Epilogue/Lilly", "Metadata/NPC/Epilogue/Lilly2", "Metadata/NPC/Epilogue/LillyHideout", "Metadata/NPC/Act3/Siosa",
     };
 
     public static bool Sells(string npcId) => Vendors.Contains(npcId);
 
-    readonly HashSet<int> sellable =
-    [
-        .. new[] { false, true }.SelectMany(support => new[] { 1, 2, 3, 4 }
-            .SelectMany(colour => items.ShopGems(colour, support))).Select(t => t.Row),
-    ];
+    readonly Dictionary<string,int> sellable = new[] { false, true }
+        .SelectMany(support => new[] { 1, 2, 3, 4 }.SelectMany(colour => items.ShopGems(colour, support)))
+        .ToDictionary(t => t.Id,t => t.Row,StringComparer.Ordinal);
+    readonly Lazy<IReadOnlySet<int>> hardModeRows = new(() => HardModeGemRows(folder));
 
     /// <summary>The NPC's gem stock at character level/quest state: BaseItemTypes rows, in row order. Empty before the
-    /// character has completed a quest that offers gems (or when Lilly/Siosa's own unlock is missing).</summary>
+    /// character has completed a quest that offers gems (or when campaign Lilly/Siosa's unlock is missing).
+    /// Hideout Lilly serves every character who can visit her; her availability is the hideout unlock.</summary>
     public IReadOnlyList<int> Stock(string npcId, int classRow, IReadOnlySet<string> flags, bool hardMode = false, int level = 100, LeagueRules? rules = null)
     {
+        bool hideoutLilly = npcId.Equals("Metadata/NPC/Epilogue/LillyHideout",StringComparison.OrdinalIgnoreCase);
         bool lilly = npcId.EndsWith("/Lilly", StringComparison.OrdinalIgnoreCase)
-            || npcId.EndsWith("/Lilly2", StringComparison.OrdinalIgnoreCase);
+            || npcId.EndsWith("/Lilly2", StringComparison.OrdinalIgnoreCase)
+            || npcId.EndsWith("/LillyHideout", StringComparison.OrdinalIgnoreCase);
         bool siosa = npcId.EndsWith("/Siosa", StringComparison.OrdinalIgnoreCase);
-        if ((lilly && !flags.Contains(LillyUnlock)) || (siosa && !flags.Contains(SiosaUnlock))) return [];
+        if ((lilly && !hideoutLilly && !flags.Contains(LillyUnlock)) || (siosa && !flags.Contains(SiosaUnlock))) return [];
         rules ??= LeagueRules.Standard;
         if (!rules.SellsGemsAt(npcId)) return [];
         // The HardMode index lists what its vendor exchanges.
         if (hardMode)
-            return [.. sellable.Intersect(HardModeGemRows(folder)).Where(row => items.Row(row) is { } type
+            return [.. sellable.Values.Intersect(hardModeRows.Value).Where(row => items.Row(row) is { } type
                 && rules.AllowsGemBase(type.Id)
                 && items.Gem(type) is { Variants.Count: > 0 } gem && (rules.SellsSupportGems || !gem.IsSupport)
                 && skills.PlayerLevelReq(gem.Variant(0).Effect, 1) <= level).Order()];
-        bool ignoreClass = lilly || siosa;
+        if (lilly) return Filter(VendorCatalog.Default.Gems("Lilly Roth")
+            .Where(rule => sellable.ContainsKey(rule.Base)).Select(rule => sellable[rule.Base]).Distinct().Order());
         var available = npcs.AvailableRewards(flags);
-        bool Done(QuestRewardCatalog.Offer offer) => offer.TakenFlag is { } taken && flags.Contains(taken) || available.Contains(offer.Row);
+        bool Done(int row) => available.Contains(row) || rewards.Find(row)?.TakenFlag is { } taken && flags.Contains(taken);
+        string vendor = npcId.Contains("/Act1/") ? "Nessa" : npcId.Contains("/Act2/") ? "Yeena"
+            : npcId.Contains("/Act3/") ? "Clarissa" : npcId.Contains("/Act4/") ? "Petarus and Vanja" : "";
+        if (siosa) vendor = "Siosa";
+        var catalog = VendorCatalog.Default;
+        var selected = vendor.Length > 0 ? catalog.Gems(vendor)
+            : new[] { "Nessa", "Yeena", "Clarissa", "Petarus and Vanja" }.SelectMany(catalog.Gems);
         var rows = new SortedSet<int>();
-        foreach (var offer in rewards.Offers)
-        {
-            // Lilly sells the whole game's quest-reward gems once her shop opens; the others need the quest completed.
-            if (!lilly && !Done(offer)) continue;
-            foreach (var choice in offer.Choices)
-            {
-                if (choice.Level != 1) continue;
-                if (!ignoreClass && choice.Classes.Count > 0 && !choice.Classes.Contains(classRow)) continue;
-                if (items.Row(choice.ItemRow) is { } type && items.Gem(type) is not null && sellable.Contains(type.Row))
-                    rows.Add(type.Row);
-            }
-        }
-        if (npcId.EndsWith("/Nessa", StringComparison.OrdinalIgnoreCase) && rewards.Find(7) is { } brutus && Done(brutus))
-            Add("Metadata/Items/Gems/SupportGemFasterAttack", rows);
-        if (npcId.EndsWith("/Yeena", StringComparison.OrdinalIgnoreCase) && rewards.Find(15) is { } weaver && Done(weaver))
-            Add("Metadata/Items/Gems/SupportGemFasterCast", rows);
-        return [.. rows];
+        foreach (var rule in selected)
+            if ((siosa || rule.Class == classRow) && (siosa || rule.Offers.Any(Done))
+                && sellable.TryGetValue(rule.Base,out int row)) rows.Add(row);
+        return Filter(rows);
+
+        IReadOnlyList<int> Filter(IEnumerable<int> selectedRows) => [.. selectedRows.Where(row =>
+            items.Row(row) is { } type && rules.AllowsGemBase(type.Id)
+            && (rules.SellsSupportGems || items.Gem(type)?.IsSupport != true))];
     }
 
     static IReadOnlySet<int> HardModeGemRows(string folder)
@@ -87,12 +93,6 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
             .SelectMany(r => r.GetProperty("SkillGem2").EnumerateArray().Select(x => x.GetInt32()))
             .Where(row => row >= 0 && row < gems.RootElement.GetArrayLength())
             .Select(row => gems.RootElement[row].GetProperty("BaseItemTypesKey").GetInt32()).ToHashSet();
-    }
-
-    // The 3.29 cross-class supports are vendor-only additions, so they are named by their BaseItemTypes Id.
-    void Add(string id, SortedSet<int> rows)
-    {
-        if (items.Find(id) is { } type && sellable.Contains(type.Row)) rows.Add(type.Row);
     }
 
     /// <summary>A vendor's price for one unlevelled gem: the currency by the gem's level-1 character level requirement
