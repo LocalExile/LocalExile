@@ -8,10 +8,6 @@ static partial class Game
     /// <summary>BuffDefinitions row 0 <c>ignited</c> ("You're on fire", BuffVisuals 2: the burning flames).</summary>
     internal const ushort IgnitedBuffRow = 0;
 
-    /// <summary>The wiki's Ignite: damaging ailments from critical strikes have +50% to Damage over Time Multiplier,
-    /// additive with the others (Character.ot's critical_ailment_dot_multiplier_+; the player stats do not carry it).</summary>
-    internal const int CriticalAilmentDotMultiplier = 50;
-
     // The increases the wiki's Ignite lists (Damage, Damage over Time, Elemental, Fire, Burning, Ignite Damage) and
     // ailment damage; hit-only ones (spell, area, attack, melee damage) never reach an ailment.
     static readonly string[] IgniteIncreases = ["damage_+%", "damage_over_time_+%", "elemental_damage_+%", "fire_damage_+%",
@@ -23,7 +19,8 @@ static partial class Game
     /// (<paramref name="baseFire"/>: its base and added fire damage after conversion, before any increase) and a critical
     /// strike (always ignites) or the chance (base_chance_to_ignite_%, chance_to_ignite_%, chance_to_freeze_shock_ignite_%);
     /// the ignite prohibitions (MonsterElementalAilments.CannotInflict) stop it. It burns 90% of that fire per second (Ailments.Ignite) × the ignite increases ×
-    /// <paramref name="more"/> × the damage over time multipliers (with +50% from a critical strike), for 4 s × increased
+    /// <paramref name="more"/> × the damage over time multipliers (critical_ailment_dot_multiplier_+ on a critical strike:
+    /// Character.ot's 50, PanelStatDefaults), for 4 s × increased
     /// ignite duration × the monster's base_self_ignite_duration_-%; the "faster" stats as in
     /// <see cref="MonsterIgnites.Settings.From"/>. <paramref name="attacker"/> gives the player's and the skill's stats.
     /// </summary>
@@ -35,7 +32,7 @@ static partial class Game
         int chance = attacker("base_chance_to_ignite_%") + attacker("chance_to_ignite_%") + attacker("chance_to_freeze_shock_ignite_%");
         if (!critical && !RandomRolls.Chance(chance, 100, random)) return null;
         double multiplier = 1 + (attacker("dot_multiplier_+") + attacker("fire_dot_multiplier_+") + attacker("ignite_dot_multiplier_+")
-            + (critical ? CriticalAilmentDotMultiplier + attacker("critical_ailment_dot_multiplier_+") : 0)) / 100.0;
+            + (critical ? attacker("critical_ailment_dot_multiplier_+") : 0)) / 100.0;
         var ignite = GameServer.Core.World.Ailments.Ignite(DamagePacket.Of(DamageType.Fire, baseFire, baseFire),
             IgniteIncreases.Sum(attacker), more * multiplier);
         double faster = MonsterIgnites.Faster(attacker);
