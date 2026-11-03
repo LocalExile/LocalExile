@@ -135,7 +135,12 @@ static partial class Game
                 {
                     target = due;
                     action = Interlocked.Increment(ref conn.ActionCount);
-                    from = conn.Walk.Order(target.X, target.Y, at);
+                    // A Move whose target is within two cells of the player's cell ends on the client as it starts: no
+                    // path, no step and no move onto the pair (live 2026-11-03: 25 of 25 such starts, where every start
+                    // 3 or more cells away walked). The estimate stands where it is, as the client does.
+                    var here = conn.Walk.Position(at);
+                    bool near = Math.Max(Math.Abs(target.X - here.X), Math.Abs(target.Y - here.Y)) <= 2;
+                    from = near ? conn.Walk.Order(here.X, here.Y, at) : conn.Walk.Order(target.X, target.Y, at);
                     conn.ChannelSkill = 0;
                     sequence = NextLockstepSequence(conn);
                 }

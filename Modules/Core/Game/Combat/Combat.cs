@@ -232,13 +232,14 @@ static partial class Game
             conn.NextAttackAt = AttackTiming.After(now, conn.NextAttackAt, duration);
             criticalRoll = CaptureSkillCriticalRoll(conn, SkillCatalog.FirstSkillId);
             inReach = SwingInReach(m, stop, target, weapon.Range + 2);
-            // The swing holds the player until its contact: GGG lets a Move cut the attack short after that (a Move 295 ms
-            // into a 462 ms attack started at once) and the client refuses one before it; the next attack waits the attack
-            // time (NextAttackAt).
+            // The swing holds the player until its contact has played: GGG lets a Move cut the attack short after that (a
+            // Move 295 ms into a 462 ms attack started at once) and the client refuses one before it (live 2026-11-03, a
+            // bow at 0.73 s: refused at the contact's 0.30 s, taken at 0.35 s), so the client's frame or two come on top;
+            // the next attack waits the attack time (NextAttackAt).
             if (started && inReach)
-                LockstepAttackSwings(conn, action, now, ordinaryProjectile is { } shot
+                LockstepAttackSwings(conn, action, now, (ordinaryProjectile is { } shot
                     ? OrdinaryRangedContactDelay(conn, duration, shot, use.Sequence)
-                    : DefaultAttackContactDelay(conn, duration, here, stop, departedAt, arrive));
+                    : DefaultAttackContactDelay(conn, duration, here, stop, departedAt, arrive)) + conn.LockstepActionTail);
         }
         if (!inReach)
         {

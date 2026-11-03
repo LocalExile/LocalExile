@@ -452,6 +452,14 @@ played its last Move meanwhile and was then put on that cell, up to 35 cells awa
 skill's repeats came at the attack time from the request, each cancelling the walk-up before it. Live after: 18 bow
 attacks in 52 s started at most 3.2 cells off the client's cell, none cancelled.
 
+A Move whose target is within two cells (Chebyshev) of the player's cell ends on the client as it starts: no path search,
+no step and no move onto the 0x1ab's position pair (live 2026-11-03: 25 of 25 such starts in a bow fight, where every
+start 3 or more cells away searched a path and took the pair first). The Gateway's estimate stands for such a Move as the
+client does; before, it walked a few cells to the target and the next start put the client on them (2 to 5 cells beside
+a monster). The client also refuses a Move while a swing's contact has not played: with a bow at 0.73 s a Move 0.30 s
+after the attack's start was ignored and one 0.35 s after it taken, so the hold after a swing is the contact plus the
+client's two frames (`LockstepActionTail`).
+
 A melee monster's chase order (an attack aimed at the player) swings by itself on a lockstep client when its walk-up gets
 there, since the client waits for no 0x1ac (`0x141e94720`). The Gateway counts that swing from its estimate's arrival
 (`MonsterAiPlan.ArrivedSwings`) instead of ordering a second one, which the client only played after the first while the
