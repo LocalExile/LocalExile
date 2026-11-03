@@ -53,8 +53,7 @@ static partial class Game
             int Get(string name) => Stats.Key(name) is uint key ? final.GetValueOrDefault(key) : 0;
             var step = charges.Step(now, Get, () => WeaponProfileFor(conn), conn.PlayerLife > 0,
                 conn.Walk.Moving(now), InTown(conn), random);
-            foreach (var buff in charges.Presentation(now, () => conn.NextBuff++))
-                foreach (var (packet, _) in ChargeBuffs.Packets(buff, PlayerId)) session.Packet(packet);
+            if (ChargePresentationPending(charges)) session.PresentCharges();
             if (step.CountsChanged)
             {
                 conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed();
@@ -105,7 +104,7 @@ static partial class Game
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
         foreach (var send in kill.Afterwards) session.Enqueue(send);
         uint xp = 0;
-        if (conn.PlayerLife > 0 && Dist(position, conn.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
+        if (!monster.NoRewards && conn.PlayerLife > 0 && Dist(position, conn.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
             xp = Program.ServerHooks.Experience(killer, modMonster,
                 Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level));
@@ -134,7 +133,7 @@ static partial class Game
         }
         CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
             : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods));
-        if (Environment.GetEnvironmentVariable("Game_DROPS") != "0")
+        if (Environment.GetEnvironmentVariable("Game_DROPS") != "0" && !monster.NoRewards && GameEvents.AllowsLoot(conn))
         {
             var balance = LeagueFor(conn).Rules;
             var modded = Program.ServerHooks.Drops(killer, modMonster);

@@ -154,6 +154,7 @@ def main():
         if text is None:
             raise ValueError(f"Missing character ACT asset: {act}")
         result[ao] = {"amd": amd, "act": act, "animations": contacts(animations), "positions": positions(animations),
+                      "indices": {a["name"]: i for i, a in enumerate(animations)},
                       "defaultWand": ordinary_wand_pools(text, animations)}
         print(f"{c['Name']}: {ao} -> {amd}, {len(result[ao]['animations'])} animations with a contact", file=sys.stderr)
     with open(dest + ".tmp", "w", encoding="utf-8") as f:

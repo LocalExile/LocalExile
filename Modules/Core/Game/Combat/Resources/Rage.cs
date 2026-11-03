@@ -17,7 +17,10 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
+            if (!CurrentGameWork) return;
             if (conn.RageRetired || conn.PlayerLife == 0) conn.Rage.Clear();
+            if (conn.ResourceEffectsState is ResourceEffectsState state && ResourceEffectsCurrent(conn, state))
+                state.Mana.Observe(RageStat(stats, ManaRecoveryRules.RagePer200));
             var inputs = RageStats.Inputs(name => RageStat(stats, name));
             // Stat projections must not advance Rage past an unprocessed projectile contact.
             var value = conn.Rage.Read(ProjectileWorldTime(conn), inputs);
@@ -87,9 +90,10 @@ static partial class Game
     // Executed inside the connection's send gate so a queued refresh cannot resurrect a dead/retired balance or buff.
     internal static byte[]? RagePresentation(ClientState conn, RagePrepared? prepared = null)
     {
+        if (!CurrentGameWork) return null;
         using (conn.Performance.Lock(conn.Monsters, "rage"))
         {
-            if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
             // Reconcile before all Rage reads/snapshots, even when the Rage value itself has not changed.
             var bytes = WithOwnAuraChanges(conn, () => RageSnapshot(conn, prepared));
             return bytes.Length == 0 ? null : bytes;
@@ -99,6 +103,7 @@ static partial class Game
     // Called only by RagePresentation under the send gate and state lock; no send or reconciliation recursion.
     internal static byte[] RageSnapshot(ClientState conn, RagePrepared? prepared = null)
     {
+        if (!CurrentGameWork) return [];
         var stats = CharacterPlayerStats(conn);
         var inputs = RageStats.Inputs(name => RageStat(stats, name));
         var value = conn.Rage.Read(ProjectileWorldTime(conn), inputs);
@@ -157,19 +162,20 @@ static partial class Game
     // fall back to a current build rather than publishing the prepared list under the wrong owner state.
     internal static Task SendRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        if (conn.Closed || conn.LeavingArea || conn.RageRetired) return Task.CompletedTask;
+        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return Task.CompletedTask;
         RagePrepared? prepared = null;
         // Neither the stats nor the skill list hold the combat lock for their whole calculation; only the read does.
         var stats = CharacterPlayerStats(conn);
         RageState.Value? changed = null;
         lock (conn.Monsters)
-            if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired)
+            if (CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired)
             {
                 var value = conn.Rage.Read(conn.Clock.Elapsed.TotalSeconds, RageStats.Inputs(name => RageStat(stats, name)));
                 if (conn.SentRage != value) changed = value;
             }
         if (changed is { } next)
         {
+            if (!CurrentGameWork) return Task.CompletedTask;
             var inputs = SkillSnapshotInputs.Capture(conn, stats);
             var skills = PlayerSkills(conn);
             // A change during the build cannot be cached under the earlier inputs.
@@ -178,14 +184,15 @@ static partial class Game
         return Send(remote, stream, ciphers, [], null, atGate: () => RagePresentation(conn, prepared));
     }
 
-    internal static async Task RunRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RunRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
+        if (!PlayerUpdatesCurrent(conn, updates)) return;
         try
         {
-            while (!conn.Closed && !conn.RageRetired)
+            while (PlayerUpdatesCurrent(conn, updates))
             {
                 await SendRage(remote, stream, ciphers, conn);
-                await Task.Delay(100);
+                await updates.Schedule.Wait(PlayerUpdateRole.Rage, 100, updates.Stop.Token);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }

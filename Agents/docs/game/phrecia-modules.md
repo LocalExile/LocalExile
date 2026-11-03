@@ -12,7 +12,8 @@ The initial extraction preserves Gambler, Antiquarian and Aristocrat from main.
 Their class descriptors live under `Classes/<Name>`; a class is enabled only after its implementation is supported.
 The generic catalog still reads all 19 identities for save validation, without making unfinished classes playable.
 Behemoth adds its descriptor and node sources under `Classes/Behemoth`; its reusable stat-driven engines stay in Game.
-Whisperer and Harbinger remain separate dependent PRs.
+Whisperer adds its exact Deadeye/Ranger descriptor and reusable Mana/Recoup/Blind engines in a separate dependent PR.
+Harbinger remains separate work.
 Other contributors' classes are not copied into this prerequisite.
 Idols has extracted client data but no gameplay implementation and is a separate task.
 There is no placeholder Idols module or dependency on one.
@@ -20,6 +21,7 @@ There is no placeholder Idols module or dependency on one.
 The existing `Game_VERIFIED_GAMBLER`, `Game_VERIFIED_ANTIQUARIAN` and `Game_VERIFIED_ARISTOCRAT`
 opt-ins still require the reviewed combined 3.29.3b graph installed separately.
 Behemoth uses the same read-only boundary behind `Game_VERIFIED_BEHEMOTH=1`.
+Whisperer uses `Game_VERIFIED_WHISPERER=1` and the current packed graph boundary; see [Whisperer](whisperer.md).
 The module verifies the original and alternate graph bytes read-only.
 It never installs, repairs or writes the client archive.
 Normal and unascended characters have no alternate-graph verification requirement.
@@ -63,6 +65,8 @@ No class-specific job runs without its optional node source.
 The older Game-only worker remains historical evidence.
 Bounded modular native checks cover reload/re-entry and Rampage dispatch; exact-head outcomes are recorded in the PR.
 See [Behemoth's ownership and validation boundaries](behemoth.md).
+Whisperer's separate opaque resource lease shares those host generations without replacing Rampage state or its worker.
+Its existing resource/contact ticks drive Mana and Blind; it adds no autonomous worker.
 
 ## Validation and delivery
 

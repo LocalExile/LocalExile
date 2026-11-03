@@ -2641,8 +2641,8 @@ failed I/O, allocation limits, actual official values and every skill's successf
   per GrantedStats entry when the row's `IsRecovery` (+0x7c) is set, then a u32-counted list of u32. A row with either
   flag needs those fields, or the client misreads the message and the ones after it (the flask buffs, rows 5 and 9:
   [13](13-items.md) §8). `InstanceEntities.AddBuff` writes that u16 as `u82`: the chilled, frozen and shocked rows 1-3
-  have the bool ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)); what the client does with +0x82 is
-  not known. The client reads the BuffDefinitions row in memory as the
+  have the bool ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)); the buff's shown value is increased
+  by +0x82 percent. The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435dd918`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2ba update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
   The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and
@@ -2813,15 +2813,17 @@ failed I/O, allocation limits, actual official values and every skill's successf
   apply only while it is equipped. Staff passives (`staff_block_%`, `additional_staff_block_%`,
   `spell_block_with_staff_%`, `spell_block_chance_%_while_holding_staff_or_shield`) apply with a staff; dual wielding
   adds the inherent 20% attack block and the dual-wield block/spell-block passives; bows use their own
-  `with_bow_additional_block_%` / `spell_block_with_bow_%`. A successful block prevents the hit (`BlockEffect` defaults to full prevention).
+  `with_bow_additional_block_%` / `spell_block_with_bow_%`. A blocked hit deals only its blocked share, 0 by default
+  ([20](20-damage.md#damage-taken-from-hits)).
   Monster melee uses attack block; `/blockhit` tests attack/spell block and `/block` prints both chances. The character
   panel's attack row is `attack_block_%` with `uncapped_attack_block_%` in parentheses; a separate spell block row is
   drawn only when `display_spell_block_chance` is non-zero, so `ClassAttributes` sends both display stats. The Block
   Mastery effects (`PassiveSkillMasteryEffects.dat`) add +2 maximum attack block, +2 maximum spell block, 20 life and
   20 mana on a block, or +1% spell block per 5% attack block; the last uses the final capped attack block and is applied
   after the shield base. **Versatile Combatant** (`keystone_versatile_combatant`) reduces both maxima by 10% and adds
-  2% spell block for each 1% of attack block above the reduced maximum (uncapped attack block minus maximum). Glancing
-  Blows/`BlockEffect` modifiers, projectile block and other on-block triggers are not modelled. Lucky block
+  2% spell block for each 1% of attack block above the reduced maximum (uncapped attack block minus maximum). **Glancing
+  Blows** (`keystone_glancing_blows`) doubles both chances, a 100% more before the maxima (PoB ModParser), and adds its
+  65% to the blocked share. Projectile block and other on-block triggers are not modelled. Lucky block
   (`base_block_luck`, `attack_block_luck`, `spell_block_luck`) uses `1 - (1 - p)²` (PoB CalcDefence); Svalinn's unique
   item modifiers themselves are not supported yet.
 
@@ -3568,7 +3570,8 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
 - **Gains** (`ChargeGains.Rules`): each source stat is its own roll of `rng.Next(100) < chance`; 100 and the "Gain a …
   Charge" flags gain without a roll, and a random type is drawn with `rng.Next(3)`. On kill:
   `endurance_charge_on_kill_%`, `add_frenzy_charge_on_kill_%_chance`, `add_power_charge_on_kill_%_chance`, the two kill
-  flags, `power_frenzy_or_endurance_charge_on_kill_%`, the shield and dual-wield ones. On hit:
+  flags, `power_frenzy_or_endurance_charge_on_kill_%`, the shield and dual-wield ones, and power and frenzy on killing
+  a frozen enemy (`FrozenAtDeath`: the corpse kept a freeze, a spread or the killing hit's own, or shattered). On hit:
   `add_frenzy_charge_on_skill_hit_%` (the character's plus the used skill's), the rare-or-unique ones. On critical
   strike: power, endurance, melee endurance, frenzy, wand power, per enemy you crit. On non-critical strike: power,
   with claws or daggers. When hit: endurance, frenzy. On block: endurance, frenzy, attack-only frenzy, power,

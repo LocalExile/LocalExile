@@ -73,13 +73,15 @@ static partial class Game
         Penetration.PerType pen = default) => MonsterTakesRolled(m, hit.Roll(random), spell, pen);
 
     /// <summary>A monster's resistance to one type of the player's hit: base and mod resistance compose before
-    /// Monster.ot's 75% cap; penetration subtracts once after that cap.</summary>
+    /// Monster.ot's 75% cap; penetration subtracts once after that cap, the cold one against a chilled monster at
+    /// <paramref name="now"/> too (without a time it is not chilled).</summary>
     internal static DamageModel.ResistanceValue MonsterHitResistance(SpawnedMonster m, DamageType type,
         Penetration.PerType pen, double now = double.NaN)
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
         return resistance with { Value = resistance.Value + m.Mods.Effects.Resistance(type) + MonsterExposure(m, type, now),
-            Maximum = MonsterModEffects.MaxResistance, Penetration = pen.Of(type) };
+            Maximum = MonsterModEffects.MaxResistance, Penetration = pen.Of(type) + (type == DamageType.Cold
+                && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0 ? pen.ColdVsChilled : 0) };
     }
 
     // Already rolled: no extra RNG or per-component rounding, including ordinary bow contact snapshots.
@@ -161,19 +163,25 @@ static partial class Game
 
     // Monsters with life regeneration (of the Hydra) regain life: every 0.5 s the server adds it and sends the new life
     // (0x1b1) of each one that changed, as it does for hits.
-    internal static async Task RunMonsterRegeneration(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RunMonsterRegeneration(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
+        if (!PlayerUpdatesCurrent(conn, updates)) return;
         const int StepMs = 500;
-        double last = conn.Clock.Elapsed.TotalSeconds;
+        double last = updates.Schedule.Now(conn);
         try
         {
-            while (!conn.Closed)
+            while (PlayerUpdatesCurrent(conn, updates))
             {
-                await Task.Delay(StepMs);
-                double now = conn.Clock.Elapsed.TotalSeconds, seconds = now - last;
+                await updates.Schedule.Wait(PlayerUpdateRole.MonsterRegeneration, StepMs, updates.Stop.Token);
+                double now = updates.Schedule.Now(conn), seconds = now - last;
                 last = now;
                 if (conn.Paused || seconds <= 0) continue;
-                var changed = RegenerateConnectionMonsters(conn, now, seconds);
+                List<(uint Id, uint Life)> changed;
+                using (ProjectileMutation(conn))
+                {
+                    if (!PlayerUpdatesCurrent(conn, updates)) return;
+                    changed = RegenerateConnectionMonsters(conn, now, seconds);
+                }
                 // Checked again in the send gate: a kill in between sends 0 first, and an older life after it would
                 // revive the monster on the client.
                 foreach (var (id, life) in changed)

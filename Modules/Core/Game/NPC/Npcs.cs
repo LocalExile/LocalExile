@@ -79,6 +79,7 @@ static partial class Game
     // 0x84 with object 0, which ends the dialogue.
     internal static async Task CloseNpcDialogue(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (await GameEvents.AnyRewardClosing(conn)) return;
         await GameEvents.RunNpcDialogueClosing(conn);
         uint id = conn.TalkingTo;
         if (id != 0 && conn.InNpcTalk && !IsWoundedExile())

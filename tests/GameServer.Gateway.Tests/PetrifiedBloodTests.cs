@@ -14,6 +14,28 @@ public sealed class PetrifiedBloodTests
         return conn;
     }
 
+    // The hit pool only takes hits while the game's rules are active.
+    static int TakeHit(ClientState conn, int damage)
+    {
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        try
+        {
+            lock (conn.Monsters)
+                return Game.DamagePlayerHit(conn, damage, 0, 0, new Dictionary<uint, int>(),
+                    DamagePacket.Of(DamageType.Physical, damage, damage));
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+        }
+    }
+
     // A hit is split at half Life: the part above it is taken at once, and only the part below it is protected.
     // At level 20 the gem loses 81% of the 40% it prevents over four seconds, so 19% of that part is permanent
     // mitigation. Level 1 loses all 40%, which is pure deferral.
@@ -23,9 +45,8 @@ public sealed class PetrifiedBloodTests
         var conn = Player(600, 1000);
         conn.PetrifiedBlood.Activate(1, 2, loseOverTimePct: 81, preventPct: 40, lifeCostPct: 40,
             manaPercent: 3500, lowLifeThresholdPct: 50, buff: 7, now: 0);
-        var noStats = new Dictionary<uint, int>();
         // 100 of the 300 is above half Life; of the 200 below it 80 is prevented, and 81% of 80 is deferred.
-        Assert.Equal(220, Game.DamagePlayerHit(conn, 300, 0, 0, noStats));
+        Assert.Equal(220, TakeHit(conn, 300));
         var loss = conn.PetrifiedBlood.Display(0);
         Assert.Equal(972, loss.PerMinute);   // 64.8 deferred over 4 s = 16.2/s
         Assert.Equal(4, loss.Expiry, 6);
@@ -40,7 +61,7 @@ public sealed class PetrifiedBloodTests
         var low = Player(400, 1000);
         low.PetrifiedBlood.Activate(1, 2, loseOverTimePct: 100, preventPct: 40, lifeCostPct: 40,
             manaPercent: 3500, lowLifeThresholdPct: 50, buff: 8, now: 0);
-        Assert.Equal(60, Game.DamagePlayerHit(low, 100, 0, 0, noStats));
+        Assert.Equal(60, TakeHit(low, 100));
         low.PlayerLife = 340;
         Assert.Equal(40.0, low.PetrifiedBlood.Take(4), 6);
 

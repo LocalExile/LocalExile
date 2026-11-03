@@ -39,6 +39,7 @@
     <InternalsVisibleTo Include="harvest" />
     <InternalsVisibleTo Include="heist" />
     <InternalsVisibleTo Include="hideoutediting" />
+    <InternalsVisibleTo Include="nessadevelopmenttabs" />
     <InternalsVisibleTo Include="npcdialogue" />
     <InternalsVisibleTo Include="pantheon" />
     <InternalsVisibleTo Include="portals" />
@@ -46,6 +47,9 @@
     <InternalsVisibleTo Include="questobjects" />
     <InternalsVisibleTo Include="ruthless" />
     <InternalsVisibleTo Include="social" />
+    <InternalsVisibleTo Include="survivorsskills" />
+    <InternalsVisibleTo Include="survivorsrewards" />
+    <InternalsVisibleTo Include="survivorsrun" />
     <InternalsVisibleTo Include="tattoos" />
     <InternalsVisibleTo Include="uniquebelts" />
     <InternalsVisibleTo Include="vendors" />
