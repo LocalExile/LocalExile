@@ -12,7 +12,11 @@ public class VendorItemLevelTests
         Saves.Open(Path.Combine(Path.GetTempPath(),"LocalExile-gem-layout-"+Guid.NewGuid().ToString("N")+".db"));
         var catalog = new ItemCatalog("data");
         var rewards = QuestRewardCatalog.Load();
-        var gems = new GemVendorStock(catalog,rewards,NpcCatalog.Load(),new SkillCatalog());
+        var npcs = NpcCatalog.Load(); var skills = new SkillCatalog();
+        var gems = GemVendorStock.For(catalog,npcs,skills);
+        Assert.Same(gems,GemVendorStock.For(catalog,npcs,skills));
+        Assert.NotSame(gems,GemVendorStock.For(catalog,npcs,skills,supportGems:false));
+        Assert.NotSame(gems,GemVendorStock.For(catalog,npcs,skills,hardMode:true));
         var flags = rewards.Offers.Where(o => o.TakenFlag is not null).Select(o => o.TakenFlag!).ToHashSet();
         flags.Add(GemVendorStock.LillyUnlock); flags.Add(GemVendorStock.SiosaUnlock);
         foreach (var (npc,normal,count) in new[] { ("Act1/Nessa",15,156), ("Act2/Yeena",25,71),
@@ -28,6 +32,16 @@ public class VendorItemLevelTests
         Assert.NotEmpty(gems.Stock("Metadata/NPC/Act3/Siosa",2,new HashSet<string>{GemVendorStock.SiosaUnlock}));
         Assert.Empty(gems.Stock("Metadata/NPC/Epilogue/Lilly",2,new HashSet<string>()));
         Assert.Equal(459,gems.Stock("Metadata/NPC/Epilogue/Lilly",2,flags).Count);
+        const string hideoutLilly = "Metadata/NPC/Epilogue/LillyHideout";
+        var newWitch = gems.Stock(hideoutLilly,1,new HashSet<string>(),level:2);
+        Assert.Equal(459,newWitch.Count);
+        Assert.Empty(gems.Stock("Metadata/NPC/Act6/Lilly",1,new HashSet<string>(),level:2));
+        Assert.Contains(newWitch,row => skills.PlayerLevelReq(catalog.Gem(catalog.Row(row)!)!.Variant(0).Effect,1) > 2);
+        Assert.Empty(gems.Stock(hideoutLilly,1,flags,level:2,rules:LeagueRules.Standard with { GemVendors = [] }));
+        Assert.All(gems.Stock(hideoutLilly,1,flags,level:2,rules:LeagueRules.Standard with { SellsSupportGems = false }),
+            row => Assert.False(catalog.Gem(catalog.Row(row)!)!.IsSupport));
+        // A cached catalogue must not retain another character's unlocks or league restrictions.
+        Assert.Equal(newWitch,gems.Stock(hideoutLilly,1,new HashSet<string>(),level:2));
         Assert.False(LeagueRules.Standard.FullGemStock);
         var prices = VendorPrices.For(catalog);
         Assert.Same(prices,VendorPrices.For(catalog));

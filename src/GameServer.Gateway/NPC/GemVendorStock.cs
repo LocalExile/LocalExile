@@ -2,17 +2,27 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// Vendor-specific quest/class gem membership from the reviewed snapshot, joined to native quest offers.
-/// Siosa and Lilly use their own all-class unlocks; hard mode keeps its native gem index.
+/// Siosa and campaign Lilly use their own all-class unlocks; hard mode keeps its native gem index.
 /// </summary>
 sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills, string folder = "data")
 {
+    // Cache immutable catalogues, never character stock: quest/class/rule filters are evaluated on every open.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemCatalog,
+        System.Collections.Concurrent.ConcurrentDictionary<(NpcCatalog Npcs, SkillCatalog Skills, bool Hard, bool Supports),
+            Lazy<GemVendorStock>>> Cache = new();
+
+    public static GemVendorStock For(ItemCatalog items, NpcCatalog npcs, SkillCatalog skills,
+        bool hardMode = false, bool supportGems = true) => Cache.GetOrCreateValue(items)
+        .GetOrAdd((npcs,skills,hardMode,supportGems), key => new(() => new(items,
+            QuestRewardCatalog.Load(hardMode:key.Hard,supportGems:key.Supports),key.Npcs,key.Skills))).Value;
+
     static readonly string[] CurrencyIds =
     [
         "Metadata/Items/Currency/CurrencyIdentification", "Metadata/Items/Currency/CurrencyUpgradeToMagic",
         "Metadata/Items/Currency/CurrencyRerollMagic", "Metadata/Items/Currency/CurrencyUpgradeRandomly",
         "Metadata/Items/Currency/CurrencyUpgradeToRare",
     ];
-    /// <summary>Lilly's gem shop opens with this flag (a6q4 "Fallen from Grace").</summary>
+    /// <summary>Campaign Lilly's gem shop opens with this flag (a6q4 "Fallen from Grace").</summary>
     public const string LillyUnlock = "UnlockedLillyGemShop";
 
     /// <summary>Siosa sells after a3q12 "A Fixture of Fate".</summary>
@@ -30,29 +40,32 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
 
     public static bool Sells(string npcId) => Vendors.Contains(npcId);
 
-    readonly HashSet<int> sellable =
-    [
-        .. new[] { false, true }.SelectMany(support => new[] { 1, 2, 3, 4 }
-            .SelectMany(colour => items.ShopGems(colour, support))).Select(t => t.Row),
-    ];
+    readonly Dictionary<string,int> sellable = new[] { false, true }
+        .SelectMany(support => new[] { 1, 2, 3, 4 }.SelectMany(colour => items.ShopGems(colour, support)))
+        .ToDictionary(t => t.Id,t => t.Row,StringComparer.Ordinal);
+    readonly Lazy<IReadOnlySet<int>> hardModeRows = new(() => HardModeGemRows(folder));
 
     /// <summary>The NPC's gem stock at character level/quest state: BaseItemTypes rows, in row order. Empty before the
-    /// character has completed a quest that offers gems (or when Lilly/Siosa's own unlock is missing).</summary>
+    /// character has completed a quest that offers gems (or when campaign Lilly/Siosa's unlock is missing).
+    /// Hideout Lilly serves every character who can visit her; her availability is the hideout unlock.</summary>
     public IReadOnlyList<int> Stock(string npcId, int classRow, IReadOnlySet<string> flags, bool hardMode = false, int level = 100, LeagueRules? rules = null)
     {
+        bool hideoutLilly = npcId.Equals("Metadata/NPC/Epilogue/LillyHideout",StringComparison.OrdinalIgnoreCase);
         bool lilly = npcId.EndsWith("/Lilly", StringComparison.OrdinalIgnoreCase)
             || npcId.EndsWith("/Lilly2", StringComparison.OrdinalIgnoreCase)
             || npcId.EndsWith("/LillyHideout", StringComparison.OrdinalIgnoreCase);
         bool siosa = npcId.EndsWith("/Siosa", StringComparison.OrdinalIgnoreCase);
-        if ((lilly && !flags.Contains(LillyUnlock)) || (siosa && !flags.Contains(SiosaUnlock))) return [];
+        if ((lilly && !hideoutLilly && !flags.Contains(LillyUnlock)) || (siosa && !flags.Contains(SiosaUnlock))) return [];
         rules ??= LeagueRules.Standard;
         if (!rules.SellsGemsAt(npcId)) return [];
         // The HardMode index lists what its vendor exchanges.
         if (hardMode)
-            return [.. sellable.Intersect(HardModeGemRows(folder)).Where(row => items.Row(row) is { } type
+            return [.. sellable.Values.Intersect(hardModeRows.Value).Where(row => items.Row(row) is { } type
                 && rules.AllowsGemBase(type.Id)
                 && items.Gem(type) is { Variants.Count: > 0 } gem && (rules.SellsSupportGems || !gem.IsSupport)
                 && skills.PlayerLevelReq(gem.Variant(0).Effect, 1) <= level).Order()];
+        if (lilly) return Filter(VendorCatalog.Default.Gems("Lilly Roth")
+            .Where(rule => sellable.ContainsKey(rule.Base)).Select(rule => sellable[rule.Base]).Distinct().Order());
         var available = npcs.AvailableRewards(flags);
         bool Done(int row) => available.Contains(row) || rewards.Find(row)?.TakenFlag is { } taken && flags.Contains(taken);
         string vendor = npcId.Contains("/Act1/") ? "Nessa" : npcId.Contains("/Act2/") ? "Yeena"
@@ -64,14 +77,11 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
         var rows = new SortedSet<int>();
         foreach (var rule in selected)
             if ((siosa || rule.Class == classRow) && (siosa || rule.Offers.Any(Done))
-                && items.Find(rule.Base) is { } type && sellable.Contains(type.Row)) rows.Add(type.Row);
-        if (lilly)
-        {
-            rows.Clear();
-            foreach (var rule in catalog.Gems("Lilly Roth"))
-                if (items.Find(rule.Base) is { } type && sellable.Contains(type.Row)) rows.Add(type.Row);
-        }
-        return [.. rows.Where(row => items.Row(row) is { } type && rules.AllowsGemBase(type.Id)
+                && sellable.TryGetValue(rule.Base,out int row)) rows.Add(row);
+        return Filter(rows);
+
+        IReadOnlyList<int> Filter(IEnumerable<int> selectedRows) => [.. selectedRows.Where(row =>
+            items.Row(row) is { } type && rules.AllowsGemBase(type.Id)
             && (rules.SellsSupportGems || items.Gem(type)?.IsSupport != true))];
     }
 

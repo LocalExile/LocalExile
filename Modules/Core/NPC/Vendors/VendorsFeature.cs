@@ -257,13 +257,13 @@ static class VendorsFeature
     {
         var catalog = ItemsFor(conn);
         var league = LeagueFor(conn);
-        var gems = new GemVendorStock(catalog,QuestRewardCatalog.Load(hardMode:league.HardMode,
-            supportGems:league.Rules.SupportGemRewards),Npcs.Value,SkillsFor(conn));
-        var stock = GemVendorStock.Sells(npc.Npc.Id)
+        var gems = GemVendorStock.Sells(npc.Npc.Id)
+            ? GemVendorStock.For(catalog,Npcs.Value,SkillsFor(conn),league.HardMode,league.Rules.SupportGemRewards) : null;
+        var stock = gems is not null
             ? gems.Stock(npc.Npc.Id,conn.ClassRow,conn.QuestFlagsSnapshot(),league.HardMode,conn.Pools.Level,league.Rules) : [];
         if (league.Rules.FullGemStock && npc.Npc.Id == "Metadata/NPC/Act1/Nessa")
             return new(NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(conn).NewItemId,notes,gemStock:stock,
-                gemPrice:gems.Price,fullGemStock:true,hardMode:league.HardMode,rules:league.Rules),"",[]);
+                gemPrice:gems!.Price,fullGemStock:true,hardMode:league.HardMode,rules:league.Rules),"",[]);
         return VendorStock.Open(CharacterName(conn),conn.League ?? "Standard",npc.Npc.Id,conn.Pools.Level,
             catalog,SkillsFor(conn),stock,ItemsOf(conn).NewItemId,league.Rules,league.HardMode,notes,refresh,account:PersonalStashOf(conn));
     }

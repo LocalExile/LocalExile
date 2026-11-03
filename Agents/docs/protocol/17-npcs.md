@@ -353,7 +353,10 @@ No complete headless native generation ABI is verified; generation remains serve
 
 - Captured Scion additions have assumed unlocks: Volcanic Fissure at The Caged Brute, Mana-Infused Staff at
   Sharp and Cruel, Conflagration/Holy Hammers at Sever the Right Hand.
-- Lilly's observed 459 gems are treated as all-class after Fallen from Grace; Siosa uses A Fixture of Fate.
+- Campaign Lilly's observed 459 gems are all-class after Fallen from Grace; Siosa uses A Fixture of Fate.
+  Hideout Lilly serves new characters without their own quest completion
+  ([player observation](https://www.reddit.com/r/pathofexile/comments/smxmqt/psa_lily_in_hideout_sells_gems_even_to_new/)).
+  This server already places her in every hideout, so her presence grants access; account invitation gating is not modeled.
   Later campaign membership unions the first four acts' unlocked class stock.
   Act 1–4 gem levels use a character-requirement ceiling of 52; Siosa/Lilly gems stay level 1.
 - Equipment slot counts, rarity/base/quality/socket/link weights and three-level retention are local policy
