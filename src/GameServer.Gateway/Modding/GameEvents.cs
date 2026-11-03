@@ -60,6 +60,8 @@ static class GameEvents
     public static readonly GameEvent<Func<ClientState, PendingTransfer, string?>> TravelRefusal = new();
     /// <summary>The Auth transfer answer, after failed-transfer recovery and before a successful ticket is sent.</summary>
     public static readonly GameEvent<Func<ClientState, PendingTransfer, ControlResponse, Task>> TransferResolved = new();
+    /// <summary>The player came back at a checkpoint or in town: a league encounter may restart its run.</summary>
+    public static readonly GameEvent<Func<ClientState, Task>> Resurrected = new();
 
     public static IReadOnlyList<GrantedSkill> ExtraSkills(ClientState conn) =>
         [.. GrantedSkills.For(conn).SelectMany(run => run(conn))];
@@ -79,6 +81,11 @@ static class GameEvents
     {
         foreach (var run in RewardClosing.For(conn)) if (await run(conn)) return true;
         return false;
+    }
+
+    public static async Task RunResurrected(ClientState conn)
+    {
+        foreach (var run in Resurrected.For(conn)) await run(conn);
     }
     /// <summary>Talking to an NPC starts; true when a module has its own dialogue for it.</summary>
     public static readonly GameEvent<Func<ClientState, uint, SpawnedNpc, Task<bool>>> NpcTalk = new();

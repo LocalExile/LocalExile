@@ -61,6 +61,23 @@ static partial class SurvivorsRunRules
         if (StateOf(conn).Survivors is null) await StartSurvivors(remote, stream, ciphers, conn);
     }
 
+    /// <summary>
+    /// A resurrection ends whatever run was going and starts a new one from the very beginning: the opening area, an
+    /// empty character and the first-skill choice. The "in town" button's own area change hands the start to the town's
+    /// area hook, so no second transfer is queued.
+    /// </summary>
+    internal static async Task Resurrected(ClientState conn)
+    {
+        if (!Enabled(conn)) return;
+        StateOf(conn).Stage = 0;
+        if (conn.PendingTransfer is not null) return;
+        if (AreaTransitionCatalog.HashOf(SurvivorsLevels[0]) is { } first)
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(first, 0, false), "survivors resurrection");
+        }
+    }
+
     internal static void StartRunner(ClientState conn, Func<CancellationToken, Task> run)
     {
         var state = StateOf(conn);

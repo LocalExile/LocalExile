@@ -28,6 +28,8 @@ Stage changes follow the run's fixed area list, one Act 1 area per stage (The Tw
 
 A run starts with **no run skill**: the opening window offers the first skill, and the next skill is offered once the
 current one holds every support it can take, so the player builds the skill set rather than receiving a fixed gem.
+**Resurrecting after a death restarts the run from the very beginning**: the opening area, an empty character and the
+first-skill choice; a voluntary `/survivors stop` does not restart it.
 The window's chat line names the skill each upgrade applies to (a support shows `Support -> Skill`), and `/survivors
 status` prints the same labels.
 Run skills are every gem the client can draw: a projectile gem flies its own `Projectiles` row, an area gem (Ice Nova,

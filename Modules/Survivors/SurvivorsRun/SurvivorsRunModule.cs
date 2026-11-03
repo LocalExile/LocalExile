@@ -27,6 +27,7 @@ public sealed class SurvivorsRunModule : IModule
             StateOf(conn).Survivors is { } run ? SurvivorsRules.IncomingDamage(damage, run.IncomingDamagePercent) : damage));
         module.Lifetime.Own(GameEvents.TravelRefusal.Add("SurvivorsRun", SurvivorsRunRules.TravelRefusal));
         module.Lifetime.Own(GameEvents.TransferResolved.Add("SurvivorsRun", SurvivorsRunRules.TransferResolved));
+        module.Lifetime.Own(GameEvents.Resurrected.Add("SurvivorsRun", SurvivorsRunRules.Resurrected));
         module.Lifetime.Own(new OnUnload(SurvivorsRunRules.ReleaseAll));
     }
 
