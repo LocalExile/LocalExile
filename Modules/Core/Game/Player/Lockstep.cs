@@ -187,7 +187,9 @@ static partial class Game
     {
         if (conn.LockstepAttackAction != action) return;
         conn.LockstepAttackAction = 0;
-        conn.LockstepBusyUntil = Math.Max(conn.LockstepBusyUntil, now + seconds);
+        // The client starts the action at the end of the frame its 0x1ab goes out in, so the hold counts from there
+        // (live: a wand's first Move 0.333 s after the client's start was refused at a 0.3335 s contact, 0.334 s taken).
+        conn.LockstepBusyUntil = Math.Max(conn.LockstepBusyUntil, (conn.LockstepFrame?.End ?? now) + seconds);
     }
 
     // The attack ended before its swing (cancelled, out of reach): nothing holds the next use.

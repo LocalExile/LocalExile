@@ -452,6 +452,11 @@ played its last Move meanwhile and was then put on that cell, up to 35 cells awa
 skill's repeats came at the attack time from the request, each cancelling the walk-up before it. Live after: 18 bow
 attacks in 52 s started at most 3.2 cells off the client's cell, none cancelled.
 
+A held attack whose target died goes on at the ground, and the default attack at the ground swings where the player
+stands: GGG's player stayed on its cell through 101 such attacks aimed 18 to 29 cells away, one per attack time. The
+Gateway stands for it on a lockstep client (`Messages.cs`, `inPlace`); it walked there before, which put the player on
+the dead monster's cell. A predictive client sends a Move for that click instead, so nothing changes there.
+
 A Move whose target is within two cells (Chebyshev) of the player's cell ends on the client as it starts: no path search,
 no step and no move onto the 0x1ab's position pair (live 2026-11-03: 25 of 25 such starts in a bow fight, where every
 start 3 or more cells away searched a path and took the pair first). The Gateway's estimate stands for such a Move as the
