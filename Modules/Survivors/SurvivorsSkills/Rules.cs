@@ -218,6 +218,8 @@ static partial class SurvivorsSkills
             // The links-first offer needs the five supports a skill can take; a gem with fewer (Icefire) is left out.
             if (!herald && supports.Count(support => Linkable(variant.Effect, support)) < SurvivorsRules.MaxSupportsPerSkill)
                 continue;
+            // Two item rows can resolve to the same visible gem (a Vaal/alternate variant): one card is enough.
+            if (catalog.Any(s => s.Name.Equals(baseType.Name, StringComparison.OrdinalIgnoreCase))) continue;
             string metadata = projectileRow?.Id ?? "Metadata/Projectiles/Fireball";
             catalog.Add(new SurvivorsSkill(path, baseType.Name, SurvivorsDamageType(baseType.Name), variant.Effect, variant.Effect,
                 metadata, herald ? SurvivorsSkillKind.Herald : area ? SurvivorsSkillKind.Area : SurvivorsSkillKind.Projectile)
