@@ -30,7 +30,8 @@ static partial class Game
         ushort[] nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
         return [.. (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value.For(nodes)
-            .Where(g => AuraCatalog.Supported(g.EffectId))];
+            .Where(g => AuraCatalog.Supported(g.EffectId)
+                || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId)))];
     }
 
     // A granted triggered skill (InbuiltTrigger) has no bar use: it runs from its trigger and stays out of the skill list.

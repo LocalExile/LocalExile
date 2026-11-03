@@ -16,7 +16,8 @@ readonly record struct FlaskAutomationStep(FlaskAutomationEvent Signal, FlaskAut
     internal long Activation => Signal.Activation;
 }
 enum FlaskOutputPool { None, Life, Mana }
-sealed record FlaskOutput(byte[] Packet, string? Log = null, FlaskOutputPool Pool = FlaskOutputPool.None)
+sealed record FlaskOutput(byte[] Packet, string? Log = null, FlaskOutputPool Pool = FlaskOutputPool.None,
+    UtilityFlasks.Active? UtilityStart = null)
 {
     public static implicit operator FlaskOutput(byte[] packet) => new(packet);
 }

@@ -170,7 +170,7 @@ static partial class Game
                         session.Buff = conn.NextBuff++;
                         packets.Add(InstanceEntities.AddBuff(PlayerId, session.Buff, 1943, PlayerId,
                             u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0,
-                                value.NextExpiry!.Value - now)),
+                                (value.NextExpiry!.Value - now) * session.State.ExpiryRate)),
                             stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
                     }
                     packets.Add(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));

@@ -62,8 +62,8 @@ static partial class Game
                 Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {conn.Ward.Current}/{conn.Ward.Maximum}");
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {utility.BuffId} for {seconds:0.##} s: " +
                 string.Join(", ", stats.Select(s => $"{s.Stat} {s.Value}")) + $"; walk estimate {conn.Walk.Speed:0.##} cells/s");
-            state.Packets.AddRange(UtilityFlasks.StartPackets(effect, PlayerId)
-                .Select(p => new FlaskOutput(p, $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s")));
+            state.Packets.Add(new([], $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s",
+                UtilityStart: effect));
             FlaskToLinkedTargetsLocked(conn, flask.Item, local, utility, Get);
             MakeFlaskGroundsLocked(conn, local, seconds, now, character);
             state.StatRevision++;
@@ -164,6 +164,15 @@ static partial class Game
                             conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)),
                         _ => output.Packet,
                     };
+                    if (output.UtilityStart is { } effect)
+                    {
+                        var prefix = PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn));
+                        double now = AreaTime(conn);
+                        bool live = conn.PlayerLife > 0 && effect.Ends > now
+                            && conn.UtilityFlaskEffects.IsLatest(effect.ItemId, effect.Activation)
+                            && ReferenceEquals(conn.UtilityFlaskEffects.Of(effect.ItemId), effect);
+                        packet = live ? [.. prefix, .. UtilityFlasks.StartPackets(effect with { Started = now }, PlayerId).SelectMany(p => p)] : prefix;
+                    }
                     state.Packets.RemoveAt(0); sent = true; return packet;
                 }
             });

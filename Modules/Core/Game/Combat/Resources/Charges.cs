@@ -314,6 +314,9 @@ static partial class Game
                     if (!PlayerUpdatesCurrent(conn, updates)) break;
                     if (conn.LeavingArea) continue;
                     now = ProjectileWorldTime(conn);
+                    var recipient = CharacterPlayerStats(conn);
+                    session.State.SetExpiryRate(now, RecipientEffectTime.Rate(3,
+                        name => Stats.Key(name) is uint k ? recipient.GetValueOrDefault(k) : 0));
                     step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: conn.Walk.Moving(now),
                         inTown: InTown(conn), Random.Shared);
                     presentationPending = ChargePresentationPending(session);

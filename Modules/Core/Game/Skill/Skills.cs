@@ -276,7 +276,7 @@ static partial class Game
         {
             Stats = stats,
             Ailments = [ailments.Ignite ? 1 : 0, ailments.Chill > 0 ? 1 : 0, ailments.Freeze ? 1 : 0, ailments.Shock > 0 ? 1 : 0],
-            ActionFactor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, Get("action_speed_-%")),
+            ActionFactor = PlayerActionFactorFrom(conn, Get),
             SuppressionChance = Suppression(conn).Chance,
         };
         stats = StatSnapshotTailFor(conn, finalInputs, StatSnapshotStage.Critical);

@@ -197,7 +197,7 @@ sealed class ChargeSession(Charges.State? state = null)
             if (!resend && old.Count == count && (count == 0 || old.ExpiresAt == expires && old.Converted == converted)) continue;
             if (count == 0 && old.Buff == 0) continue;
             ushort add = count > 0 ? nextBuff() : (ushort)0;
-            changes.Add(new(type, old.Buff, add, count, timed ? Math.Max(0, expires - now) : null, converted));
+            changes.Add(new(type, old.Buff, add, count, timed ? Math.Max(0, expires - now) * State.ExpiryRate : null, converted));
             shown[i] = new(count, expires, add, converted);
         }
         return changes;

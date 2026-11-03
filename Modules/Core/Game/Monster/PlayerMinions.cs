@@ -57,6 +57,11 @@ static partial class Game
     {
         var rules = CombatLifetime;
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
+        foreach (var tick in GameEvents.CompanionTick.For(conn))
+        {
+            if (!Current()) return;
+            await tick(remote, stream, ciphers, conn, now);
+        }
         var ended = new List<PlayerMinions.Minion>();
         var bytes = new List<byte>();
         int summons;
