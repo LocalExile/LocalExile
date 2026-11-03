@@ -55,7 +55,7 @@ sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
         var nodes = n.RootElement.EnumerateArray().ToArray();
         var byRow = new Dictionary<int, (ushort Hash16, IReadOnlyList<int> Connections)>();
         var result = new List<(int Row, Layout Layout)>();
-        for (int rowIndex = 0; rowIndex < nodes.Length; rowIndex++):src/GameServer.Gateway/World/AtlasCatalog.cs
+        for (int rowIndex = 0; rowIndex < nodes.Length; rowIndex++)
         {
             var row = nodes[rowIndex];
             if (!row.GetProperty("IsNormalMap").GetBoolean() || row.GetProperty("NotOnAtlas").GetBoolean() ||

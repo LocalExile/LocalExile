@@ -1369,9 +1369,6 @@ static partial class Game
             if (have < needed) await GainExperience(remote, stream, ciphers, conn, needed - have, $"quest: {m.Label} killed, level {level}");
         }
         await GainKillCharges(remote, stream, ciphers, conn, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed");
-        if (m.Rarity == MonsterRarity.Unique
-            && MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash)
-            await CompleteAtlasMap(remote, stream, ciphers, conn);
         await DropLoot(remote, stream, ciphers, conn, m, at);
     }
 

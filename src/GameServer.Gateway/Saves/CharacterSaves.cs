@@ -68,7 +68,7 @@ static class CharacterSaves
         Dictionary<ushort, ushort>? TattooKeystones = null, List<List<ushort>>? AtlasPassivePresets = null,
         ushort? AtlasPassivePoints = null, string? SelectedAtlasLayout = null, List<string>? AtlasCompletedLayouts = null,
         byte? AtlasActivePreset = null, int? CompletedDelveDepth = null, Dictionary<string, string>? ModuleData = null,
-        List<string>? QuestRefundsCredited = null, string? PantheonMajor = null, string? PantheonMinor = null):src/GameServer.Gateway/Saves/CharacterSaves.cs
+        List<string>? QuestRefundsCredited = null, string? PantheonMajor = null, string? PantheonMinor = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }

@@ -61,7 +61,7 @@ static class ServerLevels
     }
     static readonly ConcurrentDictionary<(string Area, uint Seed, int Level), KeptLevel> Generated = new();
     static readonly ConcurrentDictionary<(string Area, uint Seed, int Level), WeakReference<Level>> Live = new();
-    const int Kept = 8;:src/GameServer.Gateway/World/ServerLevels.cs
+    const int Kept = 8;
     // Why the last generations that failed did (the exception in full), for the capture tour's records.
     static readonly ConcurrentDictionary<(string Area, uint Seed, int Level), string> Errors = new();
 
@@ -110,8 +110,6 @@ static class ServerLevels
             if (generated is not null) Live[key] = new(generated);
             Trim(key);
             return generated;
-        }
-    }:src/GameServer.Gateway/World/ServerLevels.cs
         }
     }
 

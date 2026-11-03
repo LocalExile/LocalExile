@@ -26,6 +26,24 @@ public sealed class AtlasModule : IModule
             await AtlasFeature.ChangeAtlasPassive(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, preset, node, allocate: false);
             return true;
         });
+        module.OnChatCommand("atlas_complete", "/atlas_complete (dev: mark the current map layout complete and award its temporary point)", async command =>
+        {
+            var conn = ConnOf(command.Player);
+            if (MapDevices.Value.Atlas?.ByHash16(conn.Layout.Hash) is null)
+            {
+                await conn.Commands!.Reply("This area is not an Atlas map layout.");
+                return;
+            }
+            await AtlasFeature.CompleteAtlasMap(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+            await conn.Commands!.Reply($"Atlas: {conn.AtlasCompletedLayouts.Count} completed, {conn.AtlasPassivePoints} point(s).");
+        });
+        module.OnMonsterKilled(async kill =>
+        {
+            if (kill.Monster.Rarity != GameServer.Modding.MonsterRarity.Unique) return;
+            var conn = ConnOf(kill.Player);
+            if (MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash)
+                await AtlasFeature.CompleteAtlasMap(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+        });
     }
 }
 
@@ -45,7 +63,7 @@ static class AtlasFeature
             $"{conn.AtlasCompletedLayouts.Count} completed, {conn.AtlasPassivePoints} passive points");
         await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas completion");
     }
-:Modules/Core/World/Atlas/AtlasModule.cs
+
     // C→S 0x3e/0x3f: a click in the Atlas passive tree. Validate the node and budget, save the preset and send all three
     // presets back so the client and the save agree. The client presents the tree's own connectivity; the server does
     // not yet have the Atlas graph, so it does not re-check pathing.

@@ -1332,16 +1332,6 @@ static class CommandsFeature
             }
             await conn.Commands!.Reply($"Atlas layout set to {layout.Name} ({layout.Id}, tier {layout.Tier}).");
         })
-        .Add("atlas_complete", "/atlas_complete (dev: mark the current map layout complete and award its temporary point)", async _ =>
-        {
-            if (MapDevices.Value.Atlas?.ByHash16(conn.Layout.Hash) is null)
-            {
-                await conn.Commands!.Reply("This area is not an Atlas map layout.");
-                return;
-            }
-            await CompleteAtlasMap(remote, stream, ciphers, conn);
-            await conn.Commands!.Reply($"Atlas: {conn.AtlasCompletedLayouts.Count} completed, {conn.AtlasPassivePoints} point(s).");
-        })
         .Add("atlas_tree", "/atlas_tree (dev: open the Atlas passive tree; S→C 0x7b kind 0x11)", async _ =>
         {
             await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.AtlasUi),
