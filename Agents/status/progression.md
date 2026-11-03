@@ -24,6 +24,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   a mastery node can be allocated normally and its effect selected/changed without spending another point.
   Block Mastery's four effects are implemented: max attack block +2, max spell block +2, 20 life + 20 mana on block,
   and +1% spell block per 5% attack block; the effects are saved with the character.
+  Wand Mastery's wand-only points are modelled: the extra attack projectile, 0.5% attack life and mana leech, and
+  accuracy equal to intelligence, each only while a wand is held; power charge on wand crit and additive spell damage
+  to wand attacks were already applied. Spellslinger's reservation efficiency has no consumer while Spellslinger itself
+  is unimplemented.
   Code: `PassiveTree.cs`, `CharacterSaves.cs`, Gateway (`ChangePassives`, `PassivesMessage`).
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive tree jewel sockets (server and live stat check 2026-10-27; tree art check pending): the 21 ordinary large

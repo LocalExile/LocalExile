@@ -204,6 +204,58 @@ public class StatSnapshotTailTests
         Assert.Equal(0, Counter("StatSnapshotTailMismatches"));
     }
 
+    [Fact]
+    public void Wand_mastery_points_apply_only_while_wielding_a_wand()
+    {
+        using var setup = new SnapshotSetup();
+        var conn = Connection("WandMastery" + Guid.NewGuid().ToString("N"));
+        var items = (ItemCatalog)Game("ItemsFor", conn)!;
+        var tree = (PassiveTree)Game("PassivesFor", conn)!;
+        const ushort node = 53828; // Wand Mastery
+        var effects = tree.EffectsFor(node);
+        Assert.Equal(6, effects.Count);
+        ushort Effect(string id) => effects.Single(e => e.Id == id).Hash;
+        uint Key(string name) => Program.Stats.Key(name) ?? throw new InvalidOperationException(name);
+        void Rebuild() { lock (conn.Monsters) conn.Pools = Pools(conn, conn.Pools.Level); }
+        void Select(string id)
+        {
+            lock (conn.Monsters)
+            {
+                if (!conn.Passives.Contains(node)) conn.Passives.Add(node);
+                // The production path replaces the dictionary; the stat-source cache keys it by reference.
+                conn.MasteryEffects = new(conn.MasteryEffects) { [node] = Effect(id) };
+            }
+            Rebuild();
+        }
+
+        var inventory = (PlayerInventories)Game("ItemsOf", conn)!;
+        var wand = inventory.Add(PlayerInventories.Weapon1, 0, 0,
+            ItemCatalog.Create(items.Find("Driftwood Wand")!, random: new Random(1)));
+        Rebuild();
+        int baseAccuracy = conn.Pools.Accuracy;
+
+        // Wand Attacks fire an additional Projectile.
+        Select("Wand3");
+        Assert.Equal(1, Snapshot(conn).GetValueOrDefault(Key("attacks_number_of_additional_projectiles")));
+
+        // 0.5% of Attack Damage Leeched as Life and Mana.
+        Select("Wand5");
+        Assert.Equal(50, Snapshot(conn).GetValueOrDefault(Key("base_life_leech_from_attack_damage_permyriad")));
+        Assert.Equal(50, Snapshot(conn).GetValueOrDefault(Key("base_mana_leech_from_attack_damage_permyriad")));
+
+        // Gain Accuracy Rating equal to Intelligence: the flat accuracy is the character's intelligence.
+        Select("Wand6");
+        Assert.Equal(baseAccuracy + conn.Pools.Intelligence, conn.Pools.Accuracy);
+
+        // Without a wand the three wand-only effects stop applying.
+        Assert.NotNull(inventory.Remove(PlayerInventories.Weapon1, wand.Id));
+        Rebuild();
+        Assert.Equal(0, Snapshot(conn).GetValueOrDefault(Key("attacks_number_of_additional_projectiles")));
+        Assert.Equal(0, Snapshot(conn).GetValueOrDefault(Key("base_life_leech_from_attack_damage_permyriad")));
+        Assert.Equal(0, Snapshot(conn).GetValueOrDefault(Key("base_mana_leech_from_attack_damage_permyriad")));
+        Assert.Equal(baseAccuracy, conn.Pools.Accuracy);
+    }
+
     // Keep the snapshot test's rules, saves and lifetime scoped. Starting the whole module host would register the
     // optional Phrecia provider for unrelated admission tests and retain a database those tests can close.
     sealed class SnapshotSetup : IDisposable
