@@ -92,6 +92,7 @@ This research does not change the production simulator or certify native/officia
 | [game/surfcaster.md](game/surfcaster.md) | Surfcaster node checklist: fishing-rod crits and cast speed, Ghost of the Deep, reversed chill, monster ailments and flee |
 | [game/ascendancies.md](game/ascendancies.md) | selection, points, saves and the Phrecia play gate |
 | [game/phrecia-modules.md](game/phrecia-modules.md) | optional Phrecia class sources, league composition and reload ownership |
+| [game/juggernaut.md](game/juggernaut.md) | every node's consumer, the stun formula and `Character.ot` factors, Undeniable's and Untiring's client findings |
 | [game/antiquarian.md](game/antiquarian.md) | all nine node consumers, verified-graph admission, legal builds and native acceptance |
 | [game/campaign-quests.md](game/campaign-quests.md) | the quest engine's pieces in the Gateway and the modules, the act files, adding a quest and an act, quest passive and respec points |
 | [game/behemoth.md](game/behemoth.md) | optional Behemoth sources, shared Rampage/Vaal engines and current validation limits |

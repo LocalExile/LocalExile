@@ -74,11 +74,12 @@ sealed class ChargeSession(Charges.State? state = null)
     public bool MinimumConverted(ChargeType type) => Observed(Charges.MinimumConversionFlag(type)) != 0;
 
     /// <summary>The character died: every gained charge goes at once (the minimum stays), with the events still
-    /// waiting and the periodic timers. True when a charge was held.</summary>
+    /// waiting, the periodic timers and "hit recently". True when a charge was held.</summary>
     public bool Die()
     {
         while (events.TryDequeue(out _)) { }
         timers.Reset();
+        LastHitAt = double.NegativeInfinity;
         return State.Clear();
     }
 

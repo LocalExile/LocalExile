@@ -1203,18 +1203,16 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Departure/arrival damage, chilled ground, nearby-enemy cooldown recovery, shared Blink cooldown groups,
   other location instant skills and complete movement restriction/terrain searches remain unimplemented.
 - **Hit reaction.** A surviving monster receives S→C **0x1d1**, `ActorAnimation` type 5 (`TakeHit`), for recovery.
-  The local eligibility policy requires a positive hit of at least one tenth of maximum life, a known TakeHit profile,
-  no stun immunity and expiry of its previous recovery.
+  A hit must pass the stun roll and needs a known TakeHit profile, no stun immunity and expiry of its previous recovery.
   A killing blow gets no flinch because the client's death runs instead.
-  The duration policy randomly chooses one extracted clip's length, with a 0.4 s minimum; this is a recovery profile,
-  not a forced native rig variant or a complete official stun formula.
+  The server owns [chance and duration](../game/juggernaut.md#stun); it does not force a native rig variant.
   An accepted flinch now stops the server walk at its current game-time cell, clears the chase target and advances
   the monster's action generation, permanently invalidating queued old movement, swing echoes and contact damage.
   AI waits until the same recovery ends; a cancelled ordinary swing releases its old busy period, while boss-stage
   and emergence timing remain intact.
   The connection's send gate commits native `ActorAnimation` (0x1d1), type 5 (`TakeHit`), with the same requested
-  recovery duration as `FlinchUntil`. The actor's ACT selects the actual presentation variant; the extracted clip
-  profile supplies the duration policy rather than forcing a rig index. Neither rig-only 0x1b2 nor 0x1ac followed
+  recovery duration as `FlinchUntil`. The actor's ACT selects the actual presentation variant; the server does not
+  force a rig index. Neither rig-only 0x1b2 nor 0x1ac followed
   by 0x1b2 stops native movement: an initial moving-Drowned probe kept sliding despite its accepted hurt clip.
   Do not append 0x1b2 after 0x1d1, which would replace the native recovery animation's completion lifecycle.
   Projectile contacts (ordinary arrows and bolts, skill projectiles) commit the same 0x1d1 from the runtime's hit
@@ -3676,7 +3674,7 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   and the rest, beyond the three bounded maxima, the converted charges and the Blood Charges above;
   skills and effects that consume or remove
   charges (Discharge, Flicker Strike's cooldown bypass, Immortal Call, "lose all … when", expiry triggers); gains that
-  need stun, freeze, bleed, poison, curses, traps, mines, totems, Vaal souls, other warcries, allies, flask use (the
+  need a stun (other than Unyielding's), freeze, bleed, poison, curses, traps, mines, totems, Vaal souls, other warcries, allies, flask use (the
   utility flask PR #233) or support gems (Power Charge On Critical, Endurance Charge on Melee Stun); Power Siphon's "or
   soon after the hit"; Blood Rage (no self-buff skills); conditional maxima and minima (while affected by an aura, on
   low life, devotion, "count as having maximum", other maximum-equality operators); per-charge stats whose target the
