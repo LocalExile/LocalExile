@@ -11,7 +11,7 @@ static class ClientInstall
     static string Ggpk => Path.Combine(Folder, "Content.ggpk");
     static string GameExe => Path.Combine(Folder, "Game.exe");
     static string PatchedExe => Path.Combine(Folder, "Game.patched.exe");
-    const string Keys = @"data\login-keys.json";
+    static readonly string Keys = Path.Combine("data", "login-keys.json");
 
     /// <summary>The folder's 3.29.3b executable, or why it has none.</summary>
     static string? FindExecutable(string folder, out string problem)
@@ -88,6 +88,17 @@ static class ClientInstall
 
     static IEnumerable<string> Guesses()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            string games = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Games");
+            if (!Directory.Exists(games)) yield break;
+            foreach (string prefix in Directory.EnumerateDirectories(games))
+            {
+                yield return Path.Combine(prefix, "drive_c", "Path of Exile");
+                yield return Path.Combine(prefix, "drive_c", "Program Files (x86)", "Grinding Gear Games", "Path of Exile");
+            }
+            yield break;
+        }
         const string Ggg = @"Grinding Gear Games\Path of Exile";
         foreach (var special in new[] { Environment.SpecialFolder.ProgramFilesX86, Environment.SpecialFolder.ProgramFiles })
             yield return Path.Combine(Environment.GetFolderPath(special), Ggg);
@@ -115,6 +126,11 @@ static class ClientInstall
     static void Link(string source, Output log)
     {
         log.Step("client-link", $"linking Client to {source} ...");
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateSymbolicLink(Path.GetFullPath(Folder), Path.GetFullPath(source));
+            return;
+        }
         var start = new System.Diagnostics.ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (string argument in new[] { "/c", "mklink", "/J", Path.GetFullPath(Folder), Path.GetFullPath(source) }) start.ArgumentList.Add(argument);
         using var mklink = System.Diagnostics.Process.Start(start)!;
@@ -187,6 +203,8 @@ static class ClientInstall
         var (code, lines) = Tools.Capture(Tools.Patch, ["gateway", Ggpk]);
         var list = lines.Where(l => l.Split(';').Length >= 3).ToList();
         if (code == 0 && list.Count > 0 && list.All(l => l.Split(';')[2] == $"127.0.0.1:{ports.Login}")) return;
+        // Windows' file lock refuses this write while a client runs; elsewhere that has to be asked.
+        if (!OperatingSystem.IsWindows()) ClientLaunch.AssertNoneRunning();
         log.Info("pointing the client's login list at your local server");
         Tools.RunOrThrow(Tools.Patch, ["gateway", Ggpk, "--login", $"127.0.0.1:{ports.Login}"], "login-list", ExitCode.Client, log,
             "could not change the client's login list; close every client and try again");

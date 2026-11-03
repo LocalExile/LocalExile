@@ -191,7 +191,7 @@ internal static class Program
     private static NodeOodleDecoder CreateOodle()
     {
         string worker = Path.GetFullPath(
-            Environment.GetEnvironmentVariable("POE_OOZ_WORKER") ?? "tools/ooz/ooz_worker.mjs");
+            Environment.GetEnvironmentVariable("POE_OOZ_WORKER") ?? "Tools/ooz/ooz_worker.mjs");
         string? node = Environment.GetEnvironmentVariable("POE_NODE");
         if (node is not null)
             return new NodeOodleDecoder(node, worker);
