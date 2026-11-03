@@ -207,8 +207,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Generic Mana, spending, Recoup and shared Blind consumers run in Game with independent lifetime-owned state.
   Two deterministic Gateway Facts cover actual admission, legal builds, paid refunds and resource/lifecycle composition,
   including current-Game utility End automation and retained paid recovery across replacement.
-  Current-main build/suite receipts are local; review and native acceptance remain with the publisher.
-  Historical `57053948` on `cc0f9c34` has full-suite/native-36/R6 receipts; the newer combined main requires fresh acceptance.
+  Current-main local build, suites, independent review and bounded native checks cover the resource and reload paths.
+  Spatial forks, full Vaal/Rampage and the complete owned-minion matrix remain outside that acceptance.
   Docs: [Whisperer consumers, legal builds and validation limits](../docs/game/whisperer.md).
 - Aristocrat: every node in its installed graph has a server consumer (gem levels and quality, attribute requirements,
   conditional ailment immunity, lowest-attribute damage, granted passive points), with Gateway coverage of legal builds,

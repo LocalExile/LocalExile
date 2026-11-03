@@ -44,9 +44,9 @@ The current minion role drains neutral packets and deferred flask gains through 
 Retired senders cannot consume those receipts; late completion cannot repeat rewards.
 Body-removal records retain the original monster identity, and native removal refuses a replacement actor.
 The two built-in quest-drop handlers commit into the atomic kill's packet sink; ordinary async kills retain their path.
-Deferred quest kills use a stable synchronous operation under QuestGate and the monster mutation lock.
-The operation captures sends into neutral output, completing phase/ring spawns, unlocks and NPC changes before yielding.
-The receipt is consumed only with that commit; replacement drains remaining packets without replaying rewards or forms.
+Deferred quest kills commit under QuestGate, cipher gate and the normal level-before-monster mutation scope.
+The operation completes phase/ring spawns, unlocks and NPC changes before yielding.
+Its single creation batch precedes dependent actor output; retirement cannot replay rewards or forms.
 Quest flag/tree/stat projections remain current at publication rather than capturing an older whole-player snapshot.
 Freeze acknowledgement and held-move orders commit at the current cipher gate under the mutation lock.
 A retired pending send leaves the freeze generation and held click for replacement; accepted writes finish across reload.
@@ -144,20 +144,15 @@ Moving checks use main's walk state, while charge publication remains an atomic 
 Lifetap Life payment and flask recovery, Point Blank, melee proximity, profane grounds and the stat-tail cache remain.
 The cache includes the captured Blind reduction and computes each hand's own rating before applying it.
 The quest fixture registers the actual campaign tables and uses QuestObjects instead of deleted Mercy.
-Accepted quest-item drops commit synchronously; remaining campaign kill effects run through the current Game drainer.
-This is not a proof of atomic campaign boss/NPC side effects across a reload during those async effects.
+Accepted quest-item drops commit synchronously; remaining campaign kill effects use the current Game drainer.
+The bounded quest operation cannot yield between phase creation and its remaining spawns or NPC mutations.
 
-Local solution build and Core/Data/Gateway checks are recorded under `logs/pr333-candidate`.
 Exactly two new Gateway Facts remain; no Core or Data tests are added.
 No production data paths, generators, extraction manifests or client archives are changed.
-The previous `logs/pr333-main33ea` receipt directory and V4/supplement scripts are absent from the main checkout
-on this machine; historical PR claims cannot establish native acceptance of this reconciliation.
-The publisher owns the next client window and must pin the candidate source and build artifacts before replay.
-Replay the three legal builds above, payment/refund, typed damage and recovery, timed/smoke Blind,
-ordinary same-area Game reload, optional-provider re-entry, utility End reuse and owned-minion rewards.
-Include lockstep movement, freeze/release, in-place/chasing minion actions and profane-ground expiry on this base.
-Start the client only with `scripts/dev/live.ps1`; retain source/artifact/PID provenance and logs.
-No current-candidate native acceptance is claimed.
+Current implementation validation and bounded native results are recorded in PR #333.
+The publisher retains the clean source, eight artifact hashes, loader copies, process identities and logs
+under `logs/pr333-current-native` in its isolated checkout.
+The minion supplement is partial; its ordinary action-cadence and Ancestral coverage gaps are not accepted parity.
 
 ## Validation limits
 
