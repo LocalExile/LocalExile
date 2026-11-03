@@ -25,8 +25,8 @@ enum EmergeKind
 /// the others <see cref="EmergeKind.Lurking"/>. Unique monsters keep their own state: a boss's entrance is its fight's
 /// script (BossFights), not a proximity rise.
 /// They are created in state 1; when the player comes within <see cref="Range"/> cells (or their aggro range, if
-/// shorter), or a lurking one is hit, they rise: the Emerge action (S→C 0x1ab, the .act's Emerge clip), then
-/// Transitionable → 2 (0x2ba; on_transition runs EnableTargetable), then 0x1ac, which lets the clip play; until it has
+/// shorter), or a lurking one is hit, they rise: the Emerge action (S→C 0x1ab, the .act's Emerge clip),
+/// Transitionable → 2 (0x2ba; on_transition runs EnableTargetable) and 0x1ac, which lets the clip play; until it has
 /// played they are busy, so the AI neither moves them nor attacks with them. Data: object-types.json (<c>basic_actions</c>,
 /// <c>client_transitionable</c>, <c>client_targetable</c>: scripts/re/ot_components.py), monster-takehit.json
 /// (<c>emerge</c>: the clip's length, scripts/re/monster_takehit.py), ActionTypes.json.
@@ -73,12 +73,12 @@ sealed class MonsterEmerge(string folder = "data")
     public double Seconds(MonsterCatalog.Variety v) =>
         _clips.Value.TryGetValue(v.Id, out double s) && s > 0 ? s : DefaultSeconds;
 
-    /// <summary>The rise's first two messages, in order: the Emerge action in place (0x1ab, not predicted) and the
-    /// Transitionable step (0x2ba). <see cref="InstanceProtocol.ActionEnded"/> (0x1ac) follows at once: it starts the clip.</summary>
-    public static byte[][] RiseMessages(uint id, (int X, int Y) at, ushort skill, byte transitionableIndex, byte state) =>
+    /// <summary>The rise, in GGG's order and tick: the Transitionable step (0x2ba), then the Emerge action in place aimed
+    /// at the monster itself, with the 0x1ac that starts its clip.</summary>
+    public static byte[][] RiseMessages(uint id, (int X, int Y) at, ushort skill, ushort sequence, byte transitionableIndex, byte state) =>
     [
-        InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, skill, 0xffff, 0x0408),
         InstanceEntities.TransitionableUpdate(id, transitionableIndex, state),
+        InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, skill, sequence, 0x0800, id),
     ];
 
     /// <summary>The buried monsters of a connection by object id: not in <see cref="ClientState.Monsters"/> until they

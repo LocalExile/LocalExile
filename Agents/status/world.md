@@ -98,6 +98,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [league modes](../docs/game/league-modes.md).
 - **Predictive actor collision.** Player paths include living monsters and published players in the same instance.
   Monster paths use their `MonsterVarieties.ObjectSize` clearance and avoid other living bodies, including friendlies.
+  A 50 ms pass steps the player's and the monsters' estimates in time order as the client does (no packets): a step
+  blocked by terrain or a body ends the walk, and a path cut short paths again from its end. Nothing is pushed out of a
+  body. Death releases the occupied space and the corpse stays in the area.
+  Melee monsters chase with their attack aimed at the player, about every 200 ms, and the swing starts on S→C 0x1ac.
+  Ranged monsters and minions take rings around the player (`MonsterSurround`); the AI decides every 50 ms.
+  Automated regressions cover player-body clearance for new and reused slots.
+  Further automated checks cover short attack reach, stationary-blocked slots and queued channel/Rage refreshes.
   A 50 ms pass steps the estimates as the client does (no packets): a step blocked by terrain or a body ends the walk, a
   path cut short paths again from its end, and an attack does not stop the walk; death releases the occupied space and
   the corpse stays in the area.
@@ -108,8 +115,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Combined regressions cover silent channel updates, removed gems and projectile contacts before crowd movement.
   AI and correction passes share indexed body snapshots; surround reservations use spatial queries and cached rings.
   Queue age, send/wire/socket timings and hot combat-lock timings are measured independently of tick latency.
-  The extended crowd changes still need a real-client check.
-  A player boxed in by estimated bodies follows the client through them instead of being pulled back.
+  Stuns and freezes hold the walk and the newest click until they end; a speed change restarts the segment in progress;
+  an attack follows its target to the swing; totems and the tutorial chest block paths.
+  Melee hits land at the swing clip's contact keyframe.
+  Resync (S→C 0x128): sent on every stun, after a movement skill, on the client's own request (C→S 0x16 command 8) and by `/oos`;
+  it corrects errors of 20 cells or more and leaves smaller ones alone.
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Two authenticated clients in the same instance still need an end-to-end check.
   Remote player creation, movement, life and departure are replicated; party formation and shared combat remain open.
@@ -217,9 +227,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
-- The client's lockstep network mode (also what "auto" picks on localhost): the player is drawn (the Gateway sends
-  server frames) but cannot move or use objects.
-  Only Predictive is supported; the Gateway asks for it once per connection
+- The client's lockstep network mode (also what "auto" picks on localhost): with `Game_LOCKSTEP=1` on a connection
+  confirmed as local, or `Game_LOCKSTEP=network` on any connection, the player walks, uses objects and uses skills.
+  Without it the player is drawn but cannot move or
+  use objects, and the Gateway asks for Predictive once per connection
   ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell
   (The Submerged Passage, seed 1); quest flags are derived from visited areas and waypoints, not from quests

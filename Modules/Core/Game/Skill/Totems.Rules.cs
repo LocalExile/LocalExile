@@ -131,6 +131,8 @@ static partial class Game
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 var replaced = conn.Totems.Place(new(objectId, skillId, place, life, now + seconds, aura), limit, now);
                 if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
+                // A totem blocks paths on the client as any body does.
+                if (bodySize >= 0) conn.SetBlocker(objectId, place.X, place.Y, bodySize);
                 var bytes = new List<byte>();
                 if (conn.MonsterTypes.Add((variety.Row, level)))
                     bytes.AddRange(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
@@ -216,7 +218,11 @@ static partial class Game
                 bytes.AddRange(InstanceProtocol.LifeUpdate(t.Id, life));
                 (t.SentLife, t.SentDeath) = (life, life == 0);
             }
-            foreach (var t in totems.Remove(now)) bytes.AddRange(InstanceProtocol.RemoveObject(t.Id));
+            foreach (var t in totems.Remove(now))
+            {
+                conn.RemoveBlocker(t.Id);
+                bytes.AddRange(InstanceProtocol.RemoveObject(t.Id));
+            }
             uint source = conn.PlayerLife > 0 ? totems.AuraAt(conn.Walk.Position(now), now)?.Id ?? 0 : 0;
             if (source != totems.SentAuraTotem)
             {

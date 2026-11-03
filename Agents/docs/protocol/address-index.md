@@ -448,6 +448,7 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x141bae2b0` / `0x141bae0c0` / `0x141bb8840` | Fn | phase target contains/insert / history deep copy |
 | `0x141bae1d0` / `0x141baf5f0` | Fn | erase own target reservation / dispatch local continuation reason |
 | `0x141baea60` / `0x141baef40` / `0x141baf2a0` | Fn | Chain candidates / ranking flags / redirect |
+| `0x141bb6530` | Fn | chain budget (vtable +0x638): `virtual_number_of_chains_for_projectiles` from the skill record; Rolling Magma's ground bounces spend it ([11](11-skills.md#10-projectiles-experimental)) |
 | `0x141baf130 → 0x141bb09c0` | Fn | random/terrain Bounce, previously mislabelled Return |
 | `0x141bb04f0` / `0x141bb0710` | Fn | actual Return qualification / phase mutation and redirect-or-clone |
 | `0x14195dde0` / `0x14195de60` | Fn | hit handle reader / sequence-derived-stage comparator |
@@ -478,7 +479,7 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x1428abac0`, `0x1428ac240`, `0x1428abe80` | Fn | `is_wielding_sword` (0–2), `_mace` (3–5), `_axe` (7, 8): the weapon-type enum's sources |
 | `0x143324da8` | Vtable | Shield Charge's action (type 0x2bc0, constructor `0x1413c6d80`; [11](11-skills.md) §10k) |
 | `0x141a6c060` | Fn | moving-attack per-frame update: travel, then the end phase's scheduled events |
-| `0x141a6bae0` | Fn | moving-attack setup: path, `shield_charge_range_+%`, `shield_charge_extra_distance` |
+| `0x141a6bae0` | Fn | moving-attack setup: path, at most 75 cells × (1 + `shield_charge_range_+%` / 100), `shield_charge_extra_distance` |
 | `0x1413c79d0` → `0x141a6d7c0` | Fn | Shield Charge's hit (vtable +0x550): kind 0 path, 1 final, 2 starts the end phase (+0x3f8) |
 | `0x141a6d760` | Fn | a moving-attack hit's range by kind (Shield Charge 8 / 16 / 28) |
 | `0x141a6ca30`, `0x1413c7780` → `0x141a6df00` | Fn | arrival; Shield Charge's override: final hit, then the end attack's animation |

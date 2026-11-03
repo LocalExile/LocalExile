@@ -324,13 +324,14 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
       Daughters of Merveil, the Conqueror Wurm) belongs to its fight's script.
 
     The server raises one:
-    1. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, sequence 0xffff, flags 0x0408:
-       the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead: `grasp_emerge`, 3.7 s).
-    2. S→C **0x2ba** to its Transitionable with state 2: `on_transition` makes it targetable.
-    3. At once, S→C **0x1ac**: a server action on a monster waits in the Actor's pending slot (`+0x1b8`) until 0x1ac
-       sets its go flag (`0x141e94720`, retried every 0.25 s), and only then plays (`+0x1b0`). Sent when the clip had
-       played, the monster lay still for one clip, rose for another, and took the AI's Moves only at 2.00-2.02 × the
-       clip (live 2026-11-01, 5 of 5). After the clip it chases and attacks like any other.
+    In one tick, in GGG's order:
+    1. S→C **0x2ba** to its Transitionable with state 2: `on_transition` makes it targetable.
+    2. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, aimed at itself (flags 0x0880),
+       a rising sequence: the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead:
+       `grasp_emerge`, 3.7 s).
+    3. S→C **0x1ac**: the action waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
+       (`0x141e94720`, looked at again every 0.25 s), and only then plays (`+0x1b0`). After the clip the monster chases
+       and attacks like any other.
     Which monster rises when is the official server's (its `.ais` AI files are not in the client); the Gateway raises
     one when the player comes within 24 cells, or its aggro range if shorter, or when a lurking one is hit. The clip's
     time is game time (a pause stops it). Rising does not depend on `/ai`: a `/spawn_mob` emerge monster rises next to
@@ -381,7 +382,7 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   Monsters with negative footprints chase directly without taking a slot; stationary objects and walls still block them.
   A ring-0 slot is kept while it stays free and on the ring. Before, every monster aimed at the cell on the line
   toward itself, so a pack from one side queued in a wedge and only the front ones attacked. The server follows each monster's walk with
-  a `WalkEstimator` (A* on the walk map) at MonsterVarieties `MovementSpeed` cells/s (8 for Hungry Corpse, 44 for Haku)
+  a `PlayerWalk` (the client's pathfinder on the walk map) at MonsterVarieties `MovementSpeed` cells/s (8 for Hungry Corpse, 44 for Haku)
   and reports that position as the action's start; live, the chase showed no snapping, so the estimate keeps up. All
   sends go through one lock per connection (the AI tick and the read loop share the Salsa20 stream).
 - **Team** (live 2026-10-17). Positioned's u16 at `+0x1e0` (after x, y and the f32 at `+0x29c`) is the object's team;

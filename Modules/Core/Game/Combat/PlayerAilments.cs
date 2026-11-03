@@ -23,15 +23,18 @@ static partial class Game
         PlayerAilmentsChangedLocked(conn, previousAction, now);
     }
 
-    // A new freeze cancels the player's action, channel and walk; any change of action speed re-times the walk.
+    // A new freeze, or one that outlasts the last, cancels the player's action and channel and holds its walk (ShowFreeze
+    // stops the client's too); any change of action speed re-times the walk.
     internal static void PlayerAilmentsChangedLocked(ClientState conn, double previousAction, double now)
     {
-        if (previousAction != 0 && conn.ElementalAilments.ActionFactor(now) == 0)
+        double frozenUntil = conn.ElementalAilments.FreezeUntil(now);
+        if (conn.ElementalAilments.ActionFactor(now) == 0 && (previousAction != 0 || frozenUntil > conn.FreezeHeldUntil))
         {
             conn.FreezeGeneration++;
+            conn.FreezeHeldUntil = frozenUntil;
             Interlocked.Increment(ref conn.ActionCount);
             conn.ChannelSkill = 0;
-            var at = conn.Walk.Position(now); conn.Walk.Teleport(at.X, at.Y, now);
+            conn.Walk.Pause(now, frozenUntil - now);
         }
         if (previousAction != conn.ElementalAilments.ActionFactor(now)) conn.ApplyMovementSpeed();
     }

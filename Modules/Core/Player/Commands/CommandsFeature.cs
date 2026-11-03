@@ -1053,7 +1053,7 @@ static class CommandsFeature
                 $"Lightning {lightning}% (passives {p.LightningResistance}%, max {p.LightningMaxResistance}%, capped {DamageModel.Capped(lightning, p.LightningMaxResistance)}%), " +
                 $"Chaos {chaos}% (passives {p.ChaosResistance}%, max {p.ChaosMaxResistance}%, capped {DamageModel.Capped(chaos, p.ChaosMaxResistance)}%).");
         })
-        .Add("hit", "/hit <fire|cold|lightning|chaos|physical> <damage> (dev: incoming enemy test contact through resistances or armour)", async args =>
+        .Add("hit", "/hit <fire|cold|lightning|chaos|physical> <damage> [ranged] [freeze] (dev: incoming enemy test contact through resistances or armour)", async args =>
         {
             if (args.Length < 2) throw new ArgumentException("a damage type and an amount");
             if (ParseDamageType(args[0]) is not { } type) throw new ArgumentException("fire, cold, lightning, chaos or physical");
@@ -1064,6 +1064,15 @@ static class CommandsFeature
                 await conn.Commands!.Reply(conn.PlayerLife == 0 ? "You are already dead." : "Enemy test hit rejected while paused or leaving.");
                 return;
             }
+            if (args.Contains("freeze"))
+                lock (conn.Monsters)
+                {
+                    double now = conn.Clock.Elapsed.TotalSeconds, before = conn.ElementalAilments.ActionFactor(now);
+                    var stats = CharacterPlayerStats(conn);
+                    conn.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Freeze, 100, 1, now,
+                        name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.IncomingHitRandom);
+                    PlayerAilmentsChangedLocked(conn, before, now);
+                }
             int dealt = hit.Damage; string mitigation = hit.Mitigation; uint life = hit.Life;
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             if (life == 0)
@@ -1537,6 +1546,11 @@ static class CommandsFeature
             lock (conn.Npcs) list = string.Join(", ", conn.Npcs.Select(n => $"0x{n.Key:x} {n.Value.Npc.Name} ({n.Value.X}, {n.Value.Y})"));
             await conn.Commands!.Reply(list.Length == 0 ? "No NPCs." : list);
         })
+        .Add("oos", "/oos (puts you and the monsters around you back where the server has them when you are out of sync)", async _ =>
+        {
+            await SendResync(remote, stream, ciphers, conn, "/oos");
+            await conn.Commands!.Reply("Resynced.");
+        })
         .Add("pos", "/pos (your cell)", async _ =>
         {
             var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
@@ -1842,7 +1856,6 @@ static class CommandsFeature
             {
                 conn.Monsters[id].Walk = conn.NewMonsterWalk(id, x, y, conn.Monsters[id].Walk.Speed,
                     LivingCollision.Size(conn.Monsters[id]), conn.Monsters[id].Rarity == MonsterRarity.Unique);
-                conn.Monsters[id].CollisionPosition = (x, y);
             }
         })
         // Action probe: start the monster's Move action (0x1ab) toward the player, like the echo of a player's click. The skill
@@ -1886,7 +1899,6 @@ static class CommandsFeature
             {
                 conn.Monsters[id].Walk = conn.NewMonsterWalk(id, x, y, conn.Monsters[id].Walk.Speed,
                     LivingCollision.Size(conn.Monsters[id]), conn.Monsters[id].Rarity == MonsterRarity.Unique);
-                conn.Monsters[id].CollisionPosition = (x, y);
             }
         })
         .Add("ai", "/ai [on|off] (monsters chase you when you come near; emerge monsters rise either way)", async args =>

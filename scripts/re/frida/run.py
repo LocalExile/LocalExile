@@ -87,6 +87,11 @@ def main():
     try:
         session = device.attach(pid)
         session.on("detached", detached)
+        # The LocalExile client keeps Frida's agent: see keep_agent in scripts/dev/client_control.py.
+        if any(p.pid == pid and p.name.lower() == "game.patched.exe" for p in device.enumerate_processes()):
+            keeper = session.create_script("", name="localexile-keep-agent")
+            keeper.load()
+            keeper.eternalize()
         for path in args.scripts:
             with open(path, encoding="utf-8") as source_file:
                 source = source_file.read()
