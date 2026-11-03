@@ -803,7 +803,7 @@ static class CommandsFeature
                 ? $"Map portals will be created at {conn.PortalRotationDegrees:0.#}°."
                 : $"{rebuilt} map portal(s) rebuilt at {conn.PortalRotationDegrees:0.#}°.");
         })
-        .Add("item_mod", "/item_mod [implicit|explicit|enchant|scourge|hidden] <Mods row, Id or part of it> [values…] | /item_mod set [section] <mod> [values…] | /item_mod clear [section] (the held item; missing values are rolled)", async args =>
+        .Add("item_mod", "/item_mod [implicit|explicit|enchant|scourge|hidden] <Mods row, Id or part of it> [values…] | /item_mod set [section] <mod> [values…] | /item_mod remove [section] <mod> | /item_mod clear [section] (the held item; missing values are rolled)", async args =>
         {
             if (args.Length == 0) throw new ArgumentException("which mod?");
             ModSection? section = null;
@@ -830,6 +830,21 @@ static class CommandsFeature
                     if (index >= 0) mods[index] = replacement;
                     return i with { Mods = mods };
                 }, $"set {ItemsFor(conn).Mods.Describe(replacement)}");
+                return;
+            }
+            if (args[0].Equals("remove", StringComparison.OrdinalIgnoreCase))
+            {
+                args = args[1..];
+                if (args.Length == 0) throw new ArgumentException("which mod?");
+                ModSection? removeSection = null;
+                if (args.Length > 1 && ParseSection(args[0]) is { } parsed) { removeSection = parsed; args = args[1..]; }
+                if (ItemsFor(conn).Mods.Find(args[0]) is not { } removeMod) { await conn.Commands!.Reply($"No mod \"{args[0]}\" in Mods.dat"); return; }
+                if (ItemsOf(conn).Items(PlayerInventories.Cursor) is not [var held, ..]) { await conn.Commands!.Reply("Hold an item first"); return; }
+                if (!ItemModEdits.Contains(held.Item, removeMod.Hash, removeSection)) { await conn.Commands!.Reply($"The held item has no {removeMod.Id}"); return; }
+                var removed = held.Item.Mods.First(m => m.Hash == removeMod.Hash && (removeSection is null || m.Section == removeSection));
+                await ChangeHeldItem(remote, stream, ciphers, conn,
+                    i => ItemModEdits.Remove(i, removeMod.Hash, removeSection),
+                    $"removed {ItemsFor(conn).Mods.Describe(removed)}");
                 return;
             }
             if (args.Length > 1 && ParseSection(args[0]) is { } s) { section = s; args = args[1..]; }
