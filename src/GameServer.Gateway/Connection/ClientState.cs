@@ -438,7 +438,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                     (all ??= [.. fixedOnes]).Add(new(x, y, LivingCollision.Size(m)));
                 }
             foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
-                if (peer.Life > 0) (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+                if (peer.Life > 0 && peer.Owner is not null) (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
             return all is null ? fixedOnes : new GameServer.Core.World.BlockerSet(all);
         }
     }
