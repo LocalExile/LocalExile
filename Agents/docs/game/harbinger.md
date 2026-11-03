@@ -2,7 +2,8 @@
 
 The opt-in targets the Phrecia Occultist graph for client 3.29.3b.
 Ordinary Occultist does not match it; admission retains the installed-graph check.
-Publication depends on the accepted Whisperer prerequisite in #333.
+The implementation builds on the exact Whisperer prerequisite in #333.
+The merge order is #333 followed by #339.
 
 ## Native contracts and findings
 
@@ -31,6 +32,15 @@ That pre-object state must not acquire a roster lease or be treated as an actual
 Provider replacement retires the optional area; Game replacement also requires fresh session ownership.
 Labyrinth trap degeneration shares received Focus and fractional non-chaos ES bypass with the other DoT sources.
 The scheduled resource writer retains lethal trap death and refuses Mana recovery after that death.
+
+## Review and merge order
+
+The Harbinger branch retains the prerequisite's exact commits rather than reimplementing its shared resource hooks.
+While upstream #333 is open, the main-targeted #339 diff includes that prerequisite.
+The PR provides a separate Harbinger-only comparison against the verified prospective #333 integration.
+After #333 merges, the resulting main becomes the base for the remaining Harbinger diff and affected checks repeat.
+If the prerequisite is squashed or rebased, only the Harbinger delta is replayed on the accepted main.
+Protected host and build changes require maintainer review before merging.
 
 ## Model boundaries
 
