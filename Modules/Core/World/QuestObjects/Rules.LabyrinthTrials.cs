@@ -1187,10 +1187,10 @@ static partial class QuestobjectsRules
 
     // Under conn.Monsters: a trap's hit of so much physical damage on the player, energy shield first, which may kill them.
     // The life left, or null when the player is dead already (or a hardcore death holds them).
-    static uint? TrapHitLocked(ClientState conn, int damage, double now)
+    internal static uint? TrapHitLocked(ClientState conn, int damage, double now)
     {
         if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) return null;
-        long before = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage, 0, now, CharacterPlayerStats(conn));
+        long before = conn.PlayerLife, lifeDamage = DamagePlayerHitTyped(conn, damage, 0, 0, now, CharacterPlayerStats(conn));
         conn.PlayerLife = (uint)Math.Max(0, before - lifeDamage);
         if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
         RecordHardcoreDeath(conn);
