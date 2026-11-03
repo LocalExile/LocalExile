@@ -22,7 +22,8 @@ static partial class Game
         public Task Wait(int milliseconds, CancellationToken stopping) => Task.Delay(milliseconds, stopping);
     }
     internal static readonly AsyncLocal<PlayerUpdatesState?> AreaUpdateContext = new();
-    internal static bool CurrentGameWork => CurrentGameRules && (Program.ProjectileOutputGuard.Value?.Invoke() ?? true);
+    internal static bool CurrentGameWork => QuestKillCommitOutput is not null
+        || CurrentGameRules && (Program.ProjectileOutputGuard.Value?.Invoke() ?? true);
     internal static double AreaTime(ClientState conn) => AreaUpdateContext.Value?.Schedule.Now(conn) ?? conn.Clock.Elapsed.TotalSeconds;
     internal static Task AreaWait(PlayerUpdateRole role, int milliseconds) => AreaUpdateContext.Value is { } state
         ? state.Schedule.Wait(role, milliseconds, state.Stop.Token) : Task.Delay(milliseconds);

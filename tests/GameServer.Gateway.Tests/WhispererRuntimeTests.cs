@@ -200,6 +200,7 @@ public sealed class WhispererRuntimeTests
         var definition = Assert.Single(new AscendancyCatalog().Definitions,
             d => d.Identity.Family == AscendancyFamily.Phrecia && d.Name == "Whisperer");
         using var h = new Harness(definition); var c = h.Conn; h.Build(B);
+        await QuestAndCollisionReloads(h);
         var (commands, replies) = h.CommandsFor(c);
         Assert.Contains(commands.Usages, command => command.Name == "blind");
         foreach (string invalid in new[] { "0", "61", "NaN" }) Assert.True(await commands.RunAsync("/blind " + invalid));
@@ -1255,6 +1256,104 @@ public sealed class WhispererRuntimeTests
             Game.CombatLifetime = priorRules; Game.PlayerUpdatesSchedule = priorSchedule; Program.SetGameLogic(priorLogic);
             provider.Stop(_ => { });
             for (int i = 0; i < optIns.Length; i++) Environment.SetEnvironmentVariable(optIns[i], priorFlags[i]);
+        }
+    }
+
+    // Extend the grouped regression: no additional Facts or runtime/client access.
+    static async Task QuestAndCollisionReloads(Harness h)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance;
+        var priorLogic = Program.Logic; var priorRules = Game.CombatLifetime;
+        var oldOwner = new ModuleLifetime("Game"); var owner = new ModuleLifetime("Game");
+        var context = new AssemblyLoadContext("Quest and collision handoff", isCollectible: true);
+        context.Resolving += (_, name) => AssemblyLoadContext.Default.Assemblies.FirstOrDefault(a => a.GetName().Name == name.Name);
+        var assembly = context.LoadFromAssemblyPath(typeof(Game).Assembly.Location);
+        var game = assembly.GetType("Game")!;
+        object? Call(string name, params object?[] args) => game.GetMethods(flags)
+            .Single(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(null, args);
+        using var wire = new CaptureStream();
+        var ciphers = new ConnectionCiphers(new byte[64], false);
+        var receive = new ConnectionCiphers(new byte[64], true);
+        var c = h.NewConnection("phase" + Guid.NewGuid().ToString("N"), optional: false, area: Game.MavenNucleus.Area);
+        var frozen = h.NewConnection("frozen" + Guid.NewGuid().ToString("N"), optional: false);
+        var moving = h.NewConnection("held" + Guid.NewGuid().ToString("N"), optional: false);
+        Task? pending = null;
+        try
+        {
+            Game.CombatLifetime = oldOwner; Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(oldOwner));
+            var variety = Game.Monsters.Find(Game.MavenNucleus.Maven)!; Assert.True(variety.Supported);
+            var victim = new SpawnedMonster("Maven", new(100, 100, 0), 0, 0, 1000)
+                { Variety = variety, Level = 68, Rarity = MonsterRarity.Unique, Life = 0, Dead = true };
+            c.Monsters[42] = victim;
+            c.Minions.OutputQueue.Add(new([], null, Target: victim, Kind: PlayerMinions.OutputKind.QuestKill, At: (100, 100)));
+            wire.Hold = () => true;
+            pending = Game.PublishMinionOutcomes("handoff", wire, ciphers, c);
+            await wire.Held.Task;
+            Assert.False(pending.IsCompleted);
+            // Stable-operation alternative: all authoritative spawns commit before the phase's first held send.
+            Assert.Single(c.Monsters.Values, m => m.Variety?.Id == Game.MavenNucleus.Nucleus);
+            Assert.Equal(4, c.Monsters.Values.Count(m => m.Variety?.Id == Game.MavenNucleus.Phase2Cores[0]));
+            var identities = c.Monsters.Keys.ToArray();
+            var ringVariety = Game.Monsters.Find(Game.MavenNucleus.Phase2Cores[0])!;
+            Assert.DoesNotContain((ringVariety.Row, (byte)68), c.MonsterTypes);
+
+            // Freeze and movement lose the cipher gate before retirement; neither may acknowledge/mutate early.
+            double now = frozen.Clock.Elapsed.TotalSeconds;
+            frozen.ElementalAilments.Apply(DamagePacket.Of(DamageType.Cold, 1000, 1000),
+                DamagePacket.Of(DamageType.Cold, 1000, 1000), true, frozen.PlayerMaxLife, now, _ => 0, new Random(1));
+            Assert.True(frozen.ElementalAilments.FreezeUntil(now) > now);
+            frozen.FreezeGeneration++;
+            moving.Walk.Teleport(100, 100, 0);
+            moving.HeldMove = new(120, 100, (ushort)0x4000, 0, 0);
+            var click = moving.HeldMove; int action = moving.ActionCount;
+            var freeze = Game.ShowFreeze("handoff", wire, ciphers, frozen);
+            var move = Game.ReleaseHeldMove("handoff", wire, ciphers, moving);
+            Assert.NotEqual(frozen.FreezeGeneration, frozen.FreezeShown);
+            Assert.Same(click, moving.HeldMove); Assert.Equal(action, moving.ActionCount);
+            oldOwner.Stop(_ => { });
+            game.GetField("CombatLifetime", flags)!.SetValue(null, owner);
+            Program.SetGameLogic((IGameLogic)Activator.CreateInstance(assembly.GetType("GameServer.Modules.Game.GameLogic")!,
+                flags, null, [owner], null)!);
+            wire.Release.TrySetResult(); await pending; await freeze; await move;
+            Assert.NotEqual(frozen.FreezeGeneration, frozen.FreezeShown);
+            Assert.Same(click, moving.HeldMove); Assert.Equal(action, moving.ActionCount);
+            Assert.Equal((100, 100), moving.Walk.Position(0));
+            Assert.NotEmpty(c.Minions.OutputQueue);
+            await (Task)Call("PublishMinionOutcomes", "handoff", wire, ciphers, c)!;
+            await (Task)Call("ShowFreeze", "handoff", wire, ciphers, frozen)!;
+            await (Task)Call("ReleaseHeldMove", "handoff", wire, ciphers, moving)!;
+            Assert.Equal(frozen.FreezeGeneration, frozen.FreezeShown);
+            Assert.Null(moving.HeldMove); Assert.Equal(action + 1, moving.ActionCount);
+            Assert.Empty(c.Minions.OutputQueue); Assert.Equal(identities, c.Monsters.Keys.ToArray());
+            var bytes = wire.Drain(receive);
+            Has(bytes, InstanceEntities.MonsterTypes([((ushort)ringVariety.Row, (byte)68)]));
+            Has(bytes, InstanceProtocol.ActorAnimation(Program.PlayerId, 1, PlayerHitRecovery.TakeHitAnimation)[..6]);
+            foreach (uint id in identities.Where(id => id != 42)) Has(bytes, InstanceProtocol.EnterWakeZone(id));
+            Has(bytes, InstanceProtocol.ActionStarted(Program.PlayerId, 100, 100, 120, 100, (ushort)0x4000, 0, 0));
+            await (Task)Call("PublishMinionOutcomes", "handoff", wire, ciphers, c)!;
+            await (Task)Call("ReleaseHeldMove", "handoff", wire, ciphers, moving)!;
+            Assert.Equal(action + 1, moving.ActionCount); Assert.Equal(identities, c.Monsters.Keys.ToArray());
+
+            // Conversely, once the current cipher transaction accepts output, retirement must not discard it.
+            using var acceptedWire = new CaptureStream();
+            var acceptedCiphers = new ConnectionCiphers(new byte[64], false);
+            var acceptedReceive = new ConnectionCiphers(new byte[64], true);
+            acceptedWire.Hold = () => true;
+            moving.HeldMove = new(130, 100, (ushort)0x4000, 0, 0);
+            var acceptedMove = (Task)Call("ReleaseHeldMove", "handoff", acceptedWire, acceptedCiphers, moving)!;
+            await acceptedWire.Held.Task;
+            Assert.Null(moving.HeldMove); Assert.Equal(action + 2, moving.ActionCount);
+            owner.Stop(_ => { });
+            acceptedWire.Release.TrySetResult(); await acceptedMove;
+            Assert.NotEmpty(acceptedWire.Drain(acceptedReceive));
+            await Game.ReleaseHeldMove("handoff", acceptedWire, acceptedCiphers, moving);
+            Assert.Equal(action + 2, moving.ActionCount);
+        }
+        finally
+        {
+            wire.Release.TrySetResult(); if (pending is not null) await pending;
+            oldOwner.Stop(_ => { }); owner.Stop(_ => { }); context.Unload();
+            Game.CombatLifetime = priorRules; Program.SetGameLogic(priorLogic);
         }
     }
 

@@ -700,6 +700,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Accepted minion expiry and player/owned-kill gameplay precede awaits; neutral output survives replacement.
   Queued quest/tree/equipment projections retain newer progress; accepted charge events leave live periodic time intact.
   All charge-buff consumers project and acknowledge at the send gate, avoiding stale buffered ticker output.
+  Deferred quest kills retain synchronous phase/reward output; freeze and held-move admission share the cipher gate.
+  Grouped deterministic controls cover their pending and accepted output across distinct-Game replacement.
   See [Whisperer](../docs/game/whisperer.md).
 
 - Selected supported-spell panel: final linked-support damage replaces both spell and inherited hand ranges,

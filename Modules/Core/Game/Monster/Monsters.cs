@@ -172,7 +172,10 @@ static partial class Game
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation,
         };
         // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2b9 type is its hash.
-        await Send(remote, stream, ciphers, [], $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})", atGate: () =>
+        if (QuestKillCommitOutput is { } output)
+            output.Add(new([], "quest phase monster type", Kind: PlayerMinions.OutputKind.MonsterType,
+                MonsterType: ((ushort)variety.Row, level)));
+        else await Send(remote, stream, ciphers, [], $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})", atGate: () =>
         {
             lock (conn.Monsters)
                 return CurrentGameWork && !conn.Closed && !conn.LeavingArea

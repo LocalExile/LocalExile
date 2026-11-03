@@ -19,8 +19,11 @@ static partial class Game
                     await CorrectMonsterCollisions(remote, stream, ciphers, conn);
                     if (!PlayerUpdatesCurrent(conn, updates)) return;
                     await PushOutOfCollision(remote, stream, ciphers, conn, living: true);
+                    if (!PlayerUpdatesCurrent(conn, updates)) return;
                     await ShowFreeze(remote, stream, ciphers, conn);
+                    if (!PlayerUpdatesCurrent(conn, updates)) return;
                     await ReleaseHeldMove(remote, stream, ciphers, conn);
+                    if (!PlayerUpdatesCurrent(conn, updates)) return;
                     await KeepWakeZone(remote, stream, ciphers, conn);
                     if (!PlayerUpdatesCurrent(conn, updates)) return;
                 }
@@ -41,15 +44,16 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
-            if (conn.FreezeShown == conn.FreezeGeneration) return;
-            conn.FreezeShown = conn.FreezeGeneration;
+            if (!CurrentGameWork || conn.FreezeShown == conn.FreezeGeneration) return;
         }
         await Send(remote, stream, ciphers, [], "0x01d1 player frozen", atGate: () =>
         {
             lock (conn.Monsters)
             {
+                if (!CurrentGameWork || conn.Closed || conn.FreezeShown == conn.FreezeGeneration) return null;
                 double now = conn.Clock.Elapsed.TotalSeconds, left = conn.ElementalAilments.FreezeUntil(now) - now;
                 if (left <= 0 || conn.PlayerLife == 0 || conn.LeavingArea || conn.Paused) return null;
+                conn.FreezeShown = conn.FreezeGeneration;
                 return [.. InstanceProtocol.ActorAnimation(PlayerId, (float)left, PlayerHitRecovery.TakeHitAnimation),
                     .. ResyncPacketLocked(conn, now)];
             }
@@ -59,23 +63,24 @@ static partial class Game
     // A click that came during a hit's recovery or a freeze: the walk starts when that ends, as the client's does.
     internal static async Task ReleaseHeldMove(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        InstanceProtocol.UseSkillAtLocation use;
-        (int X, int Y) from;
-        int action;
-        using (ProjectileMutation(conn))
+        lock (conn.Monsters)
+            if (!CurrentGameWork || conn.HeldMove is null) return;
+        // Accept the order and its cipher output together; otherwise leave the held click for replacement.
+        await Send(remote, stream, ciphers, [], "0x01ab held move", atGate: () =>
         {
-            if (conn.HeldMove is not { } held) return;
-            double now = ProjectileWorldTime(conn);
-            if (PlayerActionBlocked(conn, now, now)) return;
-            conn.HeldMove = null;
-            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
-            use = held;
-            action = Interlocked.Increment(ref conn.ActionCount);
-            from = conn.Walk.Order(use.X, use.Y, Math.Max(conn.HitRecovery.Until, now - MonsterAiCadence.StepSeconds));
-            conn.ChannelSkill = 0;
-        }
-        await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
-            $"0x01ab held move to ({use.X}, {use.Y}) from ({from.X}, {from.Y})", still: () => PlayerActionCurrent(conn, action));
+            using (ProjectileMutation(conn))
+            {
+                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
+                    || conn.HeldMove is not { } use) return null;
+                double now = ProjectileWorldTime(conn);
+                if (PlayerActionBlocked(conn, now, now)) return null;
+                conn.HeldMove = null;
+                Interlocked.Increment(ref conn.ActionCount);
+                var from = conn.Walk.Order(use.X, use.Y, Math.Max(conn.HitRecovery.Until, now - MonsterAiCadence.StepSeconds));
+                conn.ChannelSkill = 0;
+                return InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags);
+            }
+        });
     }
 
     // Game_TRACE=sync: where the server has the player and the monsters now, on the QPC clock of

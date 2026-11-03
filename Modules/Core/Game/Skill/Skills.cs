@@ -1066,6 +1066,11 @@ static partial class Game
     // The player's stats (0x1b3) and the skills computed with them (0x2ba Actor), after the level or the passives changed.
     internal static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
+        if (QuestKillCommitOutput is not null)
+        {
+            conn.Minions.StatRevision++;
+            return;
+        }
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats ({why})");
         await SendSkills(remote, stream, ciphers, conn);

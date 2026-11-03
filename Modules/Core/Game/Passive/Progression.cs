@@ -1077,6 +1077,11 @@ static partial class Game
     // tree's start) and the allocated nodes.
     internal static async Task SendPassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (QuestKillCommitOutput is { } output)
+        {
+            output.Add(new([], "current quest reward tree", Kind: PlayerMinions.OutputKind.Passives));
+            return;
+        }
         // A queued publication must not restore a tree captured before a later allocation/refund or level change.
         await Send(remote, stream, ciphers, [], "0x0033 current passive skill tree",
             atGate: () => PassivesMessage(conn).Bytes);

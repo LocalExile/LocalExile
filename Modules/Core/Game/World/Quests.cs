@@ -10,6 +10,11 @@ static partial class Game
     // time per connection (QuestGate), so a background sync never interleaves with another change.
     internal static async Task SetQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<string> flags, bool on = true)
     {
+        if (QuestKillCommitOutput is not null)
+        {
+            await SetQuestFlagsHeld(remote, stream, ciphers, conn, flags, on);
+            return;
+        }
         await conn.QuestGate.WaitAsync();
         try { await SetQuestFlagsHeld(remote, stream, ciphers, conn, flags, on); }
         finally { conn.QuestGate.Release(); }
@@ -72,7 +77,10 @@ static partial class Game
     {
         foreach (string flag in change.Changed) Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: quest flag {flag} {(on ? "set" : "cleared")}");
         if (!conn.PlayerSent) return;
-        await Send(remote, stream, ciphers, [], "0x02ba player quest flags (current)", atGate: () => QuestFlagPresentation(conn));
+        if (QuestKillCommitOutput is { } output)
+            output.Add(new([], "current quest flags", Kind: PlayerMinions.OutputKind.QuestFlags));
+        else
+            await Send(remote, stream, ciphers, [], "0x02ba player quest flags (current)", atGate: () => QuestFlagPresentation(conn));
         if (ChangesResistancePenalty(change.Changed) || ChangesQuestStats(change.Changed))
             await SendCharacterStats(remote, stream, ciphers, conn, "quest static reward stats changed");
         // Quest passive and refund points (QuestStaticRewards) are in the tree's numbers.
@@ -151,6 +159,12 @@ static partial class Game
         }
         foreach (var (id, transition, shown) in changed)
         {
+            if (QuestKillCommitOutput is { } output)
+            {
+                output.Add(new([], "current quest transition", TargetId: id,
+                    Kind: PlayerMinions.OutputKind.QuestTransition, Transition: transition));
+                continue;
+            }
             if (shown)
             {
                 await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()),

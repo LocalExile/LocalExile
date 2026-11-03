@@ -131,14 +131,18 @@ static partial class Game
             }
             if (output.Kind == PlayerMinions.OutputKind.QuestKill)
             {
-                lock (conn.Monsters)
+                await conn.QuestGate.WaitAsync();
+                try
                 {
-                    if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
-                        || !ReferenceEquals(state.OutputQueue[0], output)) return;
-                    state.OutputQueue.RemoveAt(0);
+                    lock (conn.Monsters)
+                    {
+                        if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
+                            || !ReferenceEquals(state.OutputQueue[0], output)) return;
+                        CommitQuestKillOperation(remote, stream, ciphers, conn, output);
+                        state.OutputQueue.RemoveAt(0);
+                    }
                 }
-                if (output.Target?.Variety is { } variety)
-                    await QuestKillEffects(remote, stream, ciphers, conn, output.Target, variety, output.At!.Value, dropsCommitted: true);
+                finally { conn.QuestGate.Release(); }
                 continue;
             }
             if (output.Kind == PlayerMinions.OutputKind.PlayerKill)
@@ -164,6 +168,11 @@ static partial class Game
                     state.OutputQueue.RemoveAt(0);
                     if (output.Kind == PlayerMinions.OutputKind.Remove)
                         return output.TargetId is uint gone && !conn.Monsters.ContainsKey(gone) ? output.Packet : null;
+                    if (output.Kind == PlayerMinions.OutputKind.MonsterType)
+                    {
+                        var type = output.MonsterType!.Value;
+                        return conn.MonsterTypes.Add((type.Row, type.Level)) ? InstanceEntities.MonsterTypes([type]) : null;
+                    }
                     if (output.Kind == PlayerMinions.OutputKind.QuestFlags) return QuestFlagPresentation(conn);
                     if (output.Kind == PlayerMinions.OutputKind.QuestTransition)
                         return QuestTransitionPresentation(conn, output.TargetId!.Value, output.Transition!);

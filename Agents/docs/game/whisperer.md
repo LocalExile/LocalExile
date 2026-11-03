@@ -44,6 +44,14 @@ The current minion role drains neutral packets and deferred flask gains through 
 Retired senders cannot consume those receipts; late completion cannot repeat rewards.
 Body-removal records retain the original monster identity, and native removal refuses a replacement actor.
 The two built-in quest-drop handlers commit into the atomic kill's packet sink; ordinary async kills retain their path.
+Deferred quest kills use a stable synchronous operation under QuestGate and the monster mutation lock.
+The operation captures sends into neutral output, completing phase/ring spawns, unlocks and NPC changes before yielding.
+The receipt is consumed only with that commit; replacement drains remaining packets without replaying rewards or forms.
+Quest flag/tree/stat projections remain current at publication rather than capturing an older whole-player snapshot.
+Freeze acknowledgement and held-move orders commit at the current cipher gate under the mutation lock.
+A retired pending send leaves the freeze generation and held click for replacement; accepted writes finish across reload.
+The grouped regression holds Maven phase output through distinct-Game replacement and checks all four ring actors,
+once-only identities, pending freeze/held-move refusal and an accepted held-move write completing after retirement.
 
 Send-gate generation checks reject queued old output; old full stat/skill refreshes cannot overwrite current Blind.
 Ordinary connections keep their area and resume recovery and Blind publication without a new character action.
