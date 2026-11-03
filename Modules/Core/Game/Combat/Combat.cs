@@ -358,7 +358,7 @@ static partial class Game
                 conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
-                    at, Random.Shared);
+                    at, Random.Shared, poison: DefaultAttackPoison(conn, player));
                 if (life > 0 && ownRolled[DamageType.Fire].Max > 0
                     && IgniteOnHitLocked(conn, targetId, m, DefaultAttackIgnite(conn, player),
                         critical, at) is { } packets)
@@ -1101,6 +1101,7 @@ static partial class Game
         LeechSources? leech = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
         MonsterIgnites.Settings ignite = default, bleed = default;
+        MonsterPoisons.Settings poison = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
         // Mirrored monster's reflected ailments reach the player (its freeze would end the action between two targets).
         var deaths = new List<(uint Id, SpawnedMonster M)>();
@@ -1141,6 +1142,7 @@ static partial class Game
                     criticalImpale = ImpaleStats.From(player, Stats, !spell, skillStats, local, critical: true);
                     ignite = SupportedIgnite(conn, skillId, spell, player, shield);
                     bleed = SupportedBleed(conn, skillId, spell, player, shield, melee: SkillsFor(conn).IsMelee(gem.Effect));
+                    poison = SupportedPoison(conn, skillId, spell, player, shield);
                 }
                 var contactHit = sweepHit;
                 if (VaalExecutor(conn, gem.Effect))
@@ -1191,7 +1193,7 @@ static partial class Game
                 {
                     landed++;
                     AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
-                        reflected);
+                        reflected, poison);
                     // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
                     // physical damage bleed it.
                     if (m.Life > 0 && rolled[DamageType.Fire].Max > 0

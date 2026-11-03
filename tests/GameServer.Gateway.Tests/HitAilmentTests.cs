@@ -63,6 +63,8 @@ public sealed class HitAilmentTests
         Assert.Equal(0, settings.Chance);
         Assert.True(settings.Max > 0 && settings.CriticalMax >= settings.Max);
         Assert.Equal(5, settings.Seconds, 6);
+        // Its poison reads the same rows: 30% of the physical damage a second, against the bleed's 70%.
+        Assert.Equal(3.0 / 7, Game.DefaultAttackPoison(conn, Game.CharacterPlayerStats(conn)).Max / settings.Max, 2);
         ushort skill = Game.GemSkillEffects(conn).Single(g => g.Name == "Infernal Blow").Id;
         Assert.Equal(MonsterIgnites.Settings.None, Game.SupportedBleed(conn, skill, spell: true, Game.CharacterPlayerStats(conn)));
 
