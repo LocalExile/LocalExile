@@ -128,6 +128,19 @@ public class SurvivorsRunTests
         Assert.Equal(16, SurvivorsRules.RangedWaveCount(1));
     }
 
+    public void A_run_moves_to_random_areas_near_a_growing_level()
+    {
+        Assert.Equal(("1_1_1", 1), SurvivorsAreas.Next([], 0, new Random(1)));
+        var pool = new List<(string Id, int Level)> { ("A", 1), ("B", 2), ("C", 20), ("D", 30) };
+        var early = SurvivorsAreas.Next(pool, 0, new Random(1));
+        Assert.Contains(early.Level, new[] { 1, 2, 3 });
+        var late = SurvivorsAreas.Next(pool, 1, new Random(1));
+        Assert.InRange(late.Level, 18, 20);
+        // The current area is not picked again when the window has another one.
+        var different = SurvivorsAreas.Next(pool, 0, new Random(1), exclude: early.Id);
+        Assert.NotEqual(early.Id, different.Id);
+    }
+
     public void Experience_follows_monster_rarity()
     {
         Assert.Equal(2, SurvivorsRules.ExperienceForKill(MonsterRarity.Normal));

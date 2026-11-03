@@ -53,7 +53,7 @@ static partial class SurvivorsRunRules
         var (remote, stream, ciphers) = conn.Wire;
         if (InTown(conn) || HideoutCatalog.ByArea(conn.Layout.Hash) is not null)
         {
-            if (AreaTransitionCatalog.HashOf(SurvivorsLevels[0]) is { } first)
+            if (AreaTransitionCatalog.HashOf(SurvivorsStartArea) is { } first)
                 await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(first, 0, false), "survivors entry");
             return;
         }
