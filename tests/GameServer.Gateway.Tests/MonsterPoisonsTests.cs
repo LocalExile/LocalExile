@@ -1,3 +1,5 @@
+using GameServer.Core.World;
+
 namespace GameServer.Gateway.Tests;
 
 public sealed class MonsterPoisonsTests
@@ -52,5 +54,26 @@ public sealed class MonsterPoisonsTests
         // 100 DPS * 1s * 0.5 = 50 damage
         int damage = poisons.Advance(1.0, 0.5);
         Assert.Equal(50, damage);
+    }
+
+    // Poison is gated on its own type: a chaos prohibition stops it on a physical-only hit, another type's does not.
+    [Fact]
+    public void A_chaos_prohibition_stops_poison_from_a_physical_hit()
+    {
+        var conn = new ClientState(new(1, "poison", 300, 300, 100, 100, null, []), 1, 1);
+        var physical = DamagePacket.Of(DamageType.Physical, 100, 100);
+        bool Poisons(params (string Name, int Value)[] stats)
+        {
+            var m = new SpawnedMonster("poisoned", new(105, 100, 0), 0, 0, 1000);
+            var player = stats.Append((Name: "chance_to_poison_on_hit_%", Value: 100))
+                .ToDictionary(s => Program.Stats.Key(s.Name) ?? throw new InvalidOperationException(s.Name), s => s.Value);
+            Game.PoisonOnHitLocked(conn, m, physical, spell: false, critical: false, player, null, now: 10, new Random(1));
+            return m.Poisons.Poisoned;
+        }
+
+        Assert.True(Poisons());
+        Assert.False(Poisons(("base_deal_no_chaos_damage", 1)));
+        Assert.False(Poisons(("deal_no_non_physical_damage", 1)));
+        Assert.True(Poisons(("base_deal_no_cold_damage", 1)));
     }
 }

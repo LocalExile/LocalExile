@@ -13,7 +13,7 @@ sealed class MonsterPoisons
 
         public static Settings From(IEnumerable<(string Stat, int Value)> rows, string hand, Func<string, int> get)
         {
-            if (get("cannot_poison_enemies") != 0 || get("never_damaging_ailments") != 0) return None;
+            if (Prohibited(get)) return None;
             var r = rows.ToDictionary(x => x.Stat, x => x.Value);
             double faster = Faster(get);
             if (faster <= 0) return None;
@@ -27,6 +27,12 @@ sealed class MonsterPoisons
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds);
         }
     }
+
+    /// <summary>Whether the attacker cannot poison: poison deals chaos damage, so a chaos prohibition stops it even from
+    /// physical damage (PoB CalcOffence gates poison on <c>canDeal.Chaos</c>).</summary>
+    public static bool Prohibited(Func<string, int> get) =>
+        get("cannot_poison_enemies") != 0 || get("never_damaging_ailments") != 0
+        || DamageStats.Prohibited(DamageType.Chaos, get);
 
     public static double Faster(Func<string, int> get) =>
         Math.Max(0, 1 + ((double)get("faster_poison_%") + get("damaging_ailments_deal_damage_+%_faster")) / 100.0);

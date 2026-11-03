@@ -336,8 +336,8 @@ ModParser reads their text) remove these types:
 | `deal_no_non_chaos_damage` ("Cannot deal non-Chaos Damage", Replica Alberon's Warpath) | physical, lightning, cold, fire |
 | `attacks_deal_no_physical_damage` | physical, in an attack's hit, ailments and DoT only |
 
-The hit resolver (`PlayerHitDamage`), the damaging-ailment rows and their ignite settings (`AilmentPanelStats`) and
-the caster's outgoing damage over time (`SkillDamageContext.OverTime`: Righteous Fire's enemy burn, a granted skill's
+The hit resolver (`PlayerHitDamage`), the damaging-ailment rows and their ignite settings (`AilmentPanelStats`), the
+poison a hit inflicts (`MonsterPoisons.Prohibited`) and the caster's outgoing damage over time (`SkillDamageContext.OverTime`: Righteous Fire's enemy burn, a granted skill's
 ignite) apply them, as PoB's `canDeal` (CalcOffence) does for hits, ailments and DoT.
 An ailment is gated on its own type, as PoB gates bleed on `canDeal.Physical`, poison on `canDeal.Chaos` and ignite on
 `canDeal.Fire`: "Deal no Chaos Damage" stops poison even from physical. A removed portion also gives no ailment base,
