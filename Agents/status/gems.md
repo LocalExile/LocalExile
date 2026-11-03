@@ -39,11 +39,12 @@ Nothing yet.
 
 - **Gem vendors (verified live 2026-10-26 on Nessa; Lilly/Siosa unit-tested).**
   In this local checkout Nessa additionally has the complete creatable gem assortment, independent of quests/class,
-  with alternative variants, colour/kind tabs and numbered overflow pages; White Skills combines both white kinds.
-  A separate Skills tab preserves quest/class-restricted ordinary stock as the future gameplay shop.
-  Skills lists active gems before supports, grouped red/green/blue/white; supports begin on a new row.
-  Colour tabs remain complete development tools regardless of progression; NpcShops.cs documents the distinction
-  without adding development messages to the player's chat when the shop opens.
+  with alternative variants. Awakened Gems and Exceptional Gems have their own tabs; the colour/kind tabs contain only
+  ordinary gems but still include transfigured, Trarthan and creatable Vaal variants, and White Skills combines both
+  white kinds. A separate Skills tab preserves quest/class-restricted ordinary stock as the future gameplay shop and
+  is shown only when it has stock. Skills lists active gems before supports, grouped red/green/blue/white; supports
+  begin on a new row. Colour tabs remain complete development tools regardless of progression; NpcShops.cs documents
+  the distinction without adding development messages to the player's chat when the shop opens.
   Every Nessa gem is unlimited stock on every tab: paid copies get fresh IDs and the original offer remains available.
   Network purchase tests cover repeats, variant/quality persistence, insufficient funds and save rollback.
   Other vendors retain progression.

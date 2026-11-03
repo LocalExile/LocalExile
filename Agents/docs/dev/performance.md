@@ -193,7 +193,7 @@ allocation, not JIT code quality).
   compact rows would lower the peak memory of the first loads. Several `JsonDocument`s open at once keep their pooled
   buffers: parse one at a time.
 - **Monster AI.** `PlanMonsterAi` is still ~1 ms per step for a crowd of 60: half in `MonsterSurround.Assign` (the
-  free cells' reservation queries), the rest mostly `WalkEstimator.Order`'s client-pathfinder searches.
+  free cells' reservation queries), the rest mostly `PlayerWalk.Order`'s client-pathfinder searches.
 - **An idle player's loops** (58 ms CPU and 13 MB allocated per second in town): the player stat snapshot
   (`CharacterPlayerStatsSnapshot`, the whole character panel) is ~44 % of it. The energy-shield publication builds it on
   every 16 ms recovery step (~25 % of the CPU and half the allocation, measured by leaving it out); the recovery loop

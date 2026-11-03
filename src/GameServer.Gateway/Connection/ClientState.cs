@@ -56,13 +56,20 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
         ];
     }
 
-    /// <summary>The skill's stats: an attack's <see cref="Stats"/> or a spell's cast time, plus skill_is_non_pathing.
-    /// The server walks the monster into range itself; without it the Melee action's begin (0x141938830) sends the attack
-    /// through the client's own pathing step, which drops a server-driven monster's attack (no swing). Only on the skill:
-    /// on the monster's Stats component it also stops its Move action from pathing (live 2026-10-17: monsters stood
-    /// still).</summary>
-    public IReadOnlyList<(uint, int)> SkillStats() => Spell ? [.. SpellStats(), (StatKeys.SkillIsNonPathing, 1)]
-        : [.. Stats(), (StatKeys.SkillIsNonPathing, 1)];
+    /// <summary>An actor whose actions a controller plays (KingInMists.cs): every skill starts at once, none walks it up.</summary>
+    public bool Scripted { get; init; }
+
+    /// <summary>Plays where the actor stands. A plain melee attack instead walks the monster up (07 §5).</summary>
+    public bool InPlace => Ranged || Spell || Scripted;
+
+    /// <summary>The skill's stats. A melee attack keeps the client's pathing step: the action walks the monster up to its
+    /// target and waits there until S→C 0x1ac starts the swing (07 §5). Anything else plays where it stands.</summary>
+    public IReadOnlyList<(uint, int)> SkillStats() => InPlace ? InPlaceSkillStats() : Stats();
+
+    /// <summary>An attack's <see cref="Stats"/> or a spell's cast time, plus skill_is_non_pathing: the action starts at once
+    /// where the actor stands (the Melee action's begin, 0x141938830). Only on the skill: on the monster's Stats component
+    /// it also stops its Move action from pathing (live 2026-10-17: the monsters stood still).</summary>
+    public IReadOnlyList<(uint, int)> InPlaceSkillStats() => [.. Spell ? SpellStats() : Stats(), (StatKeys.SkillIsNonPathing, 1)];
 
     IReadOnlyList<(uint, int)> SpellStats()
     {
@@ -99,6 +106,8 @@ sealed class NpcSale(SpawnedNpc npc, uint mine, uint theirs)
 // An open shop tab: the NPC, its inventory id (manager 1), the items left by id and the tab's 0xbf revision.
 sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem Item)> items)
 {
+    public string? StockKey { get; init; }
+    public Dictionary<uint, Guid> Finite { get; init; } = [];
     public SpawnedNpc Npc { get; } = npc;
 
     /// <summary>The items for sale by id, each with its tab's inventory id.</summary>
@@ -109,8 +118,10 @@ sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem 
     readonly Dictionary<uint, uint> _revisions = [];
 }
 
-sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, int stopRange, uint maxLife)
+sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
+    public bool Asleep;
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
     public uint? OwnerId { get; init; }
@@ -165,6 +176,10 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     // SwingGeneration identifies ordinary attack recovery so canceling it does not clear an emerge or boss stage.
     public int ActionGeneration;
     public int? SwingGeneration;
+    public double SwingOrderedAt;
+    // The sequence of its last melee order, rising with the top bit set as GGG's do: the client picks the swing's clip by it.
+    public ushort Sequence = 0x8000;
+    public ushort NextSequence() => Sequence = (ushort)(0x8000 | ((Sequence + 1) & 0x7fff));
     // The player's debuffs on it (Game.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock
     // seconds) with the taunted buff shown and the end it shows, his passives' and Pride's enemy auras (BuffDefinitions
     // row → buff instance), and the increased damage taken they give (every type; fire, cold and lightning) that its
@@ -199,7 +214,7 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public bool Fleeing;
     public (int X, int Y)? FleeTo;
     public string Label => label;
-    public WalkEstimator Walk { get; set; } = walk;
+    public PlayerWalk Walk { get; set; } = walk;
     public int AggroRange => aggroRange;
     public int StopRange => stopRange;
     public uint MaxLife { get; } = maxLife;
@@ -212,7 +227,6 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public bool CorpseConsumed;
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
     public bool SoulKillProcessed;
-    public (int X, int Y)? CollisionPosition;
     public (int X, int Y)? LastTarget;
     public double NextChaseRetryAt;
     // A boss's stage (BossFights) and whether a hit has started it.
@@ -296,7 +310,13 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public Random IgniteRandom = Random.Shared;
     public int IncomingHitEpoch;
     public int DeathNotificationEpoch = -1;
-    public int FreezeGeneration;
+    public int FreezeGeneration, FreezeShown;
+    public double FreezeHeldUntil;
+    public double NextWakeZoneAt;
+    // How far every walker's steps have been checked (Game.StepWalkers).
+    public double WalkersSteppedTo;
+    // When the movement skill under way ends on the client: the server has already landed it (Game.ResyncAfter).
+    public double LandingUntil;
     public int ActionInterruptionGeneration => unchecked(HitRecovery.Generation + FreezeGeneration);
     public (int Count, int Chance)? PresentedRecentEnemyHits;
 
@@ -429,7 +449,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         var l = Layout;
         Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && !Barrier.Contains((cx, cy)) : null;
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
-            () => Blockers, stationary: CrowdEscapeBlockers);
+            () => Blockers) { FrameOf = LockstepFrameOf };
     }
     public bool PlayerSent;
     // Server frames ended so far (0x2b5).
@@ -492,6 +512,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public double NextAttackAt;
     // Counts the player's actions; an attack's hit lands only if no other action started since (moving cancels it).
     public int ActionCount;
+    // The newest Move click that came while the player could not act (Game.ReleaseHeldMove).
+    public InstanceProtocol.UseSkillAtLocation? HeldMove;
     public readonly PlayerHitRecovery HitRecovery = new();
     public readonly WardState Ward = new();
     public readonly AntiquarianCombatState Antiquarian = new();
@@ -804,6 +826,30 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public volatile bool AiEnabled = true, Closed;
     // Whether the lockstep warning was shown on this connection.
     public bool WarnedLockstep;
+    // Confirmed local and opted in (LockstepLink): this connection answers a lockstep client (Game.RunLockstepFrames).
+    public bool LockstepServed { get; init; }
+    // The client has shown it is in lockstep, by a lag byte in a tick or by a request. A predictive client's lag byte stays
+    // 0, so it is never probed and keeps its own messages.
+    public volatile bool LockstepClient;
+    // The real round trip (LockstepLatency), its probe in flight (Stopwatch timestamp, 0 for none) and the next one's time.
+    public LockstepLatency LockstepLatency = null!;
+    public long LockstepProbeSentAt;
+    // Where the player was at each recent frame start (Game.LockstepClientCell).
+    public readonly Queue<(double At, (int X, int Y) Cell)> LockstepTrail = new();
+    public double LockstepNextProbeAt;
+    // The frame now being sent, on Clock (PlayerWalk.FrameOf).
+    public (double Start, double End)? LockstepFrame;
+    // A lockstep client ends an action on a frame, up to two after the server's clock, and loses an order that comes first.
+    public double LockstepActionTail => LockstepClient ? .066 : 0;
+    (double Start, double End)? LockstepFrameOf(double at) =>
+        LockstepClient && LockstepFrame is { } frame ? (Math.Min(at, frame.Start), frame.End) : null;
+    public readonly GameServer.Core.World.LockstepHold LockstepHold = new();
+    public ushort LockstepSequence;
+    // The object use (C→S 0x18f) the next frame starts.
+    public InstanceTransfer.UseSkillOnObject? LockstepUse;
+    public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
+    // Until when the skill started last keeps the player (Clock seconds).
+    public double LockstepBusyUntil;
     // The character's activated waypoints (WorldAreas Ids, kept in its save) and whether this connection was reached
     // by waypoint travel (the player then appears next to the area's waypoint).
     public readonly HashSet<string> Waypoints = [];
@@ -815,7 +861,21 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public WalkEstimator NewWalk(int x, int y, double speed) =>
         new(x, y, Math.Max(1, speed), Layout.Walkable, Layout.GridW > 0 ? Layout.GridW : 4096, Layout.GridH > 0 ? Layout.GridH : 4096);
 
-    public (int X, int Y) SpawnNear((int X, int Y) at) => Layout.Near(at);
+    /// <summary>The nearest cell to spawn on, clear of other bodies: a walk that starts on a body goes through bodies
+    /// (PlayerWalk.WalksThrough), so monsters spawned on one cell would stay stacked wherever they went.</summary>
+    public (int X, int Y) SpawnNear((int X, int Y) at)
+    {
+        const int Size = 2, Step = 3, Reach = 90;
+        var near = Layout.Near(at);
+        var bodies = Blockers;
+        for (int r = 0; r <= Reach; r += Step)
+            for (int a = 0, n = Math.Max(1, r * 2); a < n; a++)
+            {
+                int x = near.X + (int)Math.Round(r * Math.Cos(a * Math.Tau / n)), y = near.Y + (int)Math.Round(r * Math.Sin(a * Math.Tau / n));
+                if (Layout.WalkableFor(x, y, Size) && !ClientPathfinder.ObjectBlocks(bodies, x, y, Size + 1, Size + 4)) return (x, y);
+            }
+        return near;
+    }
 }
 
 /// <summary>A worn pet the server walks after the player (RunPetFollow): its walk estimate, which side of the player it

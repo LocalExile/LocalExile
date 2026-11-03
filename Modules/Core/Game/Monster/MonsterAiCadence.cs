@@ -11,6 +11,8 @@ sealed class MonsterAiCadence
     public const int StepMilliseconds = 50;
     public const double StepSeconds = StepMilliseconds / 1000.0;
     public const double RepathSeconds = 0.1;
+    // A chase aimed at the player repeats about every 200 ms (GGG's cadence), near or far.
+    public const double AttackChaseSeconds = 0.2;
     public const int TargetChangeCells = 3;
     public const double RetrySeconds = 0.5;
 
@@ -52,6 +54,14 @@ sealed class MonsterAiCadence
             monster.NextChaseRetryAt = now + RetrySeconds;
         }
         schedule.NextChase = now + RepathSeconds;
+        return true;
+    }
+
+    public bool TryAttackChase(SpawnedMonster monster, double now)
+    {
+        var schedule = monsters.GetValue(monster, _ => new());
+        if (!Due(now, schedule.NextChase)) return false;
+        schedule.NextChase = now + AttackChaseSeconds;
         return true;
     }
 

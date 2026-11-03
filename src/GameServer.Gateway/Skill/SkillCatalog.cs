@@ -132,6 +132,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Put("virtual_base_spell_cast_time_ms", e.CastTime);
             Put("hundred_times_casts_per_second", (int)Math.Round(100_000.0 / e.CastTime));
         }
+        if (Value(stats, "volley_additional_projectiles_fire_parallel_x_dist", "greater_volley_additional_projectiles_fire_parallel_x_dist") is int parallelDist and > 0)
+            Put("virtual_additional_projectiles_fire_parallel_x_dist", parallelDist);
         if (gepl >= 0 && t.RageCost[gepl] > 0) { Put("base_rage_cost", t.RageCost[gepl]); Put("total_base_rage_cost", t.RageCost[gepl]); }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
@@ -411,6 +413,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>A movement skill (ActiveSkillType Movement: Leap Slam, Whirling Blades, Flame Dash …): the player ends
     /// where it was aimed.</summary>
     public bool IsMovement(int effectRow) => _movementEffects.Value.Contains(effectRow);
+    public bool IsChannelled(int effectRow) => _skillTypes.Channel.Value.Contains(effectRow);
     public bool IsTravel(int effectRow) => _skillTypes.Travel.Value.Contains(effectRow);
     public bool IsGuard(int effectRow) => _skillTypes.Guard.Value.Contains(effectRow);
     /// <summary>A skill that needs a shield (ActiveSkillType RequiresShield: Shield Charge, Shield Crush …).</summary>
@@ -522,7 +525,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Instant = Of("Instant"); Movement = Of("Movement"); Attack = Of("Attack"); Melee = Of("Melee");
             Spell = Of("Spell"); Projectile = Of("Projectile"); Warcry = Of("Warcry"); Aura = Of("Aura");
             Curse = Of("AppliesCurse"); AddedAura = Of("Aura", added: true); Brand = Of("Brand");
-            Travel = Of("Travel"); Guard = Of("Guard");
+            Travel = Of("Travel"); Guard = Of("Guard"); Channel = Of("Channel");
             Strike = Of("MeleeSingleTarget"); Vaal = Of("Vaal"); Nova = Of("Nova"); RequiresShield = Of("RequiresShield");
             SelfTargeted = new(() =>
             {
@@ -544,6 +547,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public Lazy<HashSet<int>> AddedAura { get; }
         public Lazy<HashSet<int>> Brand { get; }
         public Lazy<HashSet<int>> Travel { get; }
+        public Lazy<HashSet<int>> Channel { get; }
         public Lazy<HashSet<int>> Guard { get; }
         public Lazy<HashSet<int>> Strike { get; }
         public Lazy<HashSet<int>> Vaal { get; }
@@ -655,6 +659,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // and the server walked on (live 2026-10-29). Spark's transfigured and Vaal versions fire Spark's own row.
     // Elemental Hit fires ElementalHitArrowFire/Cold/Lightning by the element it picked, a choice the server does not model
     // yet, so both the gem and its transfigured (Spectrum) version take the combined arrow's art.
+    // Rolling Magma (once Magma Orb) creates MagmaOrbShort (Frida 2026-11-01, trace-projectile-create.js); without the row every
+    // cast was refused while the client drew its orb.
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -674,6 +680,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["VaalSpark"] = "Metadata/Projectiles/Spark",
         ["ElementalHit"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",
+        ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>

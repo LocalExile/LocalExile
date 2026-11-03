@@ -313,7 +313,7 @@ static partial class Game
                     if (conn.Closed || conn.RageRetired) break;
                     if (conn.LeavingArea) continue;
                     now = ProjectileWorldTime(conn);
-                    step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: now < conn.Walk.ArrivesAt,
+                    step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: conn.Walk.Moving(now),
                         inTown: InTown(conn), Random.Shared);
                     buffs = session.Presentation(now, () => conn.NextBuff++);
                     if (step.CountsChanged)

@@ -2,7 +2,8 @@ using GameServer.Core.World;
 
 
 /// <summary>
-/// Where chasing monsters stand around the player. Each monster used to aim at the cell its stop range away on the line
+/// Where chasers that walk on Move orders (ranged monsters, the player's minions) stand around the player; a melee monster
+/// chases with its attack instead (Monsters.PlanMonsterAi). Each monster used to aim at the cell its stop range away on the line
 /// from the player toward itself, so a pack coming from one side aimed at nearly one cell: the bodies queued behind each
 /// other in a wedge and only the front ones reached the player. Here the nearest monsters choose first and each takes the
 /// free cell on the innermost ring around the player closest to its own bearing (or to its previous slot, so slots stay

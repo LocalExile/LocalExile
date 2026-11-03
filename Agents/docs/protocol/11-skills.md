@@ -549,7 +549,7 @@ No generator output changes are needed: the multiplier is already extracted.
 ## 5. Combat timing (Gateway `Attack`)
 
 1. C→S 0x24 arrives when the player clicks, before the client walks into range. The server walks its position estimate
-   toward the monster and stops at the first cell within `MaxAttackDistance` (`WalkEstimator.Approach`).
+   toward the monster and stops at the first cell within `MaxAttackDistance` (`PlayerWalk.Approach`).
 2. On arrival it starts the swing: the 0x1ab echo (from the stop cell, aimed at the monster). Echoing at the click made
    the client swing on the spot, out of range.
 3. At the swing's contact point it rolls the accuracy check and, on a hit, lowers the monster's life with 0x1b1. The
@@ -1587,8 +1587,10 @@ Lunaris) has its self-targeted Novas centred on the aimed point
 use) with and without the stat is not checked live yet; the Gateway log's 0x01ab line shows it.
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
-cell when the skill starts (`SkillCatalog.IsMovement`); it kept the starting cell before, and a later resync pulled the
-player back there (live 2026-10-23). Shield Charge instead walks there at its charge speed and hits on the way (§10k).
+cell when the skill starts (`Game.LandsAtAim`); it kept the starting cell before, and a later resync pulled the
+player back there (live 2026-10-23). A resync follows at the end of the action, and aimed at a monster the skill lands on
+it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks there at its charge speed and hits on the way
+(§10k).
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y, the player's cell) every few frames while the button is held, and **C→S 0x199** (2 bytes) when it is let go
@@ -1734,7 +1736,14 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   are no longer sent. Kinetic Blast's effect is ClusterBurst, which names no
   Projectiles row, so it falls back to the wand attack's `Metadata/Projectiles/WandProjectile` (3260) and plays
   `Metadata/Effects/Spells/cluster_burst/big.ao` where it lands; a landing on bare ground runs one area hit of the
-  skill's radius (its secondary explosions are not modelled).
+  skill's radius (its secondary explosions are not modelled). Rolling Magma (once Magma Orb) creates
+  `Metadata/Projectiles/MagmaOrbShort`, one client object per cast (Frida 2026-11-01, `trace-projectile-create.js`).
+  Its ground bounces are the shared terminal `0x141ba68c0` with no contact, once per impact: the action's chain budget
+  (`0x141bb6530`, vtable +0x638) is the skill record's `virtual_number_of_chains_for_projectiles`, and the executed
+  count +0x458 goes 0, 1, 2 across the impacts, 375 ms apart; the enemy search `0x141baea60` never runs, so the orb
+  bounces straight on even beside monsters (`trace-chain-decisions.js`). The client reads the budget from the skill
+  record it holds, which is only resent with the skill list: with 0 there (the server's ground chains are not
+  `Chain`) the orb stopped at its first impact, and after the fix it bounced only once the gem was socketed again.
 - **Pierce.** Pierce Support's `projectile_base_number_of_targets_to_pierce` (2 at level 1, 4 at level 20) and the other
   pierce stats give a hit budget of 1 + pierce: the projectile passes through that many monsters, each hit landing as
   the glide reaches its cell; the support's more Projectile Damage is part of `SupportedHit`. `always_pierce` is
@@ -1887,7 +1896,7 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   a transfer cancels the retry and takes ownership of visual cleanup.
   Live pause held the projectile at (289, 220) for 1.2 seconds, with no removal until the game resumed.
   Local validation captures: `logs/projectile-collision-live.json` and `logs/projectile-fixed-height-live.json`.
-  These remain estimates: monster positions are integer `WalkEstimator` samples, movement between samples is a
+  These remain estimates: monster positions are integer `PlayerWalk` samples, movement between samples is a
   straight chord, the radius is shared across monsters, and the client has its own cell stepping/network delay.
   Static wall checks use a captured two-dimensional grid, not object/doodad colliders or three-dimensional geometry.
   Sharp turns between samples or long scheduling stalls can still differ from the client. This is not an official
@@ -2500,6 +2509,11 @@ adds it to the pools' movement speed from the use until its own walk arrives (`S
 sends the player stats at both ends. Its walk estimate goes to the aimed cell at that speed instead of the generic
 movement skill's teleport (§9a). Verified live: `movement_velocity_+%` 22 → 112 → 22, the charge twice as fast; the
 first stats update arrives after the client has started the charge, and the client takes it up mid-charge.
+
+**Route.** The charge runs no path search. The setup lays a straight line to the aim, up to its maximum distance
+(below); an aim off the floor moves back along the line to the first cell the mover can stand on. Each step is checked
+as a walk's is ([07](07-latency-visibility-movement.md) §5), so the first blocked step ends the run, on a body as on a
+wall. A charge from inside a ring does not move at all (`PlayerWalk.Charge`).
 
 **Hits.** The client's (`trace-charge-hits.js`, four charges): kind 0 at its position as it starts and then about every
 100 ms (every ~8 cells at charge speed) within 8 cells (`0x141a6d760` returns the range), kind 1 within 16 cells where

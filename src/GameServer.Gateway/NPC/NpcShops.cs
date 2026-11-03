@@ -11,6 +11,8 @@ static class NpcShops
     /// tab bar up over the title. Inventories.dat row 83 (CraftPredictionScratch, kind 0x0f) only gives the client a generic
     /// grid type.</summary>
     public static readonly InstanceInventories.Slot Tab = new(83, 0x0f, 12, 11);
+    // All seven original 3.29.3b vendor captures use this descriptor, with flags 0x60.
+    public static readonly InstanceInventories.Slot NativeTab = new(117, 71, 12, 11);
 
     /// <summary>A sell offer grid (the player's and the NPC's side of the sell window): the main inventory's row and size,
     /// so every item fits (the client checks a drop against the row, 0x141d628f0; row 83 refused everything).</summary>
@@ -33,7 +35,7 @@ static class NpcShops
         ["Metadata/NPC/Act1/Nessa"] =
         [
             ("Small Life Flask", 3), ("Small Mana Flask", 3), ("Medium Life Flask", 1), ("Scroll of Wisdom", 5),
-            ("Portal Scroll", 5), ("Orb of Transmutation", 1), ("Fireball", 1), ("Frostblink", 1),
+            ("Portal Scroll", 5), ("Orb of Transmutation", 1),
         ],
         // Kirac in the hideout sells maps for the map device (2026-10-21); names the game data lacks are skipped.
         ["Metadata/NPC/Epilogue/KiracHideout"] =
@@ -51,6 +53,21 @@ static class NpcShops
     /// tier instead (`GemVendorStock.Price`, passed as <c>gemPrice</c>).</summary>
     public const string Currency = "Scroll of Wisdom";
     public const int PriceInCurrency = 1;
+
+    // Approved local rule from the level-91 campaign capture; low-level scaling is not yet measured.
+    public static byte CampaignItemLevel(string npcId, ItemRarity rarity, byte fallback = 1)
+    {
+        if (rarity is not (ItemRarity.Normal or ItemRarity.Magic or ItemRarity.Rare)) return fallback;
+        int townLevel = npcId.ToLowerInvariant() switch
+        {
+            "metadata/npc/act1/nessa" or "metadata/npc/act1/tarkleigh" => 13,
+            "metadata/npc/act2/yeena" => 23,
+            "metadata/npc/act3/clarissatown" => 33,
+            "metadata/npc/act4/petarusvanja" => 40,
+            _ => 0,
+        };
+        return townLevel == 0 ? fallback : (byte)(townLevel + 2 - (int)rarity);
+    }
 
 
     /// <summary>A shop tab: its name in the buy window (S→C 0x8c), its items and its colour (ARGB; 0 is the client's default).</summary>
@@ -86,10 +103,11 @@ static class NpcShops
         && item.Components.Contains("SkillGem");
 
     /// <summary>The NPC's tabs: its stock (<see cref="Stock"/>) in the first, then the gem tabs of a gem vendor
-    /// (<see cref="GemVendorStock.Sells"/>), each laid out from the first free cell row by row, with item ids from
-    /// <paramref name="nextId"/>. <paramref name="gemStock"/> restricts the gem tabs to those BaseItemTypes rows (a gem
-    /// vendor's unlocked gems); null means every ordinary shop gem. The local <paramref name="fullGemStock"/> mode
-    /// bypasses that filter and includes every creatable variant. Full gem pages continue in numbered tabs.
+    /// (<see cref="GemVendorStock.Sells"/>) and Nessa's map tabs, each laid out from the first free cell row by row, with
+    /// item ids from <paramref name="nextId"/>. <paramref name="gemStock"/> restricts the progression tab and the
+    /// ordinary colour tabs to those BaseItemTypes rows (a gem vendor's unlocked gems); null means every ordinary shop
+    /// gem. The local <paramref name="fullGemStock"/> mode bypasses that filter and includes every creatable variant,
+    /// splitting the Awakened and Exceptional gems out of the colour tabs. Full pages continue in numbered tabs.
     /// Unknown, unwritable or oversized item types are skipped and named in <paramref name="notes"/>.</summary>
     public static List<ShopTab> Tabs(string npcId, ItemCatalog items, Func<uint> nextId, List<string> notes,
         string dataFolder = "data", IReadOnlyCollection<int>? gemStock = null,
@@ -110,6 +128,8 @@ static class NpcShops
             if (items.Find(id) is not { } gemCurrency) return Priced(item);
             return item with { Price = [(gemCurrency.Hash, (uint)Math.Max(1, amount))] };
         }
+        Item PricedShop(ItemCatalog.BaseType type, Item item) =>
+            hardModePrices?.For(type) is { } price ? item with { Price = [price] } : PricedGem(type, item);
         var tabs = new List<ShopTab>();
         var stock = new List<(ItemCatalog.BaseType Type, int Count, Item? Template)>();
         var wanted = (Stock.GetValueOrDefault(npcId) ?? []).ToList();
@@ -118,18 +138,17 @@ static class NpcShops
             if (items.Find(name) is { Supported: true } type && type.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) stock.Add((type, count, null));
             else notes.Add($"no writable item type {name}");
         }
-        if (rules.SellsMaps && SellsMaps.Contains(npcId))
-            stock.AddRange(NessaMapStock.Build(items, dataFolder).Select(m => (m.Type, 1, (Item?)m.Item)));
         stock.RemoveAll(s => (!rules.SellsGemsInGoods && s.Type.Components.Contains("SkillGem")) || rules.ShopExcludedClasses.Contains(s.Type.Class)
             || (hardMode && hardModePrices!.For(s.Type) is null));
         // Goods, then Goods2, Goods3 … for what does not fit.
         for (int page = 1; stock.Count > 0 || page == 1; page++)
             tabs.Add(new(page == 1 ? "Goods" : $"Goods{page}", Lay(stock, items,
-                (type, item) => hardModePrices?.For(type) is { } price ? item with { Price = [price] } : Priced(item), nextId, notes)));
+                (type, item) => hardModePrices?.For(type) is { } price ? item with { Price = [price] } : Priced(item), nextId, notes,
+                campaignNpcId: hardMode ? null : npcId)));
         if (GemVendorStock.Sells(npcId) && rules.SellsGemsAt(npcId))
         {
             // Future progression shop, deliberately separate from the complete development assortment.
-            // Missing progression input must never unlock everything in this tab.
+            // Missing progression input must never unlock everything in this tab, and an empty tab is not shown.
             if (fullGemStock)
             {
                 var unlocked = new[] { false, true }.SelectMany(support => new[] { 1, 2, 3, 4 }
@@ -138,34 +157,65 @@ static class NpcShops
                     .OrderBy(t => items.Gem(t)!.IsSupport).ThenBy(t => items.Gem(t)!.Colour)
                     .ThenBy(t => t.DropLevel).ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
                     .Select(t => (t, 1, (Item?)null)).ToList();
-                for (int page = 1; unlocked.Count > 0 || page == 1; page++)
-                    tabs.Add(new(page == 1 ? "Skills" : $"Skills {page}",
-                        Lay(unlocked, items, PricedGem, nextId, notes, separateGemKinds: true)));
+                if (unlocked.Count > 0)
+                    for (int page = 1; unlocked.Count > 0 || page == 1; page++)
+                        tabs.Add(new(page == 1 ? "Skills" : $"Skills {page}",
+                            Lay(unlocked, items, PricedShop, nextId, notes, separateGemKinds: true)));
+                // Awakened and exceptional gems are development stock, separate from the ordinary colour tabs.
+                if (rules.SellsSupportGems)
+                {
+                    var awakened = items.AwakenedShopGems();
+                    if (awakened.Count > 0) AddGemTab("Awakened Gems", awakened, 0);
+                    var exceptional = items.ExceptionalShopGems();
+                    if (exceptional.Count > 0) AddGemTab("Exceptional Gems", exceptional, 0);
+                }
             }
             foreach (var (name, colour, support) in GemTabs.Where(g => rules.SellsSupportGems || !g.Support))
             {
                 var gems = fullGemStock
-                    ? items.FullShopGems(colour, support)
-                        .Concat(colour == 4 ? items.FullShopGems(4, true) : [])
-                        .Select(g => (g.Type, 1,
-                        (Item?)(ItemCatalog.Create(g.Type) with { GemVariant = g.Variant.Index }))).ToList()
+                    ? items.FullShopGems(colour, support, ordinaryOnly: true)
+                        .Concat(colour == 4 ? items.FullShopGems(4, true, ordinaryOnly: true) : [])
+                        .ToList()
                     : items.ShopGems(colour, support)
                         .Where(t => (gemStock is null ? !hardMode : gemStock.Contains(t.Row))
                             && (!hardMode || hardModePrices!.For(t) is not null))
-                        .Select(t => (t, 1, (Item?)null)).ToList();
-                for (int page = 1; gems.Count > 0 || page == 1; page++)
-                    tabs.Add(new(page == 1 ? name : $"{name} {page}", Lay(gems, items,
-                        (type, item) => hardModePrices?.For(type) is { } price ? item with { Price = [price] } : PricedGem(type, item), nextId, notes),
-                        TabColourOf(colour)));
+                        .Select(t => (t, items.Gem(t)!.Variant(0))).ToList();
+                AddGemTab(name, gems, TabColourOf(colour));
             }
         }
+        if (rules.SellsMaps && SellsMaps.Contains(npcId))
+        {
+            var mapStock = NessaMapStock.Build(items, dataFolder);
+            var originator = mapStock.Where(m => m.Originator).ToList();
+            var maps = mapStock.Where(m => m.Item.Rarity != ItemRarity.Unique && !m.Originator).ToList();
+            var uniques = mapStock.Where(m => m.Item.Rarity == ItemRarity.Unique).ToList();
+            if (maps.Count > 0) AddItemPages("Maps", maps);
+            if (originator.Count > 0) AddItemPages("Originator Maps", originator);
+            if (uniques.Count > 0) AddItemPages("Unique Maps", uniques);
+        }
         return tabs;
+
+        void AddGemTab(string name, IReadOnlyList<(ItemCatalog.BaseType Type, ItemCatalog.GemVariant Variant)> gems, uint colour)
+        {
+            var pages = gems.Select(g => (g.Type, 1,
+                (Item?)(ItemCatalog.Create(g.Type) with { GemVariant = g.Variant.Index }))).ToList();
+            for (int page = 1; pages.Count > 0 || page == 1; page++)
+                tabs.Add(new(page == 1 ? name : $"{name} {page}", Lay(pages, items, PricedShop, nextId, notes), colour));
+        }
+
+        void AddItemPages(string name, List<NessaMapStock.Entry> entries)
+        {
+            var pages = entries.Select(e => (e.Type, 1, (Item?)e.Item)).ToList();
+            for (int page = 1; pages.Count > 0 || page == 1; page++)
+                tabs.Add(new(page == 1 ? name : $"{name} {page}", Lay(pages, items, (_, item) => Priced(item), nextId, notes)));
+        }
     }
 
     /// <summary>Lays <paramref name="stock"/> out in one tab and takes what it placed out of the list: what is left did not
     /// fit (the caller puts it in the next tab).</summary>
     static List<InventoryItem> Lay(List<(ItemCatalog.BaseType Type, int Count, Item? Template)> stock, ItemCatalog items,
-        Func<ItemCatalog.BaseType, Item, Item> priced, Func<uint> nextId, List<string> notes, bool separateGemKinds = false)
+        Func<ItemCatalog.BaseType, Item, Item> priced, Func<uint> nextId, List<string> notes, bool separateGemKinds = false,
+        string? campaignNpcId = null)
     {
         var placed = new List<(InventoryItem Item, byte W, byte H)>();
         var left = new List<(ItemCatalog.BaseType Type, int Count, Item? Template)>();
@@ -180,10 +230,20 @@ static class NpcShops
                 firstRow = placed.Count == 0 ? 0 : placed.Max(p => p.Item.Y + p.H);
                 supportStarted = true;
             }
-            var (sockets, links) = items.DefaultSockets(type);
             int i = 0;
             for (; i < count && FreeCell(placed, type.Width, type.Height, firstRow) is { } cell; i++)
-                placed.Add((new InventoryItem(nextId(), cell.X, cell.Y, priced(type, template ?? ItemCatalog.Create(type, sockets, links))), type.Width, type.Height));
+            {
+                Item item;
+                if (template is not null) item = template;
+                else
+                {
+                    byte level = campaignNpcId is not null && type.Components.Contains("Mods")
+                        ? CampaignItemLevel(campaignNpcId, ItemRarity.Normal) : (byte)1;
+                    var (sockets, links) = items.DefaultSockets(type, level);
+                    item = ItemCatalog.Create(type, sockets, links) with { ItemLevel = level };
+                }
+                placed.Add((new InventoryItem(nextId(), cell.X, cell.Y, priced(type, item)), type.Width, type.Height));
+            }
             if (i < count) left.Add((type, count - i, template));
         }
         // An item bigger than a whole tab would never fit: drop it rather than loop.

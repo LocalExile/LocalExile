@@ -52,7 +52,7 @@ static partial class Game
             var final = CharacterPlayerStats(conn);
             int Get(string name) => Stats.Key(name) is uint key ? final.GetValueOrDefault(key) : 0;
             var step = charges.Step(now, Get, () => WeaponProfileFor(conn), conn.PlayerLife > 0,
-                now < conn.Walk.ArrivesAt, InTown(conn), random);
+                conn.Walk.Moving(now), InTown(conn), random);
             foreach (var buff in charges.Presentation(now, () => conn.NextBuff++))
                 foreach (var (packet, _) in ChargeBuffs.Packets(buff, PlayerId)) session.Packet(packet);
             if (step.CountsChanged)
@@ -85,6 +85,7 @@ static partial class Game
         bool playerKill = true)
     {
         var conn = session.Conn;
+        StopCorpseBlocking(session.remote, session.stream, session.ciphers, conn, id, monster);
         var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;

@@ -27,7 +27,6 @@ static class HitReaction
         var clip = clips[random.Next(clips.Count)];
         var at = m.Walk.Position(now);
         m.Walk.Teleport(at.X, at.Y, now);
-        m.CollisionPosition = at;
         m.LastTarget = null;   // after recovery the chase must acquire a fresh path, even to the same target cell
         if (m.SwingGeneration == m.ActionGeneration && !m.StageRunning) m.BusyUntil = now;
         m.SwingGeneration = null;
