@@ -3,8 +3,9 @@
 # shape, so its matching rules (this checkout's servers, its client, what a run may stop) stay the same on both systems.
 # The client runs under Proton through umu-run; the rest of its setup (keys, patch, gateway list) does not change.
 
-# The patched client through umu-run. Settings a shell gives win over these. The prefix holds the client's settings
-# (Documents\My Games\Path of Exile); the patched client trusts this checkout's keys, so each checkout defaults to its own.
+# The patched client through umu-run. Settings a shell gives win over these. The prefix holds the client's settings and
+# saved login (Documents\My Games\Path of Exile), and by default goes with this checkout. A launcher that keeps them
+# elsewhere, such as Waypoint, names its own with WINEPREFIX; login keys are in data\, so nothing there depends on it.
 #   Game_CLIENT_RUNNER  the program that runs a Windows exe (default umu-run)
 #   WINEPREFIX          default data/wine-prefix
 #   PROTONPATH          default GE-Proton, the newest GE-Proton (umu downloads it on first use)

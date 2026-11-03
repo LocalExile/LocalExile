@@ -34,8 +34,8 @@ static class ClientLaunch
         return client;
     }
 
-    /// <summary>The client through umu-run, in this install's own prefix unless the shell names one: the patched client trusts
-    /// this install's keys. A first start sets up the prefix and may download Proton.</summary>
+    /// <summary>The client through umu-run, in this install's own prefix unless the shell names one (a launcher such as Waypoint
+    /// keeps the settings elsewhere). A first start sets up the prefix and may download Proton.</summary>
     static void UnderProton(ProcessStartInfo start)
     {
         string runner = Environment.GetEnvironmentVariable("Game_CLIENT_RUNNER") is { Length: > 0 } own ? own : "umu-run";
