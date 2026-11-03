@@ -735,8 +735,8 @@ The "deal Damage faster" modifiers (`faster_burn_%`, `damaging_ailments_deal_dam
 second by (1 + their sum) and divide its duration by it.
 The ignite goes onto the monster's one `MonsterIgnites` (`MonsterIgnites.Add`, through `IgniteLocked`), the same set
 projectile hits add to (below), so every source shares one burn and one `ignited` buff.
-Only Abberath's Fury's footstep hits use `IgniteFromHit` ([Polytheist](../game/polytheist.md)); projectile hits use the
-panel rows captured at release (below); the default melee attack and melee or area gems do not ignite yet.
+Only Abberath's Fury's footstep hits use `IgniteFromHit` ([Polytheist](../game/polytheist.md)); every other hit uses the
+panel rows (below).
 An attack's flat packet will go through `MaximumAttackDamage.Apply` (§2i) before it. The ignites burn on while the
 player is dead (unverified), and a dead Hardcore character's kills make no progress. Shaper of Flames-style ignites from
 other damage types and ignite proliferation are not modelled.
@@ -755,8 +755,9 @@ poison / ignite sections) composes the same buckets. Not modelled: conditional s
 more", support more multipliers, the moving bleed bonus, and the rows' native formatting. Burning Arrow's quality
 (`active_skill_ignite_damage_+%_final`, 1% per quality) multiplies the ignite rows.
 
-**Projectile ignite on monsters (`MonsterIgnites`, `Program.MonsterIgnites.cs`).** A gem projectile or ordinary bow/wand
-shot captures its ignite at release: chance `base_chance_to_ignite_%` + `chance_to_freeze_shock_ignite_%` from the caster
+**Hit ignite on monsters (`MonsterIgnites`, `Program.MonsterIgnites.cs`).** A gem projectile or ordinary bow/wand
+shot captures its ignite at release, and the default attack and an area skill's sweep read the same when they hit
+(`SupportedIgnite`, `DefaultAttackIgnite`): chance `base_chance_to_ignite_%` + `chance_to_freeze_shock_ignite_%` from the caster
 and the skill (Burning Arrow's own 25%), the context's ignite rows above (main hand for attacks, spell for spells) as the
 damage-per-second range, and 4 s × (1 + `ignite_duration_+%` + `base_all_ailment_duration_+%`), with the "deal damage
 faster" factor above on both and the target's `base_self_ignite_duration_-%` on the duration. The ignite
@@ -767,8 +768,8 @@ the ailment critical multiplier). Several ignites can be on one monster; only th
 longer one resumes when it ends. The player tick (`BurnIgnited`, 250 ms) integrates the strongest ignite through each start/end,
 applies the monster's capped fire resistance and damage taken, carries fractions and commits kills as Righteous Fire's
 burn does. The monster wears the native `ignited` buff (BuffDefinitions row 0, flame visual 2) with its timer to the
-last ignite's end, re-sent (the old instance removed first) with each new ignite and removed at expiry or death. Not modelled: melee and area
-ignite, ignite proliferation, "as though dealing more", support more multipliers and the panel's unmodelled buckets.
+last ignite's end, re-sent (the old instance removed first) with each new ignite and removed at expiry or death. Not modelled:
+ignite proliferation, "as though dealing more", support more multipliers and the panel's unmodelled buckets.
 
 ## 3a. Impale contacts and reflected damage
 
