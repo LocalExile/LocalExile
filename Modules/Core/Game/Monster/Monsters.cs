@@ -344,6 +344,9 @@ static partial class Game
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To, string Why)> Moves = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To)> Chases = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action)> Swings = [];
+        // Swings a lockstep client's monster began by itself when its chase walk-up got there (no 0x1ab: the client's
+        // action is already swinging), with when the walk-up ended.
+        public readonly List<(uint Id, SpawnedMonster Monster, int Action, double BegunAt)> ArrivedSwings = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, uint Target, SpawnedMonster Weapon)> WeaponSwings = [];
         public readonly List<(uint Id, SpawnedMonster Monster)> BossBars = [];
         public readonly List<(uint Id, SpawnedMonster Monster, (int X, int Y) From, MinionTarget Target)> MinionSwings = [];
@@ -480,6 +483,23 @@ static partial class Game
                 // the edge of the reach.
                 if (m.Hostile && m.Attack is { } a && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin))
                 {
+                    // A lockstep client's monster waits for no 0x1ac: a chase order's walk-up swings the moment it gets there
+                    // (0x141e94720), on the client's frame. So a melee monster that has walked up under its chase is already
+                    // swinging there, from the walk-up's end; the server takes that swing as its own, from that time, instead
+                    // of ordering a second one, which the client would only play after the first (and bounce the chase
+                    // orders meanwhile off a 2 s swing while the estimate walked on). GGG's server, being the client's own
+                    // simulation, swings at that same moment.
+                    if (conn.LockstepClient && !a.InPlace && m.LastTarget is not null && m.SwingGeneration is null && m.Walk.ArrivesAt <= now)
+                    {
+                        double begun = m.Walk.ArrivesAt;
+                        m.BusyUntil = begun + MonsterSwingSeconds(conn, m, begun) / action + conn.LockstepActionTail;
+                        m.LastTarget = null;
+                        m.SwingGeneration = m.ActionGeneration;
+                        m.SwingOrderedAt = begun;
+                        cadence.BeginSwing(m, m.ActionGeneration);
+                        plan.ArrivedSwings.Add((id, m, m.ActionGeneration, begun));
+                        continue;
+                    }
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action + conn.LockstepActionTail;
                     // A melee swing starts at the end of its walk-up. An attack during a Move ends that with
                     // 0x141e90740(…, 0), which does not stop the pathing: the monster swings while it walks on.
@@ -586,6 +606,8 @@ static partial class Game
         }
         foreach (var (id, m, action) in plan.Swings)
             _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action);
+        foreach (var (id, m, action, begun) in plan.ArrivedSwings)
+            _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action, begun);
         foreach (var (id, m, from, target) in plan.MinionSwings)
             _ = MinionSwing(remote, stream, ciphers, conn, id, m, from, target);
         foreach (var (id, m, action, target, weapon) in plan.WeaponSwings)
@@ -594,9 +616,9 @@ static partial class Game
     }
 
     internal static async Task RunPlannedMonsterSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, MonsterAiCadence cadence, uint id, SpawnedMonster m, int action)
+        ClientState conn, MonsterAiCadence cadence, uint id, SpawnedMonster m, int action, double? begunAt = null)
     {
-        try { await MonsterSwing(remote, stream, ciphers, conn, id, m, action); }
+        try { await MonsterSwing(remote, stream, ciphers, conn, id, m, action, begunAt: begunAt); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
         // Anything else is a server bug: the swing was already shown, so name the lost hit instead of faulting the task
         // unobserved (review 2026-10-30).
@@ -755,11 +777,31 @@ static partial class Game
     }
 
     internal static async Task MonsterSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
-        SpawnedMonster m, int action, MonsterAttack? use = null, bool area = false, double areaRadius = 0, ushort? sequence = null)
+        SpawnedMonster m, int action, MonsterAttack? use = null, bool area = false, double areaRadius = 0, ushort? sequence = null,
+        double? begunAt = null)
     {
         if ((use ?? m.Attack) is not { } a) return;
         // Entry protection: a protected player is not attacked (the planner also skips hostile monsters meanwhile).
         if (InGracePeriod(conn)) return;
+        // A swing the client's own chase action began when its walk-up got there (a lockstep client, PlanMonsterAi): no
+        // order goes out, the clip is the chase order's, and the contact counts from the walk-up's end.
+        if (begunAt is { } begun && use is null && !area)
+        {
+            double begunSeconds;
+            ushort begunSeq;
+            lock (conn.Monsters)
+            {
+                double factor = MonsterActionFactor(m, begun);
+                if (factor == 0) return;
+                begunSeconds = MonsterSwingSeconds(conn, m, begun) / factor;
+                begunSeq = m.Sequence;
+            }
+            if (ServerTrace.Ai) Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) swings at the player from its walk-up, begun {conn.Clock.Elapsed.TotalSeconds - begun:0.000} s ago, attack time {begunSeconds:0.00} s");
+            double begunContact = (m.Variety is { } v ? SkillsFor(conn).MonsterContact(v.Id, "Melee", begunSeq)?.ContactFraction : null) ?? 0.5;
+            if (!await WaitMonsterActionTime(conn, id, m, action, begun + begunSeconds * begunContact)) return;
+            await MonsterContact(remote, stream, ciphers, conn, id, m, action, begunSeq, a);
+            return;
+        }
         // Its attack time now: a chill slows it by its action speed, Devout of Gruthkul by the player's attacker slow.
         // A King skill carries its own cast time and a fresh sequence; the generic swing keeps the actor's action speed
         // and the shared 0xffff sequence, and a melee one comes from its walk-up with a rising sequence.
