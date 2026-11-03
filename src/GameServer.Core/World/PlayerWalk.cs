@@ -63,6 +63,12 @@ public sealed class PlayerWalk
     /// then the client paths again from there (<see cref="Repath"/>; 0x141e7bec0 → 0x141e7b920).</summary>
     public bool Reached { get; private set; } = true;
 
+    /// <summary>Whether the walk ended at its goal: the search found the goal and every step was taken. False for a walk
+    /// the search cut short, one that found no path (<see cref="Reached"/> is set as there is no step to take), or one
+    /// a blocked step ended (<see cref="StopAt"/>): the walker stands, but not where it was going.</summary>
+    public bool ReachedGoal => Reached && _goalReached;
+    private bool _goalReached = true;
+
     /// <summary>The path began on a blocked cell (0x141e4d890's out flag → Positioned +0x1e5 &amp; 4): the walker steps
     /// through bodies until its first free step; terrain still stops it (0x141e32710).</summary>
     public bool WalksThrough { get; set; }
@@ -103,6 +109,7 @@ public sealed class PlayerWalk
         _restSince = at;
         _segments = kept;
         Reached = true;
+        _goalReached = false;
         WalksThrough = false;
     }
 
@@ -156,6 +163,7 @@ public sealed class PlayerWalk
         _rest = (x, y);
         _restSince = now;
         Reached = true;
+        _goalReached = true;
         WalksThrough = false;
     }
 
@@ -268,6 +276,7 @@ public sealed class PlayerWalk
         (_target, _maxRange, _tolerance) = (target, maxRange, tolerance);
         // No step to take: the client ends the action instead of pathing again (0x141e7b920 with nothing found).
         Reached = reached || path.Count < 2;
+        _goalReached = reached;
         WalksThrough = !_walkable(here.X, here.Y) || ClientPathfinder.ObjectBlocks(bodies, here.X, here.Y, _size + 1, _size + 4);
         // A stop takes effect after the frame's steps (0x141e350e0). The caller reports here, where the client is now; the
         // walker stands where the client will, or the next start puts the client back up to two cells.

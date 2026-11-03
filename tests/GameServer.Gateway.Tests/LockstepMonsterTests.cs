@@ -51,7 +51,16 @@ public class LockstepMonsterTests
         plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 6);
         Assert.Contains(0x3003u, plan.ArrivedSwings.Select(s => s.Id));
         Assert.Equal(late.Walk.ArrivesAt, plan.ArrivedSwings.Single(s => s.Id == 0x3003u).BegunAt, 6);
-        // A ranged monster's in-place attack ends its Move on a lockstep client, not on a predictive one.
+        // A walk that a body stopped short is no arrival: the chase goes on (ordered again) instead of a swing there.
+        var blocked = Drowned(new PlayerWalk(130, 100, 8));
+        blocked.Walk.Order(100, 100, now: 0);
+        blocked.Walk.StopAt(0.5);   // a step found blocked half a second in, 26 cells from the player
+        conn.Monsters[0x3005] = blocked;
+        plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 7);
+        Assert.DoesNotContain(0x3005u, plan.ArrivedSwings.Select(s => s.Id));
+        Assert.Contains(0x3005u, plan.Chases.Select(c => c.Id));
+        // A ranged monster's in-place attack leaves its Move running to the end, on a lockstep client as on a predictive
+        // one: the estimate keeps its walk.
         SpawnedMonster Spitter(PlayerWalk walk) => new("Spitter", walk, aggroRange: 60, stopRange: 2, maxLife: 10)
         {
             Attack = new(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true }, Aggro = true, LastTarget = (120, 100),
@@ -61,7 +70,7 @@ public class LockstepMonsterTests
         conn.Monsters[0x3004] = shooter;
         plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 6.5);
         Assert.Contains(0x3004u, plan.Swings.Select(s => s.Id));
-        Assert.False(shooter.Walk.Moving(6.6));
+        Assert.True(shooter.Walk.Moving(6.6));
 
         var predictive = Connection(lockstep: false);
         var monster = Drowned(new PlayerWalk(104, 100, 8));

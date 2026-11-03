@@ -198,7 +198,7 @@ step is checked like the player's. A path that began on a blocked cell steps thr
 (`0x141e4d890`'s out flag → Positioned `+0x1e5 & 4`). A path the expansion limit cut short is walked to its end and then
 paths again from there at once (`0x141e7bec0` → `0x141e7b920`). Starting a non-pathing action ends the Move with
 `0x141e90740(…, 0)`, which leaves the pathing running, so a ranged monster shoots while it walks on to the Move's target
-(a predictive client; a lockstep client's monster stands for the shot, §6).
+(on a lockstep client too: §6).
 Monsters far from the player keep their walk but do not tick. Their speeds vary by a few percent (7.60–8.40 for a base of
 8): the Actor's run-speed roll `+0x1a8`. Actor
 setup `0x141e9ca20` seeds a TinyMT32 state (`0x1413cbe50`, init_by_array) with the key [object id, the object type's
@@ -233,7 +233,11 @@ and the hit lands at that clip's contact keyframe (`monster-contacts.json`).
 **The player's own walk-up.** The client's action goes on until the target is in reach, paths again every 0.05 s for a
 player (0.25 s for a monster, `0x141e8eb60`), and needs no word from the server to swing. The Gateway follows it: it
 paths again every 100 ms, for up to 3 s (`FollowMonsterToSwing`). In reach means the walk-up's own goal: the distance less
-the target's size within the weapon's range.
+the target's size within the weapon's range (WeaponTypes RangeMax: a bow or wand 120, the Rusted Sword 11; the client's
+search runs with max range 119 for the bow and 10 for the sword, live 2026-11-03). A ranged attack's walk-up also wants
+line of sight: in reach at 35 cells on the Strand the client walked 17 cells round whatever blocked the line, then shot,
+while the Gateway shot in place and its next start put the client back. That rule (its grid layer and test) is not
+known yet, so the Gateway does not model it; one such walk in four 50 s beach fights.
 
 **Stun and freeze.** The client stops for a hit's recovery (0x1d1) and then goes on with its walk, so the server holds
 its walk for that long (`PlayerWalk.Pause`) instead of ending it. A held walker is not moving for anything that asks
@@ -483,9 +487,14 @@ when the player comes within the reach on the way, or at the path's end whether 
 order aimed at, with the orders sent during the 2.4 s swing queued and the last of them run at its end). The Gateway
 counts that swing from its estimate's arrival, or from the tick the player came within reach of the walking estimate
 (`MonsterAiPlan.ArrivedSwings`), instead of ordering a second one, which the client only played after the first, or
-chasing on, which left the estimate 10 to 17 cells ahead of the standing monster by the swing's end. A ranged monster's
-in-place attack ends its Move on a lockstep client (a Sand Spitter stood through its shot and after it while the estimate
-walked 18 cells on), so the estimate stops at the order.
+chasing on, which left the estimate 10 to 17 cells ahead of the standing monster by the swing's end. A walk the server
+cut short (a step found blocked, no path found) is no arrival: the client's monster may still be walking on its own view
+of the bodies (16 cells on, snapped back 18 by the next order when the server had declared the swing), so such a chase
+is ordered again on its cadence (`PlayerWalk.ReachedGoal`). A ranged monster's
+in-place attack leaves its Move running on a lockstep client as on a predictive one: per-frame, the shot's clip starts on
+the order's frame and the Sand Spitter walks on to its Move's target (377 shots ordered mid-Move: 1.4 cells left at the
+median, 4.2 at the 90th percentile, 7.6 at most), so the estimate keeps its walk; where its path is longer than the
+client's, it walks on alone (one 18-cell case in eight pack fights).
 
 **Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLink`; `Lockstep.cs` and
 `LockstepHold` follow GGG):
