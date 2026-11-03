@@ -467,7 +467,11 @@ and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0
 A skill asked on a monster (0x18f) gets its 0x1ab at once, from the player's cell and aimed at the monster, as an object
 use does: the client's own action walks up and swings when it gets there, as a monster's chase does, and the held skill's
 next use follows that swing. The Gateway does the same (`LockstepAttackStart`) and runs its walk-up and swing without a
-second 0x1ab. Before 2026-11-03 it answered only at its own swing, with the walk-up's end as the position: the client
+second 0x1ab. An object use (a pickup, a chest, a quest object) likewise gets its one 0x1ab from the frame pass, and its
+handler sends none of its own (`UseSkillOnObject.Started`): the handler's second start put the client back on its from
+cell and had it path again, two cells and a frame lost on every pickup (live 2026-11-03; the client's pickup walk, max
+range 20 and tolerance 1, otherwise ends on the Gateway's stop cell, 21 cells from the item, 0.07 s after the Gateway's
+pickup). Before 2026-11-03 it answered only at its own swing, with the walk-up's end as the position: the client
 played its last Move meanwhile and was then put on that cell, up to 35 cells away (live, a bow at 33 cells), and the held
 skill's repeats came at the attack time from the request, each cancelling the walk-up before it. Live after: 18 bow
 attacks in 52 s started at most 3.2 cells off the client's cell, none cancelled.

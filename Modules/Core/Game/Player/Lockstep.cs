@@ -159,7 +159,7 @@ static partial class Game
             // The client walks up on this 0x1ab, where a predictive client starts by itself; the server's use goes on as
             // ever from here, its own walk included.
             await Send(remote, stream, ciphers, LockstepObjectStart(from, use, sequence), $"0x01ab lockstep use of object 0x{use.TargetId:x} from ({from.X}, {from.Y})");
-            _ = OnUseObject(remote, stream, ciphers, conn, use with { Sequence = sequence }, at);
+            _ = OnUseObject(remote, stream, ciphers, conn, use with { Sequence = sequence, Started = true }, at);
         }
         else await Send(remote, stream, ciphers, LockstepActionStart(conn, from, target, sequence),
             $"0x01ab lockstep walk from ({from.X}, {from.Y}) to ({target.X}, {target.Y})",
