@@ -107,6 +107,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
                 double now = Now(conn);
                 double next = RecipientEffectTime.Rate(2, name => monster.Mods.Effects[name]);
                 monster.Ignites.SetExpiryRate(now, next);
+                monster.Bleeds.SetExpiryRate(now, next);
                 monster.Poisons.SetExpiryRate(now, next);
                 monster.Ailments.SetExpiryRate(now, next);
                 monster.TauntedUntil = RecipientEffectTime.RetimedDeadline(monster.TauntedUntil, now, monster.RecipientDebuffRate, next);

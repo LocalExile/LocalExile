@@ -180,6 +180,9 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public readonly ImpaleState Impale = new();
     // The player's ignites on it (MonsterIgnites.cs), under the Monsters lock.
     public readonly MonsterIgnites Ignites = new();
+    // The player's bleeds on it, under the Monsters lock: the same rules as ignites (wiki Bleeding: only the strongest
+    // deals damage, each keeps its own expiry).
+    public readonly MonsterIgnites Bleeds = new();
     // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
     public readonly MonsterPoisons Poisons = new();
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
@@ -324,7 +327,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// offsets (KingInMists.cs). Set when the area is populated, so both forms use the same origin.</summary>
     public (int X, int Y)? KingOrigin;
     public Random IncomingHitRandom = Random.Shared;
-    // The player's ignite rolls on monsters (MonsterIgnites), apart from the hit's own streams.
+    // The player's ignite and bleed rolls on monsters (MonsterIgnites), apart from the hit's own streams.
     public Random IgniteRandom = Random.Shared;
     public int IncomingHitEpoch;
     public int DeathNotificationEpoch = -1;

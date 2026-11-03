@@ -50,23 +50,21 @@ static partial class Game
     internal static List<byte[]>? IgniteLocked(ClientState conn, uint id, SpawnedMonster m, DamageOverTime ignite, double now)
     {
         if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds)) return null;
-        return ShowIgnitedLocked(conn, id, m, now);
+        return ShowDotBuffLocked(conn, id, m.Ignites, IgnitedBuffRow, now);
     }
 
-    // The ignited buff's timer runs to the monster's last ignite's end: every new ignite sends it again (the old instance
-    // off first). Under the Monsters lock.
-    static List<byte[]> ShowIgnitedLocked(ClientState conn, uint id, SpawnedMonster target, double now)
+    // The ignited (or bleeding) buff's timer runs to the monster's last ignite's (bleed's) end: every new one sends it
+    // again (the old instance off first). Under the Monsters lock.
+    static List<byte[]> ShowDotBuffLocked(ClientState conn, uint id, MonsterIgnites set, ushort row, double now)
     {
         var packets = new List<byte[]>();
-        if (target.Ignites.Buff is ushort old) packets.Add(InstanceEntities.RemoveBuff(id, old));
+        if (set.Buff is ushort old) packets.Add(InstanceEntities.RemoveBuff(id, old));
         ushort buff = conn.NextBuff++;
-        target.Ignites.Buff = buff;
-        packets.Add(IgnitedBuff(id, buff, target.Ignites.RemainingBase(now)));
+        set.Buff = buff;
+        packets.Add(InstanceEntities.AddBuff(id, buff, row, PlayerId,
+            u68: BitConverter.SingleToUInt32Bits((float)set.RemainingBase(now))));
         return packets;
     }
-
-    internal static byte[] IgnitedBuff(uint id, ushort instance, double seconds) =>
-        InstanceEntities.AddBuff(id, instance, IgnitedBuffRow, PlayerId, u68: BitConverter.SingleToUInt32Bits((float)seconds));
 
     /// <summary>What a skill's hit can ignite with, as a projectile captures it at release: the skill's ignite rows in the
     /// main hand for an attack (the spell's for a spell; <paramref name="weapon"/>: a shield skill's shield) and the
@@ -101,22 +99,26 @@ static partial class Game
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
                 e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom)) return null;
-        return ShowIgnitedLocked(conn, id, target, now);
+        return ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now);
     }
 
     internal static string IgnitedLog(uint id, SpawnedMonster target, bool critical, double now) =>
         $"monster 0x{id:x} ({target.Label}) ignited{(critical ? " by a critical hit" : "")} for {target.Ignites.Until - now:0.##} s";
 
     internal static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now)
+        MonsterIgnites.Settings settings, bool critical, double now) =>
+        QueueDotBuff(session, IgniteOnHitLocked(session.Conn, id, target, settings, critical, now),
+            IgnitedLog(id, target, critical, now));
+
+    // Queues a projectile hit's ignited or bleeding buff packets on its session, the log on the last.
+    static void QueueDotBuff(ProjectileSession session, List<byte[]>? packets, string log)
     {
-        if (IgniteOnHitLocked(session.Conn, id, target, settings, critical, now) is not { } packets) return;
-        for (int i = 0; i < packets.Count; i++)
-            session.Packet(packets[i], i < packets.Count - 1 ? null : IgnitedLog(id, target, critical, now));
+        for (int i = 0; i < packets?.Count; i++)
+            session.Packet(packets[i], i < packets.Count - 1 ? null : log);
     }
 
-    // Sends a hit's ignited-buff packets (IgniteOnHitLocked) after the lock.
-    static async Task SendIgnited(string remote, NetworkStream stream, ConnectionCiphers ciphers, List<byte[]>? packets,
+    // Sends a hit's ignited or bleeding buff packets (IgniteOnHitLocked, BleedOnHitLocked) after the lock.
+    static async Task SendDotBuff(string remote, NetworkStream stream, ConnectionCiphers ciphers, List<byte[]>? packets,
         string log)
     {
         if (packets is null) return;
@@ -128,7 +130,14 @@ static partial class Game
     // resistance and damage taken (MonsterDotTaken), the buff off when the last ignite ends, and kills, as Righteous
     // Fire's burn (BurnAround) commits them. They burn on while the player is dead (the kill then gives no experience,
     // MonsterKilled).
-    internal static async Task BurnIgnited(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static Task BurnIgnited(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        TickStrongestDots(remote, stream, ciphers, conn, m => m.Ignites, (m, now) => MonsterDotTaken(m, DamageType.Fire, now),
+            "burnt to death by ignite");
+
+    // One tick of a strongest-only set (ignites, bleeds: <paramref name="of"/>), <paramref name="factor"/> the monster's
+    // mitigation of it.
+    static async Task TickStrongestDots(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        Func<SpawnedMonster, MonsterIgnites> of, Func<SpawnedMonster, double, double> factor, string died)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         var ended = new List<(uint Id, ushort Buff)>();
@@ -138,11 +147,12 @@ static partial class Game
             double now = ProjectileWorldTime(conn);
             foreach (var (id, m) in conn.Monsters)
             {
-                if (m.Ignites.Idle) continue;
+                var set = of(m);
+                if (set.Idle) continue;
                 int damage = 0;
-                if (m.Dead || m.Life == 0) m.Ignites.Clear();
-                else damage = m.Ignites.Advance(now, MonsterDotTaken(m, DamageType.Fire, now));
-                if (!m.Ignites.Burning && m.Ignites.Buff is ushort gone) { ended.Add((id, gone)); m.Ignites.Buff = null; }
+                if (m.Dead || m.Life == 0) set.Clear();
+                else damage = set.Advance(now, factor(m, now));
+                if (!set.Burning && set.Buff is ushort gone) { ended.Add((id, gone)); set.Buff = null; }
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
                 m.Aggro = m.Life > 0;
@@ -150,8 +160,8 @@ static partial class Game
                 {
                     m.Dead = true;
                     CollectVaalSoulAtDeathLocked(conn, m);
-                    m.Ignites.Clear(burnt: true);
-                    if (m.Ignites.Buff is ushort buff) { ended.Add((id, buff)); m.Ignites.Buff = null; }
+                    set.Clear(burnt: true);
+                    if (set.Buff is ushort buff) { ended.Add((id, buff)); set.Buff = null; }
                 }
                 hits.Add((id, m, m.Life, damage));
                 if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
@@ -171,7 +181,7 @@ static partial class Game
                 }
             }
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
-                life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) burnt to death by ignite" : null);
+                life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);
             if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
         }
     }
