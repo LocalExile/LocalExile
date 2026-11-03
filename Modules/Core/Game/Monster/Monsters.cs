@@ -1133,7 +1133,8 @@ static partial class Game
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
         if (GameServer.Core.World.RandomRolls.Chance(StatOf("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
-            m.Ailments.Freeze(1, now, StatOf, name => m.Mods.Effects[name]);
+            m.Ailments.Freeze(1, now, StatOf, name => m.Mods.Effects[name], AilmentArea(StatOf, _ => 0, spell: false));
+        AilmentsWhenHitLocked(m, StatOf, blocked, now);
         if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
         RecordHardcoreDeath(conn);
         bool spirit = m.Rarity == MonsterRarity.Unique

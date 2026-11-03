@@ -43,10 +43,14 @@ static partial class Game
         lock (conn.Monsters) ChargesOf(conn).Die();
     }
 
-    // A hostile monster the player killed (MonsterKilled): its "on kill" gains.
+    // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the
+    // corpse kept a freeze (its killing hit's included) or shattered.
     internal static void ChargesOnKill(ClientState conn, SpawnedMonster m)
     {
-        if (conn.PlayerLife > 0) ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity));
+        if (conn.PlayerLife == 0) return;
+        bool frozen;
+        lock (conn.Monsters) frozen = m.Ailments.FrozenAtDeath(ProjectileWorldTime(conn));
+        ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
     }
 
     // A monster's hit on the player that landed (when hit) or was blocked (on block).

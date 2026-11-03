@@ -36,7 +36,8 @@ static partial class Game
         if (playerKill)
         {
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
-            var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now);
+            var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
+                Frozen: monster.Ailments.FrozenAtDeath(now));
             if (chargeBatch is not null) chargeBatch.Add(charge);
             else CommitAcceptedChargeBatchLocked(conn, [charge], CharacterPlayerStats(conn));
         }

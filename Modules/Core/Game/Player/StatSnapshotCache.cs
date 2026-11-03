@@ -193,7 +193,8 @@ static partial class Game
         if (stage == StatSnapshotStage.Panels)
         {
             foreach (var (stat, value) in PanelStats.Compute(Get, n => mainLocal.GetValueOrDefault(n), n => offLocal.GetValueOrDefault(n),
-                playerLevel: pools.Level)
+                playerLevel: pools.Level, mainArmed: WeaponIn(inputs.Skills, inputs.Items, inputs.ClassRow, ActiveMainHand()) is not null,
+                offArmed: OffhandWeaponFor() is not null)
                 .Concat(PanelStats.FromPools(Get, pools))
                 .Concat(PanelStats.Defence(Get, pools, Monsters.BaseDamage(pools.Level), Monsters.BaseAccuracy(pools.Level)))
                 .Concat(PanelStats.Recovery(PanelStats.WhileMoving(Get, inputs.Moving), pools.Life, pools.Mana))

@@ -202,6 +202,19 @@ static class AuraCatalog
         }
     }
 
+    /// <summary>Watcher's Eye's "Damage Penetrates X% Lightning Resistance while affected by Wrath" and its Anger and
+    /// Hatred forms, as the base penetration stat while that aura runs. The character's own stat, so aura effect does
+    /// not scale it.</summary>
+    public static IEnumerable<(uint Key, int Value)> WhileAffectedPenetration(IEnumerable<Aura> auras,
+        IReadOnlyDictionary<uint, int> character, StatCatalog stats)
+    {
+        foreach (var aura in auras)
+            if (aura.EffectId switch { "Anger" => "fire", "Hatred" => "cold", "Wrath" => "lightning", _ => null } is { } element
+                && stats.Key($"reduce_enemy_{element}_resistance_%_while_affected_by_{aura.EffectId.ToLowerInvariant()}") is uint from
+                && stats.Key($"base_reduce_enemy_{element}_resistance_%") is uint to && character.GetValueOrDefault(from) is var value and not 0)
+                yield return (to, value);
+    }
+
     /// <summary>The flat stat bonuses from the active auras (regeneration and Haste's cast speed), scaled by aura effect.</summary>
     public static IEnumerable<(uint Key, int Value)> RawStats(IEnumerable<Aura> auras, int auraEffectPct,
         SkillCatalog skills, StatCatalog stats)
