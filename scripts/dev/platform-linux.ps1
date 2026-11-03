@@ -3,11 +3,10 @@
 # shape, so its matching rules (this checkout's servers, its client, what a run may stop) stay the same on both systems.
 # The client runs under Proton through umu-run; the rest of its setup (keys, patch, gateway list) does not change.
 
-# The patched client through umu-run. Settings a shell gives win over these. The prefix holds the client's settings and
-# saved login (Documents\My Games\Path of Exile): one prefix of LocalExile's own, so they outlive any install and every
-# install has them, and no other Path of Exile ever sees them. Login keys are in data\, so nothing there depends on it.
+# The patched client through umu-run. Settings a shell gives win over these. The prefix holds the client's settings
+# (Documents\My Games\Path of Exile); the patched client trusts this checkout's keys, so each checkout defaults to its own.
 #   Game_CLIENT_RUNNER  the program that runs a Windows exe (default umu-run)
-#   WINEPREFIX          default ~/.local/share/LocalExile/wine-prefix
+#   WINEPREFIX          default data/wine-prefix
 #   PROTONPATH          default GE-Proton, the newest GE-Proton (umu downloads it on first use)
 #   GAMEID              default umu-238960, Path of Exile's protonfixes
 $script:ClientStartTimeout = 300    # a first start creates the prefix, and may download Proton and its runtime
@@ -99,34 +98,12 @@ function Start-LinuxDetached([string]$exe, [string[]]$arguments, [string]$log, [
     [Diagnostics.Process]::Start($start)
 }
 
-# LocalExile's first settings, in the prefix it chose (one the shell names is the player's, and never written): this
-# install's from before the prefix was shared, when it has them, and the network mode the server needs. Once the file
-# exists nothing here touches it, so what the player sets in game stays. src/LocalExile/Platform.cs does the same.
-function Initialize-GameSettings([string]$prefix) {
-    $folder = Join-Path $prefix 'drive_c/users/steamuser/Documents/My Games/Path of Exile'
-    $settings = Join-Path $folder 'production_Config.ini'
-    if (Test-Path -LiteralPath $settings) { return }
-    New-Item -ItemType Directory -Force $folder | Out-Null
-    $old = Join-Path $repo 'data/wine-prefix/drive_c/users/steamuser/Documents/My Games/Path of Exile'
-    foreach ($name in 'production_login.credentials', 'production_Config.ini') {
-        $file = Join-Path $old $name
-        if (Test-Path -LiteralPath $file) { Copy-Item -LiteralPath $file (Join-Path $folder $name) }
-    }
-    $text = if (Test-Path -LiteralPath $settings) { [IO.File]::ReadAllText($settings) } else { '' }
-    $text = if ($text -match '(?m)^networking_type=') { $text -replace '(?m)^networking_type=[^\r\n]*', 'networking_type=predictive' }
-        else { $text.TrimEnd() + "`r`n[NETWORKING]`r`nnetworking_type=predictive`r`n" }
-    # The byte-order mark is how the client writes this file.
-    [IO.File]::WriteAllText($settings, $text.TrimStart(), [Text.UTF8Encoding]::new($true))
-}
-
 # Starts the client and returns its process, in the members Start-Process's result gives Start-Client. The exe runs
 # several processes below umu-run, so it is found by what it is; killing it ends Proton's processes with it.
 function Start-WineClient([string]$client, [int]$patchPort) {
     $runner = if ($env:Game_CLIENT_RUNNER) { $env:Game_CLIENT_RUNNER } else { 'umu-run' }
     Need (Get-Command $runner -ErrorAction SilentlyContinue) "$runner not found: install umu-launcher, or set Game_CLIENT_RUNNER"
-    $prefix = Join-Path ([Environment]::GetFolderPath('LocalApplicationData', 'Create')) 'LocalExile/wine-prefix'
-    if (-not $env:WINEPREFIX) { Initialize-GameSettings $prefix }
-    $settings = @{ WINEPREFIX = $prefix; PROTONPATH = 'GE-Proton'; GAMEID = 'umu-238960'; PROTON_VERB = 'run' }
+    $settings = @{ WINEPREFIX = (Join-Path $repo 'data\wine-prefix'); PROTONPATH = 'GE-Proton'; GAMEID = 'umu-238960'; PROTON_VERB = 'run' }
     $before = @{}
     foreach ($name in $settings.Keys) {
         $before[$name] = [Environment]::GetEnvironmentVariable($name)
