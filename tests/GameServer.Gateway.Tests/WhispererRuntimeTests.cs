@@ -122,6 +122,13 @@ public sealed partial class WhispererRuntimeTests
         Assert.Equal(40u, c.PlayerMana); Assert.Equal(0u, c.EnergyShield.Current);
         Assert.Equal(199, state.Mana.SpentRemainder); // Defensive Mana is not a cost.
         Assert.Equal(14, state.Mana.Take(14)); // Post-Ward 70 includes the ES/Mana portions.
+        var trialHit = h.NewConnection("physical-trial-hit", optional: false); trialHit.MainAscendancy = new();
+        trialHit.PlayerStats[Key("physical_damage_%_taken_from_mana_before_life")] = 100;
+        trialHit.PlayerLife = 1000; trialHit.PlayerMana = 100;
+        trialHit.Ward.SetMaximum(0); trialHit.EnergyShield.SetMaximum(0, false);
+        var trialResources = Game.ResourceEffectsOf(trialHit); trialResources.Mana.Spent(199, 10);
+        Assert.Equal(1000u, QuestobjectsRules.TrapHitLocked(trialHit, 100, 0));
+        Assert.Equal(0u, trialHit.PlayerMana); Assert.Equal(199, trialResources.Mana.SpentRemainder);
         state.Mana.Clear(); state.Mana.Spent(199, 10);
         state.Mana.Hit(20, 1, 20); Assert.Equal(0, state.Mana.Take(24));
         c.PlayerMana = c.Pools.Mana; Game.SettleFullManaLocked(c, 24);

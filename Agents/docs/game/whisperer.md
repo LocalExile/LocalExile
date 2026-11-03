@@ -149,6 +149,7 @@ The bounded quest operation cannot yield between phase creation and its remainin
 Trap degeneration shares the current scheduled recovery writer, can kill after ES absorption, and publishes death
 through the same epoch/cipher gate as lethal ailments.
 A resumed-writer regression verifies that lethal degeneration cannot grant Mana recovery after death.
+Physical trap hits retain their type through the shared resource writer, including physical defensive Mana.
 
 Exactly two new Gateway Facts remain; no Core or Data tests are added.
 No production data paths, generators, extraction manifests or client archives are changed.
