@@ -26,7 +26,7 @@ sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
                 // social boundary; only player presence crosses the per-character world-state boundary in towns.
                 var presence = _instances.Where(e => e.Key.Id == id && e.Key.Created == created)
                     .Select(e => e.Value.Presence).FirstOrDefault();
-                _instances[instanceKey] = state = new InstanceState(presence);
+                _instances[instanceKey] = state = new InstanceState(presence, clock);
             }
             state.Connections++;
             state.EmptySince = null;
@@ -38,13 +38,17 @@ sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
     public void Leave(InstanceState state)
     {
         lock (_instances)
-            if (--state.Connections == 0) state.EmptySince = clock.GetUtcNow();
+            if (--state.Connections == 0)
+            {
+                state.EmptySince = clock.GetUtcNow();
+                state.Ground.SetPaused(false);
+            }
     }
 }
 
 sealed partial class InstanceState
 {
-    public InstanceGround Ground { get; } = new();
+    public InstanceGround Ground { get; }
     /// <summary>The living monsters as the last connection left them (issue #12), or null before the first connection
     /// placed the area's packs.</summary>
     public volatile List<SavedMonster>? Monsters;
@@ -127,8 +131,68 @@ sealed partial class InstanceState
 
 /// <summary>An instance's items on the ground. Their object ids come from their own range, so they stay the same for every
 /// connection and never meet the ids a connection gives its monsters and effects (0x3000 up).</summary>
-sealed class InstanceGround
+sealed class InstanceGround(TimeProvider? time = null)
 {
+    readonly TimeProvider _clock = time ?? TimeProvider.System;
+    readonly long _origin = (time ?? TimeProvider.System).GetTimestamp();
+    long? _pauseAt;
+    TimeSpan _pausedFor;
+    readonly Dictionary<uint, (WorldItemObject Item, TimeSpan Due)> _pending = [];
+    readonly HashSet<uint> _delayed = [];
+    TimeSpan Now => _clock.GetElapsedTime(_origin, _pauseAt ?? _clock.GetTimestamp()) - _pausedFor;
+
+    public void SetPaused(bool paused)
+    {
+        lock (_items)
+        {
+            if (paused && _pauseAt is null) _pauseAt = _clock.GetTimestamp();
+            else if (!paused && _pauseAt is long at)
+            {
+                _pausedFor += _clock.GetElapsedTime(at);
+                _pauseAt = null;
+            }
+        }
+    }
+
+    public uint AddDelayed(WorldItemObject item, int milliseconds)
+        => AddDelayedBatch([item], milliseconds)[0];
+
+    public IReadOnlyList<uint> AddDelayedBatch(IReadOnlyList<WorldItemObject> items, int milliseconds)
+    {
+        lock (_items)
+        {
+            var due = Now + TimeSpan.FromMilliseconds(Math.Max(0, milliseconds));
+            List<uint> ids = [];
+            foreach (var item in items)
+            {
+                uint id = _nextId++;
+                _pending[id] = (item, due);
+                ids.Add(id);
+            }
+            return ids;
+        }
+    }
+
+    void Promote()
+    {
+        if (_pending.Count == 0) return;
+        var now = Now;
+        foreach (var (id, entry) in _pending.Where(e => e.Value.Due <= now).ToArray())
+        {
+            _items[id] = entry.Item;
+            _delayed.Add(id);
+            _pending.Remove(id);
+        }
+    }
+
+    public IReadOnlyList<(uint Id, WorldItemObject Item)> Delayed()
+    {
+        lock (_items)
+        {
+            Promote();
+            return [.. _delayed.Where(_items.ContainsKey).Select(id => (id, _items[id]))];
+        }
+    }
     public const uint FirstItemId = 0x100000;
     readonly Dictionary<uint, WorldItemObject> _items = [];
     uint _nextId = FirstItemId;
@@ -150,26 +214,29 @@ sealed class InstanceGround
 
     public WorldItemObject? Get(uint id)
     {
-        lock (_items) return _items.GetValueOrDefault(id);
+        lock (_items) { Promote(); return _items.GetValueOrDefault(id); }
     }
 
     /// <summary>Removes the item: only one caller gets it, so a pickup can never duplicate it.</summary>
     public WorldItemObject? Take(uint id)
     {
-        lock (_items) return _items.Remove(id, out var item) ? item : null;
+        lock (_items) { Promote(); _delayed.Remove(id); return _items.Remove(id, out var item) ? item : null; }
     }
 
     public IReadOnlyList<(uint Id, WorldItemObject Item)> All()
     {
-        lock (_items) return [.. _items.Select(e => (e.Key, e.Value))];
+        lock (_items) { Promote(); return [.. _items.Select(e => (e.Key, e.Value))]; }
     }
 
     /// <summary>The items of <paramref name="which"/> within <paramref name="range"/> cells (centre to centre) of a cell.</summary>
     public IReadOnlyList<(uint Id, WorldItemObject Item)> Within(int x, int y, double range, Func<WorldItemObject, bool> which)
     {
         lock (_items)
+        {
+            Promote();
             return [.. _items.Where(e => which(e.Value) && Math.Sqrt((double)(e.Value.GridX - x) * (e.Value.GridX - x)
                 + (double)(e.Value.GridY - y) * (e.Value.GridY - y)) <= range).Select(e => (e.Key, e.Value))];
+        }
     }
 }
 

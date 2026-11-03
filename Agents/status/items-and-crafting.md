@@ -196,7 +196,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   older per-character gold moves into the account at login; `/gold <±amount>`.
   Code: `InstanceEntities.Gold`, `AccountStash`, Gateway.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
-- Loot: dying monsters drop currency, gems, flasks and equipment around the corpse, rolled in stages like the game's
+- Loot: native monster-specific drop delays apply to bosses; ordinary drops remain immediate (live Arakaali/Elder checks).
+  Dying monsters drop currency, gems, flasks and equipment around the corpse, rolled in stages like the game's
   with our own numbers: how many (by monster rarity, times item quantity: the league's, a mod's, the player's
   increased quantity, no cap), the kind, for equipment the slot (armour often, jewellery seldom) and then any base the
   level allows, and last the rarity: unique (one of that base's uniques, else rare), rare, magic, each chance raised

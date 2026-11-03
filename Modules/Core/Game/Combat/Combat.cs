@@ -1513,12 +1513,13 @@ static partial class Game
             if (have < needed) await GainExperience(remote, stream, ciphers, conn, needed - have, $"quest: {m.Label} killed, level {level}");
         }
         await GainKillCharges(remote, stream, ciphers, conn, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed");
-        await DropLoot(remote, stream, ciphers, conn, m, at);
+        await DropLoot(remote, stream, ciphers, conn, m, at, now);
     }
 
     // The monster's items (ItemDrops.Roll) as WorldItem objects scattered around where it died, on walkable cells when the
     // area's walk map is known. Like dropped items they lie in the instance (InstanceStore).
-    internal static async Task DropLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m, (int X, int Y) at)
+    internal static async Task DropLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m, (int X, int Y) at,
+        double? killedAt = null)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
         var balance = LeagueFor(conn).Rules;
@@ -1547,6 +1548,10 @@ static partial class Game
             if (ModDrop(conn, query, m.Level) is { } extra) drops.Add(extra);
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         }
+        int delay = Math.Max(0, (m.Variety?.ItemDropDelayMillis ?? 0)
+            - (int)((conn.Clock.Elapsed.TotalSeconds - (killedAt ?? conn.Clock.Elapsed.TotalSeconds)) * 1000));
+        List<WorldItemObject>? delayedDrops = delay > 0 ? [] : null;
+        double rolledAt = conn.Clock.Elapsed.TotalSeconds;
         foreach (var drop in drops)
         {
             // A ring around the corpse, 3 to 6 cells out.
@@ -1554,10 +1559,21 @@ static partial class Game
             int x = at.X + (int)Math.Round(Math.Cos(angle) * r), y = at.Y + (int)Math.Round(Math.Sin(angle) * r);
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
+            if (delayedDrops is not null)
+            {
+                delayedDrops.Add(ground);
+                continue;
+            }
             uint id = conn.Instance.Ground.Add(ground);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
                 $"0x02b9 create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        }
+        if (delayedDrops is { Count: > 0 })
+        {
+            int remaining = Math.Max(0, delay - (int)((conn.Clock.Elapsed.TotalSeconds - rolledAt) * 1000));
+            conn.Instance.Ground.AddDelayedBatch(delayedDrops, remaining);
+            Console.WriteLine($"[gateway] {remote} queued {delayedDrops.Count} loot items from {m.Label}: {remaining} ms");
         }
     }
 }

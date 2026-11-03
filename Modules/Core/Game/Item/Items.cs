@@ -512,8 +512,21 @@ static partial class Game
     {
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
+            lock (conn.ShownDelayedLoot) conn.ShownDelayedLoot.Add(id);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
                 $"0x02b9 create world item 0x{id:x} left at ({ground.GridX}, {ground.GridY})");
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        }
+    }
+
+    internal static async Task SendDelayedLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        foreach (var (id, ground) in conn.Instance.Ground.Delayed())
+        {
+            lock (conn.ShownDelayedLoot) if (!conn.ShownDelayedLoot.Add(id)) continue;
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
+                InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
+                $"0x02b9 delayed monster loot 0x{id:x} at ({ground.GridX}, {ground.GridY})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
         }
     }

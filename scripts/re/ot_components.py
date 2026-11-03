@@ -305,7 +305,7 @@ def parse(text):
     toks = TOKEN.findall(re.sub(r"//[^\n]*", "", text))
     r = {"extends": [], "abstract": False, "sections": [], "client": [], "server": [], "version": None,
          "shared_states": [], "shared_timers": [], "transitionable": {}, "tags": [], "basic_actions": [],
-         "client_transitionable": {}, "client_targetable": None, "life": {}, "positioned": {}, "animated": {}, "quest": {}}
+         "client_transitionable": {}, "client_targetable": None, "life": {}, "positioned": {}, "animated": {}, "quest": {}, "stats": {}}
     i = 0
 
     def block(i):  # i at '{' -> index after matching '}', plus the names of sections directly inside
@@ -347,6 +347,8 @@ def parse(text):
                     top_level_keys(toks[i + 2:j - 1], keys, ("corpse_usable", "prevent_corpse_sinking"))
                     # Unknown literals must not become true through Python's truthiness.
                     r["life"].update({k: {"true": True, "false": False}.get(v.lower()) for k, v in keys.items()})
+                elif t == "Stats":
+                    top_level_keys(toks[i + 2:j - 1], r["stats"], ("set_monster_delay_item_drops_millis",))
                 elif t == "Positioned":
                     top_level_keys(toks[i + 2:j - 1], r["positioned"], ("object_size", "blocking", "static", "block_league_flag"))
                 elif t == "Animated":
@@ -494,6 +496,8 @@ def merge(type_path, files, otc, first=("Positioned",)):
                                        if f and f.get("client_targetable") is not None), None),
             "transitionable": {"num_states": num_states,
                                "no_serialise": str(trans.get("no_serialise", "false")).lower() == "true"}}
+    stats = {k: v for _, f in ch for k, v in (f or {}).get("stats", {}).items()}
+    result["monster_delay_item_drops_millis"] = max(0, int(stats.get("set_monster_delay_item_drops_millis", 0)))
     if "Life" in comps[:read]:
         # Life type constructor 0x141e254f0, store 0x141e25645: e4..e7 = 00 00 00 01.
         # A missing parent can override these defaults; only subsequent explicit keys resolve that uncertainty.
@@ -720,7 +724,7 @@ def merge_items():
         if quest:
             r["quest"] = quest
         for k in ("shared_states", "shared_timers", "transitionable", "positioned", "animated_object", "basic_actions",
-                  "client_transitionable", "client_targetable"):
+                  "client_transitionable", "client_targetable", "monster_delay_item_drops_millis"):
             r.pop(k, None)
         out[tid] = r
     return out

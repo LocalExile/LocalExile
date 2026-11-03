@@ -18,6 +18,7 @@ sealed class MonsterCatalog(string folder = "data")
     {
         public MonsterLifeData LifeData { get; init; } = new(null, null, null);
         public bool RangedWeapon { get; init; }
+        public int ItemDropDelayMillis { get; init; }
         /// <summary>The row's HASH16: the key the client's MonsterVarieties table and the statue task use.</summary>
         public ushort Hash16 { get; init; }
         /// <summary>
@@ -259,6 +260,7 @@ sealed class MonsterCatalog(string folder = "data")
         var stateMachines = new Dictionary<string, StateMachineData>();
         var transitionStates = new Dictionary<string, byte>();
         var lifeData = new Dictionary<string, MonsterLifeData>();
+        var dropDelays = new Dictionary<string, int>();
         string types = Path.Combine(folder, "object-types.json");
         if (File.Exists(types))
         {
@@ -267,6 +269,8 @@ sealed class MonsterCatalog(string folder = "data")
             {
                 int read = t.GetProperty("read").GetInt32();
                 string type = t.GetProperty("type").GetString()!;
+                if (t.TryGetProperty("monster_delay_item_drops_millis", out var delay))
+                    dropDelays[type] = Math.Max(0, delay.GetInt32());
                 components[type] = [.. t.GetProperty("components").EnumerateArray().Take(read).Select(c => c.GetString()!)];
                 // Files generated before the StateMachine data have no "shared_states": those types stay unsupported.
                 if (t.TryGetProperty("shared_states", out var ss) && t.TryGetProperty("shared_timers", out var st))
@@ -313,6 +317,7 @@ sealed class MonsterCatalog(string folder = "data")
                     r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
+                        ItemDropDelayMillis = dropDelays.GetValueOrDefault(type),
                         Hash16 = (ushort)r.GetProperty("HASH16").GetInt32(),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,
