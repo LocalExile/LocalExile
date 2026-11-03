@@ -476,6 +476,9 @@ static partial class SurvivorsRunRules
         string bossName = roster.Bosses.Count > 0 ? roster.Bosses[0].Name : "";
         uint stageBoss = 0;
         bool bossSpawned = false, bossDefeated = false, bossWarned = false;
+        int bossNumber = 0;
+        // Every boss's id and the run experience its kill pays in total (the ordinary unique kill pays 50 of it).
+        var bossBonuses = new Dictionary<uint, int>();
         bool carried = false;
         var horde = new HashSet<uint>();
         var nextFire = new Dictionary<int, double>();
@@ -494,19 +497,21 @@ static partial class SurvivorsRunRules
                 run.Advance(step);
                 if (conn.PlayerLife == 0) { await EndSurvivors(remote, stream, ciphers, conn, "defeat"); break; }
                 if (run.Elapsed >= SurvivorsRules.VictorySeconds) { await EndSurvivors(remote, stream, ciphers, conn, "victory"); break; }
-                // The stage boss is the gate: its death is the only thing that lets the run leave this area.
-                if (stageBoss != 0 && !bossDefeated)
+                // Bosses pay their ladder experience when they fall; only the stage gate's death opens the way.
+                foreach (var (id, total) in bossBonuses.ToList())
                 {
                     bool dead;
-                    lock (conn.Monsters) dead = !conn.Monsters.TryGetValue(stageBoss, out var boss) || boss.Dead || boss.Life == 0;
-                    if (dead)
+                    lock (conn.Monsters) dead = !conn.Monsters.TryGetValue(id, out var boss) || boss.Dead || boss.Life == 0;
+                    if (!dead) continue;
+                    bossBonuses.Remove(id);
+                    int bonus = total - SurvivorsRules.ExperienceForKill(MonsterRarity.Unique);
+                    if (bonus > 0) run.RecordExperience(bonus);
+                    if (id == stageBoss)
                     {
                         bossDefeated = true;
-                        int bonus = SurvivorsRules.BossExperience(stage) - SurvivorsRules.ExperienceForKill(MonsterRarity.Unique);
-                        if (bonus > 0) run.RecordExperience(bonus);
-                        await conn.Commands!.Reply($"{bossName} falls. The way onward opens. " +
-                            $"+{SurvivorsRules.BossExperience(stage)} run experience.");
+                        await conn.Commands!.Reply($"{bossName} falls. The way onward opens. +{total} run experience.");
                     }
+                    else await conn.Commands!.Reply($"A guardian falls. +{total} run experience.");
                 }
                 if (run.Elapsed >= (stage + 1) * SurvivorsRules.StageSeconds && stage + 1 < SurvivorsLevels.Length)
                 {
@@ -543,11 +548,33 @@ static partial class SurvivorsRunRules
                     nextSweep = now + 1;
                     await SurvivorsClearGround(remote, stream, ciphers, conn);
                 }
-                if (roster.Bosses.Count > 0 && !bossSpawned && run.Elapsed >= nextBoss)
+                // The stage gate boss arrives 15 s in; after it, a boss every minute keeps the pressure on.
+                if (roster.Bosses.Count > 0 && run.Elapsed >= nextBoss)
                 {
-                    stageBoss = await SpawnSurvivorsBoss(remote, stream, ciphers, conn, roster, run, stage, horde);
-                    if (stageBoss != 0) bossSpawned = true;
-                    else nextBoss = run.Elapsed + 5;
+                    if (!bossSpawned)
+                    {
+                        stageBoss = await SpawnSurvivorsBoss(remote, stream, ciphers, conn, roster, run, stage, horde);
+                        if (stageBoss != 0)
+                        {
+                            bossSpawned = true;
+                            bossNumber = 1;
+                            bossBonuses[stageBoss] = SurvivorsRules.BossExperience(stage);
+                            nextBoss = run.Elapsed + SurvivorsRules.BossEverySeconds;
+                        }
+                        else nextBoss = run.Elapsed + 5;
+                    }
+                    else
+                    {
+                        uint id = await SpawnSurvivorsBoss(remote, stream, ciphers, conn, roster, run, stage, horde,
+                            bossIndex: bossNumber);
+                        if (id != 0)
+                        {
+                            bossBonuses[id] = SurvivorsRules.BossExperience(bossNumber);
+                            bossNumber++;
+                            nextBoss = run.Elapsed + SurvivorsRules.BossEverySeconds;
+                        }
+                        else nextBoss = run.Elapsed + 5;
+                    }
                 }
                 // Halfway through the stage a ring of the moment's weakest closes in on the player.
                 if (run.Elapsed >= nextRing)
@@ -679,10 +706,10 @@ static partial class SurvivorsRunRules
     }
 
     internal static async Task<uint> SpawnSurvivorsBoss(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        SurvivorsRoster roster, SurvivorsRun run, int stage, HashSet<uint> horde)
+        SurvivorsRoster roster, SurvivorsRun run, int stage, HashSet<uint> horde, int bossIndex = 0)
     {
         if (roster.Bosses.Count == 0) return 0;
-        var boss = roster.Bosses[0];
+        var boss = roster.Bosses[bossIndex % roster.Bosses.Count];
         if (SurvivorsSpawnCell(conn, 24) is not { } cell)
         {
             Console.WriteLine($"[gateway] {remote} survivors: no cell for boss {boss.Name}");
@@ -692,7 +719,9 @@ static partial class SurvivorsRunRules
             mods: SurvivorsBossMods(roster, boss, run, stage));
         horde.Add(id);
         string area = SurvivorsAreaName(conn.Layout.Id);
-        await conn.Commands!.Reply($"{boss.Name} guards {area}. Defeat it to open the way onward.");
+        await conn.Commands!.Reply(bossIndex == 0
+            ? $"{boss.Name} guards {area}. Defeat it to open the way onward."
+            : $"{boss.Name} rises in {area}.");
         return id;
     }
 

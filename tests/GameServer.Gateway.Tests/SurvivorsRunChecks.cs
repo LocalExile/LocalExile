@@ -63,6 +63,9 @@ public class SurvivorsRunTests
             Enumerable.Range(0, 7).Select(SurvivorsRules.BossExperience));
         Assert.Equal(60.0, SurvivorsRules.BossLifeRatio(99));
         Assert.Equal(600, SurvivorsRules.BossExperience(99));
+        // The per-minute cadence rolls the ladder: past the seventh boss it stays on the last rung.
+        Assert.Equal(2, SurvivorsRules.BossLadderIndex(2));
+        Assert.Equal(6, SurvivorsRules.BossLadderIndex(99));
     }
 
     public void The_run_has_the_reference_s_six_skill_slots()

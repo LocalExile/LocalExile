@@ -120,13 +120,16 @@ public static class SurvivorsRules
     public static int SkillDamage(int baseDamage, int rank) =>
         Math.Max(1, (int)(Math.Max(1, baseDamage) * SkillDamageMultiplier(rank)));
 
+    /// <summary>The ladder rung for a boss number: the seven reference rungs, then the last one repeats.</summary>
+    public static int BossLadderIndex(int bossNumber) => Math.Clamp(bossNumber, 0, BossRatios.Length - 1);
+
     /// <summary>The life of the area's boss at <paramref name="index"/>, as a ratio of the tier pool's top at that stage.</summary>
     public static double BossLifeRatio(int index) =>
-        BossRatios[Math.Clamp(index, 0, BossRatios.Length - 1)];
+        BossRatios[BossLadderIndex(index)];
 
     /// <summary>The experience a boss kill pays on top of its ordinary unique kill.</summary>
     public static int BossExperience(int index) =>
-        BossExperienceTable[Math.Clamp(index, 0, BossExperienceTable.Length - 1)];
+        BossExperienceTable[BossLadderIndex(index)];
 
     /// <summary>A run skill's reach: +8% radius per rank, before the run's area blessings and supports.</summary>
     public static double SkillRadius(int rank) => 1 + 0.08 * (Math.Max(1, rank) - 1);
