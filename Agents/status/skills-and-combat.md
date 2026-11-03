@@ -1424,7 +1424,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   range for the panel rows and the hit (Hyrri's Demise, (Replica) Iron Commander, Replica Alberon's Warpath per 80
   Strength despite its `_per_50_strength` id; [20](../docs/protocol/20-damage.md) §2b).
   The 3.29 whole-type item prohibitions ("Cannot deal non-Chaos Damage", "Deal no Physical Damage", ...) share one list:
-  hits, the bleed, ignite and poison rows (each gated on its own type) and the caster's outgoing DoT drop those types.
+  hits, the bleed, ignite and poison rows (each gated on its own type), the poison hits inflict and the caster's
+  outgoing DoT drop those types.
   Automated tests only; the native check is pending.
   Ordinary player energy shield derives from equipment, intelligence and passives.
   Equipment ES uses the saved variable base roll and native rounding before and after local modifiers and quality.

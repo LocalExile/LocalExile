@@ -24,7 +24,7 @@ static partial class Game
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         int Get(string name) => Player(name) + Skill(name);
 
-        if (Get("cannot_poison_enemies") != 0 || Get("never_damaging_ailments") != 0) return;
+        if (MonsterPoisons.Prohibited(Get)) return;
 
         long chance = (long)Get("base_chance_to_poison_on_hit_%")
             + Get("chance_to_poison_on_hit_%")
