@@ -115,6 +115,9 @@ public sealed record RoomDef(string Path, string Tag, TileKey Key, RoomSlot[,] S
     /// line places by type (AreaObjects.RoomObjects).</summary>
     public IReadOnlyList<NamedPoint> Points { get; init; } = [];
 
+    /// <summary>The links between the room's doodad lines (<see cref="RoomFile.Links"/>).</summary>
+    public IReadOnlyList<RoomLink> Links { get; init; } = [];
+
     public int Width => Key.Width;
     public int Height => Key.Height;
 }
@@ -628,7 +631,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         string?[] vertexGrounds = [];
         if (inner > 0 && last is not null && last.Count == inner && last.All(t => t.IsNumber && !t.Text.Contains('.')))
             vertexGrounds = [.. last.Select(t => Path(file, t.Int))];
-        return new RoomDef(path, file.Tag, roomKey, grid) { PointCount = file.Points.Count(p => p.Section == 0), VertexGrounds = vertexGrounds, Overlap = HeaderOverlap(text), Doodads = file.Doodads, Points = file.Points };
+        return new RoomDef(path, file.Tag, roomKey, grid) { PointCount = file.Points.Count(p => p.Section == 0), VertexGrounds = vertexGrounds, Overlap = HeaderOverlap(text), Doodads = file.Doodads, Points = file.Points, Links = file.Links };
     }
 
     /// <summary><c>0x141d808c0</c>, as <c>0x141ff3210</c> turns a room slot into its key: per side, no edge puts both

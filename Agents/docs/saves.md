@@ -10,7 +10,7 @@ Everything is in one SQLite file, `data/saves.db` (`Game_SAVES_DB` to put it els
 | What | Table | Code |
 |---|---|---|
 | A character's items (every inventory row and the cursor), skill bar, experience, passives and mastery effects, refund and extra passive points, main ascendancy identity/nodes/tier awards, waypoints, visited areas, quest flags, the start weapon still on the ground | `characters`, one row per character | `CharacterSaves`, `PlayerInventories` (Gateway) |
-| An account stash's header: its tabs (name, type, colour), last tab, next stash item id, gold | `stashes`, one row per account | `AccountStash` (Gateway) |
+| An account stash's header: its tabs (name, type, colour), last tab, next stash item id, gold, the league quest flags its characters set (a Trial of Ascendancy's) | `stashes`, one row per account and league | `AccountStash` (Gateway) |
 | The items of one stash tab | `stash_tabs`, one row per account and tab | `AccountStash` (Gateway) |
 | Accounts | `accounts` | `SqliteAccountStore` (Auth, Host) |
 | Characters of an account: class, league, level (a copy for the character list), last town | `account_characters` | `SqliteAccountStore` (Auth, Host) |

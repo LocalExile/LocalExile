@@ -32,7 +32,7 @@ sealed partial class ClientState
             this.owner = owner; this.outer = outer;
             var fixedBodies = new List<ClientPathfinder.Blocker>(owner.StationaryBlockers);
             foreach (var peer in owner.Instance?.PlayersExcept(owner.PeerId) ?? [])
-                if (peer.Life > 0) fixedBodies.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+                if (peer.Life > 0 && peer.Owner is not null) fixedBodies.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
             FixedBlockers = new BlockerSet(fixedBodies);
             current = new(fixedBodies);
             if (owner.PlayerSent && owner.PlayerLife > 0 && !owner.Phasing)

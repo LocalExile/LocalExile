@@ -157,6 +157,10 @@ public sealed record NamedPoint(float X, float Y, float Angle, string Name, int 
 /// (+0x10, null without one).</summary>
 public sealed record RoomDoodad(float X, float Y, string Model, string Type, float Angle = 0, float Scale = 1, bool Flip = false,
     float? FixedHeight = null);
+/// <summary>A link between two of a room's doodad lines (their indexes in <see cref="RoomFile.Doodads"/>), named: the
+/// Labyrinth's rooms wire their puzzles and traps so (a lever's "next" door, its "counter" for a Counter_Handler, a
+/// rail's "next" rail).</summary>
+public sealed record RoomLink(int From, int To, string Name);
 
 /// <summary>A room (.arm): string dictionary, tag, size (from its own key line), named points (room cells), the tile
 /// slot grid (one row per line; k = tile key at its top-left slot, n = covered/none, s, f N) and doodads.</summary>
@@ -165,6 +169,9 @@ public sealed record RoomFile(int Version, IReadOnlyList<string> Dictionary, str
 {
     public int Width => RoomKey?.Width ?? 0;
     public int Height => RoomKey?.Height ?? 0;
+
+    /// <summary>The links after the doodads: a count, then one line "from to "name"" each.</summary>
+    public IReadOnlyList<RoomLink> Links { get; init; } = [];
 
     /// <summary>The dictionary string for a 1-based index (0 or out of range → "").</summary>
     public string Dict(int index) => index >= 1 && index <= Dictionary.Count ? Dictionary[index - 1] : "";
@@ -246,9 +253,15 @@ public sealed record RoomFile(int Version, IReadOnlyList<string> Dictionary, str
         // (≥ 17), flip, [wake group] (> 24), has fixed height, [height], [scale] (> 13), "model.ao", "Metadata/…type"
         // (before 13 a type number), then the rest of the line.
         var doodads = new List<RoomDoodad>();
+        var links = new List<RoomLink>();
         for (int k = gridAt < 0 ? at : gridAt + roomKey.Height; k < lines.Length; k++)
         {
             var t = lines[k];
+            if (t.Count == 3 && t[0].IsNumber && t[1].IsNumber && t[2].Quoted)
+            {
+                links.Add(new RoomLink(t[0].Int, t[1].Int, t[2].Text));
+                continue;
+            }
             if (t.Count < 4 || !t[0].IsNumber || !t[1].IsNumber) continue;
             int q = t.FindIndex(x => x.Quoted && x.Text.EndsWith(".ao", StringComparison.OrdinalIgnoreCase));
             if (q < 0 || q + 1 >= t.Count || !t[q + 1].Quoted) continue;
@@ -267,7 +280,10 @@ public sealed record RoomFile(int Version, IReadOnlyList<string> Dictionary, str
             }
             doodads.Add(new RoomDoodad(t[0].Float, t[1].Float, t[q].Text, t[q + 1].Text, angle, scale, flip, height));
         }
-        return new RoomFile(version, dict, tag, roomKey, points, slots ?? [], doodads, problem);
+        return new RoomFile(version, dict, tag, roomKey, points, slots ?? [], doodads, problem)
+        {
+            Links = [.. links.Where(l => l.From >= 0 && l.From < doodads.Count && l.To >= 0 && l.To < doodads.Count)],
+        };
     }
 
     private static bool IsSlotToken(string s) => s is "k" or "n" or "s" or "f" or "o";

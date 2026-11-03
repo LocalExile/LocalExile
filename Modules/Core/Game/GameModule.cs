@@ -12,12 +12,18 @@ public sealed class GameModule : IModule
     public void Load(IModuleContext module)
     {
         Rules.CombatLifetime = module.Lifetime;
-        Program.SetGameLogic(new GameLogic());
+        Program.SetGameLogic(new GameLogic(module.Lifetime));
     }
 }
 
-sealed class GameLogic : IGameLogic
+sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic
 {
+    internal IModuleLifetime? Lifetime { get; } = lifetime ?? Rules.CombatLifetime;
+    public void ResumePlayerUpdates(ClientState conn)
+    {
+        if (ReferenceEquals(Program.GameLogicOrNull, this) && ReferenceEquals(Lifetime, Rules.CombatLifetime))
+            Rules.EnsurePlayerUpdates(conn);
+    }
     public Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers, IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt) =>
         Rules.OnClientMessages(remote, stream, ciphers, messages, unknown, conn, readAt);
 
@@ -48,11 +54,16 @@ sealed class GameLogic : IGameLogic
 
     public void Closing(ClientState conn)
     {
+        foreach (var close in GameEvents.TransientClosing.For(conn)) close(conn);
+        conn.PaidChannel = null;
+        conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = 0;
+        conn.RetirePlayerUpdates();
         Rules.FortificationOf(conn).Clear();
         Rules.LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
         conn.Rage.Clear();
         conn.Rampage.Clear();
         conn.RetireOwnedCombat();
+        conn.RetireResourceEffects();
         conn.VaalPreventionUntil = 0;
     }
 

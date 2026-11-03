@@ -44,6 +44,7 @@ static partial class Game
         var profile = new ProjectileProfile(projectile.Metadata)
         {
             Speed = speed, Radius = projectile.CollisionRadius, Count = Math.Max(1, projectile.Count), Lobbed = projectile.Lobbed,
+            SpreadRadians = projectile.SpreadRadians,
             // A lobbed shot's range is its landing distance; a straight one flies on past the aim.
             Range = projectile.Lobbed ? landing : Math.Max(distance, a.Range) * 1.5 + 5,
             DirectDamage = !projectile.Lobbed,
@@ -129,4 +130,14 @@ sealed record HostileProjectileOffense(uint MonsterId, SpawnedMonster Monster, M
 {
     /// <summary>The rig clips the object needs to be seen (Game.MonsterProjectilePresentation).</summary>
     public Game.ProjectilePresentation? Presentation { get; init; }
+}
+
+/// <summary>A shot of a server object that is no monster (a Trial of Ascendancy's dart trap). Its own rule commits a
+/// contact, under the connection's lock as <c>Game.HostileHit</c> is; a miss lets the flight go on.</summary>
+sealed record ObjectProjectileOffense(string Label, Func<Game.ProjectileSession, ProjectileDamage, ProjectileHitResult> Hit)
+{
+    /// <summary>The rig clips the object needs to be seen (Game.MonsterProjectilePresentation).</summary>
+    public Game.ProjectilePresentation? Presentation { get; init; }
+    /// <summary>No release, visual or end lines in the log: the shot's own rule logs what matters (its hits).</summary>
+    public bool Quiet { get; init; }
 }

@@ -34,6 +34,9 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>
     public SkillCatalog.MonsterProjectileInfo? Projectile { get; init; }
+    /// <summary>A summoning skill (SkillCatalog.MonsterSummon, the Labyrinth's Immolator): its action brings monsters
+    /// ahead of the summoner instead of a hit (Program.MonsterSwing). Null for an attack.</summary>
+    public SkillCatalog.MonsterSummonInfo? Summon { get; init; }
     /// <summary>Whether this is a spell skill rather than a melee/ranged attack. A spell's cast duration comes from the
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
@@ -120,11 +123,22 @@ sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem 
 
 sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    public double ReceivedActionFactor = 1;
+    public double ReceivedActionUntil;
+    public bool ReceivedActionFloor;
+    public double RecipientDebuffRate = 1;
     /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
     public bool Asleep;
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
+    /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
+    public bool Scripted { get; init; }
     public uint? OwnerId { get; init; }
+    // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
+    // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
+    public uint? SummonerId;
+    public bool NoRewards;
+    public double SummonReadyAt;
     public double RampageBlindUntil;
     public int StunSerial;
     /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>
@@ -166,6 +180,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public readonly ImpaleState Impale = new();
     // The player's ignites on it (MonsterIgnites.cs), under the Monsters lock.
     public readonly MonsterIgnites Ignites = new();
+    // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
+    public readonly MonsterPoisons Poisons = new();
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
     public readonly MonsterElementalAilments Ailments = new();
     // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.
@@ -296,6 +312,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // A transfer invalidates flights even during the gap after PendingTransfer is consumed by Transfer.
     // Guarded by Monsters, like projectile impact commits and pause changes.
     public bool LeavingArea;
+    // Auth accepted the destination; PendingTransfer is already consumed before this handoff.
+    public bool TransferAccepted;
     public readonly RecentEnemyHits RecentEnemyHits = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
     // The King in the Mists' Portent Vapors: stacks taken from his Mystic Fetishes and when they expire. The server
@@ -323,6 +341,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // A failed transfer retains history but cannot revive a swing from before the attempted transfer.
     public void InvalidateIncomingHits(bool clear = true)
     {
+        if (PlayerLife == 0 || Closed)
+        { PaidChannel = null; NonChaosDotBypassCarry = NonChaosDotTakenCarry = 0; }
         lock (Monsters)
         {
             IncomingHitEpoch++;
@@ -354,6 +374,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
             PendingTransfer = transfer;
             RampageTransferAt = ProjectileRuntimeState is { Active: true } runtime
                 ? runtime.NowTicks / 120000d : Clock.Elapsed.TotalSeconds;
+            ResourceEffectsState?.Freeze(RampageTransferAt.Value);
             LeavingArea = true;
             RetireOwnedCombat();
             InvalidateIncomingHits(clear: false);
@@ -365,7 +386,14 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         }
     }
 
-    public void ResumeAfterFailedTransfer() { lock (Monsters) LeavingArea = false; }
+    public void ResumeAfterFailedTransfer()
+    {
+        lock (Monsters)
+        {
+            ResourceEffectsState?.Resume(Clock.Elapsed.TotalSeconds);
+            LeavingArea = false;
+        }
+    }
 
     // Successful transfers retire all source-area workers independently of any particular carried mechanic.
     public void Retire() { lock (Monsters) RageRetired = true; }
@@ -412,7 +440,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                     (all ??= [.. fixedOnes]).Add(new(x, y, LivingCollision.Size(m)));
                 }
             foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
-                if (peer.Life > 0) (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+                if (peer.Life > 0 && peer.Owner is not null) (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
             return all is null ? fixedOnes : new GameServer.Core.World.BlockerSet(all);
         }
     }
@@ -500,6 +528,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // spike traps close, by id.
     public readonly Dictionary<uint, AreaPopulation.RoomObject> TrialObjects = [];
     public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> DoorBarriers = [];
+    // Cells server objects' Hull projectile shapes close to the server's projectiles, as the client stamps them into its
+    // own projectile map (a trial's dart turrets). Changed and read under the Monsters lock.
+    public readonly HashSet<(int X, int Y)> ProjectileWalls = [];
     // Cells quest walls and closed doors close to the player's walk estimate (QuestBarriers): the union of
     // QuestRoomObjects' and DoorBarriers' cells.
     public volatile IReadOnlySet<(int X, int Y)> Barrier = new HashSet<(int X, int Y)>();
@@ -665,7 +696,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                 if (playerLife > 0 && value == 0)
                 {
                     VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
-                    Rage.Clear(); Rampage.Clear(); RetireOwnedCombat();
+                    Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
                 }
                 playerLife = value;
             }
@@ -681,6 +712,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public uint? SentEnergyShield;
     public bool? SentRechargeActive;
     public int? SentEsRecoveryRate;
+    // A trap's degeneration on the player (a trial roomba), points a second, energy shield first: RunResourceRecovery
+    // deals it, and while it runs the client is sent no recovery rates to predict a rise with.
+    public double TrapDegenPerSecond;
     // (MonsterVarieties row, level) pairs already registered with 0x20 on this connection.
     public readonly HashSet<(int Row, byte Level)> MonsterTypes = [];
     // The open sell window (Sell Items): what the player offered and what the NPC offers back.
@@ -780,7 +814,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // set, so two at once could send an older set last.
     public readonly SemaphoreSlim QuestGate = new(1, 1);
 
-    /// <summary>The character's league quest flags (client ids, Quests.League); not saved: every character has the same.</summary>
+    /// <summary>The character's league quest flags (client ids, Quests.League): every character's, and at login those the
+    /// account saved in its league (AccountStash.LeagueQuestFlags, Game.SetLeagueQuestFlags).</summary>
     public HashSet<int> LeagueQuestFlags = [.. Quests.League.EveryCharacter, .. Program.Bench.UnlockFlags];
 
     /// <summary>The hideout doodads created in this area (the map device), by object id.</summary>

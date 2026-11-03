@@ -53,7 +53,8 @@ static class CharacterSaves
     /// (every gem of that type wears it). ClusterPassives: the cluster jewel nodes the client allocated (its expansion
     /// layout ids, not PassiveSkillGraphIds). QuestRefundsCredited: the quest flags whose QuestStaticRewards refund
     /// points the save has had (<see cref="CreditQuestRefunds(Save)"/>). PantheonMajor / PantheonMinor: the chosen
-    /// Pantheon gods, by PantheonPanelLayout Id (<see cref="SetPantheon"/>).</summary>
+    /// Pantheon gods, by PantheonPanelLayout Id (<see cref="SetPantheon"/>). AttackInPlaceSlots / SkillBarMask52: the skill
+    /// bar's per-slot bitmasks sent back with S→C 0x53 (<see cref="SetSkillBarOption"/>).</summary>
     public sealed record Save(Dictionary<byte, List<SavedPlacement>> Inventories, Dictionary<int, string>? SkillBar = null,
         uint? Experience = null, List<ushort>? Passives = null, List<string>? Waypoints = null, List<string>? Visited = null,
         List<string>? QuestFlags = null, ushort? ExtraPassivePoints = null,
@@ -67,7 +68,8 @@ static class CharacterSaves
         ushort? Sulphite = null, Dictionary<ushort, string>? Tattoos = null,
         Dictionary<ushort, ushort>? TattooKeystones = null, List<List<ushort>>? AtlasPassivePresets = null,
         ushort? AtlasPassivePoints = null, string? SelectedAtlasLayout = null, Dictionary<string, string>? ModuleData = null,
-        List<string>? QuestRefundsCredited = null, string? PantheonMajor = null, string? PantheonMinor = null)
+        List<string>? QuestRefundsCredited = null, string? PantheonMajor = null, string? PantheonMinor = null,
+        ushort? AttackInPlaceSlots = null, ushort? SkillBarMask52 = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -200,6 +202,15 @@ static class CharacterSaves
         var bar = save.SkillBar is null ? new Dictionary<int, string>() : new Dictionary<int, string>(save.SkillBar);
         bar[slot] = entry;
         return save with { SkillBar = bar };
+    });
+
+    /// <summary>Sets or clears a skill bar slot's bit in one of the two option masks (C→S 0x4f "Always Attack Without
+    /// Moving", or 0x52).</summary>
+    public static void SetSkillBarOption(string character, bool attackInPlace, byte slot, bool on) => Update(character, save =>
+    {
+        ushort mask = (attackInPlace ? save.AttackInPlaceSlots : save.SkillBarMask52) ?? 0;
+        mask = on ? (ushort)(mask | 1 << slot) : (ushort)(mask & ~(1 << slot));
+        return attackInPlace ? save with { AttackInPlaceSlots = mask } : save with { SkillBarMask52 = mask };
     });
 
     /// <summary>Records the character's inventories and its start weapon still on the ground, keeping the rest of the save.</summary>

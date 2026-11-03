@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
 using GameServer.Modding;
@@ -13,8 +14,30 @@ sealed class ModLoadContext(string id, string folder, bool module, IReadOnlyList
 {
     static readonly string Contracts = typeof(IMod).Assembly.GetName().Name!;
     static readonly string CopyRoot = Path.Combine(Path.GetTempPath(), "localexile-mod-copy");
+    /// <summary>Only Windows refuses to delete a loaded assembly. Elsewhere this file, locked for as long as a copy is in
+    /// use, is what keeps <see cref="DeleteOldCopies"/> from it; the system releases it however the process ends.</summary>
+    const string InUseFile = "in-use";
+    static readonly ConcurrentDictionary<string, FileStream> Holding = new(StringComparer.Ordinal);
     readonly Lock copyGate = new();
     internal string CopyDirectory { get; } = Path.Combine(CopyRoot, Guid.NewGuid().ToString("N"));
+
+    void Hold()
+    {
+        if (OperatingSystem.IsWindows() || Holding.ContainsKey(CopyDirectory)) return;
+        Holding[CopyDirectory] = new FileStream(Path.Combine(CopyDirectory, InUseFile), FileMode.Create, FileAccess.Write, FileShare.None);
+    }
+
+    static bool InUse(string directory)
+    {
+        if (OperatingSystem.IsWindows()) return false;
+        try
+        {
+            using var probe = new FileStream(Path.Combine(directory, InUseFile), FileMode.Open, FileAccess.Read, FileShare.None);
+            return false;
+        }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) { return false; }
+        catch (IOException) { return true; }
+    }
 
     protected override Assembly? Load(AssemblyName name)
     {
@@ -37,6 +60,7 @@ sealed class ModLoadContext(string id, string folder, bool module, IReadOnlyList
         lock (copyGate)
         {
             Directory.CreateDirectory(CopyDirectory);
+            Hold();
             string copy = Path.Combine(CopyDirectory, Path.GetFileName(path));
             if (!File.Exists(copy))
             {
@@ -54,20 +78,21 @@ sealed class ModLoadContext(string id, string folder, bool module, IReadOnlyList
         string full = Path.GetFullPath(directory);
         if (!string.Equals(Path.GetDirectoryName(full), Path.GetFullPath(CopyRoot), StringComparison.OrdinalIgnoreCase)
             || !Guid.TryParseExact(Path.GetFileName(full), "N", out _)) return false;
+        if (!OperatingSystem.IsWindows() && Holding.TryRemove(full, out var held)) held.Dispose();
         try { if (Directory.Exists(full)) Directory.Delete(full, recursive: true); return true; }
         catch (IOException) { return false; }
         catch (UnauthorizedAccessException) { return false; }
     }
 
     /// <summary>Deletes what earlier runs left behind (a stopped Gateway collects nothing). A copy a running Gateway has
-    /// loaded is skipped: its assembly cannot be deleted. Recent ones may be a starting Gateway's, before it loaded them.</summary>
+    /// loaded is skipped: its assembly cannot be deleted on Windows, and elsewhere it is held. Recent ones may be a starting Gateway's, before it loaded them.</summary>
     internal static void DeleteOldCopies()
     {
         if (!Directory.Exists(CopyRoot)) return;
         var before = DateTime.UtcNow - TimeSpan.FromMinutes(10);
         foreach (string directory in Directory.GetDirectories(CopyRoot))
         {
-            if (Directory.GetLastWriteTimeUtc(directory) > before) continue;
+            if (Directory.GetLastWriteTimeUtc(directory) > before || InUse(directory)) continue;
             try { foreach (string dll in Directory.GetFiles(directory, "*.dll")) File.Delete(dll); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
             TryDeleteCopy(directory);
@@ -81,6 +106,7 @@ sealed class ModLoadContext(string id, string folder, bool module, IReadOnlyList
         lock (copyGate)
         {
             Directory.CreateDirectory(CopyDirectory);
+            Hold();
             string copy = Path.Combine(CopyDirectory, Guid.NewGuid().ToString("N") + ".dll");
             File.WriteAllBytes(copy, image);
             if (symbols is not null) File.WriteAllBytes(Path.ChangeExtension(copy, ".pdb"), symbols);

@@ -61,7 +61,7 @@ static partial class Game
         if (target.Ignites.Buff is ushort old) packets.Add(InstanceEntities.RemoveBuff(id, old));
         ushort buff = conn.NextBuff++;
         target.Ignites.Buff = buff;
-        packets.Add(IgnitedBuff(id, buff, target.Ignites.Until - now));
+        packets.Add(IgnitedBuff(id, buff, target.Ignites.RemainingBase(now)));
         return packets;
     }
 
@@ -123,7 +123,14 @@ static partial class Game
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)
+            {
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+                if (m.Poisons.Buff is ushort pbuff)
+                {
+                    await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, pbuff), null);
+                    m.Poisons.Buff = null;
+                }
+            }
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) burnt to death by ignite" : null);
             if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);

@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Optional Phrecia class policies. Shared combat and stat engines stay in Game. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+  </ItemGroup>
 
 </Project>

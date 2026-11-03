@@ -71,6 +71,9 @@ static class Flasks
     public sealed record Effect(byte Slot, ushort Buff, ushort BuffRow, double LifePerSecond, double ManaPerSecond, double Started, double Ends,
         double ManaAtEnd = 0, bool LifeStays = false, bool ManaStays = false, bool NoQueue = false)
     {
+        // An accepted recipient snapshot, independent of the Game assembly that admitted the paid use.
+        internal bool CopyManaToLife { get; set; }
+
         /// <summary>Whether a full pool ends it: a life effect when life is full, a mana one when mana is (a hybrid one when
         /// both are), unless it stays at full.</summary>
         public bool EndsWhenFull(bool lifeFull, bool manaFull) =>
@@ -122,7 +125,8 @@ static class Flasks
 
         /// <summary>The life and mana recovered between <paramref name="from"/> and <paramref name="to"/>, and the effects
         /// that ran out by <paramref name="to"/> (removed; one with mana at the end gives it then).</summary>
-        public (double Life, double Mana, List<Effect> Ended) Advance(double from, double to)
+        public (double Life, double Mana, List<Effect> Ended) Advance(double from, double to,
+            Action<Effect, double>? continuousStep = null)
         {
             double life = 0, mana = 0;
             List<Effect> ended = [];
@@ -130,6 +134,7 @@ static class Flasks
             {
                 life += r.Effect.LifePerSecond * seconds;
                 mana += r.Effect.ManaPerSecond * seconds;
+                continuousStep?.Invoke(r.Effect, seconds);
                 r.Remaining -= seconds;
                 if (r.Remaining > Done) return;
                 mana += r.Effect.ManaAtEnd;

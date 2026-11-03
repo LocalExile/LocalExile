@@ -779,6 +779,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>The skill's <c>projectile_minimum_range</c> in world units (the Spitter's 50): a lob lands no closer
         /// to the monster than this. 0 without the stat.</summary>
         public int MinimumRange { get; init; }
+        /// <summary>The spread of a multi-projectile release: a fan by default, a full turn for a ring.</summary>
+        public double SpreadRadians { get; init; } = Math.PI / 6;
         /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
         /// fallback, and a boss skill may name its own).</summary>
         public double AreaRadius { get; init; }
@@ -850,6 +852,36 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public MonsterProjectileInfo? MonsterProjectile(int effectRow) =>
         _monsterProjectiles.Value.TryGetValue(effectRow, out var projectile)
             ? projectile with { MinimumRange = MonsterProjectileMinimumRange(effectRow) } : null;
+
+    /// <summary>What a monster's summoning skill brings: its stat set's <c>alternate_minion</c> (a SummonedSpecificMonsters
+    /// Id, whose MonsterVarietiesKey is the monster), <c>number_of_monsters_to_summon</c>, <c>summon_specific_monsters_in_front_offset</c>
+    /// (world units ahead of the summoner) and <c>summoned_monsters_no_drops_or_experience</c>, with the effect's cast time
+    /// and cooldown (seconds). The Labyrinth's Immolator (<c>SummonLabyrinthFireSkeleton</c>): one Ember Claimant 114
+    /// units ahead, a 2.17 s cast, 3 s cooldown. Null for any other skill.</summary>
+    public sealed record MonsterSummonInfo(int Variety, int Count, double Offset, bool NoRewards, double CastSeconds, double CooldownSeconds);
+
+    public MonsterSummonInfo? MonsterSummon(int effectRow, int level)
+    {
+        var stats = EffectStats(effectRow, level);
+        int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        if (Get("alternate_minion") is not (> 0 and var minion) || !_summonedMonsters.Value.TryGetValue(minion, out int variety)) return null;
+        return new(variety, Math.Max(1, Get("number_of_monsters_to_summon")), Get("summon_specific_monsters_in_front_offset"),
+            Get("summoned_monsters_no_drops_or_experience") != 0, CastMs(effectRow) / 1000.0, CooldownMs(effectRow, level) / 1000.0);
+    }
+
+    // SummonedSpecificMonsters: Id → MonsterVarietiesKey.
+    private readonly Lazy<Dictionary<int, int>> _summonedMonsters = new(() =>
+    {
+        string path = Path.Combine(folder, "tables", "SummonedSpecificMonsters.json");
+        var result = new Dictionary<int, int>();
+        if (!File.Exists(path)) return result;
+        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        foreach (var r in doc.RootElement.EnumerateArray())
+            if (r.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.Number
+                && r.TryGetProperty("MonsterVarietiesKey", out var v) && v.ValueKind == JsonValueKind.Number)
+                result.TryAdd(id.GetInt32(), v.GetInt32());
+        return result;
+    });
 
     /// <summary>The skill's <c>projectile_minimum_range</c> (a constant of its stat set, so level 1 reads it), 0 without.</summary>
     private int MonsterProjectileMinimumRange(int effectRow)
