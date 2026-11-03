@@ -39,9 +39,12 @@ second.
 ## Native reward window
 
 The level-up choice uses the client's quest-reward inventory, not a custom UI.
-The window offers **six** choices: rank-ups, supports, blessings and (every third level) a unique, drawn from the
-reference's weighted pool. A **new skill** waits until every learned skill that can take supports has all five linked;
-the window offers supports first, so a skill grows complete before the bar gains another slot.
+The window offers **six** choices. A learned skill's **missing supports come first**: the window lists the supports it
+does not have yet, so a link set can actually be completed (every offered skill can link at least five of the run's
+eight supports; a gem that cannot is left out of the catalogue).
+**Rank-ups** appear only once that skill holds every support it can take, and a **new skill** only once every learned
+skill does; then the reference's weighted pool (blessing ranks, new blessings, a unique every third level) fills any
+remaining slots.
 S→C `0xc0` must register inventory `0x600` before any `0xbf` change for it.
 Reversing that order crashes the client with "Got an inventory set change for an inventory that isn't in the set".
 S→C `0x87` opens the window; its ordinary C→S `0x88`/`0x8a` item id selects the reward.

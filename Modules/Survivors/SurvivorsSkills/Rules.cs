@@ -159,11 +159,19 @@ static partial class SurvivorsSkills
     /// <summary>
     /// Every skill gem the client can draw: a projectile gem flies its own Projectiles row, a Herald pulses around
     /// the player, and an area gem (a nova, Firestorm and the like: an area ActiveSkillType with no flight) pulses
-    /// around the player with its own area damage. A gem with neither flight nor area (Arc, a curse) stays out.
+    /// around the player with its own area damage. A gem with neither flight nor area (Arc, a curse) stays out, and so
+    /// does a gem that cannot link at least five of the run's supports: the links-first offer needs them.
     /// </summary>
     internal static IReadOnlyList<SurvivorsSkill> SurvivorsCatalogFor(ClientState conn)
     {
         var catalog = new List<SurvivorsSkill>();
+        var supports = SurvivorsSupportsFor(conn);
+        bool Linkable(int effect, SurvivorsSupportItem support)
+        {
+            if (Supports.Of(effect) is not { } target) return false;
+            if (Supports.Of(support.Effect) is not { Support: true } sup) return false;
+            return GemSupports.Compatible(sup, target.Types.ToHashSet(), target.MinionTypes, weapon: null);
+        }
         foreach (string path in SurvivorsGemPaths(conn))
         {
             if (ItemsFor(conn).Find(path) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } gem) continue;
@@ -175,12 +183,17 @@ static partial class SurvivorsSkills
             // Projectiles row can fly here, even when its ActiveSkillTypes do not carry the Projectile flag (Storm Burst).
             bool herald = baseType.Name.StartsWith("Herald of", StringComparison.OrdinalIgnoreCase);
             // An area gem without a flight and without a melee swing: its ActiveSkillTypes carry the Area flag, so the
-            // run casts it as a nova pulse. Melee area skills (Cyclone, Ground Slam, Cleave) are attacks and stay out:
-            // the run is a caster's mode, and a pulse would misrepresent a weapon swing.
+            // run casts it as a nova pulse. It must also deal a hit: a warcry/curse/buff (Enduring Cry, Temporal
+            // Chains) has no damage to pulse and too few supports to link. Melee area skills (Cyclone, Ground Slam,
+            // Cleave) are attacks and stay out too.
             bool attack = SkillsFor(conn).IsAttack(variant.Effect);
             bool area = !herald && !attack && Skills.ProjectileFor(variant.Effect) is null
-                && Supports.Of(variant.Effect)?.Types.Contains(7) == true;
+                && Supports.Of(variant.Effect)?.Types.Contains(7) == true
+                && !SkillsFor(conn).HitDamage(variant.Effect, 1).IsZero;
             if (!herald && !area && Skills.ProjectileFor(variant.Effect) is null) continue;
+            // The links-first offer needs the five supports a skill can take; a gem with fewer (Icefire) is left out.
+            if (!herald && supports.Count(support => Linkable(variant.Effect, support)) < SurvivorsRules.MaxSupportsPerSkill)
+                continue;
             string metadata = Skills.ProjectileFor(variant.Effect)?.Id ?? "Metadata/Projectiles/Fireball";
             catalog.Add(new SurvivorsSkill(path, baseType.Name, SurvivorsDamageType(baseType.Name), variant.Effect, variant.Effect,
                 metadata, herald ? SurvivorsSkillKind.Herald : area ? SurvivorsSkillKind.Area : SurvivorsSkillKind.Projectile)

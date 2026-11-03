@@ -333,9 +333,11 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
     }
 
     /// <summary>
-    /// The reference's weighted offer (hud.rs <c>choices_for</c>): three picks from a pool weighted by category — a
-    /// skill rank 1.2, a new skill 1.0, a support 0.9, a blessing rank 0.8, a new blessing 0.5 and (every third run
-    /// level) a unique 0.4. When every slot is mastered the window offers a full heal instead, as the reference does.
+    /// The level-up offer. A learned skill's **missing supports come first**: six choices of the supports it does not
+    /// have yet, so a skill's links can actually be completed. Rank-ups and new skills wait until every learned skill
+    /// has all the supports it can take (the run teaches links before power), then the reference's weighted pool
+    /// (rank 1.2, new skill 1.0, blessing rank 0.8, new blessing 0.5, a unique every third level 0.4) fills the rest.
+    /// When every slot is mastered the window offers a full heal instead, as the reference does.
     /// </summary>
     public IReadOnlyList<SurvivorsChoice> DealOffer(Random random, int skillCatalog, int blessingCatalog, int supportCatalog,
         IReadOnlyList<int>? itemPool = null, Func<int, int, bool>? linkable = null)
@@ -344,31 +346,42 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
         {
             if (PendingChoices <= 0) return [];
             if (Offer.Count > 0) return Offer;
-            var pool = new List<(SurvivorsChoice Choice, double Weight)>();
-            void Add(SurvivorsChoice choice, double weight)
+            // A skill is complete once it holds every support it can take, capped at the five slots it has.
+            bool Complete(int skill)
             {
-                if (!pool.Any(p => p.Choice == choice)) pool.Add((choice, weight));
+                int taken = _supports.GetValueOrDefault(skill)?.Count ?? 0;
+                if (taken >= SurvivorsRules.MaxSupportsPerSkill) return true;
+                if (linkable is null) return false;
+                int canTake = Enumerable.Range(0, supportCatalog).Count(support => linkable(skill, support));
+                return taken >= Math.Min(SurvivorsRules.MaxSupportsPerSkill, canTake);
             }
-            foreach (var (skill, rank) in _skills.OrderBy(e => e.Key))
-                if (rank < SurvivorsRules.MaxRank) Add(new SurvivorsChoice(skill, SurvivorsChoiceKind.SkillRank), 1.2);
-            // A new skill waits until every learned skill that can take supports has all five linked: the run teaches
-            // one skill's supports before opening another slot.
-            bool supportsComplete = _skills.Keys.All(skill =>
-                (_supports.GetValueOrDefault(skill)?.Count ?? 0) >= SurvivorsRules.MaxSupportsPerSkill
-                || (linkable is not null && Enumerable.Range(0, supportCatalog).All(support => !linkable(skill, support))));
-            if (supportsComplete && _skills.Count < Math.Min(SurvivorsRules.MaxSkills, skillCatalog))
-                foreach (int skill in Enumerable.Range(0, skillCatalog))
-                    if (!_skills.ContainsKey(skill)) Add(new SurvivorsChoice(skill, SurvivorsChoiceKind.NewSkill), 1.0);
-            // Supports and uniques are the mode's additions to the reference's pool: five support candidates at the
-            // reference's "extra category" weight (so a maxed bar still fills the window) and one unique, so they do
-            // not crowd the four reference categories out.
+            var offer = new List<SurvivorsChoice>();
+            void Take(SurvivorsChoice choice)
+            {
+                if (offer.Count < SurvivorsRules.MaxOffers && !offer.Contains(choice)) offer.Add(choice);
+            }
+            // The supports a learned skill is missing are always offered: the player has to be able to finish a link set.
             var supports = SupportCandidates(supportCatalog, linkable).ToList();
             for (int i = supports.Count - 1; i > 0; i--)
             {
                 int j = random.Next(i + 1);
                 (supports[i], supports[j]) = (supports[j], supports[i]);
             }
-            foreach (var support in supports.Take(SurvivorsRules.MaxOffers)) Add(support, 0.9);
+            foreach (var support in supports) Take(support);
+            var pool = new List<(SurvivorsChoice Choice, double Weight)>();
+            void Add(SurvivorsChoice choice, double weight)
+            {
+                if (offer.Contains(choice)) return;
+                if (!pool.Any(p => p.Choice == choice)) pool.Add((choice, weight));
+            }
+            // Power waits for the links: a rank-up only once that skill is complete.
+            foreach (var (skill, rank) in _skills.OrderBy(e => e.Key))
+                if (rank < SurvivorsRules.MaxRank && Complete(skill))
+                    Add(new SurvivorsChoice(skill, SurvivorsChoiceKind.SkillRank), 1.2);
+            // A new skill waits until every learned skill is complete.
+            if (_skills.Keys.All(Complete) && _skills.Count < Math.Min(SurvivorsRules.MaxSkills, skillCatalog))
+                foreach (int skill in Enumerable.Range(0, skillCatalog))
+                    if (!_skills.ContainsKey(skill)) Add(new SurvivorsChoice(skill, SurvivorsChoiceKind.NewSkill), 1.0);
             foreach (var (blessing, level) in _blessings.OrderBy(e => e.Key))
                 if (level < SurvivorsRules.MaxBlessingLevel)
                     Add(new SurvivorsChoice((int)blessing, SurvivorsChoiceKind.Blessing), 0.8);
@@ -378,7 +391,6 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
                         Add(new SurvivorsChoice(blessing, SurvivorsChoiceKind.Blessing), 0.5);
             if (Level % 3 == 0 && itemPool is { Count: > 0 })
                 Add(new SurvivorsChoice(itemPool[random.Next(itemPool.Count)], SurvivorsChoiceKind.Item), 0.4);
-            var offer = new List<SurvivorsChoice>();
             while (offer.Count < SurvivorsRules.MaxOffers && pool.Count > 0)
             {
                 double total = pool.Sum(p => p.Weight);

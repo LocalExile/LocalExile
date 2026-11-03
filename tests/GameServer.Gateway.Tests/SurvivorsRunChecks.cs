@@ -170,20 +170,18 @@ public class SurvivorsRunTests
 
     public void An_offer_holds_six_distinct_legal_choices()
     {
-        var run = new SurvivorsRun();
-        run.Learn(0);
-        run.RecordKill(MonsterRarity.Unique);
+        // An unlinked skill is offered its missing supports first: six distinct ones, nothing else.
+        var opening = new SurvivorsRun();
+        opening.Learn(0);
+        opening.RecordKill(MonsterRarity.Unique);
+        var supports = opening.DealOffer(new Random(1), 8, 8, 8);
+        Assert.Equal(SurvivorsRules.MaxOffers, supports.Count);
+        Assert.Equal(SurvivorsRules.MaxOffers, supports.Select(c => (c.Kind, c.Index, c.Target)).Distinct().Count());
+        Assert.All(supports, c => Assert.Equal(SurvivorsChoiceKind.Support, c.Kind));
+        Assert.Equal(supports, opening.Offer);
+        Assert.False(opening.NeedsOffer);
 
-        var offer = run.DealOffer(new Random(1), 8, 8, 8);
-
-        Assert.Equal(SurvivorsRules.MaxOffers, offer.Count);
-        Assert.Equal(SurvivorsRules.MaxOffers, offer.Select(c => (c.Kind, c.Index, c.Target)).Distinct().Count());
-        Assert.All(offer, c => Assert.True(c.Kind is SurvivorsChoiceKind.NewSkill or SurvivorsChoiceKind.SkillRank
-            or SurvivorsChoiceKind.Blessing or SurvivorsChoiceKind.Support));
-        Assert.Equal(offer, run.Offer);
-        Assert.False(run.NeedsOffer);
-        // The reference's four categories reach the window across deals. Under the support-first rule a fully supported
-        // skill opens a new slot, while a partially supported one still offers supports: the two are exclusive.
+        // Once the skill holds every support it can take, rank-ups and new skills reach the window.
         var complete = Enumerable.Range(0, 30).SelectMany(seed =>
         {
             var r = new SurvivorsRun();
@@ -195,16 +193,6 @@ public class SurvivorsRunTests
         Assert.Contains(SurvivorsChoiceKind.NewSkill, complete);
         Assert.Contains(SurvivorsChoiceKind.SkillRank, complete);
         Assert.Contains(SurvivorsChoiceKind.Blessing, complete);
-        var incomplete = Enumerable.Range(0, 30).SelectMany(seed =>
-        {
-            var r = new SurvivorsRun();
-            r.Learn(0);
-            for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill - 1; support++) r.Link(0, support);
-            r.RecordKill(MonsterRarity.Unique);
-            return r.DealOffer(new Random(seed), 8, 8, 8);
-        }).Select(c => c.Kind).ToHashSet();
-        Assert.Contains(SurvivorsChoiceKind.Support, incomplete);
-        Assert.DoesNotContain(SurvivorsChoiceKind.NewSkill, incomplete);
     }
 
     public void A_new_skill_waits_for_the_learned_skill_s_five_supports()
@@ -288,6 +276,7 @@ public class SurvivorsRunTests
         {
             run.Learn(skill);
             run.SetRank(skill, SurvivorsRules.MaxRank);
+            for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) run.Link(skill, support);
         }
         run.RecordKill(MonsterRarity.Unique);
 
@@ -334,8 +323,15 @@ public class SurvivorsRunTests
 
     public void A_unique_item_is_offered_on_third_levels_from_the_free_pool()
     {
-        // 2 experience a normal kill: level 3 needs 5 + 15 = 20.
-        var (run, offer, at) = DealUntil(Seed => { var r = new SurvivorsRun(); r.Learn(0); while (r.Level < 3) r.RecordKill(MonsterRarity.Normal); return r; },
+        // 2 experience a normal kill: level 3 needs 5 + 15 = 20. The skill's links come first, so they are filled.
+        var (run, offer, at) = DealUntil(Seed =>
+            {
+                var r = new SurvivorsRun();
+                r.Learn(0);
+                for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) r.Link(0, support);
+                while (r.Level < 3) r.RecordKill(MonsterRarity.Normal);
+                return r;
+            },
             c => c.Kind == SurvivorsChoiceKind.Item, itemPool: [0, 1]);
         Assert.True(run.TryChoose(at + 1, out var chosen));
         Assert.Contains(chosen.Index, run.Items);
@@ -345,6 +341,7 @@ public class SurvivorsRunTests
         {
             var r = new SurvivorsRun();
             r.Learn(0);
+            for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) r.Link(0, support);
             while (r.Level < 3) r.RecordKill(MonsterRarity.Normal);
             return r.DealOffer(new Random(seed), 8, 8, 8, [1]).Where(c => c.Kind == SurvivorsChoiceKind.Item).ToList();
         }).First(items => items.Count > 0));

@@ -181,6 +181,39 @@ public sealed class SurvivorsSupportMatrixTests
         }
     }
 
+    public void Every_non_herald_skill_can_link_five_supports()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-links-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        Saves.Open(path);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = Connection("SurvivorsLinks");
+        try
+        {
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
+            var supports = SurvivorsSkills.SurvivorsSupportsFor(conn);
+            SurvivorsSkills.StateOf(conn).SurvivorsCatalog = catalog;
+            SurvivorsSkills.StateOf(conn).SurvivorsSupports = supports;
+            // The links-first offer needs five supports a skill can actually take; a herald is a buff and takes none.
+            var thin = new List<string>();
+            foreach (int index in Enumerable.Range(0, catalog.Count))
+            {
+                if (catalog[index].Kind == SurvivorsSkillKind.Herald) continue;
+                int compatible = Enumerable.Range(0, supports.Count)
+                    .Count(support => SurvivorsSkills.SurvivorsCanSupport(conn, index, support));
+                if (compatible < SurvivorsRules.MaxSupportsPerSkill) thin.Add($"{catalog[index].Name} ({compatible})");
+            }
+            Assert.Empty(thin);
+        }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!);
+            Program.SetGameLogic(previousLogic!);
+            Saves.Db.Dispose();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
+        }
+    }
+
     public void Area_gems_join_the_catalogue_and_cast_an_area_pulse()
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-area-{Guid.NewGuid():N}.db");
