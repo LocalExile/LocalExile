@@ -8,7 +8,7 @@ public sealed class SurvivorsRunModule : IModule
     public void Load(IModuleContext module)
     {
         SurvivorsRunRules.Lifetime = module.Lifetime;
-        module.OnChatCommand("survivors", "/survivors [start | stop | pick <1-3> | status] (Survivors league)",
+        module.OnChatCommand("survivors", "/survivors [start | stop | pick <1-6> | status] (Survivors league)",
             SurvivorsRunRules.SurvivorsCommand);
         module.OnAreaGenerated(player => SurvivorsRunRules.EnterArea(ConnOf(player)));
         module.OnPlayerLeaving((player, reason) =>

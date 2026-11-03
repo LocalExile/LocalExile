@@ -193,6 +193,9 @@ public sealed class SurvivorsSupportMatrixTests
             var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
             var areaSkills = catalog.Where(s => s.Kind == SurvivorsSkillKind.Area).ToList();
             Assert.True(areaSkills.Count >= 5, $"only {areaSkills.Count} area skill(s) in the catalogue");
+            // Melee area skills (Cyclone, Ground Slam, Cleave) are attacks, not casters: the run never offers them.
+            Assert.DoesNotContain(catalog, s => s.Kind == SurvivorsSkillKind.Area && s.Attack);
+            Assert.DoesNotContain(catalog, s => s.Name is "Cyclone" or "Ground Slam" or "Cleave");
             var skill = areaSkills[0];
             int index = catalog.ToList().IndexOf(skill);
             var roster = new SurvivorsSkills.SurvivorsRoster([], [], 1, 20, 40);

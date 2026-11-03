@@ -20,8 +20,8 @@ static partial class SurvivorsRunRules
     // monster packs. The run's own skills cast themselves at the nearest monster, so the player only moves.
     internal const int SurvivorsStepMs = 100;
 
-    /// <summary>The ring wave cadence: a closing ring 67.5 s into every stage, one per 135 s cycle.</summary>
-    internal const double SurvivorsRingIntervalSeconds = 135;
+    /// <summary>The ring wave cadence: a closing ring every 45 s, so standing in the open is punished.</summary>
+    internal const double SurvivorsRingIntervalSeconds = 45;
 
     /// <summary>The area's boss arrives this long after a stage starts: its death is what opens the next stage.</summary>
     internal const double SurvivorsBossDelaySeconds = 15;
@@ -153,7 +153,12 @@ static partial class SurvivorsRunRules
         if (!Enabled(conn) || StateOf(conn).Survivors is not null || conn.Character is null) return;
         if (!SurvivorsCarried.TryRemove(conn.Ticket, out var carry) || carry.Character != conn.Character) return;
         if (DateTime.UtcNow - carry.At > TimeSpan.FromMinutes(5)) return;
-        if (SurvivorsRosterFor(conn) is not { } roster || SurvivorsCatalogFor(conn) is not { Count: > 0 } catalog) return;
+        if (SurvivorsRosterFor(conn) is not { Varieties.Count: > 0 } roster || SurvivorsCatalogFor(conn) is not { Count: > 0 } catalog)
+        {
+            Console.WriteLine($"[gateway] {remote} survivors run cannot resume in {conn.Layout.Id}: " +
+                $"the area has no spawnable varieties");
+            return;
+        }
         roster = roster with { SkillScale = SurvivorsDamageScale(conn, catalog, roster) };
         var ownership = BindRun(conn, carry.Run);
         StateOf(conn).Stage = carry.Stage;
@@ -583,7 +588,7 @@ static partial class SurvivorsRunRules
                 // Halfway through the stage a ring of the moment's weakest closes in on the player.
                 if (run.Elapsed >= nextRing)
                 {
-                    nextRing = stageStart + SurvivorsRingIntervalSeconds;
+                    nextRing = run.Elapsed + SurvivorsRingIntervalSeconds;
                     await SpawnSurvivorsRing(remote, stream, ciphers, conn, run, roster, horde);
                 }
                 // Every twenty seconds a ring of archers/wands shoots from 22 cells: standing still is not safe.

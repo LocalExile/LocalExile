@@ -174,8 +174,11 @@ static partial class SurvivorsSkills
             // Heralds have no flight: the run casts them as an aura pulse around the player. Any other gem with a
             // Projectiles row can fly here, even when its ActiveSkillTypes do not carry the Projectile flag (Storm Burst).
             bool herald = baseType.Name.StartsWith("Herald of", StringComparison.OrdinalIgnoreCase);
-            // An area gem without a flight: its ActiveSkillTypes carry the Area flag, so the run casts it as a pulse.
-            bool area = !herald && Skills.ProjectileFor(variant.Effect) is null
+            // An area gem without a flight and without a melee swing: its ActiveSkillTypes carry the Area flag, so the
+            // run casts it as a nova pulse. Melee area skills (Cyclone, Ground Slam, Cleave) are attacks and stay out:
+            // the run is a caster's mode, and a pulse would misrepresent a weapon swing.
+            bool attack = SkillsFor(conn).IsAttack(variant.Effect);
+            bool area = !herald && !attack && Skills.ProjectileFor(variant.Effect) is null
                 && Supports.Of(variant.Effect)?.Types.Contains(7) == true;
             if (!herald && !area && Skills.ProjectileFor(variant.Effect) is null) continue;
             string metadata = Skills.ProjectileFor(variant.Effect)?.Id ?? "Metadata/Projectiles/Fireball";
@@ -395,6 +398,11 @@ static partial class SurvivorsSkills
         ClientState conn, SurvivorsSkill skill, double interval)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
+        // A cast clip replaces the rig's walk clip while it plays, which reads as the character strafing sideways.
+        // Play it only while the player stands still: the skill's own projectile, pulse and hit art still show.
+        bool moving;
+        lock (conn.Monsters) moving = conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds);
+        if (moving) return;
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO")
             ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
         CastAnimationKind kind = SurvivorsCastKind(skill);

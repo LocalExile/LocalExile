@@ -48,7 +48,7 @@ public sealed class SurvivorsLeagueTests
         Assert.True(GameEvents.AllowsLoot(standard));
         Assert.Empty(GameEvents.ExemptItems(standard));
         Assert.Empty(GameEvents.ExtraSkills(standard));
-        Assert.Equal(45, GameEvents.AdjustIncomingDamage(survivor, 100));
+        Assert.Equal(60, GameEvents.AdjustIncomingDamage(survivor, 100));
         Assert.False(GameEvents.AllowsLoot(survivor));
         Assert.Contains(123u, GameEvents.ExemptItems(survivor));
         Assert.False(SurvivorsRunRules.TryClaimAdmission(standard));
@@ -104,14 +104,15 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsRunTests().A_run_skill_gains_a_projectile_at_ranks_three_five_and_seven();
         new SurvivorsRunTests().Monsters_grow_tougher_and_hit_harder_over_a_run();
         new SurvivorsRunTests().A_run_hit_reaches_the_spawn_ring();
-        new SurvivorsRunTests().Incoming_monster_hits_are_taken_at_forty_five_percent_and_fortitude_softens_them();
+        new SurvivorsRunTests().Incoming_monster_hits_are_taken_at_sixty_percent_and_fortitude_softens_them();
         new SurvivorsRunTests().The_herald_pulse_reaches_four_times_farther();
-        new SurvivorsRunTests().The_horde_gets_a_ranged_ring_wave_every_twenty_seconds();
+        new SurvivorsRunTests().The_horde_gets_a_ranged_ring_wave_every_twelve_seconds();
         new SurvivorsRunTests().A_run_moves_to_random_areas_near_a_growing_level();
         new SurvivorsRunTests().Experience_follows_monster_rarity();
         new SurvivorsRunTests().Kills_level_the_run_and_queue_choices();
         new SurvivorsRunTests().A_unique_kill_can_grant_several_levels_at_once();
-        new SurvivorsRunTests().An_offer_holds_three_distinct_legal_choices();
+        new SurvivorsRunTests().An_offer_holds_six_distinct_legal_choices();
+        new SurvivorsRunTests().A_new_skill_waits_for_the_learned_skill_s_five_supports();
         new SurvivorsRunTests().Choosing_a_new_skill_learns_it_and_closes_the_offer();
         new SurvivorsRunTests().A_full_skill_bar_is_offered_supports_for_its_skills();
         new SurvivorsRunTests().An_offer_only_pairs_a_support_with_a_skill_the_rule_allows();

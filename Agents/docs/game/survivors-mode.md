@@ -16,26 +16,32 @@ Ordinary leagues do not load these modules for their players.
 ## Run shape
 
 The run is a 15-minute horde: 14 monsters alive at the start, 500 by the bell, refilled every 0.08 s by a quarter of
-the gap (at most 8 a step) from five consecutive tiers of the area's roster.
-Monster damage grows +180% over the run, and monster hits on the player deal 45% of their damage (Fortitude lowers it
-1/1.2 a level), so standing still is not safe.
-Every 20 s a ring of the area's ranged varieties (archers, wands, mortars) spawns at 22 cells and shoots: the player
-has to move, not just out-heal.
+the gap (at most 8 a step) from five consecutive tiers of the area's roster; the early ramp is steep (about 290 alive
+by the halfway bell).
+Monster life and damage both grow +250% over the run, and monster hits on the player deal 60% of their damage
+(Fortitude lowers it 1/1.2 a level), so standing still is not safe.
+Every 12 s a ring of the area's ranged varieties (archers, wands, mortars) spawns at 22 cells and shoots; a closing
+surround ring follows every 45 s: the player has to move, not just out-heal.
 A stage boss arrives 15 s in and gates the way onward; after it, another boss rises every 60 s, rolling the reference's
 ladder.
 Stage changes pick a random area at the run clock's growing level (1 at the start, 20 by the bell), never a town
-(towns have no monster packs); the current area is skipped when another is available.
+(towns have no monster packs); the pool keeps only areas whose packs resolve to at least three spawnable varieties, so
+a stage never lands somewhere with nothing to fight, and the current area is skipped when another is available.
 
 Run skills are every gem the client can draw: a projectile gem flies its own `Projectiles` row, an area gem (Ice Nova,
 Firestorm and the like) casts a **nova pulse** around the player with the gem's own area hit, and a Herald pulses its
 aura. Heralds and areas share the pulse pipeline; an area gem's pulse radius is the run's 48-cell base grown by its
-rank and increased area.
+rank and increased area. Melee area skills (Cyclone, Ground Slam, Cleave) are attacks and stay out of the pool.
+A cast clip plays only while the player stands still: while moving it would replace the walk clip and read as strafing.
 No monster kill drops items or gold, on either the melee or the projectile path; the ground is also swept every run
 second.
 
 ## Native reward window
 
 The level-up choice uses the client's quest-reward inventory, not a custom UI.
+The window offers **six** choices: rank-ups, supports, blessings and (every third level) a unique, drawn from the
+reference's weighted pool. A **new skill** waits until every learned skill that can take supports has all five linked;
+the window offers supports first, so a skill grows complete before the bar gains another slot.
 S→C `0xc0` must register inventory `0x600` before any `0xbf` change for it.
 Reversing that order crashes the client with "Got an inventory set change for an inventory that isn't in the set".
 S→C `0x87` opens the window; its ordinary C→S `0x88`/`0x8a` item id selects the reward.

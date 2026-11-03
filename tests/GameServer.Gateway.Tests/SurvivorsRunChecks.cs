@@ -9,7 +9,7 @@ public class SurvivorsRunTests
     public void The_horde_grows_from_fourteen_to_the_cap()
     {
         Assert.Equal(14, SurvivorsRules.TargetAlive(0));
-        Assert.Equal(257, SurvivorsRules.TargetAlive(450));
+        Assert.Equal(293, SurvivorsRules.TargetAlive(450));
         Assert.Equal(500, SurvivorsRules.TargetAlive(900));
         Assert.Equal(500, SurvivorsRules.TargetAlive(9000));
         Assert.Equal(14, SurvivorsRules.TargetAlive(0, maxAlive: 25));
@@ -91,11 +91,11 @@ public class SurvivorsRunTests
     public void Monsters_grow_tougher_and_hit_harder_over_a_run()
     {
         Assert.Equal(1, SurvivorsRules.MonsterLifeScale(0), 6);
-        Assert.Equal(1.75, SurvivorsRules.MonsterLifeScale(900), 6);
+        Assert.Equal(3.5, SurvivorsRules.MonsterLifeScale(900), 6);
         Assert.Equal(1, SurvivorsRules.MonsterDamageScale(0), 6);
-        Assert.Equal(2.8, SurvivorsRules.MonsterDamageScale(900), 6);
-        Assert.Equal(1.75, SurvivorsRules.MonsterLifeScale(9000), 6);
-        Assert.Equal(2.8, SurvivorsRules.MonsterDamageScale(9000), 6);
+        Assert.Equal(3.5, SurvivorsRules.MonsterDamageScale(900), 6);
+        Assert.Equal(3.5, SurvivorsRules.MonsterLifeScale(9000), 6);
+        Assert.Equal(3.5, SurvivorsRules.MonsterDamageScale(9000), 6);
     }
 
     public void A_run_hit_reaches_the_spawn_ring()
@@ -103,16 +103,16 @@ public class SurvivorsRunTests
         Assert.Equal(34, SurvivorsRules.Range, 6);
     }
 
-    public void Incoming_monster_hits_are_taken_at_forty_five_percent_and_fortitude_softens_them()
+    public void Incoming_monster_hits_are_taken_at_sixty_percent_and_fortitude_softens_them()
     {
         Assert.Equal(0, SurvivorsRules.IncomingDamage(0));
         Assert.Equal(1, SurvivorsRules.IncomingDamage(3));
-        Assert.Equal(3, SurvivorsRules.IncomingDamage(7));
-        Assert.Equal(9, SurvivorsRules.IncomingDamage(20));
+        Assert.Equal(4, SurvivorsRules.IncomingDamage(7));
+        Assert.Equal(12, SurvivorsRules.IncomingDamage(20));
         Assert.Equal(2, SurvivorsRules.IncomingDamage(20, 10));
-        Assert.Equal(45, new SurvivorsRun().IncomingDamagePercent);
-        // The reference's +20% maximum life a level maps to 1/1.2 less damage taken (45 → 18 at level 5).
-        Assert.Equal([45, 38, 31, 26, 22, 18],
+        Assert.Equal(60, new SurvivorsRun().IncomingDamagePercent);
+        // The reference's +20% maximum life a level maps to 1/1.2 less damage taken (60 → 24 at level 5).
+        Assert.Equal([60, 50, 42, 35, 29, 24],
             Enumerable.Range(0, SurvivorsRules.MaxBlessingLevel + 1).Select(SurvivorsRules.FortitudeIncomingPercent));
     }
 
@@ -121,11 +121,11 @@ public class SurvivorsRunTests
         Assert.Equal(48, SurvivorsSkills.SurvivorsHeraldRadius, 6);
     }
 
-    public void The_horde_gets_a_ranged_ring_wave_every_twenty_seconds()
+    public void The_horde_gets_a_ranged_ring_wave_every_twelve_seconds()
     {
-        Assert.Equal(20, SurvivorsRules.RangedWaveIntervalSeconds);
-        Assert.Equal(6, SurvivorsRules.RangedWaveCount(0));
-        Assert.Equal(16, SurvivorsRules.RangedWaveCount(1));
+        Assert.Equal(12, SurvivorsRules.RangedWaveIntervalSeconds);
+        Assert.Equal(8, SurvivorsRules.RangedWaveCount(0));
+        Assert.Equal(20, SurvivorsRules.RangedWaveCount(1));
     }
 
     public void A_run_moves_to_random_areas_near_a_growing_level()
@@ -174,7 +174,7 @@ public class SurvivorsRunTests
         Assert.Equal(3, run.PendingChoices);
     }
 
-    public void An_offer_holds_three_distinct_legal_choices()
+    public void An_offer_holds_six_distinct_legal_choices()
     {
         var run = new SurvivorsRun();
         run.Learn(0);
@@ -182,29 +182,64 @@ public class SurvivorsRunTests
 
         var offer = run.DealOffer(new Random(1), 8, 8, 8);
 
-        Assert.Equal(3, offer.Count);
-        Assert.Equal(3, offer.Select(c => (c.Kind, c.Index, c.Target)).Distinct().Count());
+        Assert.Equal(SurvivorsRules.MaxOffers, offer.Count);
+        Assert.Equal(SurvivorsRules.MaxOffers, offer.Select(c => (c.Kind, c.Index, c.Target)).Distinct().Count());
         Assert.All(offer, c => Assert.True(c.Kind is SurvivorsChoiceKind.NewSkill or SurvivorsChoiceKind.SkillRank
             or SurvivorsChoiceKind.Blessing or SurvivorsChoiceKind.Support));
         Assert.Equal(offer, run.Offer);
         Assert.False(run.NeedsOffer);
-        // The reference's four categories all reach the window across deals.
-        var kinds = Enumerable.Range(0, 30).SelectMany(seed =>
+        // The reference's four categories reach the window across deals. Under the support-first rule a fully supported
+        // skill opens a new slot, while a partially supported one still offers supports: the two are exclusive.
+        var complete = Enumerable.Range(0, 30).SelectMany(seed =>
         {
             var r = new SurvivorsRun();
             r.Learn(0);
+            for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) r.Link(0, support);
             r.RecordKill(MonsterRarity.Unique);
             return r.DealOffer(new Random(seed), 8, 8, 8);
         }).Select(c => c.Kind).ToHashSet();
-        Assert.Contains(SurvivorsChoiceKind.NewSkill, kinds);
-        Assert.Contains(SurvivorsChoiceKind.SkillRank, kinds);
-        Assert.Contains(SurvivorsChoiceKind.Blessing, kinds);
-        Assert.Contains(SurvivorsChoiceKind.Support, kinds);
+        Assert.Contains(SurvivorsChoiceKind.NewSkill, complete);
+        Assert.Contains(SurvivorsChoiceKind.SkillRank, complete);
+        Assert.Contains(SurvivorsChoiceKind.Blessing, complete);
+        var incomplete = Enumerable.Range(0, 30).SelectMany(seed =>
+        {
+            var r = new SurvivorsRun();
+            r.Learn(0);
+            for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill - 1; support++) r.Link(0, support);
+            r.RecordKill(MonsterRarity.Unique);
+            return r.DealOffer(new Random(seed), 8, 8, 8);
+        }).Select(c => c.Kind).ToHashSet();
+        Assert.Contains(SurvivorsChoiceKind.Support, incomplete);
+        Assert.DoesNotContain(SurvivorsChoiceKind.NewSkill, incomplete);
+    }
+
+    public void A_new_skill_waits_for_the_learned_skill_s_five_supports()
+    {
+        var unfinished = new SurvivorsRun();
+        unfinished.Learn(0);
+        for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill - 1; support++) unfinished.Link(0, support);
+        unfinished.RecordKill(MonsterRarity.Unique);
+        Assert.DoesNotContain(unfinished.DealOffer(new Random(1), 8, 8, 8), c => c.Kind == SurvivorsChoiceKind.NewSkill);
+
+        var finished = new SurvivorsRun();
+        finished.Learn(0);
+        for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) finished.Link(0, support);
+        finished.RecordKill(MonsterRarity.Unique);
+        Assert.Contains(
+            Enumerable.Range(0, 30).SelectMany(seed => finished.DealOffer(new Random(seed), 8, 8, 8)),
+            c => c.Kind == SurvivorsChoiceKind.NewSkill);
     }
 
     public void Choosing_a_new_skill_learns_it_and_closes_the_offer()
     {
-        var (run, offer, at) = DealUntil(Seed => { var r = new SurvivorsRun(); r.Learn(0); r.RecordKill(MonsterRarity.Unique); return r; },
+        var (run, offer, at) = DealUntil(Seed =>
+            {
+                var r = new SurvivorsRun();
+                r.Learn(0);
+                for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) r.Link(0, support);
+                r.RecordKill(MonsterRarity.Unique);
+                return r;
+            },
             c => c.Kind == SurvivorsChoiceKind.NewSkill, skillCatalog: 8, blessingCatalog: 0, supportCatalog: 0);
         int pending = run.PendingChoices;
 
@@ -229,7 +264,7 @@ public class SurvivorsRunTests
 
         var offer = run.DealOffer(new Random(5), 8, 0, 8);
 
-        Assert.Equal(3, offer.Count);
+        Assert.Equal(SurvivorsRules.MaxOffers, offer.Count);
         Assert.All(offer, c => Assert.Equal(SurvivorsChoiceKind.Support, c.Kind));
         Assert.True(run.TryChoose(1, out var chosen));
         Assert.Contains(chosen.Index, run.SupportsOf(chosen.Target));
@@ -353,7 +388,7 @@ public class SurvivorsRunTests
         throw new InvalidOperationException("no seed produced a matching offer");
     }
 
-    /// <summary>A run with six rank-8 skills and six level-5 blessings: nothing left but the Healthstone.</summary>
+    /// <summary>A run with six rank-8 skills, five supports each and six level-5 blessings: nothing left but the Healthstone.</summary>
     static SurvivorsRun MaxEverything()
     {
         var run = new SurvivorsRun();
@@ -361,6 +396,7 @@ public class SurvivorsRunTests
         {
             run.Learn(skill);
             run.SetRank(skill, SurvivorsRules.MaxRank);
+            for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) run.Link(skill, support);
         }
         run.RecordExperience(100_000);
         for (int seed = 0; seed < 200; seed++)
@@ -388,7 +424,7 @@ public class SurvivorsRunTests
         int before = run.PendingChoices;
 
         Assert.False(run.TryChoose(0, out _));
-        Assert.False(run.TryChoose(4, out _));
+        Assert.False(run.TryChoose(SurvivorsRules.MaxOffers + 1, out _));
         Assert.Equal(before, run.PendingChoices);
         Assert.Equal(offer, run.Offer);
         Assert.Equal(1, run.RankOf(0));

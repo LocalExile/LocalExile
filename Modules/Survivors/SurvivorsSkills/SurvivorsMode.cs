@@ -53,6 +53,8 @@ public static class SurvivorsRules
     public const int MaxBlessings = 6;
     public const int MaxBlessingLevel = 5;
     public const int MaxSupportsPerSkill = 5;
+    /// <summary>Choices the level-up window offers at once.</summary>
+    public const int MaxOffers = 6;
     public const double LevelSeconds = 120;
 
     // The reference's passive values (data.rs PASSIVES): Might +10% damage, Intellect +8% cast speed, Amplify +10%
@@ -83,9 +85,9 @@ public static class SurvivorsRules
 
     public static double Progress(double elapsed) => Math.Clamp(elapsed / VictorySeconds, 0, 1);
 
-    /// <summary>The horde: 14 alive at the start, 220 by the end (the reference's 14 → 220 curve).</summary>
+    /// <summary>The horde: 14 alive at the start, 500 by the end, with a steeper early ramp so the screen fills.</summary>
     public static int TargetAlive(double elapsed, int maxAlive = DefaultMaxAlive) =>
-        Math.Clamp((int)Math.Round(14 + Progress(elapsed) * (Math.Max(14, maxAlive) - 14)), 1, Math.Max(14, maxAlive));
+        Math.Clamp((int)Math.Round(14 + Math.Pow(Progress(elapsed), 0.8) * (Math.Max(14, maxAlive) - 14)), 1, Math.Max(14, maxAlive));
 
     /// <summary>How many bodies the spawner adds this tick: a sixth of the gap, at most four (the reference's refill
     /// every 0.12 s).</summary>
@@ -138,17 +140,17 @@ public static class SurvivorsRules
     public static int SkillProjectiles(int rank) =>
         1 + (rank >= 3 ? 1 : 0) + (rank >= 5 ? 1 : 0) + (rank >= 7 ? 1 : 0);
 
-    /// <summary>Monster life over a run: +75% by the end, so a late kill takes several casts.</summary>
-    public static double MonsterLifeScale(double elapsed) => 1 + 0.75 * Progress(elapsed);
+    /// <summary>Monster life over a run: +250% by the end, so a late kill takes several casts.</summary>
+    public static double MonsterLifeScale(double elapsed) => 1 + 2.5 * Progress(elapsed);
 
-    /// <summary>Monster damage over a run: +180% by the end, so standing still is punished.</summary>
-    public static double MonsterDamageScale(double elapsed) => 1 + 1.8 * Progress(elapsed);
+    /// <summary>Monster damage over a run: +250% by the end, so standing still is punished.</summary>
+    public static double MonsterDamageScale(double elapsed) => 1 + 2.5 * Progress(elapsed);
 
     /// <summary>How often the horde sends a ring of ranged monsters (archers/wands) for the player to dodge.</summary>
-    public const double RangedWaveIntervalSeconds = 20;
+    public const double RangedWaveIntervalSeconds = 12;
 
-    /// <summary>The bodies in a ranged ring: six at the start, sixteen by the bell.</summary>
-    public static int RangedWaveCount(double progress) => 6 + (int)Math.Round(Math.Clamp(progress, 0, 1) * 10);
+    /// <summary>The bodies in a ranged ring: eight at the start, twenty by the bell.</summary>
+    public static int RangedWaveCount(double progress) => 8 + (int)Math.Round(Math.Clamp(progress, 0, 1) * 12);
 
     public const double Range = 34;
 
@@ -166,10 +168,10 @@ public static class SurvivorsRules
         return l < 20 ? 5 + (l - 1) * 10 : l < 40 ? 195 + (l - 20) * 13 : 455 + (l - 40) * 16;
     }
 
-    public const int IncomingDamagePercent = 45;
+    public const int IncomingDamagePercent = 60;
 
     /// <summary>Fortitude's mapping of the reference's +20% maximum life a level: 1/1.2 less damage taken a level
-    /// (25% → 20.8 → 17.4 → 14.5 → 12.1 → 10.1).</summary>
+    /// (60% → 50 → 42 → 35 → 29 → 24).</summary>
     public static int FortitudeIncomingPercent(int level) =>
         (int)Math.Round(IncomingDamagePercent / Math.Pow(1.2, Math.Clamp(level, 0, MaxBlessingLevel)));
 
@@ -350,10 +352,15 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
             }
             foreach (var (skill, rank) in _skills.OrderBy(e => e.Key))
                 if (rank < SurvivorsRules.MaxRank) Add(new SurvivorsChoice(skill, SurvivorsChoiceKind.SkillRank), 1.2);
-            if (_skills.Count < Math.Min(SurvivorsRules.MaxSkills, skillCatalog))
+            // A new skill waits until every learned skill that can take supports has all five linked: the run teaches
+            // one skill's supports before opening another slot.
+            bool supportsComplete = _skills.Keys.All(skill =>
+                (_supports.GetValueOrDefault(skill)?.Count ?? 0) >= SurvivorsRules.MaxSupportsPerSkill
+                || (linkable is not null && Enumerable.Range(0, supportCatalog).All(support => !linkable(skill, support))));
+            if (supportsComplete && _skills.Count < Math.Min(SurvivorsRules.MaxSkills, skillCatalog))
                 foreach (int skill in Enumerable.Range(0, skillCatalog))
                     if (!_skills.ContainsKey(skill)) Add(new SurvivorsChoice(skill, SurvivorsChoiceKind.NewSkill), 1.0);
-            // Supports and uniques are the mode's additions to the reference's pool: three support candidates at the
+            // Supports and uniques are the mode's additions to the reference's pool: five support candidates at the
             // reference's "extra category" weight (so a maxed bar still fills the window) and one unique, so they do
             // not crowd the four reference categories out.
             var supports = SupportCandidates(supportCatalog, linkable).ToList();
@@ -362,7 +369,7 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
                 int j = random.Next(i + 1);
                 (supports[i], supports[j]) = (supports[j], supports[i]);
             }
-            foreach (var support in supports.Take(3)) Add(support, 0.9);
+            foreach (var support in supports.Take(SurvivorsRules.MaxOffers)) Add(support, 0.9);
             foreach (var (blessing, level) in _blessings.OrderBy(e => e.Key))
                 if (level < SurvivorsRules.MaxBlessingLevel)
                     Add(new SurvivorsChoice((int)blessing, SurvivorsChoiceKind.Blessing), 0.8);
@@ -373,7 +380,7 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
             if (Level % 3 == 0 && itemPool is { Count: > 0 })
                 Add(new SurvivorsChoice(itemPool[random.Next(itemPool.Count)], SurvivorsChoiceKind.Item), 0.4);
             var offer = new List<SurvivorsChoice>();
-            while (offer.Count < 3 && pool.Count > 0)
+            while (offer.Count < SurvivorsRules.MaxOffers && pool.Count > 0)
             {
                 double total = pool.Sum(p => p.Weight);
                 double roll = random.NextDouble() * total;
