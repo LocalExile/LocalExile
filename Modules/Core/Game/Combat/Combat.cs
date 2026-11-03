@@ -214,8 +214,11 @@ static partial class Game
             target = m.Walk.Position(now);
             (here, stop, arrive) = conn.Walk.Approach(target.X, target.Y, weapon.Range, now, tolerance: m.StopRange - 2);
         }
+        // "no path": the search found no step toward the reach, so the estimate stands and the swing comes at once; the
+        // client may walk up all the same (live 2026-11-03: 17 cells, and its next start put it back).
+        string walkUp = stop == here && !SwingInReach(m, here, target, weapon.Range) ? " (no path)" : "";
         Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} seq 0x{use.Sequence:x4} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
-            $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s, attack time {duration:0.000} s");
+            $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s{walkUp}, attack time {duration:0.000} s");
         // A lockstep client's action starts now and walks up by itself (Lockstep.cs); the swing below then says nothing.
         bool started = await LockstepAttackStart(remote, stream, ciphers, conn, use, here, target, action, "attack");
         bool Current() => conn.ActionCount == action && (!ranged || OrdinaryRangedReleaseCurrent(conn, action, projectileEpoch));

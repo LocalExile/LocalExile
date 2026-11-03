@@ -197,7 +197,8 @@ server sent it (median 17 ms), and the client paths it at once (1,235 of 1,235 r
 step is checked like the player's. A path that began on a blocked cell steps through bodies until its first free step
 (`0x141e4d890`'s out flag → Positioned `+0x1e5 & 4`). A path the expansion limit cut short is walked to its end and then
 paths again from there at once (`0x141e7bec0` → `0x141e7b920`). Starting a non-pathing action ends the Move with
-`0x141e90740(…, 0)`, which leaves the pathing running, so a ranged monster shoots while it walks on to the Move's target.
+`0x141e90740(…, 0)`, which leaves the pathing running, so a ranged monster shoots while it walks on to the Move's target
+(a predictive client; a lockstep client's monster stands for the shot, §6).
 Monsters far from the player keep their walk but do not tick. Their speeds vary by a few percent (7.60–8.40 for a base of
 8): the Actor's run-speed roll `+0x1a8`. Actor
 setup `0x141e9ca20` seeds a TinyMT32 state (`0x1413cbe50`, init_by_array) with the key [object id, the object type's
@@ -463,20 +464,28 @@ start 3 or more cells away searched a path and took the pair first). The Gateway
 client does; before, it walked a few cells to the target and the next start put the client on them (2 to 5 cells beside
 a monster).
 
-A Move that reaches the client during a swing is taken (`0x141e8cf10`) but queued: the actor runs it when the swing's
-contact keyframe has played, and only then (live 2026-11-03, the first Move the client ran at once: a wand's 0.334 s
-into a 0.667 s attack whose clip contact is at 0.300 s; a one-hand sword's 0.58 s into a 0.645 s attack whose contact
-plays at 0.56 s; a bow's 0.35 s into 0.73 s at 0.27 s; Moves 0.40 to 0.57 s into the sword's swing all ran at 0.60 s).
-So the hold after a swing is the contact as the client plays the clip ([11](11-skills.md) §4: a one-hand sword's lands
-late in the swing, not at the attack1 keyframe's fraction) plus the client's two frames (`LockstepActionTail`,
-`LockstepAttackCutIn`), for a swing at a monster and at the ground alike. A held attack's next use, at a monster or at
+A Move that reaches the client during a swing is taken (`0x141e8cf10`) but queued: the actor runs it when the clip's
+`lock_cancelling` keyframe has played, or its contact keyframe for a clip without one, and only then (live 2026-11-03,
+the first Move the client ran at once: a wand's 0.334 s into a 0.667 s attack whose clip contact is at 0.300 s; a
+one-hand sword's 0.58 s into a 0.645 s attack whose contact plays at 0.56 s; Moves 0.40 to 0.57 s into the sword's swing
+all ran at 0.60 s; a bow's 0.40 s into a 0.714 s attack, its clip's `lock_cancelling` at 600 of 1066 ms with the
+contact at 399: Moves 0.37 to 0.40 s in ran at 0.40 to 0.43 s). So the hold after a swing is that keyframe as the
+client plays the clip ([11](11-skills.md) §4: a one-hand sword's contact lands late in the swing, not at the attack1
+keyframe's fraction) plus the client's two frames (`LockstepActionTail`, `LockstepAttackCutIn`), for a swing at a
+monster and at the ground alike. A held attack's next use, at a monster or at
 the ground, waits for the attack time of the one before (`NextAttackAt`): one sent as soon as the player was free came
 0.4 s into a 0.645 s swing and was queued to its end, with the server's swing and hit ahead of the client's by as much.
 
 A melee monster's chase order (an attack aimed at the player) swings by itself on a lockstep client when its walk-up gets
-there, since the client waits for no 0x1ac (`0x141e94720`). The Gateway counts that swing from its estimate's arrival
-(`MonsterAiPlan.ArrivedSwings`) instead of ordering a second one, which the client only played after the first while the
-chase orders in between bounced off a 2 s swing and the estimate walked on.
+there, since the client waits for no 0x1ac (`0x141e94720`), and "there" is the cell the order named: the walk-up ends
+when the player comes within the reach on the way, or at the path's end whether or not the player is still in reach
+(live 2026-11-03, pack fights: Drowned swinging 10.8 to 14.3 cells from a kiting player, 7.8 to 9 from the cell their
+order aimed at, with the orders sent during the 2.4 s swing queued and the last of them run at its end). The Gateway
+counts that swing from its estimate's arrival, or from the tick the player came within reach of the walking estimate
+(`MonsterAiPlan.ArrivedSwings`), instead of ordering a second one, which the client only played after the first, or
+chasing on, which left the estimate 10 to 17 cells ahead of the standing monster by the swing's end. A ranged monster's
+in-place attack ends its Move on a lockstep client (a Sand Spitter stood through its shot and after it while the estimate
+walked 18 cells on), so the estimate stops at the order.
 
 **Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLink`; `Lockstep.cs` and
 `LockstepHold` follow GGG):

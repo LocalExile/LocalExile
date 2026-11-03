@@ -543,7 +543,12 @@ none). A budgeted view plays over its budget and, when the attack time is longer
 0.81 again, its contact at 299 ms playing 0.56 s into the swing; 01b at 1.62, 0.38 and 1.62, its contact at 534 ms at
 0.52 s), so the hit lands late in the swing, not at the attack1 keyframe's 0.45 of it. `DefaultAttackClip.ContactSeconds`
 follows this (an attack shorter than the budget is taken to compress the view: not measured); a clip without a budget
-is taken to stretch to the attack (the wand's 300 of 600 ms contact played 0.333 s into a 0.667 s attack).
+is taken to stretch to the attack (the wand's 300 of 600 ms contact played 0.333 s into a 0.667 s attack; the bow's
+1066 ms clip played at 1.49 throughout a 0.714 s attack). A Move the client holds during the swing runs at the clip's
+`lock_cancelling` keyframe where it has one (`attack1_bow`: 600 ms, after the contact at 399; live 2026-11-03, Moves
+0.37 to 0.40 s into a 0.714 s attack ran at 0.40 to 0.43 s, later ones at once), else at the contact (the wand's and the
+sword's clips carry none): `DefaultAttackClip.CutInSeconds`. Many skill clips carry one too (Cleave's at 633 of
+1133 ms, Puncture's at 600 of 1066); attack gems do not use them yet.
 
 Burning Arrow's muzzle flash is `Projectiles.MiscAnimatedFlash` (row 3657), which `DefaultArrow` does not have. The client
 creates an effect object at the clip's contact, without a server message: in the same trace at about 375 ms after the

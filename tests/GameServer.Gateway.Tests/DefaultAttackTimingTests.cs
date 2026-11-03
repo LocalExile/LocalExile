@@ -20,7 +20,10 @@ public sealed class DefaultAttackTimingTests : IDisposable
                       "contact": 534, "slow": null, "budget": 0.45, "weight": 1, "item": false, "pair": true, "position": null } ],
                   "Wand": [
                     { "animation": "attack1_wand", "source": "attack1_wand", "index": 31, "begin": 0, "length": 600,
-                      "contact": 300, "slow": [150, 235], "budget": null, "weight": 1, "item": false, "pair": false, "position": [5.1, -82.0, -94.0] } ] } } }
+                      "contact": 300, "slow": [150, 235], "budget": null, "weight": 1, "item": false, "pair": false, "position": [5.1, -82.0, -94.0] } ],
+                  "Bow": [
+                    { "animation": "attack1_bow", "source": "attack1_bow", "index": 2, "begin": 0, "length": 1066,
+                      "contact": 399, "cancel": 600, "slow": [166, 397], "budget": null, "weight": 1, "item": true, "pair": false, "position": [-6.3, -59.8, -127.5] } ] } } }
             """);
     }
 
@@ -48,6 +51,16 @@ public sealed class DefaultAttackTimingTests : IDisposable
         Assert.Equal("attack1_wand", bolt.Animation);
         Assert.Equal(0.3335, bolt.ContactSeconds(0.667), 3);
         Assert.NotNull(bolt.Point);
+        // No lock_cancelling keyframe: a Move held during the swing runs at the contact.
+        Assert.Equal(bolt.ContactSeconds(0.667), bolt.CutInSeconds(0.667), 6);
+        Assert.Equal(clip.ContactSeconds(0.645), clip.CutInSeconds(0.645), 6);
+        // The bow's clip stretches to the attack: the arrow leaves at the contact (399 of 1066 ms) and a held Move runs at
+        // the lock_cancelling keyframe (600).
+        var bow = new WeaponProfile(Shield: false, DualWield: false, Staff: false, Bow: true, DualClaws: false, TwoHand: true);
+        Assert.True(contacts.TryDefaultAttackClip(ao, bow, 7, 0.714, out var shot));
+        Assert.Equal(0.714 * 399 / 1066, shot.ContactSeconds(0.714), 4);
+        Assert.Equal(0.714 * 600 / 1066, shot.CutInSeconds(0.714), 4);
+        Assert.Equal(0.714 * 600 / 1066, contacts.DefaultAttackCutInSeconds(ao, bow, 7, 0.714), 4);
         // No pool for the stance (a staff): the attack1 keyframe's fraction, here the default without a clip.
         var staff = new WeaponProfile(Shield: false, DualWield: false, Staff: true, Bow: false, DualClaws: false, TwoHand: true, Melee: true);
         Assert.False(contacts.TryDefaultAttackClip(ao, staff, 7, 1.0, out _));

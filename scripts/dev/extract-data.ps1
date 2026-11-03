@@ -43,8 +43,8 @@ $manifest = @(
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
     @{ Name = 'animation-contacts'; Outputs = @('data\animation-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/anim_contacts.py'); Version = 4; Needs = @('tables')
-       UsedBy = 'class spell contacts, the default attack''s stance clips (their contact as the client plays them, the ACT-selected wand variant) and the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md)' }
+       Args = @('scripts/re/anim_contacts.py'); Version = 5; Needs = @('tables')
+       UsedBy = 'class spell contacts, the default attack''s stance clips (their contact and lock_cancelling keyframes as the client plays them, the ACT-selected wand variant) and the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md)' }
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
     # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector).
     @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'

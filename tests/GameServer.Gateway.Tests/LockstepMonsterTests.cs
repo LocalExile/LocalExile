@@ -36,11 +36,42 @@ public class LockstepMonsterTests
         Assert.DoesNotContain(0x3000u, plan.Swings.Select(s => s.Id));
         Assert.Equal([0x3001u], plan.Chases.Select(c => c.Id));
 
+        // In reach on the way (its walk passes the player): the swing begins at this tick and the walk ends here.
+        var met = Drowned(new PlayerWalk(140, 105, 8));
+        met.Walk.Order(96, 105, now: 0);   // past the player five cells off: within reach from 4.3 s, arriving at 5.5 s
+        conn.Monsters[0x3002] = met;
+        plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 4.5);
+        Assert.Contains(0x3002u, plan.ArrivedSwings.Select(s => s.Id));
+        Assert.Equal(4.5, plan.ArrivedSwings.Single(s => s.Id == 0x3002u).BegunAt, 6);
+        Assert.False(met.Walk.Moving(4.6));
+        // At the path's end with the player gone on: it swings there all the same (the hit asks the reach).
+        var late = Drowned(new PlayerWalk(120, 100, 8));
+        late.Walk.Order(118, 100, now: 0);   // a two-cell walk, over at 0.25 s, ending 18 cells from the player
+        conn.Monsters[0x3003] = late;
+        plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 6);
+        Assert.Contains(0x3003u, plan.ArrivedSwings.Select(s => s.Id));
+        Assert.Equal(late.Walk.ArrivesAt, plan.ArrivedSwings.Single(s => s.Id == 0x3003u).BegunAt, 6);
+        // A ranged monster's in-place attack ends its Move on a lockstep client, not on a predictive one.
+        SpawnedMonster Spitter(PlayerWalk walk) => new("Spitter", walk, aggroRange: 60, stopRange: 2, maxLife: 10)
+        {
+            Attack = new(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true }, Aggro = true, LastTarget = (120, 100),
+        };
+        var shooter = Spitter(new PlayerWalk(130, 100, 8));
+        shooter.Walk.Order(120, 100, now: 6);
+        conn.Monsters[0x3004] = shooter;
+        plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 6.5);
+        Assert.Contains(0x3004u, plan.Swings.Select(s => s.Id));
+        Assert.False(shooter.Walk.Moving(6.6));
+
         var predictive = Connection(lockstep: false);
         var monster = Drowned(new PlayerWalk(104, 100, 8));
         predictive.Monsters[0x3000] = monster;
+        var walker = Spitter(new PlayerWalk(130, 100, 8));
+        walker.Walk.Order(120, 100, now: 0);
+        predictive.Monsters[0x3004] = walker;
         plan = Game.PlanMonsterAi(predictive, new MonsterAiCadence(), now: 1);
         Assert.Empty(plan.ArrivedSwings);
-        Assert.Equal([0x3000u], plan.Swings.Select(s => s.Id));
+        Assert.Equal([0x3000u, 0x3004u], plan.Swings.Select(s => s.Id).Order());
+        Assert.True(walker.Walk.Moving(1.1));
     }
 }

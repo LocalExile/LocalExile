@@ -202,7 +202,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - The client's lockstep network mode (also what "auto" picks on localhost): with `Game_LOCKSTEP=1` on a connection
   confirmed as local, or `Game_LOCKSTEP=network` on any connection, the player walks, uses objects and uses skills;
   a held default attack (bow, wand, one-hand sword) repeats once per attack time at a monster or at the ground, and a
-  Move cuts a swing short at its clip's contact, as on the client. Without it the player is drawn but cannot move or
+  Move cuts a swing short at its clip's lock_cancelling keyframe (a bow) or its contact (a wand, a sword), as on the
+  client; a melee monster's chase swings where its walk-up ends, in reach of the player or at the cell its order
+  named, and a ranged monster's shot ends its Move, as on the client. Without it the player is drawn but cannot move or
   use objects, and the Gateway asks for Predictive once per connection
   ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell

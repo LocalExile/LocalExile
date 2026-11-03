@@ -166,8 +166,11 @@ def default_attack_pools(text, animations, views):
         contact, position = min(hits, key=lambda h: h[0])
         slow_begin = next((t for e, t, _ in events if e == "slow_begin"), None)
         slow_end = next((t for e, t, _ in events if e == "slow_end"), None)
+        # lock_cancelling: from here the client runs a Move it holds during the swing (attack1_bow: 600 of 1066 ms, after
+        # the contact at 399); a clip without one lets the Move run at the contact (11-skills.md §4).
+        cancel = next((t for e, t, _ in events if e == "lock_cancelling"), None)
         return {"animation": name, "source": source, "index": index, "begin": begin, "length": end - begin,
-                "contact": contact - begin,
+                "contact": contact - begin, "cancel": cancel - begin if cancel is not None else None,
                 "slow": [slow_begin - begin, slow_end - begin] if slow_begin is not None and slow_end is not None else None,
                 "budget": budget, "weight": 1, "item": item, "pair": pair, "position": position}
 

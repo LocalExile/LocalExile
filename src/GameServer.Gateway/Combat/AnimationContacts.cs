@@ -135,6 +135,13 @@ sealed class AnimationContacts(string folder = "data")
         TryDefaultAttackClip(animatedObject, weapon, sequence, attackSeconds, out var clip)
             ? clip.ContactSeconds(attackSeconds) : attackSeconds * AttackContact(animatedObject, weapon);
 
+    /// <summary>When the client runs a Move it holds during the default attack's swing (seconds after the swing's start):
+    /// the stance pool's clip's lock_cancelling event, else its contact (<see cref="DefaultAttackClip.CutInSeconds"/>);
+    /// without pool data, the attack1 keyframe's fraction of the attack.</summary>
+    public double DefaultAttackCutInSeconds(string animatedObject, WeaponProfile weapon, ushort sequence, double attackSeconds) =>
+        TryDefaultAttackClip(animatedObject, weapon, sequence, attackSeconds, out var clip)
+            ? clip.CutInSeconds(attackSeconds) : attackSeconds * AttackContact(animatedObject, weapon);
+
     private static Dictionary<string, ActorAnimations> Load(string folder)
     {
         string path = Path.Combine(folder, "animation-contacts.json");
@@ -158,6 +165,7 @@ sealed class AnimationContacts(string folder = "data")
                         a.GetProperty("animation").GetString()!, a.GetProperty("source").GetString()!,
                         a.GetProperty("index").GetInt32(), a.GetProperty("begin").GetInt32(),
                         a.GetProperty("length").GetInt32(), a.GetProperty("contact").GetInt32(),
+                        a.TryGetProperty("cancel", out var cancel) && cancel.ValueKind == JsonValueKind.Number ? cancel.GetInt32() : null,
                         a.TryGetProperty("slow", out var slow) && slow.ValueKind == JsonValueKind.Array ? slow[0].GetInt32() : null,
                         a.TryGetProperty("slow", out slow) && slow.ValueKind == JsonValueKind.Array ? slow[1].GetInt32() : null,
                         a.TryGetProperty("budget", out var budget) && budget.ValueKind == JsonValueKind.Number ? budget.GetDouble() : null,
@@ -167,7 +175,7 @@ sealed class AnimationContacts(string folder = "data")
                         a.TryGetProperty("position", out var position) ? Point(position) : null)).ToArray();
                     if (entries.Length == 0 || entries.Any(a => string.IsNullOrWhiteSpace(a.Animation)
                         || a.LengthMs <= 0 || a.ContactMs < 0 || a.ContactMs > a.LengthMs || a.Weight != 1
-                        || a.BudgetSeconds is <= 0))
+                        || a.CancelMs is < 0 || a.CancelMs > a.LengthMs || a.BudgetSeconds is <= 0))
                         throw new InvalidDataException($"Invalid default attack animation pool {ao.Name}/{stance.Name}.");
                     pools.Add(stance.Name, entries);
                 }
@@ -194,27 +202,39 @@ sealed class AnimationContacts(string folder = "data")
 
 /// <summary>
 /// A default attack's clip from the class ACT's stance pool: a rig clip (<see cref="Source"/>, its index in the rig)
-/// from <see cref="BeginMs"/> for <see cref="LengthMs"/> (a view of it, or all of it), its contact keyframe and slow span
-/// relative to that start, the ACT's attack_time budget in seconds when it has one, and whether the item's own rig
-/// plays it (a bow's attack1_bow).
+/// from <see cref="BeginMs"/> for <see cref="LengthMs"/> (a view of it, or all of it), its contact keyframe, its
+/// lock_cancelling keyframe when it has one, and its slow span, all relative to that start, the ACT's attack_time
+/// budget in seconds when it has one, and whether the item's own rig plays it (a bow's attack1_bow).
 /// </summary>
 readonly record struct DefaultAttackClip(string Animation, string Source, int Index, int BeginMs, int LengthMs, int ContactMs,
-    int? SlowBeginMs, int? SlowEndMs, double? BudgetSeconds, string Stance, uint Weight, bool Item, bool Pair, ContactPoint? Point)
+    int? CancelMs, int? SlowBeginMs, int? SlowEndMs, double? BudgetSeconds, string Stance, uint Weight, bool Item, bool Pair,
+    ContactPoint? Point)
 {
     public double ContactFraction => (double)ContactMs / LengthMs;
 
     /// <summary>
     /// When the contact plays after the swing's start, for an attack of <paramref name="attackSeconds"/>. A clip without a
     /// budget is taken to stretch to the attack (a 600 ms wand clip's contact at 300 plays 0.333 s into a 0.667 s
-    /// attack: live 2026-11-03). A budgeted clip plays over its budget and, when the attack is longer, the client
-    /// stretches it to the attack time before the contact (the Ranger's attack_sword_01a, 365 ms with the contact at
-    /// 299 and a 0.45 s budget, in a 0.645 s attack: the first 100 ms at 0.81 of the clip's speed, then 0.29 until
-    /// 430 ms, then 0.81 again, the contact at 0.56 s; 01b, 768 ms with the contact at 534: 1.62, 0.38 and 1.62,
-    /// the contact at 0.52 s). An attack shorter than the budget is taken to compress the clip to it (not measured).
+    /// attack, a 1066 ms bow clip plays at 1.49 throughout a 0.714 s attack: live 2026-11-03). A budgeted clip plays
+    /// over its budget and, when the attack is longer, the client stretches it to the attack time before the contact
+    /// (the Ranger's attack_sword_01a, 365 ms with the contact at 299 and a 0.45 s budget, in a 0.645 s attack: the
+    /// first 100 ms at 0.81 of the clip's speed, then 0.29 until 430 ms, then 0.81 again, the contact at 0.56 s; 01b,
+    /// 768 ms with the contact at 534: 1.62, 0.38 and 1.62, the contact at 0.52 s). An attack shorter than the budget
+    /// is taken to compress the clip to it (not measured).
     /// </summary>
-    public double ContactSeconds(double attackSeconds)
+    public double ContactSeconds(double attackSeconds) => PlayedAt(ContactMs, attackSeconds);
+
+    /// <summary>
+    /// When the client runs a Move it holds during the swing: the clip's lock_cancelling keyframe where it has one (the
+    /// bow's attack1_bow at 600 of 1066 ms, after its contact at 399: live 2026-11-03, Moves 0.37 to 0.40 s into a
+    /// 0.714 s attack ran at 0.40 to 0.43 s, later ones at once), else the contact (the wand's and the sword's clips
+    /// carry none). A keyframe after the contact plays at the clip's pace after the stretch, as the contact does.
+    /// </summary>
+    public double CutInSeconds(double attackSeconds) => PlayedAt(CancelMs ?? ContactMs, attackSeconds);
+
+    double PlayedAt(int ms, double attackSeconds)
     {
-        if (BudgetSeconds is not { } budget || attackSeconds < budget) return attackSeconds * ContactFraction;
-        return ContactMs / 1000.0 * budget / (LengthMs / 1000.0) + (attackSeconds - budget);
+        if (BudgetSeconds is not { } budget || attackSeconds < budget) return attackSeconds * ms / LengthMs;
+        return ms / 1000.0 * budget / (LengthMs / 1000.0) + (attackSeconds - budget);
     }
 }

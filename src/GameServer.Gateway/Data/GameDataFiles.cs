@@ -48,7 +48,7 @@ static class GameDataFiles
         ("data/area-transitions.json", "area transitions of fixed layouts"),
         ("data/room-points.json", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects"),
         ("data/hideouts.json", "hideouts and native stationary model collision radii"),
-        ("data/animation-contacts.json", "class spell contacts, the default attack's stance clips and contacts, the bow/wand release points"),
+        ("data/animation-contacts.json", "class spell contacts, the default attack's stance clips with their contact and lock_cancelling keyframes, the bow/wand release points"),
         ("data/monster-takehit.json", "monster hit reactions (the TakeHit flinch and its sound)"),
         ("data/monster-contacts.json", "monster projectile release timing and points (a Sand Spitter mortar leaves at half the attack from the default height without it)"),
         ("data/projectile-clips.json", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),

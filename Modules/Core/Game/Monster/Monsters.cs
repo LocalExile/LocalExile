@@ -481,29 +481,37 @@ static partial class Game
                 // A chill slows the swing by its action speed, as the native clip does.
                 // A walking player has already gone farther on the client, unless both run on frames: no swing right at
                 // the edge of the reach.
+                // A lockstep client's monster waits for no 0x1ac: a chase order's walk-up swings the moment it gets there
+                // (0x141e94720), on the client's frame, and "there" is the cell the order named: the walk-up ends when the
+                // player comes within the reach on the way, or at the path's end whether or not the player is still in
+                // reach (live 2026-11-03: Drowned swinging 10.8 to 14.3 cells from a kiting player, 7.8 to 9 from the cell
+                // their order aimed at). So a melee monster under its chase is already swinging from that moment; the
+                // server takes that swing as its own instead of ordering a second one, which the client would only play
+                // after the first, or chasing on, which left the client's monster standing through its swing with the
+                // chase orders queued behind it and snapped it 10 to 17 cells at the swing's end. GGG's server, being the
+                // client's own simulation, swings at that same moment. The hit still asks the reach at the contact.
+                if (conn.LockstepClient && m.Hostile && m.Attack is { InPlace: false } chase && m.LastTarget is not null
+                    && m.SwingGeneration is null && (d <= chase.Range || m.Walk.ArrivesAt <= now))
+                {
+                    double begun = Math.Min(now, m.Walk.ArrivesAt);
+                    // In reach on the way: the client's monster stops where it is for the swing.
+                    if (m.Walk.ArrivesAt > now) m.Walk.Order(mx, my, now);
+                    m.BusyUntil = begun + MonsterSwingSeconds(conn, m, begun) / action + conn.LockstepActionTail;
+                    m.LastTarget = null;
+                    m.SwingGeneration = m.ActionGeneration;
+                    m.SwingOrderedAt = begun;
+                    cadence.BeginSwing(m, m.ActionGeneration);
+                    plan.ArrivedSwings.Add((id, m, m.ActionGeneration, begun));
+                    continue;
+                }
                 if (m.Hostile && m.Attack is { } a && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin))
                 {
-                    // A lockstep client's monster waits for no 0x1ac: a chase order's walk-up swings the moment it gets there
-                    // (0x141e94720), on the client's frame. So a melee monster that has walked up under its chase is already
-                    // swinging there, from the walk-up's end; the server takes that swing as its own, from that time, instead
-                    // of ordering a second one, which the client would only play after the first (and bounce the chase
-                    // orders meanwhile off a 2 s swing while the estimate walked on). GGG's server, being the client's own
-                    // simulation, swings at that same moment.
-                    if (conn.LockstepClient && !a.InPlace && m.LastTarget is not null && m.SwingGeneration is null && m.Walk.ArrivesAt <= now)
-                    {
-                        double begun = m.Walk.ArrivesAt;
-                        m.BusyUntil = begun + MonsterSwingSeconds(conn, m, begun) / action + conn.LockstepActionTail;
-                        m.LastTarget = null;
-                        m.SwingGeneration = m.ActionGeneration;
-                        m.SwingOrderedAt = begun;
-                        cadence.BeginSwing(m, m.ActionGeneration);
-                        plan.ArrivedSwings.Add((id, m, m.ActionGeneration, begun));
-                        continue;
-                    }
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action + conn.LockstepActionTail;
-                    // A melee swing starts at the end of its walk-up. An attack during a Move ends that with
-                    // 0x141e90740(…, 0), which does not stop the pathing: the monster swings while it walks on.
-                    if (!a.InPlace && m.LastTarget is not null) m.Walk.Order(mx, my, now);
+                    // A melee swing starts at the end of its walk-up. On a predictive client an attack during a Move ends
+                    // it with 0x141e90740(…, 0), which does not stop the pathing: the monster swings while it walks on. A
+                    // lockstep client's monster stands for the attack (live 2026-11-03: a Sand Spitter stood through its
+                    // shot and after it while the estimate walked its Move 18 cells on), so its estimate stops here.
+                    if (a.InPlace ? conn.LockstepClient : m.LastTarget is not null) m.Walk.Order(mx, my, now);
                     m.LastTarget = null;
                     m.SwingGeneration = ++m.ActionGeneration;
                     cadence.BeginSwing(m, m.ActionGeneration);

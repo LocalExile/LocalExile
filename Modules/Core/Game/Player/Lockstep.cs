@@ -207,18 +207,19 @@ static partial class Game
         ? Math.Max(TickSeconds, WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn)) / PlayerActionFactor(conn))
         : SupportedAttackSeconds(conn, skill);
 
-    // When, after a swing's start, the client lets a Move cut the attack short: its clip's contact (live 2026-11-03, the
-    // first Move the client ran at once: a wand's 0.334 s into a 0.667 s attack at a 0.300 s contact, a one-hand sword's
-    // 0.58 s into a 0.645 s attack at a 0.56 s contact, a bow's 0.35 s into 0.73 s at 0.27). A Move sent before that is
-    // queued on the client until then (0x141e8cf10 takes it, the actor runs it at the contact), while the server's
-    // estimate would walk alone. The default attack's contact is its stance clip's (DefaultAttackClip.ContactSeconds);
-    // an attack gem's is taken as a fraction of the attack (AttackContactDelay).
+    // When, after a swing's start, the client lets a Move cut the attack short: its clip's lock_cancelling keyframe where
+    // it has one, else its contact (live 2026-11-03, the first Move the client ran at once: a wand's 0.334 s into a
+    // 0.667 s attack at a 0.300 s contact, a one-hand sword's 0.58 s into a 0.645 s attack at a 0.56 s contact, a bow's
+    // 0.40 s into 0.714 s at its lock_cancelling, 600 of 1066 ms, with the contact at 0.27). A Move sent before that is
+    // queued on the client until then (0x141e8cf10 takes it, the actor runs it at the keyframe), while the server's
+    // estimate would walk alone. The default attack's keyframes are its stance clip's (DefaultAttackClip.CutInSeconds);
+    // an attack gem's cut-in is taken as the attack1 contact's fraction of the attack (AttackContactDelay).
     internal static double LockstepAttackCutIn(ClientState conn, ushort skill, ushort sequence = 0)
     {
         double seconds = LockstepAttackSeconds(conn, skill);
         if (skill != SkillCatalog.FirstSkillId) return AttackContactDelay(conn, seconds, approach: false);
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        return Animations.DefaultAttackContactSeconds(ao, WeaponProfileFor(conn, activeSet: true), sequence, seconds);
+        return Animations.DefaultAttackCutInSeconds(ao, WeaponProfileFor(conn, activeSet: true), sequence, seconds);
     }
 
     // The walk-up of a lockstep client's attack is over and the swing begins at now: it holds the player for
