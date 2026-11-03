@@ -1498,7 +1498,8 @@ static partial class Game
         }
         await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });
-        if (alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
+        // A summoned monster whose skill says so gives neither experience nor items.
+        if (!m.NoRewards && alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
             uint xp = Program.ServerHooks.Experience(killer, monster,
                 Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, m.Rarity, conn.Pools.Level, m.Level));
@@ -1514,7 +1515,7 @@ static partial class Game
             if (have < needed) await GainExperience(remote, stream, ciphers, conn, needed - have, $"quest: {m.Label} killed, level {level}");
         }
         await GainKillCharges(remote, stream, ciphers, conn, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed");
-        await DropLoot(remote, stream, ciphers, conn, m, at);
+        if (!m.NoRewards) await DropLoot(remote, stream, ciphers, conn, m, at);
     }
 
     // The monster's items (ItemDrops.Roll) as WorldItem objects scattered around where it died, on walkable cells when the

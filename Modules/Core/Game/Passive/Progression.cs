@@ -74,6 +74,8 @@ static partial class Game
             conn.UnearnedQuestFlags = [.. Quests.EveryCharacter.Except(save?.QuestFlags ?? [])];
             // An unearned endgame flag is not the character's (Quests.EndgameOnly): PlayerQuestFlags sends it where it is needed.
             conn.QuestFlags = [.. save?.QuestFlags ?? [], .. Quests.EveryCharacter.Where(f => !(Quests.EndgameOnly.Contains(f) && conn.UnearnedQuestFlags.Contains(f)))];
+            // The league's (SetLeagueQuestFlags): every character of the account in this league shares them.
+            conn.LeagueQuestFlags.UnionWith(PersonalStashOf(conn).LeagueQuestFlags);
             conn.ExtraPassivePoints = save?.ExtraPassivePoints ?? 0;
             conn.RefundPoints = save?.RefundPoints ?? 0;
             // The chosen Pantheon gods (the Pantheon module chooses and applies them; the Player object shows them).
@@ -702,6 +704,11 @@ static partial class Game
         int MagebloodGet(string name) => Stats.Key(name) is uint k
             ? devStats.TryGetValue(k, out int value) ? value : sources.GetValueOrDefault(k) : 0;
         bonus = UtilityFlasks.Apply(bonus, UtilityStats(conn, MagebloodGet, level));
+        // Final movement modifiers (a trial dart's labyrinth_arrow_movement_speed_+%_final): movement_velocity_+% is the
+        // whole speed the client walks and the panel shows, so (1 + increased) × (1 + final) − 1 (the original under the
+        // darts: +19% became −52%).
+        if (Stats.Key(LabyrinthTrials.ArrowSlowStat) is uint arrowSlow && sources.GetValueOrDefault(arrowSlow) is int slowFinal and not 0)
+            bonus = bonus with { MovementVelocityPct = (int)Math.Round((100.0 + bonus.MovementVelocityPct) * (100 + slowFinal) / 100) - 100 };
         // "Movement Speed cannot be modified to below Base Value" (PoB CalcDefence: max(mod, 1)). The client bounds
         // movement_velocity_+% below by 0 instead of -100 from the same raw flag (0x14251cbd0).
         if (EquipmentInput("movement_speed_cannot_be_reduced_below_base") != 0)

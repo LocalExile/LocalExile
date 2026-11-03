@@ -120,27 +120,31 @@ static partial class Game
         // come from the clip the client plays for it (MonsterReleaseFor). MavenProjectile and the Nucleus barrages are
         // monster_projectile_spell rows (not mortars): MavenNucleus.Shot names their Projectiles.dat art.
         var projectile = rangedAttack ? MavenNucleus.Shot(catalog, effect) : null;
+        // A summoning skill (the Immolator's) brings its monsters whenever the player is within its aggro range, at its
+        // own cast time; it deals no hit.
+        var summon = variety.GrantedEffects is [int summonEffect, ..] ? catalog.MonsterSummon(summonEffect, level) : null;
         // A monster whose effect is a spell (the King's Death Effigy, fetish hazards) needs cast-time stats,
         // not the melee attack duration; the client crashed in its cast-duration path when the actor record carried only
         // attack stats (0xc0000005, live 2026-10-31).
         bool spell = effect >= 0 && catalog.EffectStats(effect, level)
             .Any(s => s.Item1 == StatKeys.CastingSpell && s.Item2 != 0);
-        double reach = rangedAttack && !kingActor ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
+        double reach = summon is not null || rangedAttack && !kingActor ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
         double swing = !kingActor && effect >= 0 && catalog.IsSpell(effect) && catalog.CastTimeMs(effect) > 0
             ? catalog.CastTimeMs(effect) / 1000.0 : variety.AttackMs / 1000.0;
         // The King's two forms carry the official MeleeAtAnimationSpeedUnique ids (0x4001 humanoid, 0x4000 treant);
         // 0x0102 is the player/generic default attack and has no matching clip on their rigs.
         ushort skillId = KingInMists.IsBoss2(variety) ? KingInMists.Boss2AttackSkill
             : KingInMists.IsBoss3(variety) ? KingInMists.Boss3AttackSkill
-            : !kingActor && effect >= 0 && catalog.ActionHash(effect) is ushort hash ? (ushort)(hash & 0x3fff)
+            : summon is null && !kingActor && effect >= 0 && catalog.ActionHash(effect) is ushort hash ? (ushort)(hash & 0x3fff)
             : SkillCatalog.FirstSkillId;
-        var attack = new MonsterAttack(skillId, mods.Effects.AttackSeconds(swing), reach,
+        var attack = new MonsterAttack(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : mods.Effects.AttackSeconds(swing), reach,
             mods.Effects.Hit(DamagePacket.Of(DamageType.Physical, baseMin, baseMax)))
         {
             Spell = spell,
             Scripted = kingActor,
             Ranged = rangedAttack,
             Projectile = projectile,
+            Summon = summon,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(conn, variety, effect, level, projectile),
         };
         var skill = effect >= 0
@@ -266,9 +270,25 @@ static partial class Game
         // The Ashen Fields' boss depends on the character's Act 2 bandit choice (MapBossOverride).
         area = MapBossOverride.Apply(area, Quests.Names(PlayerQuestFlags(conn)), row => Monsters.Find(row.ToString())?.Id);
         var notes = new List<string>();
-        var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, conn.Seed, notes, "data");
+        var placedRooms = new List<AreaPopulation.PlacedRoom>();
+        var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, conn.Seed, notes, "data", placedRooms: placedRooms);
         // A boss whose room has a spawner object for it (The Quay's Tolman) stands at the spawner.
         points.AddRange(AreaPopulation.SpawnerPoints(area, objects, row => Monsters.Find(row.ToString())?.Id));
+        // A Trial of Ascendancy's rooms (live 2026-10-31, the original): no monsters among the traps, so the area's
+        // scattered packs keep away from them (LabyrinthTrials.TrapClearance); what the room file places stands there:
+        // its normal / magic / rare pack points (the Lower Prison trial's plaque platform), its monsters (the Imperial
+        // Gardens trial's four Devourers) and its spawners' monsters (LabyrinthTrials.Spawners), rare.
+        var trialRooms = placedRooms.Where(r => r.Objects.Any(o => o.Type is LabyrinthTrials.Plaque or LabyrinthTrials.IntroDoor)).ToList();
+        var trapClear = new HashSet<(int X, int Y)>();
+        // The Labyrinth's own rooms keep their packs off their traps too: the generated rooms' and tiles' trap lines.
+        var labyrinthTraps = LabyrinthTrials.InLabyrinth(layout.Id) && ServerLevels.For(layout.Id, conn.Seed) is { } labyrinthLevel
+            ? labyrinthLevel.RoomObjects.Concat(labyrinthLevel.TileLabyrinthObjects).Select(o => (o.Type, o.X, o.Y))
+            : [];
+        foreach (var trap in trialRooms.SelectMany(r => r.Objects).Select(o => (o.Type, o.X, o.Y)).Concat(labyrinthTraps)
+                     .Where(o => o.Type.StartsWith("Metadata/Terrain/Labyrinth/Traps/", StringComparison.Ordinal)))
+            for (int dy = -LabyrinthTrials.TrapClearance; dy <= LabyrinthTrials.TrapClearance; dy++)
+                for (int dx = -LabyrinthTrials.TrapClearance; dx <= LabyrinthTrials.TrapClearance; dx++)
+                    trapClear.Add((trap.X + dx, trap.Y + dy));
         // Where the later forms the area leaves out would stand, for a quest that forms one (Quests.FormsRule).
         var laterForms = AreaPopulation.LaterFormPoints(area, points, walkable);
         lock (conn.Monsters)
@@ -285,7 +305,18 @@ static partial class Game
         var spawns = WithTwinBosses(AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
             HashCode.Combine(layout.Hash, conn.Seed), Spawnable, notes, scale,
-            unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash)), mapMods).ToList();
+            unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points)],
+            scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y))), mapMods).ToList();
+        foreach (var room in trialRooms)
+            foreach (var p in room.Points)
+            {
+                bool spawner = LabyrinthTrials.Spawners.TryGetValue(p.Name, out var spawned);
+                string? id = spawner ? spawned : p.Name.StartsWith("Metadata/Monsters/", StringComparison.Ordinal) ? p.Name : null;
+                if (id is null) continue;
+                if (Monsters.Find(id) is { } v && v.Id.Equals(id, StringComparison.OrdinalIgnoreCase) && Spawnable(v.Row))
+                    spawns.Add(new AreaPopulation.Spawn(v.Row, p.X, p.Y, spawner ? MonsterRarity.Rare : MonsterRarity.Normal, "trial room"));
+                else notes.Add($"trial room {room.Path.Split('/')[^1]}: {p.Name} at ({p.X}, {p.Y}) cannot be created");
+            }
         foreach (var n in notes) Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: {n}");
         int areaLevel = area.AreaLevel;
         if (MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == layout.Hash && openMap.Area.Level > 0)
@@ -481,7 +512,8 @@ static partial class Game
                 // A chill slows the swing by its action speed, as the native clip does.
                 // A walking player has already gone farther on the client, unless both run on frames: no swing right at
                 // the edge of the reach.
-                if (m.Hostile && m.Attack is { } a && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin))
+                if (m.Hostile && m.Attack is { } a && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin)
+                    && SummonReadyLocked(conn, id, m, a, now))
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action + conn.LockstepActionTail;
                     // A melee swing starts at the end of its walk-up. An attack during a Move ends that with
@@ -792,16 +824,26 @@ static partial class Game
             var from = m.Walk.Position(startedAt);
             var player = conn.Walk.Position(startedAt);
             m.BusyUntil = startedAt + seconds + conn.LockstepActionTail;
+            if (a.Summon is { } summoning) m.SummonReadyAt = startedAt + summoning.CooldownSeconds;
             m.SwingGeneration = action;
             m.SwingOrderedAt = startedAt;
+            // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
+            // 2026-11-01: the Immolator stayed shut): its actor's clip is played instead (0x1d1, SummonAnimation).
+            if (a.Summon is not null) return InstanceProtocol.ActorAnimation(id, (float)seconds, SummonAnimation);
             return walkUp ? InstanceProtocol.ActionStartedNow(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, 0, PlayerId)
                 : InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, 0x0408, targetObjectId: PlayerId);
-        }, $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
+        }, a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
+            : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
         // The contact: the clip's keyframe (the Spitter's attack1 spits at 37.5 % of the attack; GGG's melee hits land by
         // their clip too), half the attack time without rig data.
         double contact = a.Release?.Fraction ?? (walkUp && m.Variety is { } variety
             ? SkillsFor(conn).MonsterContact(variety.Id, "Melee", seq)?.ContactFraction : null) ?? 0.5;
         if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * contact)) return;
+        if (a.Summon is { } summon)
+        {
+            await MonsterSummon(remote, stream, ciphers, conn, id, m, summon);
+            return;
+        }
         if (a.Projectile is { } projectile)
         {
             // The shot leaves at the contact and flies; its hit lands when it reaches the player (Program.ProjectileHostile.cs).
@@ -810,6 +852,44 @@ static partial class Game
         }
         if (area) { await MonsterAreaContact(remote, stream, ciphers, conn, id, m, a, action, areaRadius, seq); return; }
         await MonsterContact(remote, stream, ciphers, conn, id, m, action, seq, a);
+    }
+
+    /// <summary>Animation.dat <c>SpellAreaOfEffect</c>, which a summoner's actor plays as it summons (the Immolator's
+    /// <c>.act</c>: <c>spawn</c>, its doors opening and shutting).</summary>
+    internal const byte SummonAnimation = 22;
+
+    /// <summary>How many of its monsters a summoner keeps alive at once (our number: the data has no cap; the original's
+    /// Immolators keep bringing skeletons while the player is near).</summary>
+    internal const int MaxSummoned = 5;
+
+    // Under the Monsters lock: whether a monster's summoning skill may be used now (off cooldown, fewer than MaxSummoned
+    // of its monsters alive); any other attack may.
+    internal static bool SummonReadyLocked(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
+        a.Summon is null || now >= m.SummonReadyAt && conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned;
+
+    // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
+    // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,
+    // and giving no experience or items when the skill says so.
+    internal static async Task MonsterSummon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+        SpawnedMonster m, SkillCatalog.MonsterSummonInfo summon)
+    {
+        if (Monsters.Find(summon.Variety.ToString()) is not { Supported: true } variety)
+        {
+            Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons MonsterVarieties row {summon.Variety}: it cannot be created");
+            return;
+        }
+        (int X, int Y) at;
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            var (from, player) = (m.Walk.Position(now), conn.Walk.Position(now));
+            double dx = player.X - from.X, dy = player.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy), ahead = summon.Offset / WorldUnits.PerCell;
+            at = length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
+        }
+        for (int k = 0; k < summon.Count; k++)
+            await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
+                owned: (_, summoned) => { summoned.SummonerId = id; summoned.NoRewards = summon.NoRewards; });
+        Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {summon.Count} {variety.Name} at ({at.X}, {at.Y})");
     }
 
     /// <summary>An area skill's contact: the player takes the hit when they still stand in the aimed area. The area is

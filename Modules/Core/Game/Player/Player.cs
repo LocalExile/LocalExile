@@ -233,7 +233,7 @@ static partial class Game
                 if (conn.PlayerLife == 0) conn.EnergyShield.Empty();
                 uint current = conn.EnergyShield.Current;
                 bool active = conn.EnergyShield.Recharging;
-                int rate = conn.PlayerLife == 0 ? 0 : (int)Math.Round(
+                int rate = conn.PlayerLife == 0 || conn.TrapDegenPerSecond > 0 ? 0 : (int)Math.Round(
                     EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, active));
                 if (conn.SentEnergyShield == current && conn.SentRechargeActive == active && conn.SentEsRecoveryRate == rate)
                     return null;
@@ -545,7 +545,7 @@ static partial class Game
     // The game clock excludes pause; scheduling/network delays change the step size, never the per-second rate.
     internal static async Task RunResourceRecovery(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        double lifeCarry = 0, manaCarry = 0, burnCarry = 0, last = conn.Clock.Elapsed.TotalSeconds;
+        double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, last = conn.Clock.Elapsed.TotalSeconds;
         double ratesAt = double.NegativeInfinity, lifeRate = 0, manaRate = 0, burnPerSecond = 0;
         bool zealotsOath = false, convertLifeRegen = false;
         double nextVitalsSave = last + 5;
@@ -559,7 +559,7 @@ static partial class Game
             await EndGracePeriod(remote, stream, ciphers, conn);
             var rf = conn.RighteousFire;
             uint lifeBefore, lifeAfter, manaBefore, manaAfter, manaCap;
-            bool dead, instantLifeChanged, instantManaChanged;
+            bool dead, instantLifeChanged, instantManaChanged, trapDeath = false;
             List<Flasks.Effect> ended;
             double now;
             int? ailmentDeathEpoch = null;
@@ -610,7 +610,7 @@ static partial class Game
                 dead = lifeBefore == 0;
                 if (dead)
                 {
-                    lifeCarry = manaCarry = burnCarry = 0;
+                    lifeCarry = manaCarry = burnCarry = trapCarry = 0;
                     FortificationOf(conn).Clear();
                     leech.Clear(now);
                     conn.LifeRecoup.Clear();
@@ -627,6 +627,10 @@ static partial class Game
                     burnCarry += (InGracePeriod(conn) ? 0 : burnPerSecond * conn.ElementalAilments.DamageTakenFactor(now)) * seconds;
                     int burnWhole = (int)Math.Truncate(burnCarry); burnCarry -= burnWhole;
                     int lifeBurn = conn.EnergyShield.Damage(burnWhole, false, now);
+                    // A trap's degeneration (TrapDegenPerSecond), at this loop's cadence so the pools fall smoothly.
+                    trapCarry += conn.TrapDegenPerSecond * seconds;
+                    int trapWhole = (int)Math.Truncate(trapCarry); trapCarry -= trapWhole;
+                    int lifeTrap = conn.EnergyShield.Damage(trapWhole, false, now);
                     conn.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
                     conn.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds : 0));
                     double fortificationLife = FortificationOf(conn).TakeRecovery(conn.Clock.Elapsed.TotalSeconds);
@@ -640,9 +644,19 @@ static partial class Game
                             + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife) - lifeBurn
                             + conn.LifeRecoup.Take(now),
                         ref lifeCarry, minimum: 1);
-                    AdvancePlayerAilmentsLocked(conn, recoveryFrom, now, recoveryStats);
-                    lifeAfter = conn.PlayerLife;
-                    if (lifeAfter == 0) ailmentDeathEpoch = conn.IncomingHitEpoch;
+                    // Unlike Righteous Fire's burn, a trap kills.
+                    if (lifeTrap > 0 && !HardcoreProgressBlocked(conn))
+                    {
+                        conn.PlayerLife = lifeAfter = (uint)Math.Max(0, (long)lifeAfter - lifeTrap);
+                        if (trapDeath = lifeAfter == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
+                        RecordHardcoreDeath(conn);
+                    }
+                    if (!trapDeath)
+                    {
+                        AdvancePlayerAilmentsLocked(conn, recoveryFrom, now, recoveryStats);
+                        lifeAfter = conn.PlayerLife;
+                        if (lifeAfter == 0) ailmentDeathEpoch = conn.IncomingHitEpoch;
+                    }
                     conn.PlayerMana = manaAfter = RecoveryPool.Advance(manaBefore, manaCap,
                         mana + manaRate * seconds + leeched.Mana, ref manaCarry);
                     leech.ClearFull(now, lifeAfter >= conn.PlayerMaxLife, manaAfter >= manaCap,
@@ -651,6 +665,13 @@ static partial class Game
             }
             if (ailmentDeathEpoch is int lethalEpoch)
                 await PlayerDiedAtEpoch(remote, stream, ciphers, conn, "0x0055 lethal elemental ailment", lethalEpoch);
+            if (trapDeath)
+            {
+                await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, 0), "0x01b1 player cut down by a trap and dies");
+                await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
+                continue;
+            }
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             if (dead)
             {
