@@ -14,9 +14,14 @@ static partial class Game
         physical = nonChaos == 0 ? 0 : (int)((long)physical * kept.NonChaos / nonChaos);
         other = kept.NonChaos - physical;
         chaos = kept.Chaos;
+        physical = IncomingResourceDefences.Taken(physical, Get);
+        other = IncomingResourceDefences.Taken(other, Get);
+        chaos = IncomingResourceDefences.Taken(chaos, Get);
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
-        int physicalLife = conn.EnergyShield.Damage(physical, false, at);
-        long rest = (long)conn.EnergyShield.Damage(other, false, at) + conn.EnergyShield.Damage(chaos, true, at);
+        int bypass = Get(IncomingResourceDefences.BypassStat);
+        int physicalLife = IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at);
+        long rest = (long)IncomingResourceDefences.Damage(conn.EnergyShield, other, bypass, at)
+            + conn.EnergyShield.Damage(chaos, true, at);
         uint mana = ManaRecoveryRules.FromMana(physicalLife, conn.PlayerMana, Get("physical_damage_%_taken_from_mana_before_life"));
         conn.PlayerMana -= mana;
         if (ResourceEffectsCurrent(conn, state)) state.Mana.Hit(at,

@@ -123,6 +123,10 @@ sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem 
 
 sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    public double ReceivedActionFactor = 1;
+    public double ReceivedActionUntil;
+    public bool ReceivedActionFloor;
+    public double RecipientDebuffRate = 1;
     /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
     public bool Asleep;
     public MonsterAttack? Attack { get; init; }
@@ -306,6 +310,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // A transfer invalidates flights even during the gap after PendingTransfer is consumed by Transfer.
     // Guarded by Monsters, like projectile impact commits and pause changes.
     public bool LeavingArea;
+    // Auth accepted the destination; PendingTransfer is already consumed before this handoff.
+    public bool TransferAccepted;
     public readonly RecentEnemyHits RecentEnemyHits = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
     // The King in the Mists' Portent Vapors: stacks taken from his Mystic Fetishes and when they expire. The server
@@ -333,6 +339,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // A failed transfer retains history but cannot revive a swing from before the attempted transfer.
     public void InvalidateIncomingHits(bool clear = true)
     {
+        if (PlayerLife == 0 || Closed)
+        { PaidChannel = null; NonChaosDotBypassCarry = NonChaosDotTakenCarry = 0; }
         lock (Monsters)
         {
             IncomingHitEpoch++;

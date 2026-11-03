@@ -37,6 +37,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Whisperer supplies its exact descriptor and generic Mana/Recoup/Blind consumers after the actual Behemoth merge.
   **Next:** review and replay Whisperer's reconciled current-main candidate, then adapt the remaining class PRs.
   See [module scope and delivery](../docs/game/phrecia-modules.md).
+  Review Harbinger as the dependent #339 layer and reconcile its remaining diff after Whisperer acceptance.
+  Complete the remaining recipient/race and Ruthless client matrix within its documented engine boundaries.
+  See [Harbinger integration and acceptance](../docs/game/harbinger.md).
 - **Known:** command selection, saved identities, separate point awards, paid refunds and ordinary/ascendancy
   graph connectivity now have automated coverage; see [scope and limitations](../docs/game/ascendancies.md).
   Ordinary command selection, refunds, relog and a Gateway restart are verified with a native Duelist/Slayer smoke.

@@ -20,6 +20,14 @@ sealed class FortificationSession
     public ushort Buff;
     double accountedStackSeconds, regenerationPerStack, recovery;
     double? snapshotTime;
+    public void SetExpiryRate(double now, double rate)
+    {
+        now = snapshotTime ?? now;
+        Read(now);
+        if (State.ExpiryRate != rate) Revision++;
+        State.SetExpiryRate(now, rate);
+        Read(now);
+    }
 
     public IDisposable Capture(double now)
     {

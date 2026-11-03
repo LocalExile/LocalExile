@@ -24,7 +24,7 @@ static partial class Game
         foreach (var m in conn.Monsters.Values)
         {
             if (m.Dead || m.Life == 0 || !m.Hostile || Dist(m.Walk.Position(now), at) > radius) continue;
-            m.TauntedUntil = now + seconds;
+            m.TauntedUntil = now + seconds / m.RecipientDebuffRate;
             m.TakenFromPlayer = m.TakenFromPlayer with { All = conn.EnemyDebuffs.TauntedDamageTakenPct };
             taunted++;
         }
@@ -87,7 +87,7 @@ static partial class Game
                 // One timed debuff on a monster: its buff shown for the time left, shown again when that changes, taken
                 // off when it ends or the monster or the player dies. Whether it is on.
                 bool Timed(uint id, bool living, ref double until, ref double shown, ref ushort buff, ushort row,
-                    IReadOnlyList<uint>? values)
+                    IReadOnlyList<uint>? values, double rate = 1)
                 {
                     bool on = living && until > now;
                     if (!on) until = double.NegativeInfinity;
@@ -101,7 +101,7 @@ static partial class Game
                     {
                         shown = until;
                         bytes.AddRange(InstanceEntities.AddBuff(id, buff = conn.NextBuff++, row, PlayerId, values: values,
-                            u68: BitConverter.SingleToUInt32Bits((float)(until - now))));
+                            u68: BitConverter.SingleToUInt32Bits((float)((until - now) * rate))));
                         added++;
                     }
                     return on;
@@ -132,7 +132,7 @@ static partial class Game
                 {
                     bool living = alive && !m.Dead && m.Life > 0 && m.Hostile;
                     bool taunted = Timed(id, living, ref m.TauntedUntil, ref m.TauntShownUntil, ref m.TauntBuff,
-                        FlaskGrounds.TauntedBuffRow, TauntedBuffValues);
+                        FlaskGrounds.TauntedBuffRow, TauntedBuffValues, m.RecipientDebuffRate);
                     Timed(id, living, ref m.IntimidatedUntil, ref m.IntimidateShownUntil, ref m.IntimidateBuff, IntimidatedBuffRow, null);
                     Timed(id, living, ref m.UnnervedUntil, ref m.UnnerveShownUntil, ref m.UnnerveBuff, UnnervedBuffRow, null);
                     Timed(id, living, ref m.BlindedUntil, ref m.BlindShownUntil, ref m.BlindBuff, FlaskGrounds.BlindedBuffRow, null);

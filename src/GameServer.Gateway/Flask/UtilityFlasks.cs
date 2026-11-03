@@ -226,6 +226,8 @@ static class UtilityFlasks
         IReadOnlyList<Source> Stats, double Started, double Ends)
     {
         internal long Activation { get; set; }
+        public double Ends { get; set; } = Ends;
+        public double ExpiryRate { get; set; } = 1;
     }
 
     /// <summary>Whether a flask's effect ends when the flask leaves its cell of the flask bar (picked up, swapped, moved).
@@ -248,6 +250,20 @@ static class UtilityFlasks
         int _ticker, _lastTicket;
         long _activation;
         readonly Dictionary<uint, long> _latest = [];
+        double expiryRate = 1;
+        public void SetExpiryRate(double now, double rate)
+        {
+            lock (_lock)
+            {
+                rate = Math.Max(.25, rate);
+                foreach (var effect in _active)
+                {
+                    effect.Ends = RecipientEffectTime.RetimedDeadline(effect.Ends, now, expiryRate, rate);
+                    effect.ExpiryRate = rate;
+                }
+                expiryRate = rate;
+            }
+        }
 
         internal bool IsLatest(uint item, long activation)
         {
@@ -268,6 +284,8 @@ static class UtilityFlasks
             lock (_lock)
             {
                 effect.Activation = ++_activation;
+                effect.Ends = effect.Started + (effect.Ends - effect.Started) / expiryRate;
+                effect.ExpiryRate = expiryRate;
                 _latest[effect.ItemId] = effect.Activation;
                 _active.RemoveAll(a => a.ItemId == effect.ItemId);
                 _active.Add(effect);
@@ -465,9 +483,9 @@ static class UtilityFlasks
     /// extra buff (Onslaught: same duration, no cell, so it shows in the buff row with its countdown).</summary>
     public static IEnumerable<byte[]> StartPackets(Active e, uint player)
     {
-        yield return Flasks.Buff(player, e.Buff, e.Flask.BuffRow, e.Slot, e.Ends - e.Started);
+        yield return Flasks.Buff(player, e.Buff, e.Flask.BuffRow, e.Slot, (e.Ends - e.Started) * e.ExpiryRate);
         if (e.Flask.Extra is { } x && e.ExtraBuff is ushort extra)
-            yield return InstanceEntities.AddBuff(player, extra, x.BuffRow, player, u68: BitConverter.SingleToUInt32Bits((float)(e.Ends - e.Started)));
+            yield return InstanceEntities.AddBuff(player, extra, x.BuffRow, player, u68: BitConverter.SingleToUInt32Bits((float)((e.Ends - e.Started) * e.ExpiryRate)));
     }
 
     /// <summary>S→C 0x1c2 for an effect that ends: its buff and the extra buff.</summary>

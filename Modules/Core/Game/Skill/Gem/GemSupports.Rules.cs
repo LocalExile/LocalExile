@@ -263,7 +263,18 @@ static partial class Game
     internal static (int Flat, int Percent)? SupportedReservation(ClientState conn, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
-        if (SkillsFor(conn).Reservation(gem.Effect, gem.Level) is not { } reservation) return null;
+        var sourceReservation = SkillsFor(conn).Reservation(gem.Effect, gem.Level);
+        if (SkillsFor(conn).EffectId(gem.Effect) == "TemporalChains")
+        {
+            if (!GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, "TemporalChains"))) return null;
+            var blasphemy = gem.Supports.FirstOrDefault(s => s.Effect.Id is "SupportBlasphemy" or "SupportBlasphemyPlus");
+            if (blasphemy is null) return null;
+            sourceReservation = SkillsFor(conn).Reservation(blasphemy.Effect.Row, blasphemy.Gem.Level);
+            var sources = CharacterStatSources(conn).Stats;
+            if (Stats.Key("temporal_chains_no_reservation") is uint free
+                && conn.PlayerStats.GetValueOrDefault(free, sources.GetValueOrDefault(free)) != 0) return (0, 0);
+        }
+        if (sourceReservation is not { } reservation) return null;
         double factor = gem.Supports.Aggregate(1.0, (v, support) => v * support.CostMultiplier / 100.0);
         return ((int)Math.Floor(reservation.Flat * factor), (int)Math.Floor(reservation.Percent * factor));
     }

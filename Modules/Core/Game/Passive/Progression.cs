@@ -133,7 +133,16 @@ static partial class Game
                         string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                             $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
             }
-        return (WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources)))))), attributes);
+        sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources))))));
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            int Get(string name) => Stats.Key(name) is uint k ? conn.PlayerStats.GetValueOrDefault(k, sources.GetValueOrDefault(k)) : 0;
+            FortificationOf(conn).SetExpiryRate(now, RecipientEffectTime.Rate(1, Get));
+            conn.UtilityFlaskEffects.SetExpiryRate(now, RecipientEffectTime.Rate(16, Get));
+            conn.ElementalAilments.SetExpiryRate(now, RecipientEffectTime.Rate(2, Get));
+        }
+        return (sources, attributes);
     }
 
     // Shared equipment/passive resolver. The requirement snapshot uses this without publishing caches or pools.
@@ -777,6 +786,10 @@ static partial class Game
         conn.Ward.SetMaximum(conn.PlayerLife > 0 ? pools.Ward : 0);
         conn.AppliedAdrenaline = conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds);
         ConfigureFortificationRecovery(conn, pools.Life, sources);
+        pools = pools with { EnergyShield = IncomingResourceDefences.Maximum(pools.EnergyShield,
+            pools.Life, pools.Mana, pools.EnergyShieldPct,
+            EquipmentInput("maximum_life_%_to_add_as_maximum_energy_shield"),
+            EquipmentInput("mana_%_to_add_as_energy_shield")) };
         return pools with
         {
             FortificationRevision = FortificationOf(conn).Revision,
