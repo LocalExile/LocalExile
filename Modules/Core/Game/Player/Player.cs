@@ -529,9 +529,11 @@ static partial class Game
                 && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (waypoint.GridX, waypoint.GridY)) <= WaypointActivationRange)
                 await ActivateWaypoint(remote, stream, ciphers, conn, "the player came near");
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            // Gold within the configured auto-loot radius is picked up without a click.
+            // Gold within the configured auto-loot radius is picked up unless a league system suppresses loot.
             var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            foreach (var (id, gold) in conn.Instance.Ground.Within(at.X, at.Y, SystemSettings.Default.GoldAutoLootRadius, IsGold))
+            foreach (var (id, gold) in GameEvents.AllowsLoot(conn)
+                ? conn.Instance.Ground.Within(at.X, at.Y, SystemSettings.Default.GoldAutoLootRadius, IsGold)
+                : [])
             {
                 await PickUpGold(remote, stream, ciphers, conn, id, gold, "auto-looted");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
@@ -960,6 +962,7 @@ static partial class Game
         {
             // The new area's player object is created with full life.
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.LastTown, 0, false, AtSpawn: true), "resurrect in town");
+            await GameEvents.RunResurrected(conn);
             return;
         }
         // Revive first: a teleport sent while the player is dead left them where they died (live 2026-10-17).
@@ -980,6 +983,7 @@ static partial class Game
             $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && conn.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
         await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 0)]),
             "0x01b3 player hide_mini_life_bar = 0");
+        await GameEvents.RunResurrected(conn);
     }
 
     // The player in its class: the Characters.dat row's object type (Metadata/Characters/StrInt/StrInt for the Templar), model

@@ -318,6 +318,12 @@ static partial class Game
     // 0x2b2 now; the move itself (0x27) once the client acknowledges with 0x2cb.
     internal static async Task ChangeArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PendingTransfer t, string why)
     {
+        foreach (var check in GameEvents.TravelRefusal.For(conn))
+            if (check(conn, t) is { } refusal)
+            {
+                await conn.Commands!.Reply(refusal);
+                return;
+            }
         if (!conn.TryBeginAreaChange(t, out var projectiles)) return;
         await Program.ServerHooks.PlayerLeaving(PlayerOf(conn), "left the area");
         // Remove outstanding visuals while the old world still exists, before 0x2b2. If Auth refuses the transfer,
@@ -400,9 +406,11 @@ static partial class Game
             ResumeVitalsAfterFailedTransfer(conn);
             conn.ResumeAfterFailedTransfer();
             Console.WriteLine($"[gateway] {remote} transfer failed: {r.Error}");
+            foreach (var resolved in GameEvents.TransferResolved.For(conn)) await resolved(conn, t, r);
             return;
         }
         lock (conn.Monsters) conn.TransferAccepted = true;
+        foreach (var resolved in GameEvents.TransferResolved.For(conn)) await resolved(conn, t, r);
         CarryCharges(conn, r.Ticket);
         CarryFortification(conn, r.Ticket);
         CarryRampage(conn, r.Ticket);

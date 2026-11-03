@@ -133,7 +133,7 @@ static partial class Game
         }
         CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
             : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods));
-        if (Environment.GetEnvironmentVariable("Game_DROPS") != "0" && !monster.NoRewards)
+        if (Environment.GetEnvironmentVariable("Game_DROPS") != "0" && !monster.NoRewards && GameEvents.AllowsLoot(conn))
         {
             var balance = LeagueFor(conn).Rules;
             var modded = Program.ServerHooks.Drops(killer, modMonster);

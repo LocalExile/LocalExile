@@ -78,7 +78,7 @@ static partial class Game
         return definition;
     }
 
-    static ProjectileSkillDefinition? ResolveProjectileDefinition(int effect) =>
+    internal static ProjectileSkillDefinition? ResolveProjectileDefinition(int effect) =>
         ProjectileDefinition(Skills.EffectId(effect) ?? "")
         ?? (ProjectileDefinitions.RequireExplicitProfiles ? null : CatalogProjectileDefinition(effect));
 

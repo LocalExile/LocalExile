@@ -63,7 +63,8 @@ static partial class Game
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
         IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
-        IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null)
+        IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null,
+        MonsterModSet? extraMods = null, bool scripted = false)
     {
         uint id;
         // Under the lock the projectile visuals and ground art take ids under: minions spawn from their own loop.
@@ -84,6 +85,8 @@ static partial class Game
         bool waits = emerge != EmergeKind.None && (unrisen ?? true);
         // Its mods (MonsterMods.cs): the kept ones, else rolled for its rarity. They set its life, hit, speed and defences.
         mods = MonsterModsFor(conn, variety, level, rarity, mods, alone);
+        // Additional encounter scaling composes with rolled rarity and map effects.
+        if (extraMods is not null) mods = mods with { Effects = mods.Effects.Plus(extraMods.Effects) };
         if (MapModsOf(conn) is { } mapMods && MapMonsterEffects(mapMods) is { Count: > 0 } mapStats)
             mods = mods with { Effects = mods.Effects.Combine(mapStats) };
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
@@ -153,8 +156,9 @@ static partial class Game
         var skill = effect >= 0
             ? catalog.FindByRow(attack.SkillId, effect, level,
                 attack.Projectile is null ? attack.SkillStats() : MonsterProjectileSkillStats(conn, effect, level, attack)) : null;
-        // A boss with stages also has the skill that changes them (Hillock's sword extract, BossFights).
-        var stage = BossFights.For(variety.Id);
+        // A boss with stages also has the skill that changes them (Hillock's sword extract, BossFights). A scripted
+        // encounter drives its own phases: the built-in stage would heal it and fight the controller for its actions.
+        var stage = scripted ? null : BossFights.For(variety.Id);
         // Its stats as the attack's (skill_is_non_pathing above all, and the stage's own time): without them the client sent
         // the action through its pathing step, played nothing and kept the monster in it (live 2026-10-21).
         var stageSkill = skill is not null && stage is not null
@@ -242,10 +246,11 @@ static partial class Game
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
                 Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
+                Scripted = !friendly && scripted,
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = states,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
                 Threshold = QuestsOf(conn).ThresholdOf(conn.Layout.Id, variety.Id),
-                CannotBeStunned = !friendly && KingInMists.IsBoss(variety),
+                CannotBeStunned = !friendly && (KingInMists.IsBoss(variety) || scripted),
                 KingPhaseLocked = !friendly && KingInMists.IsBoss2(variety),
                 KingGrace = !friendly && KingInMists.IsBoss(variety),
                 FetishGrace = !friendly && KingInMists.IsFetish(variety),
@@ -462,7 +467,7 @@ static partial class Game
             var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
             foreach (var (id, m) in conn.Monsters)
             {
-                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning
+                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted
                     || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
                 // The King in the Mists has its own phase controller (KingInMists.cs): one action at a time, all its
                 // damage through MonsterSwing/MonsterAreaContact. Its Mystic Fetishes are stationary shrines the
@@ -1098,7 +1103,14 @@ static partial class Game
         chaosDamage = FortificationDamageTaken(conn, chaosDamage);
         physicalDamage = Math.Min(FortificationDamageTaken(conn, physicalDamage), Math.Max(0, damage - chaosDamage));
         if (blocked) { damage = 0; chaosDamage = 0; physicalDamage = 0; }
-        else m.HitPlayerAt = now;
+        if (damage > 0)
+        {
+            int full = damage;
+            damage = GameEvents.AdjustIncomingDamage(conn, damage);
+            chaosDamage = (int)Math.Round((double)chaosDamage * damage / full);
+            physicalDamage = Math.Min((int)Math.Round((double)physicalDamage * damage / full), Math.Max(0, damage - chaosDamage));
+        }
+        if (!blocked) m.HitPlayerAt = now;
         uint manaBefore = conn.PlayerMana;
         var onBlock = blocked ? BlockRecovery(conn, stats) : default;
         int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock + onBlock.Life : 0;

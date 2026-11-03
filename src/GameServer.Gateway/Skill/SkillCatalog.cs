@@ -779,6 +779,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>The skill's <c>projectile_minimum_range</c> in world units (the Spitter's 50): a lob lands no closer
         /// to the monster than this. 0 without the stat.</summary>
         public int MinimumRange { get; init; }
+        /// <summary>The spread of a multi-projectile release: a fan by default, a full turn for a ring.</summary>
+        public double SpreadRadians { get; init; } = Math.PI / 6;
         /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
         /// fallback, and a boss skill may name its own).</summary>
         public double AreaRadius { get; init; }

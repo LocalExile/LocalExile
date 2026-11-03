@@ -25,7 +25,8 @@ static partial class Game
         try
         {
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
-            return [.. SkillsFor(conn).PlayerDefaults(player), .. GemSkills(conn, player, character, panelSources!)];
+            return [.. SkillsFor(conn).PlayerDefaults(player),
+                .. GemSkills(conn, player, character, panelSources!), .. GameEvents.ExtraSkills(conn)];
         }
         finally { StatsScope.Value = outer; }
     }
@@ -104,6 +105,7 @@ static partial class Game
         // weapon up from the off hand's own final stats (it derives nothing itself, 11-skills.md §4).
         foreach (var (k, v) in WeaponStats(conn, WeaponOf(conn, mainHand), stats)) stats[k] = v;
         foreach (var (k, v) in CosmeticStats(conn).Where(s => !ActorScale.IsInput(s.Stat))) stats.TryAdd(k, v);
+        foreach (var build in GameEvents.FinalStatsBuilding.For(conn)) build(conn, stats);
         return stats.Select(kv => (kv.Key, kv.Value));
     }
 
@@ -712,19 +714,22 @@ static partial class Game
     {
         FillSkillBar(conn);
         var save = CharacterSaves.Load(CharacterName(conn));
-        if (save?.SkillBar is not { Count: > 0 } bar) return;
+        var saved = save?.SkillBar;
+        if (saved is not { Count: > 0 } && GameEvents.ExtraSkills(conn).Count == 0) return;
         var ids = new ushort[InstanceProtocol.SkillBarSlots];
         var byEffect = GemSkillEffects(conn).Select(g => (g.Id, Effect: SkillsFor(conn).EffectId(g.Effect)))
             .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(conn, SkillCatalog.FirstSkillId)))
             .Where(e => e.Effect is not null).GroupBy(e => e.Effect!).ToDictionary(g => g.Key, g => g.First().Id);
-        foreach (var (slot, entry) in bar)
-        {
-            if (slot < 0 || slot >= ids.Length) continue;
-            if (entry.StartsWith("Action/") && SkillsFor(conn).ActionSkillId(entry["Action/".Length..]) is ushort action) ids[slot] = action;
-            else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
-        }
-        if (!bar.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
-        ushort attackInPlace = save.AttackInPlaceSlots ?? 0, mask52 = save.SkillBarMask52 ?? 0;
+        if (saved is { Count: > 0 })
+            foreach (var (slot, entry) in saved)
+            {
+                if (slot < 0 || slot >= ids.Length) continue;
+                if (entry.StartsWith("Action/") && SkillsFor(conn).ActionSkillId(entry["Action/".Length..]) is ushort action) ids[slot] = action;
+                else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
+            }
+        if (saved is not { Count: > 0 } || !saved.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
+        foreach (var build in GameEvents.SkillBarBuilding.For(conn)) build(conn, ids);
+        ushort attackInPlace = save?.AttackInPlaceSlots ?? 0, mask52 = save?.SkillBarMask52 ?? 0;
         await Send(remote, stream, ciphers, InstanceProtocol.SkillBar(ids, attackInPlace, mask52),
             $"0x0053 skill bar: {string.Join(", ", ids.Select((id, i) => id == 0 ? null : $"slot {i} 0x{id:x4}").OfType<string>())}" +
             $", attack in place 0x{attackInPlace:x4}, 0x52 mask 0x{mask52:x4}");
@@ -1128,7 +1133,9 @@ static partial class Game
         // bar first (FillSkillBar: the right mouse button, then Q W E R T …), so it goes out with the bar.
         FillSkillBar(conn);
         var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar?.Values;
-        if (added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
+        // Transient league skills are not part of the saved bar.
+        if (GameEvents.ExtraSkills(conn).Count > 0
+            || added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
             await SendSkillBar(remote, stream, ciphers, conn);
         // The same recalculation may have changed which worn weapons qualify.
         await SendModelIfHandsChanged(remote, stream, ciphers, conn);

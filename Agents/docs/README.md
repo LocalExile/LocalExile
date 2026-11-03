@@ -106,6 +106,7 @@ This research does not change the production simulator or certify native/officia
 | [re/ascendancy-client-3.29.3b.md](re/ascendancy-client-3.29.3b.md) | native identity and point evidence |
 | [re/hinekora-lock.md](re/hinekora-lock.md) | Hinekora's Lock state, C→S 0x29c / S→C 0x29f preview and the native commit evidence |
 | [game/league-modes.md](game/league-modes.md) | Hardcore deaths, SSF isolation, Ruthless native rules and editable balance |
+| [game/survivors-mode.md](game/survivors-mode.md) | Survivors league and modules: run, rewards, native window/animations, limits |
 
 ## Working notes (history)
 - `re/007`–`010`: the notes these documents were consolidated from (login TCP, handshake, message tables, live instance

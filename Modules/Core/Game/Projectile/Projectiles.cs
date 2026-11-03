@@ -233,7 +233,8 @@ static partial class Game
             if (contact.Projectile.Use.Payload is HostileProjectileOffense hostile) return HostileHit(this, contact, hostile);
             // A server object's shot (a trial's dart trap): its own rule commits the hit.
             if (contact.Projectile.Use.Payload is ObjectProjectileOffense thrown) return thrown.Hit(this, contact);
-            if (contact.Projectile.Use.Payload is not ProjectileOffense shot) return ProjectileHitResult.Miss;
+            if (contact.Projectile.Use.Payload is not ProjectileOffense shot || shot.Valid?.Invoke() == false)
+                return ProjectileHitResult.Miss;
             if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
@@ -328,13 +329,15 @@ static partial class Game
         public void Publish(ProjectileEvent value)
         {
             var p = value.Projectile;
+            bool valid = p.Use.Payload is not ProjectileOffense owned || owned.Valid?.Invoke() != false;
+            if (!valid && value.Kind != ProjectileEventKind.End) return;
             int x = (int)Math.Round(value.Position.X), y = (int)Math.Round(value.Position.Y);
             var presentation = PresentationFor(p);
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"
                     + $" grid={Conn.Layout.Id}_seed{Conn.Seed} blocked={ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y)?.ToString() ?? "unknown"}");
-            if (presentation.EventEffect?.Invoke(value) is { } eventEffect)
+            if (valid && presentation.EventEffect?.Invoke(value) is { } eventEffect)
                 Effect(x, y, eventEffect, presentation.EffectLifetime,
                     value.Kind == ProjectileEventKind.Area ? value.Radius : null);
             // The client draws its own primary projectiles of a skill use; the server still simulates them (contacts,

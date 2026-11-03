@@ -1315,7 +1315,7 @@ static partial class Game
 
     internal static async Task NotifyMonsterHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log = true, bool melee = false, ushort sequence = 0,
-        List<(uint Id, SpawnedMonster M)>? deaths = null)
+        List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0)
     {
         var (life, stageStarts) = hit;
         if (life == 0)
@@ -1336,7 +1336,7 @@ static partial class Game
             var (px, py) = conn.Walk.Position(now);
             var (mx, my) = m.Walk.Position(now);
             await Send(remote, stream, ciphers,
-                InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: 0x4201, kind: 0x03, angle: HitAngle(mx - px, my - py)),
+                InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: 0x4201, kind: 0x03, code: hitCode, angle: HitAngle(mx - px, my - py)),
                 !log ? null : $"0x01af player hit on monster 0x{id:x} (skill, sequence 0x{sequence:x4})");
         }
         // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2), as in Attack.
@@ -1508,6 +1508,7 @@ static partial class Game
             blocked = HardcoreProgressBlocked(conn);
         }
         await SendVaalSouls(remote, stream, ciphers, conn);
+        // Every kill in a survivors run feeds the run's own experience, whoever landed it (survivors-mode.md).
         // A dead Hardcore character's kills (an ignite still burning) make no progress, as a projectile's (CommitProjectileKill).
         if (blocked || m.Variety is not { } variety || !m.Hostile) return;
         // A Mystic Fetish is a destructible arena object: breaking it interrupts the King's ritual and gives no
@@ -1549,6 +1550,8 @@ static partial class Game
     internal static async Task DropLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m, (int X, int Y) at)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
+        // A survivors run keeps the ground clear: no loot, no gold, nothing reaches the client.
+        if (!GameEvents.AllowsLoot(conn)) return;
         var balance = LeagueFor(conn).Rules;
         // The mods' changes (Program.Mods.cs): their multipliers on top of the league's, their own items besides.
         var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(m, at));

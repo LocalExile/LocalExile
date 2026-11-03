@@ -510,6 +510,8 @@ static partial class Game
     // The instance's items on the ground, where they were left (InstanceStore): dropped or looted on an earlier connection.
     internal static async Task SendGroundItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        // A survivors run keeps the ground clear: no loot reaches the client at all.
+        if (!GameEvents.AllowsLoot(conn)) return;
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
@@ -611,6 +613,7 @@ static partial class Game
     // Strand, until it is picked up (PlayerInventories.StartWeapon): put once into each instance it enters outside towns.
     internal static async Task PlaceStartWeapon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (!GameEvents.AllowsLoot(conn)) return;
         if (ItemsOf(conn).StartWeapon is not { } weapon || WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true }) return;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         var ground = new WorldItemObject(x, y, weapon);

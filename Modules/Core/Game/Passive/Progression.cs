@@ -122,6 +122,9 @@ static partial class Game
         IEnumerable<ushort>? nodes = null, int? level = null)
     {
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
+        var exemptions = GameEvents.ExemptItems(conn);
+        if (exemptions.Count > 0)
+            before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
         var (sources, attributes, inactive, worn) = EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot(), nodes, level);
         lock (conn.Monsters)
             if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired)
@@ -186,10 +189,13 @@ static partial class Game
             .Concat(treeJewels.Select(i => i with { Item = AdornedJewel(i.Item, adorned) }))
             .ToArray();
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
+        var exemptions = GameEvents.ExemptItems(conn);
+        if (exemptions.Count > 0)
+            before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
         // The sum below is a pure function of these inputs (items are immutable records), and the combat paths ask for
         // it many times a second (every monster hit): reuse the last result while none of them changed.
         var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level,
-            before, [.. conn.ClusterPassives.Order()], conn.TattooRevision);
+            before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. exemptions.Order()]);
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
         // A timeless jewel replaces (or augments) the stats of allocated ordinary nodes in its radius. The item is a
@@ -502,6 +508,14 @@ static partial class Game
                 .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god);
             return (ForRequirements("strength", str), ForRequirements("dexterity", dex), ForRequirements("intelligence", intel));
         }, before, ItemsFor(conn).Mods);
+        // Exempt items must join the active list as well as leave the inactive set, so their mods reach the stats.
+        if (exemptions.Count > 0)
+        {
+            var exempt = wornItems.Where(w => exemptions.Contains(w.Id) && inactive.Contains(w.Id))
+                .Select(w => w.Item).ToList();
+            if (exempt.Count > 0) active = [.. active, .. exempt];
+            inactive.ExceptWith(exemptions);
+        }
         var rawAttributes = RawAttributes(active);
         var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
@@ -538,7 +552,7 @@ static partial class Game
     /// <summary>The inputs of CharacterStatSources' passive and equipment sum, compared by value (items by reference).</summary>
     internal sealed record StatSourcesKey(ushort[] Nodes, IReadOnlyDictionary<ushort, ushort> Masteries,
         GameServer.Core.Protocol.Instance.InventoryItem[] Worn, Dictionary<uint, int> Dev, int ClassRow, bool God, int Level,
-        IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision)
+        IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems)
     {
         public bool Matches(StatSourcesKey o) =>
             ClassRow == o.ClassRow && God == o.God && Level == o.Level && TattooRevision == o.TattooRevision
@@ -547,7 +561,8 @@ static partial class Game
             && Worn.Length == o.Worn.Length && Worn.Zip(o.Worn).All(p => p.First.Id == p.Second.Id
                 && p.First.X == p.Second.X && ReferenceEquals(p.First.Item, p.Second.Item))
             && Dev.Count == o.Dev.Count && Dev.All(kv => o.Dev.TryGetValue(kv.Key, out int v) && v == kv.Value)
-            && (Before ?? new HashSet<uint>()).SetEquals(o.Before ?? new HashSet<uint>());
+            && (Before ?? new HashSet<uint>()).SetEquals(o.Before ?? new HashSet<uint>())
+            && RunItems.AsSpan().SequenceEqual(o.RunItems);
     }
 
     internal sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,
