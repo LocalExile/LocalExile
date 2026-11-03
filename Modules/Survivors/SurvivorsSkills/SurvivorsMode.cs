@@ -141,6 +141,12 @@ public static class SurvivorsRules
     /// <summary>Monster damage over a run: +180% by the end, so standing still is punished.</summary>
     public static double MonsterDamageScale(double elapsed) => 1 + 1.8 * Progress(elapsed);
 
+    /// <summary>How often the horde sends a ring of ranged monsters (archers/wands) for the player to dodge.</summary>
+    public const double RangedWaveIntervalSeconds = 20;
+
+    /// <summary>The bodies in a ranged ring: six at the start, sixteen by the bell.</summary>
+    public static int RangedWaveCount(double progress) => 6 + (int)Math.Round(Math.Clamp(progress, 0, 1) * 10);
+
     public const double Range = 34;
 
     /// <summary>Run experience from one kill, by rarity: two per normal kill at the run's own rate.</summary>

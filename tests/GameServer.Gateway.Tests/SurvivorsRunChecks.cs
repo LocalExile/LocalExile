@@ -118,6 +118,13 @@ public class SurvivorsRunTests
         Assert.Equal(48, SurvivorsSkills.SurvivorsHeraldRadius, 6);
     }
 
+    public void The_horde_gets_a_ranged_ring_wave_every_twenty_seconds()
+    {
+        Assert.Equal(20, SurvivorsRules.RangedWaveIntervalSeconds);
+        Assert.Equal(6, SurvivorsRules.RangedWaveCount(0));
+        Assert.Equal(16, SurvivorsRules.RangedWaveCount(1));
+    }
+
     public void Experience_follows_monster_rarity()
     {
         Assert.Equal(2, SurvivorsRules.ExperienceForKill(MonsterRarity.Normal));

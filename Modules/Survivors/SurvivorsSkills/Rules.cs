@@ -150,9 +150,11 @@ static partial class SurvivorsSkills
 
     /// <summary>The monsters the current area can draw a horde from, weakest first, and the run skills' base damage:
     /// <see cref="WeaponDamage"/> is the starting tier pool's median life (one rank-1 cast ≈ one starting hit), and
-    /// <see cref="TopLife"/> is the roster's strongest variety, for reporting.</summary>
+    /// <see cref="TopLife"/> is the roster's strongest variety, for reporting. <see cref="Ranged"/> is the subset whose
+    /// attack is a projectile (a bow, a wand, a mortar): the rings the player has to dodge.</summary>
     internal sealed record SurvivorsRoster(IReadOnlyList<MonsterCatalog.Variety> Varieties,
-        IReadOnlyList<MonsterCatalog.Variety> Bosses, byte Level, int WeaponDamage, int TopLife, double SkillScale = 1);
+        IReadOnlyList<MonsterCatalog.Variety> Bosses, byte Level, int WeaponDamage, int TopLife, double SkillScale = 1,
+        IReadOnlyList<MonsterCatalog.Variety>? Ranged = null);
 
     /// <summary>
     /// Every skill gem the client can draw: a projectile gem flies its own Projectiles row, a Herald pulses around

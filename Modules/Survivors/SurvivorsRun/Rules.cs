@@ -38,7 +38,7 @@ static partial class SurvivorsRunRules
 
     internal static int SurvivorsMaxAlive() =>
         int.TryParse(Environment.GetEnvironmentVariable("Game_SURVIVORS_MAX_ALIVE"), out int n)
-            ? Math.Clamp(n, 10, 400) : SurvivorsRules.DefaultMaxAlive;
+            ? Math.Clamp(n, 10, 800) : SurvivorsRules.DefaultMaxAlive;
 
     /// <summary>The area's packs, deduplicated and ordered by the life the client gives the variety at the area level.</summary>
     internal static SurvivorsRoster? SurvivorsRosterFor(ClientState conn)
@@ -56,14 +56,27 @@ static partial class SurvivorsRunRules
         var bosses = area.Bosses.Select(r => Monsters.Find(r.ToString())).OfType<MonsterCatalog.Variety>()
             .Where(v => v.Supported).GroupBy(v => v.Row).Select(g => g.First()).ToList();
         var lives = varieties.Select(v => Monsters.BaseLife(v, level) ?? 0).Where(l => l > 0).OrderBy(l => l).ToList();
-        // The rank-1 anchor is the starting three-tier pool, not the whole roster: the reference opens against its
-        // weakest tiers, so the first cast kills in one or two hits and the tier ladder carries the rest.
+        // The rank-1 anchor is the starting tier pool, not the whole roster: the reference opens against its weakest
+        // tiers, so the first cast kills in one or two hits and the tier ladder carries the rest.
         var start = SurvivorsRules.WavePool(0, varieties.Count)
             .Select(i => Monsters.BaseLife(varieties[i], level) ?? 0).Where(l => l > 0).OrderBy(l => l).ToList();
         int startLife = start.Count == 0 ? (lives.Count == 0 ? 20 : lives[lives.Count / 2]) : start[start.Count / 2];
         int topLife = lives.Count == 0 ? startLife : lives[^1];
-        return new(varieties, bosses, level, Math.Max(1, startLife), Math.Max(1, topLife));
+        var ranged = varieties.Where(v => SurvivorsIsRanged(conn, v)).ToList();
+        return new(varieties, bosses, level, Math.Max(1, startLife), Math.Max(1, topLife), Ranged: ranged);
     }
+
+    /// <summary>Whether a variety's attack is a projectile: a bow/wand/mortar the player must dodge.</summary>
+    internal static bool SurvivorsIsRanged(ClientState conn, MonsterCatalog.Variety variety)
+    {
+        var catalog = SkillsFor(conn);
+        int effect = MavenNucleus.CombatEffect(catalog, variety);
+        return MonsterAttackIsRanged(catalog, variety, effect);
+    }
+
+    /// <summary>The roster's ranged varieties (the subset whose attack is a projectile).</summary>
+    internal static IReadOnlyList<MonsterCatalog.Variety> SurvivorsRangedPool(SurvivorsRoster roster) =>
+        roster.Ranged is { Count: > 0 } ranged ? ranged : [];
 
     internal static async Task StartSurvivors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         int? only = null)
@@ -458,6 +471,7 @@ static partial class SurvivorsRunRules
         double last = conn.Clock.Elapsed.TotalSeconds, nextSpawn = 0,
             nextBoss = Math.Max(stageStart + SurvivorsBossDelaySeconds, run.Elapsed + 5),
             nextRing = Math.Max(stageStart + SurvivorsRingIntervalSeconds / 2, run.Elapsed + 10),
+            nextRanged = Math.Max(stageStart + SurvivorsRules.RangedWaveIntervalSeconds, run.Elapsed + 5),
             nextReport = 10, nextSweep = 0;
         string bossName = roster.Bosses.Count > 0 ? roster.Bosses[0].Name : "";
         uint stageBoss = 0;
@@ -541,6 +555,12 @@ static partial class SurvivorsRunRules
                     nextRing = stageStart + SurvivorsRingIntervalSeconds;
                     await SpawnSurvivorsRing(remote, stream, ciphers, conn, run, roster, horde);
                 }
+                // Every twenty seconds a ring of archers/wands shoots from 22 cells: standing still is not safe.
+                if (run.Elapsed >= nextRanged)
+                {
+                    nextRanged = run.Elapsed + SurvivorsRules.RangedWaveIntervalSeconds;
+                    await SpawnSurvivorsRangedRing(remote, stream, ciphers, conn, run, roster, horde);
+                }
                 foreach (var (skill, rank) in run.Skills)
                 {
                     if (skill < 0 || skill >= catalog.Count) continue;
@@ -591,13 +611,44 @@ static partial class SurvivorsRunRules
         int spawn = SurvivorsRules.SpawnRefill(missing);
         var pool = SurvivorsRules.WavePool(run.Elapsed, roster.Varieties.Count);
         if (pool.Length == 0) return;
+        var ranged = SurvivorsRangedPool(roster);
         for (int i = 0; i < spawn; i++)
         {
-            var variety = roster.Varieties[pool[Random.Shared.Next(pool.Length)]];
+            // Every third body is a ranged variety when the area has one: the player has to keep moving.
+            var variety = ranged.Count > 0 && i % 3 == 2
+                ? ranged[Random.Shared.Next(ranged.Count)]
+                : roster.Varieties[pool[Random.Shared.Next(pool.Length)]];
             if (SurvivorsSpawnCell(conn, 30) is not { } cell) continue;
             horde.Add(await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, SurvivorsRarity(run), cell.X, cell.Y,
                 log: false, extraMods: SurvivorsMonsterMods(run.Elapsed)));
         }
+    }
+
+    /// <summary>
+    /// A ring of the area's ranged varieties, every twenty run-seconds: the archers/wands/mortars that shoot at the
+    /// player from 22 cells, so standing still means eating projectiles.
+    /// </summary>
+    internal static async Task SpawnSurvivorsRangedRing(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, SurvivorsRun run, SurvivorsRoster roster, HashSet<uint> horde)
+    {
+        var ranged = SurvivorsRangedPool(roster);
+        if (ranged.Count == 0) return;
+        var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        int count = SurvivorsRules.RangedWaveCount(SurvivorsRules.Progress(run.Elapsed));
+        int spawned = 0;
+        for (int i = 0; i < count; i++)
+        {
+            var variety = ranged[Random.Shared.Next(ranged.Count)];
+            double angle = i * Math.Tau / count;
+            int x = (int)Math.Round(px + Math.Cos(angle) * 22), y = (int)Math.Round(py + Math.Sin(angle) * 22);
+            if (conn.Layout.GridW > 0 && (x < 0 || y < 0 || x >= conn.Layout.GridW || y >= conn.Layout.GridH)) continue;
+            if (!conn.Layout.WalkableFor(x, y, 0) || conn.Barrier.Contains((x, y))) continue;
+            horde.Add(await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, SurvivorsRarity(run), x, y,
+                log: false, extraMods: SurvivorsMonsterMods(run.Elapsed)));
+            spawned++;
+        }
+        Console.WriteLine($"[gateway] {remote} survivors ranged ring at {SurvivorsClock(run.Elapsed)}: {spawned} of {count} spawned");
+        if (spawned > 0) await conn.Commands!.Reply("Archers close in!");
     }
 
     /// <summary>
