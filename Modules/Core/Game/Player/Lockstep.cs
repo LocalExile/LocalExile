@@ -115,6 +115,9 @@ static partial class Game
                 if (conn.LockstepSkill.Target is { } aimedAt && aimedAt != PlayerId
                     && !(conn.Monsters.TryGetValue(aimedAt, out var m) && !m.Dead && m.Life > 0))
                     conn.LockstepSkill.LoseTarget();
+                // A skill on a monster walks up first and swings when it gets there: the next one waits for that swing and
+                // for the attack time it takes (LockstepAttackStart), as GGG's held attack repeats once per action.
+                bool monster = conn.LockstepSkill.Target is { } t && t != PlayerId;
                 if (conn.LockstepUse is { } object_)
                 {
                     conn.LockstepUse = null;
@@ -122,11 +125,11 @@ static partial class Game
                     from = conn.Walk.Position(at);
                     sequence = NextLockstepSequence(conn);
                 }
-                else if (conn.LockstepSkill.Due(free))
+                else if (conn.LockstepAttackAction == 0 && (!monster || at + 1e-9 >= conn.NextAttackAt) && conn.LockstepSkill.Due(free))
                 {
                     skill = true;
                     sequence = NextLockstepSequence(conn);
-                    conn.LockstepBusyUntil = at + LockstepActionSeconds(conn, conn.LockstepSkill.Skill);
+                    if (!monster) conn.LockstepBusyUntil = at + LockstepActionSeconds(conn, conn.LockstepSkill.Skill);
                 }
                 else if (conn.LockstepHold.Due(conn.Walk.Moving(at), conn.Walk.Position(at)) is { } due)
                 {
@@ -152,6 +155,40 @@ static partial class Game
         else await Send(remote, stream, ciphers, LockstepActionStart(conn, from, target, sequence),
             $"0x01ab lockstep walk from ({from.X}, {from.Y}) to ({target.X}, {target.Y})",
             still: () => PlayerActionCurrent(conn, action));
+    }
+
+    // A skill asked on a monster: GGG answers the request with the action's start in the next frame, from the player's
+    // cell and aimed at the monster (0x18f gets its 0x1ab with flag 0x80 and the target 36 to 54 ms later), and the client's
+    // own action walks up and swings when it gets there, as a monster's chase does; a held skill then repeats once per
+    // action. A predictive client starts the walk-up itself and only hears the swing. So on a lockstep client the start
+    // goes out now, the server's walk-up and swing run on without a second 0x1ab, and the swing's time is when the
+    // estimate gets there (LockstepAttackSwings). False when the client is not in lockstep: the swing says it, as before.
+    internal static async Task<bool> LockstepAttackStart(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        InstanceTransfer.UseSkillOnObject use, (int X, int Y) here, (int X, int Y) target, int action, string what)
+    {
+        if (!conn.LockstepClient) return false;
+        lock (conn.Monsters) conn.LockstepAttackAction = action;
+        await Send(remote, stream, ciphers,
+            InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+            $"0x01ab lockstep {what} 0x{use.SkillId:x4} on 0x{use.TargetId:x} from ({here.X}, {here.Y}) toward ({target.X}, {target.Y})",
+            still: () => PlayerActionCurrent(conn, action));
+        return true;
+    }
+
+    // The walk-up of a lockstep client's attack is over and the swing begins at now: it holds the player for
+    // <paramref name="seconds"/> (until its contact, after which GGG lets a Move cut it short), and the held skill's next use
+    // may follow it. Called under conn.Monsters.
+    internal static void LockstepAttackSwings(ClientState conn, int action, double now, double seconds)
+    {
+        if (conn.LockstepAttackAction != action) return;
+        conn.LockstepAttackAction = 0;
+        conn.LockstepBusyUntil = Math.Max(conn.LockstepBusyUntil, now + seconds);
+    }
+
+    // The attack ended before its swing (cancelled, out of reach): nothing holds the next use.
+    internal static void LockstepAttackOver(ClientState conn, int action)
+    {
+        lock (conn.Monsters) if (conn.LockstepAttackAction == action) conn.LockstepAttackAction = 0;
     }
 
     // C→S 0x192 on a channel: GGG answers with its new target (40 ms later). The channel's own hits run as ever.

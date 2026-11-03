@@ -852,6 +852,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
     // Until when the skill started last keeps the player (Clock seconds).
     public double LockstepBusyUntil;
+    // The action token of a skill on a monster whose walk-up or swing is still to come on a lockstep client, 0 for none
+    // (Game.LockstepAttackStart): the next use of a held skill waits for it.
+    public int LockstepAttackAction;
     // The character's activated waypoints (WorldAreas Ids, kept in its save) and whether this connection was reached
     // by waypoint travel (the player then appears next to the area's waypoint).
     public readonly HashSet<string> Waypoints = [];

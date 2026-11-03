@@ -444,6 +444,19 @@ newest starts when the swing ends. A skill held down repeats from the player's t
 0x192, until 0x195; an attack on an object that dies goes on at the ground. A channelled skill gets a 0x1ad for a new aim
 and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0x191, answered with 0x1ce as in Predictive.
 
+A skill asked on a monster (0x18f) gets its 0x1ab at once, from the player's cell and aimed at the monster, as an object
+use does: the client's own action walks up and swings when it gets there, as a monster's chase does, and the held skill's
+next use follows that swing. The Gateway does the same (`LockstepAttackStart`) and runs its walk-up and swing without a
+second 0x1ab. Before 2026-11-03 it answered only at its own swing, with the walk-up's end as the position: the client
+played its last Move meanwhile and was then put on that cell, up to 35 cells away (live, a bow at 33 cells), and the held
+skill's repeats came at the attack time from the request, each cancelling the walk-up before it. Live after: 18 bow
+attacks in 52 s started at most 3.2 cells off the client's cell, none cancelled.
+
+A melee monster's chase order (an attack aimed at the player) swings by itself on a lockstep client when its walk-up gets
+there, since the client waits for no 0x1ac (`0x141e94720`). The Gateway counts that swing from its estimate's arrival
+(`MonsterAiPlan.ArrivedSwings`) instead of ordering a second one, which the client only played after the first while the
+chase orders in between bounced off a 2 s swing and the estimate walked on.
+
 **Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLink`; `Lockstep.cs` and
 `LockstepHold` follow GGG):
 
@@ -458,7 +471,7 @@ and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0
 | Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours walks on out there, and 0x128 is skipped here |
 | An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |
 | Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |
-| A swing holds everything for its whole attack time | A Move can cut it short after its contact | A Move the client refuses mid-swing would leave the server walking alone |
+| A skill at the ground or a gem attack holds everything for its whole attack or cast time | A Move can cut an attack short after its contact | A Move the client refuses mid-swing would leave the server walking alone; the default attack on a monster follows GGG since 2026-11-03 (`LockstepAttackSwings`: held until its contact) |
 | A skill is echoed at any key 0, from the handlers Predictive uses | From the tick, keyed by the player | As for Moves |
 
 Still to do: monsters' order keys. A movement skill's landing comes from the server's own estimate; the client's snap at

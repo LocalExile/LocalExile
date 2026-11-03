@@ -207,6 +207,8 @@ static partial class Game
         }
         Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} seq 0x{use.Sequence:x4} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
             $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
+        // A lockstep client's action starts now and walks up by itself (Lockstep.cs); the swing below then says nothing.
+        bool started = await LockstepAttackStart(remote, stream, ciphers, conn, use, here, target, action, "attack");
         bool Current() => conn.ActionCount == action && (!ranged || OrdinaryRangedReleaseCurrent(conn, action, projectileEpoch));
         async Task<bool> Until(double at, double from)
         {
@@ -217,20 +219,31 @@ static partial class Game
         if (await FollowMonsterToSwing(conn, m, weapon.Range, Current, Until, stop, arrive, now) is not { } swing)
         {
             Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} cancelled before the swing");
+            LockstepAttackOver(conn, action);
             return;
         }
         (stop, arrive) = swing;
         now = conn.Clock.Elapsed.TotalSeconds;
         SkillCriticalRoll criticalRoll;
+        bool inReach;
         lock (conn.Monsters)
         {
             target = m.Walk.Position(now);
             conn.NextAttackAt = AttackTiming.After(now, conn.NextAttackAt, duration);
             criticalRoll = CaptureSkillCriticalRoll(conn, SkillCatalog.FirstSkillId);
+            inReach = SwingInReach(m, stop, target, weapon.Range + 2);
+            // The swing holds the player until its contact: GGG lets a Move cut the attack short after that (a Move 295 ms
+            // into a 462 ms attack started at once) and the client refuses one before it; the next attack waits the attack
+            // time (NextAttackAt).
+            if (started && inReach)
+                LockstepAttackSwings(conn, action, now, ordinaryProjectile is { } shot
+                    ? OrdinaryRangedContactDelay(conn, duration, shot, use.Sequence)
+                    : DefaultAttackContactDelay(conn, duration, here, stop, departedAt, arrive));
         }
-        if (!SwingInReach(m, stop, target, weapon.Range + 2))
+        if (!inReach)
         {
             Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} out of reach: {Dist(stop, target):0.0} > {weapon.Range}");
+            LockstepAttackOver(conn, action);
             return;
         }
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
@@ -240,9 +253,9 @@ static partial class Game
         {
             // The runtime schedules the release first, anchored to this acceptance; the echo follows through the gate.
             await LaunchOrdinaryRanged(remote, stream, ciphers, conn, target, duration, action, projectileEpoch, projectileId, use.Sequence, criticalRoll);
-            if (!await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionBytes, actionLog, action, projectileEpoch)) return;
+            if (!started && !await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionBytes, actionLog, action, projectileEpoch)) return;
         }
-        else await Send(remote, stream, ciphers, actionBytes, actionLog, still: () => PlayerActionCurrent(conn, action));
+        else if (!started) await Send(remote, stream, ciphers, actionBytes, actionLog, still: () => PlayerActionCurrent(conn, action));
         if (m.Life == 0) return;
         // A ranged target is an aim, not a reserved hit: the released arrow/bolt owns collision and damage.
         if (ranged) return;
@@ -427,6 +440,8 @@ static partial class Game
                 }, out var approachTicket, reserve: false, requestedAt: requestedAt)) return;
             Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
                 $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s (t={now:0.000})");
+            // A lockstep client's action starts now and walks up by itself (Lockstep.cs); the swing below then says nothing.
+            bool started = await LockstepAttackStart(remote, stream, ciphers, conn, use, here, target, action, gem.Name);
             async Task<bool> Walked(double at, double from)
             {
                 await Task.Delay(TimeSpan.FromSeconds(at - from));
@@ -436,6 +451,7 @@ static partial class Game
                 Walked, stop, arrive, now) is not { } swing)
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x} cancelled before the swing");
+                LockstepAttackOver(conn, action);
                 return;
             }
             (stop, arrive) = swing;
@@ -444,16 +460,25 @@ static partial class Game
             if (!SwingInReach(m, stop, target, weapon.Range + 2))
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x} out of reach: {Dist(stop, target):0.0} > {weapon.Range}");
+                LockstepAttackOver(conn, action);
                 return;
             }
             if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
                 CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
-                () => { }, out var cooldownUse, actionToken: action)) return;
+                () => { }, out var cooldownUse, actionToken: action))
+            {
+                LockstepAttackOver(conn, action);
+                return;
+            }
+            if (started) lock (conn.Monsters) LockstepAttackSwings(conn, action, now, attackSeconds);
             bool acknowledged = false;
             bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
             if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, target,
                 use.TargetId, sequence: use.Sequence, actionToken: action, cooldownUse: cooldownUse);
-            await Send(remote, stream, ciphers,
+            if (started)
+                acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
+                    () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action));
+            else await Send(remote, stream, ciphers,
                 [.. InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)],
                 $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} on monster 0x{use.TargetId:x} ({m.Label}) from ({stop.X}, {stop.Y}) to ({target.X}, {target.Y}), flags 0x{use.Flags:x4} (t={conn.Clock.Elapsed.TotalSeconds:0.000})",
                 still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,

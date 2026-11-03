@@ -142,8 +142,9 @@ static partial class Game
     }
 
     // Differs from GGG: it lets a Move cut a swing short after its contact (a Move 295 ms into a 462 ms attack), which is
-    // where its own action ends. Ours holds everything for the swing's whole time, because a Move the client refuses
-    // mid-swing (0x141e8cf10) would leave the server walking alone. A spell takes its cast time.
+    // where its own action ends. Ours holds a skill at the ground or a gem attack for the swing's whole time, because a
+    // Move the client refuses mid-swing (0x141e8cf10) would leave the server walking alone; the default attack on a
+    // monster follows GGG (LockstepAttackSwings holds it until its contact). A spell takes its cast time.
     static double LockstepActionSeconds(ClientState conn, ushort skill)
     {
         if (GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem)
