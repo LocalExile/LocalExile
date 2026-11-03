@@ -691,6 +691,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `GatewayProjectileSkillProfiles.cs`, `ProjectileStages.cs`, `ProjectileTypes.cs`, `Projectiles.cs`;
   wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
+- Shared Mana/Recoup and Blind: actual Whisperer nodes feed generic Game engines through the optional module.
+  Typed hits preserve Ward/ES ordering; accepted skill/Vaal spending, continuous flask Life copying and Recoup
+  share the existing resource writer, with synchronous lethal-Ignite cleanup before Mana recovery.
+  Timed/smoke/passive-aura/Rampage Blind use one strongest value across ordinary and owned contacts and presentation.
+  Two deterministic Gateway Facts cover resource, paid-refund, send-gate, transfer and retirement composition,
+  including distinct-Game utility expiry/End payment and recovery-flask admission before blocked output.
+  Historical `57053948` passed native 36 controls on `cc0f9c34`; the combined newer main needs fresh exact-head acceptance.
+  Its current minion/link/footstep roles retain main's cadences and share generation ownership with the resource writer.
+  Accepted minion expiry and player/owned-kill gameplay precede awaits; neutral output survives replacement.
+  Queued quest/tree/equipment projections retain newer progress; accepted charge events leave live periodic time intact.
+  All charge-buff consumers project and acknowledge at the send gate, avoiding stale buffered ticker output.
+  Deferred quest kills retain synchronous phase/reward output; freeze and held-move admission share the cipher gate.
+  Grouped deterministic controls cover their pending and accepted output across distinct-Game replacement.
+  See [Whisperer](../docs/game/whisperer.md).
 
 - Selected supported-spell panel: final linked-support damage replaces both spell and inherited hand ranges,
   clearing removed types and updating pre-critical average/DPS from the supported cast time.

@@ -16,6 +16,15 @@ sealed class FortificationState
     public const string AttackSpeedPerStack = "attack_speed_+%_per_fortification";
 
     readonly List<Grant> grants = [];
+    public double ExpiryRate { get; private set; } = 1;
+    public void SetExpiryRate(double now, double rate)
+    {
+        Advance(now);
+        rate = Math.Max(.25, rate);
+        for (int i = 0; i < grants.Count; i++)
+            grants[i] = grants[i] with { ExpiresAt = RecipientEffectTime.RetimedDeadline(grants[i].ExpiresAt, now, ExpiryRate, rate) };
+        ExpiryRate = rate;
+    }
     double lastTime = double.NegativeInfinity, nextHitGain = double.NegativeInfinity;
     int activeMaximum = BaseMaximum;
     public double StackSeconds { get; private set; }
@@ -50,7 +59,7 @@ sealed class FortificationState
         Advance(now);
         double duration = BaseDurationSeconds * Math.Max(0d, 1d + durationIncreasePercent / 100d);
         if (count <= 0 || duration <= 0) return false;
-        grants.Add(new(count, now + duration));
+        grants.Add(new(count, now + duration / ExpiryRate));
         return true;
     }
 
@@ -78,7 +87,7 @@ sealed class FortificationState
     public Transfer Carry(double now)
     {
         Advance(now);
-        return new(grants.Select(g => new Carried(g.Count, g.ExpiresAt - now)).ToArray(), Math.Max(0, nextHitGain - now));
+        return new(grants.Select(g => new Carried(g.Count, (g.ExpiresAt - now) * ExpiryRate)).ToArray(), Math.Max(0, nextHitGain - now));
     }
 
     public void Restore(Transfer carried, double now)
@@ -87,7 +96,7 @@ sealed class FortificationState
         Advance(now);
         foreach (var grant in carried.Grants)
             if (grant.Count > 0 && double.IsFinite(grant.Remaining) && grant.Remaining > 0)
-                grants.Add(new(grant.Count, now + grant.Remaining));
+                grants.Add(new(grant.Count, now + grant.Remaining / ExpiryRate));
         nextHitGain = now + Math.Max(0, carried.HitDelay);
     }
 

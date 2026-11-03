@@ -43,7 +43,7 @@ static partial class Game
                 Get("cost_+%_final"), Sum("base_skill_cost_efficiency_+%", "base_attack_skill_cost_efficiency_+%"),
                 Get("base_rage_cost_efficiency_+%"), free));
         uint souls = conversion || free ? 0 : (uint)VaalSoulCost.Required(definition.BaseCost, Get);
-        uint mana = free ? 0 : (uint)Math.Max(0, gem.Stats.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
+        uint mana = free ? 0 : (uint)Math.Max(0, SupportedStats(conn, id).GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
         // Lifetap turns the whole upfront cost into Life.
         uint life = 0;
         if (!free && Lifetap.ConvertsCostToLife(gem.Stats))
@@ -102,6 +102,7 @@ static partial class Game
             conn.PlayerLife -= plan.Life;
             Lifetap.Spend(conn, SupportedSkill(conn, plan.Skill).Stats, (int)plan.Life, now);
         }
+        ManaSpentLocked(conn, plan.Mana, stats);
         if (attackDeadline is double next) conn.NextAttackAt = next;
         conn.VaalPreventionUntil = Math.Max(conn.VaalPreventionUntil, now + plan.PreventionSeconds);
         conn.VaalUse = plan with { Action = conn.ActionCount, Epoch = conn.ProjectileEpoch,

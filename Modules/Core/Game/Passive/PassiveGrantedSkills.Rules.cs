@@ -30,7 +30,8 @@ static partial class Game
         ushort[] nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
         return [.. (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value.For(nodes)
-            .Where(g => AuraCatalog.Supported(g.EffectId))];
+            .Where(g => AuraCatalog.Supported(g.EffectId)
+                || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId)))];
     }
 
     // A granted triggered skill (InbuiltTrigger) has no bar use: it runs from its trigger and stays out of the skill list.
@@ -62,7 +63,7 @@ static partial class Game
     internal static bool TriggerElementalRelicLocked(ClientState conn, SpawnedMonster target, bool hit, bool killed,
         (int X, int Y)? allyAt = null)
     {
-        if (!target.Hostile || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return false;
+        if (!CurrentGameWork || !target.Hostile || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return false;
         bool queued = false;
         if (hit && target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique) queued = Roll();
         if (killed) queued |= Roll();
@@ -103,26 +104,27 @@ static partial class Game
 
     // The player's footstep skills (Abberath's Fury), for the connection's life: every poll moves the run animation's clock
     // and triggers each skill once per footstep it passed. Not while paused: the game clock stands still then.
-    static async Task RunFootstepSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task RunFootstepSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        PlayerUpdatesState updates)
     {
-        double run = 0, last = conn.Clock.Elapsed.TotalSeconds;
-        try
+        double last = updates.Schedule.Now(conn);
+        while (PlayerUpdatesCurrent(conn, updates))
         {
-            while (!conn.Closed)
+            await updates.Schedule.Wait(PlayerUpdateRole.Footsteps, FootstepPollMs, updates.Stop.Token);
+            double now = updates.Schedule.Now(conn);
+            await SendTemporarySkillEffects(remote, stream, ciphers, conn);
+            int steps;
+            lock (conn.Monsters)
             {
-                await Task.Delay(FootstepPollMs);
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                if (conn.Closed || conn.Paused || now <= last) continue;
-                int steps = FootstepsDue(conn, ref run, last, now);
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+                if (conn.Paused || now <= last) continue;
+                steps = FootstepsDue(conn, ref conn.FootstepRun, last, now);
                 last = now;
-                if (steps == 0) continue;
-                foreach (var skill in FootstepSkills(conn, now))
-                    for (int i = 0; i < steps; i++) await TriggerFootstepSkill(remote, stream, ciphers, conn, skill);
             }
-        }
-        catch (Exception ex)
-        {
-            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} footstep skills: {ex.Message}");
+            if (steps == 0) continue;
+            foreach (var skill in FootstepSkills(conn, now))
+                for (int i = 0; i < steps && PlayerUpdatesCurrent(conn, updates); i++)
+                    await TriggerFootstepSkill(remote, stream, ciphers, conn, skill);
         }
     }
 
@@ -148,7 +150,7 @@ static partial class Game
         List<ushort> nodes;
         lock (conn.Monsters)
         {
-            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || PlayerActionBlocked(conn, now, now)) return [];
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || PlayerActionBlocked(conn, now, now)) return [];
             nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
         }
         var skills = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value.For(nodes).Where(s => PassiveGrantedSkills.IsFootstepSkill(s.EffectId)).ToList();
@@ -185,6 +187,12 @@ static partial class Game
     internal static async Task TriggerFootstepSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PassiveGrantedSkills.Grant skill)
     {
+        var rules = CombatLifetime; var source = AscendancyPolicies.SourceOwner(conn);
+        bool CurrentSource() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules) && source?.IsActive != false
+            && ReferenceEquals(AscendancyPolicies.SourceOwner(conn), source);
+        lock (conn.Monsters)
+            if (!CurrentSource() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
+                || !conn.Passives.Contains(skill.Node) && !conn.MainAscendancy.Allocated.Contains(skill.Node)) return;
         var own = SkillsFor(conn).EffectStats(skill.Effect, skill.Level).ToDictionary(v => v.Item1, v => v.Item2);
         var area = MergeSkillStats(AreaPlayerStats(conn), own);
         int radius = SkillArea.Radius(PassiveGrantedSkills.FootstepExplosionRadius,
@@ -195,7 +203,7 @@ static partial class Game
         List<(uint Id, SpawnedMonster M)> targets;
         using (ProjectileMutation(conn))
         {
-            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused) return;
+            if (!CurrentSource() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused) return;
             double now = ProjectileWorldTime(conn);
             at = conn.Walk.Position(now);
             targets = [.. conn.Monsters.Where(e => e.Value is { Hostile: true, Dead: false, Life: > 0 }
@@ -203,54 +211,58 @@ static partial class Game
             if (art is not null) effectObject = conn.NextObjectId++;
         }
         if (effectObject is uint obj)
-        {
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                new EffectObject(at.X, at.Y, art!).Blob()), null);
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(obj), null);
-            _ = RemoveAfter(remote, stream, ciphers, conn, obj, PassiveGrantedSkills.ExplosionArtMs);
-        }
-        if (targets.Count == 0) return;
-
-        var player = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
-        int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
-        int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
-        var (hit, flat, merged, context) = GrantedSpell(conn, skill.Effect, skill.Level);
-        int Merged(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
-        var fire = flat[DamageType.Fire];
-        double igniteMore = ChargeDamageMore(merged);
-        var pen = Penetration.Of(player, Stats, attack: false, own);
-        var mods = HitResistMods(player, own);
-        int baseChance = (SkillsFor(conn).SpellCritChance(skill.Effect, skill.Level) ?? 0) + Own("additional_base_critical_strike_chance");
-        int chance = SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct);
-        int? vsBlinded = Player(VsBlindedCriticalStat) is not 0 and var extra
-            ? SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct + (long)extra) : null;
-        int? vsProfane = SpellCriticalStrike.Chance(baseChance, Player, Own,
-            conn.Pools.SpellCriticalStrikeChancePct + FlaskGrounds.ProfaneCritIncrease);
-        int multiplier = (int)Math.Clamp((long)conn.Pools.SpellCriticalStrikeMultiplier + Own("base_critical_strike_multiplier_+"),
-            int.MinValue, int.MaxValue);
-        var gambler = GamblerFor(player);
-        bool rageGranted = false;
-        var deaths = new List<(uint Id, SpawnedMonster M)>();
-        // A Mirrored monster's reflected ailments reach the player after the sweep, as an area spell's (AreaSkillHit).
-        var reflected = new List<MonsterElementalAilments.Effect>();
-        foreach (var (id, m) in targets)
-        {
-            MonsterHit? applied;
-            int damage;
-            bool critical;
-            List<byte[]>? ignited = null;
-            using (ProjectileMutation(conn))
+            await Send(remote, stream, ciphers, [], null, atGate: () =>
             {
-                // Stop the sweep, but not the kills it already queued.
-                if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused) break;
-                if (m.Dead || m.Life == 0 || MonsterBlocks(m, Random.Shared, spell: true)) continue;
+                lock (conn.Monsters)
+                {
+                    if (!CurrentSource() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return null;
+                    conn.TemporarySkillEffects[obj] = AreaTime(conn) + PassiveGrantedSkills.ExplosionArtMs / 1000.0;
+                    return [.. InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                        new EffectObject(at.X, at.Y, art!).Blob()), .. InstanceProtocol.EnterWakeZone(obj)];
+                }
+            });
+        if (!CurrentSource() || targets.Count == 0) return;
+
+        using (ProjectileMutation(conn))
+        {
+            // Revalidate the actual grant after visual output. A refunded/retired source cannot admit a stale plan.
+            if (!CurrentSource() || conn.Closed || conn.LeavingArea
+                || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused || !FootstepSkills(conn, ProjectileWorldTime(conn)).Contains(skill)) return;
+            var player = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
+            int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
+            int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
+            var (hit, flat, merged, context) = GrantedSpell(conn, skill.Effect, skill.Level);
+            int Merged(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
+            var fire = flat[DamageType.Fire];
+            double igniteMore = ChargeDamageMore(merged);
+            var pen = Penetration.Of(player, Stats, attack: false, own);
+            var mods = HitResistMods(player, own);
+            int baseChance = (SkillsFor(conn).SpellCritChance(skill.Effect, skill.Level) ?? 0) + Own("additional_base_critical_strike_chance");
+            int chance = SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct);
+            int? vsBlinded = Player(VsBlindedCriticalStat) is not 0 and var extra
+                ? SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct + (long)extra) : null;
+            int? vsProfane = SpellCriticalStrike.Chance(baseChance, Player, Own,
+                conn.Pools.SpellCriticalStrikeChancePct + FlaskGrounds.ProfaneCritIncrease);
+            int multiplier = (int)Math.Clamp((long)conn.Pools.SpellCriticalStrikeMultiplier + Own("base_critical_strike_multiplier_+"),
+                int.MinValue, int.MaxValue);
+            var gambler = GamblerFor(player);
+            bool rageGranted = false;
+            var deaths = new List<(uint Id, SpawnedMonster M)>();
+            var charges = new List<PlayerMinions.AcceptedCharges>();
+            var reflected = new List<MonsterElementalAilments.Effect>();
+            foreach (var (id, m) in targets)
+            {
+                // Retirement stops new contacts, while the transaction still completes its accepted hits/deaths below.
+                if (!CurrentSource() || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused) break;
+                if (!conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)
+                    || m.Dead || m.Life == 0 || MonsterBlocks(m, Random.Shared, spell: true)) continue;
                 var rolled = (gambler with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(hit, Random.Shared);
-                critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded, vsProfane), own, attack: false);
+                bool critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded, vsProfane), own, attack: false);
                 double hitAt = ProjectileWorldTime(conn);
-                (damage, _, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
+                var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
                     gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier));
-                applied = ApplyMonsterHitLocked(conn, m, damage);
+                var applied = ApplyMonsterHitLocked(conn, m, damage);
                 if (applied is { StageStarts: true } staged)
                 {
                     CommitBossStage(remote, stream, ciphers, conn, id, m, ProjectileWorldTime(conn));
@@ -258,37 +270,49 @@ static partial class Game
                 }
                 if (applied is not null)
                     AilmentsOnHitLocked(conn, m, mitigated, spell: true, critical, multiplier, player, own, hitAt, Random.Shared, reflected);
+                if (applied is not null) InflictMonsterBlind(conn, id, m, hitAt, BlindInputs(player, own));
                 if (applied is not null && !rageGranted) rageGranted = RageOnHitLocked(conn, attack: false, melee: false, critical, own);
                 // shortcut: the ignite's flat fire is rolled apart from the hit (the game takes the hit's own roll; the
                 // spread is the same, and lucky or triple damage never reaches it either way), until a rolled hit
                 // carries its roll position.
                 if (applied is not null && IgniteFromHit(fire.Min + Random.Shared.NextDouble() * (fire.Max - fire.Min), critical,
                         Merged, igniteMore, m, Random.Shared) is { } ignite)
-                    ignited = IgniteLocked(conn, id, m, context.OverTime(ignite), ProjectileWorldTime(conn));
+                    foreach (var packet in IgniteLocked(conn, id, m, context.OverTime(ignite), hitAt) ?? [])
+                        conn.Minions.OutputQueue.Add(new(packet, $"0x01c1/0x01c2 monster 0x{id:x} ignited by {skill.EffectId}", id, m));
+
+                if (applied is not { } landed) continue;
+                if (critical)
+                {
+                    CommitAcceptedCritFlasksLocked(conn, player, conn.Clock.Elapsed.TotalSeconds);
+                    MaybeCreateProfaneGroundLocked(conn, m.Walk.Position(hitAt), player);
+                }
+                CommitAcceptedHitLocked(conn, id, m, landed, damage, hitAt,
+                    $"{skill.EffectId} (footstep){(critical ? " (critical)" : "")}", playerKill: true, deferKill: true);
+                if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.RareHit);
+                charges.Add(new(false, critical, m.Rarity, skill.EffectId, own, id == targets[0].Id, hitAt, landed.Life == 0));
+                if (landed.Life == 0) deaths.Add((id, m));
             }
-            foreach (var packet in ignited ?? [])
-                await Send(remote, stream, ciphers, packet, $"0x01c1/0x01c2 monster 0x{id:x} ignited by {skill.EffectId}");
-            if (applied is not { } landed) continue;
-            if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
-            if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, m.Walk.Position(ProjectileWorldTime(conn)));
-            await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, landed, damage,
-                $"{skill.EffectId} (footstep){(critical ? " (critical)" : "")}", deaths: deaths);
-            ChargesOnHit(conn, m, critical, spell: true, skill.Effect, skill.Level, primary: id == targets[0].Id);
+            // All accepted hit consequences and reflected ailments precede the sweep's attributed kills.
+            if (reflected.Count > 0) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
+            foreach (var (id, m) in deaths) CommitAcceptedKillLocked(conn, id, m, ProjectileWorldTime(conn), playerKill: true, charges);
+            if (charges.Count > 0) CommitAcceptedChargeBatchLocked(conn, charges, player);
         }
-        if (reflected.Count > 0)
-            using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
-        if (!conn.Closed) foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
+        await PublishMinionOutcomesFor(remote, stream, ciphers, conn, rules);
     }
 
-    // An effect object's art goes after it has played; nothing to remove once the connection is gone (a new area is a new
-    // connection with its own objects).
-    static async Task RemoveAfter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint obj, int ms)
-    {
-        try
+    // The current footstep role removes accepted temporary art at its pause-clock deadline, including
+    // art created before replacement. Permanent connection state holds only object ids and deadlines.
+    static Task SendTemporarySkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        Send(remote, stream, ciphers, [], null, atGate: () =>
         {
-            await Task.Delay(ms);
-            if (!conn.Closed && !conn.LeavingArea) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(obj), null);
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
-    }
+            lock (conn.Monsters)
+            {
+                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return null;
+                double now = AreaTime(conn);
+                var due = conn.TemporarySkillEffects.Where(p => p.Value <= now).Select(p => p.Key).ToArray();
+                if (due.Length == 0) return null;
+                foreach (uint id in due) conn.TemporarySkillEffects.Remove(id);
+                return [.. due.SelectMany(InstanceProtocol.RemoveObject)];
+            }
+        });
 }

@@ -169,7 +169,8 @@ static partial class Game
 
     internal static AttackAccuracyProfile OrdinaryAccuracy(ClientState conn, IReadOnlyDictionary<uint, int> stats,
         IReadOnlyDictionary<string, int>? local) =>
-        OrdinaryAccuracy(SkillsFor(conn), SkillEffectId(conn, SkillCatalog.FirstSkillId), conn.Pools, stats, local);
+        OrdinaryAccuracy(SkillsFor(conn), SkillEffectId(conn, SkillCatalog.FirstSkillId), conn.Pools, stats, local)
+            with { Rating = PlayerAccuracy(conn, stats) };
 
     // From the default attack's GrantedEffects Id (SkillEffectId of the first skill) and the pools as read once.
     internal static AttackAccuracyProfile OrdinaryAccuracy(SkillCatalog skills, string? attackEffectId, CharacterStats.Pools pools,
@@ -228,6 +229,7 @@ static partial class Game
         AddSpiritLeadershipStats(conn, stats);
         AddTotemAuraStats(conn, stats);
         WithRage(conn, stats);
+        WithBlind(conn, stats);
         // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
         ActorScale.Project(stats, rawOverrides, CosmeticScaleSources(conn));
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -276,7 +278,7 @@ static partial class Game
         {
             Stats = stats,
             Ailments = [ailments.Ignite ? 1 : 0, ailments.Chill > 0 ? 1 : 0, ailments.Freeze ? 1 : 0, ailments.Shock > 0 ? 1 : 0],
-            ActionFactor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, Get("action_speed_-%")),
+            ActionFactor = PlayerActionFactorFrom(conn, Get),
             SuppressionChance = Suppression(conn).Chance,
         };
         stats = StatSnapshotTailFor(conn, finalInputs, StatSnapshotStage.Critical);
@@ -352,7 +354,7 @@ static partial class Game
     internal static IEnumerable<(uint, int)> BaseStats(ClientState conn)
     {
         var seen = new HashSet<uint>();
-        foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools)) if (seen.Add(k)) yield return (k, v);
+        foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with { Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn) })) if (seen.Add(k)) yield return (k, v);
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = CharacterStatSources(conn, nodes).Stats;
@@ -1069,6 +1071,11 @@ static partial class Game
     // The player's stats (0x1b3) and the skills computed with them (0x2ba Actor), after the level or the passives changed.
     internal static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
+        if (QuestKillCommitOutput is not null)
+        {
+            conn.Minions.StatRevision++;
+            return;
+        }
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats ({why})");
         await SendSkills(remote, stream, ciphers, conn);
@@ -1079,10 +1086,11 @@ static partial class Game
     // Actor 0x20 update (PlayerSkillsChange): the 0x40 list neither removes skills nor tells the character panel.
     internal static async Task SendSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (!CurrentGameRules) return;
         RefreshVaalSouls(conn);
         lock (conn.Monsters)
         {
-            if (conn.Closed || conn.LeavingArea || conn.RageRetired) return;
+            if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
             RefreshVaalSouls(conn);
             RefreshSingleUseCooldowns(conn);
             EnsureAntiquarianPools(conn);
@@ -1114,6 +1122,7 @@ static partial class Game
             conn.ClientSkillIds = [.. skills.Select(s => s.Id)];
             return PlayerSkillsWithVaalSouls(conn, skills, gone);
         }, "0x02ba player Actor: current skill stats");
+        if (!CurrentGameRules) return;
         await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         if (gone.Count > 0) await EndSkillEffects(remote, stream, ciphers, conn, gone);
 

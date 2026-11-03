@@ -18,16 +18,16 @@ static partial class Game
     {
         bool unique = target.Rarity == MonsterRarity.Unique;
         bool close = TargetAccuracy.InCloseRange(Dist(conn.Walk.Position(at), target.Walk.Position(at)));
-        return (TargetAccuracy.AgainstTarget(conn.Pools.Accuracy, conn.Pools.AccuracyMoreVsUniquePct,
+        return (TargetAccuracy.AgainstTarget(PlayerAccuracy(conn), conn.Pools.AccuracyMoreVsUniquePct,
             conn.Pools.AccuracyMoreInCloseRangePct, unique, close), unique, close);
     }
 
     // Both accuracy checks use the same target context. Only the first check consumes the defender's entropy.
     internal static int AttackHitChanceAt(ClientState conn, uint id, SpawnedMonster target, double at,
-        AttackAccuracyProfile profile)
+        AttackAccuracyProfile profile, IReadOnlyDictionary<uint, int>? player = null)
     {
         int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
-        evasion = RampageBlindedValue(target, at, evasion, UnderBlind(conn, id, evasion));   // blinded by the smoke cloud or a passive blind aura
+        evasion = MonsterBlindRating(conn, id, target, evasion, at, player);
         bool close = TargetAccuracy.InCloseRange(Dist(conn.Walk.Position(at), target.Walk.Position(at)));
         return profile.Chance(evasion, target.Rarity == MonsterRarity.Unique, close);
     }
@@ -305,9 +305,10 @@ static partial class Game
                 // Settle Rage at accepted contact before this hit's gain. It is a final multiplier on the attack packet,
                 // never on an existing impale bonus or on generic damage/DoT.
                 var player = CharacterPlayerStats(conn);
-                var accuracy = AttackAccuracyProfile.From(conn.Pools, player, Stats, ownPenetration, weapon.LocalSources);
+                var accuracy = AttackAccuracyProfile.From(conn.Pools, player, Stats, ownPenetration, weapon.LocalSources)
+                    with { Rating = PlayerAccuracy(conn, player) };
                 double contactAt = conn.Clock.Elapsed.TotalSeconds;
-                int hitChance = AttackHitChanceAt(conn, targetId, m, contactAt, accuracy);
+                int hitChance = AttackHitChanceAt(conn, targetId, m, contactAt, accuracy, player);
                 if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, contactAt, conn.AttackAccuracyRandom))
                 {
                     Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} evaded ({hitChance}% chance to hit)");
@@ -358,6 +359,7 @@ static partial class Game
                     at, Random.Shared);
                 TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
                 if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: WeaponProfileFor(conn, activeSet: true).Melee, critical);
+                InflictMonsterBlind(conn, targetId, m, ResourceEffectsTime(conn), BlindInputs(player));
             }
             ChargesOnHit(conn, m, critical, spell: false);
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
@@ -623,6 +625,8 @@ static partial class Game
                     conn.ChannelSkill = skillId;
                     conn.ChannelSkillSequence = sequence;
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
+                    conn.PaidChannel = CombatLifetime is { IsActive: true } rules
+                        ? new(skillId, gem.Effect, action, conn.ChannelGeneration, rules) : null;
                 }
                 // Capture at paid admission, before output or release scheduling can catch up other hits.
                 recoveryGeneration = conn.ActionInterruptionGeneration;
@@ -666,6 +670,10 @@ static partial class Game
         }
         // The Portal skill: a town portal, as the Portal Scroll's, once its cast (2.5 s) is over.
         if (actionToken is not null && !PlayerActionCurrent(conn, action)) return false;
+        if (gem.Name is not null)
+            foreach (var handler in GameEvents.SkillCastAt.For(conn))
+                if (handler(conn, SkillsFor(conn).EffectId(gem.Effect), skillId, to,
+                    () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } accepted) return accepted;
         if (gem.Name is not null && GameEvents.RunSkillCast(conn, SkillsFor(conn).EffectId(gem.Effect), skillId, from,
                 () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } taken) return taken;
         if (gem.Name is not null && TotemVariety(conn, gem.Effect) is { } totem)
@@ -899,7 +907,10 @@ static partial class Game
                     conn.Performance.RecordMilliseconds(LatencyPhase.ChannelLate, (now - conn.NextChannelHitAt) * 1000);
                     conn.NextChannelHitAt = Math.Max(conn.NextChannelHitAt, now - 0.05) + SupportedChannelSeconds(conn, skillId);
                     // Payment and admission share the channel's generation check.
-                    if (!PayMana(conn, skillId, out cost, out lifeCost)) { conn.ChannelSkill = 0; conn.ChannelGeneration++; }
+                    if (!PayMana(conn, skillId, out cost, out lifeCost))
+                    { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; }
+                    else conn.PaidChannel = CombatLifetime is { IsActive: true } rules
+                        ? new(skillId, gem.Effect, action, generation, rules) : null;
                 }
                 if (!Running()) { await SendPlayerMana(remote, stream, ciphers, conn, "channel stopped"); return; }
                 if (cost > 0 || lifeCost > 0) await SendSkillCost(remote, stream, ciphers, conn, lifeCost, $"channel cost {cost} mana, {lifeCost} life");
@@ -918,6 +929,21 @@ static partial class Game
             return !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
                 && conn.ChannelSkill == skill && conn.ActionCount == action && conn.ChannelGeneration == generation
                 && conn.Clock.Elapsed.TotalSeconds - conn.LastChannelUpdateAt <= ChannelSilenceSeconds;
+    }
+
+    internal static bool PaidChannelCurrent(ClientState conn, ChannelPaymentReceipt receipt)
+    {
+        lock (conn.Monsters)
+        {
+            if (!CurrentGameWork || !ReferenceEquals(receipt, conn.PaidChannel)
+                || !ReferenceEquals(receipt.Rules, CombatLifetime) || !receipt.Rules.IsActive || conn.Paused
+                || !ChannelCurrent(conn, receipt.Skill, receipt.Action, receipt.Generation)
+                || PlayerActionBlocked(conn, conn.Clock.Elapsed.TotalSeconds, conn.Clock.Elapsed.TotalSeconds)) return false;
+            var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == receipt.Skill);
+            return gem.Name is not null && gem.Effect == receipt.Effect
+                && Supports.Of(gem.Effect)?.Types.Contains(47) == true
+                && GemSkillInstanceDisabled(conn, gem.Effect, receipt.Skill) is null;
+        }
     }
 
     // The radius in cells of a gem skill's hit around its aimed point (AreaSkillHit): its own
@@ -1106,7 +1132,7 @@ static partial class Game
                 }
                 if (!spell && SkillsFor(conn).IsMelee(gem.Effect))
                     contactHit = WithMeleeProximityLocked(conn, player, skillStats, m, contactHit, ProjectileWorldTime(conn));
-                int hitChance = spell ? 100 : AttackHitChanceAt(conn, id, m, ProjectileWorldTime(conn), accuracy);
+                int hitChance = spell ? 100 : AttackHitChanceAt(conn, id, m, ProjectileWorldTime(conn), accuracy, player);
                 if (!spell && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, ProjectileWorldTime(conn), conn.AttackAccuracyRandom)) continue;
                 if (MonsterBlocks(m, Random.Shared, spell))
                 {
@@ -1161,6 +1187,7 @@ static partial class Game
                             !spell && SkillsFor(conn).IsMelee(gem.Effect), player, skillStats);
                     if (!rageGranted) rageGranted = RageOnHitLocked(conn, attack: !spell,
                         melee: !spell && SkillsFor(conn).IsMelee(gem.Effect), critical, skillStats, player: player);
+                    InflictMonsterBlind(conn, id, m, ResourceEffectsTime(conn), BlindInputs(player, skillStats));
                 }
             }
             if (applied is not { } hit) continue;

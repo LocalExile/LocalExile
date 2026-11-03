@@ -94,6 +94,7 @@ This research does not change the production simulator or certify native/officia
 | [game/antiquarian.md](game/antiquarian.md) | all nine node consumers, verified-graph admission, legal builds and native acceptance |
 | [game/campaign-quests.md](game/campaign-quests.md) | the quest engine's pieces in the Gateway and the modules, the act files, adding a quest and an act, quest passive and respec points |
 | [game/behemoth.md](game/behemoth.md) | optional Behemoth sources, shared Rampage/Vaal engines and current validation limits |
+| [game/whisperer.md](game/whisperer.md) | optional Whisperer sources, shared Mana/Recoup/Blind engines and validation limits |
 | [game/unique-jewels.md](game/unique-jewels.md) | the 185 unique jewels, their effects and what the passive-socket server supports |
 | [game/radius-jewels.md](game/radius-jewels.md) | all 76 radius unique jewels: radius/ring model, mechanics, reusable timeless pieces and implementation plan; 42 jewels with server-side effects, 33 threshold items with client/server threshold checks, Lioneye's Fall's item source/client conversion, and the generated Impossible Escape keystone bypass |
 | [game/radius-jewel-list.md](game/radius-jewel-list.md) | generated radius unique jewel table with radius, limit, mechanism, effect and support status |

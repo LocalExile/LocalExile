@@ -53,7 +53,8 @@ static partial class Game
     /// <summary>Its action speed: 0 frozen, else less by its chill. Unstoppable (action_speed_cannot_be_reduced_below_base)
     /// keeps it at 1.</summary>
     internal static double MonsterActionFactor(SpawnedMonster m, double now) =>
-        m.Mods.Effects["action_speed_cannot_be_reduced_below_base"] > 0 ? 1 : m.Ailments.ActionFactor(now);
+        m.Mods.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
+            : m.Ailments.ActionFactor(now) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
 
     /// <summary>
     /// A player hit that landed inflicts its ailments (MonsterElementalAilments.Inflict) from the damage the monster took
@@ -133,17 +134,18 @@ static partial class Game
         foreach (var (id, m) in conn.Monsters)
         {
             var a = m.Ailments;
-            if (a.Idle) continue;
+            if (a.Idle && now >= m.ReceivedActionUntil) continue;
             foreach (var (kind, removed, added, magnitude) in a.Present(now))
             {
                 if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
                 if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
             }
-            double action = m.Mods.Effects["action_speed_cannot_be_reduced_below_base"] > 0 ? 1 : 1 - a.Magnitude(Kind.Chill, now) / 100;
+            double action = m.Mods.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
+                : (1 - a.Magnitude(Kind.Chill, now) / 100) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
             double walk = m.Mods.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
             if (walk != a.WalkFactor)
             {
-                m.Walk.SetSpeed(m.Walk.Speed / a.WalkFactor * walk, now);
+                if (m.Walk.Speed > 0) m.Walk.SetSpeed(m.Walk.Speed / a.WalkFactor * walk, now);
                 a.WalkFactor = walk;
             }
             int speed = (int)Math.Round(100 * (action - 1));

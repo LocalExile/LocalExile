@@ -45,7 +45,7 @@ static partial class Game
                     ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weapon.Critical, conn.Pools.CriticalStrikeChancePct, RawCritical)
                     : conn.Pools.AttackCriticalStrikeChance;
                 var captured = OrdinaryRangedShot.Capture(WeaponFor(conn), character, SkillsFor(conn).EffectStats(effect, 1), Stats,
-                    conn.Pools.Accuracy, criticalChance, conn.Pools.CriticalStrikeMultiplier);
+                    PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier);
                 bool wand = projectileId == OrdinaryRangedAttack.Wand;
                 var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
                     captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
@@ -61,7 +61,7 @@ static partial class Game
                     AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
                     AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
                     PointBlank = Get("keystone_point_blank") != 0,
-                    ReturnMultiplier = ProjectileReturn.DamageMore(Get),
+                    ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindInputs(character),
                     // The object flies at the height the clip releases it (the bow's nock, the wand's tip).
                     Presentation = (wand ? OrdinaryWandPresentation : OrdinaryArrowPresentation) with { LaunchHeight = release?.HeightSteps },
                     // The target's blood and particles on contact, matched to this shot's action (0x1af, kind 3).
