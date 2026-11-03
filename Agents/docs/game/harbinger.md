@@ -29,6 +29,8 @@ Roster preservation therefore uses the accepted Auth handoff, independently of p
 The destination builds stats/pools while initial Life is zero, before restoring vitals.
 That pre-object state must not acquire a roster lease or be treated as an actual death.
 Provider replacement retires the optional area; Game replacement also requires fresh session ownership.
+Labyrinth trap degeneration shares received Focus and fractional non-chaos ES bypass with the other DoT sources.
+The scheduled resource writer retains lethal trap death and refuses Mana recovery after that death.
 
 ## Model boundaries
 
