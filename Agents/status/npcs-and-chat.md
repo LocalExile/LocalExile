@@ -5,6 +5,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Ordinary vendors/Kirac persist stock; hideout Lilly serves new characters: [17](../docs/protocol/17-npcs.md).
+
 - Chat commands `/commands` (`/com`; paged, `/com <name>` for one), `/raw <hex>`, `/set_stat`, `/set_speed`,
   `/set_level <1 to 100>` (saved to the account, sent in place), `/add_passive_points <n>`, `/add_passive <id>`
   (replies as chat lines).
@@ -28,7 +30,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   League NPCs and later quest stages are not placed ([17](../docs/protocol/17-npcs.md) §2).
   Clicking walks to them and opens the dialogue window (S→C 0x84); talk options play (0x82 → 0x84 + index);
   Continue and Goodbye (C→S 0x85) are answered; Purchase Items opens the shop (S→C 0xc0 manager 1 + 0x8c) and buying
-  (C→S 0x88) costs 1 Scroll of Wisdom; Sell Items: the sell window (S→C 0xb8) takes drops, Ctrl + click (first free
+  (C→S 0x88) uses item-specific prices; Sell Items: the sell window (S→C 0xb8) takes drops, Ctrl + click (first free
   cell) and Shift + click, Accept pays the quoted reward and Cancel returns them, and the player can walk
   afterwards; Respecialisation opens the character's passive tree (0x7b kind 0x5f), where Apply refunds (C→S 0x36) and
   Refund All (0x37) refund passives for the client's gold price;
@@ -59,7 +61,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Ruthless selects its native shop/reward rows, item levels, rarity and purchase costs.
+- Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.
   Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.
   Support gems are excluded from deterministic rewards and the opening support chest.
   Supported flask vendors, Helena and Niko refill Ruthless pools and flasks.
@@ -81,24 +83,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Exact affix prices and special league/unique recipes remain partial; real-client recipe verification is pending.
   See [vendor recipes](../docs/protocol/24-vendor-recipes.md) for supported cases and explicit limitations.
   Live visibility verification pending; see protocol/17-npcs.md.
-- **Nessa's shop tabs:** Goods contains her supplies. Maps holds one generic Map (Tier N) key for tiers 1-16 and the
-  tier-17 Nightmare Map; Originator Maps holds a tier-16 and a Nightmare map with the `MapZanaInfluenced` implicit;
-  Unique Maps holds the 28 unique names with unique rarity, name and artwork. The three map tabs paginate
-  automatically. Full unique modifier sets and unique-area routing remain open.
-  Nessa's development gem stock also splits Awakened Gems and Exceptional Gems into their own tabs; the ordinary colour
-  tabs leave those out. The progression-filtered Skills tab is shown only when it has stock. The split layout is
-  unit-tested; its updated native display is pending.
-  The gem vendors (Nessa, Yeena, Clarissa, Petarus and Vanja, Lani, Lilly Roth, Siosa) have the seven colour gem tabs, with
-  the completed-quest/class progression, Siosa's and Lilly's all-class stock and the 3.29 cross-class supports
-  (`GemVendorStock`); their gems cost the currency of their level-1 requirement tier (Wisdom, Transmutation, Alteration,
-  Chance or Alchemy), the rest of the stock 1 Scroll of Wisdom. Nessa was checked live 2026-10-26; Lilly and Siosa are unit-tested only
-  (their areas are not reachable/captured yet).
-  Shops send one inventory per tab and their names in 0x8c.
-  See [17](../docs/protocol/17-npcs.md) §5.
+- Captured gem grouping is restored; uncaptured classes/vendors use documented ordering, and Kirac refresh UI remains open.
+- Nessa's opt-in development catalogue keeps separate awakened/exceptional gems and generic/originator/unique maps.
+  Standard uses progression stock; full unique modifiers, unique-area routing and the updated development display remain partial.
+  See [17](../docs/protocol/17-npcs.md#vendor-evidence-and-local-policy).
 
 ## Not working yet
 
-- NPC dialogue options, shops, league NPCs in towns, quest-stage variants of town NPCs, NPCs outside towns
+- Remaining NPC dialogue options, special league shops, league NPCs and quest-stage variants
   ([17](../docs/protocol/17-npcs.md) "Open");
   the 346 monster varieties with NPC, ControlZone, BlightTower … components.
 - `data/room-points.json` gives angle 0 to the server objects (NPCs, stashes …) of version 35 and 36 rooms, every town

@@ -23,6 +23,17 @@ public sealed class VendorsModule : IModule, IDisposable
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        On(GameEvents.NpcTalk,(conn,_,_) => { conn.Shop = null; return Task.FromResult(false); });
+        module.OnChatCommand("vendor_refresh", "/vendor_refresh (refresh the open Kirac shop for its progression-based Gold cost)",
+            command => RefreshKirac(ConnOf(command.Player)));
+        module.OnMonsterKilled(kill =>
+        {
+            var conn = ConnOf(kill.Player);
+            if (kill.Monster.Rarity == GameServer.Modding.MonsterRarity.Unique
+                && MapDevice.OpenOf(CharacterName(conn)) is { } map && map.Area.Hash16 == conn.Layout.Hash)
+                KiracProgress.Complete(PersonalStashOf(conn),map.Area.Id,map.Area.Tier);
+            return Task.CompletedTask;
+        });
         module.OnNpcOption(async talk =>
         {
             var conn = ConnOf(talk.Player);
@@ -37,6 +48,7 @@ public sealed class VendorsModule : IModule, IDisposable
         });
         On(GameEvents.NpcDialogueClosing, async conn =>
         {
+            conn.Shop = null;
             var (remote, stream, ciphers) = conn.Wire;
             if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);
         });

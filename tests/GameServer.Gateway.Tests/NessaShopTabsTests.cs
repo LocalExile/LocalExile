@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Modding;
 
 namespace GameServer.Gateway.Tests;
 
@@ -6,10 +7,11 @@ public sealed class NessaShopTabsTests
 {
     const string Nessa = "Metadata/NPC/Act1/Nessa";
 
-    static List<NpcShops.ShopTab> Tabs(ItemCatalog catalog)
+    static List<NpcShops.ShopTab> Tabs(ItemCatalog catalog, LeagueRules? rules = null)
     {
         uint next = 1;
-        return NpcShops.Tabs(Nessa, catalog, () => next++, [], fullGemStock: true);
+        return NpcShops.Tabs(Nessa, catalog, () => next++, [], fullGemStock: true,
+            rules: rules ?? (LeagueRules.Standard with { FullGemStock = true, SellsMaps = true }));
     }
 
     static ItemCatalog.GemType Gem(ItemCatalog catalog, InventoryItem item) =>
@@ -20,6 +22,11 @@ public sealed class NessaShopTabsTests
     {
         var catalog = new ItemCatalog("data");
         var tabs = Tabs(catalog);
+
+        // Standard deliberately uses progression stock; the development catalogue must be explicitly enabled.
+        Assert.False(LeagueRules.Standard.FullGemStock);
+        var ordinary = Tabs(catalog, LeagueRules.Standard);
+        Assert.DoesNotContain(ordinary, t => t.Name is "Awakened Gems" or "Exceptional Gems");
 
         var awakened = Assert.Single(tabs, t => t.Name == "Awakened Gems").Items;
         var exceptional = Assert.Single(tabs, t => t.Name == "Exceptional Gems").Items;
@@ -49,6 +56,10 @@ public sealed class NessaShopTabsTests
     {
         var catalog = new ItemCatalog("data");
         var tabs = Tabs(catalog);
+
+        Assert.False(LeagueRules.Standard.SellsMaps);
+        Assert.DoesNotContain(Tabs(catalog, LeagueRules.Standard),
+            t => t.Name is "Maps" or "Originator Maps" or "Unique Maps");
 
         var maps = Assert.Single(tabs, t => t.Name == "Maps").Items;
         var originatorMaps = Assert.Single(tabs, t => t.Name == "Originator Maps").Items;

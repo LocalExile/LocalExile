@@ -11,6 +11,8 @@ static class NpcShops
     /// tab bar up over the title. Inventories.dat row 83 (CraftPredictionScratch, kind 0x0f) only gives the client a generic
     /// grid type.</summary>
     public static readonly InstanceInventories.Slot Tab = new(83, 0x0f, 12, 11);
+    // All seven original 3.29.3b vendor captures use this descriptor, with flags 0x60.
+    public static readonly InstanceInventories.Slot NativeTab = new(117, 71, 12, 11);
 
     /// <summary>A sell offer grid (the player's and the NPC's side of the sell window): the main inventory's row and size,
     /// so every item fits (the client checks a drop against the row, 0x141d628f0; row 83 refused everything).</summary>
@@ -51,6 +53,21 @@ static class NpcShops
     /// tier instead (`GemVendorStock.Price`, passed as <c>gemPrice</c>).</summary>
     public const string Currency = "Scroll of Wisdom";
     public const int PriceInCurrency = 1;
+
+    // Approved local rule from the level-91 campaign capture; low-level scaling is not yet measured.
+    public static byte CampaignItemLevel(string npcId, ItemRarity rarity, byte fallback = 1)
+    {
+        if (rarity is not (ItemRarity.Normal or ItemRarity.Magic or ItemRarity.Rare)) return fallback;
+        int townLevel = npcId.ToLowerInvariant() switch
+        {
+            "metadata/npc/act1/nessa" or "metadata/npc/act1/tarkleigh" => 13,
+            "metadata/npc/act2/yeena" => 23,
+            "metadata/npc/act3/clarissatown" => 33,
+            "metadata/npc/act4/petarusvanja" => 40,
+            _ => 0,
+        };
+        return townLevel == 0 ? fallback : (byte)(townLevel + 2 - (int)rarity);
+    }
 
 
     /// <summary>A shop tab: its name in the buy window (S→C 0x8c), its items and its colour (ARGB; 0 is the client's default).</summary>
@@ -126,7 +143,8 @@ static class NpcShops
         // Goods, then Goods2, Goods3 … for what does not fit.
         for (int page = 1; stock.Count > 0 || page == 1; page++)
             tabs.Add(new(page == 1 ? "Goods" : $"Goods{page}", Lay(stock, items,
-                (type, item) => hardModePrices?.For(type) is { } price ? item with { Price = [price] } : Priced(item), nextId, notes)));
+                (type, item) => hardModePrices?.For(type) is { } price ? item with { Price = [price] } : Priced(item), nextId, notes,
+                campaignNpcId: hardMode ? null : npcId)));
         if (GemVendorStock.Sells(npcId) && rules.SellsGemsAt(npcId))
         {
             // Future progression shop, deliberately separate from the complete development assortment.
@@ -196,7 +214,8 @@ static class NpcShops
     /// <summary>Lays <paramref name="stock"/> out in one tab and takes what it placed out of the list: what is left did not
     /// fit (the caller puts it in the next tab).</summary>
     static List<InventoryItem> Lay(List<(ItemCatalog.BaseType Type, int Count, Item? Template)> stock, ItemCatalog items,
-        Func<ItemCatalog.BaseType, Item, Item> priced, Func<uint> nextId, List<string> notes, bool separateGemKinds = false)
+        Func<ItemCatalog.BaseType, Item, Item> priced, Func<uint> nextId, List<string> notes, bool separateGemKinds = false,
+        string? campaignNpcId = null)
     {
         var placed = new List<(InventoryItem Item, byte W, byte H)>();
         var left = new List<(ItemCatalog.BaseType Type, int Count, Item? Template)>();
@@ -211,10 +230,20 @@ static class NpcShops
                 firstRow = placed.Count == 0 ? 0 : placed.Max(p => p.Item.Y + p.H);
                 supportStarted = true;
             }
-            var (sockets, links) = items.DefaultSockets(type);
             int i = 0;
             for (; i < count && FreeCell(placed, type.Width, type.Height, firstRow) is { } cell; i++)
-                placed.Add((new InventoryItem(nextId(), cell.X, cell.Y, priced(type, template ?? ItemCatalog.Create(type, sockets, links))), type.Width, type.Height));
+            {
+                Item item;
+                if (template is not null) item = template;
+                else
+                {
+                    byte level = campaignNpcId is not null && type.Components.Contains("Mods")
+                        ? CampaignItemLevel(campaignNpcId, ItemRarity.Normal) : (byte)1;
+                    var (sockets, links) = items.DefaultSockets(type, level);
+                    item = ItemCatalog.Create(type, sockets, links) with { ItemLevel = level };
+                }
+                placed.Add((new InventoryItem(nextId(), cell.X, cell.Y, priced(type, item)), type.Width, type.Height));
+            }
             if (i < count) left.Add((type, count - i, template));
         }
         // An item bigger than a whole tab would never fit: drop it rather than loop.

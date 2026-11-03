@@ -255,6 +255,9 @@ sealed class ItemCatalog
     /// not Vaal or awakened, one per name, by drop level then name.</summary>
     public IReadOnlyList<BaseType> ShopGems(int colour, bool support) =>
         [.. _rows.Value.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+                // Same-name legacy rows differ in progression/pricing; these are absent from the official vendor capture.
+                && t.Id is not ("Metadata/Items/Gems/SkillGemNewPhaseRun" or "Metadata/Items/Gems/SkillGemNewArcticArmour"
+                    or "Metadata/Items/Gems/SkillGemConvocation")
                 && Gem(t) is { } g && g.Colour == colour && g.IsSupport == support && !g.IsVaalOrAwakened && g.Variants is [{ Creatable: true }, ..])
             .DistinctBy(t => t.Name).OrderBy(t => t.DropLevel).ThenBy(t => t.Name)];
 
@@ -504,7 +507,9 @@ sealed class ItemCatalog
         {
             bool vaal = r.GetProperty("IsVaalVariant").GetBoolean();
             int expType = Row(r, "ItemExperienceType");
-            bool awakened = Row(r, "RegularVariant") >= 0
+            // RegularVariant also links these ordinary upgrades to their lesser support; both were captured for sale.
+            bool ordinaryUpgrade = baseName is "Greater Multiple Projectiles Support" or "Greater Volley Support";
+            bool awakened = !ordinaryUpgrade && Row(r, "RegularVariant") >= 0
                 && (expType < 0 || xt.RootElement[expType].GetProperty("Id").GetString() != "GemProgressionExceptionalPlus");
             bool rowCreatable = !baseName.StartsWith('[') && !baseName.StartsWith("WIP") && !awakened;
             bool exceptional = false;
@@ -529,7 +534,7 @@ sealed class ItemCatalog
             result.TryAdd(baseRow, new GemType(baseRow, r.GetProperty("IsSupport").GetBoolean(), variants,
                 thresholds.GetValueOrDefault(expType) ?? [])
             {
-                Colour = Row(r, "GemColour"), IsVaalOrAwakened = vaal || Row(r, "RegularVariant") >= 0,
+                Colour = Row(r, "GemColour"), IsVaalOrAwakened = vaal || (!ordinaryUpgrade && Row(r, "RegularVariant") >= 0),
                 IsAwakened = baseName.StartsWith("Awakened ", StringComparison.Ordinal),
                 IsExceptional = exceptionalTags.Count > 0 ? exceptional : exceptionalFallback,
                 MtxSlotTypes = r.TryGetProperty("MtxSlotTypes", out var st) ? [.. st.EnumerateArray().Select(t => t.GetInt32())] : [],
