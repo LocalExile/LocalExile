@@ -107,6 +107,7 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsRunTests().Incoming_monster_hits_are_taken_at_sixty_percent_and_fortitude_softens_them();
         new SurvivorsRunTests().The_herald_pulse_reaches_four_times_farther();
         new SurvivorsRunTests().The_horde_gets_a_ranged_ring_wave_every_twenty_seconds();
+        new SurvivorsRunTests().The_stage_caps_the_skill_count();
         new SurvivorsRunTests().A_run_moves_through_the_act_s_areas_in_order();
         new SurvivorsRunTests().Experience_follows_monster_rarity();
         new SurvivorsRunTests().Kills_level_the_run_and_queue_choices();

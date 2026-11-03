@@ -55,6 +55,12 @@ public static class SurvivorsRules
     public const int MaxSupportsPerSkill = 5;
     /// <summary>Choices the level-up window offers at once.</summary>
     public const int MaxOffers = 6;
+
+    /// <summary>
+    /// How many run skills a stage allows: one per location for the first five (the first location one, the second two,
+    /// …), five at most, so after the fifth location only supports and ranks grow.
+    /// </summary>
+    public static int SkillCap(int stage) => Math.Clamp(stage + 1, 1, 5);
     public const double LevelSeconds = 120;
 
     // The reference's passive values (data.rs PASSIVES): Might +10% damage, Intellect +8% cast speed, Amplify +10%
@@ -337,10 +343,12 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
     /// have yet, so a skill's links can actually be completed. Rank-ups and new skills wait until every learned skill
     /// has all the supports it can take (the run teaches links before power), then the reference's weighted pool
     /// (rank 1.2, new skill 1.0, blessing rank 0.8, new blessing 0.5, a unique every third level 0.4) fills the rest.
+    /// A new skill is also capped by the stage: the first location allows one skill, the second two, up to five; after
+    /// the fifth only supports and ranks grow.
     /// When every slot is mastered the window offers a full heal instead, as the reference does.
     /// </summary>
     public IReadOnlyList<SurvivorsChoice> DealOffer(Random random, int skillCatalog, int blessingCatalog, int supportCatalog,
-        IReadOnlyList<int>? itemPool = null, Func<int, int, bool>? linkable = null)
+        IReadOnlyList<int>? itemPool = null, Func<int, int, bool>? linkable = null, int stage = 0)
     {
         lock (_gate)
         {
@@ -378,8 +386,10 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
             foreach (var (skill, rank) in _skills.OrderBy(e => e.Key))
                 if (rank < SurvivorsRules.MaxRank && Complete(skill))
                     Add(new SurvivorsChoice(skill, SurvivorsChoiceKind.SkillRank), 1.2);
-            // A new skill waits until every learned skill is complete.
-            if (_skills.Keys.All(Complete) && _skills.Count < Math.Min(SurvivorsRules.MaxSkills, skillCatalog))
+            // A new skill waits until every learned skill is complete, and the stage caps how many the run has: the
+            // first location allows one, the second two, up to five; after the fifth only supports and ranks grow.
+            int skillCap = Math.Min(SurvivorsRules.SkillCap(stage), skillCatalog);
+            if (_skills.Count < skillCap && _skills.Keys.All(Complete))
                 foreach (int skill in Enumerable.Range(0, skillCatalog))
                     if (!_skills.ContainsKey(skill)) Add(new SurvivorsChoice(skill, SurvivorsChoiceKind.NewSkill), 1.0);
             foreach (var (blessing, level) in _blessings.OrderBy(e => e.Key))

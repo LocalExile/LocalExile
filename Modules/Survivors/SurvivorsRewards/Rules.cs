@@ -223,7 +223,7 @@ static partial class SurvivorsRewards
         var blessings = SurvivorsBlessingsFor(conn);
         var supports = SurvivorsSupportsFor(conn);
         var offer = run.DealOffer(Random.Shared, catalog.Count, blessings.Count, supports.Count,
-            SurvivorsItemPool(conn, run), SurvivorsLinkRule(conn));
+            SurvivorsItemPool(conn, run), SurvivorsLinkRule(conn), StateOf(conn).Stage);
         if (offer.Count == 0) return;
         var items = ItemsOf(conn);
         var uniques = UniquesFor(conn).All;

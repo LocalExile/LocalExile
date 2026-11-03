@@ -46,9 +46,10 @@ The level-up choice uses the client's quest-reward inventory, not a custom UI.
 The window offers **six** choices. A learned skill's **missing supports come first**: the window lists the supports it
 does not have yet, so a link set can actually be completed (every offered skill can link at least five of the run's
 eight supports; a gem that cannot is left out of the catalogue).
-**Rank-ups** appear only once that skill holds every support it can take, and a **new skill** only once every learned
-skill does; then the reference's weighted pool (blessing ranks, new blessings, a unique every third level) fills any
-remaining slots.
+**Rank-ups** appear only once that skill holds every support it can take.
+A **new skill** is capped by the stage — the first location allows one, the second two, up to five — and needs every
+learned skill complete; after the fifth location only supports and ranks grow. Then the reference's weighted pool
+(blessing ranks, new blessings, a unique every third level) fills any remaining slots.
 The chat line that opens the window names the skill each choice applies to (`Added Cold Damage Support -> Fireball`),
 and `/survivors status` prints the same labels.
 S→C `0xc0` must register inventory `0x600` before any `0xbf` change for it.

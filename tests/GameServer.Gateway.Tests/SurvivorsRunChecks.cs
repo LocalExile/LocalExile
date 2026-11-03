@@ -128,6 +128,12 @@ public class SurvivorsRunTests
         Assert.Equal(16, SurvivorsRules.RangedWaveCount(1));
     }
 
+    public void The_stage_caps_the_skill_count()
+    {
+        // The first location allows one skill, the second two, …, the fifth five; after that only supports and ranks.
+        Assert.Equal([1, 2, 3, 4, 5, 5, 5], Enumerable.Range(0, 7).Select(SurvivorsRules.SkillCap));
+    }
+
     public void A_run_moves_through_the_act_s_areas_in_order()
     {
         // The original fixed progression: Act 1's areas, one stage each.
@@ -181,14 +187,14 @@ public class SurvivorsRunTests
         Assert.Equal(supports, opening.Offer);
         Assert.False(opening.NeedsOffer);
 
-        // Once the skill holds every support it can take, rank-ups and new skills reach the window.
+        // Once the skill holds every support it can take, a new location allows the next skill.
         var complete = Enumerable.Range(0, 30).SelectMany(seed =>
         {
             var r = new SurvivorsRun();
             r.Learn(0);
             for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) r.Link(0, support);
             r.RecordKill(MonsterRarity.Unique);
-            return r.DealOffer(new Random(seed), 8, 8, 8);
+            return r.DealOffer(new Random(seed), 8, 8, 8, stage: 1);
         }).Select(c => c.Kind).ToHashSet();
         Assert.Contains(SurvivorsChoiceKind.NewSkill, complete);
         Assert.Contains(SurvivorsChoiceKind.SkillRank, complete);
@@ -208,7 +214,7 @@ public class SurvivorsRunTests
         for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) finished.Link(0, support);
         finished.RecordKill(MonsterRarity.Unique);
         Assert.Contains(
-            Enumerable.Range(0, 30).SelectMany(seed => finished.DealOffer(new Random(seed), 8, 8, 8)),
+            Enumerable.Range(0, 30).SelectMany(seed => finished.DealOffer(new Random(seed), 8, 8, 8, stage: 1)),
             c => c.Kind == SurvivorsChoiceKind.NewSkill);
     }
 
@@ -222,7 +228,7 @@ public class SurvivorsRunTests
                 r.RecordKill(MonsterRarity.Unique);
                 return r;
             },
-            c => c.Kind == SurvivorsChoiceKind.NewSkill, skillCatalog: 8, blessingCatalog: 0, supportCatalog: 0);
+            c => c.Kind == SurvivorsChoiceKind.NewSkill, skillCatalog: 8, blessingCatalog: 0, supportCatalog: 0, stage: 1);
         int pending = run.PendingChoices;
 
         Assert.True(run.TryChoose(at + 1, out var chosen));
@@ -367,12 +373,12 @@ public class SurvivorsRunTests
     /// category is not guaranteed on the first deal.</summary>
     static (SurvivorsRun Run, IReadOnlyList<SurvivorsChoice> Offer, int At) DealUntil(
         Func<int, SurvivorsRun> make, Func<SurvivorsChoice, bool> match, int skillCatalog = 8, int blessingCatalog = 8,
-        int supportCatalog = 8, IReadOnlyList<int>? itemPool = null)
+        int supportCatalog = 8, IReadOnlyList<int>? itemPool = null, int stage = 0)
     {
         for (int seed = 0; seed < 500; seed++)
         {
             var run = make(seed);
-            var offer = run.DealOffer(new Random(seed), skillCatalog, blessingCatalog, supportCatalog, itemPool);
+            var offer = run.DealOffer(new Random(seed), skillCatalog, blessingCatalog, supportCatalog, itemPool, stage: stage);
             int at = offer.ToList().FindIndex(c => match(c));
             if (at >= 0) return (run, offer, at);
         }
