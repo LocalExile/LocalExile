@@ -441,7 +441,8 @@ static partial class Game
                 }
                 // A swing that has only just been ordered: the client's monster has not begun it while the player is out of
                 // reach, it walks after the player until it can (07 §5), so the chase goes on and the swing is off.
-                if (m.Attack is { InPlace: false } ordered && m.SwingGeneration == m.ActionGeneration
+                // A lockstep client needs no 0x1ac to begin, so it can't be called off: it would stand through the swing.
+                if (!conn.LockstepClient && m.Attack is { InPlace: false } ordered && m.SwingGeneration == m.ActionGeneration
                     && now - m.SwingOrderedAt < SwingOrderSeconds && d > ordered.Range)
                 {
                     m.BusyUntil = now;
@@ -475,10 +476,11 @@ static partial class Game
                 // Attack cadence remains the attack's own duration; faster AI only reduces the delay after expiry.
                 // A pending echo/contact keeps its original generation instead of reserving repeated swings at the gate.
                 // A chill slows the swing by its action speed, as the native clip does.
-                // A walking player has already gone farther on the client: no swing right at the edge of the reach.
-                if (m.Hostile && m.Attack is { } a && d <= (a.InPlace || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin))
+                // A walking player has already gone farther on the client, unless both run on frames: no swing right at
+                // the edge of the reach.
+                if (m.Hostile && m.Attack is { } a && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin))
                 {
-                    m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action;
+                    m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action + conn.LockstepActionTail;
                     // A melee swing starts at the end of its walk-up. An attack during a Move ends that with
                     // 0x141e90740(…, 0), which does not stop the pathing: the monster swings while it walks on.
                     if (!a.InPlace && m.LastTarget is not null) m.Walk.Order(mx, my, now);
@@ -786,7 +788,7 @@ static partial class Game
             if (walkUp) seq = m.NextSequence();
             var from = m.Walk.Position(startedAt);
             var player = conn.Walk.Position(startedAt);
-            m.BusyUntil = startedAt + seconds;
+            m.BusyUntil = startedAt + seconds + conn.LockstepActionTail;
             m.SwingGeneration = action;
             m.SwingOrderedAt = startedAt;
             return walkUp ? InstanceProtocol.ActionStartedNow(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, 0, PlayerId)
