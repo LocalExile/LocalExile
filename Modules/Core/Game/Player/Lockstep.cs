@@ -115,9 +115,12 @@ static partial class Game
                 if (conn.LockstepSkill.Target is { } aimedAt && aimedAt != PlayerId
                     && !(conn.Monsters.TryGetValue(aimedAt, out var m) && !m.Dead && m.Life > 0))
                     conn.LockstepSkill.LoseTarget();
-                // A skill on a monster walks up first and swings when it gets there: the next one waits for that swing and
-                // for the attack time it takes (LockstepAttackStart), as GGG's held attack repeats once per action.
+                // A held skill repeats once per action, as GGG's does: an attack's next use waits for the attack time of
+                // the one before, aimed at a monster (its walk-up and swing: LockstepAttackStart) or at the ground (live
+                // 2026-11-03: a ground attack sent as soon as the player was free came 0.4 s into a 0.645 s swing, and
+                // the client queued it until the swing's end).
                 bool monster = conn.LockstepSkill.Target is { } t && t != PlayerId;
+                bool attack = LockstepAttackSkill(conn, conn.LockstepSkill.Skill);
                 if (conn.LockstepUse is { } object_)
                 {
                     conn.LockstepUse = null;
@@ -125,11 +128,12 @@ static partial class Game
                     from = conn.Walk.Position(at);
                     sequence = NextLockstepSequence(conn);
                 }
-                else if (conn.LockstepAttackAction == 0 && (!monster || at + 1e-9 >= conn.NextAttackAt) && conn.LockstepSkill.Due(free))
+                else if (conn.LockstepAttackAction == 0 && (!attack || at + 1e-9 >= conn.NextAttackAt) && conn.LockstepSkill.Due(free))
                 {
                     skill = true;
                     sequence = NextLockstepSequence(conn);
-                    if (!monster) conn.LockstepBusyUntil = at + LockstepActionSeconds(conn, conn.LockstepSkill.Skill);
+                    // A use at the ground starts at the end of this frame on the client, and holds the player from there.
+                    if (!monster) conn.LockstepBusyUntil = (conn.LockstepFrame?.End ?? at) + LockstepActionHold(conn, conn.LockstepSkill.Skill);
                 }
                 else if (conn.LockstepHold.Due(conn.Walk.Moving(at), conn.Walk.Position(at)) is { } due)
                 {
@@ -180,8 +184,45 @@ static partial class Game
         return true;
     }
 
+    // Whether a held skill is an attack (the default attack or an attack gem): its uses share the attack timer.
+    static bool LockstepAttackSkill(ClientState conn, ushort skill) =>
+        skill == SkillCatalog.FirstSkillId
+        || GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem && SkillsFor(conn).IsAttack(gem.Effect);
+
+    // How long a use started at the ground or on the player holds it: an attack until the client lets a Move cut in
+    // (LockstepAttackCutIn), a spell for its cast time (a Move during a cast is not measured), a channel not at all (it
+    // runs until the release).
+    static double LockstepActionHold(ClientState conn, ushort skill)
+    {
+        if (GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem)
+        {
+            if (SkillsFor(conn).IsChannelled(gem.Effect)) return 0;
+            if (!SkillsFor(conn).IsAttack(gem.Effect)) return SkillsFor(conn).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(conn);
+        }
+        return LockstepAttackCutIn(conn, skill) + conn.LockstepActionTail;
+    }
+
+    // The attack time of a held attack skill, as its handler paces it (Attack, CastGemSkill).
+    static double LockstepAttackSeconds(ClientState conn, ushort skill) => skill == SkillCatalog.FirstSkillId
+        ? Math.Max(TickSeconds, WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn)) / PlayerActionFactor(conn))
+        : SupportedAttackSeconds(conn, skill);
+
+    // When, after a swing's start, the client lets a Move cut the attack short: its clip's contact (live 2026-11-03, the
+    // first Move the client ran at once: a wand's 0.334 s into a 0.667 s attack at a 0.300 s contact, a one-hand sword's
+    // 0.58 s into a 0.645 s attack at a 0.56 s contact, a bow's 0.35 s into 0.73 s at 0.27). A Move sent before that is
+    // queued on the client until then (0x141e8cf10 takes it, the actor runs it at the contact), while the server's
+    // estimate would walk alone. The default attack's contact is its stance clip's (DefaultAttackClip.ContactSeconds);
+    // an attack gem's is taken as a fraction of the attack (AttackContactDelay).
+    internal static double LockstepAttackCutIn(ClientState conn, ushort skill, ushort sequence = 0)
+    {
+        double seconds = LockstepAttackSeconds(conn, skill);
+        if (skill != SkillCatalog.FirstSkillId) return AttackContactDelay(conn, seconds, approach: false);
+        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+        return Animations.DefaultAttackContactSeconds(ao, WeaponProfileFor(conn, activeSet: true), sequence, seconds);
+    }
+
     // The walk-up of a lockstep client's attack is over and the swing begins at now: it holds the player for
-    // <paramref name="seconds"/> (until its contact, after which GGG lets a Move cut it short), and the held skill's next use
+    // <paramref name="seconds"/> (until the client lets a Move cut in, LockstepAttackCutIn), and the held skill's next use
     // may follow it. Called under conn.Monsters.
     internal static void LockstepAttackSwings(ClientState conn, int action, double now, double seconds)
     {

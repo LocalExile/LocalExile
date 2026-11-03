@@ -124,10 +124,19 @@ static partial class Game
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0);
     }
 
-    // Derive compensation from the actual approach result, rather than adding walk-in latency to a stationary swing.
+    // The default attack's contact: its stance clip as the client plays it (DefaultAttackClip.ContactSeconds: a one-hand
+    // sword's lands 0.56 s into a 0.645 s swing, not at the attack1 keyframe's 0.45). The walk-in compensation comes
+    // from the actual approach result, rather than adding walk-in latency to a stationary swing; a lockstep client walks
+    // up on the server's start as the estimate does (no lead to compensate), and the server paces its repeats, so no
+    // early use cancels the hit.
     internal static double DefaultAttackContactDelay(ClientState conn, double attackSeconds,
-        (int X, int Y) from, (int X, int Y) stop, double departedAt, double arrivedAt) =>
-        AttackContactDelay(conn, attackSeconds, approach: arrivedAt > departedAt && stop != from);
+        (int X, int Y) from, (int X, int Y) stop, double departedAt, double arrivedAt, ushort sequence)
+    {
+        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+        double contact = Animations.DefaultAttackContactSeconds(ao, WeaponProfileFor(conn, activeSet: true), sequence, attackSeconds) / attackSeconds;
+        bool approach = !conn.LockstepClient && arrivedAt > departedAt && stop != from;
+        return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0, early: !conn.LockstepClient);
+    }
 
     // How often the player's walk up to a monster paths again, and when the estimate stops following it.
     const double SwingFollowSeconds = .1, SwingFollowLimitSeconds = 3;
@@ -206,7 +215,7 @@ static partial class Game
             (here, stop, arrive) = conn.Walk.Approach(target.X, target.Y, weapon.Range, now, tolerance: m.StopRange - 2);
         }
         Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} seq 0x{use.Sequence:x4} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
-            $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
+            $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s, attack time {duration:0.000} s");
         // A lockstep client's action starts now and walks up by itself (Lockstep.cs); the swing below then says nothing.
         bool started = await LockstepAttackStart(remote, stream, ciphers, conn, use, here, target, action, "attack");
         bool Current() => conn.ActionCount == action && (!ranged || OrdinaryRangedReleaseCurrent(conn, action, projectileEpoch));
@@ -232,14 +241,10 @@ static partial class Game
             conn.NextAttackAt = AttackTiming.After(now, conn.NextAttackAt, duration);
             criticalRoll = CaptureSkillCriticalRoll(conn, SkillCatalog.FirstSkillId);
             inReach = SwingInReach(m, stop, target, weapon.Range + 2);
-            // The swing holds the player until its contact has played: GGG lets a Move cut the attack short after that (a
-            // Move 295 ms into a 462 ms attack started at once) and the client refuses one before it (live 2026-11-03, a
-            // bow at 0.73 s: refused at the contact's 0.30 s, taken at 0.35 s), so the client's frame or two come on top;
-            // the next attack waits the attack time (NextAttackAt).
+            // The swing holds the player until the client lets a Move cut it short (LockstepAttackCutIn), plus the client's
+            // frame or two; the next attack waits the attack time (NextAttackAt).
             if (started && inReach)
-                LockstepAttackSwings(conn, action, now, (ordinaryProjectile is { } shot
-                    ? OrdinaryRangedContactDelay(conn, duration, shot, use.Sequence)
-                    : DefaultAttackContactDelay(conn, duration, here, stop, departedAt, arrive)) + conn.LockstepActionTail);
+                LockstepAttackSwings(conn, action, now, LockstepAttackCutIn(conn, use.SkillId, use.Sequence) + conn.LockstepActionTail);
         }
         if (!inReach)
         {
@@ -275,7 +280,7 @@ static partial class Game
             await Send(remote, stream, ciphers, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{use.SkillId:x4}");
         // The hit lands at the attack animation's contact keyframe (data/animation-contacts.json), not a fixed half: the
         // client stretches the clip to the attack time, so the blood and the weapon impact sound line up with the swing.
-        await Task.Delay(TimeSpan.FromSeconds(DefaultAttackContactDelay(conn, duration, here, stop, departedAt, arrive)));
+        await Task.Delay(TimeSpan.FromSeconds(DefaultAttackContactDelay(conn, duration, here, stop, departedAt, arrive, use.Sequence)));
         await WhilePaused(conn);
         // One use, one Fortification and one Rage gain (as one AreaSkillHit sweep), whichever of its hits lands first.
         bool fortified = false, raged = false;
@@ -471,7 +476,7 @@ static partial class Game
                 LockstepAttackOver(conn, action);
                 return;
             }
-            if (started) lock (conn.Monsters) LockstepAttackSwings(conn, action, now, attackSeconds);
+            if (started) lock (conn.Monsters) LockstepAttackSwings(conn, action, now, LockstepAttackCutIn(conn, use.SkillId, use.Sequence) + conn.LockstepActionTail);
             bool acknowledged = false;
             bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
             if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, target,

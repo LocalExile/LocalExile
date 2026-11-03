@@ -192,6 +192,11 @@ static partial class Game
                     {
                         if (PlayerActionBlocked(conn, at, conn.Clock.Elapsed.TotalSeconds)) continue;
                         StartAction();
+                        // A lockstep client's default attack at the ground is a swing where it stands (inPlace), which takes
+                        // the attack time: the next use waits for it, as after a swing at a monster (Attack).
+                        if (inPlace && !cast && use.SkillId == SkillCatalog.FirstSkillId)
+                            conn.NextAttackAt = AttackTiming.After(at, conn.NextAttackAt,
+                                Math.Max(TickSeconds, WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn)) / PlayerActionFactor(conn)));
                     }
                 }
                 if (chargeToken != 0) _ = RunShieldCharge(remote, stream, ciphers, conn, chargeToken, conn.Walk.ArrivesAt,

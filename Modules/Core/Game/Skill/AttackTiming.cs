@@ -23,10 +23,11 @@ static class AttackTiming
 
     /// <summary>When an attack's hit lands after its swing starts (seconds): <paramref name="contact"/> (the animation's
     /// contact keyframe, a fraction of the attack) of the attack time plus <paramref name="offset"/>, never below 0 and
-    /// never after the next use may arrive (a quarter of an attack early, less <see cref="LandMargin"/>).</summary>
-    public static double ContactDelay(double seconds, double contact, double offset)
+    /// never after the next use may arrive (a quarter of an attack early, less <see cref="LandMargin"/>; without
+    /// <paramref name="early"/> uses, as on a lockstep client whose repeats the server paces, the attack time).</summary>
+    public static double ContactDelay(double seconds, double contact, double offset, bool early = true)
     {
-        double latest = Math.Max(0, seconds * (1 - EarlyAllowance) - LandMargin);
+        double latest = Math.Max(0, seconds * (early ? 1 - EarlyAllowance : 1) - LandMargin);
         double delay = seconds * contact + offset;
         return double.IsFinite(delay) ? Math.Clamp(delay, 0, latest) : Math.Min(seconds / 2, latest);
     }

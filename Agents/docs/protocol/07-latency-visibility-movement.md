@@ -461,9 +461,17 @@ A Move whose target is within two cells (Chebyshev) of the player's cell ends on
 no step and no move onto the 0x1ab's position pair (live 2026-11-03: 25 of 25 such starts in a bow fight, where every
 start 3 or more cells away searched a path and took the pair first). The Gateway's estimate stands for such a Move as the
 client does; before, it walked a few cells to the target and the next start put the client on them (2 to 5 cells beside
-a monster). The client also refuses a Move while a swing's contact has not played: with a bow at 0.73 s a Move 0.30 s
-after the attack's start was ignored and one 0.35 s after it taken, so the hold after a swing is the contact plus the
-client's two frames (`LockstepActionTail`).
+a monster).
+
+A Move that reaches the client during a swing is taken (`0x141e8cf10`) but queued: the actor runs it when the swing's
+contact keyframe has played, and only then (live 2026-11-03, the first Move the client ran at once: a wand's 0.334 s
+into a 0.667 s attack whose clip contact is at 0.300 s; a one-hand sword's 0.58 s into a 0.645 s attack whose contact
+plays at 0.56 s; a bow's 0.35 s into 0.73 s at 0.27 s; Moves 0.40 to 0.57 s into the sword's swing all ran at 0.60 s).
+So the hold after a swing is the contact as the client plays the clip ([11](11-skills.md) §4: a one-hand sword's lands
+late in the swing, not at the attack1 keyframe's fraction) plus the client's two frames (`LockstepActionTail`,
+`LockstepAttackCutIn`), for a swing at a monster and at the ground alike. A held attack's next use, at a monster or at
+the ground, waits for the attack time of the one before (`NextAttackAt`): one sent as soon as the player was free came
+0.4 s into a 0.645 s swing and was queued to its end, with the server's swing and hit ahead of the client's by as much.
 
 A melee monster's chase order (an attack aimed at the player) swings by itself on a lockstep client when its walk-up gets
 there, since the client waits for no 0x1ac (`0x141e94720`). The Gateway counts that swing from its estimate's arrival
@@ -484,7 +492,7 @@ chase orders in between bounced off a 2 s swing and the estimate walked on.
 | Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours walks on out there, and 0x128 is skipped here |
 | An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |
 | Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |
-| A skill at the ground or a gem attack holds everything for its whole attack or cast time | A Move can cut an attack short after its contact | A Move the client refuses mid-swing would leave the server walking alone; the default attack on a monster follows GGG since 2026-11-03 (`LockstepAttackSwings`: held until its contact) |
+| A spell at the ground holds everything for its cast time | Not measured | A Move during a cast is not traced; attacks hold until their contact as GGG's do (`LockstepActionHold`) |
 | A skill is echoed at any key 0, from the handlers Predictive uses | From the tick, keyed by the player | As for Moves |
 
 Still to do: monsters' order keys. A movement skill's landing comes from the server's own estimate; the client's snap at
