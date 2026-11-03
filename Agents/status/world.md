@@ -170,9 +170,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   doodads, rooms and quest tile objects the monster points and a1 quests are fitted to, need no capture.
   Entering any other area tells the player it is generated on the client and not supported by the server yet.
   The client's stages after the doodads (mesh variation, ground clutter, critters) are client-only and not ported.
-  The Labyrinth's boss ends use the layout the client builds with seed 0; the server sends no daily layout.
   Code: `GameServer.Data/Terrain/Generation`, `scripts/re/levelgen`.
   Docs: [re/011](../docs/re/011-level-generation.md).
+- **The Labyrinth's day layout.** The Gateway builds the day's layout as the client does (sections, rooms,
+  connections and secrets: 168 client layouts match) and gives each room one of its LabyrinthAreas areas; entering
+  one of those areas sends the room's node in 0x1d's extra data, and the client and the server's generation then
+  apply the room's overrides and secret rooms alike (live: `1_Labyrinth_OH_quad_#` with its Gauntlet room, 2026-11-02).
+  The day's seed (the UTC day number, `Game_LAB_SEED`) and the area pick are ours; a room's area appearing twice
+  takes the first node. `/lab_layout [tier]` lists the day. The secret rooms' objects (hidden doors, the Gauntlet's
+  end) and the exits between rooms are not created yet.
+  Code: `LabyrinthLayout.cs`, `LabyrinthPass.cs`, `LabyrinthDay.cs`, `ServerLevels.cs`.
+  Docs: [03](../docs/protocol/03-area-and-world.md), [re/011](../docs/re/011-level-generation.md) ("Labyrinth pass").
 - **Trials of Ascendancy.** In each LabyrinthTrials area the Gateway places the trial rooms' door, levers, Locked
   Doors, plaque and portal back, and the Bronze Monograph at the door, which reads at once when clicked.
   The door opens, a lever opens what its room's links name (the `.arm` files' link section), the plaque sets the trial's quest flag and its league quest

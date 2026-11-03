@@ -1337,6 +1337,13 @@ static class CommandsFeature
             await conn.Commands!.Reply($"Trials done ({which}): {own} of {trials.Count} by the character's quest flag, {league} by the league's.");
             await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window (/trials)");
         })
+        .Add("lab_layout", "/lab_layout [1|2|3|4] (dev: today's Labyrinth layout of a tier, 1 Normal by default: each room's area, section, connections and secrets; /goto a listed area to play that room with its node)", async args =>
+        {
+            int tier = args.Length > 0 && int.TryParse(args[0], out int n) && n is >= 1 and <= 4 ? n : 1;
+            uint seed = LabyrinthDay.Seed;
+            await conn.Commands!.Reply($"Labyrinth day {seed}, tier {tier}:");
+            foreach (var line in LabyrinthDay.Describe(seed, tier)) await conn.Commands!.Reply(line);
+        })
         .Add("trial_spike_hit", "/trial_spike_hit [<from ms> <to ms>] (dev: how long after firing the Trials of Ascendancy spike traps hit, up to 3000 ms, e.g. /trial_spike_hit 1000 1250)", async args =>
         {
             if (args.Length >= 2 && int.TryParse(args[0], out int from) && int.TryParse(args[1], out int to) && from >= 0 && to > from && to <= 3000)

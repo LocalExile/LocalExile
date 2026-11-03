@@ -132,11 +132,15 @@ partial class Program
                 int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
                 prepared = true;
                 var moduleHeader = ServerHooks.Header(PlayerOf(conn));
+                // A room of today's Labyrinth names its node (LabyrinthDay): the client then builds the day's layout and
+                // applies the room's overrides and secrets, as the server's own generation of it does (ServerLevels).
+                var labyrinthNode = moduleHeader?.Terrain is null ? LabyrinthDay.NodeFor(layout.Id) : null;
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: Logic.AreaLeagueStats(conn),
-                    TerrainData: moduleHeader?.Terrain,
+                    TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null ? null : LabyrinthDay.ExtraData(labyrinthNode)),
                     AchievementSets: moduleHeader?.AchievementSets);
-                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}");
+                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}" +
+                    (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
                 await Logic.Entered(remote, conn, level, resolved.Level);
                 // The read loop answers ticks; everything else runs in order on the handler task (ClientInbox, issue #46).
                 var inbox = new ClientInbox(conn.Performance);
