@@ -61,6 +61,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Official loot timing captured; rendering unmeasured ([capture](../../scripts/re/loot-timing/README.txt)).
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
   collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`).
