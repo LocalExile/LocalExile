@@ -455,7 +455,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         var l = Layout;
         Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && !Barrier.Contains((cx, cy)) : null;
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
-            () => Blockers);
+            () => Blockers) { FrameOf = LockstepFrameOf };
     }
     public bool PlayerSent;
     // Server frames ended so far (0x2b5).
@@ -850,6 +850,12 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // Where the player was at each recent frame start (Game.LockstepClientCell).
     public readonly Queue<(double At, (int X, int Y) Cell)> LockstepTrail = new();
     public double LockstepNextProbeAt;
+    // The frame now being sent, on Clock (PlayerWalk.FrameOf).
+    public (double Start, double End)? LockstepFrame;
+    // A lockstep client ends an action on a frame, up to two after the server's clock, and loses an order that comes first.
+    public double LockstepActionTail => LockstepClient ? .066 : 0;
+    (double Start, double End)? LockstepFrameOf(double at) =>
+        LockstepClient && LockstepFrame is { } frame ? (Math.Min(at, frame.Start), frame.End) : null;
     public readonly GameServer.Core.World.LockstepHold LockstepHold = new();
     public ushort LockstepSequence;
     // The object use (C→S 0x18f) the next frame starts.

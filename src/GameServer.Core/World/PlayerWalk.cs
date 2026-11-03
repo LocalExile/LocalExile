@@ -47,6 +47,12 @@ public sealed class PlayerWalk
 
     public double Speed => _speed;
 
+    /// <summary>The frame a time's messages take effect in on this client, if it runs on frames: a lockstep client applies
+    /// them at the frame's start, and its walkers only move on frames.</summary>
+    public Func<double, (double Start, double End)?>? FrameOf { get; init; }
+
+    private double Frame(double now) => FrameOf?.Invoke(now)?.Start ?? now;
+
     /// <summary>The mover's Positioned size.</summary>
     public int Size => _size;
 
@@ -123,7 +129,7 @@ public sealed class PlayerWalk
     }
 
     /// <summary>The walker's cell at <paramref name="now"/> (seconds, any monotonic clock).</summary>
-    public (int X, int Y) Position(double now) => At(now, out _);
+    public (int X, int Y) Position(double now) => At(Frame(now), out _);
 
     private (int X, int Y) At(double now, out double fraction)
     {
@@ -157,6 +163,8 @@ public sealed class PlayerWalk
     /// after a hit's recovery. A hold already running that lasts longer keeps its end.</summary>
     public void Pause(double now, double seconds)
     {
+        // As a stop: the hold starts after the frame's steps.
+        if (FrameOf?.Invoke(now) is { } frame) (now, seconds) = (frame.End, seconds - (frame.End - frame.Start));
         var here = At(now, out double fraction);
         int i = _segments.FindIndex(s => now < s.End);
         if (i < 0) return;
@@ -192,7 +200,7 @@ public sealed class PlayerWalk
         int tolerance = -1)
     {
         var here = Walk((targetX, targetY), (int)reach, tolerance, now);
-        return (here, Destination, ArrivesAt);
+        return (here, _segments.Count == 0 ? here : Destination, ArrivesAt);
     }
 
     /// <summary>
@@ -204,7 +212,7 @@ public sealed class PlayerWalk
     public ((int X, int Y) Here, (int X, int Y) Stop, double At) WalkUpTo(int targetX, int targetY, int objectSize, double now)
     {
         var here = Walk((targetX, targetY), objectSize + 3, objectSize, now);
-        return (here, Destination, ArrivesAt);
+        return (here, _segments.Count == 0 ? here : Destination, ArrivesAt);
     }
 
     /// <summary>Whether a cell is in walk-up range of an object (the pathfinder's goal test for <see cref="WalkUpTo"/>:
@@ -253,6 +261,7 @@ public sealed class PlayerWalk
 
     private (int X, int Y) Walk((int X, int Y) target, int maxRange, int tolerance, double now)
     {
+        now = Frame(now);
         var here = At(now, out double fraction);
         var bodies = _blockers();
         var path = ClientPathfinder.FindPath(here, target, _walkable, _w, _h, bodies, _size, 0, maxRange, tolerance, _limit, out bool reached);
@@ -260,6 +269,14 @@ public sealed class PlayerWalk
         // No step to take: the client ends the action instead of pathing again (0x141e7b920 with nothing found).
         Reached = reached || path.Count < 2;
         WalksThrough = !_walkable(here.X, here.Y) || ClientPathfinder.ObjectBlocks(bodies, here.X, here.Y, _size + 1, _size + 4);
+        // A stop takes effect after the frame's steps (0x141e350e0). The caller reports here, where the client is now; the
+        // walker stands where the client will, or the next start puts the client back up to two cells.
+        if (path.Count < 2 && FrameOf?.Invoke(now) is { } frame && Moving(now))
+        {
+            var stop = At(frame.End, out _);
+            Teleport(stop.X, stop.Y, now);
+            return here;
+        }
         Follow(path, here, fraction, now);
         return here;
     }

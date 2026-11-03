@@ -12,6 +12,32 @@ public class LockstepTests
     const uint GivenLocal = 0x7f000001, GivenPublic = 0xcb007107;
 
     [Fact]
+    public void A_walker_on_frames_starts_on_the_frame_and_stops_after_its_steps()
+    {
+        // 100 cells a second: one cell every 10 ms, 3.3 cells a frame.
+        double start = 0;
+        PlayerWalk Walker() => new(0, 0, 100) { FrameOf = at => (Math.Min(at, start), start + .033) };
+
+        var walk = Walker();
+        walk.Order(100, 0, .005);   // sent 5 ms into the frame, it starts at the frame's start
+        start = .033;
+        Assert.Equal((3, 0), walk.Position(.04));   // read during a frame, it is where the frame began
+        Assert.Equal((3, 0), walk.Order(3, 0, .04));   // the stop reports where the client is now
+        Assert.Equal((6, 0), walk.Position(.04));   // and the walker stands where the frame's steps take it
+        Assert.False(walk.Moving(.1));
+
+        start = 0;
+        walk = Walker();
+        walk.Order(100, 0, 0);
+        start = .033;
+        walk.Pause(.04, .1);   // a hold also starts after the frame's steps, and ends .1 s after the frame's start
+        start = .099;
+        Assert.Equal((6, 0), walk.Position(.099));
+        start = .165;
+        Assert.Equal((9, 0), walk.Position(.165));
+    }
+
+    [Fact]
     public void Only_a_connection_confirmed_as_local_is_served()
     {
         Assert.Equal(LockstepMode.Local, LockstepLink.ModeOf("1"));
