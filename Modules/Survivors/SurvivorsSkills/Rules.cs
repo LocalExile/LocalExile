@@ -202,19 +202,23 @@ static partial class SurvivorsSkills
             // Heralds have no flight: the run casts them as an aura pulse around the player. Any other gem with a
             // Projectiles row can fly here, even when its ActiveSkillTypes do not carry the Projectile flag (Storm Burst).
             bool herald = baseType.Name.StartsWith("Herald of", StringComparison.OrdinalIgnoreCase);
+            // A melee attack gem (Elemental Hit, Cyclone, ...) carries a Projectiles row for its bow version and would
+            // otherwise pass as a caster: the run is a caster's mode, so melee attacks stay out.
+            bool melee = SkillsFor(conn).IsMelee(variant.Effect);
+            var projectileRow = Skills.ProjectileFor(variant.Effect);
+            bool projectile = projectileRow is not null && !melee;
             // An area gem without a flight and without a melee swing: its ActiveSkillTypes carry the Area flag, so the
             // run casts it as a nova pulse. It must also deal a hit: a warcry/curse/buff (Enduring Cry, Temporal
-            // Chains) has no damage to pulse and too few supports to link. Melee area skills (Cyclone, Ground Slam,
-            // Cleave) are attacks and stay out too.
+            // Chains) has no damage to pulse and too few supports to link.
             bool attack = SkillsFor(conn).IsAttack(variant.Effect);
-            bool area = !herald && !attack && Skills.ProjectileFor(variant.Effect) is null
+            bool area = !herald && !attack && projectileRow is null
                 && Supports.Of(variant.Effect)?.Types.Contains(7) == true
                 && !SkillsFor(conn).HitDamage(variant.Effect, 1).IsZero;
-            if (!herald && !area && Skills.ProjectileFor(variant.Effect) is null) continue;
+            if (!herald && !projectile && !area) continue;
             // The links-first offer needs the five supports a skill can take; a gem with fewer (Icefire) is left out.
             if (!herald && supports.Count(support => Linkable(variant.Effect, support)) < SurvivorsRules.MaxSupportsPerSkill)
                 continue;
-            string metadata = Skills.ProjectileFor(variant.Effect)?.Id ?? "Metadata/Projectiles/Fireball";
+            string metadata = projectileRow?.Id ?? "Metadata/Projectiles/Fireball";
             catalog.Add(new SurvivorsSkill(path, baseType.Name, SurvivorsDamageType(baseType.Name), variant.Effect, variant.Effect,
                 metadata, herald ? SurvivorsSkillKind.Herald : area ? SurvivorsSkillKind.Area : SurvivorsSkillKind.Projectile)
             {

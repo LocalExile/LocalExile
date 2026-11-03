@@ -194,6 +194,8 @@ public sealed class SurvivorsSupportMatrixTests
             var supports = SurvivorsSkills.SurvivorsSupportsFor(conn);
             SurvivorsSkills.StateOf(conn).SurvivorsCatalog = catalog;
             SurvivorsSkills.StateOf(conn).SurvivorsSupports = supports;
+            // The run is a caster's mode: a melee attack gem (Elemental Hit, Cyclone) is never offered.
+            Assert.DoesNotContain(catalog, skill => Game.SkillsFor(conn).IsMelee(skill.Effect));
             // The links-first offer needs five supports a skill can actually take; a herald is a buff and takes none.
             var thin = new List<string>();
             foreach (int index in Enumerable.Range(0, catalog.Count))
