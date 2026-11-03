@@ -7,6 +7,8 @@ static class GameDataFiles
 {
     public static readonly (string File, string Feature)[] All =
     [
+        ("data/vendor-stock.json", "ordinary vendor roles and quest/class gem membership"),
+        ("data/tables/KiracLevels.json", "Kirac map progression and refresh costs"),
         ("data/tables/WorldAreas.json", "the game tables (areas, waypoints, monsters, NPCs)"),
         ("data/tables/BaseItemTypes.json", "item bases (items, drops and /item)"),
         ("data/tables/ItemClasses.json", "item classes (socket caps and weapon restrictions)"),
@@ -31,6 +33,10 @@ static class GameDataFiles
         ("data/tables/LabyrinthTrials.json", "the Trials of Ascendancy (their areas and completion flags)"),
         ("data/tables/GrantedEffectStatSets.json", "the Labyrinth spike traps' damage (LbRetractableTrap)"),
         ("data/tables/BuffDefinitions.json", "the Labyrinth spike traps' bleeding buff"),
+        ("data/tables/MapFragmentMods.json", "map scarabs and fragments"),
+        ("data/tables/MapDeviceRecipes.json", "map device recipes (Maven, Atziri)"),
+        ("data/tables/MavenFights.json", "Maven invitation witness fights"),
+        ("data/tables/AtlasVoidstoneSlots.json", "Atlas Voidstones"),
         ("data/tables/Words.json", "item names"),
         ("data/tables/VillageUniqueDisenchantValues.json", "unique drop weights"),
         ("data/tables/ItemVisualIdentity.json", "unique map artwork"),
@@ -60,6 +66,8 @@ static class GameDataFiles
     /// entry, the version that added it): with an older one the feature runs without it, silently.</summary>
     public static readonly (string Entry, int Version, string Feature)[] Needed =
     [
+        ("tables", 3, "Kirac progression and gold refresh prices"),
+        ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
         ("object-types", 6, "quest objects and chests (rooms' server objects, quest tile and room types): without them they get the wrong blob or none"),
     ];

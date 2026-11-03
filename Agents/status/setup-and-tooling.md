@@ -139,6 +139,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   messages), the reason on every `DISCONNECT` line, archived logs of the last 10 full runs, each connection's last 256
   packets (printed after an error or an unexplained disconnect, dumped to `logs\packets`, `/lastpackets`), `Game_TRACE`
   categories, `scripts/dev/bugreport.ps1` and `scripts/re/frida/trace-crash.js`.
+  Routine outgoing packet summaries use a bounded background queue; explicit packet tracing stays synchronous.
   Unit-tested (`ServerLogTests`, `PacketHistoryTests`), the archive pruning and the bug report (logs held open, names
   in every form) checked with scripts; a live run that catches a client crash with the dumps and `trace-crash.js` is
   still to do, and so is checking that `trace-crash.js` reads the client's receive pump right.

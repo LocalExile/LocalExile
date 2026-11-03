@@ -34,6 +34,11 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>
     public SkillCatalog.MonsterProjectileInfo? Projectile { get; init; }
+    /// <summary>Whether this is a spell skill rather than a melee/ranged attack. A spell's cast duration comes from the
+    /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
+    /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
+    public bool Spell { get; init; }
+
     /// <summary>The attack's final stats (the client derives none, 11-skills.md §4): the swing time, reach and damage.
     /// These also go on the monster's Stats component.</summary>
     public IReadOnlyList<(uint, int)> Stats()
@@ -51,11 +56,31 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
         ];
     }
 
-    /// <summary>The skill's stats: <see cref="Stats"/> plus skill_is_non_pathing. The server walks the monster into range
-    /// itself; without it the Melee action's begin (0x141938830) sends the attack through the client's own pathing step,
-    /// which drops a server-driven monster's attack (no swing). Only on the skill: on the monster's Stats component it
-    /// also stops its Move action from pathing (live 2026-10-17: the monsters stood still).</summary>
-    public IReadOnlyList<(uint, int)> SkillStats() => [.. Stats(), (StatKeys.SkillIsNonPathing, 1)];
+    /// <summary>An actor whose actions a controller plays (KingInMists.cs): every skill starts at once, none walks it up.</summary>
+    public bool Scripted { get; init; }
+
+    /// <summary>Plays where the actor stands. A plain melee attack instead walks the monster up (07 §5).</summary>
+    public bool InPlace => Ranged || Spell || Scripted;
+
+    /// <summary>The skill's stats. A melee attack keeps the client's pathing step: the action walks the monster up to its
+    /// target and waits there until S→C 0x1ac starts the swing (07 §5). Anything else plays where it stands.</summary>
+    public IReadOnlyList<(uint, int)> SkillStats() => InPlace ? InPlaceSkillStats() : Stats();
+
+    /// <summary>An attack's <see cref="Stats"/> or a spell's cast time, plus skill_is_non_pathing: the action starts at once
+    /// where the actor stands (the Melee action's begin, 0x141938830). Only on the skill: on the monster's Stats component
+    /// it also stops its Move action from pathing (live 2026-10-17: the monsters stood still).</summary>
+    public IReadOnlyList<(uint, int)> InPlaceSkillStats() => [.. Spell ? SpellStats() : Stats(), (StatKeys.SkillIsNonPathing, 1)];
+
+    IReadOnlyList<(uint, int)> SpellStats()
+    {
+        int ms = Math.Max(1, (int)Math.Round(Seconds * 1000));
+        return
+        [
+            (StatKeys.BaseSpellCastTimeMs, ms), (StatKeys.VirtualBaseSpellCastTimeMs, ms),
+            (StatKeys.HundredTimesCastsPerSecond, (int)Math.Round(100_000.0 / ms)),
+            (StatKeys.CastingSpell, 1),
+        ];
+    }
 }
 
 sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y)
@@ -81,6 +106,8 @@ sealed class NpcSale(SpawnedNpc npc, uint mine, uint theirs)
 // An open shop tab: the NPC, its inventory id (manager 1), the items left by id and the tab's 0xbf revision.
 sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem Item)> items)
 {
+    public string? StockKey { get; init; }
+    public Dictionary<uint, Guid> Finite { get; init; } = [];
     public SpawnedNpc Npc { get; } = npc;
 
     /// <summary>The items for sale by id, each with its tab's inventory id.</summary>
@@ -91,13 +118,28 @@ sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem 
     readonly Dictionary<uint, uint> _revisions = [];
 }
 
-sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, int stopRange, uint maxLife)
+sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
+    public bool Asleep;
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
     public uint? OwnerId { get; init; }
     public double RampageBlindUntil;
     public int StunSerial;
+    /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>
+    public bool CannotBeStunned { get; init; }
+    /// <summary>The humanoid King's life cannot reach 0 before the three fetishes hand the fight to the treant.</summary>
+    public bool KingPhaseLocked { get; init; }
+    /// <summary>The treant's emergence grace: hits do nothing until KingInMists clears it.</summary>
+    public bool KingGrace;
+    /// <summary>The humanoid's fetish channel: no damage, ailment, leech or hit reaction until the ritual ends.</summary>
+    public bool RitualGrace;
+    // A Mystic Fetish waits for the King's ritual before it can be damaged (the client-side buff and hidden mini bar
+    // are the same pair the humanoid's intro uses).
+    public bool FetishGrace;
+    // No damage, ailments, impale or hit reaction while a scripted grace runs.
+    public bool Invulnerable => KingGrace || RitualGrace || FetishGrace;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
@@ -134,6 +176,10 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     // SwingGeneration identifies ordinary attack recovery so canceling it does not clear an emerge or boss stage.
     public int ActionGeneration;
     public int? SwingGeneration;
+    public double SwingOrderedAt;
+    // The sequence of its last melee order, rising with the top bit set as GGG's do: the client picks the swing's clip by it.
+    public ushort Sequence = 0x8000;
+    public ushort NextSequence() => Sequence = (ushort)(0x8000 | ((Sequence + 1) & 0x7fff));
     // The player's debuffs on it (Game.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock
     // seconds) with the taunted buff shown and the end it shows, his passives' and Pride's enemy auras (BuffDefinitions
     // row → buff instance), and the increased damage taken they give (every type; fire, cold and lightning) that its
@@ -168,7 +214,7 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public bool Fleeing;
     public (int X, int Y)? FleeTo;
     public string Label => label;
-    public WalkEstimator Walk { get; set; } = walk;
+    public PlayerWalk Walk { get; set; } = walk;
     public int AggroRange => aggroRange;
     public int StopRange => stopRange;
     public uint MaxLife { get; } = maxLife;
@@ -181,7 +227,6 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public bool CorpseConsumed;
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
     public bool SoulKillProcessed;
-    public (int X, int Y)? CollisionPosition;
     public (int X, int Y)? LastTarget;
     public double NextChaseRetryAt;
     // A boss's stage (BossFights) and whether a hit has started it.
@@ -253,12 +298,25 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool LeavingArea;
     public readonly RecentEnemyHits RecentEnemyHits = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
+    // The King in the Mists' Portent Vapors: stacks taken from his Mystic Fetishes and when they expire. The server
+    // applies the increased damage taken to his hits; the buff icon and count are presentation.
+    public int KingPortentStacks;
+    public double KingPortentUntil = double.NegativeInfinity;
+    /// <summary>The Crux of Nothingness arena's "mapboss" cell: the King's spawn and the base of the fixed Mystic Fetish
+    /// offsets (KingInMists.cs). Set when the area is populated, so both forms use the same origin.</summary>
+    public (int X, int Y)? KingOrigin;
     public Random IncomingHitRandom = Random.Shared;
     // The player's ignite rolls on monsters (MonsterIgnites), apart from the hit's own streams.
     public Random IgniteRandom = Random.Shared;
     public int IncomingHitEpoch;
     public int DeathNotificationEpoch = -1;
-    public int FreezeGeneration;
+    public int FreezeGeneration, FreezeShown;
+    public double FreezeHeldUntil;
+    public double NextWakeZoneAt;
+    // How far every walker's steps have been checked (Game.StepWalkers).
+    public double WalkersSteppedTo;
+    // When the movement skill under way ends on the client: the server has already landed it (Game.ResyncAfter).
+    public double LandingUntil;
     public int ActionInterruptionGeneration => unchecked(HitRecovery.Generation + FreezeGeneration);
     public (int Count, int Chance)? PresentedRecentEnemyHits;
 
@@ -391,7 +449,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         var l = Layout;
         Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && !Barrier.Contains((cx, cy)) : null;
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
-            () => Blockers, stationary: CrowdEscapeBlockers);
+            () => Blockers) { FrameOf = LockstepFrameOf };
     }
     public bool PlayerSent;
     // Server frames ended so far (0x2b5).
@@ -431,6 +489,11 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public InstanceKeyring Keyring = null!;
     // Server objects created after entering (monsters); the player is 0x1000 and area transitions start at 0x2000.
     public uint NextObjectId = 0x3000;
+    // Every 0x1ab action on this connection gets a fresh sequence. The official server increments it per action (the
+    // King's first actions are 0x8011, 0x8012, …); reusing 0xffff for several actors left the client's channel object
+    // without a current action and crashed StartChannelling (0xc0000005 at 0x19e0daf, live 2026-10-31).
+    int _nextActionSequence = 0x8000;
+    public ushort NextActionSequence() => (ushort)Interlocked.Increment(ref _nextActionSequence);
     // Room server objects a quest keeps in the area until its flag is set (The Twilight Strand's force wall), by id.
     public readonly Dictionary<uint, (string Flag, IReadOnlySet<(int X, int Y)> Cells)> QuestRoomObjects = [];
     // A Trial of Ascendancy's objects in this area (LabyrinthTrials), by id, and the cells its closed doors and risen
@@ -449,10 +512,14 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public double NextAttackAt;
     // Counts the player's actions; an attack's hit lands only if no other action started since (moving cancels it).
     public int ActionCount;
+    // The newest Move click that came while the player could not act (Game.ReleaseHeldMove).
+    public InstanceProtocol.UseSkillAtLocation? HeldMove;
     public readonly PlayerHitRecovery HitRecovery = new();
     public readonly WardState Ward = new();
     public readonly AntiquarianCombatState Antiquarian = new();
     public readonly TimedLifeRecovery EnduringCryRecovery = new();
+    /// <summary>Lifetap Support's life-paid costs, spent-Life counter and buff (Combat/Lifetap.cs).</summary>
+    public readonly LifetapState Lifetap = new();
     // Life Recoup of the hits the player took (Game.RecoupHitLocked), paid by the resource recovery loop.
     public readonly RecoupRecovery LifeRecoup = new();
     public double SentEnduringCryUntil = double.NaN;
@@ -759,6 +826,30 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public volatile bool AiEnabled = true, Closed;
     // Whether the lockstep warning was shown on this connection.
     public bool WarnedLockstep;
+    // Confirmed local and opted in (LockstepLink): this connection answers a lockstep client (Game.RunLockstepFrames).
+    public bool LockstepServed { get; init; }
+    // The client has shown it is in lockstep, by a lag byte in a tick or by a request. A predictive client's lag byte stays
+    // 0, so it is never probed and keeps its own messages.
+    public volatile bool LockstepClient;
+    // The real round trip (LockstepLatency), its probe in flight (Stopwatch timestamp, 0 for none) and the next one's time.
+    public LockstepLatency LockstepLatency = null!;
+    public long LockstepProbeSentAt;
+    // Where the player was at each recent frame start (Game.LockstepClientCell).
+    public readonly Queue<(double At, (int X, int Y) Cell)> LockstepTrail = new();
+    public double LockstepNextProbeAt;
+    // The frame now being sent, on Clock (PlayerWalk.FrameOf).
+    public (double Start, double End)? LockstepFrame;
+    // A lockstep client ends an action on a frame, up to two after the server's clock, and loses an order that comes first.
+    public double LockstepActionTail => LockstepClient ? .066 : 0;
+    (double Start, double End)? LockstepFrameOf(double at) =>
+        LockstepClient && LockstepFrame is { } frame ? (Math.Min(at, frame.Start), frame.End) : null;
+    public readonly GameServer.Core.World.LockstepHold LockstepHold = new();
+    public ushort LockstepSequence;
+    // The object use (C→S 0x18f) the next frame starts.
+    public InstanceTransfer.UseSkillOnObject? LockstepUse;
+    public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
+    // Until when the skill started last keeps the player (Clock seconds).
+    public double LockstepBusyUntil;
     // The character's activated waypoints (WorldAreas Ids, kept in its save) and whether this connection was reached
     // by waypoint travel (the player then appears next to the area's waypoint).
     public readonly HashSet<string> Waypoints = [];
@@ -770,7 +861,21 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public WalkEstimator NewWalk(int x, int y, double speed) =>
         new(x, y, Math.Max(1, speed), Layout.Walkable, Layout.GridW > 0 ? Layout.GridW : 4096, Layout.GridH > 0 ? Layout.GridH : 4096);
 
-    public (int X, int Y) SpawnNear((int X, int Y) at) => Layout.Near(at);
+    /// <summary>The nearest cell to spawn on, clear of other bodies: a walk that starts on a body goes through bodies
+    /// (PlayerWalk.WalksThrough), so monsters spawned on one cell would stay stacked wherever they went.</summary>
+    public (int X, int Y) SpawnNear((int X, int Y) at)
+    {
+        const int Size = 2, Step = 3, Reach = 90;
+        var near = Layout.Near(at);
+        var bodies = Blockers;
+        for (int r = 0; r <= Reach; r += Step)
+            for (int a = 0, n = Math.Max(1, r * 2); a < n; a++)
+            {
+                int x = near.X + (int)Math.Round(r * Math.Cos(a * Math.Tau / n)), y = near.Y + (int)Math.Round(r * Math.Sin(a * Math.Tau / n));
+                if (Layout.WalkableFor(x, y, Size) && !ClientPathfinder.ObjectBlocks(bodies, x, y, Size + 1, Size + 4)) return (x, y);
+            }
+        return near;
+    }
 }
 
 /// <summary>A worn pet the server walks after the player (RunPetFollow): its walk estimate, which side of the player it

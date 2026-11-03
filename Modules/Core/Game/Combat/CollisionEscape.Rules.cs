@@ -15,7 +15,7 @@ static partial class Game
             from = conn.Walk.Position(now);
             bool Walkable(int x, int y) => conn.Layout.Walkable?.Invoke(x, y) != false && !conn.Barrier.Contains((x, y));
             if (CollisionEscape.Find(from, conn.Layout.GridW, conn.Layout.GridH, Walkable,
-                living ? conn.CorrectionBlockers(includeMonsters: !conn.Walk.EscapingCrowd(now))
+                living ? conn.CorrectionBlockers()
                     : conn.StationaryBlockers) is not { } free) return;
             to = free;
             Interlocked.Increment(ref conn.ActionCount);

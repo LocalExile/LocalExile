@@ -79,8 +79,8 @@ static partial class Game
             if (!CurrentRampageWork) return;
             var from = swing.Actor.Walk.Position(ProjectileWorldTime(conn));
             var to = swing.Target.Walk.Position(ProjectileWorldTime(conn));
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(swing.Id, from.X, from.Y, to.X, to.Y,
-                SkillCatalog.FirstSkillId, 0xffff, 0x0408, targetObjectId: swing.TargetId), "Rampage weapon attacks",
+            await Send(remote, stream, ciphers, InstanceProtocol.ActionStartedNow(swing.Id, from.X, from.Y, to.X, to.Y,
+                SkillCatalog.FirstSkillId, 0xffff, 0x0408, swing.TargetId), "Rampage weapon attacks",
                 still: () => RampageEffectCurrent(conn, swing.Plan.Epoch));
             var variety = swing.Actor.Variety!;
             var baseDamage = Monsters.BaseDamage(variety, (byte)swing.Plan.Level) ?? (1, 1);

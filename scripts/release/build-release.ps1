@@ -94,6 +94,8 @@ Get-ChildItem (Join-Path $package 'Leagues') -Recurse -Directory -Filter Binarie
 
 # Paths the servers and tools read from their working directory, as in a checkout.
 Copy-Into 'data\schema' 'data\schema'
+Copy-Into 'scripts\re\vendor-stock\community-stock.json' 'scripts\re\vendor-stock\community-stock.json'
+Copy-Into 'scripts\re\vendor-stock\gem-layout.json' 'scripts\re\vendor-stock\gem-layout.json'
 Copy-Into 'scripts\re\levelgen\gate-baseline.json' 'scripts\re\levelgen\gate-baseline.json'
 Copy-Into 'Agents\docs\re\components.json' 'Agents\docs\re\components.json'
 

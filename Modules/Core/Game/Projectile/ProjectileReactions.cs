@@ -52,7 +52,7 @@ static partial class Game
             var final = CharacterPlayerStats(conn);
             int Get(string name) => Stats.Key(name) is uint key ? final.GetValueOrDefault(key) : 0;
             var step = charges.Step(now, Get, () => WeaponProfileFor(conn), conn.PlayerLife > 0,
-                now < conn.Walk.ArrivesAt, InTown(conn), random);
+                conn.Walk.Moving(now), InTown(conn), random);
             foreach (var buff in charges.Presentation(now, () => conn.NextBuff++))
                 foreach (var (packet, _) in ChargeBuffs.Packets(buff, PlayerId)) session.Packet(packet);
             if (step.CountsChanged)
@@ -85,6 +85,7 @@ static partial class Game
         bool playerKill = true)
     {
         var conn = session.Conn;
+        StopCorpseBlocking(session.remote, session.stream, session.ciphers, conn, id, monster);
         var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
@@ -143,6 +144,7 @@ static partial class Game
                 drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
                     balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
                 if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
+                drops.AddRange(ExtraDropsFromMap(conn, monster.Rarity, random));
             }
             foreach (string query in modded?.Items ?? [])
                 if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);

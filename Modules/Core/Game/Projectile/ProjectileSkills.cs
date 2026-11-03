@@ -25,8 +25,8 @@ static partial class Game
     }
 
     static ProjectileSkillParameters SkillProjectileParameters(string effect, string profileId) =>
-        new((get, speed) => GatewayProjectileSkillProfiles.Resolve(effect, profileId, get, speed,
-            Skills.IsAttack(Skills.EffectRow(effect))))
+        new((get, speed, arrows) => GatewayProjectileSkillProfiles.Resolve(effect, profileId, get, speed,
+            Skills.IsAttack(Skills.EffectRow(effect)), arrows))
         {
             PanelStats = (profile, stats) =>
             {

@@ -31,7 +31,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
         ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0);
 
-    /// <summary>The two entries whose curated 3.29 data differs from the PoB export used for the full catalogue.</summary>
+    /// <summary>The curated entries whose 3.29 data differs from the PoB export used for the full catalogue.</summary>
     static readonly Definition[] Curated =
     [
         // Mageblood (Heavy Belt): the +25-35 Strength is the Heavy Belt implicit; the rest are the unique's mods.
@@ -44,6 +44,9 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             ["IncreasedAccuracyUniqueHelmetInt7", "LocalIncreasedEnergyShieldUniqueHelmetInt7",
              "FireResistUniqueHelmetInt7", "LifeLeechPermyriadUniqueHelmetInt7",
              "ManaLeechPermyriadUniqueHelmetInt7", "SpellDamageModifiersApplyToAttackDamageUniqueHelmetInt7"]),
+        // That Which Was Taken: a Crimson Jewel that rolls four random charm modifiers. Its modifiers are chosen in
+        // Create rather than listed here; the definition carries the base type, name and item level.
+        new("That Which Was Taken", "Metadata/Items/Jewels/JewelStr", [], 83),
     ];
 
     /// <summary>The generated full PoB catalogue (see scripts/re/unique_items.py), with the curated entries first so
@@ -54,6 +57,33 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         .. UniqueItemSeed.All.Where(entry => Curated.All(curated =>
             !curated.Name.Equals(entry.Name, StringComparison.OrdinalIgnoreCase))),
     ];
+
+    /// <summary>Hidden mods that the Path of Building export does not carry, keyed by <c>name|base type</c>. They are
+    /// sent in the item's hidden list. The level overrides are the game's generic LevelRequirementOverrideUnique__N
+    /// rows: poedb's item cards give each unique's own requirement, which can be lower than the base type's level
+    /// (Seven-League Step on Rawhide Boots, drop level 3, is "Requires Level 1, 11 Dex"). The table is the place for
+    /// other hidden mods PoB omits as they are identified.</summary>
+    static readonly Dictionary<string, string[]> HiddenMods = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Araku Tiki|Metadata/Items/Amulets/Amulet2"] = ["LevelRequirementOverrideUnique__1"],
+        ["Blackheart|Metadata/Items/Rings/Ring1"] = ["LevelRequirementOverrideUnique__1"],
+        ["Cragfall|Metadata/Items/Quivers/Quiver6"] = ["LevelRequirementOverrideUnique__4"],
+        ["Craghead|Metadata/Items/Quivers/Quiver6"] = ["LevelRequirementOverrideUnique__4"],
+        ["Doedre's Damning|Metadata/Items/Rings/Ring3"] = ["LevelRequirementOverrideUnique__1"],
+        ["Kalandra's Touch|Metadata/Items/Rings/MirrorRing"] = ["LevelRequirementOverrideUnique__1"],
+        ["Kaom's Sign|Metadata/Items/Rings/Ring2"] = ["LevelRequirementOverrideUnique__1"],
+        ["Karui Ward|Metadata/Items/Amulets/Amulet4"] = ["LevelRequirementOverrideUnique__5"],
+        ["Malachai's Artifice|Metadata/Items/Rings/Ring15"] = ["LevelRequirementOverrideUnique__5"],
+        ["Perandus Signet|Metadata/Items/Rings/Ring3"] = ["LevelRequirementOverrideUnique__1"],
+        ["Replica Doedre's Damning|Metadata/Items/Rings/Ring3"] = ["LevelRequirementOverrideUnique__1"],
+        ["Replica Karui Ward|Metadata/Items/Amulets/Amulet4"] = ["LevelRequirementOverrideUnique__5"],
+        ["Replica Malachai's Artifice|Metadata/Items/Rings/Ring15"] = ["LevelRequirementOverrideUnique__5"],
+        ["Seven-League Step|Metadata/Items/Armours/Boots/BootsDex1"] = ["LevelRequirementOverrideUnique__1"],
+        ["Sidhebreath|Metadata/Items/Amulets/Amulet1"] = ["LevelRequirementOverrideUnique__1"],
+        ["Stone of Lazhwar|Metadata/Items/Amulets/Amulet5"] = ["LevelRequirementOverrideUnique__5"],
+        ["Sudden Dawn|Metadata/Items/Armours/Helmets/HelmetInt7"] = ["LevelRequirementOverrideUnique__3"],
+        ["Tear of Purity|Metadata/Items/Amulets/Amulet5"] = ["LevelRequirementOverrideUnique__5"],
+    };
 
     readonly Lazy<Dictionary<string, UniqueName>> _names = new(() => LoadNames(folder));
 
@@ -93,12 +123,38 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             NameWords = [unique.Word], VisualIdentity = unique.VisualIdentity,
         };
         var mods = item.Mods.ToList();
+        if (definition.Name.Equals("That Which Was Taken", StringComparison.Ordinal))
+        {
+            // Four random charm modifiers, ignoring attribute alignment (poewiki, "That Which Was Taken"). Charm mods
+            // are Mods.dat Domain 35; one modifier per family, as on a charm. The item stays modifiable/divinable.
+            var candidates = items.Mods.All
+                .Where(m => m.Domain == 35 && m.Level <= definition.ItemLevel && m.Stats.Count > 0)
+                .ToList();
+            var families = new HashSet<int>();
+            for (int i = 0; i < 4 && candidates.Count > 0; i++)
+            {
+                int pick = random.Next(candidates.Count);
+                var mod = candidates[pick];
+                candidates.RemoveAt(pick);
+                int family = mod.Families.Count > 0 ? mod.Families[0] : mod.Row;
+                if (!families.Add(family)) { i--; continue; }
+                var values = mod.Stats.Select((_, stat) =>
+                {
+                    var (min, max) = mod.RangeAt(stat);
+                    return min == max ? min : random.Next(min, max + 1);
+                }).ToArray();
+                mods.Add(new ItemMod(ModSection.Explicit, mod.Hash, values));
+            }
+            return item with { Mods = mods };
+        }
         if (definition.Implicits is { } implicits)
         {
             mods.RemoveAll(m => m.Section == ModSection.Implicit);
             mods.AddRange(Rolled(definition, implicits, ModSection.Implicit, random));
         }
         mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
+        if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
+            mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
         return item with { Mods = mods };
     }
 

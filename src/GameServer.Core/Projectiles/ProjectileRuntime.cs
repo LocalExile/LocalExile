@@ -80,7 +80,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         ProjectileVector position, ProjectileVector direction, ProjectileEntity? continuing = null, bool split = false,
         int index = 0)
     {
-        var p = new ProjectileEntity(++sequence, useId, emission, parent, use, position, direction, Now);
+        var p = new ProjectileEntity(++sequence, useId, emission, parent, use, position, direction, Now)
+            { VolleyIndex = index };
         projectiles.Add(p.Id, p);
         if (continuing is { } previous)
         {
