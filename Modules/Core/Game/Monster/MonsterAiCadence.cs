@@ -19,6 +19,7 @@ sealed class MonsterAiCadence
     sealed class Schedule
     {
         public double NextChase = double.NegativeInfinity;
+        public double LastChase = double.NegativeInfinity;
         public int? PendingSwing;
     }
 
@@ -41,7 +42,12 @@ sealed class MonsterAiCadence
     public int DelayMilliseconds(double now) => !running ? StepMilliseconds
         : (int)Math.Clamp(Math.Ceiling((nextStep - now) * 1000), 1, StepMilliseconds);
 
-    public bool TryChase(SpawnedMonster monster, (int X, int Y) target, double now, bool retryAfterArrival = false)
+    /// <param name="walking">The monster's estimate is still on its way: a walk that long keeps being ordered, to the
+    /// same cell, every <see cref="AttackChaseSeconds"/>. The client's monster stops where a body blocks a step that the
+    /// estimate, with the bodies a cell or two elsewhere, does not see (live 2026-11-03: Sand Spitters standing 1.5 s
+    /// after two cells of a 38-cell Move while the estimate walked 30), and only an order puts it back on its way;
+    /// a monster in step with its estimate just goes on.</param>
+    public bool TryChase(SpawnedMonster monster, (int X, int Y) target, double now, bool retryAfterArrival = false, bool walking = false)
     {
         var schedule = monsters.GetValue(monster, _ => new());
         if (!Due(now, schedule.NextChase)) return false;
@@ -49,11 +55,15 @@ sealed class MonsterAiCadence
             && Math.Abs(previous.X - target.X) + Math.Abs(previous.Y - target.Y) < TargetChangeCells)
         {
             // The native path budget can end a walk short of its cell: a monster that has arrived may retry the same
-            // target, at most every RetrySeconds; a target that only jittered keeps the current walk.
-            if (!retryAfterArrival || !Due(now, monster.NextChaseRetryAt)) return false;
-            monster.NextChaseRetryAt = now + RetrySeconds;
+            // target, at most every RetrySeconds; a target that only jittered keeps the current walk, ordered again on
+            // the chase cadence while it lasts.
+            bool retry = retryAfterArrival && Due(now, monster.NextChaseRetryAt);
+            bool again = walking && Due(now, schedule.LastChase + AttackChaseSeconds);
+            if (!retry && !again) return false;
+            if (retry) monster.NextChaseRetryAt = now + RetrySeconds;
         }
         schedule.NextChase = now + RepathSeconds;
+        schedule.LastChase = now;
         return true;
     }
 

@@ -79,7 +79,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [14](../docs/protocol/14-monster-packs.md) §5.
 - Monster decisions use 50 ms of elapsed game time, with no catch-up burst after pauses or slow steps.
   A melee chase repeats every 200 ms ([07](../docs/protocol/07-latency-visibility-movement.md) §5). A Move chase has a
-  separate 100 ms budget and requires at least three cells of Manhattan target change.
+  separate 100 ms budget and requires at least three cells of Manhattan target change, except that a walk still under
+  way is ordered again every 200 ms to the same cell (a lockstep client's monster that a body stopped gets going again).
   A ranged chaser stands off one cell inside its reach (MonsterVarieties `MaximumAttackDistance`: the Sand Spitter's
   30), moving inward only when that ring is full, instead of taking a melee contact cell (`MonsterSurround.Asker.Ranged`;
   live 2026-10-29: Spitters came in close). `MinimumAttackDistance` is not read yet.

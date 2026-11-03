@@ -914,9 +914,14 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   Chasers take surround cells around the player (`MonsterSurround`); a negative footprint keeps its direct approach.
   A ranged chaser (its first effect a ranged attack, or a ranged weapon) stands off: its first ring lies one cell inside
   its reach (MonsterVarieties `MaximumAttackDistance`, the Sand Spitter's 30; `MinimumAttackDistance` 6 is not read
-  yet) and a full ring sends it inward, so it stops where its attack covers the player instead of walking to the melee
+  yet; a ranged spell user such as the Maven keeps the larger of that and its aggro range, as the map affixes gave it:
+  between 2026-11-02 and 2026-11-03 every ranged attacker had that, and Spitters shot from 65 cells while walking)
+  and a full ring sends it inward, so it stops where its attack covers the player instead of walking to the melee
   contact ring (live 2026-10-29: Spitters chasing to the contact ring came in close).
-  Chase repaths have a separate 100 ms minimum interval and require at least three cells of Manhattan target change;
+  Chase repaths have a separate 100 ms minimum interval and require at least three cells of Manhattan target change,
+  except that a walk still under way is ordered again every 200 ms to the same cell: a lockstep client's monster stops
+  where a body blocks a step the estimate does not see (live 2026-11-03: Sand Spitters standing 1.5 s two cells into a
+  38-cell Move while the estimate walked 30), and only an order, from the estimate's cell, puts it back on its way;
   a chaser that stopped short of its cell retries it after arrival, at most every 0.5 s.
   This retains the current walk when the target moves slightly instead of repeatedly restarting its path.
   A hostile monster within reach stops and swings: 0x1ab with its skill, flags 0x0408 | 0x80, target the player,

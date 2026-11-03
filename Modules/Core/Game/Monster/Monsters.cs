@@ -122,7 +122,10 @@ static partial class Game
         // attack stats (0xc0000005, live 2026-10-31).
         bool spell = effect >= 0 && catalog.EffectStats(effect, level)
             .Any(s => s.Item1 == StatKeys.CastingSpell && s.Item2 != 0);
-        double reach = rangedAttack && !kingActor ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
+        // A ranged attack reaches its variety's MaximumAttackDistance (a Sand Spitter's 30): the monster walks up to that
+        // before it shoots, as GGG's do. A ranged spell (the Maven's and the Nucleus' barrages) keeps the aggro range it
+        // was given with the map affixes; the attack distance of such a variety is its melee fallback.
+        double reach = rangedAttack && !kingActor && spell ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
         double swing = !kingActor && effect >= 0 && catalog.IsSpell(effect) && catalog.CastTimeMs(effect) > 0
             ? catalog.CastTimeMs(effect) / 1000.0 : variety.AttackMs / 1000.0;
         // The King's two forms carry the official MeleeAtAnimationSpeedUnique ids (0x4001 humanoid, 0x4000 treant);
@@ -514,6 +517,15 @@ static partial class Game
                 if (m.Hostile && m.Attack is { } a && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin))
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action + conn.LockstepActionTail;
+                    if (ServerTrace.Ai && conn.LockstepClient && a.InPlace && m.Walk.Moving(now))
+                    {
+                        var frame = conn.LockstepFrame;
+                        var inFrame = frame is { } f ? m.Walk.Steps(f.Start, f.End) : [];
+                        var next = m.Walk.Steps(now, now + 1);
+                        Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) shoots while walking from ({mx}, {my}): frame {(frame is { } fr ? $"{fr.Start:0.000}-{fr.End:0.000}" : "none")}, "
+                            + $"steps in frame {inFrame.Count}{(inFrame.Count > 0 ? $" (first {inFrame[0].At:0.000} to {inFrame[0].Cell})" : "")}, "
+                            + $"next step {(next.Count > 0 ? $"{next[0].At:0.000} to {next[0].Cell}" : "none")}, walk ends {m.Walk.ArrivesAt:0.000} at {m.Walk.Destination} (t={now:0.000})");
+                    }
                     // A melee swing starts at the end of its walk-up. An attack during a Move ends that with
                     // 0x141e90740(…, 0), which does not stop the pathing: the monster swings while it walks on to the
                     // Move's end, on a lockstep client too (live 2026-11-03, 377 Sand Spitter shots ordered mid-Move: the
@@ -550,7 +562,7 @@ static partial class Game
                     double f = (m.StopRange - 1) / d;
                     (int X, int Y) to = ((int)Math.Round(px + (mx - px) * f), (int)Math.Round(py + (my - py) * f));
                     if (!conn.Layout.WalkableFor(to.X, to.Y, 0) || conn.Barrier.Contains(to)) to = (px, py);
-                    if (!cadence.TryChase(m, to, now)) continue;
+                    if (!cadence.TryChase(m, to, now, walking: now < m.Walk.ArrivesAt)) continue;
                     m.LastTarget = to;
                     m.SwingGeneration = null;
                     plan.Moves.Add((id, m, ++m.ActionGeneration, m.Walk.Order(to.X, to.Y, now), to, $"chases (distance {d:F0})"));
@@ -579,8 +591,9 @@ static partial class Game
                 // Standing in its cell already: it waits there for the swing (no order, no new path).
                 if ((asker.X, asker.Y) == to) { m.LastTarget = to; continue; }
                 // The repath budget and the three-cell change rule apply; the native budget can end a path short of its
-                // cell, so the same cell is retried after arrival on the bounded retry cadence.
-                if (!cadence.TryChase(m, to, now, retryAfterArrival: now >= m.Walk.ArrivesAt)) continue;
+                // cell, so the same cell is retried after arrival on the bounded retry cadence, and a walk still under
+                // way is ordered again on the chase cadence (MonsterAiCadence.TryChase).
+                if (!cadence.TryChase(m, to, now, retryAfterArrival: now >= m.Walk.ArrivesAt, walking: now < m.Walk.ArrivesAt)) continue;
                 m.LastTarget = to;
                 m.SwingGeneration = null;
                 plan.Moves.Add((asker.Id, m, ++m.ActionGeneration, m.Walk.Order(to.X, to.Y, now), to, $"chases (distance {d:F0})"));
