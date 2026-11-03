@@ -186,10 +186,17 @@ sealed class NpcCatalog
     public Talk? TalkOf(Npc npc, int index) => _talk.GetValueOrDefault((TalkSource(npc).Row, index));
 
     /// <summary>Every NPCTalk row of the NPC (its talk source's), by option index.</summary>
-    public IEnumerable<Talk> TalksOf(Npc npc) => _talk.Values.Where(t => t.Npc == TalkSource(npc).Row).OrderBy(t => t.Index);
+    public IEnumerable<Talk> TalksOf(Npc npc)
+    {
+        int source = TalkSource(npc).Row;
+        return _talk.Values.Where(t => t.Npc == source).OrderBy(t => t.Index);
+    }
 
-    public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags) =>
-        _talk.Values.Any(t => t.Npc == TalkSource(npc).Row && t.RewardOffer == offer && t.Available(flags));
+    public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags)
+    {
+        int source = TalkSource(npc).Row;
+        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer && t.Available(flags));
+    }
 
     /// <summary>The quest reward offers any NPC currently shows (the quests complete), for the vendors' gem stock.</summary>
     public IReadOnlySet<int> AvailableRewards(IReadOnlySet<string> flags) =>

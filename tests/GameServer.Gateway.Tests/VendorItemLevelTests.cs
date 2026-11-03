@@ -13,6 +13,19 @@ public class VendorItemLevelTests
         var catalog = new ItemCatalog("data");
         var rewards = QuestRewardCatalog.Load();
         var npcs = NpcCatalog.Load(); var skills = new SkillCatalog();
+        var kiracHideout = npcs.Find("Metadata/NPC/Epilogue/KiracHideout")!;
+        var kiracSource = npcs.TalkSource(kiracHideout);
+        Assert.NotEqual(kiracHideout.Row,kiracSource.Row);
+        var kiracTalks = npcs.TalksOf(kiracHideout).ToArray();
+        Assert.Equal(npcs.TalksOf(kiracSource),kiracTalks);
+        Assert.Contains(kiracTalks,t => t.Category == "BuyItems");
+        Assert.All(kiracTalks,t => Assert.Equal(t,npcs.TalkOf(kiracHideout,t.Index)));
+        var nessa = npcs.Find("Metadata/NPC/Act1/Nessa")!;
+        var alias = nessa with { Row = -1 };
+        var rewardTalk = npcs.TalksOf(nessa).First(t => t.RewardOffer is not null && t.RequiredFlags.Count > 0);
+        Assert.True(npcs.HasAvailableReward(alias,rewardTalk.RewardOffer!.Value,rewardTalk.RequiredFlags.ToHashSet()));
+        Assert.Equal(npcs.HasAvailableReward(nessa,rewardTalk.RewardOffer.Value,new HashSet<string>()),
+            npcs.HasAvailableReward(alias,rewardTalk.RewardOffer.Value,new HashSet<string>()));
         var gems = GemVendorStock.For(catalog,npcs,skills);
         Assert.Same(gems,GemVendorStock.For(catalog,npcs,skills));
         Assert.NotSame(gems,GemVendorStock.For(catalog,npcs,skills,supportGems:false));
