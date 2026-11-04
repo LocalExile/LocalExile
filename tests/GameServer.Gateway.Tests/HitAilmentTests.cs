@@ -95,6 +95,14 @@ public sealed class HitAilmentTests
         target.Walk.Order(155, 100, 0);
         Assert.True(target.Walk.Moving(0.1));
         Assert.Equal(3 * still, Game.BleedTaken(target, 0.1), 6);
+        // Modifiers to hits never reach it (wiki Bleeding); a bleed support's more multiplier does, and not the poison.
+        double poison = Game.DefaultAttackPoison(conn, Game.CharacterPlayerStats(conn)).Max;
+        conn.PlayerStats[Program.Stats.Key("melee_damage_+%")!.Value] = 100;
+        conn.PlayerStats[Program.Stats.Key("attack_damage_+%")!.Value] = 100;
+        Assert.Equal(settings.Max, Bleed().Max, 6);
+        conn.PlayerStats[Program.Stats.Key("support_chance_to_bleed_bleeding_damage_+%_final")!.Value] = 50;
+        Assert.Equal(1.5, Bleed().Max / settings.Max, 2);
+        Assert.Equal(poison, Game.DefaultAttackPoison(conn, Game.CharacterPlayerStats(conn)).Max, 6);
         conn.PlayerStats[Program.Stats.Key("cannot_cause_bleeding")!.Value] = 1;
         Assert.Equal(MonsterIgnites.Settings.None, Bleed());
     });
