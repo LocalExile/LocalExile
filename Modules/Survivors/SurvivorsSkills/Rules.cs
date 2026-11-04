@@ -642,6 +642,83 @@ static partial class SurvivorsSkills
         : Supports.Of(skill.Effect)?.Types.Contains(7) == true ? CastAnimationKind.Area
         : CastAnimationKind.Projectile;
 
+    /// <summary>The client effect that marks an experience orb on the ground. The kinetic-rain keeper orb is a small
+    /// looping sphere the client already ships; an unseen orb would make the pickup read as a random level-up.</summary>
+    internal const string SurvivorsOrbArt = "Metadata/Effects/Microtransactions/Spells/kinetic_rain/keepers/orb.ao";
+
+    /// <summary>How many orbs can lie at once; beyond this the oldest orb carries the new experience, like the
+    /// reference's merged gems.</summary>
+    internal const int SurvivorsOrbCap = 200;
+
+    /// <summary>Drops one monster's experience as an orb at the kill cell. The client object is a permanent effect;
+    /// the run tick removes it when the player passes within <see cref="SurvivorsRules.OrbPickupRadius"/>.</summary>
+    internal static async Task SurvivorsDropOrb(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, (int X, int Y) at, int experience)
+    {
+        if (experience <= 0 || StateOf(conn).Survivors is null) return;
+        uint id;
+        lock (conn.Monsters)
+        {
+            if (StateOf(conn).Survivors is null) return;
+            var orbs = StateOf(conn).SurvivorsOrbs;
+            if (orbs.Count >= SurvivorsOrbCap)
+            {
+                var oldest = orbs[0];
+                orbs[0] = oldest with { Experience = oldest.Experience + experience };
+                return;
+            }
+            id = conn.NextObjectId++;
+            orbs.Add(new(id, at.X, at.Y, experience));
+        }
+        await Send(remote, stream, ciphers,
+            InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(at.X, at.Y, SurvivorsOrbArt).Blob()),
+            $"0x02b9 survivors xp orb 0x{id:x} {experience} xp at ({at.X}, {at.Y})",
+            still: () => StateOf(conn).Survivors is not null);
+        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null,
+            still: () => StateOf(conn).Survivors is not null);
+    }
+
+    /// <summary>Collects every orb inside the pickup radius around the player and pays its experience.</summary>
+    internal static async Task SurvivorsCollectOrbs(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, SurvivorsRun run)
+    {
+        if (StateOf(conn).Survivors is null || conn.PlayerLife == 0) return;
+        var here = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        List<SurvivorsExperienceOrb> taken;
+        lock (conn.Monsters)
+        {
+            var orbs = StateOf(conn).SurvivorsOrbs;
+            taken = SurvivorsOrbsInReach(orbs, here, SurvivorsRules.OrbPickupRadius);
+            foreach (var orb in taken) orbs.Remove(orb);
+        }
+        foreach (var orb in taken)
+        {
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(orb.Id), null,
+                still: () => StateOf(conn).Survivors is not null);
+            run.RecordOrbExperience(orb.Experience);
+        }
+    }
+
+    /// <summary>The orbs a player at <paramref name="here"/> can pick up: the pure part of the pickup, so the radius
+    /// rule can be checked without a live area.</summary>
+    internal static List<SurvivorsExperienceOrb> SurvivorsOrbsInReach(IReadOnlyList<SurvivorsExperienceOrb> orbs,
+        (int X, int Y) here, double radius) =>
+        [.. orbs.Where(orb => Dist(here, (orb.X, orb.Y)) <= radius)];
+
+    /// <summary>Removes the run's orbs from the client and the state (run end or a fresh start).</summary>
+    internal static async Task SurvivorsClearOrbs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        uint[] ids;
+        lock (conn.Monsters)
+        {
+            ids = [.. StateOf(conn).SurvivorsOrbs.Select(orb => orb.Id)];
+            StateOf(conn).SurvivorsOrbs.Clear();
+        }
+        foreach (uint id in ids)
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
+    }
+
     /// <summary>One cast's computed numbers, before the live part (positions, aims, packets) needs a monster.</summary>
     internal sealed record SurvivorsComputedCast(double Interval, SurvivorsSkill Skill, int Rank, int Count,
         ProjectileSkillDefinition? Definition, ProjectileProfile? Profile, ProjectileOffense? Shot, bool Toughest,

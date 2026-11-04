@@ -17,8 +17,11 @@ Ordinary leagues do not load these modules for their players.
 
 The run is a seven-stage horde: 14 monsters alive at the start, 220 at the reference run's end, refilled every 0.12 s by
 a sixth of the gap (at most 4 a step) from three consecutive tiers of the area's roster, exactly the reference's curve.
-Monster life and damage both grow +250% over the run, and monster hits on the player deal 60% of their damage
-(Fortitude lowers it 1/1.2 a level), so standing still is not safe.
+Monster life is **6× the reference curve** (x6 at the start, x21 by the bell) and damage grows +250% over the run;
+monster hits on the player deal 60% of their damage (Fortitude lowers it 1/1.2 a level), so standing still is not safe.
+Each kill leaves its experience as an **orb on the ground**: the client's kinetic-rain keeper orb effect at the death
+cell. The run tick collects every orb within 10 world units of the player, so the player has to pass near the corpses;
+at most 200 orbs lie at once and a further kill merges into the oldest. A boss pays its ladder experience the same way.
 Every 20 s a ring of the area's ranged varieties (archers, wands, mortars) spawns at 22 cells and shoots; a closing
 surround ring follows halfway through each 135 s boss cycle: the player has to move, not just out-heal.
 Each 2-minute stage runs its horde and its area's own champions (the lore boss 15 s in, another every 60 s); when the

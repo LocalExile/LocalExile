@@ -197,6 +197,13 @@ public static class SurvivorsRules
     /// <summary>Monster life over a run: +250% by the end, so a late kill takes several casts.</summary>
     public static double MonsterLifeScale(double elapsed) => 1 + 2.5 * Progress(elapsed);
 
+    /// <summary>The horde's extra life on top of the reference curve: the playtest asks for enemies at least five
+    /// times tougher, so a pack survives long enough to matter.</summary>
+    public const double EnemyLifeMultiplier = 6;
+
+    /// <summary>How close the player must pass to an experience orb to collect it (world units).</summary>
+    public const double OrbPickupRadius = 10;
+
     /// <summary>Monster damage over a run: +250% by the end, so standing still is punished.</summary>
     public static double MonsterDamageScale(double elapsed) => 1 + 2.5 * Progress(elapsed);
 
@@ -348,11 +355,16 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
         lock (_gate) Elapsed += seconds;
     }
 
+    /// <summary>Counts a kill. Its experience now lies on the ground as an orb (<see cref="RecordOrbExperience"/>).</summary>
     public int RecordKill(MonsterRarity rarity)
     {
         lock (_gate) Kills++;
-        return RecordExperience(SurvivorsRules.ExperienceForKill(rarity) * ExperiencePercent / 100);
+        return PendingChoices;
     }
+
+    /// <summary>Collects one experience orb, with the Wisdom (growth) blessing applied.</summary>
+    public int RecordOrbExperience(int experience) =>
+        RecordExperience(experience * ExperiencePercent / 100);
 
     /// <summary>Adds run experience (a kill, a boss bonus) and returns the pending choices after any level-ups.</summary>
     public int RecordExperience(int amount)

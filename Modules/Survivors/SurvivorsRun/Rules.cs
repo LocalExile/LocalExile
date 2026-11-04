@@ -210,6 +210,7 @@ static partial class SurvivorsRunRules
     internal static async Task EndSurvivors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         if (StateOf(conn).Survivors is not { } run) return;
+        await SurvivorsClearOrbs(remote, stream, ciphers, conn);
         Release(conn, run);
         SurvivorsCarried.TryRemove(conn.Ticket, out _);
         await SurvivorsClearHeralds(remote, stream, ciphers, conn);
@@ -264,7 +265,7 @@ static partial class SurvivorsRunRules
             var roster = SurvivorsRosterFor(conn);
             var lines = new List<string>
             {
-                "--- Survivors curve (14 -> 500 horde, +75% life, +180% damage, a boss a minute) ---:",
+                "--- Survivors curve (14 -> 220 horde, x6 life, +250% damage, a boss a minute) ---:",
                 " time   horde  monster life  monster damage  boss life  boss xp  rank damage",
             };
             for (int step = 0; step <= 7; step++)
@@ -276,7 +277,8 @@ static partial class SurvivorsRunRules
                     0 => "1 x1.00", <= 2 => "4 x1.90", <= 4 => "6 x2.50", _ => "8 x3.10",
                 };
                 lines.Add($"{SurvivorsClock(t)}  {SurvivorsRules.TargetAlive(t),5}  " +
-                    $"x{SurvivorsRules.MonsterLifeScale(t):0.00}          x{SurvivorsRules.MonsterDamageScale(t):0.00}          " +
+                    $"x{SurvivorsRules.MonsterLifeScale(t) * SurvivorsRules.EnemyLifeMultiplier:0.00}          " +
+                    $"x{SurvivorsRules.MonsterDamageScale(t):0.00}          " +
                     $"x{SurvivorsRules.BossLifeRatio(stage),5:0.00}  +{SurvivorsRules.BossExperience(stage),4}  {rank}");
             }
             if (roster is { } area)
@@ -307,7 +309,11 @@ static partial class SurvivorsRunRules
         {
             if (StateOf(conn).Survivors is not { } levelling) { await conn.Commands!.Reply("No survivors run is active."); return; }
             int before = levelling.Level;
-            for (int i = 0; i < 4; i++) levelling.RecordKill(MonsterRarity.Unique);
+            for (int i = 0; i < 4; i++)
+            {
+                levelling.RecordKill(MonsterRarity.Unique);
+                levelling.RecordExperience(SurvivorsRules.LevelRequirement(levelling.Level));
+            }
             await conn.Commands!.Reply($"Run level {before} -> {levelling.Level} (dev).");
             return;
         }
@@ -518,15 +524,21 @@ static partial class SurvivorsRunRules
                 run.Advance(step);
                 if (InGracePeriod(conn)) await EndGracePeriod(remote, stream, ciphers, conn, action: true);
                 if (conn.PlayerLife == 0) { await EndSurvivors(remote, stream, ciphers, conn, "defeat"); break; }
-                // The stage's own champions pay their ladder experience when they fall.
+                await SurvivorsCollectOrbs(remote, stream, ciphers, conn, run);
+                // The stage's own champions pay their ladder experience as an orb when they fall.
                 foreach (var (id, total) in bossBonuses.ToList())
                 {
                     bool dead;
-                    lock (conn.Monsters) dead = !conn.Monsters.TryGetValue(id, out var boss) || boss.Dead || boss.Life == 0;
+                    (int X, int Y) at;
+                    lock (conn.Monsters)
+                    {
+                        dead = !conn.Monsters.TryGetValue(id, out var boss) || boss.Dead || boss.Life == 0;
+                        at = conn.Monsters.TryGetValue(id, out var fallen) ? fallen.Walk.Position(now) : conn.Walk.Position(now);
+                    }
                     if (!dead) continue;
                     bossBonuses.Remove(id);
                     int bonus = total - SurvivorsRules.ExperienceForKill(MonsterRarity.Unique);
-                    if (bonus > 0) run.RecordExperience(bonus);
+                    if (bonus > 0) await SurvivorsDropOrb(remote, stream, ciphers, conn, at, bonus);
                     await conn.Commands!.Reply(id == stageBoss
                         ? $"{bossName} falls. +{total} run experience."
                         : id == gateFight?.BossId
@@ -793,11 +805,11 @@ static partial class SurvivorsRunRules
     internal static string SurvivorsAreaName(string id) =>
         AreaTransitionCatalog.HashOf(id) is { } hash ? AreaTransitionCatalog.NameOf(hash) ?? id : id;
 
-    /// <summary>A spawned monster's mods for the run's clock: +75% life and +90% damage at 15:00, as the monster mods'
-    /// own stats (MonsterModEffects).</summary>
+    /// <summary>A spawned monster's mods for the run's clock: the reference's life/damage curves scaled by the
+    /// playtest enemy-life multiplier (6x), so a pack survives long enough to matter.</summary>
     internal static MonsterModSet SurvivorsMonsterMods(double elapsed)
     {
-        int life = (int)Math.Round((SurvivorsRules.MonsterLifeScale(elapsed) - 1) * 100);
+        int life = (int)Math.Round((SurvivorsRules.MonsterLifeScale(elapsed) * SurvivorsRules.EnemyLifeMultiplier - 1) * 100);
         int damage = (int)Math.Round((SurvivorsRules.MonsterDamageScale(elapsed) - 1) * 100);
         if (life <= 0 && damage <= 0) return MonsterModSet.None;
         return MonsterModSet.None with

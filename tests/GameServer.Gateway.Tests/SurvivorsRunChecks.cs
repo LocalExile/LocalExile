@@ -6,6 +6,14 @@ namespace GameServer.Gateway.Tests;
 
 public class SurvivorsRunTests
 {
+    // A test kill with its orb already collected: the live path leaves the orb on the ground and the run tick picks
+    // it up when the player passes near.
+    static int Kill(SurvivorsRun run, MonsterRarity rarity)
+    {
+        run.RecordKill(rarity);
+        return run.RecordOrbExperience(SurvivorsRules.ExperienceForKill(rarity));
+    }
+
     public void The_horde_grows_from_fourteen_to_the_cap()
     {
         Assert.Equal(14, SurvivorsRules.TargetAlive(0));
@@ -96,6 +104,20 @@ public class SurvivorsRunTests
         Assert.Equal(3.5, SurvivorsRules.MonsterDamageScale(900), 6);
         Assert.Equal(3.5, SurvivorsRules.MonsterLifeScale(9000), 6);
         Assert.Equal(3.5, SurvivorsRules.MonsterDamageScale(9000), 6);
+        // The playtest asks for enemies at least five times tougher on top of the reference curve.
+        Assert.True(SurvivorsRules.EnemyLifeMultiplier >= 5);
+        Assert.Equal(6, SurvivorsRules.EnemyLifeMultiplier, 6);
+    }
+
+    public void Experience_orbs_are_collected_only_inside_the_radius()
+    {
+        SurvivorsExperienceOrb[] orbs =
+        [
+            new(1, 0, 0, 2), new(2, 9, 0, 4), new(3, 11, 0, 10),
+        ];
+        var taken = SurvivorsSkills.SurvivorsOrbsInReach(orbs, (0, 0), SurvivorsRules.OrbPickupRadius);
+        Assert.Equal([1u, 2u], taken.Select(orb => orb.Id));
+        Assert.Equal(10, SurvivorsRules.OrbPickupRadius, 6);
     }
 
     public void A_run_hit_reaches_the_spawn_ring()
@@ -166,10 +188,10 @@ public class SurvivorsRunTests
     {
         var run = new SurvivorsRun();
         // A normal kill is worth 2: the first level needs 5, so the third kill levels the run.
-        for (int i = 0; i < 2; i++) Assert.Equal(0, run.RecordKill(MonsterRarity.Normal));
+        for (int i = 0; i < 2; i++) Assert.Equal(0, Kill(run, MonsterRarity.Normal));
 
         Assert.Equal(1, run.Level);
-        Assert.Equal(1, run.RecordKill(MonsterRarity.Normal));
+        Assert.Equal(1, Kill(run, MonsterRarity.Normal));
         Assert.Equal(2, run.Level);
         Assert.Equal(1, run.Experience);
         Assert.Equal(1, run.PendingChoices);
@@ -180,7 +202,7 @@ public class SurvivorsRunTests
     {
         var run = new SurvivorsRun();
 
-        Assert.Equal(3, run.RecordKill(MonsterRarity.Unique));
+        Assert.Equal(3, Kill(run, MonsterRarity.Unique));
 
         Assert.Equal(4, run.Level);
         Assert.Equal(5, run.Experience);
@@ -192,7 +214,7 @@ public class SurvivorsRunTests
         // An unlinked skill is offered its missing supports first: six distinct ones, nothing else.
         var opening = new SurvivorsRun();
         opening.Learn(0);
-        opening.RecordKill(MonsterRarity.Unique);
+        Kill(opening, MonsterRarity.Unique);
         var supports = opening.DealOffer(new Random(1), 8, 8, 8);
         Assert.Equal(SurvivorsRules.MaxOffers, supports.Count);
         Assert.Equal(SurvivorsRules.MaxOffers, supports.Select(c => (c.Kind, c.Index, c.Target)).Distinct().Count());
@@ -206,7 +228,7 @@ public class SurvivorsRunTests
             var r = new SurvivorsRun();
             r.Learn(0);
             for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) r.Link(0, support);
-            r.RecordKill(MonsterRarity.Unique);
+            Kill(r, MonsterRarity.Unique);
             return r.DealOffer(new Random(seed), 8, 8, 8, stage: 1);
         }).Select(c => c.Kind).ToHashSet();
         Assert.Contains(SurvivorsChoiceKind.NewSkill, complete);
@@ -219,13 +241,13 @@ public class SurvivorsRunTests
         var unfinished = new SurvivorsRun();
         unfinished.Learn(0);
         for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill - 1; support++) unfinished.Link(0, support);
-        unfinished.RecordKill(MonsterRarity.Unique);
+        Kill(unfinished, MonsterRarity.Unique);
         Assert.DoesNotContain(unfinished.DealOffer(new Random(1), 8, 8, 8), c => c.Kind == SurvivorsChoiceKind.NewSkill);
 
         var finished = new SurvivorsRun();
         finished.Learn(0);
         for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) finished.Link(0, support);
-        finished.RecordKill(MonsterRarity.Unique);
+        Kill(finished, MonsterRarity.Unique);
         Assert.Contains(
             Enumerable.Range(0, 30).SelectMany(seed => finished.DealOffer(new Random(seed), 8, 8, 8, stage: 1)),
             c => c.Kind == SurvivorsChoiceKind.NewSkill);
@@ -238,7 +260,7 @@ public class SurvivorsRunTests
                 var r = new SurvivorsRun();
                 r.Learn(0);
                 for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) r.Link(0, support);
-                r.RecordKill(MonsterRarity.Unique);
+                Kill(r, MonsterRarity.Unique);
                 return r;
             },
             c => c.Kind == SurvivorsChoiceKind.NewSkill, skillCatalog: 8, blessingCatalog: 0, supportCatalog: 0, stage: 1);
@@ -261,7 +283,7 @@ public class SurvivorsRunTests
             run.Learn(skill);
             Assert.True(run.SetRank(skill, SurvivorsRules.MaxRank));
         }
-        run.RecordKill(MonsterRarity.Unique);
+        Kill(run, MonsterRarity.Unique);
 
         var offer = run.DealOffer(new Random(5), 8, 0, 8);
 
@@ -278,7 +300,7 @@ public class SurvivorsRunTests
         run.Learn(1);
         run.SetRank(0, SurvivorsRules.MaxRank);
         run.SetRank(1, SurvivorsRules.MaxRank);
-        run.RecordKill(MonsterRarity.Unique);
+        Kill(run, MonsterRarity.Unique);
         var allowed = new HashSet<(int Skill, int Support)> { (0, 2), (1, 1) };
 
         var offer = run.DealOffer(new Random(1), 2, 0, 4, null, (skill, support) => allowed.Contains((skill, support)));
@@ -297,7 +319,7 @@ public class SurvivorsRunTests
             run.SetRank(skill, SurvivorsRules.MaxRank);
             for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) run.Link(skill, support);
         }
-        run.RecordKill(MonsterRarity.Unique);
+        Kill(run, MonsterRarity.Unique);
 
         // A catalogue of one blessing always offers that blessing (Might): nothing else is left in the pool.
         var offer = run.DealOffer(new Random(3), 8, 1, 0);
@@ -348,7 +370,7 @@ public class SurvivorsRunTests
                 var r = new SurvivorsRun();
                 r.Learn(0);
                 for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) r.Link(0, support);
-                while (r.Level < 3) r.RecordKill(MonsterRarity.Normal);
+                while (r.Level < 3) Kill(r, MonsterRarity.Normal);
                 return r;
             },
             c => c.Kind == SurvivorsChoiceKind.Item, itemPool: [0, 1]);
@@ -361,7 +383,7 @@ public class SurvivorsRunTests
             var r = new SurvivorsRun();
             r.Learn(0);
             for (int support = 0; support < SurvivorsRules.MaxSupportsPerSkill; support++) r.Link(0, support);
-            while (r.Level < 3) r.RecordKill(MonsterRarity.Normal);
+            while (r.Level < 3) Kill(r, MonsterRarity.Normal);
             return r.DealOffer(new Random(seed), 8, 8, 8, [1]).Where(c => c.Kind == SurvivorsChoiceKind.Item).ToList();
         }).First(items => items.Count > 0));
         Assert.Equal(1, later.Index);
@@ -370,7 +392,7 @@ public class SurvivorsRunTests
     public void A_run_with_every_slot_mastered_offers_a_heal()
     {
         var run = MaxEverything();
-        run.RecordKill(MonsterRarity.Unique);
+        Kill(run, MonsterRarity.Unique);
 
         var offer = run.DealOffer(new Random(1), SurvivorsRules.MaxSkills, SurvivorsRules.MaxBlessings, 0);
 
@@ -429,7 +451,7 @@ public class SurvivorsRunTests
     {
         var run = new SurvivorsRun();
         run.Learn(0);
-        run.RecordKill(MonsterRarity.Unique);
+        Kill(run, MonsterRarity.Unique);
         var offer = run.DealOffer(new Random(3), 8, 8, 8);
         int before = run.PendingChoices;
 
@@ -444,9 +466,9 @@ public class SurvivorsRunTests
     {
         var run = new SurvivorsRun();
         run.Learn(0);
-        run.RecordKill(MonsterRarity.Unique);
+        Kill(run, MonsterRarity.Unique);
         var first = run.DealOffer(new Random(11), 8, 8, 8);
-        run.RecordKill(MonsterRarity.Unique);
+        Kill(run, MonsterRarity.Unique);
 
         Assert.Equal(first, run.DealOffer(new Random(99), 8, 8, 8));
         Assert.Equal(4, run.PendingChoices);

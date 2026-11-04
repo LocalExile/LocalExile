@@ -40,4 +40,9 @@ sealed class SurvivorsState
     public readonly List<ushort> SurvivorsHeraldBuffs = [];
     /// <summary>The catalogue indices of the heralds already published as auras.</summary>
     public readonly HashSet<int> SurvivorsHeraldSkills = [];
+    /// <summary>The experience orbs on the ground of the current area, oldest first.</summary>
+    public readonly List<SurvivorsExperienceOrb> SurvivorsOrbs = [];
 }
+
+/// <summary>One experience orb: its client object id, where it lies, and the raw experience it pays when collected.</summary>
+sealed record SurvivorsExperienceOrb(uint Id, int X, int Y, int Experience);

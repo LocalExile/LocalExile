@@ -20,7 +20,12 @@ public sealed class SurvivorsRunModule : IModule
         });
         module.Lifetime.Own(GameEvents.Kill.Add("SurvivorsRun", kill =>
         {
-            if (kill.Monster.Hostile) StateOf(kill.Conn).Survivors?.RecordKill(kill.Monster.Rarity);
+            if (!kill.Monster.Hostile || StateOf(kill.Conn).Survivors is not { } run) return;
+            run.RecordKill(kill.Monster.Rarity);
+            // Experience waits on the ground as an orb; the run tick collects it when the player passes near.
+            int experience = SurvivorsRules.ExperienceForKill(kill.Monster.Rarity);
+            var (remote, stream, ciphers) = kill.Conn.Wire;
+            kill.Later(() => SurvivorsDropOrb(remote, stream, ciphers, kill.Conn, kill.At, experience));
         }));
         module.Lifetime.Own(GameEvents.LootAllowed.Add("SurvivorsRun", conn => StateOf(conn).Survivors is null));
         module.Lifetime.Own(GameEvents.IncomingDamage.Add("SurvivorsRun", (conn, damage) =>

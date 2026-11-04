@@ -126,6 +126,7 @@ static partial class SurvivorsRunRules
     internal static void Release(ClientState conn, SurvivorsRun? expected = null)
     {
         ushort[] buffs;
+        uint[] orbs;
         bool closeWindow, wasPaused;
         lock (conn.Monsters)
         {
@@ -134,6 +135,8 @@ static partial class SurvivorsRunRules
             buffs = [.. state.SurvivorsHeraldBuffs];
             state.SurvivorsHeraldBuffs.Clear();
             state.SurvivorsHeraldSkills.Clear();
+            orbs = [.. state.SurvivorsOrbs.Select(orb => orb.Id)];
+            state.SurvivorsOrbs.Clear();
             closeWindow = state.SurvivorsOffer is not null;
             wasPaused = state.SurvivorsPausedByWindow;
             state.Cancellation?.Cancel();
@@ -170,6 +173,8 @@ static partial class SurvivorsRunRules
                         "0x01d3 resumed (the survivors run ended)");
                 foreach (ushort buff in buffs)
                     await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), "survivors retired aura");
+                foreach (uint orb in orbs)
+                    await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(orb), "survivors retired xp orb");
                 if (closeWindow)
                     await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "survivors retired reward window",
                         still: () => StateOf(conn).Survivors is null);
