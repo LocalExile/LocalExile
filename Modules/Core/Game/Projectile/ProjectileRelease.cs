@@ -16,9 +16,10 @@ static partial class Game
         Skills.IsAttack(effect) && Skills.WeaponRestrictions(effect).Contains(BowClassRow);
 
     /// <summary>Tornado Shot's primary arrow travels only to the targeted location, then releases its child group;
-    /// it must not keep flying to the generic projectile range. Other projectiles keep their full range.</summary>
-    internal static double PrimaryRange(string? effect, double range, double targetDistance) =>
-        effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
+    /// it must not keep flying to the generic projectile range. Arrow Nova's payload arrow lands at the aim before its
+    /// volley, so it stops there too. Other projectiles keep their full range.</summary>
+    internal static double PrimaryRange(string? effect, double range, double targetDistance, bool toTarget = false) =>
+        toTarget || effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
             ? Math.Min(range, Math.Max(.001, targetDistance)) : range;
 
     /// <summary>The shared client fan for a multi-arrow use. Attack gems and ordinary bow shots otherwise used the
@@ -244,6 +245,9 @@ static partial class Game
         var target = ProjectileSession.Vector(aim);
         var direction = (target - origin).Unit;
         bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
+        // Arrow Nova fires one payload arrow to the aim, then the skill's arrows in a circle from there.
+        bool rain = SkillsFor(conn).IsAttack(gem.Effect)
+            && (Get("projectiles_rain") != 0 || Get("skill_is_rain_skill") != 0);
         // An attack gem leaves from its weapon's contact keyframe, as the default attack's shot does: puncture_bow (Burning
         // Arrow's clip) has attack1_bow's contact and position. Released at the feet 1.5 cells ahead, the arrow showed up
         // inside the body at the ground instead of at the bow.
@@ -254,7 +258,7 @@ static partial class Game
         // A point closer than the muzzle must not end up behind the released projectile.
         origin += direction * Math.Min(ahead, (target - origin).Length / 2);
         profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range,
-            (target - origin).Length) };
+            (target - origin).Length, toTarget: rain) };
         if (!spell) profile = NativeVolley(profile, Get);
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
@@ -290,7 +294,9 @@ static partial class Game
             // An attack gem's does not: Burning Arrow's action 0x415 started and created no projectile until the server's
             // 0x2b9, as the default attack's arrow (Frida 2026-10-31).
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
-            ClientPredicted = spell || SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow",
+            // Arrow Nova's payload and circular volley are also drawn by the client (Frida 2026-11-04: the 18
+            // SplitArrowDefault children were client objects), so the server only simulates their damage.
+            ClientPredicted = spell || rain || SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow",
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
             Presentation = release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };

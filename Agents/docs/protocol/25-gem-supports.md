@@ -118,6 +118,14 @@ in the middle; the client draws each effect half a radius toward the caster, so 
 Not built: the client's per-area delay (`support_spell_cascade_area_delay_+%`) and whether the damage penalty applies
 to the centre area as well as the repeats (the stat is applied to every area, as PoB does).
 
+Arrow Nova turns a supported bow attack into one payload arrow that lands at the aimed cell and fires the skill's
+whole volley in a circle from there (`projectiles_rain` and `skill_is_rain_skill`). Captured from the 3.29.3b client
+on 2026-11-04 (Split Arrow, 18 arrows): every child started on the aim cell and the directions were exactly 20 degrees
+apart, the first on the aim ray, about 0.66 s after the use at 33 cells; the client drew both the payload and the
+children (`ClientPredicted`). `ArrowNovaChildren` makes the payload one non-damaging lobbed arrow whose end emission
+is the skill's radial volley; the child count takes the shared modifier pass's extra arrows. Not built: the payload's
+airborne arc and its exact flight time (the skill's projectile speed sets it) and the per-child launch order.
+
 Red and blue supports whose stats had no consumer now apply too: Maim's `maim_on_hit_%` maims for 4 s and a maimed
 monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physical damage and 30% reduced movement
 (PoB's Maimed condition); Bloodlust's more melee physical damage applies against a bleeding enemy; Pulverise's
@@ -162,7 +170,7 @@ Triggers, totems, mines, minion behaviour, attack repeats, projectile branching,
 still require their own execution paths.
 Second Wind's extra cooldown use needs multi-use cooldown state (one stored use is all that is tracked); Momentum's
 stacks need a skill-use and movement signal; Barrage and Arrow Nova need their own release patterns, not a stat.
-Unleash's seals, minion damage on summoned minions, Arrow Nova's landing pattern and
+Unleash's seals, minion damage on summoned minions and
 the curses that Blasphemy and Hextouch would apply still need their own mechanics or client-side geometry.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
 Only the unconditional damage keys listed by GemSupportDamage and the five target conditions above receive

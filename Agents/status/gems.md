@@ -95,6 +95,9 @@ Nothing yet.
   Spell Cascade places its extra areas one effective radius apart in a line, and across the aim with Greater and
   Awakened `support_spell_cascade_sideways`, so the aimed centre still lands the main hit; captured from the 3.29.3b
   client (2026-11-04): Reap's five Awakened areas were 28-29 cells apart at a 28.5 effective radius.
+  Arrow Nova fires one payload arrow to the aim and then the skill's whole volley in a circle from there (18 arrows
+  20 degrees apart for Split Arrow in the same capture); its payload, children and the client's own drawing are
+  documented in [25](../docs/protocol/25-gem-supports.md).
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
 - **Culling Strike.** Melee, area and projectile hits cull at 10% Life; Cull the Weak culls normal and magic enemies at
