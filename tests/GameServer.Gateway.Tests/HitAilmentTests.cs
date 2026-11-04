@@ -189,8 +189,7 @@ public sealed class HitAilmentTests
         {
             PlayerInventories.Forget(conn.Character!);
             Program.SetGameLogic(previousLogic!);
-            Saves.Db.Dispose();
-            foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
+            GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
     }
 }
