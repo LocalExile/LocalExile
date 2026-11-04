@@ -15,6 +15,11 @@ sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int Spawn
     public (uint Id, TransitionEffect Effect)[] Effects { get; init; } = [];
     public Func<int, int, int, bool>? Clearance { get; init; }
 
+    /// <summary>The client's projectile grid (its walk layer 1: 0 stops projectiles, 1 … 5 a distance from what does;
+    /// 0 outside the map), from the capture's <c>.projectile.bin</c> or the generated level: what a walk-up's line to
+    /// its target is tested on (<see cref="GameServer.Core.World.ClientPathfinder.InReach"/>). Null without one.</summary>
+    public Func<int, int, int>? Sight { get; init; }
+
     /// <summary>A generated layout's named entrance point for a player arriving from an area
     /// (<see cref="AreaTransitionCatalog.EntrancePoint"/>), used when no exit leads back there (a one-way entrance).</summary>
     public Func<ushort, (int X, int Y)?>? EntranceFrom { get; init; }
@@ -38,7 +43,7 @@ sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int Spawn
         ?? (Walkable?.Invoke(x, y) != false);
 
     public string Describe() =>
-        $"area {Id} (0x{Hash:x4}) grid {GridW}x{GridH} spawn ({SpawnX}, {SpawnY}), {(Walkable is null ? "no walkability" : "walkability")}, {AreaTransitions.Length} area transition(s)" +
+        $"area {Id} (0x{Hash:x4}) grid {GridW}x{GridH} spawn ({SpawnX}, {SpawnY}), {(Walkable is null ? "no walkability" : "walkability")}{(Sight is null ? "" : ", projectile grid")}, {AreaTransitions.Length} area transition(s)" +
         (Waypoint is { } w ? $", waypoint at ({w.GridX}, {w.GridY})" : "");
 
     // One-way entries have no exit back to stand next to: the arrival is the layout's named entrance point
@@ -130,20 +135,21 @@ static class AreaLayouts
     {
         // An area the port reproduces is generated here from the seed; any other needs the client's capture.
         if (ServerLevels.For(id, seed) is { } generated)
-            return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height) with
+            return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height,
+                SightOf(generated.Projectile, generated.Width, generated.Height)) with
             {
                 CellHeights = generated.Heights,
                 EntranceFrom = from => AreaTransitionCatalog.EntrancePoint(hash, generated.Entrances, from),
                 Level = generated,
             };
         byte[]? cells = LoadCells(id, seed, out int w, out int h);
-        return WithCells(hash, id, seed, cells, w, h);
+        return WithCells(hash, id, seed, cells, w, h, LoadSight(id, seed));
     }
 
-    static AreaLayout WithCells(ushort hash, string id, uint seed, byte[]? cells, int w, int h)
+    static AreaLayout WithCells(ushort hash, string id, uint seed, byte[]? cells, int w, int h, Func<int, int, int>? sight)
     {
         var layout = WithTransitions(hash, id, seed, cells, w, h);
-        return layout with { Effects = AreaTransitionCatalog.Effects(id, seed) };
+        return layout with { Effects = AreaTransitionCatalog.Effects(id, seed), Sight = sight };
     }
 
     static AreaLayout WithTransitions(ushort hash, string id, uint seed, byte[]? cells, int w, int h)
@@ -266,6 +272,29 @@ static class AreaLayouts
             return null;
         }
     }
+
+    /// <summary>The capture's projectile grid beside its walk map (scripts/walkmaps: <c>&lt;id&gt;_seed&lt;seed&gt;.projectile.bin</c>,
+    /// one byte per cell, sized by the walk map's .json), or null without one.</summary>
+    static Func<int, int, int>? LoadSight(string id, uint seed)
+    {
+        string bin = $"{Folder}/{id}_seed{seed}.projectile.bin", meta = $"{Folder}/{id}_seed{seed}.json";
+        if (!File.Exists(bin) || !File.Exists(meta)) return null;
+        try
+        {
+            var m = JsonDocument.Parse(File.ReadAllText(meta)).RootElement;
+            int w = m.GetProperty("w").GetInt32(), h = m.GetProperty("h").GetInt32();
+            byte[] cells = File.ReadAllBytes(bin);
+            return cells.Length == w * h ? SightOf(cells, w, h) : null;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    // 1 byte per cell, 0 … 5; a cell off the grid reads 0, as the client's does (0x141d85260).
+    static Func<int, int, int> SightOf(byte[] cells, int w, int h) =>
+        (x, y) => x >= 0 && y >= 0 && x < w && y < h ? cells[y * w + x] : 0;
 
     static Func<int, int, int, bool> Clearance(byte[] cells, int w, int h) =>
         (x, y, size) => x >= 0 && y >= 0 && x < w && y < h && cells[y * w + x] >= size + 1;

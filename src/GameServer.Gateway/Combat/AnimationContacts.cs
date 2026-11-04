@@ -31,7 +31,9 @@ readonly record struct CastAnimationClip(string Name, uint Index, int LengthMs);
 /// A spell is released at the contact, which the client scales with the cast time, so the server releases it at the
 /// same fraction of the cast (Witch spell_projectile_wand: 599 of 1066 ms); an ordinary arrow or wand bolt leaves from
 /// the keyframe's point (the bow's nock, the wand's tip).
-/// Ordinary wand attacks additionally use the class ACT's ordered stance pool and the native action-seeded selector.
+/// The default attack plays the class ACT's stance pool ("defaultAttack"): a rig clip, or a view of one (a one-hand sword
+/// swings the two halves of doublestrike_sword), with the ACT's attack_time budget; <see cref="DefaultAttackClip"/>
+/// says when its contact plays.
 /// </summary>
 sealed class AnimationContacts(string folder = "data")
 {
@@ -43,7 +45,7 @@ sealed class AnimationContacts(string folder = "data")
     public const double DefaultAttackContact = 0.4;
 
     private sealed record ActorAnimations(Dictionary<string, AnimationClip> Clips,
-        Dictionary<string, DefaultWandContact[]> WandPools);
+        Dictionary<string, DefaultAttackClip[]> AttackPools);
 
     private readonly Lazy<Dictionary<string, ActorAnimations>> _byAo = new(() => Load(folder));
 
@@ -73,7 +75,8 @@ sealed class AnimationContacts(string folder = "data")
 
     /// <summary>When a melee attack's weapon visually hits (the attack1 animation's contact keyframe), as a fraction of the
     /// attack: the class's <c>attack1_&lt;weapon&gt;</c> clip, then its shield/dual-wield variant, then any attack1 of that
-    /// weapon. The client stretches the clip to the attack time, so the server pays the hit at this fraction of it.</summary>
+    /// weapon. An attack gem's clip is taken to stretch to the attack time; the default attack's own clip is in
+    /// <see cref="DefaultAttackContactSeconds"/>.</summary>
     public double AttackContact(string animatedObject, WeaponProfile weapon) =>
         AttackClip(animatedObject, weapon) is { } found ? (double)found.Clip.Contact / found.Clip.Length : DefaultAttackContact;
 
@@ -148,21 +151,49 @@ sealed class AnimationContacts(string folder = "data")
         return null;
     }
 
+    /// <summary>The ACT stance the client picks the default attack's clip from, by the hands' items (the thrusting-sword
+    /// and one-hand mace stances are not told apart here), or null for a weapon without one.</summary>
+    public static string? StanceFor(WeaponProfile weapon)
+    {
+        string? main = weapon.Unarmed ? (weapon.Shield ? "Shield" : "Unarmed") : weapon.Bow ? "Bow" : weapon.Staff ? "Staff"
+            : weapon.Sword && weapon.TwoHandMelee ? "TwoHandSword" : weapon.Mace && weapon.TwoHandMelee ? "TwoHandMace"
+            : weapon.Sword ? "OneHandSword" : weapon.Dagger ? "Dagger" : weapon.Claw ? "Claw" : weapon.Wand ? "Wand" : null;
+        if (main is null || weapon.Unarmed || weapon.Bow || weapon.TwoHandMelee || weapon.Staff) return main;
+        return weapon.Shield ? main + "Shield" : weapon.DualWield ? main + main : main;
+    }
+
     /// <summary>
-    /// The ordinary wand's ACT-selected main-hand clip, seeded by a fresh action's zero-extended sequence.
-    /// Missing old/generated data returns false so the caller can identify approximate fallback timing.
-    /// ACT pools exported here are unconditional, group-zero, weight-one entries; no conditional selection is guessed.
+    /// The default attack's clip for this use: the stance pool's entry the native action-seeded selector picks (the
+    /// Witch's four wand clips: <see cref="AnimationVariantSelector"/>), or, for a pair of views the client plays in an
+    /// order not predicted (live 2026-11-03: 51 sword swings, no seed found), the one whose contact plays later, so that
+    /// a Move held until it is never early. False without pool data for the class or stance: the caller falls back to
+    /// the attack1 keyframe. Pools are unconditional, group-zero, weight-one entries; no conditional selection is guessed.
     /// </summary>
-    public bool TryDefaultWandContact(string animatedObject, WeaponProfile weapon, ushort sequence,
-        out DefaultWandContact selection)
+    public bool TryDefaultAttackClip(string animatedObject, WeaponProfile weapon, ushort sequence, double attackSeconds,
+        out DefaultAttackClip selection)
     {
         selection = default;
-        if (!weapon.Wand || !_byAo.Value.TryGetValue(animatedObject, out var actor)) return false;
-        string stance = weapon.Shield ? "WandShield" : weapon.DualWield ? "WandWand" : "Wand";
-        if (!actor.WandPools.TryGetValue(stance, out var pool)) return false;
-        selection = pool[AnimationVariantSelector.Select(sequence, pool.Select(a => a.Weight).ToArray())];
+        if (StanceFor(weapon) is not { } stance || !_byAo.Value.TryGetValue(animatedObject, out var actor)
+            || !actor.AttackPools.TryGetValue(stance, out var pool)) return false;
+        selection = pool.Any(a => a.Pair)
+            ? pool.MaxBy(a => a.ContactSeconds(attackSeconds))
+            : pool[AnimationVariantSelector.Select(sequence, pool.Select(a => a.Weight).ToArray())];
         return true;
     }
+
+    /// <summary>When the default attack's contact plays after the swing's start (seconds): the stance pool's clip as the
+    /// client plays it (<see cref="DefaultAttackClip.ContactSeconds"/>), else the attack1 keyframe's fraction of the
+    /// attack.</summary>
+    public double DefaultAttackContactSeconds(string animatedObject, WeaponProfile weapon, ushort sequence, double attackSeconds) =>
+        TryDefaultAttackClip(animatedObject, weapon, sequence, attackSeconds, out var clip)
+            ? clip.ContactSeconds(attackSeconds) : attackSeconds * AttackContact(animatedObject, weapon);
+
+    /// <summary>When the client runs a Move it holds during the default attack's swing (seconds after the swing's start):
+    /// the stance pool's clip's lock_cancelling event, else its contact (<see cref="DefaultAttackClip.CutInSeconds"/>);
+    /// without pool data, the attack1 keyframe's fraction of the attack.</summary>
+    public double DefaultAttackCutInSeconds(string animatedObject, WeaponProfile weapon, ushort sequence, double attackSeconds) =>
+        TryDefaultAttackClip(animatedObject, weapon, sequence, attackSeconds, out var clip)
+            ? clip.CutInSeconds(attackSeconds) : attackSeconds * AttackContact(animatedObject, weapon);
 
     private static Dictionary<string, ActorAnimations> Load(string folder)
     {
@@ -185,18 +216,28 @@ sealed class AnimationContacts(string folder = "data")
                 .ToDictionary(a => a.Name, a => new AnimationClip(a.Value[0].GetInt32(), a.Value[1].GetInt32(),
                     positions.TryGetValue(a.Name, out var point) ? point : null,
                     indices.GetValueOrDefault(a.Name, uint.MaxValue)), StringComparer.OrdinalIgnoreCase);
-            var pools = new Dictionary<string, DefaultWandContact[]>(StringComparer.Ordinal);
-            if (ao.Value.TryGetProperty("defaultWand", out var wand))
-                foreach (var stance in wand.EnumerateObject())
+            // The default attack's stance pools cover the wand's ACT-selected clip too, which main's "defaultWand" pools
+            // served before the stance pools replaced them.
+            var pools = new Dictionary<string, DefaultAttackClip[]>(StringComparer.Ordinal);
+            if (ao.Value.TryGetProperty("defaultAttack", out var attack))
+                foreach (var stance in attack.EnumerateObject())
                 {
-                    var entries = stance.Value.EnumerateArray().Select(a => new DefaultWandContact(
-                        a.GetProperty("animation").GetString()!, a.GetProperty("index").GetUInt32(),
+                    var entries = stance.Value.EnumerateArray().Select(a => new DefaultAttackClip(
+                        a.GetProperty("animation").GetString()!, a.GetProperty("source").GetString()!,
+                        a.GetProperty("index").GetInt32(), a.GetProperty("begin").GetInt32(),
                         a.GetProperty("length").GetInt32(), a.GetProperty("contact").GetInt32(),
+                        a.TryGetProperty("cancel", out var cancel) && cancel.ValueKind == JsonValueKind.Number ? cancel.GetInt32() : null,
+                        a.TryGetProperty("slow", out var slow) && slow.ValueKind == JsonValueKind.Array ? slow[0].GetInt32() : null,
+                        a.TryGetProperty("slow", out slow) && slow.ValueKind == JsonValueKind.Array ? slow[1].GetInt32() : null,
+                        a.TryGetProperty("budget", out var budget) && budget.ValueKind == JsonValueKind.Number ? budget.GetDouble() : null,
                         stance.Name, a.GetProperty("weight").GetUInt32(),
+                        a.TryGetProperty("item", out var item) && item.ValueKind == JsonValueKind.True,
+                        a.TryGetProperty("pair", out var pair) && pair.ValueKind == JsonValueKind.True,
                         a.TryGetProperty("position", out var position) ? Point(position) : null)).ToArray();
                     if (entries.Length == 0 || entries.Any(a => string.IsNullOrWhiteSpace(a.Animation)
-                        || a.LengthMs <= 0 || a.ContactMs < 0 || a.ContactMs > a.LengthMs || a.Weight != 1))
-                        throw new InvalidDataException($"Invalid ordinary wand animation pool {ao.Name}/{stance.Name}.");
+                        || a.LengthMs <= 0 || a.ContactMs < 0 || a.ContactMs > a.LengthMs || a.Weight != 1
+                        || a.CancelMs is < 0 || a.CancelMs > a.LengthMs || a.BudgetSeconds is <= 0))
+                        throw new InvalidDataException($"Invalid default attack animation pool {ao.Name}/{stance.Name}.");
                     pools.Add(stance.Name, entries);
                 }
             result[ao.Name] = new ActorAnimations(clips, pools);
@@ -220,9 +261,41 @@ sealed class AnimationContacts(string folder = "data")
     }
 }
 
-/// <summary>A rig clip chosen from the ordinary wand ACT pool, including its contact keyframe.</summary>
-readonly record struct DefaultWandContact(string Animation, uint AnimationIndex, int LengthMs, int ContactMs,
-    string Stance, uint Weight, ContactPoint? Point = null)
+/// <summary>
+/// A default attack's clip from the class ACT's stance pool: a rig clip (<see cref="Source"/>, its index in the rig)
+/// from <see cref="BeginMs"/> for <see cref="LengthMs"/> (a view of it, or all of it), its contact keyframe, its
+/// lock_cancelling keyframe when it has one, and its slow span, all relative to that start, the ACT's attack_time
+/// budget in seconds when it has one, and whether the item's own rig plays it (a bow's attack1_bow).
+/// </summary>
+readonly record struct DefaultAttackClip(string Animation, string Source, int Index, int BeginMs, int LengthMs, int ContactMs,
+    int? CancelMs, int? SlowBeginMs, int? SlowEndMs, double? BudgetSeconds, string Stance, uint Weight, bool Item, bool Pair,
+    ContactPoint? Point)
 {
     public double ContactFraction => (double)ContactMs / LengthMs;
+
+    /// <summary>
+    /// When the contact plays after the swing's start, for an attack of <paramref name="attackSeconds"/>. A clip without a
+    /// budget is taken to stretch to the attack (a 600 ms wand clip's contact at 300 plays 0.333 s into a 0.667 s
+    /// attack, a 1066 ms bow clip plays at 1.49 throughout a 0.714 s attack: live 2026-11-03). A budgeted clip plays
+    /// over its budget and, when the attack is longer, the client stretches it to the attack time before the contact
+    /// (the Ranger's attack_sword_01a, 365 ms with the contact at 299 and a 0.45 s budget, in a 0.645 s attack: the
+    /// first 100 ms at 0.81 of the clip's speed, then 0.29 until 430 ms, then 0.81 again, the contact at 0.56 s; 01b,
+    /// 768 ms with the contact at 534: 1.62, 0.38 and 1.62, the contact at 0.52 s). An attack shorter than the budget
+    /// is taken to compress the clip to it (not measured).
+    /// </summary>
+    public double ContactSeconds(double attackSeconds) => PlayedAt(ContactMs, attackSeconds);
+
+    /// <summary>
+    /// When the client runs a Move it holds during the swing: the clip's lock_cancelling keyframe where it has one (the
+    /// bow's attack1_bow at 600 of 1066 ms, after its contact at 399: live 2026-11-03, Moves 0.37 to 0.40 s into a
+    /// 0.714 s attack ran at 0.40 to 0.43 s, later ones at once), else the contact (the wand's and the sword's clips
+    /// carry none). A keyframe after the contact plays at the clip's pace after the stretch, as the contact does.
+    /// </summary>
+    public double CutInSeconds(double attackSeconds) => PlayedAt(CancelMs ?? ContactMs, attackSeconds);
+
+    double PlayedAt(int ms, double attackSeconds)
+    {
+        if (BudgetSeconds is not { } budget || attackSeconds < budget) return attackSeconds * ms / LengthMs;
+        return ms / 1000.0 * budget / (LengthMs / 1000.0) + (attackSeconds - budget);
+    }
 }

@@ -245,6 +245,9 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public bool SoulKillProcessed;
     public (int X, int Y)? LastTarget;
     public double NextChaseRetryAt;
+    // The cell a Move chase's current walk was cut to (Game.LegCells along its way), or null when the walk goes the whole
+    // way: a walk at its leg's end is still on its way for the chase cadence.
+    public (int X, int Y)? Leg;
     // A boss's stage (BossFights) and whether a hit has started it.
     public BossFights.Stage? Stage { get; init; }
     public bool StageTaken, StageRunning;
@@ -477,7 +480,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         var l = Layout;
         Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && !Barrier.Contains((cx, cy)) : null;
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
-            () => Blockers) { FrameOf = LockstepFrameOf };
+            () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
     }
     public bool PlayerSent;
     // Server frames ended so far (0x2b5).
@@ -889,6 +892,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
     // Until when the skill started last keeps the player (Clock seconds).
     public double LockstepBusyUntil;
+    // The action token of a skill on a monster whose walk-up or swing is still to come on a lockstep client, 0 for none
+    // (Game.LockstepAttackStart): the next use of a held skill waits for it.
+    public int LockstepAttackAction;
     // The character's activated waypoints (WorldAreas Ids, kept in its save) and whether this connection was reached
     // by waypoint travel (the player then appears next to the area's waypoint).
     public readonly HashSet<string> Waypoints = [];

@@ -29,10 +29,20 @@ static partial class Game
                 if (due == ended) continue;
                 for (; ended < due; ended++)
                 {
-                    await Send(remote, stream, ciphers, InstanceProtocol.FrameEnd(), null);
-                    conn.ServerFrame++;
+                    // The frame advances in the frame end's send gate, under the combat lock: an order written after the
+                    // 0x2b5 finds the new frame (LockstepOrderFrom), one written before it the old, and a pass that holds
+                    // the lock sees one frame throughout.
+                    long ending = ended;
+                    await Send(remote, stream, ciphers, [], null, atGate: () =>
+                    {
+                        lock (conn.Monsters)
+                        {
+                            conn.ServerFrame++;
+                            conn.LockstepFrame = (first + (ending + 1) * frame, first + (ending + 2) * frame);
+                        }
+                        return InstanceProtocol.FrameEnd();
+                    });
                 }
-                conn.LockstepFrame = (first + ended * frame, first + (ended + 1) * frame);
                 await ProbeLockstepLatency(remote, stream, ciphers, conn);
                 await StartLockstepActions(remote, stream, ciphers, conn, first + ended * frame);
             }
@@ -139,19 +149,5 @@ static partial class Game
         if (conn.LockstepLatency.Add(ms))
             Console.WriteLine($"[gateway] {remote} lockstep round trip {conn.LockstepLatency.Lowest:0.0} ms at the lowest: " +
                 (conn.LockstepLatency.Confirmed ? "served" : "not low enough, the connection is treated as a real network"));
-    }
-
-    // Differs from GGG: it lets a Move cut a swing short after its contact (a Move 295 ms into a 462 ms attack), which is
-    // where its own action ends. Ours holds everything for the swing's whole time, because a Move the client refuses
-    // mid-swing (0x141e8cf10) would leave the server walking alone. A spell takes its cast time.
-    static double LockstepActionSeconds(ClientState conn, ushort skill)
-    {
-        if (GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem)
-        {
-            if (SkillsFor(conn).IsChannelled(gem.Effect)) return 0;
-            return SkillsFor(conn).IsAttack(gem.Effect) ? SupportedAttackSeconds(conn, skill)
-                : SkillsFor(conn).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(conn);
-        }
-        return WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn));
     }
 }

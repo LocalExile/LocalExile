@@ -664,9 +664,11 @@ static partial class Game
         Console.WriteLine($"[gateway] {remote} <= 0x0024 pick up world item 0x{id:x} at ({ground.GridX}, {ground.GridY}) {use} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         // Echo the interaction at once, from where the player is now (as a move's echo does): the client then walks to its
         // own pickup range itself. An echo sent on arrival carried the server's estimated stop, and the client snapped to it.
-        await Send(remote, stream, ciphers,
-            InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
-            $"0x01ab player picks up world item 0x{id:x}", still: () => PlayerActionCurrent(conn, action));
+        // A lockstep client got its start from the frame pass already (use.Started).
+        if (!use.Started)
+            await Send(remote, stream, ciphers,
+                InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
+                $"0x01ab player picks up world item 0x{id:x}", still: () => PlayerActionCurrent(conn, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
         if (IsGold(ground))

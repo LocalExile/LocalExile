@@ -34,6 +34,11 @@ public static class InstanceTransfer
     public sealed record UseSkillOnObject(uint TargetId, ushort SkillId, ushort Sequence, ushort Flags)
     {
         public bool Ctrl => (Flags & CtrlFlag) != 0;
+
+        /// <summary>The use's start (0x1ab) has already gone to the client: a lockstep client's frame pass sends it before
+        /// the handler runs, so the handler sends none of its own. A second start put the client back to its from cell
+        /// and had it path again (live 2026-11-03: two cells and a frame lost on every pickup).</summary>
+        public bool Started { get; init; }
     }
 
     public static UseSkillOnObject ReadUseSkillOnObject(ReadOnlySpan<byte> m)

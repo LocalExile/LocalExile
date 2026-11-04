@@ -37,8 +37,7 @@ public class CampaignCommandTests
         try { full = CommandsRules.StateJson(conn, brief: false); }
         finally
         {
-            Saves.Db.Dispose();
-            foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
+            GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
         Assert.Equal(0x1234u, (uint)full["stash"]!["id"]!);
         foreach (string list in new[] { "monsters", "npcs", "objects", "items", "transitions" })
