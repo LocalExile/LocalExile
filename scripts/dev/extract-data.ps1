@@ -67,7 +67,7 @@ $manifest = @(
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'constants'); Version = 1; Needs = @()
        UsedBy = 'the Gateway''s HNC mask and the Patch server''s root hash (live.ps1 refreshes the hash before each client start)' }
     @{ Name = 'game-pack'; Outputs = @('data\game-files.zip'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 1; Needs = @()
+       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 2; Needs = @()
        UsedBy = 'the files of server-side level generation (ServerLevels) and the Phrecia classes'' graph check (GamePack)' }
     @{ Name = 'stat-descriptions'; Outputs = @('data\stat-descriptions.txt'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'stat-descriptions'); Version = 1; Needs = @()

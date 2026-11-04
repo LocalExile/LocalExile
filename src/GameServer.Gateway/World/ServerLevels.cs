@@ -81,7 +81,11 @@ static class ServerLevels
     static readonly ConcurrentDictionary<(string Area, uint Seed), int> PlayedLevels = new();
 
     /// <summary>The exception of a failed generation of (area, seed), while it is among the last ones asked for.</summary>
-    public static string? Error(string areaId, uint seed) => Errors.GetValueOrDefault((areaId, seed, LevelOf(areaId, seed, 0)));
+    public static string? Error(string areaId, uint seed) => Errors.GetValueOrDefault((CacheArea(areaId, LabyrinthDay.NodeFor(areaId)), seed, LevelOf(areaId, seed, 0)));
+
+    /// <summary>The cache's area key: a Labyrinth room played in today's layout is generated with its labyrinth node
+    /// (LabyrinthDay), so the day's seed is part of it and a new day generates the room again.</summary>
+    static string CacheArea(string areaId, LabyrinthNodeKey? node) => node is null ? areaId : $"{areaId}@lab{node.Seed}";
 
     /// <summary>The area level (area, seed) is generated at: <paramref name="areaLevel"/> when given (above 0), else the
     /// one it was played at (<see cref="PlayedLevels"/>), else its WorldAreas level (what the client takes for a 0x1d
@@ -123,12 +127,13 @@ static class ServerLevels
     {
         if (!IsSupported(areaId)) return null;
         int at = LevelOf(areaId, seed, areaLevel);
-        var key = (areaId, seed, at);
+        var node = LabyrinthDay.NodeFor(areaId);
+        var key = (CacheArea(areaId, node), seed, at);
         if (Known(key, out var known)) return known;
         lock (Gate)
         {
             if (Known(key, out known)) return known;
-            var level = Generate(areaId, seed, at);
+            var level = Generate(areaId, seed, at, node);
             Generated[key] = new(level);
             if (level is not null) Live[key] = new(level);
             Trim(key);
@@ -222,14 +227,14 @@ static class ServerLevels
     public static Level? InPlaceOf(string folder, string areaId, uint seed) =>
         Path.GetFullPath(folder) == Path.GetFullPath("data/walkability") ? For(areaId, seed) : null;
 
-    static Level? Generate(string areaId, uint seed, int areaLevel)
+    static Level? Generate(string areaId, uint seed, int areaLevel, LabyrinthNodeKey? node)
     {
         var clock = Stopwatch.StartNew();
         try
         {
             var files = Files();
             var area = AreaInfo.Load(Read, areaId, areaLevel);
-            var result = LevelGenerator.Generate(files, area, seed);
+            var result = LevelGenerator.Generate(files, area, seed, labyrinthNode: node);
             var walk = Walkability.Build(result.Grid, t => files.Walk(t.Path));
             // The doodad stage stamps the doodads' collision into the grids (re/011 §6c).
             var doodads = new DoodadStage(files, result.Random, result.Grid, walk, []);
@@ -241,7 +246,7 @@ static class ServerLevels
             var exits = AreaExits.Resolve(files, result, (x, y) => WithinReach(walk.Walk, walk.Width, walk.Height, x, y, 13));
             // A room's waypoint line when no tile places one (The Ledge).
             if (!objects.Any(o => o.Type == GameServer.Core.Protocol.Instance.WaypointObject.MetadataPath)) objects.AddRange(AreaObjects.RoomWaypoints(result));
-            Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} level {areaLevel} ({walk.Width}x{walk.Height} cells, " +
+            Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} level {areaLevel}{(node is null ? "" : $" labyrinth node {node.Row} of day {node.Seed}")} ({walk.Width}x{walk.Height} cells, " +
                 $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads) in {clock.ElapsedMilliseconds} ms");
             ConnectionPerformance.Server("LevelGen", clock.Elapsed, areaId);
             var roomLinks = new List<PlacedLink>();
@@ -260,7 +265,7 @@ static class ServerLevels
         catch (Exception ex)
         {
             Console.WriteLine($"[gateway] server levels: {areaId} seed {seed} level {areaLevel} not generated ({ex.GetType().Name}: {ex.Message.Split('\n')[0]})");
-            Errors[(areaId, seed, areaLevel)] = ex.ToString();
+            Errors[(CacheArea(areaId, node), seed, areaLevel)] = ex.ToString();
             return null;
         }
     }
