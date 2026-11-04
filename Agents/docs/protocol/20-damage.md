@@ -744,14 +744,17 @@ The character panel's 32 damaging-ailment rows (`minimum/maximum_{bleeding,ignit
 and the `_to_always_deal_` poison rows) come from `AilmentPanelStats`, which takes the same raw packet and conversion as
 the hit (the default attack per hand, a supported gem's hit per hand / as a spell / as secondary damage) and applies
 the ailment's buckets instead of the hit's: each converted portion keeps the increases of the types it visited, plus
-generic, attack or spell, melee, area and projectile damage, damage over time (generic and the ailment type's),
-`bleeding_damage_+%` / `burn_damage_+%` / `base_poison_damage_+%`, elemental damage for ignite, then the
+generic damage, damage over time (generic and the ailment type's), `base_ailment_damage_+%`,
+`bleeding_damage_+%` / `burn_damage_+%` and `ignite_damage_+%` / `base_poison_damage_+%`, elemental damage for ignite, then the
 damage-over-time multipliers (`dot_multiplier_+`, the type's, and `critical_ailment_dot_multiplier_+` for the critical
-rows, with Character.ot's base 50 in `PanelStatDefaults`: critical strikes give ailments nothing else) and the Frenzy Charges' more multiplier, times the base percentage
+rows, with Character.ot's base 50 in `PanelStatDefaults`: critical strikes give ailments nothing else), the Frenzy Charges' more multiplier and the support more multipliers
+that reach ailments (`AilmentPanelStats.SupportMore`), times the base percentage
 (70 / 90 / 30) and 60. The "from only Chaos Damage" rows use the chaos portion alone and show with a
-`chaos_damage_chance_to_poison_%` source. Pinned PoB CalcOffence (16de4b82, `calcAilmentDamage` and the bleed /
-poison / ignite sections) composes the same buckets. Not modelled: conditional sources, stacking, "as though dealing
-more", support more multipliers, the moving bleed bonus, and the rows' native formatting. Burning Arrow's quality
+`chaos_damage_chance_to_poison_%` source. Modifiers to hits (attack, spell, melee, melee physical, area and
+projectile damage) never reach them (wiki Ignite and Bleeding); pinned PoB CalcOffence (16de4b82) builds the bleed,
+poison and ignite configs without the Attack, Spell, Melee, Area and Projectile flags, and its `sup_*.lua` give each
+support multiplier's flags. Not modelled: conditional sources and supports (Ruthless, Controlled Blaze), stacking,
+"as though dealing more", the moving bleed bonus, and the rows' native formatting. Burning Arrow's quality
 (`active_skill_ignite_damage_+%_final`, 1% per quality) multiplies the ignite rows.
 
 **Hit ignite on monsters (`MonsterIgnites`, `Program.MonsterIgnites.cs`).** A gem projectile or ordinary bow/wand
@@ -768,7 +771,7 @@ longer one resumes when it ends. The player tick (`BurnIgnited`, 250 ms) integra
 applies the monster's capped fire resistance and damage taken, carries fractions and commits kills as Righteous Fire's
 burn does. The monster wears the native `ignited` buff (BuffDefinitions row 0, flame visual 2) with its timer to the
 last ignite's end, re-sent (the old instance removed first) with each new ignite and removed at expiry or death. Not modelled:
-ignite proliferation, "as though dealing more", support more multipliers and the panel's unmodelled buckets.
+ignite proliferation, "as though dealing more" and the panel's unmodelled buckets.
 
 **Hit bleed on monsters (`MonsterBleeds.cs`, the wiki's Bleeding).** Attacks only: the default attack, a melee or area
 attack's sweep, an attack gem's projectile and the ordinary bow or wand shot read the context's bleeding rows above
@@ -784,7 +787,7 @@ ignites' rules (`SpawnedMonster.Bleeds`); the player tick (`BleedMonsters`) deal
 physical damage over time taken (armour stops hits only), three times while its walk moves. It wears the native
 `bleeding` buff (BuffDefinitions row 140, the one the trial spike traps put on the player) timed as the ignited one.
 Not modelled: Crimson Dance's stacks, aggravated bleeding, the weapons' fixed `local_chance_to_bleed_on_hit_25%` /
-`_50%` and critical-only chances, and support more multipliers.
+`_50%` and critical-only chances.
 
 **Hit poison on monsters (`MonsterPoisons.cs`).** `PoisonOnHitLocked` rolls the caster's and the skill's poison chance
 and the monster's avoidance on every landed hit with physical or chaos damage. Each poison's damage per second (a roll

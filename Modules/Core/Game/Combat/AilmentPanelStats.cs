@@ -9,13 +9,14 @@ using GameServer.Core.World;
 /// An ailment's base is the hit's damage of the ailment's type(s) after conversion, before the hit-only modifiers:
 /// bleed the physical damage (70% per second, <see cref="Ailments"/>), ignite the fire damage (90%), poison the
 /// physical and chaos damage (30%). Each converted portion keeps the increases of every type it visited, as the hit
-/// itself does (<see cref="PlayerHitDamage"/>), plus the ailment's own buckets: generic, attack or spell, melee,
-/// area and projectile damage, damage over time (generic and the ailment's type), "Bleeding / Burning / Poison
-/// Damage", the elemental increase for ignite, then the damage-over-time multipliers (generic, the ailment type's,
-/// and for critical strikes <c>critical_ailment_dot_multiplier_+</c>: ailments inflicted by critical strikes gain
-/// nothing else from the critical multiplier) and the Frenzy Charges' more multiplier. Pinned PoB CalcOffence
-/// (16de4b82, calcAilmentDamage and the bleed/poison/ignite sections) composes the same buckets; conditional sources,
-/// stacking, "as though dealing more", support more multipliers and the moving bleed bonus are not modelled.
+/// itself does (<see cref="PlayerHitDamage"/>), plus the ailment's own buckets: generic damage, damage over time
+/// (generic and the ailment type's), "Damage with Ailments", "Bleeding / Burning / Ignite / Poison Damage", the
+/// elemental increase for ignite, then the damage-over-time multipliers (generic, the ailment type's, and for critical
+/// strikes <c>critical_ailment_dot_multiplier_+</c>: ailments inflicted by critical strikes gain nothing else from the
+/// critical multiplier), the Frenzy Charges' more multiplier and the supports' (<see cref="SupportMore"/>).
+/// Modifiers to hits (attack, spell, melee, area and projectile damage) never reach an ailment (wiki Ignite and
+/// Bleeding); pinned PoB CalcOffence (16de4b82) builds the bleed, poison and ignite configs without those flags.
+/// Conditional sources, stacking, "as though dealing more" and the moving bleed bonus are not modelled.
 /// </para>
 /// The "from only Chaos Damage" poison rows (<c>_to_always_deal_</c>) show the poison the chaos portion alone deals,
 /// when a "Chaos Damage has a chance to Poison" source is present.
@@ -23,13 +24,48 @@ using GameServer.Core.World;
 static class AilmentPanelStats
 {
     /// <summary>The hit's context: which rows it fills (<paramref name="Hand"/>: main_hand, off_hand, spell,
-    /// secondary) and which damage buckets apply.</summary>
-    public readonly record struct Context(string Hand, bool Spell, bool Melee = false, bool Area = false, bool Projectile = false)
+    /// secondary), whether it is a spell and whether it is a melee hit.</summary>
+    public readonly record struct Context(string Hand, bool Spell, bool Melee = false)
     {
         public bool Attack => Hand is "main_hand" or "off_hand";
     }
 
     public const int BleedPercent = 70, IgnitePercent = 90, PoisonPercent = 30;
+
+    /// <summary>A support's more multiplier that reaches ailments: the damage type the portion or the ailment needs
+    /// (<see cref="DamageTypeHistory.None"/>: any), the ailments it is limited to, and whether only ailments from melee
+    /// hits or attacks get it.</summary>
+    readonly record struct More(string Stat, DamageTypeHistory Type = DamageTypeHistory.None, string[]? Only = null,
+        bool MeleeHit = false, bool Attack = false);
+
+    // PoB 16de4b82 sup_*.lua: the support more multipliers with no Hit, Attack, Spell, Melee, Area or Projectile flag
+    // (GemSupportDamage applies those to the hit, with the generic and typed ones here).
+    static readonly More[] SupportMore =
+    [
+        new("support_echo_damage_+%_final"), new("support_reduced_duration_damage_+%_final"),
+        new("support_spirit_strike_damage_+%_final"), new("support_storm_barrier_damage_+%_final"),
+        new("support_pure_shock_damage_+%_final"), new("support_blood_thirst_damage_+%_final"),
+        new("support_spell_cascade_damage_+%_final"), new("support_barrage_damage_+%_final"),
+        new("support_better_ailments_ailment_damage_+%_final"), new("support_unbound_ailments_ailment_damage_+%_final"),
+        new("support_efficacy_damage_over_time_+%_final"), new("support_rapid_decay_damage_over_time_+%_final"),
+        new("support_brutality_physical_damage_+%_final", DamageTypeHistory.Physical),
+        new("support_maim_chance_physical_damage_+%_final", DamageTypeHistory.Physical),
+        new("support_void_manipulation_chaos_damage_+%_final", DamageTypeHistory.Chaos),
+        new("support_bonechill_cold_damage_+%_final", DamageTypeHistory.Cold),
+        new("support_chance_to_ignite_fire_damage_+%_final", DamageTypeHistory.Fire),
+        new("support_gem_elemental_damage_+%_final", DamageTypeHistory.Elemental),
+        new("support_attack_skills_elemental_damage_+%_final", DamageTypeHistory.Elemental, Attack: true),
+        new("support_chance_to_bleed_bleeding_damage_+%_final", Only: ["bleeding"]),
+        new("support_phys_chaos_projectile_physical_damage_over_time_+%_final", Only: ["bleeding"]),
+        new("support_debilitate_poison_damage_+%_final", Only: ["poison"]),
+        new("support_lethal_dose_poison_damage_+%_final", Only: ["poison"]),
+        new("support_phys_chaos_projectile_chaos_damage_over_time_+%_final", Only: ["poison"]),
+        new("support_ignite_prolif_ignite_damage_+%_final", Only: ["ignite"]),
+        new("support_burning_damage_+%_final", Only: ["ignite"]),
+        new("support_melee_physical_damage_poison_and_bleeding_damage_+%_final_from_melee_hits", Only: ["bleeding", "poison"],
+            MeleeHit: true),
+        new("support_fortify_ailment_damage_+%_final_from_melee_hits", MeleeHit: true),
+    ];
 
     public static List<(string Stat, int Value)> Compute(Context context, DamagePacket raw, DamageConversion conversion,
         Func<string, int> get)
@@ -41,7 +77,7 @@ static class AilmentPanelStats
         {
             foreach (bool critical in new[] { false, true })
             {
-                var (min, max) = Range(paths, sources, ailmentType, context, get, critical);
+                var (min, max) = Range(paths, ailment, sources, ailmentType, context, get, critical);
                 string kind = critical ? "critical" : "non_critical";
                 string name = $"{ailment}_damage_to_{(chaosOnly ? "always_" : "")}deal_per_minute_from_{kind}_{context.Hand}_damage";
                 rows.Add(($"minimum_{name}", PerMinute(min * percent / 100.0 * charges)));
@@ -59,25 +95,23 @@ static class AilmentPanelStats
     static int PerMinute(double perSecond) =>
         double.IsNaN(perSecond) || perSecond <= 0 ? 0 : (int)Math.Min(int.MaxValue, Math.Round(perSecond * 60));
 
-    static (double Min, double Max) Range(List<DamageConversionPath> paths, DamageType[] sources, DamageType ailmentType,
-        Context context, Func<string, int> get, bool critical)
+    static (double Min, double Max) Range(List<DamageConversionPath> paths, string ailment, DamageType[] sources,
+        DamageType ailmentType, Context context, Func<string, int> get, bool critical)
     {
         // The ailment deals its own type: a prohibition of that type stops it whatever its base (PoB CalcOffence gates
         // bleed on canDeal.Physical, poison on canDeal.Chaos and ignite on canDeal.Fire).
         if (get("never_damaging_ailments") != 0 || DamageStats.Prohibited(ailmentType, get, context.Attack))
             return (0, 0);
-        double common = (double)get("damage_+%") + get("damage_over_time_+%")
-            + (context.Attack ? get("attack_damage_+%") + DamageStats.SpellAttackIncrease(get) : 0)
-            + (context.Spell ? get("spell_damage_+%") : 0)
-            + (context.Melee ? get("melee_damage_+%") : 0) + (context.Area ? get("area_damage_+%") : 0)
-            + (context.Projectile ? get("projectile_damage_+%") : 0)
+        double common = (double)get("damage_+%") + get("damage_over_time_+%") + get("base_ailment_damage_+%")
             + get(Slug(ailmentType) + "_damage_+%") + get(Slug(ailmentType) + "_damage_over_time_+%")
             + ailmentType switch
             {
                 DamageType.Physical => get("bleeding_damage_+%"),
-                DamageType.Fire => get("burn_damage_+%") + get("elemental_damage_+%"),
+                DamageType.Fire => get("burn_damage_+%") + get("ignite_damage_+%") + get("elemental_damage_+%"),
                 _ => get("base_poison_damage_+%"),
             };
+        var more = SupportMore.Where(m => (m.Only is null || m.Only.Contains(ailment)) && (!m.MeleeHit || context.Melee)
+            && (!m.Attack || context.Attack) && get(m.Stat) != 0).ToList();
         double multiplier = Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get(Slug(ailmentType) + "_dot_multiplier_+")
             + (critical ? get("critical_ailment_dot_multiplier_+") : 0)) / 100)
             // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).
@@ -95,8 +129,11 @@ static class AilmentPanelStats
             foreach (var source in typed)
                 if ((path.History & source.History) != 0 && source.History != DamageTypes.HistoryOf(ailmentType)) increased += source.Increased;
             if ((path.History & DamageTypeHistory.Elemental) != 0 && ailmentType != DamageType.Fire) increased += elemental;
-            if ((path.History & DamageTypeHistory.Physical) != 0 && context.Melee) increased += get("melee_physical_damage_+%");
-            double factor = Math.Max(0, 1 + increased / 100) * multiplier;
+            // A typed support counts the portion's visited types and the ailment's own (PoB's typeFlags).
+            var types = path.History | DamageTypes.HistoryOf(ailmentType);
+            double factor = Math.Max(0, 1 + increased / 100) * multiplier * more
+                .Where(m => m.Type == DamageTypeHistory.None || (types & m.Type) != 0)
+                .Aggregate(1.0, (v, m) => v * Math.Max(0, 1 + get(m.Stat) / 100.0));
             min += path.Range.Min * factor;
             max += path.Range.Max * factor;
         }

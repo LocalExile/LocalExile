@@ -635,7 +635,7 @@ static partial class SurvivorsSkills
                 + skillStats.GetValueOrDefault("base_critical_strike_multiplier_+"), int.MinValue, int.MaxValue)
             : AttackCriticalMultiplier(conn, playerKeys, skill.Effect, skillKeys);
         string hand = spell ? "spell" : "main_hand";
-        var ailmentRows = AilmentPanelStats.Compute(new(hand, Spell: spell, Projectile: true), raw, conversion, Get);
+        var ailmentRows = AilmentPanelStats.Compute(new(hand, Spell: spell), raw, conversion, Get);
         var shot = new ProjectileOffense(hitDamage, spell, Accuracy: spell ? int.MaxValue : conn.Pools.Accuracy,
             CriticalChance: crit, CriticalMultiplier: multiplier, Label: skill.Name)
         {
