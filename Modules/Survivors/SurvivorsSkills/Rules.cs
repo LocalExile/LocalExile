@@ -649,7 +649,7 @@ static partial class SurvivorsSkills
             AccuracyProfile = spell ? null : AttackAccuracyProfile.From(conn.Pools, playerKeys, Stats, skillKeys, local),
             AlwaysHits = Get("global_always_hit") != 0,
             Ignite = MonsterIgnites.Settings.From(ailmentRows, hand, Get),
-            Poison = MonsterPoisons.Settings.From(ailmentRows, hand, Get),
+            Poison = MonsterPoisons.Settings.From(ailmentRows, hand, Get, local),
             Leech = LeechSources.From(Get, skill.Attack),
             SecondFormCriticalChance = secondForm,
         };

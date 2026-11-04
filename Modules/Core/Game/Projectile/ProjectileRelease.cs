@@ -277,7 +277,7 @@ static partial class Game
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
             Ignite = MonsterIgnites.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get),
-            Poison = MonsterPoisons.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get),
+            Poison = MonsterPoisons.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get, local),
             Bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,
                 bow: WeaponProfileFor(conn, activeSet: true).Bow),
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct,

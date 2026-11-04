@@ -1,11 +1,12 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using GameServer.Modding;
 using League = GameServer.Core.Accounts.League;
 
 namespace GameServer.Gateway.Tests;
 
 // A melee or area skill's hit ignites from the skill's ignite rows, as a projectile's does (MonsterIgnites), and an
-// attack bleeds from its bleeding rows (MonsterBleeds).
+// attack bleeds from its bleeding rows (MonsterBleeds) and poisons with its weapon's own chance (PoisonOnHitLocked).
 public sealed class HitAilmentTests
 {
     [Fact]
@@ -138,12 +139,26 @@ public sealed class HitAilmentTests
         Assert.Equal((still, 0.0), (Game.BleedTaken(target, 0.1), Game.AggravatedExtra(target, 0)));
         conn.PlayerStats[Program.Stats.Key("cannot_cause_bleeding")!.Value] = 1;
         Assert.Equal(MonsterIgnites.Settings.None, Bleed());
+
+        // The club's own "chance to Poison on Hit", which the panel counts, poisons an attack's hit and not a spell's.
+        var player = Game.CharacterPlayerStats(conn);
+        var hit = DamagePacket.Of(DamageType.Physical, 100, 100);
+        var poisoned = Monster();
+        lock (conn.Monsters)
+        {
+            Game.PoisonOnHitLocked(conn, poisoned, hit, spell: true, critical: false, player, null,
+                Game.DefaultAttackPoison(conn, player), now: 0, new Random(1));
+            Assert.False(poisoned.Poisons.Poisoned);
+            Game.PoisonOnHitLocked(conn, poisoned, hit, spell: false, critical: false, player, null,
+                Game.DefaultAttackPoison(conn, player), now: 0, new Random(1));
+            Assert.True(poisoned.Poisons.Poisoned);
+        }
     });
 
     static SpawnedMonster Monster(params (string, int)[] stats) => new("target", new(105, 100, 0), 0, 0, 100)
         { Mods = new([], [], new(stats.ToDictionary(s => s.Item1, s => s.Item2))) };
 
-    // A level 100 character with a Driftwood Club socketed with Infernal Blow.
+    // A level 100 character with a Driftwood Club socketed with Infernal Blow, its ChanceToPoison1 rolled 100% here.
     static void WithClubCharacter(Action<ClientState> test)
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-hit-ailment-{Guid.NewGuid():N}.db");
@@ -166,6 +181,7 @@ public sealed class HitAilmentTests
             Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, club with
             {
                 Sockets = [new ItemSocket(SocketColour.White, blow)], Links = [1],
+                Mods = [new ItemMod(ModSection.Explicit, Program.Items.Mods.ById("ChanceToPoison1")!.Hash, [100])],
             });
             test(conn);
         }

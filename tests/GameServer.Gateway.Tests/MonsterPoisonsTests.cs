@@ -67,7 +67,7 @@ public sealed class MonsterPoisonsTests
         SpawnedMonster Poisoned(bool critical, params (string Name, int Value)[] stats)
         {
             var m = new SpawnedMonster("poisoned", new(105, 100, 0), 0, 0, 1000);
-            var player = stats.Append((Name: "chance_to_poison_on_hit_%", Value: 100))
+            var player = stats.Append((Name: "base_chance_to_poison_on_hit_%", Value: 100))
                 .ToDictionary(s => Program.Stats.Key(s.Name) ?? throw new InvalidOperationException(s.Name), s => s.Value);
             Game.PoisonOnHitLocked(conn, m, physical, spell: false, critical, player, null, rows, now: 10, new Random(1));
             return m;

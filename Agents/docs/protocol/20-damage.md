@@ -801,8 +801,11 @@ never aggravated nor tripled while moving. Not modelled: the conditional Crimson
 (`gain_crimson_dance_*`), and aggravation by a hit without physical damage, by stun, knockback, exerted attacks or
 bleed age.
 
-**Hit poison on monsters (`MonsterPoisons.cs`).** `PoisonOnHitLocked` rolls the caster's and the skill's poison chance
-and the monster's avoidance on every landed hit with physical or chaos damage. Each poison's damage per second (a roll
+**Hit poison on monsters (`MonsterPoisons.cs`).** `PoisonOnHitLocked` rolls the poison chance the panel shows
+(`virtual_total_{hand}_chance_to_poison_on_hit_%`: `base_chance_to_poison_on_hit_%`, plus
+`chance_to_poison_on_hit_with_attacks_%` and the attacking weapon's `local_poison_on_hit_%` for an attack or
+`spells_chance_to_poison_on_hit_%` for a spell) and the monster's avoidance on every landed hit with physical or chaos
+damage. Each poison's damage per second (a roll
 in the non-critical or critical range) and duration are the hit's panel poison rows (`MonsterPoisons.Settings.From`),
 captured at the same places as the ignite's: the landed hit already carries the hit's increases and the monster's
 resistance, so it cannot be the base.
