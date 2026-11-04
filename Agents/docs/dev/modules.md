@@ -88,6 +88,9 @@ The optional [Phrecia Ascendancies](../game/phrecia-modules.md) family uses this
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
 A module can alter the game fully: it compiles against the Gateway and its internals (add its assembly to `InternalsVisibleTo` in `GameServer.Gateway.csproj`), with `using static Program`, `using static Game` (both global in a module) and `ConnOf(player)`. Mods see only `GameServer.Modding`. Per-player state in a module's own
 `ConditionalWeakTable<IPlayer, …>` starts over with a hot reload, and objects it placed stop answering until the player's next area; state in `ClientState` survives.
+Another module's internal extension members (an `extension(...)` block, such as `ClientStateRules` in Game) are out of reach:
+the 10.0.1xx SDKs, the ones Linux distributions ship, reject them with CS0570, though newer SDKs build them. Read what
+they wrap instead, or call a static method.
 
 A Core module reaches the framework through the hooks and `GameEvents` (`Modding/GameEvents.cs`), the Gateway's own hand-over points, with `GameEvent.For(conn)` running only the modules of that connection's league. Add a new hand-over there, in general terms, instead of naming a module in the framework.
 

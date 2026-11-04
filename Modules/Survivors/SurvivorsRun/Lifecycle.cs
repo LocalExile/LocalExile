@@ -102,6 +102,10 @@ static partial class SurvivorsRunRules
         }
     }
 
+    /// <summary>The Game module's conn.ProjectileRuntime, read here without it: the 10.0.1xx SDKs, the ones Linux distributions ship,
+    /// cannot use another assembly's internal extension member (CS0570), though newer ones can.</summary>
+    static ProjectileSession? ProjectileSessionOf(ClientState conn) => conn.ProjectileRuntimeState as ProjectileSession;
+
     internal static SurvivorsOwnership BindRun(ClientState conn, SurvivorsRun run)
     {
         lock (conn.Monsters)
@@ -109,7 +113,7 @@ static partial class SurvivorsRunRules
             var state = StateOf(conn);
             state.Cancellation?.Cancel();
             if (state.Ownership is { } previous)
-                conn.ProjectileRuntime?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
+                ProjectileSessionOf(conn)?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
                     && ReferenceEquals(shot.Owner, previous));
             if (state.SurvivorsPausedByWindow) conn.Clock.Start();
             state.SurvivorsPausedByWindow = false;
@@ -140,7 +144,7 @@ static partial class SurvivorsRunRules
             var retired = state.Ownership;
             state.Ownership = null;
             if (retired is not null)
-                conn.ProjectileRuntime?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
+                ProjectileSessionOf(conn)?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
                     && ReferenceEquals(shot.Owner, retired));
             state.Survivors = null;
             state.SurvivorsCatalog = null;
