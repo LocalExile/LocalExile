@@ -550,7 +550,10 @@ A Move whose target is within two cells (Chebyshev) of the player's cell ends on
 no step and no move onto the 0x1ab's position pair (live 2026-11-03: 25 of 25 such starts in a bow fight, where every
 start 3 or more cells away searched a path and took the pair first). The Gateway's estimate stands for such a Move as the
 client does; before, it walked a few cells to the target and the next start put the client on them (2 to 5 cells beside
-a monster).
+a monster). A monster's Move follows the same rule, and its current action (the Move before, under a shot too) goes on:
+317 of 317 such Moves untouched in six pack fights (2026-11-04), 8 244 of 8 244 farther ones searched. The Gateway sends
+no such Move to a lockstep client (a melee leg that short goes as the attack aimed at the player) and its estimate keeps
+the walk it had; sent, they left the client walking on and preceded 76 of 126 monster starts 2–3 cells off.
 
 A Move that reaches the client during a swing is taken (`0x141e8cf10`) but queued: the actor runs it when the clip's
 `lock_cancelling` keyframe has played, or its contact keyframe for a clip without one, and only then (live 2026-11-03,

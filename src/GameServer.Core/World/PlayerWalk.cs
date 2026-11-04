@@ -158,6 +158,33 @@ public sealed class PlayerWalk
     /// frame's start (the walker has not stepped there yet).</summary>
     public (int X, int Y) Ahead(double now, double seconds) => At(Frame(now) + seconds, out _);
 
+    /// <summary>The walk as it stands, to put back with <see cref="Restore"/> when an order turns out not to be taken.</summary>
+    public Snapshot Save() => new(this);
+
+    /// <summary>Puts back a walk saved with <see cref="Save"/>.</summary>
+    public void Restore(Snapshot saved) => saved.Into(this);
+
+    /// <summary>A walk's state (<see cref="Save"/>).</summary>
+    public sealed class Snapshot
+    {
+        readonly List<Segment> _segments;
+        readonly (int X, int Y) _rest, _target;
+        readonly double _restSince;
+        readonly int _maxRange, _tolerance, _precision;
+        readonly bool _reached, _goalReached, _walksThrough;
+
+        internal Snapshot(PlayerWalk w) =>
+            (_segments, _rest, _target, _restSince, _maxRange, _tolerance, _precision, _reached, _goalReached, _walksThrough) =
+            (w._segments, w._rest, w._target, w._restSince, w._maxRange, w._tolerance, w._precision, w.Reached, w._goalReached, w.WalksThrough);
+
+        internal void Into(PlayerWalk w)
+        {
+            (w._segments, w._rest, w._target, w._restSince, w._maxRange, w._tolerance, w._precision) =
+                (_segments, _rest, _target, _restSince, _maxRange, _tolerance, _precision);
+            (w.Reached, w._goalReached, w.WalksThrough) = (_reached, _goalReached, _walksThrough);
+        }
+    }
+
     /// <summary>Where the walker is within its current step at <paramref name="now"/>: the seconds since the step before
     /// (the client's accumulator, +0x244) and the step's length; (0, 0) when it stands or is held.</summary>
     public (double Into, double Step) StepPhase(double now)

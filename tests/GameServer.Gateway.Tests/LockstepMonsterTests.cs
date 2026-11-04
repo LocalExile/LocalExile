@@ -173,4 +173,26 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal((100, 100), aim);   // the player's cell
         Assert.Equal((100, 100), walled.LastTarget);
     }
+
+    // A lockstep client takes no Move whose target is within two cells of the walker: no set, no search, its current
+    // action goes on (live 2026-11-04: 317 of 317). So such a surround-slot Move is not sent and the estimate keeps the
+    // walk it had; three cells away the Move is placed as before.
+    [Fact]
+    public void A_lockstep_move_within_two_cells_is_not_sent_and_the_walk_goes_on()
+    {
+        PlayerWalk Walker() => new(100, 100, 8) { FrameOf = at => (Math.Min(at, 1.0), 1.033) };
+        var shooter = new SpawnedMonster("Spitter", Walker(), aggroRange: 60, stopRange: 2, maxLife: 10);
+        shooter.Walk.Order(120, 100, now: 0.5);   // the slot it was walking to: 4 cells along at 1.0
+        var (here, aim, taken) = Game.PlaceLockstepMoveLeg(shooter, (106, 100), 1.0);
+        Assert.False(taken);
+        Assert.Equal((104, 100), here);
+        Assert.Equal((106, 100), aim);
+        Assert.Equal((120, 100), shooter.Walk.Destination);   // the old walk goes on, as on the client
+        Assert.True(shooter.Walk.Moving(1.5));
+
+        (here, aim, taken) = Game.PlaceLockstepMoveLeg(shooter, (107, 100), 1.0);
+        Assert.True(taken);
+        Assert.Equal((107, 100), aim);
+        Assert.Equal((107, 100), shooter.Walk.Destination);
+    }
 }

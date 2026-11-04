@@ -891,15 +891,18 @@ static partial class Game
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
                 {
                     var aim = to;
+                    bool taken = true;
                     var start = LockstepOrderFrom(conn, plan, from, at =>
                     {
-                        // Placed at the gate and cut to its leg there; a Move onto the walker's own cell goes a cell on.
-                        var here = m.Walk.Position(at);
-                        if (aim == here) aim = NextCell(conn, m, here.X, here.Y);
-                        var placed = m.Walk.Order(aim.X, aim.Y, at);
-                        aim = CutToLeg(m, aim, at);
-                        return placed;
+                        var (here, leg, take) = PlaceLockstepMoveLeg(m, to, at);
+                        (aim, taken) = (leg, take);
+                        return here;
                     });
+                    if (!taken)
+                    {
+                        if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) Move to {aim} within 2 cells of {start}: not sent, its walk goes on");
+                        return null;
+                    }
                     return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, Move, conn.NextActionSequence(), 0x0408);
                 },
                 ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases from {from} to {to}" : null);
@@ -1041,13 +1044,38 @@ static partial class Game
         var player = conn.Walk.Position(at);
         var walk = m.Walk.Approach(player.X, player.Y, m.Attack!.Range - 1, at, LivingCollision.PlayerSize);
         var leg = m.Walk.Ahead(at, LegCells / m.Walk.Speed);
-        if (leg == walk.Here)
+        // A leg within two cells is no way either: the client would not take it (LockstepTakesMove), and the attack's
+        // walk-up is the one the estimate just placed.
+        if (!LockstepTakesMove(walk.Here, leg))
         {
             m.LastTarget = player;
             return (walk.Here, player, true);
         }
         return (m.Walk.Order(leg.X, leg.Y, at), leg, false);
     }
+
+    // A Move chase (a surround slot) placed at a lockstep frame's start `at` and cut to its leg. Returns the walker's
+    // cell, the cell to order and whether to send it: a Move the client would not take is not sent, and the walk the
+    // estimate had goes on, as the client's action does.
+    internal static ((int X, int Y) Here, (int X, int Y) Aim, bool Taken) PlaceLockstepMoveLeg(SpawnedMonster m, (int X, int Y) to, double at)
+    {
+        var here = m.Walk.Position(at);
+        var (saved, leg) = (m.Walk.Save(), m.Leg);
+        var placed = m.Walk.Order(to.X, to.Y, at);
+        var aim = CutToLeg(m, to, at);
+        if (LockstepTakesMove(here, aim)) return (placed, aim, true);
+        m.Walk.Restore(saved);
+        m.Leg = leg;
+        return (here, aim, false);
+    }
+
+    // A lockstep client takes a Move order only when its target is 3 or more cells (Chebyshev) from the walker's cell:
+    // within 2 it does nothing at all, no position set and no search, and the current action goes on (live 2026-11-04,
+    // monster Moves applied under trace-lockstep-tick.js with the path search hooked: 317 of 317 within 2 cells
+    // untouched, 8 244 of 8 244 farther ones searched, set when the from cell differed). The player's Moves follow the
+    // same rule (07 §5).
+    static bool LockstepTakesMove((int X, int Y) here, (int X, int Y) aim) =>
+        Math.Max(Math.Abs(aim.X - here.X), Math.Abs(aim.Y - here.Y)) > 2;
 
     static (int X, int Y) LockstepOrderFrom(ClientState conn, MonsterAiPlan plan, (int X, int Y) from, Func<double, (int X, int Y)> place)
     {
