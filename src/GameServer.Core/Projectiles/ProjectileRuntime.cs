@@ -404,7 +404,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             or ProjectileEndReason.Lifetime or ProjectileEndReason.Landing or ProjectileEndReason.Returned)
         {
             if (AllowsEndArea(p, reason) && p.Profile.EndArea is { } area) Area(p, area, victim);
-            if (p.Profile.EndEmission is { } emission) EmitChildren(p, emission);
+            if (p.Profile.EndEmission is { } emission)
+            {
+                if (emission.Delay > 0) Schedule(Now + emission.Delay, () => EmitChildren(p, emission));
+                else EmitChildren(p, emission);
+            }
         }
         if (reason == ProjectileEndReason.Landing && p.GroundChains > 0)
         {

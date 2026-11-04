@@ -121,11 +121,14 @@ to the centre area as well as the repeats (the stat is applied to every area, as
 Arrow Nova turns a supported bow attack into one payload arrow that lands at the aimed cell and fires the skill's
 whole volley in a circle from there (`projectiles_rain` and `skill_is_rain_skill`). Captured from the 3.29.3b client
 on 2026-11-04 (Split Arrow, 18 arrows): every child started on the aim cell and the directions were exactly 20 degrees
-apart, the first on the aim ray, about 0.66 s after the use at 33 cells; the client drew both the payload and the
-children, so both profiles are `HideVisual` (the payload also `ClientPredicted`) and the server only simulates their
-damage. `ArrowNovaChildren` makes the payload one non-damaging lobbed arrow whose end emission is the skill's radial
-volley; the child count takes the shared modifier pass's extra arrows. Not built: the payload's airborne arc and its
-exact flight time (the skill's projectile speed sets it) and the per-child launch order.
+apart, the first on the aim ray about 0.66 s after the use at 33 cells; the client drew the volley's children, so
+`ArrowNovaChildren` is `HideVisual` and the server only simulates their damage. The official server draws the payload
+with the support's `rain_rig.ao` `PermanentServerEffect` at the release and again at the landing, attaching
+`split_arrow.ao` to its `aux_projectile_attach` bone (the arrow leaves from the bow, not the character's centre). The
+rig's `Animated` bit3 id is 6 at the caster and 0 at the landing, and the attachment record sends kind 0 and mask 3
+(`EffectObject.AnimationId`, `AttachKind`, `AttachFlags`); sending 0 on both ends played the landing backwards. The
+landing comes 415 ms after the use and the nova 221 ms later; `ArrowNovaChildren` uses `EndEmission.Delay` and takes
+the shared modifier pass's extra arrows. Not built: the per-child launch order.
 
 Red and blue supports whose stats had no consumer now apply too: Maim's `maim_on_hit_%` maims for 4 s and a maimed
 monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physical damage and 30% reduced movement

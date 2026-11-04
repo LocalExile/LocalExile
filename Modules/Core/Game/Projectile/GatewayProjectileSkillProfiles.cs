@@ -182,13 +182,14 @@ static class GatewayProjectileSkillProfiles
         };
         return parent with
         {
-            // One payload arrow: no hits, no contacts, drawn by the client, landing at the aim.
+            // One payload arrow: no hits, no contacts, and no server object (the official server sends none; the
+            // parabola was ours). The rain rig and its attached arrow art carry the visual; the children stay hidden.
             Count = 1, CountConsumer = ProjectileCountConsumer.Children,
-            DirectDamage = false, HideVisual = true, Lobbed = true,
+            DirectDamage = false, HideVisual = true, Lobbed = true, ArcHeight = 200,
             Pierce = 0, CannotPierce = true, Fork = 0, Chain = 0, Split = 0, CannotSplit = true,
             EndArea = null, EndAreaReasons = null, EndAreaOnReturnTurnaround = false,
             ContactArea = null, ContactTargets = null,
-            EndEmission = new(child, Radial: true)
+            EndEmission = new(child, Radial: true) { Delay = ProjectileRuntime.Time(0.221) }
         };
     }
 

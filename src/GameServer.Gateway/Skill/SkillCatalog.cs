@@ -721,6 +721,25 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return result;
     });
 
+    /// <summary>A Projectiles.dat row's first AOFiles entry: the art the client plays for that projectile object
+    /// (SplitArrowDefault's split_arrow.ao, which Arrow Nova attaches to its rain rig).</summary>
+    public string? ProjectileAo(string id) =>
+        _projectileAos.Value.TryGetValue(id, out var ao) ? ao : null;
+
+    private readonly Lazy<Dictionary<string, string>> _projectileAos = new(() =>
+    {
+        string path = Path.Combine(folder, "tables", "Projectiles.json");
+        var result = new Dictionary<string, string>();
+        if (!File.Exists(path)) return result;
+        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        foreach (var r in d.RootElement.EnumerateArray())
+            if (r.GetProperty("Id").GetString() is { } id
+                && r.TryGetProperty("AOFiles", out var files) && files.ValueKind == JsonValueKind.Array)
+                foreach (var f in files.EnumerateArray())
+                    if (f.GetString() is { } ao) { result.TryAdd(id, ao); break; }
+        return result;
+    });
+
     /// <summary>A data file's JSON, or null, with one warning, when it is missing or unreadable: the feature stays off
     /// rather than faulting the projectile pump or a spawn, which closes the connection, and the cached fault would repeat
     /// it on every later one (review 2026-10-30). The generators write atomically, so a truncated file means a crash

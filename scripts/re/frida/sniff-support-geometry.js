@@ -246,7 +246,22 @@ if (check('0x141ebe190')) {
           if (stamp() > windowUntil) return;
           let type = '?';
           try { type = typePath(args[1].readPointer()); } catch (e) { }
-          send({ t: stamp(), kind: 'create', id: hex8(args[2].toInt32() >>> 0), type });
+          const id = hex8(args[2].toInt32() >>> 0);
+          // The 0x2b9 blob carries the object's own fields; an effect's AO path is in it as UTF-16. Dump it so the
+          // Arrow Nova payload's effect (not just its generic ServerEffect type) can be named.
+          let blob = null, paths = [];
+          try {
+            const reader = args[3];
+            const data = reader.readPointer(), size = reader.add(8).readU64().toNumber();
+            blob = hex(data, Math.min(size, 200));
+            for (let off = 0; off + 18 <= size; off += 2) {
+              try {
+                const s = data.add(off).readUtf16String(Math.min(160, (size - off) / 2));
+                if (s !== null && s.startsWith('Metadata/') && paths.indexOf(s) < 0) paths.push(s);
+              } catch (e) { }
+            }
+          } catch (e) { }
+          send({ t: stamp(), kind: 'create', id, type, blob, paths });
         } catch (e) { send({ t: stamp(), hookError: 'create', message: String(e) }); }
       }
     });
@@ -295,5 +310,22 @@ try {
   });
   send({ t: stamp(), attached: '0x141e32710' });
 } catch (e) { send({ t: stamp(), hookError: 'pathAttach', message: String(e) }); }
+
+// --- 0x1b2: animated-object clip update (0x141e58ef0) ----------------------
+// The official server sends the rain rig its animation clip/index; without it the client plays the art's default
+// (the landing pose or a T-pose).
+try {
+  Interceptor.attach(at('0x141e58ef0'), {
+    onEnter(args) {
+      try {
+        const m = args[1];
+        if (m.add(8).readU16() !== 0x1b2) return;
+        send({ t: stamp(), kind: 'anim', id: hex8(m.add(0x10).readU32()), kindByte: m.add(0x20).readU8(),
+          index: m.add(0x24).readU32(), speed: m.add(0x28).readFloat() });
+      } catch (e) { }
+    }
+  });
+  send({ t: stamp(), attached: '0x141e58ef0' });
+} catch (e) { send({ t: stamp(), hookError: 'animAttach', message: String(e) }); }
 
 send('sniff-support-geometry ready');

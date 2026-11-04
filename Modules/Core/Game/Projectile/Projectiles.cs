@@ -344,8 +344,14 @@ static partial class Game
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"
                     + $" grid={Conn.Layout.Id}_seed{Conn.Seed} blocked={ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y)?.ToString() ?? "unknown"}");
             if (valid && presentation.EventEffect?.Invoke(value) is { } eventEffect)
+            {
+                bool spawn = value.Kind == ProjectileEventKind.Spawn;
                 Effect(x, y, eventEffect, presentation.EffectLifetime,
-                    value.Kind == ProjectileEventKind.Area ? value.Radius : null);
+                    value.Kind == ProjectileEventKind.Area ? value.Radius : null, presentation.AttachEffect,
+                    presentation.AttachParent, presentation.EffectAnimatedFlags,
+                    spawn ? presentation.SpawnFlags0 : (byte)0, spawn ? presentation.SpawnAnimationWord : 0,
+                    spawn ? presentation.SpawnAnimationValue : 0, spawn ? presentation.SpawnAnimatedId : 0);
+            }
             // The client draws its own primary projectiles of a skill use; the server still simulates them (contacts,
             // areas and continuation children, which do get objects).
             if (value.Kind == ProjectileEventKind.Spawn && p.Profile.HideVisual) return;
@@ -435,13 +441,19 @@ static partial class Game
                 Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
         }
 
-        void Effect(int x, int y, string ao, long lifetime, double? radius = null)
+        void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
+            uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
+            float animationValue = 0, uint animatedId = 0)
         {
             uint id = Conn.NextObjectId++;
             // Native area art radii are world units; simulation radii are grid cells.
             float scale = radius is double r && Art.ArtRadius(ao) is int nativeRadius
                 ? (float)(r * (250d / 23) / nativeRadius) : 1;
-            var effect = new EffectObject(x, y, ao) { Scale = scale };
+            var effect = new EffectObject(x, y, ao)
+            {
+                Scale = scale, AnimatedFlags = animatedFlags, Flags0 = positionedFlags0,
+                AnimationWord = animationWord, AnimationValue = animationValue, AnimationId = animatedId
+            };
             if (radius is not null && ServerTrace.Projectiles)
                 Console.WriteLine($"[gateway] {remote} projectile area object={id} position=({x}, {y})"
                     + $" radius={radius:0.###} art={ao} scale={scale:0.###}");
@@ -461,6 +473,31 @@ static partial class Game
                 {
                     Conn.ProjectileObjects.Remove(id);
                     return visual.Created ? InstanceProtocol.RemoveObject(id) : null;
+                });
+            });
+            if (attach is not { } child) return;
+            // The art attached to the effect's bone: the client carries it along with the parent's animation.
+            uint childId = Conn.NextObjectId++;
+            // The official split-arrow art sends kind 0 and mask 3 (the base record of the Animated component), which
+            // keeps the parent bone's rotation: the arrow then follows aux_projectile_attach instead of lying flat.
+            var childEffect = new EffectObject(x, y, child.Ao)
+                { Parent = attachParent != 0 ? attachParent : id, Bone = child.Bone, AttachKind = 0, AttachFlags = 3 };
+            var childVisual = new Visual(childId, default);
+            Conn.ProjectileObjects.Add(childId);
+            Packet(() =>
+            {
+                if (childVisual.Ended) return null;
+                childVisual.Created = true;
+                return InstanceEntities.CreateObject(childId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), childEffect.Blob());
+            });
+            Packet(() => childVisual.Created ? InstanceProtocol.EnterWakeZone(childId) : null);
+            Runtime.Schedule(Runtime.Now + lifetime, () =>
+            {
+                childVisual.Ended = true;
+                Packet(() =>
+                {
+                    Conn.ProjectileObjects.Remove(childId);
+                    return childVisual.Created ? InstanceProtocol.RemoveObject(childId) : null;
                 });
             });
         }
@@ -494,7 +531,7 @@ static partial class Game
                 ? ProjectileHeight.Flight(startGround, Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"),
                     PresentationFor(p).LaunchHeight).Marker
                 : startGround;
-            var arc = new ProjectileArc(p.Distance, p.Remaining, start, endGround);
+            var arc = new ProjectileArc(p.Distance, p.Remaining, start, endGround, p.Profile.ArcHeight);
             visual.Arc = arc;
             for (int segment = 1; segment < ProjectileArc.Segments; segment++)
             {
