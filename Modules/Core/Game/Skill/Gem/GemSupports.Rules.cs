@@ -142,7 +142,9 @@ static partial class Game
             stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(gem.Stats.GetValueOrDefault(raw) * factor);
         }
         double more = Supports.AttackSpeedMultiplier(gem.Effect, gem.Level) * Math.Max(.01, 1 + Get("support_melee_physical_damage_attack_speed_+%_final") / 100.0)
-            * Math.Max(.01, 1 + Get("support_multistrike_attack_speed_+%_final") / 100.0);
+            * Math.Max(.01, 1 + Get("support_multistrike_attack_speed_+%_final") / 100.0)
+            // Vicious Projectiles: "10% less Attack Speed".
+            * Math.Max(.01, 1 + Get("support_projectile_attack_speed_+%_final") / 100.0);
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
         // already part of this factor. Do not apply the same GEPL value again.
         double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats)

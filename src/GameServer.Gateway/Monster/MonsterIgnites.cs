@@ -37,7 +37,8 @@ sealed class MonsterIgnites
                 r.GetValueOrDefault($"{bound}_ignite_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
             long chance = (long)get("base_chance_to_ignite_%") + get("chance_to_freeze_shock_ignite_%");
             double seconds = Ailments.IgniteDurationSeconds
-                * Math.Max(0, 1 + ((double)get("ignite_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster;
+                * Math.Max(0, 1 + ((double)get("ignite_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
+                * DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds);
         }
@@ -50,6 +51,12 @@ sealed class MonsterIgnites
     /// <summary>The target's base_self_ignite_duration_-% (Fire and Ignite Resistant) on an ignite's duration.</summary>
     public static double SelfDuration(Func<string, int> target) =>
         Math.Max(0, 1 - target("base_self_ignite_duration_-%") / 100.0);
+
+    /// <summary>Sadism's "Supported Skills have 70% less Duration" on their damaging ailments
+    /// (support_faster_ailments_ailment_duration_+%_final). Its "deal damage faster" stat alone shortens the duration
+    /// proportionally and raises the damage per second, so without this the ailment's total damage would not fall.</summary>
+    public static double DurationMultiplier(Func<string, int> get) =>
+        Math.Max(0, 1 + get("support_faster_ailments_ailment_duration_+%_final") / 100.0);
 
     readonly record struct Ignite(double From, double Until, double DamagePerSecond, bool Aggravated = false);
     readonly List<Ignite> active = [];

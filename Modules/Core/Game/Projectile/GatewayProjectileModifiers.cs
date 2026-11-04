@@ -17,6 +17,10 @@ static class GatewayProjectileModifiers
         if (get("always_pierce") != 0 || get("virtual_always_pierce") != 0
             || attack && (get("arrows_always_pierce") != 0 || get("base_arrows_always_pierce") != 0)) pierce = -1;
         int chains = Math.Max(get("number_of_chains"), get("virtual_number_of_chains_for_projectiles"));
+        // "Supported Skills Chain X% more times" (Greater Chain): a more multiplier on the whole count, rounded up so a
+        // single chain still gains one.
+        int chainMore = get("support_chain_count_+%_final");
+        if (chains > 0 && chainMore > 0) chains = (int)Math.Ceiling(chains * (1 + chainMore / 100.0));
         if (chainInputConsumed) chains = 0;
         bool forks = get("projectiles_fork") != 0 || get("virtual_projectiles_fork") != 0
             || (attack ? get("attack_projectiles_fork") != 0 || get("arrows_fork") != 0

@@ -46,7 +46,8 @@ static partial class Game
             + 50L * Local("local_chance_to_bleed_on_crit_50%")
             + (melee ? get("bleed_on_melee_critical_strike") != 0 ? 100 : get("bleed_on_melee_crit_chance_%") : 0);
         double seconds = Ailments.BleedDurationSeconds * Math.Max(0, 1 + ((double)get("bleed_duration_+%")
-            + get("base_bleed_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster;
+            + get("base_bleed_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
+            * MonsterIgnites.DurationMultiplier(get);
         bool dance = get("keystone_crimson_dance") != 0;
         int aggravate = dance ? 0 : get("base_aggravate_bleeding_on_attack_hit_chance_%");
         return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),

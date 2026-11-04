@@ -169,6 +169,9 @@ sealed class MonsterElementalAilments
         double chilling = Inflicting("chill", DamageType.Cold, damage, attacker);
         double freezing = Inflicting("freeze", DamageType.Cold, damage, attacker);
         double shocking = Inflicting("shock", DamageType.Lightning, damage, attacker);
+        // "X% chance to Freeze Enemies which are Chilled" (Hypothermia) counts the target's chill from earlier hits, not
+        // the one this hit is about to add.
+        bool wasChilled = Magnitude(Kind.Chill, now) > 0;
         if (!CannotInflict("chill", attacker))
             Add(new(Kind.Chill, now, now + 2, Effectiveness(chilling * AsThough(Kind.Chill, attacker), threshold,
                 EffectModifier(Kind.Chill, attacker, target), ChillCap(attacker), attacker("chill_minimum_slow_%")))
@@ -178,7 +181,9 @@ sealed class MonsterElementalAilments
                 Spread = SpreadRadius(Kind.Chill, attacker, area),
             });
         // The chance rolls first, so a prohibition leaves the random sequence of the hits after it unchanged.
-        if (freezing > 0 && (critical || RandomRolls.Chance(attacker("chance_to_freeze_%"), 100, random))
+        int freezeChance = attacker("chance_to_freeze_%")
+            + (wasChilled ? attacker("additional_chance_to_freeze_chilled_enemies_%") : 0);
+        if (freezing > 0 && (critical || RandomRolls.Chance(freezeChance, 100, random))
             && !CannotInflict("freeze", attacker))
             Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * freezing * AsThough(Kind.Freeze, attacker) / threshold), 100)
                 { Spread = SpreadRadius(Kind.Freeze, attacker, area) });
