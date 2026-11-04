@@ -776,18 +776,20 @@ ignite proliferation, "as though dealing more" and the panel's unmodelled bucket
 **Hit bleed on monsters (`MonsterBleeds.cs`, the wiki's Bleeding).** Attacks only: the default attack, a melee or area
 attack's sweep, an attack gem's projectile and the ordinary bow or wand shot read the context's bleeding rows above
 (`BleedSettings`, as the ignite's). The chance is `bleed_on_hit_with_attacks_%` + the main hand's local
-`local_chance_to_bleed_on_hit_%` (the panel's `virtual_total_main_hand_chance_to_bleed_on_hit_%`), plus
-`bleed_on_melee_attack_chance_%` for a melee or `bleed_on_bow_attack_chance_%` for a bow attack; `global_bleed_on_hit`
-or the weapon's `local_bleed_on_hit` always bleed. Unlike ignite a critical strike rolls the chance too, then bleeds
-from the critical rows. It lasts 5 s × (1 + `bleed_duration_+%` + `base_bleed_duration_+%` +
+`local_chance_to_bleed_on_hit_%` and its fixed `local_chance_to_bleed_on_hit_25%` / `_50%` (1 on their mods, 25 and
+50 in the panel's `virtual_total_main_hand_chance_to_bleed_on_hit_%`), plus `bleed_on_melee_attack_chance_%` for a
+melee or `bleed_on_bow_attack_chance_%` for a bow attack; `global_bleed_on_hit` or the weapon's `local_bleed_on_hit`
+always bleed. Unlike ignite a critical strike rolls a chance too: that one plus `bleed_on_crit_%_with_attacks`, the
+weapon's `local_bleed_on_critical_strike_chance_%` and fixed `local_chance_to_bleed_on_crit_50%`, and for a melee
+attack `bleed_on_melee_crit_chance_%` (`bleed_on_melee_critical_strike`: always), as PoB's `BleedChanceOnCrit`; it
+bleeds from the critical rows. The panel's `virtual_{hand}_chance_to_bleed_on_critical_strike_%` is not sent. It lasts 5 s × (1 + `bleed_duration_+%` + `base_bleed_duration_+%` +
 `base_all_ailment_duration_+%`), and `faster_bleed_%` works as `faster_burn_%` does. `cannot_cause_bleeding` and
 `never_damaging_ailments` stop it; the monster's `avoid_bleed_%` / `base_avoid_bleed_%` avoid it and
 `immune_to_bleeding` / `cannot_gain_bleeding` refuse it. A monster's bleeds are a second strongest-only set with the
 ignites' rules (`SpawnedMonster.Bleeds`); the player tick (`BleedMonsters`) deals the strongest through the monster's
 physical damage over time taken (armour stops hits only), three times while its walk moves. It wears the native
 `bleeding` buff (BuffDefinitions row 140, the one the trial spike traps put on the player) timed as the ignited one.
-Not modelled: Crimson Dance's stacks, aggravated bleeding, the weapons' fixed `local_chance_to_bleed_on_hit_25%` /
-`_50%` and critical-only chances.
+Not modelled: Crimson Dance's stacks and aggravated bleeding.
 
 **Hit poison on monsters (`MonsterPoisons.cs`).** `PoisonOnHitLocked` rolls the caster's and the skill's poison chance
 and the monster's avoidance on every landed hit with physical or chaos damage. Each poison's damage per second (a roll

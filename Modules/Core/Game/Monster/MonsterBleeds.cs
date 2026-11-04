@@ -11,9 +11,11 @@ static partial class Game
     /// What an attack's hit can bleed with (wiki Bleeding), in the shape of an ignite (<see cref="MonsterIgnites.Settings"/>):
     /// the context's bleeding rows (<see cref="AilmentPanelStats"/>: 70% of the hit's physical damage per second through
     /// the ailment's buckets) and the chance from bleed_on_hit_with_attacks_% and the weapon's
-    /// local_chance_to_bleed_on_hit_% (the panel's virtual_total_main_hand_chance_to_bleed_on_hit_%), with
-    /// bleed_on_melee_attack_chance_% for a melee and bleed_on_bow_attack_chance_% for a bow attack; global_bleed_on_hit
-    /// or the weapon's local_bleed_on_hit always bleed. It lasts 5 s × (1 + bleed_duration_+%, base_bleed_duration_+% and
+    /// local_chance_to_bleed_on_hit_% and fixed 25% / 50% (the panel's virtual_total_main_hand_chance_to_bleed_on_hit_%),
+    /// with bleed_on_melee_attack_chance_% for a melee and bleed_on_bow_attack_chance_% for a bow attack; global_bleed_on_hit
+    /// or the weapon's local_bleed_on_hit always bleed. A critical strike adds the "on Critical Strike" chances (PoB
+    /// BleedChanceOnCrit): bleed_on_crit_%_with_attacks, the weapon's local_bleed_on_critical_strike_chance_% and fixed
+    /// 50%, and for a melee attack bleed_on_melee_crit_chance_% (bleed_on_melee_critical_strike: always). It lasts 5 s × (1 + bleed_duration_+%, base_bleed_duration_+% and
     /// base_all_ailment_duration_+%); faster_bleed_% and damaging_ailments_deal_damage_+%_faster multiply its damage per
     /// second and divide its duration, as ignite's faster stats do. cannot_cause_bleeding and never_damaging_ailments stop
     /// it; a physical prohibition already leaves its rows empty.
@@ -28,13 +30,18 @@ static partial class Game
         double Row(string bound, string kind) =>
             r.GetValueOrDefault($"{bound}_bleeding_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
         int Local(string name) => local?.GetValueOrDefault(name) ?? 0;
+        // The fixed chances are 1 on their mods: "25% chance to cause Bleeding on Hit" is local_chance_to_bleed_on_hit_25%.
         long chance = get("global_bleed_on_hit") != 0 || Local("local_bleed_on_hit") != 0 ? 100
             : (long)get("bleed_on_hit_with_attacks_%") + Local("local_chance_to_bleed_on_hit_%")
+                + 25L * Local("local_chance_to_bleed_on_hit_25%") + 50L * Local("local_chance_to_bleed_on_hit_50%")
                 + (melee ? get("bleed_on_melee_attack_chance_%") : 0) + (bow ? get("bleed_on_bow_attack_chance_%") : 0);
+        long critical = chance + get("bleed_on_crit_%_with_attacks") + Local("local_bleed_on_critical_strike_chance_%")
+            + 50L * Local("local_chance_to_bleed_on_crit_50%")
+            + (melee ? get("bleed_on_melee_critical_strike") != 0 ? 100 : get("bleed_on_melee_crit_chance_%") : 0);
         double seconds = Ailments.BleedDurationSeconds * Math.Max(0, 1 + ((double)get("bleed_duration_+%")
             + get("base_bleed_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster;
         return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
-            Row("minimum", "critical"), Row("maximum", "critical"), seconds);
+            Row("minimum", "critical"), Row("maximum", "critical"), seconds, (int)Math.Clamp(critical, 0, 100));
     }
 
     /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield
@@ -61,14 +68,14 @@ static partial class Game
 
     // Called under the combat lock at an accepted attack hit that dealt physical damage and left the monster alive: the
     // hit's bleed and the packets of the monster's bleeding buff (BuffDefinitions "bleeding", its timer to the last bleed's
-    // end), or null. Unlike ignite a critical strike rolls the chance too, then bleeds with the critical rows (wiki
-    // Bleeding). The target's avoid_bleed_% and base_avoid_bleed_% avoid it; immune_to_bleeding and cannot_gain_bleeding
-    // stop it.
+    // end), or null. Unlike ignite a critical strike rolls its chance too (Settings.CriticalChance), then bleeds with the
+    // critical rows (wiki Bleeding). The target's avoid_bleed_% and base_avoid_bleed_% avoid it; immune_to_bleeding and
+    // cannot_gain_bleeding stop it.
     internal static List<byte[]>? BleedOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now)
     {
         if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row
-            || !RandomRolls.Chance(settings.Chance, 100, conn.IgniteRandom)) return null;
+            || !RandomRolls.Chance(critical ? settings.CriticalChance : settings.Chance, 100, conn.IgniteRandom)) return null;
         var e = target.Mods.Effects;
         if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e["avoid_bleed_%"] + e["base_avoid_bleed_%"],
                 e["immune_to_bleeding"] != 0 || e["cannot_gain_bleeding"] != 0 || e["base_cannot_gain_bleeding"] != 0,
