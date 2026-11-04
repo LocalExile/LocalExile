@@ -21,13 +21,21 @@ static partial class Game
             await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b6 server frame length {FrameMs} ms");
             double frame = FrameMs / 1000d, first = conn.Clock.Elapsed.TotalSeconds;
             long ended = 0;
-            // Well under a frame: a timer tick landing just before a boundary must not hold the frame for a whole period.
-            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(Math.Max(1, FrameMs / 3)));
-            while (!conn.Closed && await timer.WaitForNextTickAsync())
+            while (!conn.Closed)
             {
-                long due = (long)((conn.Clock.Elapsed.TotalSeconds - first) / frame);
-                if (due == ended) continue;
-                for (; ended < due; ended++)
+                // Paused, the Clock stands and no frame falls due: it looks again a third of a frame later.
+                if (conn.Paused)
+                {
+                    await Task.Delay(Math.Max(1, FrameMs / 3));
+                    continue;
+                }
+                // Woken at the next frame end, on the Gateway's 1 ms timer (WindowsTimerResolution): a poll of a third of
+                // a frame landed just before a boundary often enough to send frames 22 and 44 ms apart.
+                double wait = first + (ended + 1) * frame - conn.Clock.Elapsed.TotalSeconds;
+                if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                if (now < first + (ended + 1) * frame) continue;
+                for (; first + (ended + 1) * frame <= now; ended++)
                 {
                     // The frame advances in the frame end's send gate, under the combat lock: an order written after the
                     // 0x2b5 finds the new frame (LockstepOrderFrom), one written before it the old, and a pass that holds
