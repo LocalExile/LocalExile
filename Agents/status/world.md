@@ -267,20 +267,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
-- The client's lockstep network mode (also what "auto" picks on localhost): with `Game_LOCKSTEP=1` on a connection
-  confirmed as local, or `Game_LOCKSTEP=network` on any connection, the player walks, uses objects and uses skills;
-  a held default attack (bow, wand, one-hand sword) repeats once per attack time at a monster or at the ground, and a
-  Move cuts a swing short at its clip's lock_cancelling keyframe (a bow) or its contact (a wand, a sword), as on the
-  client; a melee monster's chase swings once the player is in its reach, on the way or at its walk's end, and goes on
-  after the player otherwise, as on the client; a bow's or wand's attack walks to where its line to the monster is clear on the projectile
-  grid, as on the client (an attack gem's line threshold is taken to be the bow's); the walk estimates step in the
-  client's frames and object order, a monster's order places its walk when it goes out (at the frame being sent), and
-  a walking monster is ordered again only right after its estimate's step (a client a cell off loses under a frame of
-  its step; pack fights: the client a cell from the estimate at 18 % of chase orders and 12 % of Moves, from 25 and
-  22 %, the rest unobservable from the server: [07](../docs/protocol/07-latency-visibility-movement.md) §6). Without it the player is
-  drawn but cannot move or
-  use objects, and the Gateway asks for Predictive once per connection
-  ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
+- The client's lockstep network mode (also what "auto" picks on localhost) is served with `Game_LOCKSTEP=1` on a
+  connection confirmed as local, or `Game_LOCKSTEP=network` on any connection.
+  The player walks, uses objects and skills; monsters chase in legs, take their surround slots and swing by the
+  client's own rules, and no chase Move goes to a monster within 2 cells of its target, which the client would ignore
+  ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
+  Like for like with GGG's retail lockstep, standing monsters match; fast walkers, visible snaps and the player's
+  standing starts still trail, and only a wand pack fight has run (roadmap: "Lockstep network mode").
+  Without it the player is drawn but cannot move or use objects, and the Gateway asks for Predictive once per
+  connection.
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell
   (The Submerged Passage, seed 1); quest flags are derived from visited areas and waypoints, not from quests
   ([16](../docs/protocol/16-waypoints.md) "Open").
