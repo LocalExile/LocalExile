@@ -12,8 +12,14 @@ sealed class MonsterIgnites
     /// <summary>What a hit can ignite with, captured at release: the chance, the ignite's fire damage per second for a
     /// non-critical and a critical hit (the panel's ignite rows, <see cref="AilmentPanelStats"/>, already scaled by the
     /// damage-over-time buckets), and the duration in seconds.</summary>
+    /// <param name="CriticalChance">The chance on a critical strike, for an ailment that rolls it there too (bleed);
+    /// a critical strike always ignites.</param>
+    /// <param name="Stacks">Bleed only: how many of the strongest deal damage at once (Crimson Dance: 8).</param>
+    /// <param name="Aggravate">Bleed only: the chance a hit (<paramref name="CriticalAggravate"/>: a critical strike)
+    /// aggravates the bleeds already on its target; <paramref name="Aggravated"/>: its own bleed is aggravated too.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
-        double Seconds)
+        double Seconds, int CriticalChance = 0, int Stacks = 1, int Aggravate = 0, int CriticalAggravate = 0,
+        bool Aggravated = false)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
@@ -45,8 +51,23 @@ sealed class MonsterIgnites
     public static double SelfDuration(Func<string, int> target) =>
         Math.Max(0, 1 - target("base_self_ignite_duration_-%") / 100.0);
 
-    readonly record struct Ignite(double From, double Until, double DamagePerSecond);
+    readonly record struct Ignite(double From, double Until, double DamagePerSecond, bool Aggravated = false);
     readonly List<Ignite> active = [];
+
+    /// <summary>How many of the strongest deal damage at once: 1, or Crimson Dance's 8 for bleeds.</summary>
+    public int Stacks { get; set; } = 1;
+
+    /// <summary>Aggravates every bleed on the monster for its remaining duration (wiki Bleeding).</summary>
+    public void Aggravate()
+    {
+        for (int i = 0; i < active.Count; i++) active[i] = active[i] with { Aggravated = true };
+    }
+
+    // The damage per second of the live instances: the Stacks strongest, plus aggravatedExtra × the strongest aggravated
+    // one (an aggravated bleed's "as though moving" part, which does not stack with the moving bonus).
+    double Dealing(List<Ignite> live, double aggravatedExtra) =>
+        live.Select(i => i.DamagePerSecond).OrderDescending().Take(Math.Max(1, Stacks)).Sum()
+        + aggravatedExtra * live.Where(i => i.Aggravated).Select(i => i.DamagePerSecond).DefaultIfEmpty().Max();
     double last, carry;
     double expiryRate = 1;
     public void SetExpiryRate(double now, double rate)
@@ -69,9 +90,9 @@ sealed class MonsterIgnites
     /// <summary>When the last of its ignites ends.</summary>
     public double Until => active.Count == 0 ? 0 : active.Max(i => i.Until);
 
-    /// <summary>The strongest ignite's damage per second at <paramref name="now"/> (0 when none burns).</summary>
-    public double PerSecond(double now) =>
-        active.Where(i => i.From <= now && now < i.Until).Select(i => i.DamagePerSecond).DefaultIfEmpty().Max();
+    /// <summary>The strongest ignite's damage per second at <paramref name="now"/> (0 when none burns; the
+    /// <see cref="Stacks"/> strongest together).</summary>
+    public double PerSecond(double now) => Dealing(active.Where(i => i.From <= now && now < i.Until).ToList(), 0);
 
     /// <summary>A hit that dealt fire damage tries to ignite. Critical hits always do; otherwise the chance rolls, then the
     /// target's avoidance. The damage per second is an independent roll in the context's range, as the incoming
@@ -81,22 +102,22 @@ sealed class MonsterIgnites
         if (immune || settings.Seconds <= 0 || !critical && !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
-        return Add(now, min + (Math.Max(min, max) - min) * random.NextDouble(), settings.Seconds);
+        return Add(now, min + (Math.Max(min, max) - min) * random.NextDouble(), settings.Seconds, settings.Aggravated);
     }
 
     /// <summary>An ignite already worked out (its chance rolled, its damage and duration final). True when added.</summary>
-    public bool Add(double now, double perSecond, double seconds)
+    public bool Add(double now, double perSecond, double seconds, bool aggravated = false)
     {
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         if (active.Count == 0) { last = now; carry = 0; }
-        active.Add(new(now, now + seconds / expiryRate, perSecond));
+        active.Add(new(now, now + seconds / expiryRate, perSecond, aggravated));
         return true;
     }
 
-    /// <summary>The whole fire damage the strongest ignite deals from the last advance to <paramref name="until"/>,
-    /// through every start and end in between, times the target's mitigation <paramref name="factor"/>; the fraction
-    /// carries to the next advance. Ended ignites are dropped.</summary>
-    public int Advance(double until, double factor)
+    /// <summary>The whole damage the strongest ignites deal (<see cref="Dealing"/>) from the last advance to
+    /// <paramref name="until"/>, through every start and end in between, times the target's mitigation
+    /// <paramref name="factor"/>; the fraction carries to the next advance. Ended ignites are dropped.</summary>
+    public int Advance(double until, double factor, double aggravatedExtra = 0)
     {
         if (active.Count == 0 || !(until > last)) return 0;
         var cuts = active.SelectMany(i => new[] { i.From, i.Until }).Where(t => last < t && t < until)
@@ -105,7 +126,7 @@ sealed class MonsterIgnites
         for (int k = 1; k < cuts.Length; k++)
         {
             double mid = (cuts[k - 1] + cuts[k]) / 2;
-            damage += active.Where(i => i.From <= mid && mid < i.Until).Select(i => i.DamagePerSecond).DefaultIfEmpty().Max()
+            damage += Dealing(active.Where(i => i.From <= mid && mid < i.Until).ToList(), aggravatedExtra)
                 * Math.Max(0, factor) * (cuts[k] - cuts[k - 1]);
         }
         last = until;

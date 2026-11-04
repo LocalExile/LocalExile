@@ -250,6 +250,8 @@ static partial class Game
             }
             else if (id == InstancePause.RequestId)
                 await SetPaused(remote, stream, ciphers, conn, InstancePause.ReadRequest(bytes));
+            else if (id == InstanceWaypoints.LabyrinthChosenId && bytes.Length >= InstanceWaypoints.LabyrinthChosenLength)
+                await ChooseLabyrinth(remote, stream, ciphers, conn, bytes[2]);
             else if (id == InstanceProtocol.UseInstantSkillAtLocationId)
             {
                 var (x, y, skill) = InstanceProtocol.ReadUseInstantSkillAtLocation(bytes);

@@ -108,7 +108,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 - **Known:** the server port generates the Labyrinth's rooms (249 of 257 match), and the gate baseline lists the
   supported ones ([re/011](../docs/re/011-level-generation.md), "Labyrinth pass").
-  The boss ends use the layout the client builds with seed 0: the server sends no daily layout.
+  The day's layout is sent with each room in it, and a Normal run works ([status](../status/world.md), "A Labyrinth run").
   The Aspirants' Plaza (`Labyrinth_Airlock`, `WaypointCatalog.LabyrinthPlaza`) is a waypoint the World panel's
   Labyrinth pin always shows.
   Ascendancy points come only from the `/ascendancy_points` dev command (`AscendancyProgress`: two per tier, once);
@@ -126,19 +126,12 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra
-     data (`0x141ec7220`: seed, node, difficulty; [03](../docs/protocol/03-area-and-world.md)).
-     The node's LabyrinthNodeOverrides and secrets then apply in `LabyrinthPass`; the levelgen gate stays green.
-  2. A run: the plaza's device opens a tier once its required trials are done (Labyrinths `RequiredTrials`), and each
-     room is an instance linked by the layout's connections.
-     No waypoints inside; a portal out, a death or a logout ends the run.
-     Find what the client sends at the device and at a type 5 transition before choosing a server state.
-  3. Izaro: three Aspirant's Trials, each ending when he loses a third of his life (the boss stages of
+  1. Izaro: three Aspirant's Trials, each ending when he loses a third of his life (the boss stages of
      `BossFights.cs`); the third opens the Ascendancy Chamber and its Izaro chests (LabyrinthIzaroChests).
-  4. The Ascendancy Chamber: the Altar (`LabyrinthAscendancyDevice`) chooses the ascendancy on the first Normal run,
+  2. The Ascendancy Chamber: the Altar (`LabyrinthAscendancyDevice`) chooses the ascendancy on the first Normal run,
      awards the tier's two points through `AscendancyProgress` and sets the tier's quest flag (Labyrinths
      `QuestFlag`); agree the shared code with #151.
-  5. The Cruel and Merciless trials, then secrets and darkshrines, the Divine Font (LabyrinthCraftOptions),
+  3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
      Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type
      `LabyrinthMonsterTotem`: Endless Pain, Hazard, Drought, Sting, Unending Lethargy, Frost, Fire, Storm, Vaal Totem,

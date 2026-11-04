@@ -326,6 +326,8 @@ static partial class Game
             int impaleStacks, damage;
             bool impaled, critical;
             string? resistance;
+            List<byte[]>? ignited = null, bled = null;
+            string igniteLog = "", bleedLog = "";
             StunHit stun;
             using (ProjectileMutation(conn))
             {
@@ -390,7 +392,14 @@ static partial class Game
                 conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
-                    at, Random.Shared);
+                    at, Random.Shared, poison: DefaultAttackPoison(conn, player));
+                if (life > 0 && ownRolled[DamageType.Fire].Max > 0
+                    && IgniteOnHitLocked(conn, targetId, m, DefaultAttackIgnite(conn, player),
+                        critical, at) is { } packets)
+                    (ignited, igniteLog) = (packets, IgnitedLog(targetId, m, critical, at));
+                if (life > 0 && ownRolled[DamageType.Physical].Max > 0
+                    && BleedOnHitLocked(conn, targetId, m, DefaultAttackBleed(conn, player), critical, at) is { } cut)
+                    (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
                 if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: WeaponProfileFor(conn, activeSet: true).Melee, critical);
                 InflictMonsterBlind(conn, targetId, m, ResourceEffectsTime(conn), BlindInputs(player));
@@ -419,6 +428,8 @@ static partial class Game
                 (stored > 0 ? $", impale +{stored:0.#} ({impaleStacks} stack(s))" : "") +
                 (impaled ? $", impaled ({impaleStacks} stack(s), {impaleStored:0.#} stored)" : "") +
                 $", life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
+            await SendDotBuff(remote, stream, ciphers, ignited, igniteLog);
+            await SendDotBuff(remote, stream, ciphers, bled, bleedLog);
             if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, targetId, m);
             if (stageStarts) _ = RunBossStage(remote, stream, ciphers, conn, targetId, m);
             if (m.ThresholdReached) await QuestThreshold(remote, stream, ciphers, conn, targetId, m);
@@ -1136,6 +1147,8 @@ static partial class Game
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
+        MonsterIgnites.Settings ignite = default, bleed = default;
+        MonsterPoisons.Settings poison = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
         // Mirrored monster's reflected ailments reach the player (its freeze would end the action between two targets).
         var deaths = new List<(uint Id, SpawnedMonster M)>();
@@ -1148,6 +1161,8 @@ static partial class Game
             int damage;
             bool critical;
             string? resistance;
+            List<byte[]>? ignited = null, bled = null;
+            string igniteLog = "", bleedLog = "";
             StunHit stun;
             using (ProjectileMutation(conn))
             {
@@ -1173,6 +1188,9 @@ static partial class Game
                     leech = HitLeechSources(player, !spell, skillStats, local);
                     impale = ImpaleStats.From(player, Stats, !spell, skillStats, local);
                     criticalImpale = ImpaleStats.From(player, Stats, !spell, skillStats, local, critical: true);
+                    ignite = SupportedIgnite(conn, skillId, spell, player, shield);
+                    bleed = SupportedBleed(conn, skillId, spell, player, shield, melee: SkillsFor(conn).IsMelee(gem.Effect));
+                    poison = SupportedPoison(conn, skillId, spell, player, shield);
                 }
                 var contactHit = sweepHit;
                 if (VaalExecutor(conn, gem.Effect))
@@ -1224,7 +1242,15 @@ static partial class Game
                 {
                     landed++;
                     AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
-                        reflected);
+                        reflected, poison);
+                    // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
+                    // physical damage bleed it.
+                    if (m.Life > 0 && rolled[DamageType.Fire].Max > 0
+                        && IgniteOnHitLocked(conn, id, m, ignite, critical, at) is { } packets)
+                        (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
+                    if (m.Life > 0 && rolled[DamageType.Physical].Max > 0
+                        && BleedOnHitLocked(conn, id, m, bleed, critical, at) is { } cut)
+                        (bled, bleedLog) = (cut, BleedingLog(id, m, critical, at));
                 }
                 if (applied is { StageStarts: true } staged)
                 {
@@ -1248,6 +1274,8 @@ static partial class Game
             await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, hit, damage,
                 $"{gem.Name}{(critical ? " (critical)" : "")}{(resistance is null ? "" : $", {resistance}")}",
                 melee: melee ?? !spell, sequence: sequence, deaths: deaths, stun: stun);
+            await SendDotBuff(remote, stream, ciphers, ignited, igniteLog);
+            await SendDotBuff(remote, stream, ciphers, bled, bleedLog);
             ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id);
         }
         if (reflected.Count > 0 && player is not null)

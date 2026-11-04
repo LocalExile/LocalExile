@@ -63,6 +63,24 @@ static class Act3Objects
     public const string DiallaTower = "Metadata/NPC/Act3/DiallaTower", DeathPortalLocator = "Metadata/Monsters/Pope/DeathPortalLocator",
         TowerExit = "Metadata/QuestObjects/DominusTowerExit";
     public const string Hargan = "Metadata/NPC/Act3/Hargan";
+    /// <summary>The Sarn Encampment's (Act 3 and 8) statue in front of the way to the Aspirants' Plaza and the Ascendancy
+    /// plaque on it: tile records of the town tile (<c>…_statueposition</c>, <c>…_doorposition</c>). The plaque shows the
+    /// trials (the Trial Plaque window); used with the six Normal trials done, it opens the statue for good instead (the
+    /// original, per the user 2026-11-03). The way to the plaza (LabyrinthTownTransition, the tile's
+    /// <c>area_transition4</c>, "entrance4") behind it is shown once it is open.</summary>
+    public const string LabyrinthStatue = "Metadata/QuestObjects/Labyrinth/LabyrinthStatueTown",
+        LabyrinthPlaque = "Metadata/QuestObjects/Labyrinth/LabyrinthPlaqueTown";
+    /// <summary>QuestFlags LabyrinthAccess, set with the statue. Every character has it through the plaza's waypoint (its
+    /// access flags, always sent), so the statue follows a flag of the server's own (no QuestFlags row: saved with the
+    /// character, never sent to the client).</summary>
+    public const string LabyrinthAccess = LabyrinthTrials.LabyrinthAccess, StatueOpened = LabyrinthTrials.SarnStatueOpened;
+    /// <summary>The Aspirants' Plaza (Labyrinth_Airlock): airlock.arm's device that chooses the Labyrinth
+    /// (LabyrinthSelectWindow) and its portal back to town ("Return To Town"); the entrance tile's door in front of the
+    /// way into the Labyrinth, which the Labyrinth chosen there opens in this instance (C→S 0x212).</summary>
+    public const string LabyrinthSelect = "Metadata/QuestObjects/Labyrinth/LabyrinthDifficultySelect",
+        ReturnPortal = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAirlockPortal",
+        PlazaDoor = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAirlockDoor", Plaza = "Labyrinth_Airlock";
+    public static readonly string PlazaDoorOpen = LabyrinthDay.PlazaDoorOpen;
 }
 
 /// <summary>
@@ -196,6 +214,17 @@ sealed class Act3 : Act
             // where he stood (DeathPortalLocator) and the exit to The Aqueduct opens (Act 4's EndQuestFlags). That exit is
             // disabled in the layout (city_tower.arm's "entrance2disabled"): the gate below makes AreaTransitionCatalog create
             // it (Gated), shown once the flag is set.
+            // labyrinth_a3 "The Lord's Labyrinth" in Act 3: the town's statue in front of the way to the Aspirants' Plaza.
+            new Quest("labyrinth_a3")
+            {
+                On.Object(SarnEncampment, Act3Objects.LabyrinthStatue, Act3Objects.StatueOpened),
+                On.Object(SarnEncampment, Act3Objects.LabyrinthPlaque, Act3Objects.StatueOpened),
+                // The way to the plaza stands behind the statue: shown once it is open.
+                On.Exit(SarnEncampment, Act3Objects.Plaza, Act3Objects.StatueOpened),
+                On.Object(Act3Objects.Plaza, Act3Objects.LabyrinthSelect),
+                On.Object(Act3Objects.Plaza, Act3Objects.ReturnPortal),
+                On.Object(Act3Objects.Plaza, Act3Objects.PlazaDoor, Act3Objects.PlazaDoorOpen),
+            },
             new Quest("a3q10")
             {
                 On.Object(ImperialGardens, Act3Objects.EpicDoorLock, "a3q9-UsedTowerKey"),

@@ -24,6 +24,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   a mastery node can be allocated normally and its effect selected/changed without spending another point.
   Block Mastery's four effects are implemented: max attack block +2, max spell block +2, 20 life + 20 mana on block,
   and +1% spell block per 5% attack block; the effects are saved with the character.
+  Fire Mastery's 1 Life regenerated per second per 1% uncapped fire resistance counts in the life regeneration
+  (positive resistance only; live 2026-11-03: 161% added 161 per second).
   Code: `PassiveTree.cs`, `CharacterSaves.cs`, Gateway (`ChangePassives`, `PassivesMessage`).
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive tree jewel sockets (server and live stat check 2026-10-27; tree art check pending): the 21 ordinary large

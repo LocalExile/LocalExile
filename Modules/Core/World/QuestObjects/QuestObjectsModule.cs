@@ -127,7 +127,14 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             lock (conn.QuestObjects) questObject = conn.QuestObjects.TryGetValue(use.TargetId, out var qo) ? qo : null;
             if (questObject is var (objectRule, objectAt, objectInfo))
             {
-                await UseQuestObject(remote, stream, ciphers, conn, use, objectRule, objectAt, objectInfo, requestedAt);
+                await UseQuestObject(remote, stream, ciphers, conn, use, objectRule, objectAt, objectInfo, requestedAt,
+                    objectRule.ObjectType switch
+                    {
+                        Act3Objects.LabyrinthPlaque => () => QuestobjectsRules.UseSarnPlaque(remote, stream, ciphers, conn),
+                        Act3Objects.LabyrinthSelect => () => QuestobjectsRules.UseLabyrinthSelect(remote, stream, ciphers, conn),
+                        Act3Objects.ReturnPortal => () => QuestobjectsRules.UsePlazaReturnPortal(remote, stream, ciphers, conn),
+                        _ => null,
+                    });
                 return true;
             }
             GlyphQuest.Nest? nest;

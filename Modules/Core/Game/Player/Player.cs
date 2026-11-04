@@ -521,6 +521,7 @@ static partial class Game
             await PushOutOfCollision(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await BurnIgnited(remote, stream, ciphers, conn);
+            await BleedMonsters(remote, stream, ciphers, conn);
             await TickPoisons(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             var rf = conn.RighteousFire;
