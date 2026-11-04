@@ -96,7 +96,7 @@ static class CommandsFeature
                 || AccuracyRating.IsInput(Stats.Name(stat) ?? args[0])
                 || ResistanceOvercap.IsInput(Stats.Name(stat) ?? args[0])
                 || rebuildLife || rebuildMana || rebuildDefences || rawAttribute
-                || Stats.Name(stat) == PlayerHitMitigation.ArmourAppliesToChaos)
+                || Stats.Name(stat) == PlayerHitMitigation.ArmourAppliesToChaos || IsDevDefenceInput(Stats.Name(stat)))
             {
                 while (true)
                 {

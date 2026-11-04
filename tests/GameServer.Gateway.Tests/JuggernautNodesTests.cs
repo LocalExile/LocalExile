@@ -112,9 +112,22 @@ public sealed class JuggernautNodesTests
             Assert.Equal(without.Accuracy + 2 * with.Strength, with.Accuracy);
             Assert.InRange(with.Accuracy, 1500, 1649);
             Assert.Equal(21, with.AttackSpeedPct);   // 10% increased from accuracy with the unarmed character's 10% more
+
+            // /set_stat's block and flat armour (the Untiring checks) replace their raw sums in the pools.
+            foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
+                "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
+            Game.ItemsOf(conn).Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!));
+            var shielded = Game.PoolsFor(conn, 1);
+            Assert.Equal(24, shielded.BlockChance);
+            conn.PlayerStats[Program.Stats.Key("shield_block_%")!.Value] = 75;
+            conn.PlayerStats[Program.Stats.Key("base_physical_damage_reduction_rating")!.Value] = 5000;
+            var set = Game.PoolsFor(conn, 1);
+            Assert.Equal(75, set.BlockChance);   // 24 + 75, capped
+            Assert.Equal(shielded.Armour + 5000, set.Armour);
         }
         finally
         {
+            PlayerInventories.Forget(conn.Character!);
             lifetime.Stop(ex => throw ex);
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);
