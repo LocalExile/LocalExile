@@ -245,6 +245,9 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public bool SoulKillProcessed;
     public (int X, int Y)? LastTarget;
     public double NextChaseRetryAt;
+    // The cell a Move chase's current walk was cut to (Game.LegCells along its way), or null when the walk goes the whole
+    // way: a walk at its leg's end is still on its way for the chase cadence.
+    public (int X, int Y)? Leg;
     // A boss's stage (BossFights) and whether a hit has started it.
     public BossFights.Stage? Stage { get; init; }
     public bool StageTaken, StageRunning;

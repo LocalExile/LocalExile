@@ -125,5 +125,20 @@ public class LockstepMonsterTests : IDisposable
         Assert.Null(far.LastTarget);
         Assert.Equal([0x3001u], plan.Chases.Select(c => c.Id));
         Assert.DoesNotContain(0x3000u, plan.Chases.Select(c => c.Id));
+
+        // A ranged chaser's Move to its surround slot is cut the same way while the slot is more than a leg away.
+        var shooter = new SpawnedMonster("Spitter", new PlayerWalk(190, 100, 8), aggroRange: 60, stopRange: 2, maxLife: 10)
+        {
+            Attack = new(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true }, Aggro = true,
+        };
+        conn.Monsters[0x3002] = shooter;
+        plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 2);
+        var moveLeg = Assert.Single(plan.MoveLegs);
+        Assert.Equal(0x3002u, moveLeg.Id);
+        Assert.Equal((190, 100), moveLeg.From);
+        Assert.InRange(Math.Sqrt(Math.Pow(moveLeg.To.X - 190, 2) + Math.Pow(moveLeg.To.Y - 100, 2)), 11, 13);
+        Assert.Equal(moveLeg.To, shooter.Walk.Destination);
+        Assert.Equal(moveLeg.To, shooter.Leg);
+        Assert.Empty(plan.Moves);
     }
 }
