@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
     <ProjectReference Include="..\..\Mods\Source\CurrencyMarket\CurrencyMarket.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\NPC\NpcDialogue\NpcDialogue.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Game\Game.csproj" />
     <ProjectReference Include="..\..\Modules\Survivors\SurvivorsRun\SurvivorsRun.csproj" />
     <ProjectReference Include="..\..\Modules\Survivors\SurvivorsRewards\SurvivorsRewards.csproj" />

@@ -1,4 +1,8 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Modding;
+using GameServer.Modules.NpcDialogue;
+using System.Buffers.Binary;
+using System.Reflection;
 
 namespace GameServer.Gateway.Tests;
 
@@ -10,7 +14,7 @@ public sealed class CurrencyExchangeTests : IDisposable
         if (_savePath is not null) TestEnvironment.ReleaseSaves(_savePath);
     }
     [Fact]
-    public void Orders_escrow_match_other_accounts_and_collect_once_across_reload()
+    public async Task Orders_escrow_match_other_accounts_and_collect_once_across_reload()
     {
         string path = Path.Combine(Path.GetTempPath(), "LocalExile-exchange-" + Guid.NewGuid().ToString("N") + ".db");
         _savePath = path;
@@ -54,7 +58,117 @@ public sealed class CurrencyExchangeTests : IDisposable
         Assert.Empty(CurrencyExchange.Orders("Standard"));
         Assert.Equal(12, ai.Count(PlayerInventories.Cursor, wisdom.Hash) + bi.Count(0, wisdom.Hash));
         Assert.Equal(3, ai.Count(0, portal.Hash) + bi.Count(0, portal.Hash));
+        await CheckExchangeSessions(wisdom.Hash, portal.Hash, a);
     }
+
+    static async Task CheckExchangeSessions(uint wisdom, uint portal, string account)
+    {
+        var api = DispatchProxy.Create<IModuleContext, ExchangeHooks>();
+        var hooks = (ExchangeHooks)(object)api;
+        new NpcDialogueModule().Load(api);
+        Assert.Empty(hooks.Ticks);
+        Assert.Empty(hooks.Packets);
+        Assert.Null(hooks.Leaving);
+        var player = DispatchProxy.Create<IConnectionPlayer, ExchangePlayer>();
+        var connection = new ClientState(new AreaLayout(1, "1_1_town", 100, 100, 50, 50, null, []), 1, 1)
+        { Account = account, Character = account, League = "Standard" };
+        var proxy = (ExchangePlayer)(object)player;
+        proxy.State = connection;
+        NpcOption Option(string category) => new(player, "Faustus", category, "", "", false, 3, 3550, false, null);
+        Assert.False(await hooks.Option!(Option("unhandled")));
+        Assert.Empty(hooks.Ticks);
+        Assert.Empty(hooks.Packets);
+        using var market = ExchangeMarkets.Register("exchange-session-test");
+        market.Publish("one", [new("Scroll of Wisdom", "Portal Scroll", 1, 1)], ["Standard"]);
+        Assert.True(await hooks.Option(Option("CurrencyExchange")));
+        Assert.Single(hooks.Ticks);
+        Assert.Equal(7, hooks.Packets.Count);
+        Assert.Equal(1, CurrencyExchange.Orders("Standard").Single(o => o.MarketOwner != null).Offered);
+        await hooks.Option(Option("CurrencyExchange"));
+        Assert.Single(hooks.Ticks);
+        var other = DispatchProxy.Create<IConnectionPlayer, ExchangePlayer>();
+        ((ExchangePlayer)(object)other).State = new ClientState(connection.Layout, 2, 1)
+        { Account = account + "other", Character = account + "other", League = "Standard" };
+        await hooks.Option(Option("CurrencyExchange") with { Player = other });
+        Assert.Single(hooks.Ticks);
+        var query = new byte[10];
+        BinaryPrimitives.WriteUInt16BigEndian(query, InstanceCurrencyExchange.MarketRequest);
+        BinaryPrimitives.WriteUInt32BigEndian(query.AsSpan(2), wisdom);
+        BinaryPrimitives.WriteUInt32BigEndian(query.AsSpan(6), portal);
+        await hooks.Packets[InstanceCurrencyExchange.MarketRequest](new(player, InstanceCurrencyExchange.MarketRequest, query));
+        proxy.Messages.Clear();
+        market.Publish("two", [new("Scroll of Wisdom", "Portal Scroll", 2, 2)], ["Standard"]);
+        var tick = Assert.Single(hooks.Ticks);
+        // An unrelated player has no connection/world fixture: the callback must not inspect either.
+        await tick(DispatchProxy.Create<IConnectionPlayer, ExchangePlayer>(), 0.25);
+        Assert.Equal(1, CurrencyExchange.Orders("Standard").Single(o => o.MarketOwner != null).Offered);
+        await tick(player, 0.25);
+        Assert.Equal(2, CurrencyExchange.Orders("Standard").Single(o => o.MarketOwner != null).Offered);
+        Assert.Contains(proxy.Messages, m => m[0] == 2 && m[1] == 0xf2);
+        connection.ModuleWindow = "stash";
+        await tick(player, 0.25);
+        Assert.Single(hooks.Ticks);
+        await hooks.Leaving!(other, "disconnect");
+        Assert.Empty(hooks.Ticks);
+        await hooks.Option(Option("CurrencyExchange"));
+        Assert.Single(hooks.Ticks);
+        await hooks.Leaving!(player, "disconnect");
+        Assert.Empty(hooks.Ticks);
+    }
+
+    public class ExchangeHooks : DispatchProxy
+    {
+        public readonly List<Func<IPlayer, double, Task>> Ticks = [];
+        public readonly Dictionary<ushort, Func<Packet, Task<bool>>> Packets = [];
+        public Func<NpcOption, Task<bool>>? Option;
+        public Func<IPlayer, string, Task>? Leaving;
+        protected override object? Invoke(MethodInfo? method, object?[]? args)
+        {
+            switch (method!.Name)
+            {
+                case "OnTick":
+                    var tick = (Func<IPlayer, double, Task>)args![0]!;
+                    Ticks.Add(tick);
+                    return new Registration(() => Ticks.Remove(tick));
+                case "OnPacket": Packets.Add((ushort)args![0]!, (Func<Packet, Task<bool>>)args[1]!); break;
+                case "OnNpcOption": Option = (Func<NpcOption, Task<bool>>)args![0]!; break;
+                case "OnPlayerLeaving": Leaving = (Func<IPlayer, string, Task>)args![0]!; break;
+                case "World":
+                    var world = DispatchProxy.Create<IPlayerWorld, ExchangeWorld>();
+                    ((ExchangeWorld)(object)world).State = ((IConnectionPlayer)args![0]!).Conn;
+                    return world;
+                default: throw new NotSupportedException(method.Name);
+            }
+            return new Registration(() => { });
+        }
+    }
+    public class ExchangePlayer : DispatchProxy
+    {
+        internal ClientState State = null!;
+        public readonly List<byte[]> Messages = [];
+        protected override object? Invoke(MethodInfo? method, object?[]? args)
+        {
+            if (method!.Name == "get_Conn") return State ?? throw new InvalidOperationException("Unrelated player inspected");
+            if (method.Name != "Send") throw new NotSupportedException(method.Name);
+            Messages.Add((byte[])args![0]!);
+            return Task.CompletedTask;
+        }
+    }
+    public class ExchangeWorld : DispatchProxy
+    {
+        internal ClientState State = null!;
+        protected override object? Invoke(MethodInfo? method, object?[]? args)
+        {
+            switch (method!.Name)
+            {
+                case "get_OpenWindowOwner": return State.ModuleWindow;
+                case "OpenWindow": State.ModuleWindow = (string)args![0]!; return Task.CompletedTask;
+                case "NpcClose": return Task.CompletedTask;
+                default: throw new NotSupportedException(method.Name);
+            }
+        }
+    }
+    sealed class Registration(Action dispose) : IDisposable { public void Dispose() => dispose(); }
 
     [Fact]
     public void Refusals_self_orders_and_failed_commits_cannot_create_or_lose_currency()

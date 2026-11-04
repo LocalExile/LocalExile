@@ -56,7 +56,10 @@ Requests preserve the service's ETag and respect HTTP cache freshness even if Re
 The cache timestamp records the last successful HTTP check, not when the underlying trades occurred.
 Network work runs in the background. No accounts, tokens or player data are sent.
 
-Published stock enters the book on the existing player tick cycle. Unchanged ticks skip database work.
+Published stock enters the book when Currency Exchange opens or an exchange session processes a tick/request.
+Exchange packet and leaving handlers register once, on the first accepted Currency Exchange interaction.
+No exchange tick hook is registered until the first exchange session; unrelated players skip market work.
+The hook is removed when the last tracked session switches windows or leaves. Unchanged ticks skip database work.
 Trades reduce stock persistently and push depth updates; exhausted levels disappear.
 Requests never replenish stock. Reloading the same snapshot within an interval preserves fills.
 Stock can replenish at the configured interval while the cached price version stays fixed.

@@ -16,6 +16,8 @@ public sealed partial class NpcDialogueModule
     readonly object _marketCycle = new();
     readonly Dictionary<string, long> _marketVersions = new(StringComparer.OrdinalIgnoreCase);
     readonly ConditionalWeakTable<IPlayer, ExchangeSession> _exchange = new();
+    IDisposable? _exchangeTick;
+    bool _exchangeHandlersRegistered;
     static string League(ClientState conn) => conn.League ?? "Standard";
     static InstanceCurrencyExchange.Order Wire(CurrencyExchange.Order o)
     {
@@ -32,10 +34,12 @@ public sealed partial class NpcDialogueModule
             await player.Tell("Currency Exchange is unavailable in Solo Self-Found.");
             return;
         }
+        EnsureExchangeHandlers(module);
         var world = module.World(player);
         await world.NpcClose("0x0084 close NPC dialogue for currency exchange");
-        _exchange.GetOrCreateValue(player);
         await world.OpenWindow(ExchangeWindow, InstanceCurrencyExchange.Window, "0x007b open Currency Exchange");
+        TrackExchange(module, player);
+        await RefreshExchangeMarket(module, player);
         await SendOrders(player);
     }
     static Task SendOrders(IPlayer player)
@@ -44,22 +48,65 @@ public sealed partial class NpcDialogueModule
         return player.Send(InstanceCurrencyExchange.Orders(CurrencyExchange.Orders(League(conn), conn.Account)
             .Select(Wire).ToArray(), CurrencyExchange.OrderLimit), "0x02e7 currency exchange orders");
     }
-    void LoadExchange(IModuleContext module)
+    void TrackExchange(IModuleContext module, IPlayer player)
     {
-        module.OnTick(async (player, _) =>
+        lock (_marketCycle)
         {
-            var conn = ConnOf(player);
-            if (conn.Ssf || conn.Account is null) return;
-            string league = League(conn);
-            IReadOnlyList<CurrencyExchange.Order> changed;
-            lock (_marketCycle)
+            _exchange.GetOrCreateValue(player);
+            // No exchange tick hook exists until somebody opens the exchange.
+            _exchangeTick ??= module.OnTick(async (current, seconds) =>
             {
-                long version = ExchangeMarkets.Version;
-                if (_marketVersions.TryGetValue(league, out long applied) && applied == version) return;
-                changed = CurrencyExchange.SyncMarkets(league, ItemsFor(conn));
-                _marketVersions[league] = version;
-            }
-            await Notify(module, changed, league);
+                if (!_exchange.TryGetValue(current, out _)) return;
+                var conn = ConnOf(current);
+                if (conn.Closed || conn.LeavingArea || module.World(current).OpenWindowOwner != ExchangeWindow)
+                {
+                    ForgetExchange(current);
+                    return;
+                }
+                await RefreshExchangeMarket(module, current);
+            });
+        }
+    }
+    void ForgetExchange(IPlayer player)
+    {
+        lock (_marketCycle)
+        {
+            _exchange.Remove(player);
+            if (_exchange.Any()) return;
+            _exchangeTick?.Dispose();
+            _exchangeTick = null;
+        }
+    }
+    async Task RefreshExchangeMarket(IModuleContext module, IPlayer player)
+    {
+        var conn = ConnOf(player);
+        if (conn.Ssf || conn.Account is null) return;
+        string league = League(conn);
+        IReadOnlyList<CurrencyExchange.Order> changed;
+        lock (_marketCycle)
+        {
+            long version = ExchangeMarkets.Version;
+            if (_marketVersions.TryGetValue(league, out long applied) && applied == version) return;
+            changed = CurrencyExchange.SyncMarkets(league, ItemsFor(conn));
+            _marketVersions[league] = version;
+        }
+        await Notify(module, changed, league);
+    }
+    void EnsureExchangeHandlers(IModuleContext module)
+    {
+        lock (_marketCycle)
+        {
+            if (_exchangeHandlersRegistered) return;
+            RegisterExchangeHandlers(module);
+            _exchangeHandlersRegistered = true;
+        }
+    }
+    void RegisterExchangeHandlers(IModuleContext module)
+    {
+        module.OnPlayerLeaving((player, _) =>
+        {
+            ForgetExchange(player);
+            return Task.CompletedTask;
         });
         foreach (ushort id in new[] { InstanceCurrencyExchange.ListRequest, InstanceCurrencyExchange.PlaceRequest,
             InstanceCurrencyExchange.CancelRequest, InstanceCurrencyExchange.CollectRequest, InstanceCurrencyExchange.MarketRequest,
@@ -69,7 +116,8 @@ public sealed partial class NpcDialogueModule
                 var player = packet.Player;
                 var conn = ConnOf(player);
                 if (conn.Ssf || conn.Account is null || module.World(player).OpenWindowOwner != ExchangeWindow) return true;
-                _exchange.GetOrCreateValue(player);
+                TrackExchange(module, player);
+                await RefreshExchangeMarket(module, player);
                 byte[] bytes = packet.Bytes.ToArray();
                 uint Read(int offset) => BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(offset));
                 var catalog = ItemsFor(conn);
