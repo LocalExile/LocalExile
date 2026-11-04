@@ -107,6 +107,14 @@ exist, so the base support was a pure damage penalty). Melee Splash hits the ene
 support's less damage; its radius is the 12-cell default grown by the area modifier and
 `melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
 
+Red and blue supports whose stats had no consumer now apply too: Maim's `maim_on_hit_%` maims for 4 s and a maimed
+monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physical damage (its 30% reduced movement is
+not modelled); Bloodlust's more melee physical damage applies against a bleeding enemy; Pulverise's
+`support_pulverise_attack_speed_+%_final` and Rage's `attack_speed_+%_with_at_least_10_rage` join the attack-speed
+factors; Power Charge on Critical adds its more damage per power charge; Volatility scales the attack's minimum and
+maximum damage (`Volatility.cs`); Combustion's `ignites_apply_fire_resistance_+` rides on the ignite as a fire Exposure
+for its duration.
+
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
 A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.
 Tests cover link isolation, duplicate families, multiple supports, compatibility expressions, costs,

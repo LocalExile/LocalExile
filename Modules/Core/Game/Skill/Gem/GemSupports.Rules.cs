@@ -199,8 +199,14 @@ static partial class Game
         }
         double more = Supports.AttackSpeedMultiplier(gem.Effect, gem.Level) * Math.Max(.01, 1 + Get("support_melee_physical_damage_attack_speed_+%_final") / 100.0)
             * Math.Max(.01, 1 + Get("support_multiple_attacks_melee_attack_speed_+%_final") / 100.0)
+            // Pulverise: "15% less Attack Speed".
+            * Math.Max(.01, 1 + Get("support_pulverise_attack_speed_+%_final") / 100.0)
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get("support_projectile_attack_speed_+%_final") / 100.0);
+        // Rage Support: "19% increased Attack Speed with at least 10 Rage" (the rage stat set carries current_rage).
+        if (Get("current_rage") >= 10 && Get("attack_speed_+%_with_at_least_10_rage") is int rageSpeed and > 0
+            && Stats.Key("main_hand_attack_speed_+%") is uint rageBucket)
+            stats[rageBucket] += rageSpeed;
         // Close Combat's Combat Rush: more Attack Speed for a travel skill it does not support.
         if (conn.CombatRushUntil > conn.Clock.Elapsed.TotalSeconds && SkillsFor(conn).IsTravel(gem.Effect)
             && !gem.Supports.Any(s => s.Effect.Id == "SupportCloseCombat"))
@@ -292,7 +298,7 @@ static partial class Game
             melee: inputs.Melee, area: inputs.Area, projectile: inputs.Projectile,
             supportModifiers: inputs.Modifiers, skillTypes: inputs.Types,
             wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120));
-        if (inputs.Attack) hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get);
+        if (inputs.Attack) hit = MaximumAttackDamage.Apply(Volatility.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get), inputs.Get);
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
     }
 

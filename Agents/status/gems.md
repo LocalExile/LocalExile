@@ -84,6 +84,8 @@ Nothing yet.
   Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
   Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
+  Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility and Combustion apply their stats as well
+  ([25](../docs/protocol/25-gem-supports.md)).
   A real-client Cyclone control accepted the item-support records and displayed blue s/c, red W and white d.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
   Spell Echo repeats a supported spell's releases and area hits a cast time apart, with its 40% more cast speed

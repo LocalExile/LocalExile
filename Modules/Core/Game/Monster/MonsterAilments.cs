@@ -109,10 +109,11 @@ static partial class Game
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
-        // The physical part counts after the monster's physical reduction, as the hit's damage does.
+        // The physical part counts after the monster's physical reduction and its Maim, as the hit's damage does.
         var taken = mitigated.Select((type, range) => range.Scale(factor
             * (type == DamageType.Physical
-                ? Math.Max(0, 1 - (m.Mods.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0) : 1)));
+                ? Math.Max(0, 1 - (m.Mods.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+                    * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
         var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill),
             name => m.Mods.Effects[name], random, AilmentArea(Player, Skill, spell));
         if (m.Dead || m.Life == 0)

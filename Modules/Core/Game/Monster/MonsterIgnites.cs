@@ -96,6 +96,14 @@ static partial class Game
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
                 e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom)) return null;
+        // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
+        if (settings.FireExposure < 0)
+        {
+            double until = target.Ignites.Until;
+            var key = (DamageType.Fire, settings.FireExposure);
+            target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
+            target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until);
+        }
         return ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now);
     }
 

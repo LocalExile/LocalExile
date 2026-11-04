@@ -136,6 +136,7 @@ static partial class Game
                     Timed(id, living, ref m.IntimidatedUntil, ref m.IntimidateShownUntil, ref m.IntimidateBuff, IntimidatedBuffRow, null);
                     Timed(id, living, ref m.UnnervedUntil, ref m.UnnerveShownUntil, ref m.UnnerveBuff, UnnervedBuffRow, null);
                     Timed(id, living, ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
+                    Timed(id, living, ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
                     Timed(id, living, ref m.BlindedUntil, ref m.BlindShownUntil, ref m.BlindBuff, FlaskGrounds.BlindedBuffRow, null);
                     for (int i = 0; i < ExposureTypes.Length; i++)
                         if (!Timed(id, living, ref m.ExposureUntil[i], ref m.ExposureShownUntil[i], ref m.ExposureBuff[i],

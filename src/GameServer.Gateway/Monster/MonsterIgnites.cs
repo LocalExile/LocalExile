@@ -19,7 +19,7 @@ sealed class MonsterIgnites
     /// aggravates the bleeds already on its target; <paramref name="Aggravated"/>: its own bleed is aggravated too.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
         double Seconds, int CriticalChance = 0, int Stacks = 1, int Aggravate = 0, int CriticalAggravate = 0,
-        bool Aggravated = false, int RupturePercent = 0)
+        bool Aggravated = false, int RupturePercent = 0, int FireExposure = 0)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
@@ -40,7 +40,8 @@ sealed class MonsterIgnites
                 * Math.Max(0, 1 + ((double)get("ignite_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
                 * DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
-                Row("minimum", "critical"), Row("maximum", "critical"), seconds);
+                Row("minimum", "critical"), Row("maximum", "critical"), seconds,
+                FireExposure: get("ignites_apply_fire_resistance_+"));
         }
     }
 
