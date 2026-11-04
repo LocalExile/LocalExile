@@ -76,6 +76,14 @@ public sealed class HitAilmentTests
         {
             // Unlike ignite, a critical strike rolls the chance too.
             Assert.Null(Game.BleedOnHitLocked(conn, 1, target, settings, critical: true, now: 0));
+            // The "on Critical Strike" chances count for critical strikes only.
+            conn.PlayerStats[Program.Stats.Key("bleed_on_crit_%_with_attacks")!.Value] = 100;
+            Assert.Equal((0, 100), (Bleed().Chance, Bleed().CriticalChance));
+            Assert.Null(Game.BleedOnHitLocked(conn, 1, target, Bleed(), critical: false, now: 0));
+            // A weapon's fixed chances: "25% chance to cause Bleeding on Hit", "50% ... on Critical Strike".
+            var fixedChances = Game.BleedSettings([], "main_hand", _ => 0, new Dictionary<string, int>
+                { ["local_chance_to_bleed_on_hit_25%"] = 1, ["local_chance_to_bleed_on_crit_50%"] = 1 }, melee: false, bow: false);
+            Assert.Equal((25, 75), (fixedChances.Chance, fixedChances.CriticalChance));
             conn.PlayerStats[Program.Stats.Key("bleed_on_hit_with_attacks_%")!.Value] = 100;
             settings = Bleed();
             Assert.Equal(100, settings.Chance);

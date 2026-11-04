@@ -12,8 +12,10 @@ sealed class MonsterIgnites
     /// <summary>What a hit can ignite with, captured at release: the chance, the ignite's fire damage per second for a
     /// non-critical and a critical hit (the panel's ignite rows, <see cref="AilmentPanelStats"/>, already scaled by the
     /// damage-over-time buckets), and the duration in seconds.</summary>
+    /// <param name="CriticalChance">The chance on a critical strike, for an ailment that rolls it there too (bleed);
+    /// a critical strike always ignites.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
-        double Seconds)
+        double Seconds, int CriticalChance = 0)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
