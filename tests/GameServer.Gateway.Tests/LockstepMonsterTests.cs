@@ -149,4 +149,28 @@ public class LockstepMonsterTests : IDisposable
         Assert.DoesNotContain(0x3003u, plan.Legs.Select(l => l.Id).Concat(plan.Chases.Select(c => c.Id)).Concat(plan.MoveLegs.Select(l => l.Id)));
         Assert.False(asleep.Walk.Moving(3.5));
     }
+
+    // On a lockstep client a walker's position reads as of the current frame's start, so the leg's end must be read
+    // along the walk itself: read as a position it was the walker's own cell, and every far melee chase went out as a
+    // Move onto its own cell (live 2026-11-04: all 3 303 leg orders of two fights; the melee monsters stood). An
+    // estimate that finds no way keeps the attack aimed at the player.
+    [Fact]
+    public void A_lockstep_leg_placed_at_the_gate_goes_a_leg_along_or_keeps_the_attack()
+    {
+        var conn = Connection(lockstep: true);
+        conn.LockstepFrame = (1.0, 1.033);
+        var far = Drowned(new PlayerWalk(160, 100, 8) { FrameOf = at => (Math.Min(at, 1.0), 1.033) });
+        var (here, aim, attack) = Game.PlaceLockstepLeg(conn, far, 1.0);
+        Assert.False(attack);
+        Assert.Equal((160, 100), here);
+        Assert.Equal((148, 100), aim);   // 12 cells along the walk-up, at 8 cells a second
+        Assert.Equal((148, 100), far.Walk.Destination);
+
+        var walled = Drowned(new PlayerWalk(160, 100, 8, walkable: (x, y) => (x, y) == (160, 100)) { FrameOf = at => (Math.Min(at, 1.0), 1.033) });
+        (here, aim, attack) = Game.PlaceLockstepLeg(conn, walled, 1.0);
+        Assert.True(attack);
+        Assert.Equal((160, 100), here);
+        Assert.Equal((100, 100), aim);   // the player's cell
+        Assert.Equal((100, 100), walled.LastTarget);
+    }
 }

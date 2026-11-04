@@ -153,6 +153,11 @@ public sealed class PlayerWalk
     /// <summary>The walker's cell at <paramref name="now"/> (seconds, any monotonic clock).</summary>
     public (int X, int Y) Position(double now) => At(Frame(now), out _);
 
+    /// <summary>Where the current walk has the walker <paramref name="seconds"/> after <paramref name="now"/>: a cell
+    /// ahead on its path. <see cref="Position"/> cannot answer that on frames: a time past the current frame reads as the
+    /// frame's start (the walker has not stepped there yet).</summary>
+    public (int X, int Y) Ahead(double now, double seconds) => At(Frame(now) + seconds, out _);
+
     /// <summary>Where the walker is within its current step at <paramref name="now"/>: the seconds since the step before
     /// (the client's accumulator, +0x244) and the step's length; (0, 0) when it stands or is held.</summary>
     public (double Into, double Step) StepPhase(double now)

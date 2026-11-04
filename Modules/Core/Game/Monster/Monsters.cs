@@ -698,7 +698,7 @@ static partial class Game
                         if (!placed)
                         {
                             m.Walk.Approach(px, py, melee.Range - 1, now, LivingCollision.PlayerSize);
-                            leg = m.Walk.Position(now + LegCells / m.Walk.Speed);
+                            leg = m.Walk.Ahead(now, LegCells / m.Walk.Speed);
                             placed = leg != start;
                             if (placed) start = m.Walk.Order(leg.X, leg.Y, now);
                         }
@@ -808,7 +808,7 @@ static partial class Game
     static (int X, int Y) CutToLeg(SpawnedMonster m, (int X, int Y) to, double at)
     {
         double legSeconds = m.Walk.Speed > 0 ? LegCells / m.Walk.Speed : 0;
-        var leg = legSeconds > 0 && m.Walk.ArrivesAt - at > legSeconds + 1e-9 ? m.Walk.Position(at + legSeconds) : to;
+        var leg = legSeconds > 0 && m.Walk.ArrivesAt - at > legSeconds + 1e-9 ? m.Walk.Ahead(at, legSeconds) : to;
         if (leg == to || leg == m.Walk.Position(at)) { m.Leg = null; return to; }
         m.Walk.Order(leg.X, leg.Y, at);
         m.Leg = leg;
@@ -872,14 +872,18 @@ static partial class Game
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
                 {
                     var aim = to;
+                    bool noWay = false;
                     var start = LockstepOrderFrom(conn, plan, from, at =>
                     {
-                        // Placed at the gate: the walk-up to the player's cell at that frame's start, cut to its leg.
-                        var player = conn.Walk.Position(at);
-                        m.Walk.Approach(player.X, player.Y, m.Attack!.Range - 1, at, LivingCollision.PlayerSize);
-                        aim = m.Walk.Position(at + LegCells / m.Walk.Speed);
-                        return m.Walk.Order(aim.X, aim.Y, at);
+                        var (here, leg, attack) = PlaceLockstepLeg(conn, m, at);
+                        (aim, noWay) = (leg, attack);
+                        return here;
                     });
+                    if (noWay)
+                    {
+                        if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) leg finds no way from {start}: attack order at the player {aim}");
+                        return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, m.Attack!.SkillId, m.NextSequence(), 0, targetObjectId: PlayerId);
+                    }
                     return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, Move, conn.NextActionSequence(), 0x0408);
                 },
                 ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases a leg from {from} to {to}" : null);
@@ -1028,6 +1032,23 @@ static partial class Game
     // tasks: 14 of 1 193 chase orders in a traced fight, live 2026-11-03) started a frame early on the server, and the
     // overtaken frame was replayed with the new walk where the client still ran the old one. A predictive client's walk
     // is the plan's.
+    // A melee chase leg placed at a lockstep frame's start `at`: the walk-up to the player's cell then, cut to its leg.
+    // Returns the walker's cell, the cell to order and whether to send the attack aimed at the player instead: an
+    // estimate that finds no way keeps the attack order, as the planner does without frames (the client's own search
+    // may find one; a Move to its own cell would leave it standing).
+    internal static ((int X, int Y) Here, (int X, int Y) Aim, bool Attack) PlaceLockstepLeg(ClientState conn, SpawnedMonster m, double at)
+    {
+        var player = conn.Walk.Position(at);
+        var walk = m.Walk.Approach(player.X, player.Y, m.Attack!.Range - 1, at, LivingCollision.PlayerSize);
+        var leg = m.Walk.Ahead(at, LegCells / m.Walk.Speed);
+        if (leg == walk.Here)
+        {
+            m.LastTarget = player;
+            return (walk.Here, player, true);
+        }
+        return (m.Walk.Order(leg.X, leg.Y, at), leg, false);
+    }
+
     static (int X, int Y) LockstepOrderFrom(ClientState conn, MonsterAiPlan plan, (int X, int Y) from, Func<double, (int X, int Y)> place)
     {
         if (double.IsNaN(plan.FrameStart) || conn.LockstepFrame is not { } frame) return from;
