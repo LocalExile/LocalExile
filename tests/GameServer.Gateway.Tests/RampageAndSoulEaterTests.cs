@@ -12,6 +12,14 @@ public sealed class RampageAndSoulEaterTests
         Assert.Equal(6, Game.RampageRarity(100, 15));
         Assert.Equal(66, Game.RampageRarity(1000, 15));
         Assert.Equal(0, Game.RampageRarity(100, 0));
+
+        // A tier crossing feeds both the tier executor and the "on Rampage threshold" item mods once.
+        var session = new RampageSession();
+        for (int i = 0; i < 15; i++)
+            session.Kill(i * 0.1, new object(), enabled: true, alive: true, active: true, hostile: true);
+        Assert.Equal(new[] { 15 }, session.TakeThresholds());
+        Assert.Empty(session.TakeThresholds());
+        Assert.Equal(new[] { 15 }, session.TakeTiers());
     }
 
     [Fact]

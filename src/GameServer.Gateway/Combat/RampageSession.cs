@@ -9,13 +9,20 @@ sealed class RampageSession
     readonly RampageState state = new(Thresholds);
     readonly HashSet<object> creditedKills = new(ReferenceEqualityComparer.Instance);
     readonly Queue<int> pendingTiers = new();
+    // The same crossings feed the "on Rampage threshold" item mods; the tier executor keeps its own queue.
+    readonly Queue<int> pendingThresholds = new();
     public IReadOnlyList<int> PendingTiers => pendingTiers.ToArray();
     public RampageState.Value Current => state.Current;
-    public RampageState.Carried Carry(double now) { pendingTiers.Clear(); return state.Carry(now); }
-    public void Restore(RampageState.Carried carried, double now) { pendingTiers.Clear(); state.Restore(carried, now); }
+    public RampageState.Carried Carry(double now) { pendingTiers.Clear(); pendingThresholds.Clear(); return state.Carry(now); }
+    public void Restore(RampageState.Carried carried, double now)
+    { pendingTiers.Clear(); pendingThresholds.Clear(); state.Restore(carried, now); }
     public int[] TakeTiers()
     {
         int[] result = pendingTiers.ToArray(); pendingTiers.Clear(); return result;
+    }
+    public int[] TakeThresholds()
+    {
+        int[] result = pendingThresholds.ToArray(); pendingThresholds.Clear(); return result;
     }
 
     public RampageState.Value Observe(double now, bool enabled, bool alive, bool active)
@@ -23,7 +30,7 @@ sealed class RampageSession
         var before = Current;
         state.Advance(now);
         if (!enabled || !alive || !active) { Clear(); return Current; }
-        if (before.Active && !Current.Active) pendingTiers.Clear();
+        if (before.Active && !Current.Active) { pendingTiers.Clear(); pendingThresholds.Clear(); }
         return Current;
     }
 
@@ -46,13 +53,13 @@ sealed class RampageSession
     {
         var change = state.GainQualified(now);
         if (!change.Accepted) return false;
-        foreach (int tier in change.CrossedThresholds) pendingTiers.Enqueue(tier);
+        foreach (int tier in change.CrossedThresholds) { pendingTiers.Enqueue(tier); pendingThresholds.Enqueue(tier); }
         return true;
     }
 
     public void Clear()
     {
-        state.Clear(); pendingTiers.Clear();
+        state.Clear(); pendingTiers.Clear(); pendingThresholds.Clear();
         // Keep credited kills across source changes/expiry: delayed notices cannot grant them again.
     }
 }

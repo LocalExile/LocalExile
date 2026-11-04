@@ -435,7 +435,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         get
         {
             var fixedOnes = _blockerList;
-            if (Phasing) return fixedOnes;   // phasing (Quartz Flask): monsters do not block (UtilityFlasks.Phasing)
+            if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
             List<ClientPathfinder.Blocker>? all = null;
             lock (Monsters)

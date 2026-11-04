@@ -5,7 +5,7 @@ sealed partial class ClientState
     public IReadOnlyList<ClientPathfinder.Blocker> CorrectionBlockers()
     {
         var result = new List<ClientPathfinder.Blocker>(StationaryBlockers);
-        if (Phasing) return result;
+        if (IsPhasing) return result;
         // Deterministic arrival arbitration: the later actor moves, instead of both choosing the same exit.
         foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
             if (peer.Id < PeerId && peer.Life > 0 && peer.Owner is not null) result.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));

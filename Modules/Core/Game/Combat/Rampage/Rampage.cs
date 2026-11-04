@@ -78,6 +78,7 @@ static partial class Game
         ReconcileRampage(conn, enabled, now);
         int movement = conn.Rampage.Current.MovementPercent;
         conn.Rampage.MeleeHit(now, enabled, true, true, meleeGrants, true);
+        RampageThresholdEffects(conn);
         if (movement != conn.Rampage.Current.MovementPercent) conn.ApplyMovementSpeedAt(now);
         return enabled;
     }
@@ -91,7 +92,39 @@ static partial class Game
         ReconcileRampage(conn, enabled, now);
         int movement = conn.Rampage.Current.MovementPercent;
         conn.Rampage.Kill(now, target, enabled, true, true, true);
+        RampageThresholdEffects(conn);
         if (movement != conn.Rampage.Current.MovementPercent) conn.ApplyMovementSpeedAt(now);
+    }
+
+    /// <summary>The item modifiers that trigger on entering a new Rampage tier ("on Rampage threshold"): life
+    /// recovery, physical damage immunity, phasing and dispelling ailments. Each crossing triggers them once.</summary>
+    static void RampageThresholdEffects(ClientState conn)
+    {
+        int[] crossed = conn.Rampage.TakeThresholds();
+        if (crossed.Length == 0) return;
+        var sources = CharacterStatSources(conn).Stats;
+        int Get(string name) => Stats.Key(name) is uint key
+            ? conn.PlayerStats.TryGetValue(key, out int dev) ? dev : sources.GetValueOrDefault(key) : 0;
+        int heal = Get("recover_%_maximum_life_on_rampage_threshold");
+        if (heal > 0 && conn.PlayerLife > 0)
+            conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife,
+                (long)conn.PlayerLife + (long)conn.PlayerMaxLife * heal / 100);
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (Get("gain_physical_damage_immunity_on_rampage_threshold_ms") is int immuneMs and > 0)
+            conn.PhysicalImmunityUntil = Math.Max(conn.PhysicalImmunityUntil, now + immuneMs / 1000.0);
+        if (Get("phasing_on_rampage_threshold_ms") is int phasingMs and > 0)
+            conn.PhasingUntil = Math.Max(conn.PhasingUntil, now + phasingMs / 1000.0);
+        if (Get("dispel_status_ailments_on_rampage_threshold") != 0)
+        {
+            var before = conn.ElementalAilments.Snapshot(now);
+            conn.ElementalAilments.Clear();
+            conn.ApplyMovementSpeed();
+            if (conn.Wire.Stream is not null && conn.Wire.Ciphers is not null)
+            {
+                var (remote, stream, ciphers) = conn.Wire;
+                _ = SendPlayerAilmentBuffs(remote, stream, ciphers, before, conn.ElementalAilments.Snapshot(now));
+            }
+        }
     }
 
     // Contact accounting needs only this mechanic, not a full character/skill stat rebuild for every victim.
@@ -143,6 +176,10 @@ static partial class Game
             if (Stats.Key("item_found_rarity_+1%_per_X_rampage_stacks") is uint rarityPerStacks
                 && stats.GetValueOrDefault(rarityPerStacks) is int perKills)
                 Add("base_item_found_rarity_+%", RampageRarity(value.Stacks, perKills));
+            // "X% increased Area of Effect per 25 Rampage Kills".
+            if (Stats.Key("area_of_effect_+%_per_25_rampage_stacks") is uint areaPerStacks
+                && stats.GetValueOrDefault(areaPerStacks) is int areaValue)
+                Add("base_skill_area_of_effect_+%", RampageRarity(value.Stacks, 25) * areaValue);
             if (Stats.Key("current_rampage_stacks") is uint current) stats[current] = value.Stacks;
             if (Stats.Key("max_rampage_stacks") is uint maximum) stats[maximum] = RampageState.MaximumStacks;
         }

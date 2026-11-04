@@ -1177,10 +1177,16 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - Onslaught on kill grants the Onslaught buff and its speed ([13](../docs/protocol/13-items.md) §8a).
 - Kill-driven buffs from item stats: `player_gain_rampage_stacks` starts a Rampage streak and its kills feed the
   "1% increased Rarity of Items found per X Rampage Kills" stat (whole groups of X); the melee-hit source keeps
-  granting stacks on hits as before. `gain_soul_eater_during_flask_effect` grants Soul Eater while a flask effect runs:
-  5% increased attack and cast speed and 1% character size per soul, one soul per kill within 60 cells, at most 45,
-  and one lost every 0.5 s after 4 s without a kill. The Soul Eater icon is not sent yet.
-  Code: `Rampage.cs`, `RampageSession.cs`, `SoulEater.cs`, `SoulEaterState.cs`.
+  granting stacks on hits as before. The "on Rampage threshold" modifiers now trigger once per tier crossed: life
+  recovery, dispelling ailments, physical damage immunity and phasing for their listed durations. The per-stack
+  modifiers for area of effect (per 25 kills) and Chain Hook / Shield Charge attack speed (per 10 kills) count, and a
+  kill grants the extra Vaal Soul while the streak is active. `gain_soul_eater_during_flask_effect` grants Soul Eater
+  while a flask effect runs: 5% increased attack and cast speed and 1% character size per soul, one soul per kill
+  within 60 cells, at most 45, and one lost every 0.5 s after 4 s without a kill. The Soul Eater icon is not sent yet.
+  Not modelled at present: the threshold smoke cloud (no timed smoke ground), Unholy Might (no Unholy Might system),
+  the frenzy charge every 50 kills (the charge session has no Rampage-count rule), starting a streak at maximum
+  endurance charges and losing them when it ends, and the map/leaguestone Rampage modifiers.
+  Code: `Rampage.cs`, `RampageSession.cs`, `SoulEater.cs`, `SoulEaterState.cs`, `GemSupports.Rules.cs`, `VaalSouls.cs`.
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.
   The [357-stat ledger](../docs/dev/issue75-stat-ledger.md) tracks current individual review state and remaining

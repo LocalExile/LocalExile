@@ -2,6 +2,10 @@ sealed partial class ClientState
 {
     internal RampageSession Rampage { get; } = new();
     internal SoulEaterState SoulEater { get; } = new();
+    // "Gain Physical Damage Immunity for X seconds on Rampage" and "Phasing for X seconds on Rampage" thresholds.
+    internal double PhysicalImmunityUntil;
+    internal double PhasingUntil;
+    internal bool IsPhasing => Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds;
     internal ITransientCombatState? OwnedCombatState;
     internal ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
     internal HashSet<uint> RetiredCombatObjects { get; } = [];
