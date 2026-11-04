@@ -32,6 +32,7 @@ static class GatewayProjectileModifiers
         {
             ExtraProjectiles = extra, Pierce = pierce,
             Fork = forkCount, Chain = chains,
+            ForkExtraProjectileChance = Math.Clamp(get("chance_to_fork_extra_projectile_%"), 0, 100),
             Split = Math.Max(splitTargets, get("intermediary_projectile_number_of_targets_to_split_to")),
             Returns = get("projectiles_return") != 0 || attack && get("attack_projectiles_return") != 0
                 || get("projectile_return_%_chance") >= 100,

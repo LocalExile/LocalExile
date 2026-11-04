@@ -76,6 +76,17 @@ static partial class Game
                     ? (int)Math.Round(100 * ((1 + previous / 100.0) * (1 + value / 100.0) - 1))
                     : own.GetValueOrDefault(key) + value;
             }
+        // Machinations: its "per Keystone" stats count the character's allocated keystones. The chaos gain feeds the
+        // plain stat the damage conversion reads; the cost increase has no consumer yet (costs read player stats only).
+        int keystones = KeystoneCount(conn);
+        foreach (string stat in new[] { "skill_cost_+%_per_keystone", "physical_damage_%_to_add_as_chaos_per_keystone" })
+            if (Stats.Key(stat) is uint perKey && own.TryGetValue(perKey, out int per))
+            {
+                own[perKey] = per * keystones;
+                if (stat == "physical_damage_%_to_add_as_chaos_per_keystone" && own[perKey] != 0
+                    && Stats.Key("physical_damage_%_to_add_as_chaos") is uint plain)
+                    own[plain] = own.GetValueOrDefault(plain) + own[perKey];
+            }
         double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
         foreach (string stat in new[] { "mana_cost", "base_mana_cost", "mana_cost_per_minute", "base_mana_cost_per_minute", "base_rage_cost", "total_base_rage_cost" })
             if (Stats.Key(stat) is uint k && own.TryGetValue(k, out int cost)) own[k] = (int)Math.Floor(cost * costMultiplier);
@@ -145,6 +156,10 @@ static partial class Game
             * Math.Max(.01, 1 + Get("support_multistrike_attack_speed_+%_final") / 100.0)
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get("support_projectile_attack_speed_+%_final") / 100.0);
+        // Close Combat's Combat Rush: more Attack Speed for a travel skill it does not support.
+        if (conn.CombatRushUntil > conn.Clock.Elapsed.TotalSeconds && SkillsFor(conn).IsTravel(gem.Effect)
+            && !gem.Supports.Any(s => s.Effect.Id == "SupportCloseCombat"))
+            more *= Math.Max(.01, 1 + conn.CombatRushAttackSpeed / 100.0);
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
         // already part of this factor. Do not apply the same GEPL value again.
         double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats)
@@ -156,6 +171,32 @@ static partial class Game
 
     internal static GameServer.Core.World.DamagePacket SupportedHit(ClientState conn, ushort skillId)
         => SupportedHitFor(conn, skillId, suppress: true);
+
+    // The allocated keystones a "per Keystone" stat counts: the character's own, and the ones a tattoo turns a node
+    // into (the node itself is not a keystone then).
+    static int KeystoneCount(ClientState conn)
+    {
+        int count = 0;
+        foreach (ushort node in conn.Passives)
+            if (Program.Passives.Find(node) is { IsKeystone: true }) count++;
+        foreach (var (node, chosen) in conn.TattooKeystones)
+            if (Program.Passives.Find(node) is not { IsKeystone: true } && Program.Passives.Find(chosen) is { IsKeystone: true })
+                count++;
+        return count;
+    }
+
+    // Close Combat: a supported melee hit grants Combat Rush, which speeds up travel skills the support does not
+    // support. The buff ends at its listed deadline (the travel skill that uses it does not end it early here).
+    internal static void CombatRushOnHit(ClientState conn, IReadOnlyDictionary<uint, int>? skill, double now)
+    {
+        int Get(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
+        if (Get("supported_by_slashing") == 0) return;
+        int milliseconds = Get("support_slashing_buff_base_duration_ms");
+        int speed = Get("support_slashing_buff_attack_speed_+%_final_to_grant");
+        if (milliseconds <= 0 || speed <= 0) return;
+        conn.CombatRushUntil = Math.Max(conn.CombatRushUntil, now + milliseconds / 1000.0);
+        conn.CombatRushAttackSpeed = Math.Max(conn.CombatRushAttackSpeed, speed);
+    }
 
     internal static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area)
         => SupportedHitFor(conn, skillId, suppress: false, area);

@@ -19,7 +19,7 @@ sealed class MonsterIgnites
     /// aggravates the bleeds already on its target; <paramref name="Aggravated"/>: its own bleed is aggravated too.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
         double Seconds, int CriticalChance = 0, int Stacks = 1, int Aggravate = 0, int CriticalAggravate = 0,
-        bool Aggravated = false)
+        bool Aggravated = false, int RupturePercent = 0)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 

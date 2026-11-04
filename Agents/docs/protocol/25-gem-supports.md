@@ -78,6 +78,20 @@ Sadism's `support_faster_ailments_ailment_duration_+%_final` shortens its ignite
 `support_projectile_attack_speed_+%_final` is a factor of the supported attack's rate, and Greater Chain's
 `support_chain_count_+%_final` multiplies the whole chain count, rounded up (`GatewayProjectileModifiers`).
 
+Greater Fork's `chance_to_fork_extra_projectile_%` rolls per projectile at the fork and adds a third child straight ahead
+(`ProjectileProfile.ForkExtraProjectileChancePercent`). Rupture's critical bleeding hits add up to four three-second
+Ruptures on the monster, each raising its bleeding damage taken by `support_rupture_bleeding_damage_taken_+%_final`
+(`MonsterRuptures`, `BleedTaken`); "bleeding expires more quickly" and the native Rupture buff are not modelled, because a
+bleed's duration is captured when it is applied. Close Combat's supported melee hit grants Combat Rush for its listed
+duration, and a travel skill the support does not support then takes
+`support_slashing_buff_attack_speed_+%_final_to_grant` as more attack speed; the buff ends at its deadline rather than
+when that travel skill is used. Block Chance Reduction's `support_reduce_enemy_block_and_spell_block_%` lowers the
+monster's block roll and a blocked supported hit applies Overpowered
+(`apply_overpowered_on_enemy_block_reduced_block_and_spell_block_%` for `support_overpowered_base_duration_ms`); monster
+spell block does not exist, so the spell-block half has nothing to lower. Machinations counts the character's allocated
+keystones (`KeystoneCount`) for its chaos gain; its skill-cost half has no consumer, as skill costs read player stats
+only.
+
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
 A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.
 Tests cover link isolation, duplicate families, multiple supports, compatibility expressions, costs,
@@ -103,6 +117,8 @@ A native compatibility match and a displayed support letter do not prove that it
 Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except Ice Nova's and the final-repeat stats.
 Triggers, totems, mines, minion behaviour, attack repeats, projectile branching, leech and many conditional effects
 still require their own execution paths.
+Second Wind's extra cooldown use needs multi-use cooldown state (one stored use is all that is tracked); Momentum's
+stacks need a skill-use and movement signal; Barrage and Arrow Nova need their own release patterns, not a stat.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
 Only the unconditional damage keys listed by GemSupportDamage and the five target conditions above receive
 multiplicative processing.

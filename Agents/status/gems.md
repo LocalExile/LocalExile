@@ -76,7 +76,10 @@ Nothing yet.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).
   Vile Toxins scales a hit per poison on the enemy; Lethal Dose adds two poisons to an unpoisoned one; Hypothermia's
   extra freeze chance counts an enemy chilled by an earlier hit; Sadism's less duration shortens its ailments; Vicious
-  Projectiles' less attack speed and Greater Chain's more chains apply.
+  Projectiles' less attack speed and Greater Chain's more chains apply. Greater Fork can add a third projectile at the
+  fork; Rupture's stacks raise bleeding damage taken; Close Combat's Combat Rush speeds up travel skills; Block Chance
+  Reduction lowers the monster's block roll and applies Overpowered; Machinations counts allocated keystones for its
+  chaos gain ([25](../docs/protocol/25-gem-supports.md)).
   A real-client Cyclone control accepted the item-support records and displayed blue s/c, red W and white d.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
   Spell Echo repeats a supported spell's releases and area hits a cast time apart, with its 40% more cast speed

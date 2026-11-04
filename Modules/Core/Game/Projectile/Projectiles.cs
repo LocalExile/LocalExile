@@ -278,7 +278,7 @@ static partial class Game
                 if (!accuracy.CannotBeEvaded && !target.AttackEvasion.Hits(hitChance, at, Conn.AttackAccuracyRandom))
                     return ProjectileHitResult.Miss;
             }
-            if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
+            if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
             double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
             if (!shot.Spell && shot.FarShot) more *= AntiquarianEffects.FarShot(contact.Projectile.Distance);
             if (!shot.Spell && shot.PointBlank) more *= AntiquarianEffects.PointBlank(contact.Projectile.Distance);

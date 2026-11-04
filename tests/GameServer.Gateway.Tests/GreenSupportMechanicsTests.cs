@@ -16,6 +16,12 @@ public sealed class GreenSupportMechanicsTests
     static Func<string, int> Stats(params (string Name, int Value)[] stats) =>
         name => stats.Where(s => s.Name == name).Sum(s => s.Value);
 
+    // Every Next(maxValue) call returns 0, so a chance roll above 0 succeeds deterministically.
+    sealed class ZeroRandom : Random
+    {
+        public override int Next(int maxValue) => 0;
+    }
+
     // Cull the Weak's share applies only to normal and magic enemies; Culling Strike's own share keeps applying to all.
     // Pacifism's hit leaves one Life and cancels the cull.
     [Fact]
@@ -46,6 +52,34 @@ public sealed class GreenSupportMechanicsTests
         var pacifism = Game.Cull.Of(null, With(("hits_cannot_kill_enemies", 1)), critical: false, spell: false);
         Assert.Equal(new Game.Cull(0, 0, 0, true), pacifism);
         Assert.Equal(1u, Game.TakeOwnerHitLocked(conn, Monster(MonsterRarity.Normal), 5000, pacifism).Life);
+
+        // Block Chance Reduction's share lowers the block roll, and a blocked supported hit applies Overpowered.
+        SpawnedMonster Blocker(int block, int overpowered = 0, double until = 0) =>
+            new("blocker", new(100, 100, 0), 0, 0, 1000)
+            {
+                Mods = new([], [], new(new Dictionary<string, int> { ["monster_base_block_%"] = block })),
+                OverpoweredPercent = overpowered, OverpoweredUntil = until,
+            };
+        var always = new ZeroRandom();
+        Assert.True(Game.MonsterBlocks(Blocker(75), always, spell: false));
+        var reduced = Blocker(75);
+        Assert.False(Game.MonsterBlocks(reduced, always, spell: false, now: 1,
+            With(("support_reduce_enemy_block_and_spell_block_%", 75))));
+        Assert.Equal(0, reduced.OverpoweredPercent);
+        var blocked = Blocker(75);
+        Assert.True(Game.MonsterBlocks(blocked, always, spell: false, now: 1,
+            With(("apply_overpowered_on_enemy_block_reduced_block_and_spell_block_%", 5),
+                ("support_overpowered_base_duration_ms", 4000))));
+        Assert.Equal((5, 5.0), (blocked.OverpoweredPercent, blocked.OverpoweredUntil));
+        Assert.False(Game.MonsterBlocks(Blocker(5, overpowered: 5, until: 10), always, spell: false, now: 2),
+            "5% block, 5% Overpowered: none left");
+
+        // Close Combat's Combat Rush: a supported melee hit grants it for its listed duration.
+        Game.CombatRushOnHit(conn, With(("supported_by_slashing", 1), ("support_slashing_buff_base_duration_ms", 2000),
+            ("support_slashing_buff_attack_speed_+%_final_to_grant", 20)), now: 10);
+        Assert.Equal((12.0, 20), (conn.CombatRushUntil, conn.CombatRushAttackSpeed));
+        Game.CombatRushOnHit(conn, With(), now: 20);
+        Assert.Equal(12.0, conn.CombatRushUntil);
     }
 
     // Lethal Dose's extra poisons, Vile Toxins' per-poison damage, Hypothermia's freeze chance, Sadism's duration and
@@ -98,5 +132,21 @@ public sealed class GreenSupportMechanicsTests
         Assert.Equal(2, Resolve(Stats(("number_of_chains", 1), ("support_chain_count_+%_final", 50))).Chain);
         Assert.Equal(3, Resolve(Stats(("number_of_chains", 2), ("support_chain_count_+%_final", 50))).Chain);
         Assert.Equal(2, Resolve(Stats(("number_of_chains", 2))).Chain);
+
+        // Greater Fork: the chance for an extra projectile when forking.
+        Assert.Equal(100, Resolve(Stats(("chance_to_fork_extra_projectile_%", 100))).ForkExtraProjectileChancePercent);
+
+        // Rupture: a critical bleeding hit of the supported skill ruptures, up to four stacks of the more bleeding
+        // damage taken, each lasting three seconds.
+        Assert.Equal(29, Game.BleedSettings([], "main_hand",
+            Stats(("critical_strikes_that_inflict_bleeding_also_rupture", 1),
+                ("support_rupture_bleeding_damage_taken_+%_final", 29)), null, melee: true, bow: false).RupturePercent);
+        Assert.Equal(0, Game.BleedSettings([], "main_hand",
+            Stats(("support_rupture_bleeding_damage_taken_+%_final", 29)), null, melee: true, bow: false).RupturePercent);
+        var ruptures = new MonsterRuptures();
+        for (int i = 0; i < 6; i++) ruptures.Add(0, 29);
+        Assert.Equal(4, ruptures.Stacks(1));
+        Assert.Equal(2.16, ruptures.More(1), 9);
+        Assert.Equal(1, ruptures.More(3), 9);
     }
 }

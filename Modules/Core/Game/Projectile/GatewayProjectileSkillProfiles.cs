@@ -109,6 +109,7 @@ static class GatewayProjectileSkillProfiles
             SequentialDelay = 0,
             CountConsumer = ProjectileCountConsumer.Primary,
             Pierce = parent.Pierce, Fork = parent.Fork, Chain = parent.Chain, Split = 0,
+            ForkExtraProjectileChancePercent = parent.ForkExtraProjectileChancePercent,
             CannotPierce = parent.CannotPierce, CannotFork = parent.CannotFork, CannotChain = parent.CannotChain,
             CannotSplit = true,
             Returns = false, ReturnChancePercent = 0, ReturnRolls = null, CannotReturn = true,
