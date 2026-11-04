@@ -247,6 +247,8 @@ static partial class Game
         // never held together. The endgame flags not earned yet (Quests.EndgameOnly: EndGameAvailable before Kitava) only
         // in a hideout and a map area, where the map device and the maps need them.
         var own = conn.QuestFlagsSnapshot();
+        // The hideout Faustus OT gates visibility/collision on this flag; it is local to the visit, not saved progress.
+        if (HideoutCatalog.ByArea(conn.Layout.Hash) is not null) own.Add("CanSeeFaustusInHideout");
         string[] endgame;
         lock (conn.Monsters) endgame = [.. Quests.EndgameOnly.Where(conn.UnearnedQuestFlags.Contains)];
         if (endgame.Length > 0 && (inHideout || MapDevices.Value.IsMapArea(conn.Layout.Hash))) own.UnionWith(endgame);

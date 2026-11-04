@@ -14,6 +14,9 @@ public interface IModContext
     /// <summary>The mod's <c>mod.json</c>.</summary>
     ModManifest Manifest { get; }
 
+    /// <summary>Registers finite exchange liquidity, withdrawn on unload.</summary>
+    IExchangeMarket RegisterExchangeMarket() => throw new NotSupportedException();
+
     /// <summary>The host-issued lifetime of this load, for generation checks, cancellation and owned registrations.</summary>
     IModuleLifetime Lifetime { get; }
 
