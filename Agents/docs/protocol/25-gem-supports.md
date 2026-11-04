@@ -123,8 +123,9 @@ whole volley in a circle from there (`projectiles_rain` and `skill_is_rain_skill
 on 2026-11-04 (Split Arrow, 18 arrows): every child started on the aim cell and the directions were exactly 20 degrees
 apart, the first on the aim ray about 0.66 s after the use at 33 cells; the client drew the volley's children, so
 `ArrowNovaChildren` is `HideVisual` and the server only simulates their damage. The official server draws the payload
-with the support's `rain_rig.ao` `PermanentServerEffect` at the release and again at the landing, attaching
-`split_arrow.ao` to its `aux_projectile_attach` bone (the arrow leaves from the bow, not the character's centre). The
+with the support's `rain_rig.ao` `PermanentServerEffect` at the caster's cell and again at the landing cell, attaching
+`split_arrow.ao` to the rig's `aux_projectile_attach` bone (the arrow rides the rig's own transform, so the rig must
+stand at the player, not at the bow's release point). The
 rig's `Animated` bit3 id is 6 at the caster and 0 at the landing, and the attachment record sends kind 0 and mask 3
 (`EffectObject.AnimationId`, `AttachKind`, `AttachFlags`); sending 0 on both ends played the landing backwards. The
 landing comes 415 ms after the use and the nova 221 ms later; `ArrowNovaChildren` uses `EndEmission.Delay` and takes

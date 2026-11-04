@@ -50,6 +50,9 @@ static partial class Game
         /// <summary>The spawn effect's Animated bit3 animation id (0 is the .ao's default). The official Arrow Nova
         /// rain rig starts animation 6 at the caster and 0 at the target.</summary>
         public uint SpawnAnimatedId { get; init; }
+        /// <summary>Place the spawn effect at the caster's own cell rather than the projectile's release point: the
+        /// official Arrow Nova rain rig stands at the player while its payload leaves from the bow.</summary>
+        public bool SpawnAtCaster { get; init; }
         /// <summary>A clip the projectile's own rig plays where a contact stops it (an ordinary wand bolt's impact, with its
         /// sound and particles); the object then stays for <see cref="ImpactLifetime"/> quanta of game time.</summary>
         public uint? ImpactClip { get; init; }

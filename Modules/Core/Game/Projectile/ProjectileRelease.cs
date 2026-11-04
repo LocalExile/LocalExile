@@ -325,6 +325,7 @@ static partial class Game
                     // The official rain rig's Animated bit3 word: 6 at the caster (the up-cast), 0 at the target
                     // (the landing); sending 0 on both made the player side play the landing backwards.
                     SpawnAnimatedId = 6,
+                    SpawnAtCaster = true,
                     SpawnFlags0 = 4,
                     SpawnAnimationWord = 22,
                     SpawnAnimationValue = -172f,

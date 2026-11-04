@@ -346,7 +346,16 @@ static partial class Game
             if (valid && presentation.EventEffect?.Invoke(value) is { } eventEffect)
             {
                 bool spawn = value.Kind == ProjectileEventKind.Spawn;
-                Effect(x, y, eventEffect, presentation.EffectLifetime,
+                // The official rain rig stands at the caster's cell; the payload arrow leaves from the bow, so spawning
+                // the rig at the release point shifted the whole rig (and its attached arrow) ahead of the player.
+                int ex = x, ey = y;
+                if (spawn && presentation.SpawnAtCaster)
+                {
+                    var caster = Conn.Walk.Position(Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
+                    ex = (int)Math.Round((double)caster.X);
+                    ey = (int)Math.Round((double)caster.Y);
+                }
+                Effect(ex, ey, eventEffect, presentation.EffectLifetime,
                     value.Kind == ProjectileEventKind.Area ? value.Radius : null, presentation.AttachEffect,
                     presentation.AttachParent, presentation.EffectAnimatedFlags,
                     spawn ? presentation.SpawnFlags0 : (byte)0, spawn ? presentation.SpawnAnimationWord : 0,
