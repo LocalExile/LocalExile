@@ -85,6 +85,12 @@ public static class InstanceWaypoints
     public const byte TrialPlaqueUi = 9;
     /// <summary>The Labyrinth map (LabyrinthMapWindow in the client's screen table at 0x142fc5920).</summary>
     public const byte LabyrinthMapUi = 0x0f;
+    /// <summary>The Labyrinth's choice of difficulty at the plaza (LabyrinthSelectWindow in the screen table).</summary>
+    public const byte LabyrinthSelectUi = 0x10;
+
+    /// <summary>C→S 0x212 (3 bytes, writer 0x140e29080, sent by 0x140bd2ce0): the Labyrinth the select window chose,
+    /// u8 1 Normal … 4 Eternal (live 2026-11-03: Normal sent 1).</summary>
+    public const ushort LabyrinthChosenId = 0x212, LabyrinthChosenLength = 3;
 
     /// <summary>
     /// S→C 0x4c (class 0x1435dc7e0, read 0x14219f460; dispatcher case 0x12): u32 BE (+0x10, passed with the bitset to the

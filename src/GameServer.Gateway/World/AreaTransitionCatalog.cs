@@ -273,8 +273,27 @@ static class AreaTransitionCatalog
         var labyrinth = LabyrinthConnections(area.Id, notes);
         // Izaro's arena's way on (boss_portals.arm "entranceNdisabled") opens when he falls; the fight is not built yet, so
         // in a room of today's Labyrinth it is open from the start.
-        return FromExits(area.Id, area.Hash16, labyrinth ?? area.Connections ?? [], level.Exits, notes, level.Entrances,
+        var placed = FromExits(area.Id, area.Hash16, labyrinth ?? area.Connections ?? [], level.Exits, notes, level.Entrances,
             openDisabled: labyrinth is not null);
+        if (area.Id == LabyrinthDay.Plaza) placed.AddRange(LabyrinthEntrances(level, notes));
+        return placed;
+    }
+
+    /// <summary>The Aspirants' Plaza's way into the Labyrinth: the entrance tile's LabyrinthAreaTransition (behind the door
+    /// the plaza's device opens), to the first room of today's Normal Labyrinth. Its graph node calls it
+    /// "labyrinthentrance3disabled", no WorldAreas connection: the room depends on the day.</summary>
+    static IEnumerable<AreaTransitionObject> LabyrinthEntrances(ServerLevels.Level level, List<string> notes)
+    {
+        const string type = LabyrinthDay.Entrance;
+        string? first = LabyrinthDay.For(LabyrinthDay.Seed, 1).Areas[0];
+        if (first is null || HashOf(first) is not ushort hash) yield break;
+        foreach (var o in level.Exits.Select(e => e.Object).Where(o => o.Type == type).DistinctBy(o => (o.X, o.Y)))
+        {
+            string what = $"{o.Model.Split('/')[^1]} at ({o.X}, {o.Y})";
+            notes.Add($"{what} → {first}: the way into today's Labyrinth");
+            yield return new AreaTransitionObject(o.X, o.Y, hash, o.Model, Rotation: o.Rotation, Height: float.IsNaN(o.Z) ? null : o.Z,
+                Type: Resolve(o.Type, what, notes)) { SourceType = o.Type };
+        }
     }
 
     /// <summary>A room of today's Labyrinth has no WorldAreas connections: its exits lead to its neighbours in the day's

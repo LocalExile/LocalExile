@@ -83,6 +83,11 @@ static class LabyrinthDay
     /// <summary>The Aspirants' Plaza: where the first room's way out (its -1 connection) leads.</summary>
     public const string Plaza = "Labyrinth_Airlock";
 
+    /// <summary>The plaza's way into the Labyrinth (the entrance tile's LabyrinthAreaTransition) and the instance state of
+    /// its door, which the Labyrinth chosen at the device (C→S 0x212) opens: the way in is shown only then.</summary>
+    public const string Entrance = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAreaTransition";
+    public static readonly string PlazaDoorOpen = Quests.InstanceFlag("PlazaDoor");
+
     /// <summary>An area's exits today, as its WorldAreas connections would be: the room's "entranceN" leads to its N-th
     /// connection in the layout (the client counts a passage secret's "entrance&lt;N&gt;" after them the same way), that
     /// room's area; the first room's way out to the plaza. The last room's way out (to Izaro) has none yet. Null when the

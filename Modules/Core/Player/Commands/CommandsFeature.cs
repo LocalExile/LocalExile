@@ -1360,6 +1360,9 @@ static class CommandsFeature
                 bool on = args[0].Equals("on", StringComparison.OrdinalIgnoreCase);
                 await SetQuestFlags(remote, stream, ciphers, conn, [.. trials.Select(t => t.Flag)], on);
                 await SetLeagueQuestFlags(remote, stream, ciphers, conn, [.. trials.Select(t => t.LeagueFlag)], on);
+                // Without the Normal trials the Sarn Encampment's statue closes again (its plaque opens it).
+                if (!on && tier is 0 or 1)
+                    await SetQuestFlags(remote, stream, ciphers, conn, [LabyrinthTrials.SarnStatueOpened, LabyrinthTrials.LabyrinthAccess], false);
                 await conn.Commands!.Reply($"{trials.Count} trial(s) of {which} {(on ? "done" : "cleared")}: their quest flags and league quest flags.");
             }
             int own = trials.Count(t => conn.HasQuestFlag(t.Flag)), league = trials.Count(t => conn.LeagueQuestFlags.Contains(t.LeagueFlag));
