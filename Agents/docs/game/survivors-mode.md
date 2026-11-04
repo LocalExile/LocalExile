@@ -10,20 +10,32 @@ Run progress is not saved across server restarts.
 
 The three modules under `Modules/Survivors/` separate automatic skills, rewards and the run's lifecycle.
 The existing `/survivors` diagnostics and restart controls are available only to characters in this league.
-Starting a fresh run removes carried, worn and flask items; stopping a run removes its transient skills.
+A run keeps the uniques it has collected: the equipment and bag carry over from run to run, and only the life flask is
+replaced with a fresh full one. Starting a run removes nothing else; stopping a run removes its transient skills.
 Ordinary leagues do not load these modules for their players.
 
 ## Run shape
 
 The run is a seven-stage horde: 14 monsters alive at the start, 220 at the reference run's end, refilled every 0.12 s by
 a sixth of the gap (at most 4 a step) from three consecutive tiers of the area's roster, exactly the reference's curve.
-Monster life is **6× the reference curve** (x6 at the start, x21 by the bell) and damage grows +250% over the run;
-monster hits on the player deal 60% of their damage (Fortitude lowers it 1/1.2 a level), so standing still is not safe.
-Each kill leaves its experience as an **orb on the ground**: the client's kinetic-rain keeper orb effect at the death
-cell. The run tick collects every orb within 10 world units of the player, so the player has to pass near the corpses;
-at most 200 orbs lie at once and a further kill merges into the oldest. A boss pays its ladder experience the same way.
+Waves spawn 60 cells from the player, twice the old ring, so the horde closes in from farther away; the surround and
+ranged rings spawn at 52 and 44 cells.
+Monster life is **5× the reference curve** (x5 at the start, x17.5 by the bell), monster damage is **4× the reference
+curve** (x4 at the start, x14 by the bell), and a **DPS threat** (up to x3) multiplies life further while the player's
+sustained kill rate is above the baseline pace, so a build that clears the horde instantly faces a horde that outlives
+its damage. Monster hits on the player deal 60% of their damage (Fortitude lowers it 1/1.2 a level), so standing still
+is not safe. A run also holds the base game's life leech rate cap to a trickle and cancels instant leech, so a leech
+build cannot out-heal the horde and stand still.
+Each kill leaves its experience as an **orb on the ground**: the game's own charge orb at the death cell. The run tick
+collects every orb within 18 world units of the player, so the player has to pass near the corpses; at most 200 orbs
+lie at once and a further kill merges into the oldest. A boss pays its ladder experience the same way. A 2% share of
+kills leave a **death ground zone** (a desecrated patch) that lands 50/50 under the monster or under the player and
+drains 25% of maximum life a second while the player stands in it for its 4 seconds, so the player must keep moving.
+Dead monsters are removed from the server and the client two seconds after they fall, so a long run's corpses do not
+pile up and glitch.
 Every 20 s a ring of the area's ranged varieties (archers, wands, mortars) spawns at 22 cells and shoots; a closing
-surround ring follows halfway through each 135 s boss cycle: the player has to move, not just out-heal.
+surround ring follows halfway through each 135 s boss cycle: the player has to move, not just out-heal. A ranged
+monster's attack deals 30% of the horde's damage, so a volley hurts without killing the player on its own.
 Each 2-minute stage runs its horde and its area's own champions (the lore boss 15 s in, another every 60 s); when the
 stage's clock ends the horde stops spawning and a **gate boss** rises with its servants. Only its death opens the way
 onward, and the seventh gate boss wins the run. The clock keeps running through the gate fight, so the reference's
@@ -43,7 +55,8 @@ The move repertoire is a **slam** around the boss (dodge out of its reach), a **
 each kit cycles its own subset, summons its servants (capped at 12) and enrages below half life (faster moves, +20%
 damage).
 The boss's life follows the stage's average build, not the player's own: the reference boss ladder scaled from its old
-105 s window to 120 s (`Game_SURVIVORS_BOSS_LIFE`, default 3, tunes the ladder). A stronger build kills it faster, a
+105 s window to 120 s (`Game_SURVIVORS_BOSS_LIFE`, default 3, tunes the ladder), and the lore and gate bosses are both
+five times that ladder (`BossLifeMultiplier`). A stronger build kills it faster, a
 weaker one slower. Its hits are scaled to the player's own pool so a missed hit removes about a seventh of effective
 life; armour, evasion, block and resistance then buy the tanky build its extra hits instead of turning one into a
 one-shot.
@@ -96,6 +109,11 @@ S→C `0xbf` removes the offered ids and `0x84` with object 0 closes the dialogu
 The world clock stops for a choice, and S→C `0x1d3` pauses the client's world with it (the Escape menu's own pause
 message): the server already stops ordering monster walks, but only `0x1d3` stops the client walking each monster to
 its last ordered cell. Closing the window (or the run ending) sends `0x1d3 00` and restarts the clock.
+The window owns the pause: the client's own Escape-menu unpause (`C→S 0x1d4 0`, which the window's opening can send)
+is ignored while it is open (`ClientState.PauseHeld`), so the horde cannot kill the player mid-choice; a multi-level
+kill deals its windows one at a time and the clock resumes only after the last choice.
+The opening window is dealt before the runner starts, so the first reward pauses the run before any monster spawns:
+the horde is already frozen at the very first second, not after the first wave.
 Closing the window with a stray click or Escape accepts its first reward rather than leaving an invisible paused run.
 Disconnecting or unloading the run module releases its pause and cancels its ticker.
 An expired run cannot finish an old reward or launch another projectile into a replacement run.
@@ -117,6 +135,9 @@ Class/weapon clip indices come from `animation-contacts.json`; flight and impact
 
 The projectile is server-created (`ClientPredicted=false`); the instant action presents its cooldown, not its flight.
 Fireball and Kinetic Blast additionally create their area effects.
+A Projectiles row with no `projectile-clips.json` entry would fly invisible, so the server falls back to the plain
+`Base_Arrow_Attack/Default_Arrow.ao` flight (Burning Arrow, Lightning Arrow, Spectral Throw, Cold Snap and the like),
+and a missing clip is never a hidden hit.
 
 Heralds are run-specific damage pulses, not reproductions of the ordinary Herald trigger mechanics.
 Their aura and icon use the effect's ActiveSkills/BuffDefinitions row through `0x1c1`.

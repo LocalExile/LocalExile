@@ -103,7 +103,9 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsRunTests().The_run_has_the_reference_s_six_skill_slots();
         new SurvivorsRunTests().A_run_skill_gains_a_projectile_at_ranks_three_five_and_seven();
         new SurvivorsRunTests().Monsters_grow_tougher_and_hit_harder_over_a_run();
+        new SurvivorsRunTests().The_sustained_kill_rate_ramps_the_dps_pressure();
         new SurvivorsRunTests().Experience_orbs_are_collected_only_inside_the_radius();
+        new SurvivorsRunTests().A_death_zone_drains_a_quarter_of_max_life_each_second();
         new SurvivorsRunTests().A_run_hit_reaches_the_spawn_ring();
         new SurvivorsRunTests().Incoming_monster_hits_are_taken_at_sixty_percent_and_fortitude_softens_them();
         new SurvivorsRunTests().The_herald_pulse_reaches_its_own_aura_and_draws_every_hit();

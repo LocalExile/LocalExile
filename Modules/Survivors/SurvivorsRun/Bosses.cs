@@ -270,7 +270,7 @@ static partial class SurvivorsRunRules
                 var variety = roster.Varieties[Random.Shared.Next(roster.Varieties.Count)];
                 if (Near(bx, by) is not { } cell) continue;
                 await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, MonsterRarity.Normal,
-                    cell.X, cell.Y, log: false, extraMods: SurvivorsMonsterMods(run.Elapsed),
+                    cell.X, cell.Y, log: false, extraMods: SurvivorsMonsterMods(run),
                     owned: (_, servant) => { servant.SummonerId = bossId; servant.NoRewards = true; });
                 spawned++;
             }

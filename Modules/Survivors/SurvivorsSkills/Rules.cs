@@ -642,9 +642,20 @@ static partial class SurvivorsSkills
         : Supports.Of(skill.Effect)?.Types.Contains(7) == true ? CastAnimationKind.Area
         : CastAnimationKind.Projectile;
 
-    /// <summary>The client effect that marks an experience orb on the ground. The kinetic-rain keeper orb is a small
-    /// looping sphere the client already ships; an unseen orb would make the pickup read as a random level-up.</summary>
-    internal const string SurvivorsOrbArt = "Metadata/Effects/Microtransactions/Spells/kinetic_rain/keepers/orb.ao";
+    /// <summary>The client effect that marks an experience orb on the ground: the game's own charge orb (a small
+    /// floating sphere), so it reads as something to pick up rather than a light show.</summary>
+    internal const string SurvivorsOrbArt = "Metadata/Effects/Spells/Orbs/rig_charge.ao";
+
+    /// <summary>The experience orb's size: the charge model is small, so it is scaled up slightly to be found.</summary>
+    internal const float SurvivorsOrbScale = 1.5f;
+
+    /// <summary>The flight visual a survivor projectile falls back to when its own Projectiles row has no
+    /// projectile-clips.json entry (Burning Arrow, Lightning Arrow, Spectral Throw, Cold Snap): a plain arrow, so a
+    /// missing clip never leaves the projectile invisible.</summary>
+    internal const string SurvivorsDefaultFlightVisual = "Metadata/Effects/Spells/Base_Arrow_Attack/Default_Arrow.ao";
+
+    /// <summary>The client effect that draws a death ground zone: a desecrated ground patch the player must leave.</summary>
+    internal const string SurvivorsDeathZoneArt = "Metadata/Effects/Spells/Ground_Effects_V2/Desecrated/Desecration_01.ao";
 
     /// <summary>How many orbs can lie at once; beyond this the oldest orb carries the new experience, like the
     /// reference's merged gems.</summary>
@@ -672,7 +683,7 @@ static partial class SurvivorsSkills
         }
         await Send(remote, stream, ciphers,
             InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                new EffectObject(at.X, at.Y, SurvivorsOrbArt).Blob()),
+                new EffectObject(at.X, at.Y, SurvivorsOrbArt) { Scale = SurvivorsOrbScale }.Blob()),
             $"0x02b9 survivors xp orb 0x{id:x} {experience} xp at ({at.X}, {at.Y})",
             still: () => StateOf(conn).Survivors is not null);
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null,
@@ -717,6 +728,116 @@ static partial class SurvivorsSkills
         }
         foreach (uint id in ids)
             await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
+    }
+
+    /// <summary>Removes the run's death ground zones from the client and the state (run end or a fresh start).</summary>
+    internal static async Task SurvivorsClearGroundZones(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn)
+    {
+        uint[] ids;
+        lock (conn.Monsters)
+        {
+            ids = [.. StateOf(conn).SurvivorsGroundZones.Select(zone => zone.Id)];
+            StateOf(conn).SurvivorsGroundZones.Clear();
+        }
+        foreach (uint id in ids)
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
+    }
+
+    /// <summary>Drops one death ground zone for a killed monster: 50/50 under the monster or under the player, drawn
+    /// as a desecrated ground patch and drained by <see cref="SurvivorsAdvanceDeathZones"/> while the player stays.</summary>
+    internal static async Task SurvivorsDropDeathZone(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, (int X, int Y) at)
+    {
+        if (StateOf(conn).Survivors is null) return;
+        var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        // 50/50: the zone appears under the monster or under the player.
+        bool underPlayer = Random.Shared.Next(2) == 0;
+        int x = underPlayer ? px : at.X, y = underPlayer ? py : at.Y;
+        uint id;
+        lock (conn.Monsters)
+        {
+            if (StateOf(conn).Survivors is null) return;
+            id = conn.NextObjectId++;
+            StateOf(conn).SurvivorsGroundZones.Add(new(id, x, y, SurvivorsRules.DeathZoneRadius,
+                conn.Clock.Elapsed.TotalSeconds + SurvivorsRules.DeathZoneDurationSeconds,
+                SurvivorsRules.DeathZoneDamagePerSecond((int)conn.PlayerMaxLife)));
+        }
+        await Send(remote, stream, ciphers,
+            InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(x, y, SurvivorsDeathZoneArt).Blob()),
+            $"0x02b9 survivors death zone 0x{id:x} at ({x}, {y})",
+            still: () => StateOf(conn).Survivors is not null);
+        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null,
+            still: () => StateOf(conn).Survivors is not null);
+    }
+
+    /// <summary>Removes a dead monster's body from the server and the client after
+    /// <see cref="SurvivorsRules.CorpseLingerSeconds"/>, so a long run's corpses do not pile up. Runs every half second
+    /// from the run tick; the corpse time is tracked per connection.</summary>
+    internal static async Task SurvivorsSweepCorpses(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, HashSet<uint> horde)
+    {
+        if (StateOf(conn).Survivors is null) return;
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        List<uint> remove = [];
+        lock (conn.Monsters)
+        {
+            var corpses = StateOf(conn).SurvivorsCorpses;
+            foreach (var id in corpses.Keys.ToArray())
+                if (!conn.Monsters.ContainsKey(id)) corpses.Remove(id);
+            foreach (var (id, monster) in conn.Monsters)
+            {
+                if (!monster.Dead && monster.Life > 0) { corpses.Remove(id); continue; }
+                if (!corpses.TryGetValue(id, out double at)) corpses[id] = at = now;
+                if (now - at >= SurvivorsRules.CorpseLingerSeconds) remove.Add(id);
+            }
+            foreach (uint id in remove)
+            {
+                conn.Monsters.Remove(id);
+                corpses.Remove(id);
+                horde.Remove(id);
+            }
+        }
+        foreach (uint id in remove)
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null,
+                still: () => StateOf(conn).Survivors is not null);
+    }
+
+    /// <summary>Advances the death ground zones each run tick: removes the expired ones and drains life while the
+    /// player stands inside one. The drain is <see cref="SurvivorsRules.DeathZoneDamagePercentPerSecond"/> of maximum
+    /// life a second; standing still in a zone is fatal.</summary>
+    internal static async Task SurvivorsAdvanceDeathZones(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, double step)
+    {
+        if (StateOf(conn).Survivors is null) return;
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        var here = conn.Walk.Position(now);
+        uint[] expired;
+        int damagePerSecond = 0;
+        lock (conn.Monsters)
+        {
+            var zones = StateOf(conn).SurvivorsGroundZones;
+            expired = zones.Where(zone => zone.ExpiresAt <= now).Select(zone => zone.Id).ToArray();
+            foreach (uint id in expired) zones.RemoveAll(zone => zone.Id == id);
+            foreach (var zone in zones)
+                if (Dist(here, (zone.X, zone.Y)) <= zone.Radius) { damagePerSecond = zone.DamagePerSecond; break; }
+        }
+        foreach (uint id in expired)
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null,
+                still: () => StateOf(conn).Survivors is not null);
+        if (damagePerSecond <= 0 || step <= 0) return;
+        int damage = (int)Math.Round(damagePerSecond * step);
+        if (damage <= 0) return;
+        uint life;
+        lock (conn.Monsters)
+        {
+            if (conn.PlayerLife == 0) return;
+            life = conn.PlayerLife > (uint)damage ? conn.PlayerLife - (uint)damage : 0;
+            conn.PlayerLife = life;
+        }
+        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life), "survivors death zone drain",
+            still: () => StateOf(conn).Survivors is not null);
     }
 
     /// <summary>One cast's computed numbers, before the live part (positions, aims, packets) needs a monster.</summary>
@@ -885,13 +1006,23 @@ static partial class SurvivorsSkills
         };
         // The client draws the projectile's own flight and impact clips (projectile-clips.json): an impact clip is the
         // skill's hit animation. Fireball and Kinetic Blast also carry the area effect their data names.
-        if (MonsterProjectilePresentation(SkillsFor(conn).Clips(definition.Metadata),
+        // ThrownWeapon is Spectral Throw's client-predicted weapon: it has a flight clip but no server-side model, so
+        // it is routed to the fallback below like a missing clip.
+        if (definition.Metadata != "Metadata/Projectiles/ThrownWeapon"
+            && MonsterProjectilePresentation(SkillsFor(conn).Clips(definition.Metadata),
                 SurvivorsRules.Range / Math.Max(0.01, speed)) is { } presentation)
         {
             shot = shot with { Presentation = presentation };
             if (SurvivorsTrace)
                 Console.WriteLine($"[gateway] survivors {skill.Name}: projectile {definition.Metadata} " +
                     $"flight clip {presentation.FlightClip?.ToString() ?? "default"}, impact clip {presentation.ImpactClip?.ToString() ?? "none"}");
+        }
+        else
+        {
+            // No projectile-clips.json entry for this metadata, or a client-predicted weapon type with no server model:
+            // the server object would fly invisible. A plain arrow fallback keeps every projectile visible (Burning
+            // Arrow, Lightning Arrow, Spectral Throw, Cold Snap and the like), so a missing clip is never a hidden hit.
+            shot = shot with { FlightVisual = SurvivorsDefaultFlightVisual };
         }
         if (GatewayProjectileSkillProfiles.IsFireball(definition.Metadata))
         {

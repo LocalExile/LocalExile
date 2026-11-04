@@ -106,18 +106,48 @@ public class SurvivorsRunTests
         Assert.Equal(3.5, SurvivorsRules.MonsterDamageScale(9000), 6);
         // The playtest asks for enemies at least five times tougher on top of the reference curve.
         Assert.True(SurvivorsRules.EnemyLifeMultiplier >= 5);
-        Assert.Equal(6, SurvivorsRules.EnemyLifeMultiplier, 6);
+        Assert.Equal(5, SurvivorsRules.EnemyLifeMultiplier, 6);
+        // And hits that actually hurt through the run's 60% taken reduction.
+        Assert.Equal(4, SurvivorsRules.EnemyDamageMultiplier, 6);
+    }
+
+    public void The_sustained_kill_rate_ramps_the_dps_pressure()
+    {
+        // At or below the baseline pace there is no extra pressure.
+        Assert.Equal(1, SurvivorsRules.ThreatMultiplier(0), 6);
+        Assert.Equal(1, SurvivorsRules.ThreatMultiplier(SurvivorsRules.BaseKillsPerSecond), 6);
+        // Twice the baseline pace multiplies monster life, and the cap holds the pressure.
+        Assert.True(SurvivorsRules.ThreatMultiplier(SurvivorsRules.BaseKillsPerSecond * 2) > 1);
+        Assert.Equal(SurvivorsRules.MaxThreat, SurvivorsRules.ThreatMultiplier(1_000), 6);
+
+        // The run measures the pace over its window: ten kills inside it, none once it has passed.
+        var run = new SurvivorsRun();
+        for (int i = 0; i < 10; i++) run.RecordKill(MonsterRarity.Normal);
+        run.Advance(1);
+        Assert.Equal(10d / SurvivorsRules.ThreatWindowSeconds, run.ThreatKillsPerSecond, 6);
+        run.Advance(SurvivorsRules.ThreatWindowSeconds + 1);
+        Assert.Equal(0, run.ThreatKillsPerSecond, 6);
     }
 
     public void Experience_orbs_are_collected_only_inside_the_radius()
     {
         SurvivorsExperienceOrb[] orbs =
         [
-            new(1, 0, 0, 2), new(2, 9, 0, 4), new(3, 11, 0, 10),
+            new(1, 0, 0, 2), new(2, 9, 0, 4), new(3, 11, 0, 10), new(4, 20, 0, 50),
         ];
         var taken = SurvivorsSkills.SurvivorsOrbsInReach(orbs, (0, 0), SurvivorsRules.OrbPickupRadius);
-        Assert.Equal([1u, 2u], taken.Select(orb => orb.Id));
-        Assert.Equal(10, SurvivorsRules.OrbPickupRadius, 6);
+        Assert.Equal([1u, 2u, 3u], taken.Select(orb => orb.Id));
+        Assert.Equal(18, SurvivorsRules.OrbPickupRadius, 6);
+    }
+
+    public void A_death_zone_drains_a_quarter_of_max_life_each_second()
+    {
+        Assert.Equal(25, SurvivorsRules.DeathZoneDamagePercentPerSecond);
+        Assert.Equal(25, SurvivorsRules.DeathZoneDamagePerSecond(100));
+        Assert.Equal(50, SurvivorsRules.DeathZoneDamagePerSecond(200));
+        Assert.Equal(1, SurvivorsRules.DeathZoneDamagePerSecond(1));  // at least one life a second
+        Assert.Equal(4, SurvivorsRules.DeathZoneDurationSeconds, 6);
+        Assert.Equal(5, SurvivorsRules.DeathZoneRadius);
     }
 
     public void A_run_hit_reaches_the_spawn_ring()
@@ -490,9 +520,11 @@ public class SurvivorsRunTests
 
     public void The_gate_boss_scales_to_the_stage_and_the_player()
     {
-        // The gate fights for the stage's average build: the old 105 s ladder at its 3x playtest stretch, 120 s window.
-        Assert.Equal(92_297, SurvivorsRules.BossGateLife(1_000, 0, 0));
-        Assert.Equal(617_143, SurvivorsRules.BossGateLife(1_000, 6, 720));
+        // The gate fights for the stage's average build: the old 105 s ladder at its 3x playtest stretch and 5x boss
+        // life, in the 120 s window.
+        Assert.Equal(461_486, SurvivorsRules.BossGateLife(1_000, 0, 0));
+        Assert.Equal(3_085_714, SurvivorsRules.BossGateLife(1_000, 6, 720));
+        Assert.Equal(5, SurvivorsRules.BossLifeMultiplier);
         Assert.True(SurvivorsRules.BossGateLife(1_000, 6, 720) > SurvivorsRules.BossGateLife(1_000, 0, 0));
 
         // A missed hit removes a seventh of the player's pool after mitigation; resistance and armour buy the extra hits.

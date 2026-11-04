@@ -90,6 +90,13 @@ public static class SurvivorsRules
     public const int LeechPerLevel = 20;
     public const int SwiftnessPerLevel = 10;
 
+    /// <summary>A run lowers the base game's life leech rate cap by this much (the 1200-per-minute base): the 20%-a-
+    /// second cap lets a leech build out-heal the horde and stand still, so the run holds it to a trickle.</summary>
+    public const int LifeLeechRateNerfPermyriadPerMinute = 1000;
+
+    /// <summary>Instant leech bypasses the rate cap entirely, so a run cancels it outright.</summary>
+    public const int InstantLeechNerf = 100;
+
     /// <summary>The reference's boss ladder, measured against the tier pool the player actually faces at that boss:
     /// 700 HP over the 26 HP top of the 135 s pool (26.92×), then 25.71, 49.41, 31.82, 50, 47.62 (data.rs BOSSES
     /// over wave_pool at 135 s steps). The seventh area extends it at 60×, a fight before the bell.</summary>
@@ -162,10 +169,15 @@ public static class SurvivorsRules
     public const double BossCalibrationSeconds = 105;
 
     /// <summary>The gate boss's life, from the tier pool top the stage draws from: the reference ladder scaled to the
-    /// gate window and the run's clock. Game_SURVIVORS_BOSS_LIFE tunes the whole ladder from a playtest.</summary>
+    /// gate window and the run's clock. Game_SURVIVORS_BOSS_LIFE tunes the whole ladder from a playtest; the shared
+    /// <see cref="BossLifeMultiplier"/> then keeps the lore and gate bosses five times tougher.</summary>
     public static int BossGateLife(int poolTop, int stage, double elapsed) =>
         Math.Max(1, (int)Math.Round(Math.Max(1, poolTop) * BossLifeRatio(stage) * MonsterLifeScale(elapsed)
-            * BossGateLifeFactor * BossGateSeconds / BossCalibrationSeconds));
+            * BossGateLifeFactor * BossLifeMultiplier * BossGateSeconds / BossCalibrationSeconds));
+
+    /// <summary>The playtest multiplier over every boss's life: the lore boss and the gate boss are five times the
+    /// ladder's value.</summary>
+    public const int BossLifeMultiplier = 5;
 
     /// <summary>A playtest multiplier over the reference ladder: the ladder's own window was the old 105 s stage boss,
     /// so 3 stretches a starter build's fight toward the two-minute gate; <c>Game_SURVIVORS_BOSS_LIFE</c> overrides it.</summary>
@@ -198,14 +210,60 @@ public static class SurvivorsRules
     public static double MonsterLifeScale(double elapsed) => 1 + 2.5 * Progress(elapsed);
 
     /// <summary>The horde's extra life on top of the reference curve: the playtest asks for enemies at least five
-    /// times tougher, so a pack survives long enough to matter.</summary>
-    public const double EnemyLifeMultiplier = 6;
+    /// times tougher, so a pack survives long enough to matter. Tuned to 5x from the earlier 8x/10x passes.</summary>
+    public const double EnemyLifeMultiplier = 5;
+
+    /// <summary>The horde's extra damage on top of the reference curve: a hit must hurt through the run's 60% taken
+    /// reduction, so a standing player is actually punished.</summary>
+    public const double EnemyDamageMultiplier = 4;
+
+    /// <summary>Ranged monster attacks deal this share of the horde's damage: a ring of archers firing from 22 cells
+    /// kills instantly at the full multiplier, so their shots are held back while melee still hurts.</summary>
+    public const double RangedDamageMultiplier = 0.3;
 
     /// <summary>How close the player must pass to an experience orb to collect it (world units).</summary>
-    public const double OrbPickupRadius = 10;
+    public const double OrbPickupRadius = 18;
 
     /// <summary>Monster damage over a run: +250% by the end, so standing still is punished.</summary>
     public static double MonsterDamageScale(double elapsed) => 1 + 2.5 * Progress(elapsed);
+
+    /// <summary>How many recent seconds the kill-rate pressure samples (the DPS the player is sustaining).</summary>
+    public const double ThreatWindowSeconds = 6;
+
+    /// <summary>The baseline kill pace the run is balanced around (~1000 kills over 15 minutes ≈ 1.1/s); a little
+    /// above it and the pressure curve stays flat.</summary>
+    public const double BaseKillsPerSecond = 1.0;
+
+    /// <summary>The most the kill-rate pressure can multiply monster life by.</summary>
+    public const double MaxThreat = 3.0;
+
+    /// <summary>
+    /// The difficulty pressure from the player's sustained kill rate: above the baseline pace, monster life ramps so a
+    /// steamrolling build outlives its own damage and the horde closes in. Below the baseline it stays at 1 (a
+    /// struggling player gets no extra pressure).
+    /// </summary>
+    public static double ThreatMultiplier(double killsPerSecond) =>
+        Math.Clamp(1 + 0.75 * Math.Max(0, killsPerSecond / BaseKillsPerSecond - 1), 1, MaxThreat);
+
+    /// <summary>The fraction of kills that leave a death ground zone (a DOT the player must dodge).</summary>
+    public const double DeathZoneChance = 0.02;
+
+    /// <summary>How long a death ground zone stays on the ground (seconds).</summary>
+    public const double DeathZoneDurationSeconds = 4;
+
+    /// <summary>How far a death ground zone reaches from its centre (world units).</summary>
+    public const int DeathZoneRadius = 5;
+
+    /// <summary>The zone's damage over time: this percent of the player's maximum life each second.</summary>
+    public const int DeathZoneDamagePercentPerSecond = 25;
+
+    /// <summary>How long a dead monster's body lingers before the server and client remove it: long enough for the
+    /// death animation, short enough that a long run's corpses do not pile up and glitch the client.</summary>
+    public const double CorpseLingerSeconds = 2;
+
+    /// <summary>The zone's damage over time in flat life per second for a player of <paramref name="maxLife"/>.</summary>
+    public static int DeathZoneDamagePerSecond(int maxLife) =>
+        Math.Max(1, (int)Math.Round(maxLife * DeathZoneDamagePercentPerSecond / 100.0));
 
     /// <summary>How often the horde sends a ring of ranged monsters (archers/wands) for the player to dodge.</summary>
     public const double RangedWaveIntervalSeconds = 20;
@@ -294,10 +352,16 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
     readonly Dictionary<int, HashSet<int>> _supports = [];
     readonly Dictionary<SurvivorsBlessing, int> _blessings = [];
     readonly HashSet<int> _items = [];
+    // The kill timestamps inside the threat window (SurvivorsRules.ThreatWindowSeconds): the pressure the player's
+    // sustained kill rate is exerting, pruned as the run clock advances.
+    readonly Queue<double> _recentKills = [];
 
     public int MaxAlive { get; } = Math.Max(3, maxAlive);
     public double Elapsed { get; private set; }
     public int Kills { get; private set; }
+    /// <summary>The sustained kill rate over the last <see cref="SurvivorsRules.ThreatWindowSeconds"/>, in kills a
+    /// second: the player's effective DPS as the pressure curve reads it.</summary>
+    public double ThreatKillsPerSecond { get; private set; }
     public int Level { get; private set; } = 1;
     public int Experience { get; private set; }
     public int PendingChoices { get; private set; }
@@ -352,13 +416,21 @@ public sealed class SurvivorsRun(int maxAlive = SurvivorsRules.DefaultMaxAlive)
     public void Advance(double seconds)
     {
         if (!double.IsFinite(seconds) || seconds <= 0) return;
-        lock (_gate) Elapsed += seconds;
+        lock (_gate)
+        {
+            Elapsed += seconds;
+            // Prune the kill-rate window and re-measure the sustained pace: a build that clears the horde faster
+            // than the baseline ramps monster life through SurvivorsRules.ThreatMultiplier.
+            double cutoff = Elapsed - SurvivorsRules.ThreatWindowSeconds;
+            while (_recentKills.Count > 0 && _recentKills.Peek() < cutoff) _recentKills.Dequeue();
+            ThreatKillsPerSecond = _recentKills.Count / SurvivorsRules.ThreatWindowSeconds;
+        }
     }
 
     /// <summary>Counts a kill. Its experience now lies on the ground as an orb (<see cref="RecordOrbExperience"/>).</summary>
     public int RecordKill(MonsterRarity rarity)
     {
-        lock (_gate) Kills++;
+        lock (_gate) { Kills++; _recentKills.Enqueue(Elapsed); }
         return PendingChoices;
     }
 

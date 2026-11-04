@@ -47,6 +47,15 @@ static partial class Game
             return;
         }
         // Pause is a barrier: commit the preceding combat interval before freezing the world clock.
+        // A module-owned pause (the Survivors reward window) must not be released by the client's own Escape-menu
+        // unpause: the window's opening can close that menu, and restarting the clock under the open choice would let
+        // the horde kill the player while they pick. Only the module that holds it resumes the clock.
+        if (!pause && conn.PauseHeld)
+        {
+            await Send(remote, stream, ciphers, InstancePause.State(true),
+                "0x01d3 still paused (C→S 0x01d4 0 ignored; a module holds the pause)");
+            return;
+        }
         using (ProjectileMutation(conn))
         {
             foreach (var changed in GameEvents.PauseChanged.For(conn)) changed(conn, pause);
