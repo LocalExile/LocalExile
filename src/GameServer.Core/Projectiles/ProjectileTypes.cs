@@ -126,6 +126,9 @@ public sealed record ProjectileProfile(string Id)
     public bool DirectDamage { get; init; } = true;
     public int Pierce { get; init; }
     public int Fork { get; init; }
+    /// <summary>"X% chance for an additional Projectile when Forking" (Greater Fork): the extra child flies straight
+    /// ahead between the fork's two.</summary>
+    public int ForkExtraProjectileChancePercent { get; init; }
     public int Chain { get; init; }
     public int Split { get; init; }
     public double ChainRange { get; init; } = 60;

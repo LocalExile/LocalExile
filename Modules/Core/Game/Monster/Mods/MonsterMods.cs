@@ -123,9 +123,25 @@ static partial class Game
         Stats.Key("base_self_critical_strike_multiplier_-%") is uint key ? CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
 
     /// <summary>Whether the monster blocks a hit of the player (Stalwart's monster_base_block_%: attacks only). Rolled
-    /// before anything of the hit happens: a blocked hit has no damage, impale, flinch or hit message.</summary>
-    internal static bool MonsterBlocks(SpawnedMonster m, Random random, bool spell) =>
-        !spell && m.Mods.Effects.BlockChance > 0 && random.Next(100) < m.Mods.Effects.BlockChance;
+    /// before anything of the hit happens: a blocked hit has no damage, impale, flinch or hit message. The skill's
+    /// "reduced Enemy Block Chance" (Block Chance Reduction) applies to the roll, and a blocked supported hit applies
+    /// Overpowered, which lowers the monster's block chance further for its duration.</summary>
+    internal static bool MonsterBlocks(SpawnedMonster m, Random random, bool spell, double now = 0,
+        IReadOnlyDictionary<uint, int>? skill = null)
+    {
+        if (spell) return false;
+        int Skill(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
+        int chance = m.Mods.Effects.BlockChance - Math.Max(0, Skill("support_reduce_enemy_block_and_spell_block_%"));
+        if (m.OverpoweredUntil > now) chance -= m.OverpoweredPercent;
+        if (chance <= 0 || random.Next(100) >= chance) return false;
+        if (Skill("apply_overpowered_on_enemy_block_reduced_block_and_spell_block_%") is var overpowered and > 0
+            && Skill("support_overpowered_base_duration_ms") is var duration and > 0)
+        {
+            m.OverpoweredPercent = overpowered;
+            m.OverpoweredUntil = Math.Max(m.OverpoweredUntil, now + duration / 1000.0);
+        }
+        return true;
+    }
 
     /// <summary>A blocked projectile's damage (<see cref="MonsterBlocks"/>): the impact applies nothing.</summary>
     internal const int Blocked = -1;

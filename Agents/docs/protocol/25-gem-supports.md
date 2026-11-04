@@ -47,11 +47,11 @@ Conditional modifiers are not treated as unconditional bonuses.
 Skill panel values and ordinary hit execution use the same supported-skill calculation.
 The Delve socketed attack/spell more-damage effects multiply the matching hit once through this calculation.
 Awakened Increased Area of Effect's `inc_aoe_plus_more_area_damage_+%_final` is one of those unconditional keys.
-Four supports' more damage depends on the hit's target or the player, so `WithConditionalSupportDamageLocked`
+Five supports' more damage depends on the hit's target or the player, so `WithConditionalSupportDamageLocked`
 scales each target's roll after the outgoing-damage hooks, on the area and projectile hit paths:
 Hypothermia against a chilled enemy, Behead against an enemy at half its maximum Life or less (PoB
-`LowPoolThreshold`), Damage on Full Life for an attack while the player's Life is full, and Lifetap while the player
-has its buff.
+`LowPoolThreshold`), Damage on Full Life for an attack while the player's Life is full, Lifetap while the player
+has its buff, and Vile Toxins for every poison on the enemy (at most the support's eight).
 The ailment share of "Hits and Ailments" follows the hit for chill, freeze and shock; ignite still takes its damage
 from the skill's ailment rows, without these multipliers.
 Channelled attacks pay the supported cost on subsequent channel hits.
@@ -68,6 +68,29 @@ on a cull, applied at once and sent with the next vitals update like instant lee
 Hits from minions, warcries, passive-granted skills and Rampage do not cull yet, nor do the conditional sources
 (against bleeding, burning, frozen, cursed or marked enemies, bow attacks, weapon-local critical strikes, flasks), the
 flat Life and Mana gained on cull, or the "Culled Recently" stats.
+
+Green supports with a condition or an execution of their own now run: Cull the Weak culls normal and magic enemies at
+`kill_normal_or_magic_enemy_on_hit_if_under_x%_life` (Culling Strike's share still applies to every rarity), Pacifism's
+`hits_cannot_kill_enemies` leaves the enemy at 1 Life and cancels the cull, Lethal Dose applies
+`additional_poisons_+_to_apply_vs_non_poisoned_enemies` extra poisons with one damage roll per hit, Hypothermia's
+`additional_chance_to_freeze_chilled_enemies_%` counts an enemy chilled by an earlier hit (not the hit's own chill),
+Sadism's `support_faster_ailments_ailment_duration_+%_final` shortens its ignites, bleeds and poisons, Vicious Projectiles'
+`support_projectile_attack_speed_+%_final` is a factor of the supported attack's rate, and Greater Chain's
+`support_chain_count_+%_final` multiplies the whole chain count, rounded up (`GatewayProjectileModifiers`).
+
+Greater Fork's `chance_to_fork_extra_projectile_%` rolls per projectile at the fork and adds a third child straight ahead
+(`ProjectileProfile.ForkExtraProjectileChancePercent`). Rupture's critical bleeding hits add up to four three-second
+Ruptures on the monster, each raising its bleeding damage taken by `support_rupture_bleeding_damage_taken_+%_final`
+(`MonsterRuptures`, `BleedTaken`); "bleeding expires more quickly" and the native Rupture buff are not modelled, because a
+bleed's duration is captured when it is applied. Close Combat's supported melee hit grants Combat Rush for its listed
+duration, and a travel skill the support does not support then takes
+`support_slashing_buff_attack_speed_+%_final_to_grant` as more attack speed; the buff ends at its deadline rather than
+when that travel skill is used. Block Chance Reduction's `support_reduce_enemy_block_and_spell_block_%` lowers the
+monster's block roll and a blocked supported hit applies Overpowered
+(`apply_overpowered_on_enemy_block_reduced_block_and_spell_block_%` for `support_overpowered_base_duration_ms`); monster
+spell block does not exist, so the spell-block half has nothing to lower. Machinations counts the character's allocated
+keystones (`KeystoneCount`) for its chaos gain; its skill-cost half has no consumer, as skill costs read player stats
+only.
 
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
 A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.
@@ -94,8 +117,10 @@ A native compatibility match and a displayed support letter do not prove that it
 Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except Ice Nova's and the final-repeat stats.
 Triggers, totems, mines, minion behaviour, attack repeats, projectile branching, leech and many conditional effects
 still require their own execution paths.
+Second Wind's extra cooldown use needs multi-use cooldown state (one stored use is all that is tracked); Momentum's
+stacks need a skill-use and movement signal; Barrage and Arrow Nova need their own release patterns, not a stat.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
-Only the unconditional damage keys listed by GemSupportDamage and the three target conditions above receive
+Only the unconditional damage keys listed by GemSupportDamage and the five target conditions above receive
 multiplicative processing.
 Lifetap's spent-Life counter and buff are server state: the hidden `lifetap_life_spent` buff is not sent, minions do
 not gain the buff, and its more damage does not reach damage over time.

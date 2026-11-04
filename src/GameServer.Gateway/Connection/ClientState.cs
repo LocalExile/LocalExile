@@ -185,6 +185,11 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public readonly MonsterIgnites Bleeds = new();
     // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
     public readonly MonsterPoisons Poisons = new();
+    // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), under the Monsters lock.
+    public readonly MonsterRuptures Ruptures = new();
+    // Overpowered (Block Chance Reduction): the block chance its blocked supported hits take away until the deadline.
+    public int OverpoweredPercent;
+    public double OverpoweredUntil;
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
     public readonly MonsterElementalAilments Ailments = new();
     // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.

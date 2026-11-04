@@ -10,6 +10,7 @@ public sealed record ProjectileModifiers
     public int Fork { get; init; }
     public int Chain { get; init; }
     public int Split { get; init; }
+    public int ForkExtraProjectileChance { get; init; }
     public bool Returns { get; init; }
     public bool CannotPierce { get; init; }
     public bool CannotFork { get; init; }
@@ -31,6 +32,8 @@ public static class ProjectileParameters
             Pierce = profile.Pierce < 0 || modifiers.Pierce < 0 ? -1 : profile.Pierce + modifiers.Pierce,
             Fork = Math.Max(0, profile.Fork + modifiers.Fork), Chain = Math.Max(0, profile.Chain + modifiers.Chain),
             Split = Math.Max(0, profile.Split + modifiers.Split), Returns = profile.Returns || modifiers.Returns,
+            ForkExtraProjectileChancePercent = Math.Max(profile.ForkExtraProjectileChancePercent,
+                modifiers.ForkExtraProjectileChance),
             CannotPierce = profile.CannotPierce || modifiers.CannotPierce,
             CannotFork = profile.CannotFork || modifiers.CannotFork,
             CannotChain = profile.CannotChain || modifiers.CannotChain,

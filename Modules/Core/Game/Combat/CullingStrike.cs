@@ -1,11 +1,14 @@
+using GameServer.Core.Protocol.Instance;
+
 // Culling Strike: a hit that leaves an enemy at or below a share of its maximum Life kills it (poedb SupportCullingStrike:
 // "Kill Enemies that have 10% Life or lower when Hit by Supported Skills"). The client's hit logic never reads these
 // stats, so the server owns the kill and the death goes out the usual way.
 static partial class Game
 {
     // Threshold: the highest share that applies to this hit, in percent (0: no culling). RecoverLifePct: the support's
-    // quality, "Recover (0-2)% of Life when Supported Skills Cull an Enemy".
-    internal readonly record struct Cull(int Threshold, int RecoverLifePct)
+    // quality, "Recover (0-2)% of Life when Supported Skills Cull an Enemy". NormalMagicThreshold: Cull the Weak's share,
+    // which only normal and magic enemies are culled at. CannotKill: Pacifism, whose hits leave the enemy at 1 Life.
+    internal readonly record struct Cull(int Threshold, int RecoverLifePct, int NormalMagicThreshold = 0, bool CannotKill = false)
     {
         // The character's stats and the skill's own (support gems included); pass them apart, not merged.
         internal static Cull Of(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? skill, bool critical,
@@ -17,7 +20,11 @@ static partial class Game
                 : Get("kill_enemy_on_hit_if_under_15%_life") > 0 ? 15
                 : Get("kill_enemy_on_hit_if_under_10%_life") > 0 || critical && Get("crits_have_culling_strike") > 0
                     || spell && Get("spells_have_culling_strike") > 0 ? 10 : 0;
-            return threshold == 0 ? default : new(threshold, Get("recover_%_maximum_life_on_cull"));
+            // "Kill Normal or Magic Enemies that have X% Life or lower when Hit by Supported Skills" (Cull the Weak).
+            int normalMagic = Math.Clamp(Get("kill_normal_or_magic_enemy_on_hit_if_under_x%_life"), 0, 100);
+            bool cannotKill = Get("hits_cannot_kill_enemies") != 0;
+            return threshold == 0 && normalMagic == 0 && !cannotKill ? default
+                : new(threshold, Get("recover_%_maximum_life_on_cull"), normalMagic, cannotKill);
         }
     }
 
@@ -25,9 +32,17 @@ static partial class Game
     internal static (uint Life, bool StageStarts) TakeOwnerHitLocked(ClientState conn, SpawnedMonster m, int damage, Cull cull,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null)
     {
+        int threshold = m.Rarity is MonsterRarity.Normal or MonsterRarity.Magic
+            ? Math.Max(cull.Threshold, cull.NormalMagicThreshold) : cull.Threshold;
+        if (cull.CannotKill)
+        {
+            // Pacifism: the hit cannot kill, so it leaves one Life and the cull below has nothing left to take.
+            damage = (int)Math.Min(damage, Math.Max(0, (long)m.Life - 1));
+            threshold = 0;
+        }
         var hit = TakeOwnerDamageLocked(conn, m, damage, rampageSource, player);
-        if (cull.Threshold == 0 || hit.Life == 0 || hit.StageStarts || m.StageRunning
-            || hit.Life * 100L > m.MaxLife * (long)cull.Threshold || m.Mods.Effects["immune_to_culling_strike"] != 0) return hit;
+        if (threshold == 0 || hit.Life == 0 || hit.StageStarts || m.StageRunning
+            || hit.Life * 100L > m.MaxLife * (long)threshold || m.Mods.Effects["immune_to_culling_strike"] != 0) return hit;
         m.Life = hit.Life;
         hit = TakeOwnerDamageLocked(conn, m, (int)hit.Life, rampageSource, player);
         if (hit.Life == 0 && cull.RecoverLifePct > 0 && conn.PlayerLife > 0)

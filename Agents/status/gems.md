@@ -74,13 +74,20 @@ Nothing yet.
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).
+  Vile Toxins scales a hit per poison on the enemy; Lethal Dose adds two poisons to an unpoisoned one; Hypothermia's
+  extra freeze chance counts an enemy chilled by an earlier hit; Sadism's less duration shortens its ailments; Vicious
+  Projectiles' less attack speed and Greater Chain's more chains apply. Greater Fork can add a third projectile at the
+  fork; Rupture's stacks raise bleeding damage taken; Close Combat's Combat Rush speeds up travel skills; Block Chance
+  Reduction lowers the monster's block roll and applies Overpowered; Machinations counts allocated keystones for its
+  chaos gain ([25](../docs/protocol/25-gem-supports.md)).
   A real-client Cyclone control accepted the item-support records and displayed blue s/c, red W and white d.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
   Spell Echo repeats a supported spell's releases and area hits a cast time apart, with its 40% more cast speed
   (`SpellRepeats`; [11](../docs/protocol/11-skills.md) "Spell repeats"); tested, not yet checked with the real client.
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
-- **Culling Strike.** Melee, area and projectile hits cull at 10% Life ([25](../docs/protocol/25-gem-supports.md)).
+- **Culling Strike.** Melee, area and projectile hits cull at 10% Life; Cull the Weak culls normal and magic enemies at
+  its own share, and Pacifism's hits leave 1 Life ([25](../docs/protocol/25-gem-supports.md)).
 
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays
   socketed (a gem moved through the cursor keeps its own; a gem swapped in never takes the old gem's id), so skill bar

@@ -335,6 +335,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         if (!profile.CannotFork && p.Fork > 0)
         {
             p.Fork--;
+            // Greater Fork's "chance for an additional Projectile when Forking": a third child straight ahead.
+            if (profile.ForkExtraProjectileChancePercent > 0 && p.Random.Next(100) < profile.ForkExtraProjectileChancePercent)
+                ContinueChild(p, p.Direction);
             ContinueChild(p, p.Direction.Rotate(Math.PI / 6));
             ContinueChild(p, p.Direction.Rotate(-Math.PI / 6));
             End(p, ProjectileEndReason.Fork, allowReturn: false);
