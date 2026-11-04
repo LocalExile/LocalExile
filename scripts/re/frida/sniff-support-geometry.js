@@ -1,25 +1,36 @@
-// Support geometry sniffer (read-only): Spell Cascade's repeated areas and Arrow Nova's payload/volley.
+﻿// Support geometry sniffer (read-only): Spell Cascade's repeated areas and Arrow Nova's payload/volley.
 //
 // Load it with scripts/re/frida/run.py against the running client:
 //
-//   python scripts/re/frida/run.py Game.patched.exe --seconds 0 --log Tools/re/out/support-geometry.jsonl `
+//   python scripts/re/frida/run.py <pid> --seconds 0 --log logs/support-geometry.jsonl `
 //       scripts/re/frida/sniff-support-geometry.js
 //
-// Then stand in a pack and cast the supported spell (Spell Cascade) or the bow attack (Arrow Nova) a few times,
-// Ctrl-C detaches without killing the client. Every hook checks the 3.29.3b prologue first and logs {skip:...} instead
-// of attaching at a wrong address.
+// Cast the supported spell (Spell Cascade) a few times aiming at a fixed spot, then the Arrow Nova bow attack,
+// 3 s apart. Ctrl-C detaches without killing the client.
 //
-// What it logs (JSON lines):
-//   action   0x1ab Actor action: actor, skill id, sequence, target id and the raw u16 fields. A cast marker.
-//   create   0x2b9 object create within 2 s of a cast: object id and metadata path (projectiles).
-//   position 0x1b7/0x1ba/0x1b9 Positioned messages for those projectile ids: op and cell.
+// The client predicts its own casts, so the server 0x1ab stream does not carry the repeats for the caster. This hooks
+// the client-side path too:
+//
+//   srv     S->C 0x1ab Actor action (0x1421940a0): the cast echo. Target object +0x20, target cell +0x24/+0x28,
+//           server cell +0x2c/+0x30, skill +0x34, sequence +0x36. The local player is the actor whose sequence
+//           matches a local use.
+//   use     C->S use (0x142166300, a[2] = action): sequence +0x11a and aimed cell +0x130/+0x134. A cast marker.
+//   action  0x141ee97f0 (manager, &action, skill id) creates an action; *&action is the action after the call.
+//           Logs the skill id, action type +0x118 (ActionTypes HASH16), sequence +0x11a and aimed cell.
+//   obj     client-side object creation (0x141ebdf30): the metadata path. The object is arg 0; its Positioned
+//           component is [[obj+8]+0x98].
+//   place   0x141e31e90 (Positioned, int cell[2], ...): the cell a recently created effect was placed at. These are
+//           Spell Cascade's extra areas.
+//   create  S->C 0x2b9 object create (0x141ebe190): object id, metadata path and cell.
+//   proj    Projectile component constructor (0x141e37850): the projectile entity.
+//   path    Positioned movement update (0x141e32710) of a projectile created in this window: cell, at most 24 per
+//           entity.
 //
 // Reading the log:
-//   Spell Cascade: compare the cast actions' target cells and the projectile spawn cells; the repeat offsets are the
-//   per-repeat distance along the aim direction (world cells, 10 per metre).
-//   Arrow Nova: the payload arrow lands at the targeted cell; the child arrows are the projectiles created after it,
-//   and their initial cells/orientations give the ring's spacing and count.
-//   The client timestamps are Date.now() ms; group lines by the action's seq.
+//   Spell Cascade: one cast gives several place cells in a line; subtract them from the cast's aim cell. The middle
+//   area is the aimed cell and the outer ones are offset along the caster -> aim direction.
+//   Arrow Nova: the payload arrow's path ends at the aimed cell; the child arrows are the projectile entities created
+//   just after it disappears. Their first cells give the ring radius, count and angles.
 
 const image = Process.enumerateModules().find(m => /^(PathOfExileSteam|Game\.patched)\.exe$/i.test(m.name));
 if (!image) throw new Error('client image not found');
@@ -31,11 +42,15 @@ const EXPECTED = {
   '0x1421940a0': '48895c24085556574154415541564157',
   // 0x141ebe190  0x2b9 create handler (trace-projectile-create.js).
   '0x141ebe190': '48895c241048894c2408565741564883',
+  // 0x141ebdf30  client-side object create (sniff-bloodsoaked-vanguard.js).
+  '0x141ebdf30': '48895c241848894c2408555657415641',
+  // 0x141ee97f0  action created by the Actor skill manager (trace-actions.js).
+  '0x141ee97f0': '48895c240848896c2418488954241056',
 };
 
 const u16 = (p, o) => { try { return p.add(o).readU16(); } catch (e) { return null; } };
-const u8 = (p, o) => { try { return p.add(o).readU8(); } catch (e) { return null; } };
-const u32 = (p, o) => { try { return p.add(o).readU32(); } catch (e) { return null; } };
+const i32 = (p, o) => { try { return p.add(o).readS32(); } catch (e) { return null; } };
+const ptrAt = (p, o) => { try { return p.add(o).readPointer(); } catch (e) { return null; } };
 const hex = (p, n) => {
   try { return Array.from(new Uint8Array(p.readByteArray(n))).map(b => b.toString(16).padStart(2, '0')).join(''); }
   catch (e) { return null; }
@@ -54,84 +69,231 @@ function check(addr) {
   return true;
 }
 
-// The type record scan from trace-projectile-create.js: find the UTF-16 "Metadata/" path.
+// The type record scan from trace-projectile-create.js: find the UTF-16 "Metadata/" path. Return the most specific
+// (longest) of the paths the record and its child point at.
 function typePath(rec) {
+  const found = [];
   for (const base of [rec, (() => { try { return rec.add(0x28).readPointer(); } catch (e) { return null; } })()]) {
     if (base === null) continue;
     for (let off = 0; off < 0x100; off += 8) {
       try {
         const p = base.add(off).readPointer();
-        if (p.readUtf16String(9) === 'Metadata/') return p.readUtf16String(120);
+        if (p.readUtf16String(9) !== 'Metadata/') continue;
+        const s = p.readUtf16String(160);
+        if (s !== null && found.indexOf(s) < 0) found.push(s);
       } catch (e) { }
     }
   }
-  return '?';
+  found.sort((a, b) => b.length - a.length);
+  return found.length ? found[0] : '?';
 }
 
-const tracked = new Set();   // projectile object ids created near a cast
-const types = new Map();     // object id -> metadata path
-let lastCast = 0;
-let lastSeq = null;
-let lastSkill = null;
+// A Positioned component is [[entity+8]+0x98]; +0x294/+0x298 are the integer cell.
+function positionedOf(entity) {
+  try { return entity.add(8).readPointer().add(0x98).readPointer(); } catch (e) { return null; }
+}
+function cellOfPositioned(p) {
+  try { return [p.add(0x294).readS32(), p.add(0x298).readS32()]; } catch (e) { return null; }
+}
 
-// --- 0x1ab: Actor actions (the cast marker) ---------------------------------
+const created = new Map();      // entity pointer -> { t, type } for objects created by 0x141ebdf30
+const projectiles = new Map(); // projectile entity -> { t, type, cells }
+let lastReap = 0;
+let lastReapTarget = null;
+const projectileTypes = new Map();
+let windowUntil = 0;
+const openWindow = () => { windowUntil = stamp() + 6000; };
+
+// --- 0x1ab: S->C Actor actions (the cast echo) ------------------------------
 if (check('0x1421940a0')) {
   try {
     Interceptor.attach(at('0x1421940a0'), {
       onEnter(args) {
         try {
           if (args[1].add(8).readU16() !== 0x1ab) return;
-          const actor = args[1].add(0x10).readU32();
-          const skill = args[1].add(0x34).readU16();
-          const seq = args[1].add(0x36).readU16();
-          const target = args[1].add(0x20).readU32();
-          lastCast = stamp();
-          lastSeq = seq;
-          lastSkill = skill;
-          const fields = {};
-          for (let off = 0x18; off <= 0x40; off += 2) fields['u16@' + off.toString(16)] = u16(args[1], off);
-          send({ t: lastCast, kind: 'action', actor: hex8(actor), skill: hex8(skill), seq, target: hex8(target), fields });
+          send({ t: stamp(), kind: 'srv', actor: hex8(args[1].add(0x10).readU32()),
+            skill: hex8(args[1].add(0x34).readU16()), seq: args[1].add(0x36).readU16(),
+            targetId: hex8(args[1].add(0x20).readU32()),
+            target: [i32(args[1], 0x24), i32(args[1], 0x28)], cell: [i32(args[1], 0x2c), i32(args[1], 0x30)] });
         } catch (e) { send({ t: stamp(), hookError: 'action', message: String(e) }); }
       }
     });
+    send({ t: stamp(), attached: '0x1421940a0' });
   } catch (e) { send({ t: stamp(), hookError: 'actionAttach', message: String(e) }); }
 }
 
-// --- 0x2b9: object creation (the projectiles) -------------------------------
+// --- 0x142166300: the client sends a use (C->S 0x24/0x25), action in a[2] ---
+try {
+  Interceptor.attach(at('0x142166300'), {
+    onEnter(args) {
+      try {
+        const a = args[2];
+        send({ t: stamp(), kind: 'use', action: a.toString(), seq: u16(a, 0x11a),
+          type: u16(a, 0x118), target: [i32(a, 0x130), i32(a, 0x134)] });
+        if (u16(a, 0x118) === 18895) { lastReap = stamp(); lastReapTarget = [i32(a, 0x130), i32(a, 0x134)]; }
+        openWindow();
+      } catch (e) { send({ t: stamp(), hookError: 'use', message: String(e) }); }
+    }
+  });
+  send({ t: stamp(), attached: '0x142166300' });
+} catch (e) { send({ t: stamp(), hookError: 'useAttach', message: String(e) }); }
+
+// --- 0x141ee97f0: create an action (manager, &action, skill id) -------------
+if (check('0x141ee97f0')) {
+  try {
+    Interceptor.attach(at('0x141ee97f0'), {
+      onEnter(args) { this.slot = args[1]; this.skill = args[2].toInt32() & 0xffff; },
+      onLeave() {
+        try {
+          let a = null;
+          try { a = this.slot.readPointer(); } catch (e) { }
+          send({ t: stamp(), kind: 'action', skill: hex8(this.skill), action: a === null ? null : a.toString(),
+            type: a === null ? null : u16(a, 0x118), seq: a === null ? null : u16(a, 0x11a),
+            target: a === null ? null : [i32(a, 0x130), i32(a, 0x134)] });
+          openWindow();
+        } catch (e) { send({ t: stamp(), hookError: 'actionCreate', message: String(e) }); }
+      }
+    });
+    send({ t: stamp(), attached: '0x141ee97f0' });
+  } catch (e) { send({ t: stamp(), hookError: 'actionCreateAttach', message: String(e) }); }
+}
+
+// --- 0x141ebdf30: client-side object creation -------------------------------
+if (check('0x141ebdf30')) {
+  try {
+    Interceptor.attach(at('0x141ebdf30'), {
+      onEnter(args) {
+        try {
+          this.type = typePath(args[1].readPointer());
+          this.p3 = args[2].toString();
+          this.p4 = args[3].toInt32();
+          this.p5 = args[4].toInt32();
+        } catch (e) { this.type = '?'; }
+      },
+      onLeave(retval) {
+        try {
+          const entity = retval;
+          const type = this.type;
+          if (!/Doodad|Terrain|MiscellaneousObjects|Characters|NPC|Hideout|Stash/i.test(type)) {
+            created.set(entity.toString(), { t: stamp(), type });
+            send({ t: stamp(), kind: 'obj', type, entity: entity.toString() });
+            // Spell Cascade's areas are generic Effect objects with no Positioned component; sample the object's own
+            // fields right after a Reap use and again 150 ms later, when its transform/child is built.
+            if (type === 'Metadata/Effects/Effect' && stamp() - lastReap < 1500) {
+              const meta = { p3: this.p3, p4: this.p4, p5: this.p5 };
+              const sample = (tag, entity) => {
+                const info = { t: stamp(), kind: 'fx', tag, entity: entity.toString(), p3: meta.p3, p4: meta.p4, p5: meta.p5 };
+                const positionedVt = image.base.add(ptr('0x1435a0f18').sub(base));
+                try {
+                  const begin = entity.add(0x10).readPointer(), end = entity.add(0x18).readPointer();
+                  const count = Math.min(24, end.sub(begin).toInt32() / 8);
+                  info.comps = [];
+                  for (let i = 0; i < count; i++) {
+                    const comp = begin.add(i * 8).readPointer();
+                    const vt = comp.readPointer();
+                    const cell = vt.equals(positionedVt) ? [comp.add(0x294).readS32(), comp.add(0x298).readS32()] : null;
+                    info.comps.push([vt.toString(), cell]);
+                  }
+                } catch (e) { info.compsError = String(e); }
+                if (lastReapTarget !== null) {
+                  info.hits = [];
+                  try {
+                    for (let off = 0; off < 0x300; off += 4) {
+                      const x = entity.add(off).readS32(), y = entity.add(off + 4).readS32();
+                      if (Math.abs(x - lastReapTarget[0]) < 80 && Math.abs(y - lastReapTarget[1]) < 80)
+                        info.hits.push([off, [x, y]]);
+                    }
+                  } catch (e) { }
+                }
+                send(info);
+              };
+              sample('now', entity);
+              const keep = ptr(entity.toString());
+              setTimeout(() => { try { sample('later', keep); } catch (e) { } }, 150);
+            }
+          }
+        } catch (e) { send({ t: stamp(), hookError: 'objectCreate', message: String(e) }); }
+      }
+    });
+    send({ t: stamp(), attached: '0x141ebdf30' });
+  } catch (e) { send({ t: stamp(), hookError: 'objectCreateAttach', message: String(e) }); }
+}
+
+// --- 0x141e31e90: place a Positioned at a cell ------------------------------
+try {
+  Interceptor.attach(at('0x141e31e90'), {
+    onEnter(args) {
+      try {
+        // The Positioned's +8 is the entity (trace-projectile-path.js).
+        const entity = args[0].add(8).readPointer();
+        const key = entity.toString();
+        const info = created.get(key);
+        if (info === undefined) return;
+        if (stamp() - info.t > 4000) { created.delete(key); return; }
+        send({ t: stamp(), kind: 'place', type: info.type, cell: [args[1].readS32(), args[1].add(4).readS32()] });
+      } catch (e) { send({ t: stamp(), hookError: 'place', message: String(e) }); }
+    }
+  });
+  send({ t: stamp(), attached: '0x141e31e90' });
+} catch (e) { send({ t: stamp(), hookError: 'placeAttach', message: String(e) }); }
+
+// --- 0x2b9: S->C object creation -------------------------------------------
 if (check('0x141ebe190')) {
   try {
     Interceptor.attach(at('0x141ebe190'), {
       onEnter(args) {
         try {
+          if (stamp() > windowUntil) return;
           let type = '?';
           try { type = typePath(args[1].readPointer()); } catch (e) { }
-          if (!type.startsWith('Metadata/Projectiles/')) return;
-          const id = args[2].toInt32() >>> 0;
-          const nearCast = stamp() - lastCast < 2000;
-          if (nearCast) { tracked.add(id); types.set(id, type); }
-          if (!nearCast) return;
-          send({ t: stamp(), kind: 'create', id: hex8(id), type, skill: lastSkill === null ? null : hex8(lastSkill),
-            seq: lastSeq, nearCast: true });
+          send({ t: stamp(), kind: 'create', id: hex8(args[2].toInt32() >>> 0), type });
         } catch (e) { send({ t: stamp(), hookError: 'create', message: String(e) }); }
       }
     });
+    send({ t: stamp(), attached: '0x141ebe190' });
   } catch (e) { send({ t: stamp(), hookError: 'createAttach', message: String(e) }); }
 }
 
-// --- Positioned messages: 0x1b7 teleport, 0x1ba move-to, 0x1b9 orientation --
+// --- 0x141e37850: a Projectile component is built; a[1] is its entity ------
 try {
-  Interceptor.attach(at('0x141e30c90'), {
+  Interceptor.attach(at('0x141e37850'), {
     onEnter(args) {
       try {
-        const pos = args[0], msg = args[1];
-        const op = u16(msg, 8), id = u32(msg, 0x10);
-        if (!tracked.has(id)) return;
-        send({ t: stamp(), kind: 'position', op, id: hex8(id), type: types.get(id) ?? '?',
-          cell: [u32(msg, 0x18), u32(msg, 0x1c)], u28: u32(msg, 0x28), u2c: u32(msg, 0x2c), u30: u8(msg, 0x30) });
-      } catch (e) { send({ t: stamp(), hookError: 'position', message: String(e) }); }
+        if (stamp() > windowUntil) return;
+        const entity = args[1];
+        projectiles.set(entity.toString(), { t: stamp(), cells: 0 });
+        const pos = positionedOf(entity);
+        send({ t: stamp(), kind: 'proj', entity: entity.toString(), cell: pos === null ? null : cellOfPositioned(pos) });
+      } catch (e) { send({ t: stamp(), hookError: 'projectile', message: String(e) }); }
     }
   });
-  send({ t: stamp(), positionHook: '0x141e30c90' });
-} catch (e) { send({ t: stamp(), hookError: 'positionAttach', message: String(e) }); }
+  send({ t: stamp(), attached: '0x141e37850' });
+} catch (e) { send({ t: stamp(), hookError: 'projectileAttach', message: String(e) }); }
+
+// --- 0x141e32710: a tracked projectile's Positioned movement update --------
+try {
+  Interceptor.attach(at('0x141e32710'), {
+    onEnter(args) {
+      try {
+        const p = args[0];
+        const entity = p.add(8).readPointer();
+        const info = projectiles.get(entity.toString());
+        if (info === undefined) return;
+        if (info.cells >= 24) { this.p = null; return; }
+        this.p = p; this.info = info; this.entity = entity.toString();
+      } catch (e) { this.p = null; }
+    },
+    onLeave() {
+      if (!this.p) return;
+      try {
+        const cell = cellOfPositioned(this.p);
+        if (cell === null) return;
+        this.info.cells++;
+        send({ t: stamp(), kind: 'path', entity: this.entity, cell });
+      } catch (e) { }
+    }
+  });
+  send({ t: stamp(), attached: '0x141e32710' });
+} catch (e) { send({ t: stamp(), hookError: 'pathAttach', message: String(e) }); }
 
 send('sniff-support-geometry ready');

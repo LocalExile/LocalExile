@@ -967,12 +967,47 @@ static partial class Game
                 addedChaos = (int)((long)sacrificed * Sac("support_sacrifice_gain_%_of_sacrificed_life_as_added_chaos_damage") / 100);
             }
         }
-        return Task.WhenAll(Enumerable.Range(0, Math.Max(spellRepeats, meleeRepeats) + 1).Select(repeat =>
-            AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from, to, immediate: channelled, sequence: sequence,
-                actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
-                targetId: targetId, repeat: repeat, repeatDelay: repeat * repeatInterval, radiusMore: fistRadius,
-                addedChaos: addedChaos,
-                damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1))));
+        // Spell Cascade: the spell also lands in the areas beside the target, one per side along the aim and, with
+        // support_spell_cascade_sideways, one per side across it. Each centre is one effective radius from the aim
+        // (live 2026-11-04: Reap at the character's area of effect had radius 28.5 and repeats 28-29 cells apart; the
+        // client draws each effect half a radius toward the caster, so the hit centre is the aim +- one radius).
+        var cascadeAreas = new List<(int X, int Y)>();
+        {
+            var cascadeStats = SupportedSkill(conn, skillId).Stats;
+            int Cascade(string name) => Stats.Key(name) is uint key ? cascadeStats.GetValueOrDefault(key) : 0;
+            int sides = spell ? Cascade("support_spell_cascade_number_of_cascades_per_side") : 0;
+            double dx = to.X - from.X, dy = to.Y - from.Y;
+            double length = Math.Sqrt(dx * dx + dy * dy);
+            if (sides > 0 && length > 0)
+            {
+                int radius = SkillRadius(conn, cascadeStats, spell, gem.Effect);
+                bool sideways = Cascade("support_spell_cascade_sideways") != 0;
+                double ax = dx / length, ay = dy / length;
+                for (int side = 1; side <= sides && radius > 0; side++)
+                {
+                    int alongX = (int)Math.Round(ax * radius * side), alongY = (int)Math.Round(ay * radius * side);
+                    cascadeAreas.Add((to.X + alongX, to.Y + alongY));
+                    cascadeAreas.Add((to.X - alongX, to.Y - alongY));
+                    if (sideways)
+                    {
+                        cascadeAreas.Add((to.X - alongY, to.Y + alongX));
+                        cascadeAreas.Add((to.X + alongY, to.Y - alongX));
+                    }
+                }
+            }
+        }
+        var jobs = new List<Task>();
+        for (int repeat = 0; repeat <= Math.Max(spellRepeats, meleeRepeats); repeat++)
+        {
+            void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
+                centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
+                criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat,
+                repeatDelay: repeat * repeatInterval, radiusMore: fistRadius, addedChaos: addedChaos,
+                damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1)));
+            Hit(to);
+            foreach (var area in cascadeAreas) Hit(area);
+        }
+        return Task.WhenAll(jobs);
     }
 
     // A channelled skill's hits (Cyclone): one sweep around the player every attack time (SupportedAttackSeconds: the

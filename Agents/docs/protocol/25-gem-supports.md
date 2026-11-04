@@ -107,6 +107,17 @@ exist, so the base support was a pure damage penalty). Melee Splash hits the ene
 support's less damage; its radius is the 12-cell default grown by the area modifier and
 `melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
 
+Spell Cascade repeats a supported area spell in a line: one extra area per side along the caster-to-target
+direction (`support_spell_cascade_number_of_cascades_per_side`, 1) and, with `support_spell_cascade_sideways`
+(Greater and Awakened), one per side across it. Each centre is one effective radius from the aimed point, the radius
+the hit itself uses, so area of effect scales the spacing; the support's area and damage finals stay ordinary skill
+stats. Captured from the 3.29.3b client on 2026-11-04 (`scripts/re/frida/sniff-support-geometry.js`): Reap at 28.5
+effective radius placed its five Awakened areas 28-29 cells apart (three along the aim, two across it), the aimed cell
+in the middle; the client draws each effect half a radius toward the caster, so the hit centres are the aim +- radius.
+`LaunchProjectile` schedules one `AreaSkillHit` per area with the use's critical roll, so overlapping areas each hit.
+Not built: the client's per-area delay (`support_spell_cascade_area_delay_+%`) and whether the damage penalty applies
+to the centre area as well as the repeats (the stat is applied to every area, as PoB does).
+
 Red and blue supports whose stats had no consumer now apply too: Maim's `maim_on_hit_%` maims for 4 s and a maimed
 monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physical damage and 30% reduced movement
 (PoB's Maimed condition); Bloodlust's more melee physical damage applies against a bleeding enemy; Pulverise's
@@ -151,7 +162,7 @@ Triggers, totems, mines, minion behaviour, attack repeats, projectile branching,
 still require their own execution paths.
 Second Wind's extra cooldown use needs multi-use cooldown state (one stored use is all that is tracked); Momentum's
 stacks need a skill-use and movement signal; Barrage and Arrow Nova need their own release patterns, not a stat.
-Unleash's seals, minion damage on summoned minions, Spell Cascade's sideways repeats, Arrow Nova's landing pattern and
+Unleash's seals, minion damage on summoned minions, Arrow Nova's landing pattern and
 the curses that Blasphemy and Hextouch would apply still need their own mechanics or client-side geometry.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
 Only the unconditional damage keys listed by GemSupportDamage and the five target conditions above receive
