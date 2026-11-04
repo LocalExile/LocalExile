@@ -385,14 +385,36 @@ static partial class Game
             foreach (var (key, value) in stats)
                 counts[key] = counts.GetValueOrDefault(key) + value;
         }
+        // Wand Mastery's extra projectile is wand-only: its stat is tree-only and mapped onto the generic attack
+        // count the projectile resolver reads. The client further requires the skill's skill_can_fire_wand_projectiles
+        // flag, which the server does not have, so a wand also gives it to a non-wand projectile attack such as
+        // Spectral Shield Throw (an approximation, not the in-game rule). The mastery's attack life and mana leech
+        // uses ordinary generic stats and applies with any weapon, as the client's stat text does.
+        bool wieldingWand = ActiveMainHand(conn)?.Type?.Class == "Wand";
+        uint wandProjectile = Stats.Key("wand_attacks_fire_an_additional_projectile") ?? 0;
+        uint attackProjectiles = Stats.Key("attacks_number_of_additional_projectiles") ?? 0;
+        static bool HasStat(PassiveTree.MasteryEffect effect, uint key) => key != 0 && effect.Stats.Any(s => s.Key == key);
         var passives = new Dictionary<uint, int>();
         foreach (ushort node in nodes)
         {
             if (nodeStats.TryGetValue(node, out var stats))
                 foreach (var (key, value) in stats) passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
             if (masteries.TryGetValue(node, out ushort effect) && tree.FindEffect(effect) is { } mastery)
+            {
+                if (HasStat(mastery, wandProjectile))
+                {
+                    if (wieldingWand && attackProjectiles != 0)
+                    {
+                        int extra = mastery.Stats.Where(s => s.Key == wandProjectile).Sum(s => s.Value);
+                        if (extra != 0)
+                            passives[attackProjectiles] = ActorScale.Add(attackProjectiles,
+                                passives.GetValueOrDefault(attackProjectiles), extra);
+                    }
+                    continue;
+                }
                 foreach (var (key, value) in mastery.Stats)
                     passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
+            }
         }
         foreach (var (key, value) in TattooCountingStats(tattoos, allocated))
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
@@ -694,7 +716,8 @@ static partial class Game
             AccuracyPct = AccuracyRating.Increased(activeWeapon, RawAccuracy),
             AccuracyPerLevel = (int)RawAccuracy("accuracy_rating_per_level"),
             DexterityAccuracyTriple = RawAccuracy("dexterity_accuracy_bonus_grants_accuracy_rating_+3_per_dexterity_instead") != 0,
-            AccuracyEqualsIntelligence = RawAccuracy("gain_accuracy_rating_equal_to_intelligence") != 0,
+            AccuracyEqualsIntelligence = RawAccuracy("gain_accuracy_rating_equal_to_intelligence") != 0
+                || (activeWeapon.Wand && RawAccuracy("gain_wand_accuracy_rating_equal_to_intelligence") != 0),
             AccuracyFromStrengthPct = (RawAccuracy("gain_accuracy_rating_equal_to_2_times_strength") != 0 ? 200 : 0)
                 + (RawAccuracy("gain_accuracy_rating_equal_to_strength") != 0 ? 100 : 0),
             AttackSpeedPer150Accuracy = (int)RawAccuracy("attack_speed_+%_per_200_accuracy_rating"),
