@@ -131,8 +131,7 @@ public sealed class JuggernautNodesTests
             lifetime.Stop(ex => throw ex);
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);
-            Saves.Db.Dispose();
-            foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
+            TestEnvironment.ReleaseSaves(path);
         }
     }
 }
