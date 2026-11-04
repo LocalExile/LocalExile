@@ -21,7 +21,7 @@ $manifest = @(
        Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client/Content.ggpk'); Version = 3; Needs = @()
        UsedBy = 'every game table: stats, levels, areas, waypoints, items, mods, monsters, NPCs; all other entries' }
     @{ Name = 'vendor-stock'; Outputs = @('data\vendor-stock.json'); Runner = 'python'
-       Args = @('scripts/re/vendor-stock/generate.py'); Version = 2; Needs = @('tables')
+       Args = @('scripts/re/vendor-stock/generate.py'); Version = 3; Needs = @('tables')
        UsedBy = 'ordinary vendor roles and quest/class gem membership' }
     @{ Name = 'area-transitions'; Outputs = @('data\area-transitions.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'data/area-transitions.json'); Version = 3; Needs = @('tables')

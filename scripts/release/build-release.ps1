@@ -96,6 +96,7 @@ Get-ChildItem (Join-Path $package 'Leagues') -Recurse -Directory -Filter Binarie
 Copy-Into 'data\schema' 'data\schema'
 Copy-Into 'scripts\re\vendor-stock\community-stock.json' 'scripts\re\vendor-stock\community-stock.json'
 Copy-Into 'scripts\re\vendor-stock\gem-layout.json' 'scripts\re\vendor-stock\gem-layout.json'
+Copy-Into 'scripts\re\vendor-stock\ids.json' 'scripts\re\vendor-stock\ids.json'
 Copy-Into 'scripts\re\levelgen\gate-baseline.json' 'scripts\re\levelgen\gate-baseline.json'
 Copy-Into 'Agents\docs\re\components.json' 'Agents\docs\re\components.json'
 
