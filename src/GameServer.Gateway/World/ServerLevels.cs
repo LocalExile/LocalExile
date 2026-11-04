@@ -81,7 +81,7 @@ static class ServerLevels
     static readonly ConcurrentDictionary<(string Area, uint Seed), int> PlayedLevels = new();
 
     /// <summary>The exception of a failed generation of (area, seed), while it is among the last ones asked for.</summary>
-    public static string? Error(string areaId, uint seed) => Errors.GetValueOrDefault((CacheArea(areaId, LabyrinthDay.NodeFor(areaId)), seed, LevelOf(areaId, seed, 0)));
+    public static string? Error(string areaId, uint seed) => Errors.GetValueOrDefault((CacheArea(areaId, LabyrinthDay.NodeFor(areaId, seed)), seed, LevelOf(areaId, seed, 0)));
 
     /// <summary>The cache's area key: a Labyrinth room played in today's layout is generated with its labyrinth node
     /// (LabyrinthDay), so the day's seed is part of it and a new day generates the room again.</summary>
@@ -127,7 +127,7 @@ static class ServerLevels
     {
         if (!IsSupported(areaId)) return null;
         int at = LevelOf(areaId, seed, areaLevel);
-        var node = LabyrinthDay.NodeFor(areaId);
+        var node = LabyrinthDay.NodeFor(areaId, seed);
         var key = (CacheArea(areaId, node), seed, at);
         if (Known(key, out var known)) return known;
         lock (Gate)

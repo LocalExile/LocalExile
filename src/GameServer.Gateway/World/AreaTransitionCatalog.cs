@@ -42,7 +42,7 @@ static class AreaTransitionCatalog
         // A layout the Gateway generates itself knows each object's room and graph node: that decides (§8).
         if (UseLayout && ServerLevels.For(id, seed) is { } level)
         {
-            var exits = QuestExitDestinations(id, level, FromLayout(area, level, notes), notes);
+            var exits = QuestExitDestinations(id, level, FromLayout(area, level, seed, notes), notes);
             AddQuestPortals(exits, id, seed, notes);
             return [.. exits.Select((t, i) => (FirstId + (uint)i, t with { InTown = area.IsTown }))];
         }
@@ -268,9 +268,9 @@ static class AreaTransitionCatalog
     /// quest gates that exit (<see cref="Gated"/>). A
     /// disabled teleport (an arena's way in that the real game unlocks, e.g. the Upper Prison's into Brutus's room) is
     /// created open: the encounters that would unlock it are not modelled.</summary>
-    static List<AreaTransitionObject> FromLayout(AtlasArea area, ServerLevels.Level level, List<string> notes)
+    static List<AreaTransitionObject> FromLayout(AtlasArea area, ServerLevels.Level level, uint seed, List<string> notes)
     {
-        var labyrinth = LabyrinthConnections(area.Id, notes);
+        var labyrinth = LabyrinthConnections(area.Id, seed, notes);
         // Izaro's arena's way on (boss_portals.arm "entranceNdisabled") opens when he falls; the fight is not built yet, so
         // in a room of today's Labyrinth it is open from the start.
         var placed = FromExits(area.Id, area.Hash16, labyrinth ?? area.Connections ?? [], level.Exits, notes, level.Entrances,
@@ -298,9 +298,9 @@ static class AreaTransitionCatalog
 
     /// <summary>A room of today's Labyrinth has no WorldAreas connections: its exits lead to its neighbours in the day's
     /// layout (<see cref="LabyrinthDay.Exits"/>). Null for any other area.</summary>
-    static List<AtlasConnection>? LabyrinthConnections(string areaId, List<string> notes)
+    static List<AtlasConnection>? LabyrinthConnections(string areaId, uint seed, List<string> notes)
     {
-        if (LabyrinthDay.Exits(areaId) is not { } exits) return null;
+        if (LabyrinthDay.Exits(areaId, seed) is not { } exits) return null;
         var connections = new List<AtlasConnection>();
         foreach (var (index, to) in exits)
             if (HashOf(to) is ushort hash) connections.Add(new(index, to, hash));

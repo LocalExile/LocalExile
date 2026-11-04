@@ -33,8 +33,13 @@ static class LabyrinthDay
     /// <summary>The day's layout for a difficulty, with its rooms' areas.</summary>
     public static Day For(uint seed, int difficulty) => Days.GetOrAdd((seed, difficulty), key => Build(key.Seed, key.Difficulty));
 
-    /// <summary>The labyrinth node of an area today: the first room of the day's layout played in it, or null when the
-    /// area is not in today's Labyrinth (it is then generated and sent without one, as before).</summary>
+    /// <summary>The labyrinth node of an instance: the room of a run played at this (area, seed) (<see cref="Enter"/>),
+    /// else the first room of today's layout played in the area (a /goto), or null when the area is not in today's
+    /// Labyrinth (it is then generated and sent without one, as before).</summary>
+    public static LabyrinthNodeKey? NodeFor(string areaId, uint instanceSeed) =>
+        RunRooms.TryGetValue((areaId, instanceSeed), out var room) ? room : NodeFor(areaId);
+
+    /// <summary>The first room of today's layout played in the area, or null.</summary>
     public static LabyrinthNodeKey? NodeFor(string areaId)
     {
         if (DifficultyOf(areaId) is not int difficulty) return null;
@@ -50,22 +55,93 @@ static class LabyrinthDay
         return index < 0 ? null : new LabyrinthNodeKey(seed, day.Layout.Nodes[index].Row, difficulty);
     }
 
-    // The rooms each character has been in today, per layout (ours, kept while the server runs).
-    static readonly ConcurrentDictionary<(string Character, uint Seed, int Difficulty), HashSet<int>> Visited = new();
-
-    /// <summary>A character enters a room of today's Labyrinth: it is remembered, and the run's progress to send
-    /// (<see cref="Progress"/>) has every room they have been in.</summary>
-    public static byte[] Visit(string character, LabyrinthNodeKey node)
+    // A character's run (ours, kept while the server runs): the day and tier it is of, each room's instance and seed, the
+    // rooms been in (the map's progress) and the room now. It starts at the plaza's way in and ends when the character is
+    // anywhere but one of its rooms (a portal or a death's way to town, the plaza, another area).
+    sealed class Run(uint seed, int difficulty)
     {
-        var day = For(node.Seed, node.Difficulty);
-        int index = day.Layout.Nodes.ToList().FindIndex(n => n.Row == node.Row);
-        var rooms = Visited.GetOrAdd((character, node.Seed, node.Difficulty), _ => []);
-        lock (rooms)
+        public readonly uint Seed = seed;
+        public readonly int Difficulty = difficulty;
+        public readonly Dictionary<int, (ulong Instance, uint Seed)> Rooms = [];
+        public readonly HashSet<int> Visited = [];
+        public int Node = -1;
+        public long Number = Interlocked.Increment(ref runs);
+    }
+    static long runs;
+    static readonly ConcurrentDictionary<string, Run> Runs = new(StringComparer.Ordinal);
+    // Which room of a run an instance is (its area and the seed the run gave it): its generation and 0x1d's node.
+    static readonly ConcurrentDictionary<(string Area, uint Seed), LabyrinthNodeKey> RunRooms = new();
+
+    static int IndexOf(Day day, int row) => day.Layout.Nodes.ToList().FindIndex(n => n.Row == row);
+
+    /// <summary>The way to a room of a run from a transition: the plaza's way in starts a new run of today's Normal
+    /// Labyrinth at its first room; an exit of a run's room goes to the neighbour in the layout played in the exit's area
+    /// (its instance when the run has been there, else a new one at a seed the run picks, so the server knows its room).
+    /// Null: not a run's way (an ordinary transfer).</summary>
+    public static PendingTransfer? Transfer(string character, string fromArea, uint fromSeed, string? sourceType, ushort destination, string? destinationArea)
+    {
+        Run? run;
+        int to;
+        if (fromArea == Plaza && sourceType == Entrance)
         {
-            if (index >= 0) rooms.Add(index);
-            return Progress(rooms);
+            run = Runs[character] = new Run(Seed, 1);
+            to = 0;
+            Console.WriteLine($"[gateway] {character}: Labyrinth run {run.Number} of day {run.Seed} starts");
+        }
+        else
+        {
+            if (!Runs.TryGetValue(character, out run) || NodeFor(fromArea, fromSeed) is not { } from || from.Seed != run.Seed) return null;
+            var day = For(run.Seed, run.Difficulty);
+            int index = IndexOf(day, from.Row);
+            if (index < 0) return null;
+            to = day.Layout.Nodes[index].Links.Where(l => l >= 0).FirstOrDefault(l => day.Areas[l] == destinationArea, -1);
+            if (to < 0) return null;
+        }
+        lock (run)
+        {
+            if (run.Rooms.TryGetValue(to, out var known) && known.Instance != 0)
+                return new PendingTransfer(destination, known.Instance, false);
+            var day = For(run.Seed, run.Difficulty);
+            uint seed = (uint)(HashCode.Combine(character, run.Number, to) & 0x7fffffff) | 2;
+            run.Rooms[to] = (0, seed);
+            RunRooms[(day.Areas[to]!, seed)] = new LabyrinthNodeKey(run.Seed, day.Layout.Nodes[to].Row, run.Difficulty);
+            return new PendingTransfer(destination, 0, true)
+            {
+                Seed = seed,
+                Done = answer =>
+                {
+                    if (!answer.Ok) return;
+                    lock (run) run.Rooms[to] = (answer.Instance, seed);
+                },
+            };
         }
     }
+
+    /// <summary>A character enters an area: in a room of their run it is remembered (the map's progress to send,
+    /// <see cref="Progress"/>); anywhere else their run ends. The progress, or null outside a run.</summary>
+    public static byte[]? Enter(string character, string areaId, uint instanceSeed)
+    {
+        if (!Runs.TryGetValue(character, out var run)) return null;
+        var node = RunRooms.TryGetValue((areaId, instanceSeed), out var room) && room.Seed == run.Seed ? room : null;
+        var day = For(run.Seed, run.Difficulty);
+        int index = node is null ? -1 : IndexOf(day, node.Row);
+        lock (run)
+            if (index < 0 || !run.Rooms.TryGetValue(index, out var mine) || mine.Seed != instanceSeed)
+            {
+                Runs.TryRemove(new KeyValuePair<string, Run>(character, run));
+                Console.WriteLine($"[gateway] {character}: Labyrinth run {run.Number} ends in {areaId}");
+                return null;
+            }
+            else
+            {
+                run.Node = index;
+                run.Visited.Add(index);
+                return Progress(run.Visited);
+            }
+    }
+
+    /// <summary>The map's progress outside a run (a /goto into a room of today's Labyrinth): that room alone.</summary>
+    public static byte[] Visit(LabyrinthNodeKey node) => Progress([IndexOf(For(node.Seed, node.Difficulty), node.Row)]);
 
     /// <summary>S→C 0x1cb, the run's progress (dispatcher case 0x84, 96 bits, bit i in byte i / 8): the Labyrinth map
     /// (LabyrinthMapWindow, <c>0x140bcdf20</c>) shows a room whose bit 0x11 + its index is set, and Izaro's rooms (a
@@ -92,9 +168,9 @@ static class LabyrinthDay
     /// connection in the layout (the client counts a passage secret's "entrance&lt;N&gt;" after them the same way), that
     /// room's area; the first room's way out to the plaza. The last room's way out (to Izaro) has none yet. Null when the
     /// area is not in today's Labyrinth.</summary>
-    public static IReadOnlyList<(int Index, string Area)>? Exits(string areaId)
+    public static IReadOnlyList<(int Index, string Area)>? Exits(string areaId, uint instanceSeed)
     {
-        if (NodeFor(areaId) is not { } node) return null;
+        if (NodeFor(areaId, instanceSeed) is not { } node) return null;
         var day = For(node.Seed, node.Difficulty);
         int index = day.Layout.Nodes.ToList().FindIndex(n => n.Row == node.Row);
         var exits = new List<(int, string)>();
