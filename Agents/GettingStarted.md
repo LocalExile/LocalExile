@@ -369,11 +369,12 @@ client shares.
 
 **League modes:** the existing creation screen's Hardcore, SSF and Ruthless choices select server rules.
 Selected modes change server rules; Hardcore Ruthless death is permanent.
-Ruthless balance can be edited in `Modules/Ruthless/ruthless.json` without rebuilding or restarting the server.
-To create a missing local copy and edit it, run from the repository root:
+Ruthless balance is the Ruthless module's settings, changed without rebuilding or restarting the server: write the numbers
+you change in `data/modules/Ruthless.json` (the defaults are in `Modules/Ruthless/settings.json`). From the repository root:
 
 ```powershell
-notepad .\Modules\Ruthless\ruthless.json
+New-Item -ItemType Directory -Force data\modules | Out-Null
+notepad .\data\modules\Ruthless.json
 ```
 
 See [league modes](docs/game/league-modes.md) for exact behavior, limitations and editing instructions.
@@ -480,7 +481,8 @@ Environment variables, read when each server starts:
 | `Game_SEED` | unset | a number = that seed for every new non-town, non-hideout instance (generation traces of one seed with `live.ps1 -Walkmaps`; overrides `Game_RANDOM_SEEDS`) |
 | `Game_LEAGUE` | `standard` | `hardcore` shows the hardcore death screen (a single Exit button) |
 | `Game_LEAGUES_FOLDER` | `Leagues` | where the leagues are: one folder per league |
-| `Game_RUTHLESS_RULES` | `Modules/Ruthless/ruthless.json` | Ruthless tuning file; valid edits apply during play |
+| `Game_LEAGUE_MODULES` | `data/league-modules.json` | the user's modules added to or removed from leagues ([modules](docs/dev/modules.md)) |
+| `Game_RUTHLESS_RULES` | unset | a file of all eight Ruthless numbers, in place of the module's settings; valid edits apply during play |
 | `Game_START_WEAPON` | unset | `ground` = a new character's class weapon waits on the ground near the spawn instead of being worn |
 | `Game_FLASK_BUFFS` | unset | `0` = flasks recover without putting their flask_effect buff on the player |
 | `Game_FLASK_CHARGES` | unset | unset = the game's flask charge rules (kills by rarity, charge mods, a flask put on the bar in a hostile area starts empty); `full` = every kill fills all flasks and equipped flasks keep their charges |
