@@ -17,6 +17,13 @@ static partial class SurvivorsSkills
     /// <summary>A herald's aura reaches this far around the player, in cells, before its rank and area grow it.</summary>
     internal const double SurvivorsHeraldRadius = 48;
 
+    /// <summary>How far a cast looks for targets: a pulse uses its own aura, a projectile the cast range.</summary>
+    internal static double SurvivorsCastReach(bool herald, double radius) => herald ? radius : SurvivorsRules.Range;
+
+    /// <summary>The struck targets that play a pulse's impact art: every one of them (the clip ends before the next
+    /// pulse), so a pack does not look as if only the first few were hit.</summary>
+    internal static int SurvivorsHeraldEffectCount(int struck) => Math.Max(struck, 0);
+
     /// <summary>
     /// The hit effect each Herald gem plays where its pulse strikes: the game's own <c>.ao</c> for the herald's impact
     /// (Ash's fire explosion, Ice's shatter, Thunder's bolt from above, Agony's poison splash, Purity's slam) and the
@@ -343,6 +350,9 @@ static partial class SurvivorsSkills
         (int X, int Y) origin;
         List<(int X, int Y)> aims = [];
         List<(uint Id, double Distance, uint Life, int X, int Y)> inReach = [];
+        // A pulse (a Herald or an area gem) gathers to its own aura, not the projectile cast range: the old 34-unit
+        // reach clipped a 48-unit aura, so monsters the client showed inside it took no hit.
+        double reach = SurvivorsCastReach(cast.Herald, cast.HeraldRadius);
         using (ProjectileMutation(conn))
         {
             double world = ProjectileWorldTime(conn);
@@ -354,7 +364,7 @@ static partial class SurvivorsSkills
                 if (m.Dead || m.Life == 0 || !m.Hostile) continue;
                 var at = m.Walk.Position(world);
                 double distance = Dist(here, at);
-                if (distance > SurvivorsRules.Range) continue;
+                if (distance > reach) continue;
                 inReach.Add((id, distance, m.Life, at.X, at.Y));
             }
             if (inReach.Count == 0) return 0;
@@ -370,10 +380,11 @@ static partial class SurvivorsSkills
             {
                 DamageType.Cold => 1, DamageType.Fire => 2, DamageType.Lightning => 3, DamageType.Chaos => 4, _ => 0,
             };
-            // Each herald's pulse plays the game's own hit effect at up to three struck targets (the wave still damages
-            // every target): Ash's fire explosion, Ice's shatter, Thunder's bolt from above, Agony's poison splash,
-            // Purity's slam. The effect object is removed when its clip ends.
+            // Each herald's pulse plays the game's own hit effect at every struck target: Ash's fire explosion, Ice's
+            // shatter, Thunder's bolt from above, Agony's poison splash, Purity's slam. The effect object is removed
+            // when its clip ends, before the next pulse.
             var impact = SurvivorsHeraldImpactFor(conn, skill);
+            int effectBudget = SurvivorsHeraldEffectCount(inReach.Count);
             int strikes = 0;
             foreach (var (id, distance, _, tx, ty) in inReach)
             {
@@ -387,7 +398,7 @@ static partial class SurvivorsSkills
                 struck++;
                 await NotifyMonsterHit(remote, stream, ciphers, conn, id, target!, applied, cast.HeraldDamage, skill.Name, log: false, melee: true, hitCode: hitCode);
                 if (!ownership.Current) return 0;
-                if (impact is { } art && strikes++ < 3)
+                if (impact is { } art && strikes++ < effectBudget)
                     await SurvivorsHeraldEffect(remote, stream, ciphers, conn, tx, ty, art.Ao, art.Ms, skill.Name);
             }
             if (struck == 0) return 0;

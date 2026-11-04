@@ -56,7 +56,8 @@ status` prints the same labels.
 Run skills are every gem the client can draw: a projectile gem flies its own `Projectiles` row, an area gem (Ice Nova,
 Firestorm and the like) casts a **nova pulse** around the player with the gem's own area hit, and a Herald pulses its
 aura. Heralds and areas share the pulse pipeline; an area gem's pulse radius is the run's 48-cell base grown by its
-rank and increased area. Melee area skills (Cyclone, Ground Slam, Cleave) are attacks and stay out of the pool.
+rank and increased area, and the pulse gathers targets to that same radius (the 34-unit range is the projectile cast
+range only). Melee area skills (Cyclone, Ground Slam, Cleave) are attacks and stay out of the pool.
 A cast clip plays only while the player stands still: while moving it would replace the walk clip and read as strafing.
 Every run starts with one **Small Life Flask** in the flask bar, full, refilled by kills like any flask, so the emptied
 character still has recovery.
@@ -109,10 +110,10 @@ Fireball and Kinetic Blast additionally create their area effects.
 
 Heralds are run-specific damage pulses, not reproductions of the ordinary Herald trigger mechanics.
 Their aura and icon use the effect's ActiveSkills/BuffDefinitions row through `0x1c1`.
-Hits use `0x1af` with the appropriate damage-type code and the Herald's own impact art at up to three targets:
+Hits use `0x1af` with the appropriate damage-type code and the Herald's own impact art at every struck target:
 Ash `flameherald_explode`, Ice `iceherald_explode`, Thunder `lightning_strike_herald`,
 Agony `mortarimpact`, Purity `slam_impact`.
-The effect object is removed after its clip ends.
+The effect object is removed after its clip ends, before the next pulse.
 
 ## Reward equipment
 

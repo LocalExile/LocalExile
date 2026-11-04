@@ -116,9 +116,15 @@ public class SurvivorsRunTests
             Enumerable.Range(0, SurvivorsRules.MaxBlessingLevel + 1).Select(SurvivorsRules.FortitudeIncomingPercent));
     }
 
-    public void The_herald_pulse_reaches_four_times_farther()
+    public void The_herald_pulse_reaches_its_own_aura_and_draws_every_hit()
     {
         Assert.Equal(48, SurvivorsSkills.SurvivorsHeraldRadius, 6);
+        // A pulse looks as far as its own aura, not the projectile cast range: a monster between them is still hit.
+        Assert.Equal(48, SurvivorsSkills.SurvivorsCastReach(herald: true, radius: 48), 6);
+        Assert.Equal(34, SurvivorsSkills.SurvivorsCastReach(herald: false, radius: 48), 6);
+        // Every struck target plays its impact art: the old three-target visual cap is gone.
+        Assert.Equal(6, SurvivorsSkills.SurvivorsHeraldEffectCount(6));
+        Assert.Equal(30, SurvivorsSkills.SurvivorsHeraldEffectCount(30));
     }
 
     public void The_horde_gets_a_ranged_ring_wave_every_twenty_seconds()
