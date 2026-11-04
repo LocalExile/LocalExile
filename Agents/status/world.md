@@ -99,7 +99,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Predictive actor collision.** Player paths include living monsters and published players in the same instance.
   Monster paths use their `MonsterVarieties.ObjectSize` clearance and avoid other living bodies, including friendlies.
   A 50 ms pass steps the player's and the monsters' estimates in time order as the client does (no packets): a step
-  blocked by terrain or a body ends the walk, and a path cut short paths again from its end. Nothing is pushed out of a
+  blocked by terrain or a body ends the walk, and a path cut short paths again from its end. On a lockstep client the
+  pass replays whole frames instead, each walker in object order (the player first) against the cells as moved so far,
+  as the client's world ticks ([07](../docs/protocol/07-latency-visibility-movement.md) §5). Nothing is pushed out of a
   body. Death releases the occupied space and the corpse stays in the area.
   Melee monsters chase with their attack aimed at the player, about every 200 ms, and the swing starts on S→C 0x1ac.
   Ranged monsters and minions take rings around the player (`MonsterSurround`); the AI decides every 50 ms.
@@ -205,7 +207,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Move cuts a swing short at its clip's lock_cancelling keyframe (a bow) or its contact (a wand, a sword), as on the
   client; a melee monster's chase swings once the player is in its reach, on the way or at its walk's end, and goes on
   after the player otherwise, as on the client; a bow's or wand's attack walks to where its line to the monster is clear on the projectile
-  grid, as on the client (an attack gem's line threshold is taken to be the bow's). Without it the player is
+  grid, as on the client (an attack gem's line threshold is taken to be the bow's); the walk estimates step in the
+  client's frames and object order, a monster's order places its walk when it goes out (at the frame being sent), and
+  a walking monster is ordered again only right after its estimate's step (a client a cell off loses under a frame of
+  its step; pack fights: the client a cell from the estimate at 18 % of chase orders and 12 % of Moves, from 25 and
+  22 %, the rest unobservable from the server: [07](../docs/protocol/07-latency-visibility-movement.md) §6). Without it the player is
   drawn but cannot move or
   use objects, and the Gateway asks for Predictive once per connection
   ([07](../docs/protocol/07-latency-visibility-movement.md) §6).

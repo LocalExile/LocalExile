@@ -72,8 +72,14 @@ sealed class MonsterAiCadence
         var schedule = monsters.GetValue(monster, _ => new());
         if (!Due(now, schedule.NextChase)) return false;
         schedule.NextChase = now + AttackChaseSeconds;
+        schedule.LastChase = now;
         return true;
     }
+
+    /// <summary>Whether the monster's last chase or Move order is more than <paramref name="by"/> seconds past its cadence
+    /// (a deferred order must not wait for ever).</summary>
+    public bool ChaseOverdue(SpawnedMonster monster, double now, double by) =>
+        !monsters.TryGetValue(monster, out var schedule) || Due(now, schedule.LastChase + AttackChaseSeconds + by);
 
     public bool SwingPending(SpawnedMonster monster) =>
         monsters.TryGetValue(monster, out var schedule) && schedule.PendingSwing == monster.ActionGeneration;

@@ -177,8 +177,9 @@ object's size + 3 and tolerance = its size (an NPC, size 4: 7 and 4; the stash, 
 
 **The client's walk** (Positioned `0x141e34400` → `0x141e4d180`, ticked by `0x141e32710` → `0x141e4d390`). Each segment
 between waypoints is a Bresenham line of cells; one step takes `(√(dx² + dy²) / speed) / max(|dx|, |dy|)` seconds,
-and the grid cell (`+0x294`) only changes a step at a time. Each frame adds its time to the accumulator (`+0x244`, a
-whole number of milliseconds on the client's clock) and steps while it holds a whole step time (`+0x240`); before every
+and the grid cell (`+0x294`) only changes a step at a time. Each frame adds its time to the accumulator (`+0x244`: a
+predictive client's own frame, a whole number of milliseconds of its clock; a lockstep client's server frame, below)
+and steps while it holds a whole step time (`+0x240`); before every
 step the next cell is checked again (terrain, objects) and a blocked step ends the walk: the walker stands, with no new
 path and no message (`0x141e7bc20`). A new segment, including the first one of a new order, rescales the accumulator to
 its own step time (`A × s_new / s_old`), so a re-order keeps the
@@ -187,6 +188,29 @@ steps, and keeps the accumulator. Verified on a capture (2026-10-21): the per-ti
 ticks (the rest are counter resets), the rescale on 575 of 575 clicks. Speed (`0x141e7c0b0`) is the Pathfinding base
 (`+0x548`, `base_speed` 37 for the player, times the Actor's run-speed roll `+0x1a8`) × (1 + `movement_velocity_+%`
 / 100) × (1 + stat 0xce6 / 100), capped by stat 0x44f.
+
+**The lockstep tick** (live 2026-11-03, `scripts/re/frida/trace-lockstep-tick.js` on a bow pack fight). On a
+lockstep client the walk above runs per server frame. The world update (`0x142183930`) runs each queued frame through
+`0x142183ce0` with the frame's length as float seconds (33 ms → 0.033f); that walks the object tree (`+0xa28`, keyed by
+object id) in ascending id and, per object (`0x142184680`; ids with the top bits `0xc0000000` afterwards, through
+`0x142184870`), applies the records keyed below the object's id and calls each component's slot `+0x40` with the delta.
+Positioned's slot is the walk tick itself (vtable `0x1435a0f18`, `0x141e32710`). So the player (0x1000) ticks before
+every monster, a monster before those created after it, and a walker takes all of its steps due in the frame before the
+next object ticks (1 488 frames with walker ticks, every one in ascending id). The accumulator gains exactly the frame's
+length (18 574 of 18 917 ticks; the rest ended a walk or changed segment), keeps its remainder across steps and
+segments (a segment's setup, `0x141e4d180`, rescales it by new/old only when the old step time is above zero: all
+1 627 mid-walk re-orders rescaled, all 3 231 segment transitions carried) and is zeroed when the walk ends. Each step's
+body check (`0x141e47ca0`) reads the other objects' cells as they are at that moment, so an object that ticked earlier
+in the frame is seen where that frame's steps put it and a later one where the frame before left it. The forced
+position set of an action start (`0x141e8e7e0` → `0x141e31800`: in lockstep whenever the actor's cell is not the 0x1ab's
+pair, predictive at 46+ cells) ends the walk in progress and zeroes the accumulator (713 sets in the fight, every one
+with the cell differing, 601 on a walking actor, all 601 zeroed): an order whose from cell is the client's cell keeps
+the fraction of the step in progress, one whose from cell differs by any distance loses it, and the actor's next step
+comes a whole step after the frame. `PlayerWalk`'s time model (step k of an order applied at frame start S with
+fraction f at S − f × step + k × step) puts every step in the frame the accumulator gives it, up to float32 rounding;
+what the Gateway's step pass adds for a lockstep client is the order within a frame and the cells each check sees
+(`StepWalkers` → `StepFrames`: whole frames, each walker's steps of the frame in ascending object id against the cells
+as moved so far, up to the start of the frame being sent).
 
 **Click timing.** The client applies a click right after its frame's tick and sends the 0x25 in the same frame: on one
 QPC clock (Frida in the client, the Gateway's `Game_MOVE_TRACE=1` log), the 0x25 reaches the Gateway's socket 0.24 ms
@@ -212,9 +236,10 @@ u32 at its data +8] and, when the MonsterVarieties row's two unnamed i32 columns
 1 + roll / 100. Of the 10 691 rows, 8 694 have (0, 0), 875 (−10, 10) and 855 (−5, 5) (every plain Goatman: 8 × 0.95
 to 1.05 is the band measured), then (−5, 10), (0, 10), (−30, 15), (−5, 8), (−15, 15). The server draws the same roll
 (`MonsterSpeedRoll.cs`, `AnimationVariantSelector.NativeRandom`) with the monster's 0x2b9 type hash as the type word
-and walks its estimate at that speed (the Gateway's create log prints the speed and the roll). The range is certain;
-that the type word is the type hash, and so the exact value, is the research branch's reading of the type loader and
-is not yet checked live: `scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier.
+and walks its estimate at that speed (the Gateway's create log prints the speed and the roll). Checked live
+2026-11-03 (the lockstep tick trace, each walker's step times): four Drowned walked at 8.16, 7.92, 7.60 and 7.84
+cells/s, the Gateway's rolls of +2, −1, −5 and −2 % for them; Hungry Corpses at 8.000, Sand Spitters at 20.000, the
+player at 37.000. `scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier.
 Decompiled in the research branch's `re/server-gaps-3.29.3b.md` §3.
 
 **A melee monster's chase.** GGG repeats the monster's attack aimed at the player object about every 200 ms, near or
@@ -367,7 +392,9 @@ projectile mutation scope and its experience-before-combat lock order.
 The client stops a walker at the first cell a body blocks (`0x141e32710`, `0x141e47a40`), whatever its path said, and a
 walker that started inside a body steps through until its first free step. `StepWalkers` does the same to the server's
 estimates, every 50 ms and before each AI decision (an order would drop the steps it replaces): the steps taken since the
-last pass, the player's and every monster's in time order, each against the cells the others hold at that moment. It
+last pass, the player's and every monster's in time order, each against the cells the others hold at that moment; on a
+lockstep client frame by frame (`StepFrames`), each walker's steps of a frame in ascending object id against the cells
+as moved so far, as its world ticks (§5, the lockstep tick), whole frames up to the start of the frame being sent. It
 sends nothing. A chaser's next order paths it again, and a path the search cut short paths again from its end. Nothing
 moves a monster or the player out of a monster: the client does not, and a server that did so walked its copy away from the client's (it used to send
 ActionEnded and Teleport, then to teleport only its estimate, and to walk the player out through a crowd that held the
@@ -515,6 +542,30 @@ the order's frame and the Sand Spitter walks on to its Move's target (377 shots 
 median, 4.2 at the 90th percentile, 7.6 at most), so the estimate keeps its walk; where its path is longer than the
 client's, it walks on alone (one 18-cell case in eight pack fights).
 
+**Keeping the estimate's walk the client's.** The client's walk is exact in time (§5, the lockstep tick), so the
+estimate's steps fall in the client's frames as long as the two start a walk in the same frame with the same phase. The
+step pass replays whole frames in object order (`StepFrames`), and a monster's order places its walk when the 0x1ab
+goes out, in the send gate, at the start of the frame being sent, after the steps the walk the client still runs takes
+in the frames before it (`LockstepOrderFrom`; the frame itself advances in the frame end's gate): placed by the plan, a walk whose
+0x1ab a frame end overtook (the AI pass and the frame loop are separate tasks: 14 of 1 193 chase orders in a traced
+fight) started a frame early on the server. What the server cannot see
+is the forced set: an order whose from cell is not the client's cell puts the client's monster onto it and zeroes its
+accumulator, while the estimate keeps its fraction of the step in progress, so from then on the client steps that
+fraction later, the next order finds the cells apart again about half the time, and the estimate runs a step ahead
+through runs of orders (two of five orders after a set found the cells apart in a traced fight, against one of eight
+after a match; 20 to 26 % of a fight's monster orders on a moving monster had the estimate a cell ahead). The Gateway
+therefore orders a walking monster again only at a frame start right after the estimate's step (`LockstepReorderDue`:
+its fraction under a frame; the order waits at most two steps past its cadence; the chase cadence's median stays
+0.25 s, one chase in ten waits 0.5 s), so a client a cell off loses under a frame of phase. Pack sets after (bow,
+4 × 40 s): orders on a moving monster with the client a cell from the estimate 18 % for chases, 12 % for Moves and
+14 % for a Sand Spitter's shots (25, 22 and 23 % before; the frame-grouped pass alone changed none of them), the from
+cell equal to the client's cell at 83 % of monster orders (77 %), the estimate's cell equal to the client's in 91 % of
+monster frames (79 %). What is left is unobservable from the server: a one-cell
+difference in the player's cell or in another body's changes a chase path's corners (the first segment's step time
+differed on the two sides at 11 % of matched chase orders), a step then lands a frame apart, the set fires and the
+phase offset it leaves (under a frame now) persists until that walk ends, since a matched order rescales each side's
+own phase. GGG's server has none of this: it is the client's own simulation.
+
 **Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLink`; `Lockstep.cs` and
 `LockstepHold` follow GGG):
 
@@ -525,6 +576,7 @@ client's, it walks on alone (one 18-cell case in eight pack fights).
 | The client's cell for a target is estimated: the lowest round trip and two frames ago | Its frames say which it was | A lockstep request carries no frame |
 | Sends 0x194 to time a lockstep client | Not seen in any session; by its handler, an idle timeout | It is the one message found that the client answers by itself, and nothing else tells a tunnel from loopback |
 | Frames laid over a clock, late ones sent at once | Frames are ticks of its world | The walks run on the clock |
+| Orders a walking monster again only at a frame start right after its estimate's step | On its cadence, from its own simulation | A set after an order whose from cell is off zeroes the client's step accumulator while the estimate keeps its fraction; right after the estimate's step there is under a frame to lose |
 | Sends 0x2b6 | Never | The client's default is not traced |
 | Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours walks on out there, and 0x128 is skipped here |
 | An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |

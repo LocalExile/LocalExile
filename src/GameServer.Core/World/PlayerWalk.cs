@@ -7,7 +7,8 @@ namespace GameServer.Core.World;
 /// segment between two waypoints is a Bresenham line of cells, one step per (|segment| / speed) / (major-axis steps)
 /// seconds, so the cell is always a whole grid cell. A new order mid-step keeps the step's elapsed fraction (the
 /// client rescales its time accumulator to the new step time). Each step is checked against terrain and bodies by the
-/// Gateway's step pass, which replays all walkers together (<see cref="Steps"/>, <see cref="StopAt"/>, <see cref="Repath"/>).
+/// Gateway's step pass, which replays all walkers together, on a lockstep client frame by frame in the client's object
+/// order (<see cref="Steps"/>, <see cref="StopAt"/>, <see cref="Repath"/>).
 /// The 0x1ab echo reports <see cref="Position"/>; the client snaps to it only when it is ~92+ cells off (Actor handler
 /// 0x1421940a0).
 /// </summary>
@@ -151,6 +152,21 @@ public sealed class PlayerWalk
 
     /// <summary>The walker's cell at <paramref name="now"/> (seconds, any monotonic clock).</summary>
     public (int X, int Y) Position(double now) => At(Frame(now), out _);
+
+    /// <summary>Where the walker is within its current step at <paramref name="now"/>: the seconds since the step before
+    /// (the client's accumulator, +0x244) and the step's length; (0, 0) when it stands or is held.</summary>
+    public (double Into, double Step) StepPhase(double now)
+    {
+        now = Frame(now);
+        foreach (var s in _segments)
+        {
+            if (now >= s.End) continue;
+            if (now < s.T0) return (0, 0);
+            double steps = (now - s.T0) / s.Step;
+            return ((steps - Math.Floor(steps)) * s.Step, s.Step);
+        }
+        return (0, 0);
+    }
 
     private (int X, int Y) At(double now, out double fraction)
     {

@@ -29,10 +29,20 @@ static partial class Game
                 if (due == ended) continue;
                 for (; ended < due; ended++)
                 {
-                    await Send(remote, stream, ciphers, InstanceProtocol.FrameEnd(), null);
-                    conn.ServerFrame++;
+                    // The frame advances in the frame end's send gate, under the combat lock: an order written after the
+                    // 0x2b5 finds the new frame (LockstepOrderFrom), one written before it the old, and a pass that holds
+                    // the lock sees one frame throughout.
+                    long ending = ended;
+                    await Send(remote, stream, ciphers, [], null, atGate: () =>
+                    {
+                        lock (conn.Monsters)
+                        {
+                            conn.ServerFrame++;
+                            conn.LockstepFrame = (first + (ending + 1) * frame, first + (ending + 2) * frame);
+                        }
+                        return InstanceProtocol.FrameEnd();
+                    });
                 }
-                conn.LockstepFrame = (first + ended * frame, first + (ended + 1) * frame);
                 await ProbeLockstepLatency(remote, stream, ciphers, conn);
                 await StartLockstepActions(remote, stream, ciphers, conn, first + ended * frame);
             }
