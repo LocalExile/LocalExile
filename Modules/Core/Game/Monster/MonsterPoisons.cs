@@ -15,19 +15,22 @@ static partial class Game
         var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
         string hand = spell ? "spell" : "main_hand";
         return MonsterPoisons.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon), hand,
-            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0);
+            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
+            spell || weapon is not null ? null : MainHandLocalSources(conn));
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
     internal static MonsterPoisons.Settings DefaultAttackPoison(ClientState conn, IReadOnlyDictionary<uint, int> player)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        var weapon = WeaponFor(conn);
         return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(player, Stats, attack: true), Get),
-            "main_hand", Get);
+            SupportedAttackDamage.Raw(weapon, Get), DamageStats.Conversion(player, Stats, attack: true), Get),
+            "main_hand", Get, weapon.LocalSources);
     }
 
-    // A landed hit's poison: the chance from the caster's and the skill's stats, then the monster's avoidance. Its damage
+    // A landed hit's poison: the chance the panel shows (virtual_total_{hand}_chance_to_poison_on_hit_%: the caster's and
+    // the skill's stats, and for an attack its weapon's own, Settings.WeaponChance), then the monster's avoidance. Its damage
     // per second (an independent roll in the non-critical or critical range) and duration come from the hit's panel poison
     // rows (<paramref name="settings"/>, captured with the hit as its ignite's are), so a poison deals what the panel shows:
     // the hit's own increases and the monster's resistance, already in <paramref name="mitigated"/>, must not reach it.
@@ -47,9 +50,7 @@ static partial class Game
         if (MonsterPoisons.Prohibited(Get)) return;
 
         long chance = (long)Get("base_chance_to_poison_on_hit_%")
-            + Get("chance_to_poison_on_hit_%")
-            + Get("global_chance_to_poison_on_hit_%")
-            + (spell ? Get("spells_chance_to_poison_on_hit_%") : Get("chance_to_poison_on_hit_with_attacks_%"));
+            + (spell ? Get("spells_chance_to_poison_on_hit_%") : Get("chance_to_poison_on_hit_with_attacks_%") + settings.WeaponChance);
         if (chaos > 0) chance += Get("chaos_damage_chance_to_poison_%");
 
         if (chance <= 0 || !RandomRolls.Chance((int)Math.Clamp(chance, 0, 100), 100, random)) return;
