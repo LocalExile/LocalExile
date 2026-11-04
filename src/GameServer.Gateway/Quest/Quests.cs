@@ -622,6 +622,12 @@ static partial class Quests
     /// Atlas map ("You do not have the required Quest State to access this area"; live 2026-10-29).</summary>
     public const string EndGameAvailable = "EndGameAvailable";
 
+    /// <summary>The Lord's Labyrinth quests (Quest labyrinth_a1 … a11): set on entering an area with a Trial of Ascendancy.
+    /// The client builds their tracker from it, the trials' league quest flags (QuestStates columns 13 present, 14
+    /// missing) and LabyrinthAccess / LabyrinthComplete1–3: "Solve the Trial of Ascendancy in this Area", "Solve the
+    /// Trials of Ascendancy", "Enter the Labyrinth" (labyrinth-trials.md).</summary>
+    public const string LabyrinthQuestReceived = "LabyrinthQuestReceived";
+
     /// <summary>
     /// League quest flags: a set of their own, kept in the Player component's second flag set (+0x1d0). They are not a
     /// table: the client has the names built in, sorted, with their ids (0x142fca900, 0x776 entries; lookup

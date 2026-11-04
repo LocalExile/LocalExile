@@ -14,7 +14,7 @@ while (!File.Exists(Path.Combine(root, "Tools", "ooz", "ooz_worker.mjs")))
 string ggpk = args.Length > 0 ? args[0] : Path.Combine(root, "Client", "Content.ggpk");
 string output = args.Length > 1 ? args[1] : Path.Combine(root, "data", "area-transitions.json");
 
-using var oodle = new NodeOodleDecoder("node", Path.Combine(root, @"Tools\ooz\ooz_worker.mjs"));
+using var oodle = new NodeOodleDecoder("node", Path.Combine(root, "Tools", "ooz", "ooz_worker.mjs"));
 using var fs = GameFileSystem.Open(ggpk, oodle);
 var files = new GameFiles(fs);
 if (output == "delve-paths")

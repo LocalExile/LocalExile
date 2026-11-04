@@ -341,6 +341,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   GGG's server sends no object for ordinary bow arrows either, so the live client draws them itself (live capture
   2026-10-29, [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named
+  after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); it is the
+  basic straight-flight arrow only: the secondary arrows from the target point are not modelled yet.
+  Spectral Throw fires `Metadata/Projectiles/ThrownWeapon`, pierces every enemy and hits again on its return, with blood
+  on each hit; the client draws the weapon, and the server flies the same slowing, resting and returning path. Partial:
+  hit timing still needs tuning. The return flies at a constant average speed where the client's accelerates, and
+  its hits vary most on monsters walking toward the thrower. The release follows the Melee combo only for the Witch
+  and Scion with a one-handed sword, mace or axe and a shield; the server assumes the combo alternates on every throw,
+  and when the client starts it over is not known. A wall stops the weapon without a return. The transfigured and Vaal
+  versions are not mapped.
   after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); the
   terminal secondary group is in Partly working.
   Rolling Magma fires `Metadata/Projectiles/MagmaOrbShort` (same fallback; every cast was refused before) and lands on
@@ -400,10 +409,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   in parentheses and the spell block row.
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
-- Endurance, Frenzy and Power charges: gained from the on-kill, on-hit, on-crit, on-non-crit, when-hit and on-block
-  chance stats, the timed ones (each second, while stationary or moving, if hit recently) and skills (Frenzy, Power
-  Siphon, Flicker Strike, Enduring Cry); 10 s duration with the duration mods, a gain refreshes the whole type, all
-  expire together, minimum charges always held, lost on death, carried over area changes with the time left.
+- Endurance, Frenzy and Power charges: gained from the on-kill (a frozen enemy's too), on-hit, on-crit, on-non-crit,
+  when-hit and on-block chance stats, the timed ones (each second, while stationary or moving, if hit recently) and
+  skills (Frenzy, Power Siphon, Flicker Strike, Enduring Cry); 10 s duration with the duration mods, a gain refreshes
+  the whole type, all expire together, minimum charges always held, lost on death, carried over area changes with the
+  time left.
   Character.ot's per-charge bonuses and every "per charge" mod the server calculates with apply to the pools, hits,
   damage taken, walk speed and the sent stats; the Charges tab gets `current_*_charges` and the per-charge rows.
   The HUD shows one icon per type with the count (0x1c1 flags bit2) and time left (bit1), and the orbs.
@@ -471,7 +481,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Cyclone, Burning Arrow and Fireball with/without elemental prohibition. Selected and actor projections emit zero
   for all nine elemental aliases under prohibition and restore totals when removed; chaos remains separate.
   Real Elemental Penetration support contributes 14 at level one and agrees with the hit consumer.
-  Current-branch native validation, off-hand attack selection and remaining target conditions are still open.
+  Conditional penetration: "Damage with Weapons Penetrates" counts for attacks with a weapon (hits and the hand rows
+  of a hand holding one), cold penetration against chilled enemies against a monster chilled at the hit, and Watcher's
+  Eye's Anger, Hatred and Wrath forms while that aura runs (`InflictedAilmentTests`).
+  Current-branch native validation, off-hand attack selection and the other conditional forms
+  ([20](../docs/protocol/20-damage.md) §2) are still open.
   Selected ailment duration/effect coefficients now also include qualifying supports: real level-one Unbound
   Ailments adds 35 to character 10 for all seven duration and five non-damaging effect aliases. Its 10% more
   ailment damage stays separate. Twenty-four regressions cover the reproduced omission, link/source removal,
@@ -656,6 +670,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Survivors league and three optional modules, including the seven stage gate bosses: [client presentation and limits](../docs/game/survivors-mode.md).
+
 - Attack-speed admission: gem attacks now use the supported attack speed (gem and support stats plus the inherent
   GrantedEffectsPerLevel multiplier) for both the admission gate and the swing interval, instead of mixing it with
   `SkillAttackSeconds`. Tornado Shot's -20% and player/bow attack speed apply. Projectile speed adds the player's
@@ -689,6 +705,41 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `GatewayProjectileSkillProfiles.cs`, `ProjectileStages.cs`, `ProjectileTypes.cs`, `Projectiles.cs`;
   wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
+- Petrified Blood: the 35% Mana reservation buff, its hit-only Life-loss split at half Life, the four-second deferred
+  loss, the non-flask recovery cap at Low Life and the Life cost above it are implemented. Life leech instances and
+  the client's leech display keep the full maximum-unreserved-Life cap; they are not removed at Low Life, but their
+  actual recovery is capped like regeneration and Recoup. Recoup is based on the hit before Petrified Blood and its
+  four-second instance also keeps running at Low Life; a level-21/20-quality gem's 30% deferred share is offset by 30%
+  Recoup as Life over the same four seconds. The invisible life/mana/energy-shield leech buffs are presented with the
+  full per-minute rate, so the client can draw the leech overlay; only the actual pool update is capped. The deferred
+  rate is presented with invisible BuffDefinitions 1796 (`slow_life_loss_from_hit_damage`), drawing the dark life-orb
+  overlay for the loss still owed.
+  Low Life uses the shared 50% default (`low_life_threshold_%_override` then `low_life_threshold_%`), not a fixed
+  half of maximum Life; the 3.29.3b Life mastery `Life4` sets the override to 55%. The client's own
+  `life_recovery_per_minute` is published as 0 inside a 250 ms regeneration margin of the cap and restored farther
+  below it, so its pool prediction cannot cross the boundary.
+  Activation, deactivation, saved intent across areas, death cleanup and the own-aura/received-buff presentation share
+  the existing aura send gate; the buff is not an aura and the aura restriction leaves it alone.
+  Not implemented: the buff-specific reservation-efficiency rows, the client tooltip's Life cost, and any non-hit
+  Life loss (damage over time and the already-deferred loss are not protected).
+  Automated tests cover the split, level-1/level-20 deferral, the threshold, the recovery cap (including a leech
+  instance retained above Low Life while its recovery is capped), and the Life cost; no native check yet. Code:
+  `Combat/PetrifiedBlood.cs`, `Combat/LowLife.cs`,
+  `Modules/Core/Game/Combat/PetrifiedBlood.cs`; docs: [20](../docs/protocol/20-damage.md) section 2i.
+- Shared Mana/Recoup and Blind: actual Whisperer nodes feed generic Game engines through the optional module.
+  Typed hits preserve Ward/ES ordering; accepted skill/Vaal spending, continuous flask Life copying and Recoup
+  share the existing resource writer, with synchronous lethal-Ignite cleanup before Mana recovery.
+  Timed/smoke/passive-aura/Rampage Blind use one strongest value across ordinary and owned contacts and presentation.
+  Two deterministic Gateway Facts cover resource, paid-refund, send-gate, transfer and retirement composition,
+  including distinct-Game utility expiry/End payment and recovery-flask admission before blocked output.
+  Historical `57053948` passed native 36 controls on `cc0f9c34`; the combined newer main needs fresh exact-head acceptance.
+  Its current minion/link/footstep roles retain main's cadences and share generation ownership with the resource writer.
+  Accepted minion expiry and player/owned-kill gameplay precede awaits; neutral output survives replacement.
+  Queued quest/tree/equipment projections retain newer progress; accepted charge events leave live periodic time intact.
+  All charge-buff consumers project and acknowledge at the send gate, avoiding stale buffered ticker output.
+  Deferred quest kills retain synchronous phase/reward output; freeze and held-move admission share the cipher gate.
+  Grouped deterministic controls cover their pending and accepted output across distinct-Game replacement.
+  See [Whisperer](../docs/game/whisperer.md).
 
 - Selected supported-spell panel: final linked-support damage replaces both spell and inherited hand ranges,
   clearing removed types and updating pre-critical average/DPS from the supported cast time.
@@ -1427,6 +1478,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   hits, the bleed, ignite and poison rows (each gated on its own type), the poison hits inflict and the caster's
   outgoing DoT drop those types.
   Automated tests only; the native check is pending.
+  Hits taken read damage taken and Mana before Life stats ([20](../docs/protocol/20-damage.md#damage-taken-from-hits)).
   Ordinary player energy shield derives from equipment, intelligence and passives.
   Equipment ES uses the saved variable base roll and native rounding before and after local modifiers and quality.
   It absorbs non-chaos hits before life and recovers through regeneration and delayed, damage-interrupted recharge.
@@ -1444,11 +1496,15 @@ This is a research baseline, not new live skill acceptance or complete native/se
   mods' ailment stats (of the Ice, of the Tempest, Unstoppable, Mirrored) and the chilled/frozen/shocked buffs.
   Elemental Focus and the never-ailment stats stop those ailments ([20](../docs/protocol/20-damage.md) §3).
   Chill can raise damage taken and lessen the monster's swings (Glacial Wave), a freeze can have a minimum duration
-  and a monster that hits the player can be frozen (Brine Bound).
+  and a monster that hits the player can be frozen (Brine Bound) or chilled (The Pandemonius).
+  A monster hit the player blocks can be chilled or shocked for 4 s ("Chill/Shock Attackers on Block").
   "As though dealing more damage" raises the chill, shock or freeze it inflicts ([20](../docs/protocol/20-damage.md)).
+  Shock and chill minimums (Beacon of Ruin) and caps can be raised ([20](../docs/protocol/20-damage.md)).
+  "All/Chaos/... Damage can Chill/Freeze/Shock" count those types, and "Hits always Shock" needs no chance.
   A corpse keeps its killing hit's ailments and a kill can shock it, unless the hit killed it frozen and it shatters.
-  Each shock spreads to living enemies within its own `virtual_shock_proliferation_radius` of the shocked monster or
-  corpse, like an aura.
+  Killing a shocked monster with Berek's Respite gives the monsters within 2 m the same shock.
+  Each chill, freeze and shock spreads to living enemies within its own `virtual_*_proliferation_radius` of the
+  monster or corpse it is on, like an aura.
   An area skill applies a Mirrored monster's reflected ailments after its last target, and a sweep stopped partway
   still rewards its kills.
   The buffs, the sent action speed and the frozen pose are not checked with the real client.

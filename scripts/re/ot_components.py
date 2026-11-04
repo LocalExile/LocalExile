@@ -23,8 +23,8 @@ import json, os, re, subprocess, sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROOT = REPO
-GGPK = os.path.join(ROOT, r"Client\Content.ggpk")
-CACHE = os.path.join(ROOT, r"Tools\re\out\ot")
+GGPK = os.path.join(ROOT, "Client", "Content.ggpk")
+CACHE = os.path.join(ROOT, "Tools", "re", "out", "ot")
 REGISTRY = os.path.join(REPO, "Agents", "docs", "re", "components.json")
 RAW_DATS = ["Data/MonsterVarieties.datc64", "Data/Chests.datc64"]
 
@@ -45,7 +45,8 @@ GROUND_TRUTH_READ = {"Metadata/Characters/Int/Int": 10, "Metadata/MiscellaneousO
 
 def cache_name(path):
     # \\?\: these names are long, and a release's install folder can take them past Windows' 260 characters.
-    return "\\\\?\\" + os.path.join(CACHE, path.replace("/", "_"))
+    name = os.path.join(CACHE, path.replace("/", "_"))
+    return "\\\\?\\" + name if os.name == "nt" else name
 
 
 def fetch(paths):
@@ -135,10 +136,11 @@ def amd_map(aos, fetch_missing=True):
 def amd_animations(amd, fetch_missing=True):
     """The .amd's animations in file order (the client's animation list): name, once/loop, length ms, events.
 
-    Format: a version line, a count line, then per animation "<name>" / once|loop / <length ms> / <event count> /
-    per event "<event>" / <time ms> / "<x> <y> <z>", then two lines. None when the file is missing, or when the
-    animations read do not add up to the count line: a skipped entry would shift every later index, and a shifted index
-    is still in range, so the client would play the wrong clip rather than ignore it.
+    Format: a version line, a count line, then per animation "<name>" / once|loop|loopnoint / <length ms> / <event count> /
+    per event "<event>" / <time ms> / "<x> <y> <z>", then two lines. "loopnoint" is a loop too (468 clips in 321 rigs,
+    among them the Labyrinth darts' spine_shoot; read as unknown, it dropped each of those rigs whole). None when the
+    file is missing, or when the animations read do not add up to the count line: a skipped entry would shift every
+    later index, and a shifted index is still in range, so the client would play the wrong clip rather than ignore it.
     """
     if fetch_missing:
         fetch([amd])
@@ -149,7 +151,7 @@ def amd_animations(amd, fetch_missing=True):
     out, i = [], 0
     while i < len(lines):
         m = re.fullmatch(r'"([^"]+)"', lines[i])
-        if m and i + 3 < len(lines) and lines[i + 1] in ("once", "loop") and lines[i + 2].isdigit() and lines[i + 3].isdigit():
+        if m and i + 3 < len(lines) and lines[i + 1] in ("once", "loop", "loopnoint") and lines[i + 2].isdigit() and lines[i + 3].isdigit():
             events, j = [], i + 4
             for _ in range(int(lines[i + 3])):
                 if j + 2 >= len(lines):

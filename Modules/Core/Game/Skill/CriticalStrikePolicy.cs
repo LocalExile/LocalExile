@@ -8,14 +8,8 @@ static class CriticalStrikePolicy
     public const string UnarmedMeleeMultiplierStat = "unarmed_melee_attack_critical_strike_multiplier_+";
 
     public static bool OnLowLife(uint currentLife, uint maximumLife, int thresholdOverride = 0,
-        int thresholdPercent = 0, bool countsAsLowLife = false)
-    {
-        if (currentLife == 0 || maximumLife == 0) return false;
-        if (countsAsLowLife) return true;
-        int raw = thresholdOverride > 0 ? thresholdOverride : thresholdPercent;
-        int threshold = Math.Clamp(raw > 0 ? raw : 50, 0, 100);
-        return (long)currentLife * 100 <= (long)maximumLife * threshold;
-    }
+        int thresholdPercent = 0, bool countsAsLowLife = false) =>
+        LowLife.Is(currentLife, maximumLife, LowLife.Threshold(thresholdOverride, thresholdPercent), countsAsLowLife);
 
     public static int ExtraRolls(long ordinary, long lowLife, bool onLowLife, long focus = 0,
         bool focused = false, bool sharpAndBrittle = false) => (int)Math.Clamp(

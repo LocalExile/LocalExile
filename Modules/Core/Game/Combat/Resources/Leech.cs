@@ -1,10 +1,16 @@
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
 static partial class Game
 {
     internal static readonly ConditionalWeakTable<ClientState, LeechSession> LeechSessions = new();
     internal static LeechSession LeechOf(ClientState conn) => LeechSessions.GetValue(conn, _ => new());
+
+    // Invisible BuffDefinitions rows for the leech overlay on the life, mana and energy-shield orbs.
+    const ushort LifeLeechBuffRow = 39, ManaLeechBuffRow = 38, EnergyShieldLeechBuffRow = 40;
 
     internal static (bool Life, bool Mana, bool EnergyShield, bool FullEnergyShield) LeechContext(ClientState conn)
     {
@@ -47,8 +53,12 @@ static partial class Game
     {
         double now = ProjectileWorldTime(conn);
         if (conn.PlayerLife == 0) LeechOf(conn).Clear(now);
-        else LeechOf(conn).ClearFull(now, conn.PlayerLife >= conn.PlayerMaxLife,
-            conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
+        else
+        {
+            LeechOf(conn).ClearFull(now, conn.PlayerLife >= conn.PlayerMaxLife,
+                conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
+            SettleFullManaLocked(conn, ResourceEffectsTime(conn));
+        }
     }
 
     internal static LeechSources HitLeechSources(IReadOnlyDictionary<uint, int> player, bool attack,
@@ -78,15 +88,65 @@ static partial class Game
         var gain = sources.GainOnHit;
         uint life = conn.PlayerLife, mana = conn.PlayerMana;
         // Instant portions and the gain per enemy hit resolve in this hit transaction, so a later enemy hit sees the
-        // recovered resource. Keep sub-point recovery between hits, and discard overflow at a full pool.
-        conn.PlayerLife = RecoveryPool.Advance(life, conn.PlayerMaxLife,
+        // recovered resource. Keep sub-point recovery between hits, and discard overflow at a full pool. Petrified
+        // Blood caps the actual recovery like regeneration/Recoup; the leech instance itself remains until full Life.
+        conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, life,
             instant.Life + (session.RecoversLife ? gain.Life : 0), ref session.LifeInstantCarry, minimum: 1);
         conn.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(conn), instant.Mana + gain.Mana,
             ref session.ManaInstantCarry);
         conn.EnergyShield.Gain(instant.EnergyShield + (session.RecoversEnergyShield ? gain.EnergyShield : 0));
         session.InstantLifeChanged |= life != conn.PlayerLife;
         session.InstantManaChanged |= mana != conn.PlayerMana;
-        session.ClearFull(now, conn.PlayerLife >= conn.PlayerMaxLife, conn.PlayerMana >= UnreservedMana(conn),
-            conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
+        TrimLeechLocked(conn);
     }
+
+    /// <summary>
+    /// The invisible life/mana/energy-shield leech recovery buffs the client draws on the resource orbs. Each buff
+    /// carries the full current recovery per minute and its is-*-leeching flag. The rate is deliberately not reduced
+    /// by Petrified Blood's Low Life recovery cap: the orb shows the leech's full potential while the server caps the
+    /// actual pool update.
+    /// </summary>
+    internal static byte[]? LeechBuffPresentation(ClientState conn)
+    {
+        double now = ProjectileWorldTime(conn);
+        var display = LeechOf(conn).Display(now);
+        var state = conn.LeechDisplay;
+        var packets = new List<byte[]>();
+        Sync(display.Life, LifeLeechBuffRow, ref state.LifeBuff, ref state.LifePerMinute, ref state.LifeExpiry);
+        Sync(display.Mana, ManaLeechBuffRow, ref state.ManaBuff, ref state.ManaPerMinute, ref state.ManaExpiry);
+        Sync(display.EnergyShield, EnergyShieldLeechBuffRow, ref state.EnergyShieldBuff,
+            ref state.EnergyShieldPerMinute, ref state.EnergyShieldExpiry);
+        return packets.Count == 0 ? null : [.. packets.SelectMany(packet => packet)];
+
+        void Sync(LeechRecoveryState.DisplayState value, ushort row, ref ushort buff, ref int perMinute,
+            ref double expiry)
+        {
+            bool show = value.PerMinute > 0 && value.Expiry > now;
+            if (buff != 0 && (!show || perMinute != value.PerMinute || expiry != value.Expiry))
+            {
+                packets.Add(InstanceEntities.RemoveBuff(PlayerId, buff));
+                buff = 0;
+                perMinute = 0;
+                expiry = 0;
+            }
+            if (!show || buff != 0) return;
+            buff = conn.NextBuff++;
+            packets.Add(InstanceEntities.AddBuff(PlayerId, buff, row, PlayerId,
+                values: [(uint)Math.Min(value.PerMinute, int.MaxValue), 1u],
+                u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, value.Expiry - now))));
+            perMinute = value.PerMinute;
+            expiry = value.Expiry;
+        }
+    }
+
+    internal static Task SendLeechBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        Send(remote, stream, ciphers, [], null, atGate: () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (conn.Closed || conn.LeavingArea || conn.RageRetired
+                    || (!conn.PlayerObjectCreated && !conn.PlayerSent)) return null;
+                return LeechBuffPresentation(conn);
+            }
+        });
 }

@@ -1,0 +1,6 @@
+{
+  "name": "Survivors",
+  "base": "Survivors",
+  "parent": "Void",
+  "description": "Survive the horde. Skills cast automatically; choose an upgrade at each run level."
+}

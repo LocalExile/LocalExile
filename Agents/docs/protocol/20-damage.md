@@ -104,7 +104,7 @@ with the time left. Not read: skill and aura Exposure (Hydrosphere's `water_sphe
 Wall's `firewall_applies_%_fire_exposure`, the Heralds' nearby-enemy Exposure), `exposure_effect_+%` on the target, Malachai's Artifice's socketed Elemental Equilibrium and the conditional and
 minion sources.
 
-The unconditional stats the server reads (whole percents, this client's Stats.dat names):
+The stats the server reads (whole percents, this client's Stats.dat names):
 
 | Stats | Scope |
 |---|---|
@@ -114,6 +114,9 @@ The unconditional stats the server reads (whole percents, this client's Stats.da
 | `base_attack_damage_penetrates_{fire,cold,lightning,chaos}_resist_%` | attacks only |
 | `base_attack_damage_penetrates_elemental_resist_%` | attacks only, on fire, cold and lightning (Forces of Nature, Warden) |
 | `local_{fire,cold,lightning,chaos,elemental}_penetration_%` | attacks using the explicitly supplied, qualified active weapon only; spells exclude these inputs |
+| `reduce_enemy_{fire,cold,lightning}_resistance_with_weapons_%`, `reduce_enemy_elemental_resistance_with_weapons_%` | "Damage with Weapons Penetrates" (Lava Lash, Fangs of Frost, Arcing Blows, the wand and staff clusters, Galvanic Hammer, Piscator's Vigil): attacks with a weapon only, PoB's `ModFlag.Weapon`; unarmed attacks and spells take none |
+| `cold_penetration_%_vs_chilled_enemies` | cold, against a monster chilled at the hit's time (The Pandemonius, Blanketed Snow); `MonsterHitResistance` adds it beside Exposure |
+| `reduce_enemy_{fire,cold,lightning}_resistance_%_while_affected_by_{anger,hatred,wrath}` | Watcher's Eye: that element's `base_reduce_enemy_…_resistance_%` while the matching aura runs (`AuraCatalog.WhileAffectedPenetration`), not scaled by aura effect |
 | `cannot_penetrate_or_ignore_elemental_resistances` | a flag: every elemental penetration is off for the player's hits; chaos is not elemental |
 
 The derived `main_hand_…`/`off_hand_…` and per-element display aliases are not raw inputs to combat.
@@ -123,7 +126,11 @@ current main-hand weapon at contact, consistent with their existing damage path.
 unqualified weapons cannot contribute. The current executors still lack off-hand attack selection.
 The source totals use wide intermediates and saturate once at the integer representation boundary.
 Either player or skill prohibition suppresses elemental penetration even if signed flag values would cancel.
-The non-critical companion is handled by the critical resistance rules below; other conditions remain separate work.
+The non-critical companion is handled by the critical resistance rules below. The hand rows add the "with Weapons"
+stats only for a hand that holds a weapon (`PanelStats.Sum.Armed`); the chilled-target share is not on the panel, as
+the target decides it. Not read yet: Zealotry's critical-only penetration, Enmity's Embrace's overcapped fire
+resistance as penetration, and the forms that need a recent kill or block, a flask or tincture, the player being
+chilled, or one named skill.
 Spells take only general sources; physical damage never penetrates.
 
 The issue-75 review added parsed contact regressions for ordinary melee/bow, Cyclone, Burning Arrow and Fireball,
@@ -961,6 +968,8 @@ ward, energy shield and life absorb it; dev hits too) starts its own recovery in
 × (1 + `life_recovery_rate_+%`), paid evenly over 4 s (3 s with Nine Lives' `recoup_effects_apply_over_3_seconds_instead`
 or `recoup_life_effects_apply_over_3_seconds_instead`). poedb's Recoup page gives the rule ("Only Damage from Hits can be
 Recouped, over 4 seconds following the Hit") and PoB CalcDefence the recovery-rate scaling and the damage it counts.
+Petrified Blood is applied after this base: it does not reduce the recouped amount, and its deferred loss is not a hit
+and starts no separate Recoup.
 `cannot_recover_life` stops it, and death and area loading drop what is left. Damage over time is not recouped.
 
 Ten native controls verified flat sources, independent increase buckets, prohibition, source clearing and relog.
@@ -1066,6 +1075,12 @@ ES grants while leaving Mana available. Existing Life instances from before conv
 live owner state, overriding forged raw condition values. Reading these conditions expires old instances without
 draining pending recovery. Instant-only grants leave no timed instance. The normal player tick republishes player
 and selected skill stats when these conditions change; pause keeps their game-clock lifetime fixed.
+
+The invisible BuffDefinitions rows 39/38/40 (`life_leech`, `mana_leech`, `energy_shield_leech`) are presented on the
+player while the matching timed instance runs. Each `0x1c1` carries the two GrantedStats values: the full
+`*_recovery_per_minute_from_leech` (flat per minute, the current rate after its total cap and recovery modifiers) and
+`is_*_leeching` 1. Its duration is the last instance's remaining time. The client draws the leech overlay on that
+resource orb from these values. Petrified Blood caps the actual pool update, not the displayed leech rate.
 
 The hit resolver now adds general/resource leeching damage, attack-only leeching damage, physical damage while
 Life leeching and full-ES damage to their proper increased buckets. Physical increases follow conversion history
@@ -1364,6 +1379,61 @@ second (3.7 at 185 ES); that regeneration correctly continues while recharge is 
 control recovered nothing during the recharge delay. See [recovery timing](../re/recovery-timing.md) for evidence and
 measurement limits. Recovery-cadence PR #159 is merged; this change extends its existing recovery loop.
 
+## Damage taken from hits
+
+The player's own stats change a monster's hit in three places (`PlayerDamageTaken`), in PoB `CalcDefence`'s order:
+before any mitigation the damage shift, after resistance and armour max(damage + flat, 0) × the taken multipliers, and
+after ward and energy shield the share mana takes.
+
+The damage shift ("X% of Physical Damage from Hits taken as Fire Damage") comes after the enemy auras' conversion and
+Glacial Wave's less damage. The rules come from the wiki's "Damage taken as" page and PoB's `damageShiftTable`:
+
+- Every shift reads the hit's original amounts at once, so damage shifts only once and in any direction: The Rat Cage's
+  fire taken as physical works next to physical taken as fire.
+- The source keeps max(100 - total, 0)%. A total over 100% is not scaled down, so it adds damage.
+- Each part is mitigated only as its final type: physical taken as fire skips armour.
+- Chill, freeze and shock read the shifted damage taken, so physical taken as cold can chill. Ignite reads the damage
+  dealt, the unshifted hit, so fire taken as physical still ignites on a critical strike.
+- The "from Hits" stats shift hits only. The `hit_and_dot` stats also shift damage over time, which is not read yet.
+- `base_fire_hit_damage_taken_%_as_physical_value_negated` is stored as -10 and shown as 10%.
+
+Then each type taken may be avoided (wiki Avoidance): "X% chance to Avoid Fire Damage from Hits" and the other types',
+plus "... Avoid Damage of each Type from Hits", capped at 75%. Each type rolls once in the packet's order, and a type
+without a chance draws nothing, so the rolls after it keep their order. An avoided type deals nothing, but the hit still
+lands, so when-hit effects happen. An ailment needs damage of a type that can inflict it, so an avoided type inflicts
+none: no chill, freeze or shock, and ignite reads only the dealt damage that lands (`Landed`), so avoided fire cannot
+ignite. Fire taken as physical keeps, for ignite, the share whose physical is not avoided; the wiki does not cover that
+case. Dev hits roll it too, before block.
+
+After mitigation, each type of the hit takes:
+
+- the flat stats, "+X Fire Damage taken from Hits" and the other types', and for physical "... from Attack Hits"
+  (monster hits are attacks), only on a type the hit has;
+- "X% increased Damage taken", the type's own, for an element "Elemental Damage taken", and on a melee hit "Damage
+  taken from Melee Attacks" (a monster attack that is not ranged), added to the shock's increase, as PoB adds them to
+  its `takenInc`;
+- on a blocked hit, its share: "You take X% of Damage from Blocked Hits" and Glancing Blows' 65%, plus "of Elemental
+  Damage" for an element.
+  It is 0 by default and may pass 100%. A blocked hit still applies no ailments (wiki Blocking); Life Recoup reads the
+  share it deals.
+
+Of what is left after ward and energy shield, mana takes its share before Life (wiki "Mana before Life"): Mind Over
+Matter's `keystone_mana_shield`, which has no value (its 40% is the keystone's text), plus
+`base_damage_removed_from_mana_before_life_%` and the type's own share (physical, lightning, chaos), at most 100% for
+each type. Ward and energy shield take the hit as a whole, so the hit's types weigh the non-chaos part's share. Mana
+pays at most what it has, rounded up as PoB does, and the rest stays on Life. Trial spikes and dev hits take it too.
+
+The dev `/hit`, `/spellhit` and `/blockhit` commands apply the same after-mitigation steps to their one type, and a
+ranged `/hit` now also takes the shock's increase.
+
+Not read: the conditional shift stats (while affected by a Purity, with four influenced items, during a flask), the
+ring-slot local stats, `physical_damage_from_hits_%_taken_as_random_element`, the Divine Flesh and Tempered by War
+keystones (their other effects, bypassing Energy Shield and less resistances, are not modelled), projectile and spell
+damage taken, the increased damage taken on damage over time (ignite ticks, Righteous Fire), and for Mana before Life:
+damage over time, Eldritch Battery's energy shield before it, the Focus and Clarity forms, and Mind Over Matter at
+maximum Power Charges; for avoidance: the per Frenzy Charge, while Phasing and soul gain prevention forms, and
+projectile avoidance.
+
 ## Incoming ordinary elemental ailments
 
 The Gateway's supported monster melee contact now calls `ApplyPlayerAilmentsLocked` after hit mitigation/block.
@@ -1395,12 +1465,15 @@ strike; the threshold is its maximum life (wiki: equal to it for most monsters).
 
 | Ailment | Applied by | Effect | Duration |
 |---|---|---|---|
-| Chill | every hit with cold damage | floor(50 × (cold / threshold)^0.4 × modifiers), at most 30%; none under 5% | 2 s |
-| Shock | a critical strike or `chance_to_shock_%`, with lightning damage, or cold damage with `cold_damage_can_shock` | the same formula on that damage, at most 50% | 2 s |
-| Freeze | a critical strike or `chance_to_freeze_%`, with cold damage | the monster cannot act | 0.06 s per 1% of the threshold, at most 3 s; none under 0.3 s |
+| Chill | every hit with cold damage, or another type's that can chill | floor(50 × (cold / threshold)^0.4 × modifiers), at most 30% (40% with Shaper of Winter); none under 5% | 2 s |
+| Shock | a critical strike, `chance_to_shock_%` or `always_shock`, with lightning damage, or another type's that can shock | the same formula on that damage, at most 50%, 90% with Voltaxic Rift | 2 s |
+| Freeze | a critical strike or `chance_to_freeze_%`, with cold damage, or another type's that can freeze | the monster cannot act | 0.06 s per 1% of the threshold, at most 3 s; none under 0.3 s |
 
 The effect modifiers are the attacker's `virtual_chill_effect_+%`/`virtual_shock_effect_+%` and the monster's
-`chill_effectiveness_on_self_+%`/`shocked_effect_on_self_+%`, both counted before the cap and the 5% floor. Durations
+`chill_effectiveness_on_self_+%`/`shocked_effect_on_self_+%`, both counted before the cap and the 5% floor. The
+attacker's minimums (`chill_minimum_slow_%`, `shock_minimum_damage_taken_increase_%`: Beacon of Ruin, Shaper of
+Storms) raise the base before the modifiers (wiki Shock), so a hit too weak for 5% still applies one, but
+only with the ailment's damage. Durations
 take the attacker's `virtual_*_duration_+%` and the monster's `base_self_*_duration_-%` (positive reduces, as on the
 player's jewels) added together, × (1 + (attacker − target) / 100), as PoB `CalcOffence` sums `Enemy…Duration` INC
 and the enemy's `Self…Duration` INC: 50% increased against 50% reduced on itself leaves the base duration. Of the
@@ -1424,6 +1497,14 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
 - **Stormy Seas.** `cold_damage_can_shock` lets the cold damage count for the shock's magnitude; the chance is still
   a critical strike or `chance_to_shock_%`. The client's calculator `0x1426f2660` makes `virtual_cold_damage_can_shock`
   (0x1bc6) from keys 0x451a, 0x1bc9 and 0x1b96, and nothing else in the client reads it.
+- **All Damage can Chill, Freeze or Shock.** `all_damage_can_chill`, `all_damage_can_freeze` and `all_damage_can_shock`
+  (Shaper of Storms has the last) make every type of the hit count for that ailment, and one type's
+  `{type}_damage_can_{ailment}` (Voltaxic Rift's chaos can shock, physical can chill) that type; for shock,
+  `elemental_damage_can_shock` the three elements. `Inflict` takes the hit by type, the physical part after the
+  monster's physical reduction; each type counts once, and with several the effect reads their total (wiki Shock).
+  `{type}_damage_cannot_{ailment}` ("Your Cold Damage cannot Freeze": Replica Tasalio's Sign) keeps that type out
+  whatever lets it, as a cannot beats a can; PoB parses these flags but does not apply them.
+  `always_shock` ("Hits always Shock", Shaper of Storms) shocks without the chance roll, so it draws no random number.
 - **As though dealing more damage.** "Shock/Chill/Freeze Enemies as though dealing X% more Damage" multiplies the
   damage the chill's and shock's magnitude and the freeze's duration read by 1 + X/100 per stat (PoB `CalcOffence`:
   the ailment's damage × `<Ailment>AsThoughDealing` MORE). The stats read: Overcharge's
@@ -1452,40 +1533,66 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   effects), never for an evaded one. The freeze is 1 s through the usual duration modifiers, threshold, minimum and
   immunity; whether duration modifiers apply to this fixed 1 s is not verified. It draws from `Random.Shared`, so the
   incoming hit's own draws keep their order.
+- **Chill when hit.** `chill_enemy_when_hit_duration_ms` (The Pandemonius, a Grasping Mail mod) chills the monster
+  of every hit that lands, blocked too, as Brine Bound's freeze, for its seconds
+  (`AilmentsWhenHitLocked`). The text states the effect ("reducing their Action Speed by 30%"), so 30% replaces the
+  10% base of a chill without damage, through the player's chill effect modifiers and the monster's own, at most the
+  cap (wiki Chill: chills without damage scale with chill effect modifiers). PoB does not parse the mod, so whether
+  the modifiers scale the stated 30% is not verified.
+- **Chill or shock attackers on block.** `chill_attackers_for_4_seconds_on_block_%_chance` and
+  `shock_attackers_for_4_seconds_on_block_%_chance` (Replica Ungil's Gauche, Shaper and Crusader mods) roll once
+  each for a monster hit the player blocks (`AilmentsWhenHitLocked`, after Brine Bound's roll, from
+  `Random.Shared`). The ailment deals no damage, so it starts at the 10% chill or 15% shock base (wiki Chill and
+  Shock: sources that deal no damage) through the player's effect modifiers and the monster's own, at most the cap,
+  for 4 s through the usual duration modifiers and immunity; the shock spreads like any other the player inflicts.
+  Whether the 4 s takes duration modifiers is not verified.
 - **Shock on kill.** `enemy_shock_on_kill` (Within the Tempest) shocks a monster the player kills
   (`ShockOnKillLocked`: from `AilmentsOnHitLocked` after a killing hit's own ailments, and from Righteous Fire's burn):
   15% base (wiki Shock: shocks without damage) and 2 s, through the player's shock effect and duration modifiers and
-  the monster's own, at most 50%. Skill-local shock modifiers of the killing skill are not counted; whether the game
+  the monster's own, at most the shock cap. Skill-local shock modifiers of the killing skill are not counted; whether the game
   counts them is not verified. The killing hit's own shock stays on the corpse too; the stronger one applies to it, and
   each spreads as far as its own radius reaches (wiki Within the Tempest: the spread includes shocks inflicted on
   enemies the character kills). A shattered monster
   gets neither.
+- **Equivalent shock on kill.** `shock_X_nearby_enemies_for_2_s_on_killing_shocked_enemy` (Berek's Respite) runs
+  in `ShockOnKillLocked` before Within the Tempest's: when the killed monster was shocked (`ShockAtDeath`, the
+  strongest shock it had, Within the Tempest's on the corpse not counted), each other living hostile monster within 2
+  m of it, 20 cells that area of effect does not change, gets a new shock with the same effect and remaining duration
+  (wiki Berek's Respite). No modifier changes it, only the receiving monster's immunity counts, and so it can chain
+  to the next kill. The copy does not spread, as it comes from no skill (not verified for the player's own spread
+  stats). Its ignite twin (`ignite_X_nearby_enemies_for_4_s_on_killing_ignited_enemy`) is not read.
 - **Shatter** (wiki Shatter, Freeze): a non-unique monster that a hit kills while frozen, the killing hit's own freeze
   included, leaves no corpse. The server ends its ailments, so it spreads nothing and gets no kill shock. A kill by
   damage over time (Righteous Fire) never shatters. The client's shatter visual is not sent, because the packet that
   starts it is not known, so the client still shows the corpse; on-death effects that shatter would stop are not
   modelled either.
-- **Shock proliferation.** A shock takes the attacker's `virtual_shock_proliferation_radius` when it lands, as the
-  client's calculator `0x142828340` builds it: the largest of `gloves_shock_proliferation_radius`,
-  `virtual_elemental_status_effect_aura_radius` (the larger of `elemental_status_effect_aura_radius` and
-  `elementalist_...`, `0x142828e10`), `unique_vinktars_flask_shock_proliferation_radius`,
+- **Proliferation.** A chill, freeze or shock takes the attacker's `virtual_{kind}_proliferation_radius` when it
+  lands, as the client's calculators build them (`ProliferationRadius`), each the largest of its sources. Shock
+  (`0x142828340`): `gloves_shock_proliferation_radius`, `virtual_elemental_status_effect_aura_radius` (the larger of
+  `elemental_status_effect_aura_radius` and `elementalist_...`, `0x142828e10`),
+  `unique_vinktars_flask_shock_proliferation_radius`,
   `ascendancy_non_damaging_elemental_ailment_proliferation_radius` and `passive_mastery_shock_proliferation_radius`,
-  and 15 with `shock_proliferation_radius_is_at_least_15`. Nothing else in the client reads the radius. The calculator
-  scales none of them by area of effect; the server grows the radius by the area modifier like a skill's area
-  (`SpreadRadius`: × the square root of `SkillArea.Modifier`, truncated to two places), because the wiki's
-  Elemental proliferation page says modifiers to area of effect affect proliferation. A hit's shock uses the hitting
-  skill's area stats over the player's, a kill's shock the player's own. Whether the game scales Within the Tempest's
-  fixed 1.5 m this way is not verified beyond that general rule.
-  Each AI tick (`ProliferateShocksLocked`), every living hostile monster has, at the same effect until it ends, the
-  strongest shock whose own radius (cells) reaches it from the monster it is on, a corpse included: each spreading
-  shock is an aura of its own (wiki Elemental proliferation), so a weaker shock with a wider radius still reaches the
-  monsters beyond a stronger one's. The copy does not spread again, does not count as inflicting, and goes as soon as
-  the monster is out of range or the source shock ends. The receiving monster's immunity counts; its own
-  `shocked_effect_on_self_+%` does not change the copy (not verified). Chill, freeze and ignite proliferation are not
-  modelled, nor a reflected shock spreading from the player. A shattered monster spreads nothing.
+  and 15 with `shock_proliferation_radius_is_at_least_15`. Freeze (`0x142828810`): the elemental aura radius, 12 with
+  `spread_freeze_to_nearby_enemies`, `gloves_freeze_proliferation_radius` (19 mods), the ascendancy's and
+  `amulet_freeze_proliferation_radius`. Chill (`0x142828c00`): the elemental aura radius and the ascendancy's.
+  Nothing else in the client reads the three radii. The calculators scale none of them by area of effect; the server
+  grows the radius by the area modifier like a skill's area (`SpreadRadius`: × the square root of
+  `SkillArea.Modifier`, truncated to two places), because the wiki's Elemental proliferation page says modifiers to
+  area of effect affect proliferation. A hit's ailments use the hitting skill's area stats over the player's; a
+  kill's shock, a block's chill or shock and Brine Bound's freeze use the player's own. Whether the game scales
+  Within the Tempest's fixed 1.5 m this way is not verified beyond that general rule. Each AI tick
+  (`ProliferateLocked`), every living hostile monster has, for each kind, at the same effect until it ends, the
+  strongest one (of equal freezes, the longest) whose own radius (cells) reaches it from the monster it is on, a
+  corpse included: each spreading ailment is an aura of its own (wiki Elemental proliferation), so a weaker one with
+  a wider radius still reaches the monsters beyond a stronger one's. The copy does not spread again, does not count
+  as inflicting, and goes as soon as the monster is out of range or the source ends. The receiving monster's immunity
+  to the kind counts; its own `shocked_effect_on_self_+%` or `chill_effectiveness_on_self_+%` does not change the
+  copy (not verified). A spread chill keeps Glacial Wave's effects, as the wiki says effects built into an ailment
+  spread with it (not verified for Glacial Wave). Ignite proliferation is not modelled, nor a reflected ailment
+  spreading from the player. A shattered monster spreads nothing.
 
 Presentation runs on the AI tick (`MonsterAilmentChangesLocked`), so with `/ai off` the server still applies the
-effects but sends nothing, and shocks do not spread. A kind is re-sent only when its strongest magnitude changes: S→C
+effects but sends nothing, and nothing spreads. A kind is re-sent only when its strongest magnitude changes: S→C
 0x1c2 for the old buff, then 0x1c1 with BuffDefinitions 1 chilled, 2 frozen or 3 shocked (BuffVisuals 3, 4, 5), the
 player as source. Chill and shock have no duration; freeze carries its remaining time (flag 0x02, f32 +0x68), because
 without a duration or a value the client draws no icon under the monster's life bar (live 2026-10-30). Each kind always uses the same instance on its monster, 0xfffd, 0xfffe or 0xffff
@@ -1494,8 +1601,9 @@ one, `0x141e11fb0` removes by instance, both skip one already being removed), an
 back to 1 below that range, so ailment changes take none of its instances and cannot meet another buff's. 0x1c2
 removes a buff at expiry, so a pause cannot desync it. All three rows have the +0xff bool, so 0x1c1 carries a u16 at
 +0x82 ([11](11-skills.md) §12); chilled and shocked are `IsRecovery` and carry their one GrantedStats value
-(`action_speed_-%_from_chill`, `base_damage_taken_+%_from_shock`). The magnitude goes in both; what the client does
-with +0x82 is not known. The player's own chill, freeze and shock use the same rows and instances on the player
+(`action_speed_-%_from_chill`, `base_damage_taken_+%_from_shock`), the magnitude. The buff shows that value increased
+by +0x82 percent (15 with +0x82 15 showed 17%, live 2026-11-03), so the Gateway sends 0 there. The player's own
+chill, freeze and shock use the same rows and instances on the player
 (`PlayerAilmentBuffs`, sent by the player tick when its ailments change), so they show in the buff bar. The chill is also sent as 0x1b3 `virtual_action_speed_+%` (−chill), which the native
 walk `0x141e7c0b0` and the action clips read; network stats run no calculators ([04](04-player-entity.md) §4.1a). A
 freeze is not sent there (−100 would divide the native clip by zero); the server stops the monster instead.
@@ -1503,3 +1611,61 @@ freeze is not sent there (−100 would divide the native clip by zero); the serv
 Not modelled: the shatter visual, unique and boss thresholds and their reduced effects, immunities from the monster's
 variety (.ot), Glacial Wave's chill reflected onto the player by Mirrored (wiki: it then acts on the player too), and the
 client's frozen animation (not checked live).
+
+## 2i. Petrified Blood
+
+Petrified Blood is a 35% Mana reservation buff (`GrantedEffects` `PetrifiedBlood`, BuffDefinitions row 1819), not an
+aura: the own-aura restriction does not touch it and its reservation is added beside the ordinary auras. Its three
+Stats.dat inputs are `petrified_blood_%_life_loss_below_half_from_hit_to_prevent` (constant 40),
+`petrified_blood_%_prevented_life_loss_to_lose_over_time` (granted per gem level: 100 at level 1, 81 at level 20, and
+quality lowers it by up to 5) and `skill_grants_life_cost_%_mana_cost_while_not_on_low_life` (constant 40).
+
+A hit's Life loss, after Ward and Energy Shield, is split at half maximum Life:
+
+```
+above half = min(loss, max(0, life - maxLife / 2))       taken at once
+below half = loss - above half
+prevented  = below half * 40%                            not taken at once
+deferred   = prevented * loseOverTimePct                 lost over 4 seconds
+```
+
+The immediate part is rounded to a whole Life point, the life-loss over time keeps its fraction in the state, and the
+un-deferred remainder of `prevented` is permanent mitigation (19% of the protected part at level 20). Each hit's
+`deferred` amount is its own four-second segment at `deferred / 4` Life per second, so overlapping hits add their rates
+rather than refreshing one pool. The loss is not damage, ignores Energy Shield and damage immunity, and can kill; the
+3.22 Grace Period rule suppresses it while entry protection runs. Hits only: damage over time and the loss already owed
+are not protected, and killing blow overkill is split like any other Life loss.
+
+The current deferred rate is presented with the invisible BuffDefinitions row 1796
+`slow_life_loss_from_hit_damage`. Its single `life_degeneration_per_minute_not_in_grace` value is the sum of the active
+segments' rates per minute, and its duration is the last segment's remaining time; the client draws the dark
+deferred-loss overlay on the life orb. Grace Period hides it because the loss is suppressed there.
+
+While the buff runs, Life recovery other than flasks stops at the Low Life boundary
+(`cannot_recover_above_low_life_except_flasks`); a flask may still fill the pool above it. Life leech instances are
+not removed at Low Life (their own cap and the client's leech display are maximum unreserved Life), but their actual
+recovery is ignored above the boundary and capped below it, exactly like regeneration and Recoup. Because the
+instance keeps running, its later ticks still cover Petrified Blood's deferred loss while Life sits at the boundary.
+Low Life is 50% of maximum Life or less by default (the 3.29.3b `ReminderTextLowLife` text); a positive
+`low_life_threshold_%_override` replaces that boundary, then `low_life_threshold_%` (the shared `LowLife` rule used by
+the critical policy). The 3.29.3b Life Mastery `Life4` (`PassiveSkillMasteryEffects` row 190) is the current override
+source: it grants `low_life_threshold_%_override` 55 ("You count as on Low Life while at 55% of maximum Life or
+below"). Above Low Life every paid skill gains a base Life cost of 40% of its base Mana cost; paying it cannot reduce
+Life to 0, and at Low Life the extra cost disappears.
+
+Recoup is calculated before Petrified Blood: the hit's damage after resistance, armour and Fortification, but before
+Ward, Energy Shield and the buff's prevention. A level-21/20-quality Petrified Blood defers 30% of the protected life
+loss below Low Life over four seconds; when the whole hit is below Low Life, 30% of damage taken recouped as Life
+offsets that loss. Recoup's four-second instance is not removed at Low Life either: its rate continues and only the
+actual recovery is capped.
+
+The client steps its own Life pool from `life_recovery_per_minute` and only clamps to the maximum pool, so it does not
+know this buff's boundary by itself. While the buff blocks recovery the server publishes that rate as 0, and restores
+the modelled rate only once Life is more than a 250 ms regeneration margin below the boundary; inside the margin the
+server's own updates finish the recovery, so the client cannot predict across the boundary. The Defence panel's
+`total_life_recovery_per_minute_from_regeneration` keeps the real value. The transition is sent when it changes, not
+on every recovery step.
+
+The generic reservation-efficiency pool applies to the 35%. The buff-specific `petrified_blood_reservation_+%` and
+`petrified_blood_mana_reservation_efficiency_+%` rows are not read yet, and neither is the client tooltip's Life cost.
+Tests: `PetrifiedBloodTests`.

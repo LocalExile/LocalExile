@@ -8,8 +8,8 @@ namespace LocalExile;
 /// program), the same stamps in data\extract-stamps.json and the same rule for what runs. Read-only on the GGPK.</summary>
 static class Extraction
 {
-    const string ManifestFile = @"Tools\extract-manifest.json";
-    const string StampFile = @"data\extract-stamps.json";
+    static readonly string ManifestFile = Path.Combine("Tools", "extract-manifest.json");
+    static readonly string StampFile = Path.Combine("data", "extract-stamps.json");
 
     sealed record Entry(string Name, string[] Outputs, string Runner, string Exe, string[] Args, int Version, string[] Needs);
     sealed record Stamp([property: JsonPropertyName("version")] int Version, [property: JsonPropertyName("at")] string At);
@@ -44,7 +44,7 @@ static class Extraction
             string exe = entry.Runner == "python" ? Tools.Python : entry.Exe;
             string name = "extract-" + entry.Name;
             int code = Tools.Run(exe, arguments, name, log);
-            string output = entry.Outputs[0];
+            string output = Local(entry.Outputs[0]);
             bool fresh = File.Exists(output) && File.GetLastWriteTime(output) >= started.AddSeconds(-2);
             if (code != 0 || !fresh)
                 throw new LauncherException(ExitCode.Extraction, $"extracting {entry.Name} failed (exit {code}{(fresh ? "" : $", {output} not written")}; logs\\{name}.log):\n{Tools.Tail(Path.Combine("logs", name + ".log"))}");
@@ -54,9 +54,12 @@ static class Extraction
         }
     }
 
+    /// <summary>The manifest's paths are extract-data.ps1's, with backslashes.</summary>
+    static string Local(string path) => path.Replace('\\', Path.DirectorySeparatorChar);
+
     static string? Why(Entry entry, Dictionary<string, Stamp> stamps)
     {
-        if (entry.Outputs.FirstOrDefault(o => !File.Exists(o)) is { } missing) return $"{missing} missing";
+        if (entry.Outputs.FirstOrDefault(o => !File.Exists(Local(o))) is { } missing) return $"{missing} missing";
         if (!stamps.TryGetValue(entry.Name, out var stamp)) return "no stamp";
         return stamp.Version != entry.Version ? $"version {stamp.Version} -> {entry.Version}" : null;
     }

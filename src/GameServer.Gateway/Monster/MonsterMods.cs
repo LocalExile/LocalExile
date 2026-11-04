@@ -43,6 +43,23 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 
     public int this[string stat] => stats.GetValueOrDefault(stat);
 
+    /// <summary>These effects with another set's stats added on top; absent stats stay absent.</summary>
+    public MonsterModEffects Plus(MonsterModEffects other)
+    {
+        if (other.Stats.Count == 0) return this;
+        var sum = new Dictionary<string, int>(Stats, StringComparer.Ordinal);
+        foreach (var (name, value) in other.Stats) sum[name] = sum.GetValueOrDefault(name) + value;
+        return new MonsterModEffects(sum);
+    }
+
+    /// <summary>These effects with one stat added.</summary>
+    public MonsterModEffects Plus(string stat, int value)
+    {
+        if (value == 0) return this;
+        var sum = new Dictionary<string, int>(Stats, StringComparer.Ordinal) { [stat] = this[stat] + value };
+        return new MonsterModEffects(sum);
+    }
+
     /// <summary>Adds these stats (a map's monster life/damage) on top of the monster's own mods.</summary>
     public MonsterModEffects Combine(IReadOnlyDictionary<string, int> extra)
     {

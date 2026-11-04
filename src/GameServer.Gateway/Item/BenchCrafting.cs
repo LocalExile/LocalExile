@@ -104,7 +104,9 @@ sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder =
                 mods.RemoveAll(remove.Contains);
             }
             var explicits = mods.Where(m => m.Section == ModSection.Explicit).ToList();
-            int maxEach = item.Rarity == ItemRarity.Rare ? 3 : 1;
+            // A rare item's own caps (settings, and the Simplex bases' implicit adjustment); a magic item may hold one.
+            var (maxPrefix, maxSuffix) = item.Rarity == ItemRarity.Rare ? rolls.RareMaxAffixes(item) : (1, 1);
+            int maxEach = mod.GenerationType == ItemRolls.Prefix ? maxPrefix : maxSuffix;
             if (explicits.Any(conflict) || explicits.Count(m => catalog.Mods.ByHash(m.Hash)?.GenerationType == mod.GenerationType) >= maxEach) return null;
             mods.Add(mod.Roll(ModSection.Explicit, rng));
             result = item with { Mods = mods, Rarity = item.Rarity == ItemRarity.Normal ? ItemRarity.Magic : item.Rarity, Identified = true };

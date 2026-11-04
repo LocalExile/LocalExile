@@ -25,7 +25,8 @@ static partial class Game
         try
         {
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
-            return [.. SkillsFor(conn).PlayerDefaults(player), .. GemSkills(conn, player, character, panelSources!)];
+            return [.. SkillsFor(conn).PlayerDefaults(player),
+                .. GemSkills(conn, player, character, panelSources!), .. GameEvents.ExtraSkills(conn)];
         }
         finally { StatsScope.Value = outer; }
     }
@@ -104,6 +105,7 @@ static partial class Game
         // weapon up from the off hand's own final stats (it derives nothing itself, 11-skills.md §4).
         foreach (var (k, v) in WeaponStats(conn, WeaponOf(conn, mainHand), stats)) stats[k] = v;
         foreach (var (k, v) in CosmeticStats(conn).Where(s => !ActorScale.IsInput(s.Stat))) stats.TryAdd(k, v);
+        foreach (var build in GameEvents.FinalStatsBuilding.For(conn)) build(conn, stats);
         return stats.Select(kv => (kv.Key, kv.Value));
     }
 
@@ -167,7 +169,8 @@ static partial class Game
 
     internal static AttackAccuracyProfile OrdinaryAccuracy(ClientState conn, IReadOnlyDictionary<uint, int> stats,
         IReadOnlyDictionary<string, int>? local) =>
-        OrdinaryAccuracy(SkillsFor(conn), SkillEffectId(conn, SkillCatalog.FirstSkillId), conn.Pools, stats, local);
+        OrdinaryAccuracy(SkillsFor(conn), SkillEffectId(conn, SkillCatalog.FirstSkillId), conn.Pools, stats, local)
+            with { Rating = PlayerAccuracy(conn, stats) };
 
     // From the default attack's GrantedEffects Id (SkillEffectId of the first skill) and the pools as read once.
     internal static AttackAccuracyProfile OrdinaryAccuracy(SkillCatalog skills, string? attackEffectId, CharacterStats.Pools pools,
@@ -187,7 +190,7 @@ static partial class Game
 
     internal sealed record PanelSourceSnapshot(IReadOnlyDictionary<uint, int> Raw,
         IReadOnlySet<uint> Overrides, int PlayerLevel,
-        IReadOnlyDictionary<string, int> MainHand, IReadOnlyDictionary<string, int> OffHand);
+        IReadOnlyDictionary<string, int> MainHand, IReadOnlyDictionary<string, int> OffHand, bool MainArmed, bool OffArmed);
 
     internal static Dictionary<uint, int> CharacterPlayerStatsCore(ClientState conn, out double baselineLifePerSecond) =>
         CharacterPlayerStatsSnapshot(conn, out baselineLifePerSecond, out _);
@@ -226,6 +229,7 @@ static partial class Game
         AddSpiritLeadershipStats(conn, stats);
         AddTotemAuraStats(conn, stats);
         WithRage(conn, stats);
+        WithBlind(conn, stats);
         // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
         ActorScale.Project(stats, rawOverrides, CosmeticScaleSources(conn));
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -260,7 +264,8 @@ static partial class Game
         // Capture only for a skill publication. Recovery-only callers avoid these extra immutable copies.
         panelSources = capturePanelSources
             ? new(stats.ToFrozenDictionary(), devSet.ToFrozenSet(), conn.Pools.Level,
-                mainLocal.ToFrozenDictionary(), offLocal.ToFrozenDictionary()) : null;
+                mainLocal.ToFrozenDictionary(), offLocal.ToFrozenDictionary(),
+                WeaponIn(conn, ActiveMainHand(conn)) is not null, OffhandWeaponFor(conn) is not null) : null;
         // The tail reuses its last result while its inputs are the same (StatSnapshotCache.cs); the head above ran as always.
         var tailInputs = ReadStatSnapshotTailInputs(conn, stats, rawOverrides, devSet, mainLocal, offLocal, lifeRegenerationToEnergyShield, moving);
         stats = StatSnapshotTailFor(conn, tailInputs, StatSnapshotStage.Panels);
@@ -274,7 +279,7 @@ static partial class Game
         {
             Stats = stats,
             Ailments = [ailments.Ignite ? 1 : 0, ailments.Chill > 0 ? 1 : 0, ailments.Freeze ? 1 : 0, ailments.Shock > 0 ? 1 : 0],
-            ActionFactor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, Get("action_speed_-%")),
+            ActionFactor = PlayerActionFactorFrom(conn, Get),
             SuppressionChance = Suppression(conn).Chance,
         };
         stats = StatSnapshotTailFor(conn, finalInputs, StatSnapshotStage.Critical);
@@ -350,7 +355,7 @@ static partial class Game
     internal static IEnumerable<(uint, int)> BaseStats(ClientState conn)
     {
         var seen = new HashSet<uint>();
-        foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools)) if (seen.Add(k)) yield return (k, v);
+        foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with { Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn) })) if (seen.Add(k)) yield return (k, v);
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = CharacterStatSources(conn, nodes).Stats;
@@ -367,6 +372,8 @@ static partial class Game
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = [.. conn.Auras.Values];
         foreach (var (k, v) in AuraCatalog.RawStats(auras, conn.Pools.AuraEffectPct, SkillsFor(conn), Stats).Concat(MinionAuraStats(conn, auras)))
+            extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
+        foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, extra, Stats).ToList())
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         // The mods' stats (Program.Mods.cs), added like /god's: the pools (life, mana) are not rebuilt from them.
         if (Program.ServerHooks.ChangesStats)
@@ -675,7 +682,8 @@ static partial class Game
             int RawPanel(string stat) => Stats.Key(stat) is uint key ? panelSources.Raw.GetValueOrDefault(key) : 0;
             int OwnPanel(string stat) => Stats.Key(stat) is uint key ? own.GetValueOrDefault(key) : 0;
             foreach (var (stat, value) in PanelStats.Selected(RawPanel, OwnPanel, panelSources.PlayerLevel,
-                panelSources.MainHand.GetValueOrDefault, panelSources.OffHand.GetValueOrDefault))
+                panelSources.MainHand.GetValueOrDefault, panelSources.OffHand.GetValueOrDefault,
+                panelSources.MainArmed, panelSources.OffArmed))
                 if (Stats.Key(stat) is uint key)
                     stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;
             if (Stats.Key(VaalSoulCost.Aura) is uint aura)
@@ -710,19 +718,22 @@ static partial class Game
     {
         FillSkillBar(conn);
         var save = CharacterSaves.Load(CharacterName(conn));
-        if (save?.SkillBar is not { Count: > 0 } bar) return;
+        var saved = save?.SkillBar;
+        if (saved is not { Count: > 0 } && GameEvents.ExtraSkills(conn).Count == 0) return;
         var ids = new ushort[InstanceProtocol.SkillBarSlots];
         var byEffect = GemSkillEffects(conn).Select(g => (g.Id, Effect: SkillsFor(conn).EffectId(g.Effect)))
             .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(conn, SkillCatalog.FirstSkillId)))
             .Where(e => e.Effect is not null).GroupBy(e => e.Effect!).ToDictionary(g => g.Key, g => g.First().Id);
-        foreach (var (slot, entry) in bar)
-        {
-            if (slot < 0 || slot >= ids.Length) continue;
-            if (entry.StartsWith("Action/") && SkillsFor(conn).ActionSkillId(entry["Action/".Length..]) is ushort action) ids[slot] = action;
-            else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
-        }
-        if (!bar.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
-        ushort attackInPlace = save.AttackInPlaceSlots ?? 0, mask52 = save.SkillBarMask52 ?? 0;
+        if (saved is { Count: > 0 })
+            foreach (var (slot, entry) in saved)
+            {
+                if (slot < 0 || slot >= ids.Length) continue;
+                if (entry.StartsWith("Action/") && SkillsFor(conn).ActionSkillId(entry["Action/".Length..]) is ushort action) ids[slot] = action;
+                else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
+            }
+        if (saved is not { Count: > 0 } || !saved.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
+        foreach (var build in GameEvents.SkillBarBuilding.For(conn)) build(conn, ids);
+        ushort attackInPlace = save?.AttackInPlaceSlots ?? 0, mask52 = save?.SkillBarMask52 ?? 0;
         await Send(remote, stream, ciphers, InstanceProtocol.SkillBar(ids, attackInPlace, mask52),
             $"0x0053 skill bar: {string.Join(", ", ids.Select((id, i) => id == 0 ? null : $"slot {i} 0x{id:x4}").OfType<string>())}" +
             $", attack in place 0x{attackInPlace:x4}, 0x52 mask 0x{mask52:x4}");
@@ -1064,6 +1075,11 @@ static partial class Game
     // The player's stats (0x1b3) and the skills computed with them (0x2ba Actor), after the level or the passives changed.
     internal static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
+        if (QuestKillCommitOutput is not null)
+        {
+            conn.Minions.StatRevision++;
+            return;
+        }
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats ({why})");
         await SendSkills(remote, stream, ciphers, conn);
@@ -1074,10 +1090,11 @@ static partial class Game
     // Actor 0x20 update (PlayerSkillsChange): the 0x40 list neither removes skills nor tells the character panel.
     internal static async Task SendSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (!CurrentGameRules) return;
         RefreshVaalSouls(conn);
         lock (conn.Monsters)
         {
-            if (conn.Closed || conn.LeavingArea || conn.RageRetired) return;
+            if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
             RefreshVaalSouls(conn);
             RefreshSingleUseCooldowns(conn);
             EnsureAntiquarianPools(conn);
@@ -1094,7 +1111,23 @@ static partial class Game
                 };
                 conn.AuraStatsDirty |= before != conn.Auras[id];
             }
-            if (conn.Auras.Count > 0)
+            if (conn.PetrifiedBlood.Active)
+            {
+                var id = conn.PetrifiedBlood.SkillId;
+                var gem = SupportedSkill(conn, id);
+                if (gem.Effect < 0 || SkillsFor(conn).EffectId(gem.Effect) != PetrifiedBlood.EffectId
+                    || SupportedReservation(conn, id) is not { } reservation) conn.PetrifiedBlood.Suspend();
+                else
+                {
+                    var stats = PetrifiedBloodEffectStats(conn, gem.Effect, gem.Level, gem.Quality);
+                    conn.PetrifiedBlood.Refresh(gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
+                        Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
+                        reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(conn)));
+                    conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+                    conn.AuraStatsDirty = true;
+                }
+            }
+            if (conn.Auras.Count > 0 || conn.PetrifiedBlood.Active)
             {
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
@@ -1109,6 +1142,7 @@ static partial class Game
             conn.ClientSkillIds = [.. skills.Select(s => s.Id)];
             return PlayerSkillsWithVaalSouls(conn, skills, gone);
         }, "0x02ba player Actor: current skill stats");
+        if (!CurrentGameRules) return;
         await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         if (gone.Count > 0) await EndSkillEffects(remote, stream, ciphers, conn, gone);
 
@@ -1119,7 +1153,9 @@ static partial class Game
         // bar first (FillSkillBar: the right mouse button, then Q W E R T …), so it goes out with the bar.
         FillSkillBar(conn);
         var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar?.Values;
-        if (added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
+        // Transient league skills are not part of the saved bar.
+        if (GameEvents.ExtraSkills(conn).Count > 0
+            || added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
             await SendSkillBar(remote, stream, ciphers, conn);
         // The same recalculation may have changed which worn weapons qualify.
         await SendModelIfHandsChanged(remote, stream, ciphers, conn);
@@ -1130,22 +1166,28 @@ static partial class Game
     internal static async Task EndSkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlyCollection<ushort> gone)
     {
         List<AuraCatalog.Aura> ended;
+        bool petrifiedEnded;
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return;
             ended = [.. conn.Auras.Values.Where(a => gone.Contains(a.SkillId))];
             foreach (var aura in ended) conn.Auras.Remove(aura.SkillId);
-            if (ended.Count > 0)
+            petrifiedEnded = conn.PetrifiedBlood.Active && gone.Contains(conn.PetrifiedBlood.SkillId);
+            if (petrifiedEnded) conn.PetrifiedBlood.Suspend();
+            if (ended.Count > 0 || petrifiedEnded)
             {
                 conn.AuraStatsDirty = true;
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
             }
         }
-        if (ended.Count > 0)
+        if (ended.Count > 0 || petrifiedEnded)
         {
             await SendOwnAuraChanges(remote, stream, ciphers, conn);
-            await SendCharacterStats(remote, stream, ciphers, conn, $"aura {string.Join(", ", ended.Select(a => a.Name))} off (gem left)");
+            string why = ended.Count > 0
+                ? $"aura {string.Join(", ", ended.Select(a => a.Name))} off (gem left)"
+                : "Petrified Blood off (gem left)";
+            await SendCharacterStats(remote, stream, ciphers, conn, why);
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         }
         if (conn.RighteousFire is { } rf && gone.Contains(rf.Skill)) await EndRighteousFire(remote, stream, ciphers, conn, "its gem left");

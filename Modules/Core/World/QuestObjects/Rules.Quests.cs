@@ -150,13 +150,17 @@ static partial class QuestobjectsRules
 
     internal static async Task DropTutorialGem(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,bool support,int x,int y)
     {
-        if (!LeagueFor(conn).Rules.TutorialGifts && support) return;
-        if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial || (support ? tutorial.SupportClaimed : tutorial.SkillClaimed)) return;
+        foreach (var (packet,log) in CommitTutorialGem(conn,support,x,y)) await Send(remote,stream,ciphers,packet,log);
+    }
+
+    internal static List<(byte[] Packet, string? Log)> CommitTutorialGem(ClientState conn,bool support,int x,int y)
+    {
+        if (!LeagueFor(conn).Rules.TutorialGifts && support) return [];
+        if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial || (support ? tutorial.SupportClaimed : tutorial.SkillClaimed)) return [];
         var item=CharacterSaves.FromSaved(support?tutorial.SupportGem:tutorial.SkillGem,Items);
         var ground=new WorldItemObject(x,y,item);
-        if(conn.Instance.PlaceTutorialItem(TutorialObjects.DropKey(CharacterName(conn),tutorial,support),ground) is not uint id) return;
-        await Send(remote,stream,ciphers,InstanceEntities.CreateObject(id,InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),ground.Blob()),
-            $"0x02b9 tutorial {(support?"support":"skill")} gem {Items.GemName(item)} at ({x},{y})");
-        await Send(remote,stream,ciphers,InstanceProtocol.EnterWakeZone(id),null);
+        if(conn.Instance.PlaceTutorialItem(TutorialObjects.DropKey(CharacterName(conn),tutorial,support),ground) is not uint id) return [];
+        return [(InstanceEntities.CreateObject(id,InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),ground.Blob()),
+            $"0x02b9 tutorial {(support?"support":"skill")} gem {Items.GemName(item)} at ({x},{y})"), (InstanceProtocol.EnterWakeZone(id),null)];
     }
 }

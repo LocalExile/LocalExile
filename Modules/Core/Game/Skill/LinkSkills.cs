@@ -35,6 +35,7 @@ static partial class Game
     internal static async Task<bool> StartLink(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, uint targetId)
     {
+        if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return false;
         var gem = SupportedSkill(conn, skillId);
         string? effectId = SkillsFor(conn).EffectId(gem.Effect);
         if (effectId is null || !LinkSkills.Buffs.TryGetValue(effectId, out var rows)) return false;
@@ -48,7 +49,7 @@ static partial class Game
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
-            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return false;
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return false;
             if (LinkTargetLocked(conn, targetId, Player, now) is not uint target)
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {effectId}: no link target (an allied player, or a damageable minion with link_skills_can_target_minions, within {LinkSkills.Range(Player("link_skill_range_+%"))} cells)");
@@ -119,14 +120,17 @@ static partial class Game
     internal static async Task LinkSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         lock (conn.Monsters)
+        {
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
             if (conn.Links.Count == 0 && conn.Links.Flasks.Count == 0) { conn.Links.PaidAt = now; return; }
+        }
         var player = CharacterPlayerStats(conn);
         var bytes = new List<byte>();
         var ended = new List<string>();
         bool died = false, paid = false;
         lock (conn.Monsters)
         {
-            if (conn.Closed || conn.LeavingArea) return;
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
             var links = conn.Links;
             var spent = links.Flasks.Where(f => now >= f.Until || !LinkTargetAliveLocked(conn, f.Target)).ToArray();
             foreach (var flask in spent)
@@ -190,7 +194,7 @@ static partial class Game
     // Flask's Onslaught too, and its stats at the flask's own increased effect but without the player's "applied to you"
     // ones (flask_effect_+%, magic_utility_flask_effect_+%; PoB's effectIncNonPlayer). A minion target walks at their
     // movement speed (MinionFlaskSpeedLocked); their other stats have nothing to act on (paladin.md).
-    static async Task FlaskToLinkedTargets(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static void FlaskToLinkedTargetsLocked(ClientState conn,
         Item flask, IReadOnlyDictionary<string, int> local, UtilityFlasks.Utility utility, Func<string, int> character)
     {
         if (flask.Rarity == ItemRarity.Unique || character("flasks_apply_to_your_linked_targets") == 0) return;
@@ -200,7 +204,7 @@ static partial class Game
         var bytes = new List<byte>();
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             foreach (var link in conn.Links.All.Where(l => LinkTargetAliveLocked(conn, l.Target)).ToArray())
             {
                 ushort buff = conn.NextBuff++;
@@ -212,7 +216,7 @@ static partial class Game
                 MinionFlaskSpeedLocked(conn, link.Target, now, bytes);
             }
         }
-        if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], $"0x01c1 {utility.BuffId} on the linked targets for {seconds:0.##} s");
+        if (bytes.Count > 0) Automation(conn).Packets.Add(new([.. bytes], $"0x01c1 {utility.BuffId} on the linked targets for {seconds:0.##} s"));
     }
 
     // A minion's walk with the player's flasks on it (Field Medicine): its variety's speed × (1 + its mods' and the
