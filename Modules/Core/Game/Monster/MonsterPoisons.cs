@@ -8,14 +8,37 @@ static partial class Game
     /// <summary>BuffDefinitions row 10 <c>poison</c>.</summary>
     internal const ushort PoisonBuffRow = 10;
 
-    static readonly string[] PoisonIncreases = ["damage_+%", "damage_over_time_+%", "chaos_damage_+%",
-        "chaos_damage_over_time_+%", "base_poison_damage_+%", "base_ailment_damage_+%"];
+    /// <summary>A skill's poison damage and duration, as <see cref="SupportedIgnite"/>: its panel poison rows.</summary>
+    internal static MonsterPoisons.Settings SupportedPoison(ClientState conn, ushort skillId, bool spell,
+        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null)
+    {
+        var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+        string hand = spell ? "spell" : "main_hand";
+        return MonsterPoisons.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon), hand,
+            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
+            spell || weapon is not null ? null : MainHandLocalSources(conn));
+    }
 
+    /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
+    internal static MonsterPoisons.Settings DefaultAttackPoison(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        var weapon = WeaponFor(conn);
+        return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
+            SupportedAttackDamage.Raw(weapon, Get), DamageStats.Conversion(player, Stats, attack: true), Get),
+            "main_hand", Get, weapon.LocalSources);
+    }
+
+    // A landed hit's poison: the chance the panel shows (virtual_total_{hand}_chance_to_poison_on_hit_%: the caster's and
+    // the skill's stats, and for an attack its weapon's own, Settings.WeaponChance), then the monster's avoidance. Its damage
+    // per second (an independent roll in the non-critical or critical range) and duration come from the hit's panel poison
+    // rows (<paramref name="settings"/>, captured with the hit as its ignite's are), so a poison deals what the panel shows:
+    // the hit's own increases and the monster's resistance, already in <paramref name="mitigated"/>, must not reach it.
     internal static void PoisonOnHitLocked(ClientState conn, SpawnedMonster target, DamagePacket mitigated,
         bool spell, bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
-        double now, Random random)
+        MonsterPoisons.Settings settings, double now, Random random)
     {
-        if (target.Dead || target.Life == 0) return;
+        if (target.Dead || target.Life == 0 || settings.Seconds <= 0) return;
         double phys = mitigated[DamageType.Physical].Min;
         double chaos = mitigated[DamageType.Chaos].Min;
         if (phys + chaos <= 0) return;
@@ -27,9 +50,7 @@ static partial class Game
         if (MonsterPoisons.Prohibited(Get)) return;
 
         long chance = (long)Get("base_chance_to_poison_on_hit_%")
-            + Get("chance_to_poison_on_hit_%")
-            + Get("global_chance_to_poison_on_hit_%")
-            + (spell ? Get("spells_chance_to_poison_on_hit_%") : Get("chance_to_poison_on_hit_with_attacks_%"));
+            + (spell ? Get("spells_chance_to_poison_on_hit_%") : Get("chance_to_poison_on_hit_with_attacks_%") + settings.WeaponChance);
         if (chaos > 0) chance += Get("chaos_damage_chance_to_poison_%");
 
         if (chance <= 0 || !RandomRolls.Chance((int)Math.Clamp(chance, 0, 100), 100, random)) return;
@@ -37,19 +58,9 @@ static partial class Game
         int avoid = target.Mods.Effects["avoid_poison_%"];
         if (avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return;
 
-        double baseDps = (phys + chaos) * 0.30;
-        double inc = (double)PoisonIncreases.Sum(Get) + (spell ? Get("spell_damage_+%") : Get("attack_damage_+%"));
-        double dotMulti = 1 + ((double)Get("dot_multiplier_+") + Get("chaos_dot_multiplier_+")
-            + (critical ? 50 + Get("critical_ailment_dot_multiplier_+") : 0)) / 100.0;
-        double faster = MonsterPoisons.Faster(Get);
-        double dps = baseDps * Math.Max(0, 1 + inc / 100.0) * Math.Max(0, dotMulti) * (faster > 0 ? faster : 1.0);
-
-        double seconds = Ailments.PoisonDurationSeconds
-            * Math.Max(0, 1 + ((double)Get("poison_duration_+%") + Get("base_all_ailment_duration_+%")) / 100.0)
-            * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]) / (faster > 0 ? faster : 1.0);
-
-        if (dps <= 0 || seconds <= 0) return;
-        target.Poisons.Add(now, dps, seconds);
+        var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
+        target.Poisons.Add(now, min + (Math.Max(min, max) - min) * random.NextDouble(),
+            settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]));
     }
 
     internal static async Task TickPoisons(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)

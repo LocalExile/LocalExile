@@ -1,7 +1,7 @@
 
 
-/// <summary>The six inherent character values from Metadata/Characters/Character.ot needed by the Brand and special
-/// charge panel rows. Add them to original actor sources once, before derivation; final developer replacements remain
+/// <summary>The inherent character values from Metadata/Characters/Character.ot needed by the Brand, special charge and
+/// critical ailment panel rows. Add them to original actor sources once, before derivation; final developer replacements remain
 /// the caller's responsibility. These are coefficients and a Brand limit, not charge counts or gameplay effects.</summary>
 static class PanelStatDefaults
 {
@@ -13,6 +13,9 @@ static class PanelStatDefaults
         ("ailment_damage_+%_final_per_affliction_charge", 8),
         ("non_damaging_ailment_effect_+%_final_per_affliction_charge", 8),
         ("elemental_damage_taken_goes_to_energy_shield_over_4_seconds_%_per_absorption_charge", 12),
+        // Damaging ailments from critical strikes: +50% to their damage over time multiplier (the wiki's Ignite, Bleeding
+        // and Poison), in the panel's critical rows and so in every ailment read from them.
+        ("critical_ailment_dot_multiplier_+", 50),
     ];
 
     public static List<(string Stat, int Value)> Compute(Func<string, int> raw) =>

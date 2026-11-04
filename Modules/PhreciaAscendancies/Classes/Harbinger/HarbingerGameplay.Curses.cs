@@ -74,6 +74,7 @@ internal sealed partial class HarbingerGameplay
                 ? change.Current?.OtherEffects ?? 0 : m.Mods.Effects[name]);
             // Keep damage per second and accrued fractions. Only the remaining BASE lifetime changes.
             m.Ignites.SetExpiryRate(now, newRate);
+            m.Bleeds.SetExpiryRate(now, newRate);
             m.Poisons.SetExpiryRate(now, newRate);
             m.Ailments.SetExpiryRate(now, newRate);
             m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, newRate);
