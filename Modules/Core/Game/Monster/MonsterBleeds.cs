@@ -7,6 +7,9 @@ static partial class Game
     /// <summary>The wiki's Bleeding: a moving enemy takes 200% more damage from it (the trial spike traps' bleed too).</summary>
     internal const double BleedMovingMore = 3;
 
+    /// <summary>Crimson Dance: "You can inflict Bleeding on an Enemy up to 8 times" (ReminderTextKeystoneCrimsonDance).</summary>
+    internal const int CrimsonDanceStacks = 8;
+
     /// <summary>
     /// What an attack's hit can bleed with (wiki Bleeding), in the shape of an ignite (<see cref="MonsterIgnites.Settings"/>):
     /// the context's bleeding rows (<see cref="AilmentPanelStats"/>: 70% of the hit's physical damage per second through
@@ -15,7 +18,11 @@ static partial class Game
     /// with bleed_on_melee_attack_chance_% for a melee and bleed_on_bow_attack_chance_% for a bow attack; global_bleed_on_hit
     /// or the weapon's local_bleed_on_hit always bleed. A critical strike adds the "on Critical Strike" chances (PoB
     /// BleedChanceOnCrit): bleed_on_crit_%_with_attacks, the weapon's local_bleed_on_critical_strike_chance_% and fixed
-    /// 50%, and for a melee attack bleed_on_melee_crit_chance_% (bleed_on_melee_critical_strike: always). It lasts 5 s × (1 + bleed_duration_+%, base_bleed_duration_+% and
+    /// 50%, and for a melee attack bleed_on_melee_crit_chance_% (bleed_on_melee_critical_strike: always). A hit aggravates
+    /// the bleeds already on its target at base_aggravate_bleeding_on_attack_hit_chance_% (a critical strike adds
+    /// aggravate_bleeding_on_attack_crit_chance_%), and aggravate_inflicted_bleeding aggravates the hit's own; Crimson
+    /// Dance (keystone_crimson_dance) stacks 8 instead and cannot aggravate (ReminderTextKeystoneCrimsonDance). It lasts
+    /// 5 s × (1 + bleed_duration_+%, base_bleed_duration_+% and
     /// base_all_ailment_duration_+%); faster_bleed_% and damaging_ailments_deal_damage_+%_faster multiply its damage per
     /// second and divide its duration, as ignite's faster stats do. cannot_cause_bleeding and never_damaging_ailments stop
     /// it; a physical prohibition already leaves its rows empty.
@@ -40,8 +47,13 @@ static partial class Game
             + (melee ? get("bleed_on_melee_critical_strike") != 0 ? 100 : get("bleed_on_melee_crit_chance_%") : 0);
         double seconds = Ailments.BleedDurationSeconds * Math.Max(0, 1 + ((double)get("bleed_duration_+%")
             + get("base_bleed_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster;
+        bool dance = get("keystone_crimson_dance") != 0;
+        int aggravate = dance ? 0 : get("base_aggravate_bleeding_on_attack_hit_chance_%");
         return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
-            Row("minimum", "critical"), Row("maximum", "critical"), seconds, (int)Math.Clamp(critical, 0, 100));
+            Row("minimum", "critical"), Row("maximum", "critical"), seconds, (int)Math.Clamp(critical, 0, 100),
+            dance ? CrimsonDanceStacks : 1, Math.Clamp(aggravate, 0, 100),
+            dance ? 0 : (int)Math.Clamp((long)aggravate + get("aggravate_bleeding_on_attack_crit_chance_%"), 0, 100),
+            !dance && get("aggravate_inflicted_bleeding") != 0);
     }
 
     /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield
@@ -70,12 +82,18 @@ static partial class Game
     // hit's bleed and the packets of the monster's bleeding buff (BuffDefinitions "bleeding", its timer to the last bleed's
     // end), or null. Unlike ignite a critical strike rolls its chance too (Settings.CriticalChance), then bleeds with the
     // critical rows (wiki Bleeding). The target's avoid_bleed_% and base_avoid_bleed_% avoid it; immune_to_bleeding and
-    // cannot_gain_bleeding stop it.
+    // cannot_gain_bleeding stop it. First the hit aggravates the bleeds already on the target, whether or not it bleeds
+    // (wiki Bleeding, Aggravate): they deal damage as though it moved for the rest of their durations.
+    // shortcut: callers only come here for a hit that dealt physical damage, so a hit without any never aggravates.
     internal static List<byte[]>? BleedOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now)
     {
-        if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row
-            || !RandomRolls.Chance(critical ? settings.CriticalChance : settings.Chance, 100, conn.IgniteRandom)) return null;
+        if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row) return null;
+        target.Bleeds.Stacks = settings.Stacks;
+        if (target.Bleeds.Burning
+            && RandomRolls.Chance(critical ? settings.CriticalAggravate : settings.Aggravate, 100, conn.IgniteRandom))
+            target.Bleeds.Aggravate();
+        if (!RandomRolls.Chance(critical ? settings.CriticalChance : settings.Chance, 100, conn.IgniteRandom)) return null;
         var e = target.Mods.Effects;
         if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e["avoid_bleed_%"] + e["base_avoid_bleed_%"],
                 e["immune_to_bleeding"] != 0 || e["cannot_gain_bleeding"] != 0 || e["base_cannot_gain_bleeding"] != 0,
@@ -92,11 +110,18 @@ static partial class Game
             BleedingLog(id, target, critical, now));
 
     /// <summary>A bleeding monster's mitigation: its physical damage over time taken (resistance, damage taken, Pride;
-    /// armour stops hits only), times <see cref="BleedMovingMore"/> while it moves.</summary>
+    /// armour stops hits only), times <see cref="BleedMovingMore"/> while it moves, but not for Crimson Dance's
+    /// stacks.</summary>
     internal static double BleedTaken(SpawnedMonster m, double now) =>
-        MonsterDotTaken(m, DamageType.Physical, now) * (m.Walk.Moving(now) ? BleedMovingMore : 1);
+        MonsterDotTaken(m, DamageType.Physical, now) * (m.Bleeds.Stacks == 1 && m.Walk.Moving(now) ? BleedMovingMore : 1);
 
-    // One tick of the bleeding monsters (RunPlayerTick), as BurnIgnited: only the strongest bleed deals damage.
+    /// <summary>A standing monster's strongest aggravated bleed deals its moving bonus on top of the strongest bleed's
+    /// damage; moving, the strongest already deals it, and the two do not stack (wiki Bleeding, Aggravate).</summary>
+    internal static double AggravatedExtra(SpawnedMonster m, double now) =>
+        m.Bleeds.Stacks == 1 && !m.Walk.Moving(now) ? BleedMovingMore - 1 : 0;
+
+    // One tick of the bleeding monsters (RunPlayerTick), as BurnIgnited: only the strongest bleed deals damage (Crimson
+    // Dance: the 8 strongest).
     internal static Task BleedMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        TickStrongestDots(remote, stream, ciphers, conn, m => m.Bleeds, BleedTaken, "bled to death");
+        TickStrongestDots(remote, stream, ciphers, conn, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra);
 }

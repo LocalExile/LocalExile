@@ -1524,9 +1524,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
   The melee and area ignite and the footstep ignite are not checked with the real client (`MonsterIgnites.cs`,
   [20](../docs/protocol/20-damage.md) §3).
   Attack hits (the default attack, melee and area attacks, attack projectiles and bow shots) bleed monsters from the
-  panel's bleeding rows with the attack bleed chances, for 5 s and the bleed duration stats: only the strongest bleeds,
-  three times while the monster moves, with one timed `bleeding` buff and kills (`MonsterBleeds.cs`; not checked with
-  the real client; no Crimson Dance or aggravation).
+  panel's bleeding rows with the attack bleed chances, for 5 s and the bleed duration stats: only the strongest bleeds
+  (Crimson Dance: the 8 strongest), three times while the monster moves or aggravated, with one timed `bleeding` buff
+  and kills (`MonsterBleeds.cs`; not checked with the real client).
   A hit's poisons deal the panel's poison rows (`MonsterPoisons.cs`), not checked with the real client.
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
