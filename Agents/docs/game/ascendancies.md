@@ -83,6 +83,7 @@ A lower development level removes safely removable ordinary leaves only; it reta
 
 The existing ordinary passive stat aggregation also sees allocated ascendancy stats.
 The selection lifecycle alone does not implement a class's signature gameplay.
+Ordinary Pathfinder's node consumers are listed in [pathfinder.md](pathfinder.md).
 Antiquarian's Ward, Adrenaline, duration, stun and Lioneye consumers are described in its linked class audit.
 
 ### Whaletooth Bangle duration stat

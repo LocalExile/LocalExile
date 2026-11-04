@@ -152,11 +152,13 @@ static partial class Game
         return clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced);
     }
 
-    internal static GameServer.Core.World.DamagePacket SupportedHit(ClientState conn, ushort skillId)
-        => SupportedHitFor(conn, skillId, suppress: true);
+    internal static GameServer.Core.World.DamagePacket SupportedHit(ClientState conn, ushort skillId,
+        IReadOnlyDictionary<uint, int>? extra = null)
+        => SupportedHitFor(conn, skillId, suppress: true, extra: extra);
 
-    internal static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area)
-        => SupportedHitFor(conn, skillId, suppress: false, area);
+    internal static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area,
+        IReadOnlyDictionary<uint, int>? extra = null)
+        => SupportedHitFor(conn, skillId, suppress: false, area, extra: extra);
 
     // The same supported attack swung with the off-hand weapon of a dual-wielded attack (the Offence tab's Off Hand rows).
     internal static GameServer.Core.World.DamagePacket SupportedOffHandHit(ClientState conn, ushort skillId, SkillCatalog.Unarmed offHand)
@@ -170,11 +172,12 @@ static partial class Game
         bool WieldingWand = false);
 
     internal static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
-        SkillCatalog.Unarmed? weapon = null)
+        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<uint, int>? extra = null)
     {
         var gem = SupportedSkill(conn, skillId);
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, gem.Stats);
+        if (extra is { Count: > 0 }) stats = MergeSkillStats(stats, extra);
         int Get(string name) => name == "is_area_damage" && area is bool isArea ? isArea ? 1 : 0
             : Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         bool attack = SkillsFor(conn).IsAttack(gem.Effect);
@@ -194,8 +197,8 @@ static partial class Game
     }
 
     internal static GameServer.Core.World.DamagePacket SupportedHitFor(ClientState conn, ushort skillId, bool suppress, bool? area = null,
-        SkillCatalog.Unarmed? weapon = null)
-        => SupportedHitInputsFor(conn, skillId, area, weapon) is { } inputs ? SupportedHitFrom(inputs, suppress) : GameServer.Core.World.DamagePacket.Empty;
+        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<uint, int>? extra = null)
+        => SupportedHitInputsFor(conn, skillId, area, weapon, extra) is { } inputs ? SupportedHitFrom(inputs, suppress) : GameServer.Core.World.DamagePacket.Empty;
 
     // The supported hit from inputs already worked out (GemSkills reads one gem's inputs once for its hit and ailment rows).
     internal static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress)

@@ -17,13 +17,15 @@ sealed class MonsterPoisons
     /// <param name="WeaponChance">The attacking weapon's own local_poison_on_hit_% ("X% chance to Poison on Hit" on
     /// it), which the panel's chance counts for that hand's attacks.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
-        double Seconds, int WeaponChance = 0)
+        double Seconds, int WeaponChance = 0, int MoreChance = 0)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
-        /// <summary><paramref name="local"/>: the attacking weapon's local stats (none for a spell).</summary>
+        /// <summary><paramref name="local"/>: the attacking weapon's local stats (none for a spell).
+        /// <paramref name="flaskEffect"/>: Master Toxicist's extra-damage chance applies only "during any Flask
+        /// Effect".</summary>
         public static Settings From(IEnumerable<(string Stat, int Value)> rows, string hand, Func<string, int> get,
-            IReadOnlyDictionary<string, int>? local = null)
+            IReadOnlyDictionary<string, int>? local = null, bool flaskEffect = false)
         {
             if (Prohibited(get)) return None;
             var r = rows.ToDictionary(x => x.Stat, x => x.Value);
@@ -33,10 +35,13 @@ sealed class MonsterPoisons
                 r.GetValueOrDefault($"{bound}_poison_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
             long chance = (long)get("base_chance_to_poison_on_hit_%") + get("chaos_damage_chance_to_poison_%");
             double seconds = Ailments.PoisonDurationSeconds
-                * Math.Max(0, 1 + ((double)get("poison_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster;
+                * Math.Max(0, 1 + ((double)get("poison_duration_+%") + get("base_all_ailment_duration_+%")
+                    + get("base_poison_duration_+%")) / 100) / faster;
+            int moreChance = flaskEffect
+                ? Math.Clamp(get("pathfinder_poison_damage_+100%_final_chance_during_flask_effect"), 0, 100) : 0;
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                local?.GetValueOrDefault("local_poison_on_hit_%") ?? 0);
+                local?.GetValueOrDefault("local_poison_on_hit_%") ?? 0, moreChance);
         }
     }
 
@@ -61,6 +66,9 @@ sealed class MonsterPoisons
 
     public bool Poisoned => active.Count > 0;
 
+    /// <summary>Whether a stack is running at <paramref name="now"/> (the poison clock), for "a Poisoned Enemy" at death.</summary>
+    public bool PoisonedAt(double now) => active.Any(p => p.From <= now && now < p.Until);
+
     public bool Idle => active.Count == 0 && Buff is null;
 
     public double Until => active.Count == 0 ? 0 : active.Max(p => p.Until);
@@ -70,12 +78,18 @@ sealed class MonsterPoisons
     public double TotalDps(double now) =>
         active.Where(p => p.From <= now && now < p.Until).Sum(p => p.DamagePerSecond);
 
+    /// <summary>The latest poison this monster received, for Master Toxicist's on-kill spread (the stack is gone once the
+    /// body is cleared, its receipt is not).</summary>
+    public readonly record struct Receipt(double DamagePerSecond, double Seconds);
+    public Receipt? LastApplied { get; private set; }
+
     public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random)
     {
         if (immune || settings.Seconds <= 0 || !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
         double dps = min + (Math.Max(min, max) - min) * random.NextDouble();
+        if (settings.MoreChance > 0 && RandomRolls.Chance(settings.MoreChance, 100, random)) dps *= 2;
         return Add(now, dps, settings.Seconds);
     }
 
@@ -83,6 +97,7 @@ sealed class MonsterPoisons
     {
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         if (active.Count == 0) { last = now; carry = 0; }
+        LastApplied = new(perSecond, seconds);
         active.Add(new(now, now + seconds / expiryRate, perSecond));
         return true;
     }

@@ -57,7 +57,8 @@ static class FlaskRecovery
         double Amount(int baseAmount, string localSpecific, string characterSpecific) =>
             baseAmount * quality * (100 + L("local_flask_amount_to_recover_+%") + L(localSpecific)) / 100.0
             * (100 + character(characterSpecific) + character("flask_life_and_mana_to_recover_+%")) / 100.0 * (effect + lowLifeMore - 1);
-        double life0 = Amount(type.LifePerUse, "local_flask_life_to_recover_+%", "flask_life_to_recover_+%");
+        double life0 = Amount(type.LifePerUse, "local_flask_life_to_recover_+%", "flask_life_to_recover_+%")
+            * Math.Max(0, 100.0 + character("pathfinder_flask_life_to_recover_+%_final")) / 100.0;
         double mana0 = Amount(type.ManaPerUse, "local_flask_mana_to_recover_+%", "flask_mana_to_recover_+%");
         double commonRate = (100.0 + L("local_flask_recovery_speed_+%")) / 100.0
             * (100.0 + character("flask_recovery_speed_+%")) / 100.0;

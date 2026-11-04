@@ -91,6 +91,7 @@ This research does not change the production simulator or certify native/officia
 | [game/polytheist.md](game/polytheist.md) | Polytheist node checklist: rings, legal builds, consumers, engine gaps and opt-in |
 | [game/surfcaster.md](game/surfcaster.md) | Surfcaster node checklist: fishing-rod crits and cast speed, Ghost of the Deep, reversed chill, monster ailments and flee |
 | [game/ascendancies.md](game/ascendancies.md) | selection, points, saves and the Phrecia play gate |
+| [game/pathfinder.md](game/pathfinder.md) | ordinary Pathfinder node checklist: flask-effect rules, Master Toxicist, Master Distiller and the nodes' consumers |
 | [game/phrecia-modules.md](game/phrecia-modules.md) | optional Phrecia class sources, league composition and reload ownership |
 | [game/antiquarian.md](game/antiquarian.md) | all nine node consumers, verified-graph admission, legal builds and native acceptance |
 | [game/campaign-quests.md](game/campaign-quests.md) | the quest engine's pieces in the Gateway and the modules, the act files, adding a quest and an act, quest passive and respec points |

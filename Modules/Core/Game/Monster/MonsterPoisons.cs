@@ -16,7 +16,7 @@ static partial class Game
         string hand = spell ? "spell" : "main_hand";
         return MonsterPoisons.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon), hand,
             name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
-            spell || weapon is not null ? null : MainHandLocalSources(conn));
+            spell || weapon is not null ? null : MainHandLocalSources(conn), Pathfinder.FlaskEffectActive(conn));
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
@@ -26,7 +26,7 @@ static partial class Game
         var weapon = WeaponFor(conn);
         return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
             SupportedAttackDamage.Raw(weapon, Get), DamageStats.Conversion(player, Stats, attack: true), Get),
-            "main_hand", Get, weapon.LocalSources);
+            "main_hand", Get, weapon.LocalSources, Pathfinder.FlaskEffectActive(conn));
     }
 
     // A landed hit's poison: the chance the panel shows (virtual_total_{hand}_chance_to_poison_on_hit_%: the caster's and
@@ -59,7 +59,10 @@ static partial class Game
         if (avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return;
 
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
-        target.Poisons.Add(now, min + (Math.Max(min, max) - min) * random.NextDouble(),
+        double dps = min + (Math.Max(min, max) - min) * random.NextDouble();
+        // Master Toxicist: "Poisons you inflict during any Flask Effect have 20% chance to deal 100% more Damage".
+        if (settings.MoreChance > 0 && RandomRolls.Chance(settings.MoreChance, 100, random)) dps *= 2;
+        target.Poisons.Add(now, dps,
             settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]));
     }
 

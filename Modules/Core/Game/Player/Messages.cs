@@ -108,11 +108,15 @@ static partial class Game
                     if (!TryBeginRangedAttack(conn, at, duration, use.SkillId, use.Slot, out var shot)) continue;
                     int projectileEpoch;
                     lock (conn.Monsters) projectileEpoch = conn.ProjectileEpoch;
+                    // Master Distiller pays once for this ordinary ranged use, before its release is scheduled.
+                    var distiller = await Pathfinder.PayDistiller(remote, stream, ciphers, conn,
+                        () => !conn.Closed && !conn.LeavingArea);
                     // Release work must not block serial input dispatch: resume/move can invalidate a queued echo.
                     _ = ConfirmAndLaunchOrdinaryRanged(remote, stream, ciphers, conn,
                         [.. InstanceProtocol.ActionStarted(PlayerId, shot.X, shot.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags), .. InstanceProtocol.ActionEnded(PlayerId)],
                         $"0x01ab ranged attack ({ordinaryProjectile}) at ({use.X}, {use.Y}) from ({shot.X}, {shot.Y}) (t={at:0.000})",
-                        (use.X, use.Y), duration, shot.Action, projectileEpoch, ordinaryProjectile, use.Slot, shot.CriticalRoll);
+                        (use.X, use.Y), duration, shot.Action, projectileEpoch, ordinaryProjectile, use.Slot, shot.CriticalRoll,
+                        distiller);
                     continue;
                 }
                 // An attack gem (Holy Strike, Ground Slam …) used on the ground with "Always Attack Without Moving" off: a

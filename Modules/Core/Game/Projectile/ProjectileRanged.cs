@@ -25,7 +25,7 @@ static partial class Game
     // critical rules read the live owner at impact, and target evasion and impales resolve at contact.
     internal static Task ScheduleOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence,
-        SkillCriticalRoll criticalRoll)
+        SkillCriticalRoll criticalRoll, Pathfinder.DistillerBonuses? distiller = null)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -37,27 +37,40 @@ static partial class Game
             () =>
             {
                 var character = CharacterPlayerStats(conn);
+                var distillerStats = distiller?.AdditionalStats();
                 int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
                 int RawCritical(string name) => IsCriticalProhibition(name) ? 0 : Get(name);
                 int effect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } id ? SkillsFor(conn).EffectRow(id) : -1;
                 var weapon = WeaponProfileFor(conn, activeSet: true);
-                int criticalChance = CriticalProhibited(conn, attack: true)
+                bool prohibited = CriticalProhibited(conn, attack: true);
+                int criticalChance = prohibited
                     ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weapon.Critical, conn.Pools.CriticalStrikeChancePct, RawCritical)
-                    : conn.Pools.AttackCriticalStrikeChance;
+                    : distiller is not null
+                        ? AttackCriticalChanceWith(conn, character, distiller.CriticalChanceIncrease, release: false)
+                            ?? conn.Pools.AttackCriticalStrikeChance
+                        : conn.Pools.AttackCriticalStrikeChance;
                 var captured = OrdinaryRangedShot.Capture(WeaponFor(conn), character, SkillsFor(conn).EffectStats(effect, 1), Stats,
-                    PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier);
+                    PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier, distillerStats);
                 bool wand = projectileId == OrdinaryRangedAttack.Wand;
                 var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false),
                     SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(character, Stats, attack: true), Get);
+                var own = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
+                if (distillerStats is { Count: > 0 }) own = MergeSkillStats(own, distillerStats);
                 var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
                     captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
-                { SkillStats = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
-                    VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(conn, character, release: true),
-                    VsProfaneCriticalChance = AttackCriticalChanceVsProfane(conn, character, release: true),
+                { SkillStats = own,
+                    VsBlindedCriticalChance = distiller is null ? AttackCriticalChanceVsBlinded(conn, character, release: true)
+                        : conn.Pools.VsBlindedCriticalPct is not 0 and var blindedExtra
+                            ? AttackCriticalChanceWith(conn, character, blindedExtra + distiller.CriticalChanceIncrease, release: true)
+                            : null,
+                    VsProfaneCriticalChance = distiller is null ? AttackCriticalChanceVsProfane(conn, character, release: true)
+                        : AttackCriticalChanceWith(conn, character,
+                            FlaskGrounds.ProfaneCritIncrease + distiller.CriticalChanceIncrease, release: true),
                     Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
                     ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
                     Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),
-                    Poison = MonsterPoisons.Settings.From(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources),
+                    Poison = MonsterPoisons.Settings.From(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources,
+                        Pathfinder.FlaskEffectActive(conn)),
                     Bleed = BleedSettings(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources, melee: false, bow: !wand),
                     CriticalRoll = criticalRoll, Leech = captured.Leech,
                     AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,

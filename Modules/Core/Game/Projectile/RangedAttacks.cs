@@ -36,9 +36,10 @@ static partial class Game
     // follows. The release guard rechecks the action token, so a cancelled or replaced action creates no projectile.
     internal static async Task ConfirmAndLaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, byte[] actionBytes, string actionLog, (int X, int Y) aim, double attackSeconds, int action, int epoch,
-        string projectileId, ushort sequence, SkillCriticalRoll criticalRoll)
+        string projectileId, ushort sequence, SkillCriticalRoll criticalRoll, Pathfinder.DistillerBonuses? distiller = null)
     {
-        await LaunchOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll);
+        await LaunchOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll,
+            distiller);
         await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionBytes, actionLog, action, epoch);
     }
 
@@ -74,6 +75,7 @@ static partial class Game
     // captured at acceptance and travels with the shot.
     internal static Task LaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence,
-        SkillCriticalRoll criticalRoll) =>
-        ScheduleOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll);
+        SkillCriticalRoll criticalRoll, Pathfinder.DistillerBonuses? distiller = null) =>
+        ScheduleOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll,
+            distiller);
 }

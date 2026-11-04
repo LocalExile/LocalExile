@@ -184,7 +184,7 @@ static partial class Game
     internal static int? AttackCriticalChanceVsProfane(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false) =>
         AttackCriticalChanceWith(conn, player, FlaskGrounds.ProfaneCritIncrease, release);
 
-    static int? AttackCriticalChanceWith(ClientState conn, IReadOnlyDictionary<uint, int> player, long extra, bool release)
+    internal static int? AttackCriticalChanceWith(ClientState conn, IReadOnlyDictionary<uint, int> player, long extra, bool release)
     {
         var weapon = WeaponProfileFor(conn, activeSet: true);
         return AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weapon.Critical, conn.Pools.CriticalStrikeChancePct + extra,
@@ -192,12 +192,13 @@ static partial class Game
     }
 
     // A supported gem's chance against a Blinded target (its attack or spell base, the pooled and own increases).
-    internal static int? SupportedCriticalChanceVsBlinded(ClientState conn, ushort skillId, bool release) =>
-        conn.Pools.VsBlindedCriticalPct is not 0 and var extra ? SupportedCriticalChanceFor(conn, skillId, release, extra) : null;
+    internal static int? SupportedCriticalChanceVsBlinded(ClientState conn, ushort skillId, bool release, long extraIncrease = 0) =>
+        conn.Pools.VsBlindedCriticalPct is not 0 and var extra
+            ? SupportedCriticalChanceFor(conn, skillId, release, extra + extraIncrease) : null;
 
     // A supported gem's chance against a target on the player's profane ground (+100% increased critical chance).
-    internal static int? SupportedCriticalChanceVsProfane(ClientState conn, ushort skillId, bool release) =>
-        SupportedCriticalChanceFor(conn, skillId, release, FlaskGrounds.ProfaneCritIncrease);
+    internal static int? SupportedCriticalChanceVsProfane(ClientState conn, ushort skillId, bool release, long extraIncrease = 0) =>
+        SupportedCriticalChanceFor(conn, skillId, release, FlaskGrounds.ProfaneCritIncrease + extraIncrease);
 
     // damage_taken_+%_from_blinded_enemies (PoB DamageTaken INC, "from Blinded Enemies") for a Blinded monster's hits, where
     // it joins the other increased damage taken (shock), and the ticks of the ignite its hit inflicted (Advance's takenFrom).

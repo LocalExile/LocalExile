@@ -72,7 +72,7 @@ static partial class Game
     internal static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
-        ushort sequence = 0)
+        ushort sequence = 0, Pathfinder.DistillerBonuses? distiller = null)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -108,7 +108,7 @@ static partial class Game
             int left = repeats - repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + repeat * cast.Value / 1000d + delay), Valid,
                 () => ClientDrawnVolley(conn, session, skillId, gem,
-                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left),
+                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, distiller),
                     sequence, (uint)left));
         }
         return Task.CompletedTask;
@@ -221,11 +221,14 @@ static partial class Game
 
     internal static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0)
+        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0,
+        Pathfinder.DistillerBonuses? distiller = null)
     {
         var player = CharacterPlayerStats(conn);
         var own = SupportedSkill(conn, skillId).Stats;
-        var merged = MergeSkillStats(player, own);
+        var distillerStats = distiller?.AdditionalStats();
+        var effectiveOwn = distillerStats is { Count: > 0 } ? MergeSkillStats(own, distillerStats) : own;
+        var merged = MergeSkillStats(player, effectiveOwn);
         int Get(string key) => Stats.Key(key) is uint k ? merged.GetValueOrDefault(k) : 0;
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
@@ -260,16 +263,20 @@ static partial class Game
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         var local = spell ? null : WeaponFor(conn).LocalSources;
         var ailmentRows = SupportedAilmentRows(conn, skillId, spell ? "spell" : "main_hand");
-        var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, PlayerAccuracy(conn, player),
-            SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
+        var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false, distillerStats), spell,
+            PlayerAccuracy(conn, player),
+            SupportedCriticalChanceFor(conn, skillId, true, distiller?.CriticalChanceIncrease ?? 0),
+            SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
             // Child stages and release specialization can introduce areas after this root is resolved.
-            AreaHit = SupportedProjectileHit(conn, skillId, area: true),
-            VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
-            VsProfaneCriticalChance = SupportedCriticalChanceVsProfane(conn, skillId, release: true),
+            AreaHit = SupportedProjectileHit(conn, skillId, area: true, distillerStats),
+            VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true,
+                distiller?.CriticalChanceIncrease ?? 0),
+            VsProfaneCriticalChance = SupportedCriticalChanceVsProfane(conn, skillId, release: true,
+                distiller?.CriticalChanceIncrease ?? 0),
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality,
-            SkillStats = new Dictionary<uint, int>(own),
-            Penetration = Penetration.Of(player, Stats, !spell, own, local), ResistanceMods = HitResistMods(player, own),
+            SkillStats = new Dictionary<uint, int>(effectiveOwn),
+            Penetration = Penetration.Of(player, Stats, !spell, effectiveOwn, local), ResistanceMods = HitResistMods(player, own),
             ImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local),
             CriticalImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local, critical: true),
             AccuracyProfile = spell ? null : SupportedAccuracy(conn, skillId), CriticalRoll = criticalRoll,
@@ -277,7 +284,8 @@ static partial class Game
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
             Ignite = MonsterIgnites.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get),
-            Poison = MonsterPoisons.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get, local),
+            Poison = MonsterPoisons.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get, local,
+                Pathfinder.FlaskEffectActive(conn)),
             Bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,
                 bow: WeaponProfileFor(conn, activeSet: true).Bow),
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct,

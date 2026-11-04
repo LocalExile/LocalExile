@@ -59,10 +59,14 @@ static partial class Game
         await ChangeFlaskBar(remote, stream, ciphers, conn, items =>
         {
             if (still is not null && !still()) return null;
+            // Master Alchemist rolls once for this use; a free use still publishes the flask so the client has the
+            // authoritative charges.
+            bool free = Pathfinder.FlaskUseIsFree(conn);
+            var cost = free ? charges with { ChargesPerUse = 0 } : charges;
             bool enough = false;
             var done = items.Change(PlayerInventories.Flask, flask.Id, i =>
             {
-                var after = Flasks.Spend(i, charges);
+                var after = Flasks.Spend(i, cost);
                 enough = after is not null;
                 return after ?? i;
             });

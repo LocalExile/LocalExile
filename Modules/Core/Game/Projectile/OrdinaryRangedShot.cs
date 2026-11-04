@@ -12,12 +12,20 @@ sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int CriticalCha
     public SkillCriticalRoll? CriticalRoll { get; init; }
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
     public static OrdinaryRangedShot Capture(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> character,
-        IEnumerable<(uint, int)> skillConversion, StatCatalog catalog, int accuracy, int criticalChance, int criticalMultiplier)
+        IEnumerable<(uint, int)> skillConversion, StatCatalog catalog, int accuracy, int criticalChance, int criticalMultiplier,
+        IReadOnlyDictionary<uint, int>? extra = null)
     {
         int Get(string name) => catalog.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
         var conversion = new Dictionary<uint, int>(character);
         var own = skillConversion.ToDictionary(kv => kv.Item1, kv => kv.Item2);
         foreach (var (key, value) in own) conversion.TryAdd(key, value);
+        if (extra is { Count: > 0 })
+            foreach (var (key, value) in extra)
+            {
+                // Master Distiller adds to the character's own source instead of replacing it (unlike a skill stat).
+                conversion[key] = conversion.GetValueOrDefault(key) + value;
+                own[key] = own.GetValueOrDefault(key) + value;
+            }
         var hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get), Get,
             DamageStats.Conversion(conversion, catalog, attack: true), spell: false, projectile: true), Get), Get);
         var impale = ImpaleStats.From(character, catalog, attack: true, own, weapon.LocalSources);

@@ -265,13 +265,16 @@ static partial class Game
             LockstepAttackOver(conn, action);
             return;
         }
+        // Master Distiller pays once for this accepted default attack (non-channelling, it hits).
+        var distiller = await Pathfinder.PayDistiller(remote, stream, ciphers, conn, Current);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
         byte[] actionBytes = [.. InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)];
         string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s";
         if (ordinaryProjectile is { } projectileId)
         {
             // The runtime schedules the release first, anchored to this acceptance; the echo follows through the gate.
-            await LaunchOrdinaryRanged(remote, stream, ciphers, conn, target, duration, action, projectileEpoch, projectileId, use.Sequence, criticalRoll);
+            await LaunchOrdinaryRanged(remote, stream, ciphers, conn, target, duration, action, projectileEpoch, projectileId, use.Sequence,
+                criticalRoll, distiller);
             if (!started && !await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionBytes, actionLog, action, projectileEpoch)) return;
         }
         else if (!started) await Send(remote, stream, ciphers, actionBytes, actionLog, still: () => PlayerActionCurrent(conn, action));
@@ -283,6 +286,11 @@ static partial class Game
         int attackEffect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } attackId ? SkillsFor(conn).EffectRow(attackId) : -1;
         var ownPenetration = attackEffect >= 0
             ? SkillsFor(conn).EffectStats(attackEffect, 1).ToDictionary(kv => kv.Item1, kv => kv.Item2) : null;
+        if (distiller is not null && distiller.AdditionalStats() is { Count: > 0 } distillerStats)
+        {
+            ownPenetration ??= [];
+            foreach (var (key, value) in distillerStats) ownPenetration[key] = ownPenetration.GetValueOrDefault(key) + value;
+        }
         List<uint> spirit;
         (int X, int Y)? echo;
         byte[]? memoryBuff;
@@ -355,14 +363,25 @@ static partial class Game
                 }
                 var pen = Penetration.Of(player, Stats, attack: true, ownPenetration, weapon.LocalSources);
                 var resistanceMods = HitResistMods(player, ownPenetration);
-                var hit = AttackHitConverted(weapon, player, WeaponProfileFor(conn, activeSet: true).Melee,
-                    ConversionFor(conn, attackEffect, 1, attack: true));
+                var conversion = ConversionFor(conn, attackEffect, 1, attack: true);
+                if (distiller is not null && distiller.PhysicalAsChaos > 0)
+                    conversion = conversion.AddGain(DamageType.Physical, DamageType.Chaos, distiller.PhysicalAsChaos);
+                var hit = AttackHitConverted(weapon, player, WeaponProfileFor(conn, activeSet: true).Melee, conversion);
                 if (WeaponProfileFor(conn, activeSet: true).Melee)
                     hit = WithMeleeProximityLocked(conn, player, ownPenetration, m, hit, contactAt);
                 var gambler = GamblerFor(player);
                 var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared));
-                critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, conn.Pools.AttackCriticalStrikeChance,
-                        AttackCriticalChanceVsBlinded(conn, player), AttackCriticalChanceVsProfane(conn, player)), ownPenetration, skillRoll: criticalRoll)
+                int attackChance = distiller is null ? conn.Pools.AttackCriticalStrikeChance
+                    : AttackCriticalChanceWith(conn, player, distiller.CriticalChanceIncrease, release: false)
+                        ?? conn.Pools.AttackCriticalStrikeChance;
+                int? vsBlinded = distiller is null ? AttackCriticalChanceVsBlinded(conn, player)
+                    : conn.Pools.VsBlindedCriticalPct is not 0 and var blindedExtra
+                        ? AttackCriticalChanceWith(conn, player, blindedExtra + distiller.CriticalChanceIncrease, release: false) : null;
+                int? vsProfane = distiller is null ? AttackCriticalChanceVsProfane(conn, player)
+                    : AttackCriticalChanceWith(conn, player,
+                        FlaskGrounds.ProfaneCritIncrease + distiller.CriticalChanceIncrease, release: false);
+                critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, attackChance, vsBlinded, vsProfane),
+                        ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
                 int sourceCriticalMultiplier = AttackCriticalMultiplier(conn, player);
                 int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier);
@@ -710,6 +729,13 @@ static partial class Game
             await PublishVaalUse(remote, stream, ciphers, conn, vaalUse);
         }
         if (!Current()) return false;
+        // Master Distiller pays once per accepted non-channelling use that can hit. Totems, warcries, auras, reservations,
+        // Righteous Fire, links and Shield Charge do not spend its charges.
+        Pathfinder.DistillerBonuses? distiller = null;
+        if (channelGeneration is null && !locationInstant && gem.Name is not null
+            && SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality).CanHit
+            && TotemVariety(conn, gem.Effect) is null && ShieldChargeBonusPct(conn, skillId, gem.Effect) == 0)
+            distiller = await Pathfinder.PayDistiller(remote, stream, ciphers, conn, Current);
         if (channelGeneration is not null)
         {
             lock (conn.Monsters)
@@ -745,7 +771,8 @@ static partial class Game
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
             await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
-                actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration);
+                actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll,
+                channelGeneration: channelGeneration, distiller: distiller);
         return true;
     }
 
@@ -908,7 +935,7 @@ static partial class Game
     internal static Task LaunchProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
-        int? channelGeneration = null)
+        int? channelGeneration = null, Pathfinder.DistillerBonuses? distiller = null)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
@@ -918,7 +945,7 @@ static partial class Game
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
-                sequence);
+                sequence, distiller);
         // A channelled skill (Cyclone, ActiveSkillType 47) hits as it starts: its spin is already in motion, and the later
         // sweeps follow on the attack timer (RunChannel).
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;
@@ -926,7 +953,7 @@ static partial class Game
         return Task.WhenAll(Enumerable.Range(0, SpellRepeats(conn, skillId, gem.Effect) + 1).Select(repeat =>
             AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from, to, immediate: channelled, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
-                targetId: targetId, repeat: repeat)));
+                targetId: targetId, repeat: repeat, distiller: distiller)));
     }
 
     // A channelled skill's hits (Cyclone): one sweep around the player every attack time (SupportedAttackSeconds: the
@@ -1036,7 +1063,8 @@ static partial class Game
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
-        uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null)
+        uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null,
+        Pathfinder.DistillerBonuses? distiller = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         bool Current() => (cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken))
@@ -1045,6 +1073,8 @@ static partial class Game
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
         if (!Current()) return;
         var skillStats = SupportedSkill(conn, skillId).Stats;
+        if (distiller is not null && distiller.AdditionalStats() is { Count: > 0 } distillerStats)
+            skillStats = MergeSkillStats(skillStats, distillerStats);
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
         int effectiveness = SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
@@ -1178,7 +1208,8 @@ static partial class Game
                     var local = spell || shield is not null ? null : MainHandLocalSources(conn);
                     pen = Penetration.Of(player, Stats, attack: !spell, skillStats, local);
                     mods = HitResistMods(player, skillStats);
-                    sweepHit = shield is null ? SupportedHit(conn, skillId) : SupportedHitFor(conn, skillId, suppress: true, weapon: shield);
+                    sweepHit = shield is null ? SupportedHit(conn, skillId, distiller?.AdditionalStats())
+                        : SupportedHitFor(conn, skillId, suppress: true, weapon: shield, extra: distiller?.AdditionalStats());
                     if (ruthless != 1) sweepHit = sweepHit.Scale(ruthless);
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                     if (!spell) accuracy = SupportedAccuracy(conn, skillId);
@@ -1211,9 +1242,10 @@ static partial class Game
                         .RollOutgoingHit(contactHit, Random.Shared)),
                     ProjectileWorldTime(conn));
                 // The shared roll meets each target's current chance: a source can change between targets.
-                int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
-                    SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
-                    SupportedCriticalChanceVsProfane(conn, skillId, release: false));
+                int criticalChance = CriticalChanceOn(conn, id,
+                    SupportedCriticalChanceFor(conn, skillId, false, distiller?.CriticalChanceIncrease ?? 0),
+                    SupportedCriticalChanceVsBlinded(conn, skillId, release: false, distiller?.CriticalChanceIncrease ?? 0),
+                    SupportedCriticalChanceVsProfane(conn, skillId, release: false, distiller?.CriticalChanceIncrease ?? 0));
                 critical = RollCriticalStrike(conn, criticalChance, skillStats,
                         attack: !spell, skillRoll: criticalRoll, player: player)
                     && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom));
@@ -1590,6 +1622,9 @@ static partial class Game
         // A Mystic Fetish is a destructible arena object: breaking it interrupts the King's ritual and gives no
         // experience, loot or quest progress of its own.
         if (KingInMists.IsFetish(variety)) return;
+        // Master Toxicist: the poison that killed it spreads to nearby bodies during a flask effect (or on kill in
+        // Ruthless). The helper reads both the poison and the position clocks itself.
+        if (playerKill) Pathfinder.SpreadPoisonOnKill(conn, m);
         var killer = PlayerOf(conn);
         var monster = ModMonster(m, at);
         if (playerKill)

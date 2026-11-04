@@ -8,6 +8,7 @@ static partial class Game
         ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife)
     {
         var state = Automation(conn);
+        Pathfinder.DispelAilmentsOnFlaskUse(conn);
         state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot));
         if (use.LifePerUse > 0) state.Enqueue(new(FlaskEnchantments.Trigger.LifeFlask, flask.Id, (byte)slot));
         state.Packets.Add(new(InstanceItems.ItemUsed(flask.Item.TypeHash,

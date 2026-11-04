@@ -202,6 +202,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Ordinary Pathfinder: every Default-graph node has a consumer, including Master Distiller's per-use charge payment,
+  Master Toxicist's poison spread and Master Alchemist's free use; two Gateway regressions cover the new rules.
+  Native acceptance and Distiller's instant/Shield Charge/poison-panel paths remain open.
+  Docs: [node checklist, rules and limits](../docs/game/pathfinder.md).
+
 - Behemoth: the optional Phrecia module supplies its capability, verified-graph opt-in and mode-aware node sources.
   Shared Rampage tiers and Vaal Ground Slam payment execute in Game with generation/source retirement guards.
   Two deterministic Gateway regressions cover worker ownership and atomic attack/payment admission.

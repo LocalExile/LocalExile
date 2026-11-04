@@ -51,6 +51,7 @@ static partial class Game
         if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentUse, _ =>
         {
             var state = Automation(conn);
+            Pathfinder.DispelAilmentsOnFlaskUse(conn);
             if (signal is { } step) state.Accepted(step, flask.Id);
             double now = AreaTime(conn);
             var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, conn.NextBuff++,
