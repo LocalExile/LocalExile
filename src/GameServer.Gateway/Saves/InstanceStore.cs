@@ -81,6 +81,12 @@ sealed partial class InstanceState
         lock (_states) return _states.Add(state);
     }
 
+    /// <summary>Clears one of the instance's states (the plaza's door, shut again for the next run): true if it was set.</summary>
+    public bool ClearState(string state)
+    {
+        lock (_states) return _states.Remove(state);
+    }
+
     public bool HasState(string state)
     {
         lock (_states) return _states.Contains(state);

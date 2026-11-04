@@ -133,12 +133,25 @@ partial class Program
                 int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
                 prepared = true;
                 var moduleHeader = ServerHooks.Header(PlayerOf(conn));
+                // A room of today's Labyrinth names its node (LabyrinthDay): the client then builds the day's layout and
+                // applies the room's overrides and secrets, as the server's own generation of it does (ServerLevels).
+                var labyrinthNode = moduleHeader?.Terrain is null ? LabyrinthDay.NodeFor(layout.Id, seed) : null;
+                // The plaza's door is shut whenever someone comes: each run is chosen at its device again.
+                if (layout.Id == LabyrinthDay.Plaza) conn.Instance.ClearState(LabyrinthDay.PlazaDoorOpen);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: Logic.AreaLeagueStats(conn),
-                    TerrainData: moduleHeader?.Terrain,
+                    TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null ? null : LabyrinthDay.ExtraData(labyrinthNode)),
                     AchievementSets: moduleHeader?.AchievementSets);
-                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}");
+                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}" +
+                    (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
                 await Logic.Entered(remote, conn, level, resolved.Level);
+                // A Labyrinth run: the rooms been in, for the Labyrinth map (S→C 0x1cb); anywhere else it ends.
+                if (resolved.Character is { Length: > 0 } runner)
+                {
+                    var progress = LabyrinthDay.Enter(runner, layout.Id, seed) ?? (labyrinthNode is null ? null : LabyrinthDay.Visit(labyrinthNode));
+                    if (progress is not null)
+                        await Send(remote, stream, ciphers, progress, $"0x01cb labyrinth progress: now node {labyrinthNode?.Row}");
+                }
                 // The read loop answers ticks; everything else runs in order on the handler task (ClientInbox, issue #46).
                 var inbox = new ClientInbox(conn.Performance);
                 using var reading = new CancellationTokenSource();

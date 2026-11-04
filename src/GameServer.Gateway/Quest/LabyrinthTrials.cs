@@ -31,6 +31,13 @@ static class LabyrinthTrials
         HiddenWall = "Metadata/Terrain/Labyrinth/Objects/HiddenDoor_Long",
         HiddenSwitch = "Metadata/Terrain/Labyrinth/Objects/HiddenDoor_Switch",
         Portal = "Metadata/Terrain/Labyrinth/Objects/LabyrinthTrialReturnPortal",
+        // The Sarn Encampment statue's state: opened by its plaque with the Normal trials done (QuestObjects Act3Objects).
+        // The server's own flag (no QuestFlags row): LabyrinthAccess, set with it, every character has through the plaza's
+        // waypoint. /trials off clears both.
+        SarnStatueOpened = "SarnLabyrinthStatueOpened", LabyrinthAccess = "LabyrinthAccess",
+        // The glyph statue by a Labyrinth room's ways in and out (server_only, "MapLegendCurrentLocation"): a click opens
+        // the Labyrinth map (0x7b kind 0x0f, LabyrinthMapWindow), which the client draws from the day's layout.
+        Map = "Metadata/Terrain/Labyrinth/Objects/LabyrinthMap",
         SpikeTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthCascadeSpikeTrap",
         ArrowTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthArrowTrap",
         // The trials' Bronze Monographs (NPCs.dat LabyrinthTrialGlyphPrison, …Sins, …Church, …Crematorium, …Hedge,
@@ -1374,6 +1381,7 @@ static class LabyrinthTrials
         [OpenDoor] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage", "MinimapIcon"],
         [Plaque] = ["Positioned", "BaseEvents", "Animated", "Transitionable", "MinimapIcon", "InteractionAction"],
         [Portal] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "MinimapIcon"],
+        [Map] = ["Positioned", "BaseEvents", "Animated", "InteractionAction"],
         [Gears] = ["Positioned", "BaseEvents", "Animated", "Transitionable"],
         [Lava] = ["Positioned", "Animated", "BaseEvents", "Transitionable", "Buffs"],
         [Lava3x3] = ["Positioned", "Animated", "BaseEvents", "Transitionable", "Buffs"],

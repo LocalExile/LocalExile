@@ -42,6 +42,8 @@ world setters; 3 = second area hash; 2 → `0x142142d30`; 0xa → `0x142142c90(+
 `TerrainData` sets flag 0x22 bit 2 and appends a big-endian u16 byte count followed by the extra-data bytes.
 The extra-data decoder (`0x141ec7220`) has its own two-byte flags and little-endian nested records.
 Its first flag byte's bit 5 selects the Delve terrain block (`0x141ec5f20`).
+Bit 3 is the Labyrinth node: u32 seed, u16 LabyrinthSectionLayout row, u8 difficulty, from which `0x1424e5ca0` builds
+the day's layout and finds the room ([re/011](../re/011-level-generation.md), "Labyrinth pass").
 See [Delve](21-hideouts.md#delve-sulphite-and-the-crawler-live-2026-10-29) for the initial mine control.
 
 ### What the client does
