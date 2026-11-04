@@ -314,6 +314,9 @@ static partial class Game
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell));
             if (hit is null) return ProjectileHitResult.Miss;
+            // Item Quantity Support: the kill's loot rolls read the supported skill's share.
+            if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
+                target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
             if (!immune)
                 AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
                     at, contact.Projectile.ReactionRandomSource, poison: shot.Poison);

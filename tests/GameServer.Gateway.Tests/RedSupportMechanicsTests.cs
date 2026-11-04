@@ -46,5 +46,14 @@ public sealed class RedSupportMechanicsTests
         // Combustion: the ignite's fire resistance reduction rides on the ignite settings.
         Assert.Equal(-10, MonsterIgnites.Settings.From([], "main_hand",
             Stats(("ignites_apply_fire_resistance_+", -10))).FireExposure);
+
+        // Iron Grip: Strength's bonus joins projectile attack physical damage only.
+        Assert.Equal(20, DamageStats.StrengthDamageBonus(Stats(("strength", 100))), 9);
+        var strength = Stats(("strength", 100), ("keystone_strong_bowman", 1));
+        var withoutGrip = Stats(("strength", 100));
+        Assert.Equal(20, DamageStats.AttackIncrease(strength, DamageType.Physical, melee: false, projectile: true)
+            - DamageStats.AttackIncrease(withoutGrip, DamageType.Physical, melee: false, projectile: true), 9);
+        Assert.Equal(0, DamageStats.AttackIncrease(strength, DamageType.Physical, melee: true, projectile: true)
+            - DamageStats.AttackIncrease(withoutGrip, DamageType.Physical, melee: true, projectile: true), 9);
     }
 }

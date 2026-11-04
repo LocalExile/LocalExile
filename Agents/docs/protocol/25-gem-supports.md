@@ -113,7 +113,10 @@ not modelled); Bloodlust's more melee physical damage applies against a bleeding
 `support_pulverise_attack_speed_+%_final` and Rage's `attack_speed_+%_with_at_least_10_rage` join the attack-speed
 factors; Power Charge on Critical adds its more damage per power charge; Volatility scales the attack's minimum and
 maximum damage (`Volatility.cs`); Combustion's `ignites_apply_fire_resistance_+` rides on the ignite as a fire Exposure
-for its duration.
+for its duration; Item Quantity's `base_killed_monster_dropped_item_quantity_+%` multiplies the loot of the last hit's
+kill (`ItemQuantityFactor`, a damage-over-time kill keeps no skill attribution); Iron Grip's `keystone_strong_bowman`
+adds Strength's damage bonus to projectile attack physical damage and Iron Will's `strong_casting` to spell damage
+(`DamageStats.StrengthDamageBonus`).
 
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
 A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.

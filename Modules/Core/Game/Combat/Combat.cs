@@ -1268,6 +1268,9 @@ static partial class Game
                 if (applied is not null)
                 {
                     landed++;
+                    // Item Quantity Support: the kill's loot rolls read the supported skill's share.
+                    if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
+                        m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
                     AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
                         reflected, poison);
                     // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
@@ -1671,7 +1674,7 @@ static partial class Game
         if (modded is not { Cancel: true })
         {
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
             // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign.
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
                 ? openMap.Area.Tier : 0;

@@ -222,6 +222,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
+    // "Killed Enemies drop X% increased Items" from the skill of the last player hit (Item Quantity Support).
+    public int KilledWithItemQuantityPct;
     // Blinded by his hits until when, one more source of his Blind (Game.Blinded), shown with its own blinded buff.
     public double BlindedUntil = double.NegativeInfinity, BlindShownUntil;
     public ushort BlindBuff;
