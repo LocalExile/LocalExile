@@ -11,12 +11,13 @@ using GameServer.Core.World;
 /// physical and chaos damage (30%). Each converted portion keeps the increases of every type it visited, as the hit
 /// itself does (<see cref="PlayerHitDamage"/>), plus the ailment's own buckets: generic damage, damage over time
 /// (generic and the ailment type's), "Damage with Ailments", "Bleeding / Burning / Ignite / Poison Damage", the
-/// elemental increase for ignite, then the damage-over-time multipliers (generic, the ailment type's, and for critical
-/// strikes <c>critical_ailment_dot_multiplier_+</c>: ailments inflicted by critical strikes gain nothing else from the
-/// critical multiplier), the Frenzy Charges' more multiplier and the supports' (<see cref="SupportMore"/>).
+/// elemental increase for ignite, then the damage-over-time multipliers (generic, the ailment type's, for ailments, the
+/// ailment's own, and for critical strikes <c>critical_ailment_dot_multiplier_+</c> and the ailment's: ailments inflicted
+/// by critical strikes gain nothing else from the critical multiplier), the Frenzy Charges' more multiplier, the
+/// supports' (<see cref="SupportMore"/>) and Crimson Dance's 50% less bleeding.
 /// Modifiers to hits (attack, spell, melee, area and projectile damage) never reach an ailment (wiki Ignite and
 /// Bleeding); pinned PoB CalcOffence (16de4b82) builds the bleed, poison and ignite configs without those flags.
-/// Conditional sources, stacking, "as though dealing more" and the moving bleed bonus are not modelled.
+/// Conditional sources, "as though dealing more" and the moving bleed bonus (a monster's, MonsterBleeds) are not here.
 /// </para>
 /// The "from only Chaos Damage" poison rows (<c>_to_always_deal_</c>) show the poison the chaos portion alone deals,
 /// when a "Chaos Damage has a chance to Poison" source is present.
@@ -113,9 +114,12 @@ static class AilmentPanelStats
         var more = SupportMore.Where(m => (m.Only is null || m.Only.Contains(ailment)) && (!m.MeleeHit || context.Melee)
             && (!m.Attack || context.Attack) && get(m.Stat) != 0).ToList();
         double multiplier = Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get(Slug(ailmentType) + "_dot_multiplier_+")
-            + (critical ? get("critical_ailment_dot_multiplier_+") : 0)) / 100)
+            + get("ailment_dot_multiplier_+") + get(ailment + "_dot_multiplier_+")
+            + (critical ? get("critical_ailment_dot_multiplier_+") + get("critical_" + ailment + "_dot_multiplier_+") : 0)) / 100)
             // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).
-            * (ailmentType == DamageType.Fire ? Math.Max(0, 1 + get("active_skill_ignite_damage_+%_final") / 100.0) : 1);
+            * (ailmentType == DamageType.Fire ? Math.Max(0, 1 + get("active_skill_ignite_damage_+%_final") / 100.0) : 1)
+            // Crimson Dance: "50% less Damage with Bleeding" (ReminderTextKeystoneCrimsonDance).
+            * (ailment == "bleeding" && get("keystone_crimson_dance") != 0 ? .5 : 1);
         var typed = DamageTypes.ConversionOrder.Select(type => (History: DamageTypes.HistoryOf(type), Increased: get(Slug(type) + "_damage_+%"))).ToArray();
         int elemental = get("elemental_damage_+%");
         double min = 0, max = 0;

@@ -746,16 +746,19 @@ the hit (the default attack per hand, a supported gem's hit per hand / as a spel
 the ailment's buckets instead of the hit's: each converted portion keeps the increases of the types it visited, plus
 generic damage, damage over time (generic and the ailment type's), `base_ailment_damage_+%`,
 `bleeding_damage_+%` / `burn_damage_+%` and `ignite_damage_+%` / `base_poison_damage_+%`, elemental damage for ignite, then the
-damage-over-time multipliers (`dot_multiplier_+`, the type's, and `critical_ailment_dot_multiplier_+` for the critical
-rows, with Character.ot's base 50 in `PanelStatDefaults`: critical strikes give ailments nothing else), the Frenzy Charges' more multiplier and the support more multipliers
-that reach ailments (`AilmentPanelStats.SupportMore`), times the base percentage
+damage-over-time multipliers (`dot_multiplier_+`, the type's, `ailment_dot_multiplier_+`, the ailment's
+`bleeding_dot_multiplier_+` / `ignite_dot_multiplier_+` / `poison_dot_multiplier_+`, and for the critical rows
+`critical_ailment_dot_multiplier_+` and `critical_{ailment}_dot_multiplier_+`, with Character.ot's base 50 in
+`PanelStatDefaults`: critical strikes give ailments nothing else), the Frenzy Charges' more multiplier, the support
+more multipliers that reach ailments (`AilmentPanelStats.SupportMore`) and Crimson Dance's 50% less bleeding
+(`keystone_crimson_dance`, ReminderTextKeystoneCrimsonDance), times the base percentage
 (70 / 90 / 30) and 60. The "from only Chaos Damage" rows use the chaos portion alone and show with a
 `chaos_damage_chance_to_poison_%` source. Modifiers to hits (attack, spell, melee, melee physical, area and
 projectile damage) never reach them (wiki Ignite and Bleeding); pinned PoB CalcOffence (16de4b82) builds the bleed,
 poison and ignite configs without the Attack, Spell, Melee, Area and Projectile flags, and its `sup_*.lua` give each
-support multiplier's flags. Not modelled: conditional sources and supports (Ruthless, Controlled Blaze), stacking,
-"as though dealing more", the moving bleed bonus, and the rows' native formatting. Burning Arrow's quality
-(`active_skill_ignite_damage_+%_final`, 1% per quality) multiplies the ignite rows.
+support multiplier's flags. Not modelled: conditional sources and supports (Ruthless, Controlled Blaze), the
+weapon's `local_bleeding_ailment_dot_multiplier_+`, "as though dealing more", and the rows' native formatting.
+Burning Arrow's quality (`active_skill_ignite_damage_+%_final`, 1% per quality) multiplies the ignite rows.
 
 **Hit ignite on monsters (`MonsterIgnites`, `Program.MonsterIgnites.cs`).** A gem projectile or ordinary bow/wand
 shot captures its ignite at release, and the default attack and an area skill's sweep read the same when they hit
@@ -789,7 +792,14 @@ bleeds from the critical rows. The panel's `virtual_{hand}_chance_to_bleed_on_cr
 ignites' rules (`SpawnedMonster.Bleeds`); the player tick (`BleedMonsters`) deals the strongest through the monster's
 physical damage over time taken (armour stops hits only), three times while its walk moves. It wears the native
 `bleeding` buff (BuffDefinitions row 140, the one the trial spike traps put on the player) timed as the ignited one.
-Not modelled: Crimson Dance's stacks and aggravated bleeding.
+Before its bleed roll a hit aggravates the bleeds already on the target at
+`base_aggravate_bleeding_on_attack_hit_chance_%` (a critical strike adds
+`aggravate_bleeding_on_attack_crit_chance_%`); `aggravate_inflicted_bleeding` aggravates the hit's own. On a standing
+monster the strongest aggravated bleed adds the moving bonus (twice its damage) to the strongest bleed's; a moving one
+takes only the moving bonus (wiki Bleeding, Aggravate). With `keystone_crimson_dance` the 8 strongest deal damage,
+never aggravated nor tripled while moving. Not modelled: the conditional Crimson Dance sources
+(`gain_crimson_dance_*`), and aggravation by a hit without physical damage, by stun, knockback, exerted attacks or
+bleed age.
 
 **Hit poison on monsters (`MonsterPoisons.cs`).** `PoisonOnHitLocked` rolls the caster's and the skill's poison chance
 and the monster's avoidance on every landed hit with physical or chaos damage. Each poison's damage per second (a roll
@@ -1245,7 +1255,7 @@ mitigation are composed as described in the [projectile module](../game/projecti
 - Remaining skill-specific increased/more/effectiveness mechanics beyond the documented packet and support paths.
   Weapon-local and character flat ranges retain conversion history and their separate scopes.
 - Outgoing ailments beyond ignite, bleed, poison (§3), chill, freeze and shock: alternative ailments (scorch, brittle,
-  sap); the shatter visual and the on-death effects Shatter suppresses; Crimson Dance and aggravated bleeding.
+  sap); the shatter visual and the on-death effects Shatter suppresses.
   Supported incoming elemental ailments are bounded by [Gambler](../game/gambler.md#incoming-elemental-ailments).
 - Per-monster damage conversion and monster-specific mitigation.
 - Damage reflection, specialized leech conversions/conditions, conditional gain on hit, and Mana and Energy Shield

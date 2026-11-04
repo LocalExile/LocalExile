@@ -111,6 +111,31 @@ public sealed class HitAilmentTests
         conn.PlayerStats[Program.Stats.Key("support_chance_to_bleed_bleeding_damage_+%_final")!.Value] = 50;
         Assert.Equal(1.5, Bleed().Max / settings.Max, 2);
         Assert.Equal(poison, Game.DefaultAttackPoison(conn, Game.CharacterPlayerStats(conn)).Max, 6);
+        double supported = Bleed().Max;
+        conn.PlayerStats[Program.Stats.Key("bleeding_dot_multiplier_+")!.Value] = 50;
+        Assert.Equal(1.5, Bleed().Max / supported, 2);
+
+        // Aggravated (wiki Bleeding): on a standing monster the strongest aggravated bleed adds the moving bonus to the
+        // strongest bleed's damage; a moving one already takes it.
+        Assert.Equal((2.0, 0.0), (Game.AggravatedExtra(Monster(), 0), Game.AggravatedExtra(target, 0.1)));
+        var cuts = new MonsterIgnites();
+        cuts.Add(0, 4, 5);
+        cuts.Aggravate();
+        cuts.Add(0, 10, 5);
+        Assert.Equal(10 + 2 * 4, cuts.Advance(1, 1, aggravatedExtra: 2));
+        conn.PlayerStats[Program.Stats.Key("base_aggravate_bleeding_on_attack_hit_chance_%")!.Value] = 10;
+        conn.PlayerStats[Program.Stats.Key("aggravate_inflicted_bleeding")!.Value] = 1;
+        Assert.Equal((10, 10, true), (Bleed().Aggravate, Bleed().CriticalAggravate, Bleed().Aggravated));
+        // Crimson Dance: the 8 strongest deal damage at 50% less, never aggravated nor more while it moves.
+        double single = Bleed().Max;
+        conn.PlayerStats[Program.Stats.Key("keystone_crimson_dance")!.Value] = 1;
+        var dance = Bleed();
+        Assert.Equal((8, 0, false), (dance.Stacks, dance.Aggravate, dance.Aggravated));
+        Assert.Equal(.5, dance.Max / single, 6);
+        cuts.Stacks = 8;
+        Assert.Equal(14, cuts.Advance(2, 1));
+        target.Bleeds.Stacks = 8;
+        Assert.Equal((still, 0.0), (Game.BleedTaken(target, 0.1), Game.AggravatedExtra(target, 0)));
         conn.PlayerStats[Program.Stats.Key("cannot_cause_bleeding")!.Value] = 1;
         Assert.Equal(MonsterIgnites.Settings.None, Bleed());
     });
