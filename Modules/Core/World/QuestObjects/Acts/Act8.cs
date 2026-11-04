@@ -59,6 +59,14 @@ sealed class Act8 : Act
 
     public override IReadOnlyList<Quest> Table =>
         [
+            // labyrinth_a8: the Act 8 Sarn Encampment's statue in front of the way to the Aspirants' Plaza (as Act 3's).
+            new Quest("labyrinth_a8")
+            {
+                On.Object(SarnEncampment, Act3Objects.LabyrinthStatue, Act3Objects.StatueOpened),
+                On.Object(SarnEncampment, Act3Objects.LabyrinthPlaque, Act3Objects.StatueOpened),
+                // The way to the plaza stands behind the statue: shown once it is open.
+                On.Exit(SarnEncampment, Act3Objects.Plaza, Act3Objects.StatueOpened),
+            },
             // a8q1 "Essence of the Hag" (act8.md a8q1): Sin's "Doedre Darktongue"; Doedre the Vile dies in her Cesspool
             // (doedre_boss_room_1.arm mapboss; the real fight starts at the cauldron valve): KilledBoss, the gate of every
             // later Act 8 area; Sin appears (1224, no god). Hargan's "Doedre Reward" is offer 54 (rings, gloves).

@@ -148,7 +148,10 @@ static partial class Game
             await ShowInstances(remote, stream, ciphers, conn, dest, atWaypoint: false);
             return;
         }
-        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(dest, 0, false), use.ToString());
+        // A Labyrinth run's ways (the plaza's way in, its rooms' exits): each room its own instance (LabyrinthDay.Transfer).
+        var transfer = LabyrinthDay.Transfer(CharacterName(conn), conn.Layout.Id, conn.Seed, transition.SourceType, dest,
+            AreaTransitionCatalog.IdOf(dest)) ?? new PendingTransfer(dest, 0, false);
+        await ChangeArea(remote, stream, ciphers, conn, transfer, use.ToString());
     }
 
     // The destination's instances (0xae) for the client's instance chooser; its pick (0xaf) changes area.

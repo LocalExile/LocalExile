@@ -139,7 +139,36 @@ static partial class Game
     // The quest flag an area transition needs (Quests.FlagToEnter), or null. Such an exit is created only once the character
     // has the flag: The Twilight Strand's gate into Lioneye's Watch appears when Hillock dies (a1q1, 12-quests.md §6).
     internal static string? TransitionFlag(ClientState conn, AreaTransitionObject transition) =>
-        AreaTransitionCatalog.IdOf(transition.DestinationHash16) is { } dest ? QuestsOf(conn).FlagToEnter(conn.Layout.Id, dest) : null;
+        // The plaza's way into the Labyrinth leads to the day's first room: shown once its door is open (ChooseLabyrinth).
+        conn.Layout.Id == LabyrinthDay.Plaza && transition.SourceType == LabyrinthDay.Entrance ? LabyrinthDay.PlazaDoorOpen
+        : AreaTransitionCatalog.IdOf(transition.DestinationHash16) is { } dest ? QuestsOf(conn).FlagToEnter(conn.Layout.Id, dest) : null;
+
+    // Whether a Labyrinth tier's trials are done (Labyrinths RequiredTrials: Normal's six, …; the character's flag or the
+    // league's, LabyrinthTrials).
+    internal static bool LabyrinthTrialsDone(ClientState conn, int tier, out int done, out int count)
+    {
+        var trials = LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == tier).ToList();
+        done = trials.Count(t => conn.HasQuestFlag(t.Flag) || conn.LeagueQuestFlags.Contains(t.LeagueFlag));
+        count = trials.Count;
+        return count > 0 && done == count;
+    }
+
+    // C→S 0x212: the Labyrinth the plaza's select window chose (1 Normal … 4 Eternal). With its trials done the door in front
+    // of the way in opens in this instance and the way in shows (to today's first room; only the Normal Labyrinth is built).
+    internal static async Task ChooseLabyrinth(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte tier)
+    {
+        if (conn.Layout.Id != LabyrinthDay.Plaza) return;
+        bool done = LabyrinthTrialsDone(conn, tier, out int have, out int count);
+        Console.WriteLine($"[gateway] {remote} <= 0x0212 Labyrinth {tier} chosen: {have} of {count} of its trials done");
+        if (tier != 1)
+        {
+            Console.WriteLine($"[gateway] {remote} Labyrinth {tier}: only the Normal Labyrinth is built, the door stays shut");
+            return;
+        }
+        if (!done || !conn.Instance.SetState(LabyrinthDay.PlazaDoorOpen)) return;
+        await UpdateQuestObjectStates(remote, stream, ciphers, conn, [LabyrinthDay.PlazaDoorOpen]);
+        await UpdateShownTransitions(remote, stream, ciphers, conn, "the Labyrinth's door opens");
+    }
 
     // The quest tables that run for this player: those of the modules its league lists (Quests.For; empty without
     // QuestObjects). The area's layout is the same for every league, so what the tables add or change there is decided
