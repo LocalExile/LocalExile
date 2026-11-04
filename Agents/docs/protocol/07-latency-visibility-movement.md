@@ -140,6 +140,21 @@ to whole cells on every re-order, walked through NPCs and refused detours the cl
 precision 1, min and max range 0, tolerance −1, no phasing; a walk up to an object to use it has max range = the
 object's size + 3 and tolerance = its size (an NPC, size 4: 7 and 4; the stash, 2: 5 and 2; a waypoint, 5: 8 and 5).
 
+**One search budget per frame.** The search's last argument is what the frame has left for it: 1024 at the frame's
+first search, what that one left for the next (the player's held-walk search leaves 768), 0 once spent, and a search
+given 0 finds nothing (375 of 400, live 2026-11-03). Every object that paths in the frame draws on it, in the order the
+frame reaches them, so a server step's chase orders, which arrive in one frame, leave the later monsters standing until
+their next order: with eight Rhoa Mares chasing a predictive client's walking player and every chase ordered in the same
+step, 46 % of the monsters' searches found no path (the frame's first 30 %, its fourth 57 %, its eighth always), and the
+client's monsters fell 15–20 % behind the server's estimate through the pack until its 46-cell snap put them back.
+A monster whose search found no path stays in its cell until its next order (98 %); one with a path moves on (97 %).
+Spreading a step's chase orders over the following steps (three or two a step) or ordering Move chases every 200 ms
+instead of 100 changed neither the failure rate (42–50 %) nor the lag: a dozen chasers on the 200 ms cadence ask for
+more than one search a frame, the client paths again by itself whenever a path the budget cut short ends, and fewer
+orders make each stand longer. Given the whole budget, a search still fails by what stands in the way: 6 % within 12
+cells, 42–57 % at 13–60 cells (the pack's own bodies, at the client's positions), 27 % beyond 60 (a partial path
+counts as found). The server cannot see which searches fail, so it leaves the cadence as it is.
+
 - **Grid and size.** Walk values are 4 bits per cell in 3 layers (`0x141d85260`: map `+0xd0 + 0x18 × layer`, row stride
   `+0x100`, size `+0x18/+0x20` in 23-cell tiles). A mover of size *s* (Positioned `+0x1e3` = `object_size − 1`: the
   player 1, NPCs 4, the stash 2, monsters 1–3) may stand on a cell whose value is ≥ *s* + 1, so a monster of size 2
