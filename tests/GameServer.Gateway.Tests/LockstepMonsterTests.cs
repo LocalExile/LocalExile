@@ -1,10 +1,28 @@
 using GameServer.Core.World;
+using GameServer.Modding;
 using Xunit;
 
 namespace GameServer.Gateway.Tests;
 
-public class LockstepMonsterTests
+public class LockstepMonsterTests : IDisposable
 {
+    // The planner only works under the Game module's own lifetime, with its logic installed (CurrentGameWork), as the
+    // Behemoth tests set them.
+    readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
+    readonly IModuleLifetime? previousLifetime = Game.CombatLifetime;
+    readonly ModuleLifetime lifetime = new("Game");
+    public LockstepMonsterTests()
+    {
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+    }
+    public void Dispose()
+    {
+        lifetime.Stop(ex => throw ex);
+        Game.CombatLifetime = previousLifetime;
+        if (previousLogic is not null) Program.SetGameLogic(previousLogic);
+    }
+
     static ClientState Connection(bool lockstep) => new(new(1, "chase", 300, 300, 100, 100, null, []), 1, 1)
     {
         Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true, LockstepClient = lockstep,
