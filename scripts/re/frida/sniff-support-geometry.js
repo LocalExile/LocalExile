@@ -1,9 +1,9 @@
 // Support geometry sniffer (read-only): Spell Cascade's repeated areas and Arrow Nova's payload/volley.
 //
-// Load it with scripts/re/frida/run.py against the running client, after common.js:
+// Load it with scripts/re/frida/run.py against the running client:
 //
 //   python scripts/re/frida/run.py Game.patched.exe --seconds 0 --log Tools/re/out/support-geometry.jsonl `
-//       scripts/re/frida/common.js scripts/re/frida/sniff-support-geometry.js
+//       scripts/re/frida/sniff-support-geometry.js
 //
 // Then stand in a pack and cast the supported spell (Spell Cascade) or the bow attack (Arrow Nova) a few times,
 // Ctrl-C detaches without killing the client. Every hook checks the 3.29.3b prologue first and logs {skip:...} instead
@@ -20,6 +20,11 @@
 //   Arrow Nova: the payload arrow lands at the targeted cell; the child arrows are the projectiles created after it,
 //   and their initial cells/orientations give the ring's spacing and count.
 //   The client timestamps are Date.now() ms; group lines by the action's seq.
+
+const image = Process.enumerateModules().find(m => /^(PathOfExileSteam|Game\.patched)\.exe$/i.test(m.name));
+if (!image) throw new Error('client image not found');
+const base = ptr('0x140000000');
+const at = va => image.base.add(ptr(va).sub(base));
 
 const EXPECTED = {
   // 0x1421940a0  Actor 0x1ab handler (trace-actions.js).
@@ -43,7 +48,7 @@ function check(addr) {
   if (!want) return true;
   const got = hex(at(addr), want.length / 2);
   if (got !== want) {
-    send({ t: stamp(), skip: addr, reason: 'prologue', got, want, module: m.name, base: m.base.toString() });
+    send({ t: stamp(), skip: addr, reason: 'prologue', got, want, module: image.name, base: image.base.toString() });
     return false;
   }
   return true;
