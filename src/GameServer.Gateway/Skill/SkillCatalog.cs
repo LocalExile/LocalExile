@@ -496,6 +496,10 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// Channel, ...): the named helpers cover the common ones, this reads any type a caller names.</summary>
     public bool HasType(int effectRow, string typeId) => _skillTypes.HasType(effectRow, typeId);
 
+    /// <summary>The ActiveSkillType Ids a support adds to the skill it supports (Trap Support adds Trap, Ballista Totem
+    /// Support adds Totem): the run uses these to keep mechanics it cannot place out of the support pool.</summary>
+    public IReadOnlyList<string> AddedTypes(int effectRow) => _skillTypes.AddedTypes(effectRow);
+
     // The effects of one ActiveSkillType each: ActiveSkillType, ActiveSkills and GrantedEffects are parsed once for all
     // of them (each set used to parse the three tables again: ~100 MB of JSON per catalogue at the first spawn).
     private readonly SkillTypeSets _skillTypes = new(folder);
@@ -571,6 +575,15 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 if (!_byId.TryGetValue(typeId, out var effects)) _byId[typeId] = effects = Of(typeId);
                 return effects.Value.Contains(effectRow);
             }
+        }
+
+        public IReadOnlyList<string> AddedTypes(int effectRow)
+        {
+            var rows = _rows.Value;
+            if (rows is null || effectRow < 0 || effectRow >= rows.AddedTypes.Length) return [];
+            return [.. rows.AddedTypes[effectRow]
+                .Select(i => i >= 0 && i < rows.TypeIds.Length ? rows.TypeIds[i] ?? "" : "")
+                .Where(id => id.Length > 0)];
         }
 
         static HashSet<int> Effects(Rows? rows, string typeId, bool added)

@@ -31,8 +31,11 @@ public sealed record SurvivorsSkill(string Path, string Name, DamageType Type, i
     public bool Nova { get; init; }
 }
 
-/// <summary>A support: the support gem the window shows, its GrantedEffects row, and the run-local effect it links.</summary>
-public sealed record SurvivorsSupportItem(string Path, string Name, SurvivorsSupport Support, int Effect = -1);
+/// <summary>A support: the support gem the window shows, its GrantedEffects row, and the run-local effect it links.
+/// <paramref name="Herald"/> marks the pulse supports a Herald can take; every other support makes no sense on the
+/// real gem's buff and the run's synthetic pulse.</summary>
+public sealed record SurvivorsSupportItem(string Path, string Name, SurvivorsSupport Support, int Effect = -1,
+    bool Herald = false);
 
 /// <summary>A blessing: the support gem the window shows, and the run-local effect it grants.</summary>
 public sealed record SurvivorsBlessingItem(string Path, string Name, SurvivorsBlessing Blessing);
@@ -41,7 +44,12 @@ public sealed record SurvivorsChoice(int Index, SurvivorsChoiceKind Kind, int Ta
 
 public enum SurvivorsBlessing { Might, Haste, Area, Critical, Leech, Wisdom, Fortitude, Swiftness }
 
-public enum SurvivorsSupport { AddedFire, AddedCold, AddedLightning, FasterCasting, Area, Critical, FasterProjectiles, LifeLeech }
+public enum SurvivorsSupport
+{
+    AddedFire, AddedCold, AddedLightning, FasterCasting, Area, Critical, FasterProjectiles, LifeLeech,
+    /// <summary>A support the catalogue now offers, beyond the eight the mode started with: its own gem stats drive it.</summary>
+    Other,
+}
 
 public static class SurvivorsRules
 {

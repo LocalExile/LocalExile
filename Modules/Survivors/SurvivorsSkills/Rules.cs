@@ -293,23 +293,86 @@ static partial class SurvivorsSkills
         return median > 0 ? roster.WeaponDamage / median : 1;
     }
 
-    /// <summary>The supports a level-up may offer: eight support gems, at least five linkable to every skill.</summary>
+    /// <summary>
+    /// The supports a level-up may offer: every normal support gem the data defines, not the original eight. The
+    /// game's ActiveSkillType rules still decide each link (<see cref="SurvivorsCanSupport"/>); the catalogue keeps a
+    /// skill only when at least five of these supports can link to it. Awakened and exceptional rows are duplicates of
+    /// a normal support and stay out, as do the Royale/playtest rows.
+    /// </summary>
+    // Supports whose mechanic the run does not carry: traps, mines, totems, brands, triggers, curses, minions, item
+    // drops, mana/life costs, repeat/intensity, stun/knockback/blind/flee/block, DOT/duration and the new conditional
+    // attack mechanics. The catalogue would offer them by the game's type rules, but the cast pipeline reads none of
+    // their numbers, so they are held back (the matrix fails if one stops moving a cast).
+    static readonly HashSet<string> SurvivorsUnsupportedSupportIds = new(StringComparer.Ordinal)
+    {
+        "SupportInspiration", "SupportKnockback", "SupportStun", "SupportTrap", "SupportItemQuantity",
+        "SupportItemRarity", "SupportSpellTotem", "SupportBlastchainMine", "SupportChanceToFlee", "SupportBlind",
+        "SupportSpellEcho", "SupportPowerChargeOnCritical", "SupportHextouch", "SupportCastOnDeath",
+        "SupportCastWhenDamageTaken", "SupportCastWhenStunned", "SupportBlockChanceReduction", "SupportHypothermia",
+        "SupportVaalSoulHarvesting", "SupportLesserReducedManaCost", "SupportDecay", "SupportImmolate",
+        "SupportArcaneSurge", "SupportSummonPhantasm", "SupportEnergyLeech", "SupportUnleash", "SupportHighImpactMine",
+        "SupportArchmage", "SupportTrinity", "SupportLifetap", "SupportSpellblade", "SupportDevour", "SupportSacrifice",
+        "SupportLivingLightning", "SupportFasterAttacks", "SupportAdditionalAccuracy", "SupportManaLeech",
+        "SupportMoreDuration", "SupportLessDuration", "SupportLifeGainOnHit", "SupportDamageOnFullLife",
+        "SupportCastOnCriticalStrike", "SupportChanceToBleed", "SupportMomentum", "SupportMirageArcher",
+        "SupportImpale", "SupportPrismaticBurst", "SupportLocusMine", "SupportVolatility", "SupportRupture",
+        "SupportWindburst",
+    };
+
     internal static IReadOnlyList<SurvivorsSupportItem> SurvivorsSupportsFor(ClientState conn)
     {
-        (string Path, string Name, SurvivorsSupport Support)[] candidates =
-        [
-            ("Metadata/Items/Gems/SupportGemAddedFireDamage", "Added Fire Damage Support", SurvivorsSupport.AddedFire),
-            ("Metadata/Items/Gems/SupportGemAddedColdDamage", "Added Cold Damage Support", SurvivorsSupport.AddedCold),
-            ("Metadata/Items/Gems/SupportGemAddedLightningDamage", "Added Lightning Damage Support", SurvivorsSupport.AddedLightning),
-            ("Metadata/Items/Gems/SupportGemFasterCast", "Faster Casting Support", SurvivorsSupport.FasterCasting),
-            ("Metadata/Items/Gems/SupportGemIncreasedAreaOfEffect", "Increased Area of Effect Support", SurvivorsSupport.Area),
-            ("Metadata/Items/Gems/SupportGemIncreasedCriticalStrikes", "Increased Critical Strikes Support", SurvivorsSupport.Critical),
-            ("Metadata/Items/Gems/SupportGemFasterProjectiles", "Faster Projectiles Support", SurvivorsSupport.FasterProjectiles),
-            ("Metadata/Items/Gems/SupportGemLifeLeech", "Life Leech Support", SurvivorsSupport.LifeLeech),
-        ];
-        return [.. candidates.Where(c => ItemsFor(conn).Find(c.Path) is not null)
-            .Select(c => new SurvivorsSupportItem(c.Path, c.Name, c.Support, SurvivorsGemEffect(conn, c.Path)))];
+        if (StateOf(conn).SurvivorsSupports is { Count: > 0 } cached) return cached;
+        var result = new List<SurvivorsSupportItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string path in SurvivorsSupportPaths(conn))
+        {
+            if (ItemsFor(conn).Find(path) is not { } type || ItemsFor(conn).Gem(type) is not { IsSupport: true, Variants.Count: > 0 } gem
+                || gem.IsAwakened || gem.IsExceptional) continue;
+            var variant = gem.Variant(0);
+            if (variant.Effect < 0 || !seen.Add(type.Name)) continue;
+            string? id = SkillsFor(conn).EffectId(variant.Effect);
+            if (id is null || SurvivorsUnsupportedSupportIds.Contains(id)) continue;
+            // A support that adds a trap, mine, totem, brand, trigger, curse, minion or aura type places an object or
+            // takes a route the run does not carry; its stats alone would pretend the link worked.
+            if (SkillsFor(conn).AddedTypes(variant.Effect).Any(SurvivorsUnsupportedSkillTypes.Contains)) continue;
+            result.Add(new(path, type.Name, SurvivorsSupportOf(id), variant.Effect, SurvivorsHeraldSupport(id)));
+        }
+        StateOf(conn).SurvivorsSupports = result;
+        return result;
     }
+
+    // The original eight keep their enum (the support matrix verifies the specific number each moves); every other
+    // support is Other and is checked by its own gem stats.
+    static SurvivorsSupport SurvivorsSupportOf(string? id) => id switch
+    {
+        "SupportAddedFireDamage" => SurvivorsSupport.AddedFire,
+        "SupportAddedColdDamage" => SurvivorsSupport.AddedCold,
+        "SupportAddedLightningDamage" => SurvivorsSupport.AddedLightning,
+        "SupportFasterCasting" => SurvivorsSupport.FasterCasting,
+        "SupportIncreasedAreaOfEffect" => SurvivorsSupport.Area,
+        "SupportIncreasedCriticalStrikes" => SurvivorsSupport.Critical,
+        "SupportFasterProjectiles" => SurvivorsSupport.FasterProjectiles,
+        "SupportLifeLeech" => SurvivorsSupport.LifeLeech,
+        _ => SurvivorsSupport.Other,
+    };
+
+    // What a Herald pulse can actually use. The real gem is a buff: the game's own type rules reject Added Damage,
+    // Faster Casting, critical, leech, projectile, minion, trap/mine/totem and trigger supports, and the run's pulse is
+    // a direct area hit, so DOT/ailment, duration, reservation, item and mana supports do nothing either. The five
+    // below change the pulse's damage or radius through stats SurvivorsComputeCast reads.
+    static bool SurvivorsHeraldSupport(string? id) => id is
+        "SupportIncreasedAreaOfEffect" or "SupportConcentratedEffect" or "SupportBrutality" or "SupportVoidManipulation";
+
+    /// <summary>The support gems the run may offer: normal SupportGem rows, without the Royale/playtest/placeholder
+    /// duplicates.</summary>
+    internal static IReadOnlyList<string> SurvivorsSupportPaths(ClientState conn) =>
+        [.. ItemsFor(conn).All.Where(t => t.Supported
+            && t.Id.Contains("SupportGem", StringComparison.Ordinal)
+            && !t.Id.Contains("Royale", StringComparison.Ordinal)
+            && !t.Name.Contains("[UNUSED]", StringComparison.OrdinalIgnoreCase)
+            && !t.Name.Contains("Playtest", StringComparison.OrdinalIgnoreCase)
+            && !t.Name.StartsWith("WIP", StringComparison.OrdinalIgnoreCase))
+            .Select(t => t.Id)];
 
     internal static int SurvivorsGemEffect(ClientState conn, string path) =>
         ItemsFor(conn).Find(path) is { } type && ItemsFor(conn).Gem(type) is { Variants.Count: > 0 } gem
@@ -327,7 +390,14 @@ static partial class SurvivorsSkills
             || skillIndex < 0 || skillIndex >= catalog.Count || supportIndex < 0 || supportIndex >= supports.Count)
             return false;
         var skill = catalog[skillIndex];
-        if (skill.Kind == SurvivorsSkillKind.Herald) return false;
+        // Brutality cuts every non-physical type and Void Manipulation every non-chaos type: the real game allows the
+        // link but the skill then deals nothing, which in a run means it stops casting. Never offer that combination.
+        string? supportId = SkillsFor(conn).EffectId(supports[supportIndex].Effect);
+        if (supportId is "SupportBrutality" && skill.Type != DamageType.Physical) return false;
+        if (supportId is "SupportVoidManipulation" && skill.Type != DamageType.Chaos) return false;
+        // The real Herald is a buff. Only the pulse supports that move the run's synthetic hit are offered; the rest
+        // (added damage, cast speed, projectiles, minions, traps, DOT, duration, item and mana supports) do nothing.
+        if (skill.Kind == SurvivorsSkillKind.Herald) return supports[supportIndex].Herald;
         if (Supports.Of(skill.Effect) is not { } target) return false;
         if (Supports.Of(supports[supportIndex].Effect) is not { Support: true } support) return false;
         return GemSupports.Compatible(support, target.Types.ToHashSet(), target.MinionTypes, weapon: null);
@@ -343,6 +413,12 @@ static partial class SurvivorsSkills
 
     internal static DamageType SurvivorsDamageType(string name) => name switch
     {
+        // The Heralds are named after their lore, not their damage type; the name scan below would make Ash physical.
+        "Herald of Ash" => DamageType.Fire,
+        "Herald of Ice" => DamageType.Cold,
+        "Herald of Thunder" => DamageType.Lightning,
+        "Herald of Agony" => DamageType.Chaos,
+        "Herald of Purity" => DamageType.Physical,
         var n when n.Contains("Fire", StringComparison.OrdinalIgnoreCase)
             || n.Contains("Flame", StringComparison.OrdinalIgnoreCase)
             || n.Contains("Burn", StringComparison.OrdinalIgnoreCase) => DamageType.Fire,
@@ -595,16 +671,32 @@ static partial class SurvivorsSkills
         // type now matter); with no weapon it falls back to the mode's nominal weapon and the gem's cast time.
         var weapon = WeaponFor(conn);
         bool armedAttack = skill.Attack && weapon.LocalSources is not null;
-        double baseSeconds = armedAttack ? weapon.AttackSeconds(playerKeys) : skill.CastTimeMs / 1000.0;
+        var mergedKeys = SurvivorsKeyStats(merged);
+        double baseSeconds = armedAttack ? weapon.AttackSeconds(mergedKeys) : skill.CastTimeMs / 1000.0;
         int castSpeed = armedAttack ? 0 : Get("base_cast_speed_+%") + Get("cast_speed_+%") + (spell ? Get("spell_cast_speed_+%") : 0);
         double interval = SurvivorsFormulas.CastInterval(baseSeconds, rank, castSpeed);
+        var skillKeys = SurvivorsKeyStats(skillStats);
+        var conversion = DamageStats.Conversion(mergedKeys, Stats, skill.Attack);
+        List<(string Name, int Value)> supportMods = [];
+        foreach (int index in run.SupportsOf(skillIndex))
+            if (index >= 0 && index < supports.Count && supports[index].Effect >= 0)
+                foreach (var (key, value) in SkillsFor(conn).EffectStats(supports[index].Effect, rank))
+                    if (Stats.Name(key) is { Length: > 0 } name) supportMods.Add((name, value));
         if (skill.Kind == SurvivorsSkillKind.Herald)
         {
+            // The real gem is a buff, so the run's pulse is synthetic; still resolve it through the same hit pipeline
+            // so the pulse supports (area, damage more, elemental) change it exactly as the gem stats say.
+            int baseDamage = SurvivorsRules.SkillDamage(roster.WeaponDamage, rank);
+            var heraldRaw = DamagePacket.Of(skill.Type, baseDamage, baseDamage);
+            heraldRaw = DamageStats.RawAdded(heraldRaw, Get, spell: true, effectiveness: 1.0);
+            heraldRaw = SurvivorsGlobalAdded(heraldRaw, Get, 10_000);
+            var pulse = PlayerHitDamage.Resolve(heraldRaw, Get, conversion, spell: true, area: true, projectile: false,
+                supportModifiers: supportMods);
+            if (pulse.IsZero) return null;
             double radius = SurvivorsFormulas.AreaRadius(SurvivorsHeraldRadius * SurvivorsRules.SkillRadius(rank),
-                run.AreaIncreasedPercent + playerStats.GetValueOrDefault("skill_area_of_effect_+%"));
-            int damage = (int)Math.Round(SurvivorsRules.SkillDamage(roster.WeaponDamage, rank) * run.DamageMultiplier
-                * (1 + playerStats.GetValueOrDefault("damage_+%") / 100.0));
-            return new(interval, skill, rank, 0, null, null, null, false, true, damage, radius);
+                run.AreaIncreasedPercent + Get("skill_area_of_effect_+%") + Get("base_skill_area_of_effect_+%"));
+            return new(interval, skill, rank, 0, null, null, null, false, true,
+                (int)Math.Max(1, pulse.AverageTotal), radius);
         }
         // The gem's own hit at rank 1 (a spell's base, or the equipped/nominal weapon for an attack), scaled by the
         // run's rank curve. Shared by the area pulse and the projectile path.
@@ -643,14 +735,6 @@ static partial class SurvivorsSkills
             // of the gem's own effectiveness, supports and the character's stats.
             return own.Scale(SurvivorsRules.SkillDamageMultiplier(rank));
         }
-        var mergedKeys = SurvivorsKeyStats(merged);
-        var skillKeys = SurvivorsKeyStats(skillStats);
-        var conversion = DamageStats.Conversion(mergedKeys, Stats, skill.Attack);
-        List<(string Name, int Value)> supportMods = [];
-        foreach (int index in run.SupportsOf(skillIndex))
-            if (index >= 0 && index < supports.Count && supports[index].Effect >= 0)
-                foreach (var (key, value) in SkillsFor(conn).EffectStats(supports[index].Effect, rank))
-                    if (Stats.Name(key) is { Length: > 0 } name) supportMods.Add((name, value));
         // An area gem has no flight: its cast is a pulse around the player with the gem's own area hit.
         if (skill.Kind == SurvivorsSkillKind.Area)
         {
@@ -660,7 +744,7 @@ static partial class SurvivorsSkills
                 supportModifiers: supportMods);
             if (pulse.IsZero) return null;
             double pulseRadius = SurvivorsFormulas.AreaRadius(SurvivorsHeraldRadius * SurvivorsRules.SkillRadius(rank),
-                run.AreaIncreasedPercent + playerStats.GetValueOrDefault("skill_area_of_effect_+%"));
+                run.AreaIncreasedPercent + Get("skill_area_of_effect_+%") + Get("base_skill_area_of_effect_+%"));
             return new(interval, skill, rank, 0, null, null, null, false, true,
                 (int)Math.Max(1, pulse.AverageTotal), pulseRadius);
         }

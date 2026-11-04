@@ -127,6 +127,7 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsRunTests().The_clock_ignores_paused_and_broken_steps();
         new SurvivorsRunTests().The_gate_boss_scales_to_the_stage_and_the_player();
         new SurvivorsSupportMatrixTests().Every_support_moves_its_own_number_on_every_skill_it_can_support();
+        new SurvivorsSupportMatrixTests().Heralds_take_only_the_supports_that_move_the_pulse();
         new SurvivorsSupportMatrixTests().A_run_skill_uses_the_reference_s_thirty_percent_a_rank();
         new SurvivorsSupportMatrixTests().Area_gems_join_the_catalogue_and_cast_an_area_pulse();
         new SurvivorsSupportMatrixTests().The_catalogue_keeps_only_skills_the_run_can_present();

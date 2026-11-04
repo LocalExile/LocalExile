@@ -71,8 +71,12 @@ second.
 
 The level-up choice uses the client's quest-reward inventory, not a custom UI.
 The window offers **six** choices. A learned skill's **missing supports come first**: the window lists the supports it
-does not have yet, so a link set can actually be completed (every offered skill can link at least five of the run's
-eight supports; a gem that cannot is left out of the catalogue).
+does not have yet, so a link set can actually be completed. The pool is **every normal support gem** (the Awakened and
+exceptional rows and the Royale/playtest duplicates stay out) whose numbers the cast pipeline reads; every offered
+skill can link at least five of them, or it is left out of the catalogue. Supports whose mechanic the run does not
+carry (trap, mine, totem, brand, trigger, curse, minion, item drop, mana/life cost, repeat/intensity, stun/knockback/
+blind/flee/block, DOT/duration and the new conditional attack mechanics) are held back because their animation or
+effect would not happen.
 **Rank-ups** appear only once that skill holds every support it can take.
 A **new skill** is capped by the stage — the first location allows one, the second two, up to five — and needs every
 learned skill complete; after the fifth location only supports and ranks grow. Then the reference's weighted pool
@@ -114,9 +118,13 @@ Fireball and Kinetic Blast additionally create their area effects.
 Heralds are run-specific damage pulses, not reproductions of the ordinary Herald trigger mechanics.
 Their aura and icon use the effect's ActiveSkills/BuffDefinitions row through `0x1c1`.
 Hits use `0x1af` with the appropriate damage-type code and the Herald's own impact art at every struck target:
-Ash `flameherald_explode`, Ice `iceherald_explode`, Thunder `lightning_strike_herald`,
-Agony `mortarimpact`, Purity `slam_impact`.
+Ash `flameherald_explode` (fire), Ice `iceherald_explode` (cold), Thunder `lightning_strike_herald` (lightning),
+Agony `mortarimpact` (chaos), Purity `slam_impact` (physical).
 The effect object is removed after its clip ends, before the next pulse.
+A Herald's real gem is a buff, so most support gems make no sense to it: added damage, cast speed, critical, leech,
+projectile, minion, trap/mine/totem/brand/trigger/curse, DOT/ailment, duration, reservation, item and mana/life
+supports are not offered. The pulse takes only the supports whose stats move its synthetic hit or radius: Increased
+Area of Effect, Concentrated Effect, Brutality (physical Heralds only) and Void Manipulation (chaos Heralds only).
 
 ## Reward equipment
 
