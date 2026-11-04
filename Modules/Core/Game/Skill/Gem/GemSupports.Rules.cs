@@ -61,8 +61,20 @@ static partial class Game
         int? weaponClass = weapon is null ? null : ItemsFor(conn).ByHash(weapon.Item.TypeHash)?.ClassRow;
         var supports = Supports.Resolve(selected.Effect, candidates, SkillsFor(conn), weaponClass);
         int Value(string stat) => Stats.Key(stat) is uint k ? supports.Sum(s => s.Stats.Where(v => v.Key == k).Sum(v => v.Value)) : 0;
-        int level = EffectiveGemLevel(conn, selected.Place.Gem, Value("supported_active_skill_gem_level_+")
-            + LocalBonus(selected.Place.Socket, selected.Place.Gem).Level);
+        // "+1 to Supported <type> Skill Gems" (Awakened supports): every supported_*_skill_gem_level_+ counts, the
+        // generic active-gem one included.
+        int SupportGemLevels()
+        {
+            int total = 0;
+            foreach (var support in supports)
+                foreach (var (key, value) in support.Stats)
+                    if (Stats.Name(key) is { } stat && stat.StartsWith("supported_", StringComparison.Ordinal)
+                        && stat.EndsWith("_skill_gem_level_+", StringComparison.Ordinal))
+                        total += value;
+            return total;
+        }
+        int level = EffectiveGemLevel(conn, selected.Place.Gem,
+            SupportGemLevels() + LocalBonus(selected.Place.Socket, selected.Place.Gem).Level);
         int quality = Quality(selected.Place.Socket, selected.Place.Gem) + Value("supported_active_skill_gem_quality_%")
             + GemQualityBonus(conn, selected.Place.Gem);
         var own = SkillsFor(conn).EffectStats(selected.Effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
@@ -109,6 +121,15 @@ static partial class Game
     {
         var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         return MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+    }
+
+    // Generosity: the increased effect a support gives the aura it supports, and whether the aura may affect the player
+    // ("Supported Auras do not affect you", aura_cannot_affect_self).
+    internal static (int EffectPct, bool AffectsSelf) AuraSupport(ClientState conn, ushort skillId)
+    {
+        var stats = SupportedSkill(conn, skillId).Stats;
+        int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        return (Stat("non_curse_aura_effect_+%"), Stat("aura_cannot_affect_self") == 0);
     }
 
     internal static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)

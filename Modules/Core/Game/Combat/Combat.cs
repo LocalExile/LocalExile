@@ -370,7 +370,7 @@ static partial class Game
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
                     gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
-                LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell: false), damage,
+                LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
                     HitLeechSources(player, true, ownPenetration, weapon.LocalSources));
                 (damage, stored, impaled) = WithImpaleHitLocked(conn, m, damage, ownRolled, critical, sourceCriticalMultiplier,
                     ImpaleStats.From(player, Stats, attack: true, ownPenetration, weapon.LocalSources, critical));
@@ -874,8 +874,11 @@ static partial class Game
             }
             else
             {
+                // Generosity: the supported aura's own increased effect, and "Supported Auras do not affect you".
+                var (supportEffect, affectsSelf) = AuraSupport(conn, skillId);
                 var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
-                    AuraCatalog.BuffRow(effectId), reservation.Flat, reservation.Percent, level, quality, SourceBuff: conn.NextBuff++);
+                    AuraCatalog.BuffRow(effectId), reservation.Flat, reservation.Percent, level, quality, SourceBuff: conn.NextBuff++,
+                    SupportEffectPct: supportEffect, AffectsSelf: affectsSelf);
                 conn.Auras[skillId] = aura;
                 int reserved = RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent);
                 if (reserved > conn.Pools.Mana)
@@ -1207,7 +1210,8 @@ static partial class Game
                 }
                 var gambler = GamblerFor(player);
                 var rolled = WithConditionalSupportDamageLocked(conn, skillStats, !spell, m,
-                    GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).ForSkill(Stat, spell)
+                    GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 })
+                        .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(conn, skillId, gem.Effect))
                         .RollOutgoingHit(contactHit, Random.Shared)),
                     ProjectileWorldTime(conn));
                 // The shared roll meets each target's current chance: a source can change between targets.
@@ -1221,7 +1225,7 @@ static partial class Game
                 double at = ProjectileWorldTime(conn);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
                     gambler.InvertsResistance(Random.Shared));
-                var taken = MonsterTakenComponents(m, mitigated, spell);
+                var taken = MonsterTakenComponents(m, mitigated, spell, at);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = damageMore * bloodMore;
                 if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));

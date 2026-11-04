@@ -66,7 +66,7 @@ static partial class Game
                 || f.Item.Charges >= FlaskCharges.Of(basis, ItemModStats.Local(f.Item, ItemsFor(conn).Mods)).MaxCharges)).ToList();
         if (bar.All(f => f.Full)) return;
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        bool precision = conn.Auras.Values.Any(a => a.EffectId == "Precision");
+        bool precision = conn.Auras.Values.Any(a => a.EffectId == "Precision" && a.AffectsSelf);
         var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, at, Random.Shared.Next);
         if (gains.Count > 0) conn.Minions.FlaskRewards.Add(new(MonsterRarity.Normal, gains));
     }

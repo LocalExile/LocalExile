@@ -80,6 +80,9 @@ Nothing yet.
   fork; Rupture's stacks raise bleeding damage taken; Close Combat's Combat Rush speeds up travel skills; Block Chance
   Reduction lowers the monster's block roll and applies Overpowered; Machinations counts allocated keystones for its
   chaos gain ([25](../docs/protocol/25-gem-supports.md)).
+  Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
+  Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you"
+  ([25](../docs/protocol/25-gem-supports.md)).
   A real-client Cyclone control accepted the item-support records and displayed blue s/c, red W and white d.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
   Spell Echo repeats a supported spell's releases and area hits a cast time apart, with its 40% more cast speed

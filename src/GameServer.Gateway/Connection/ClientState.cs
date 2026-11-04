@@ -214,6 +214,10 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public double IntimidatedUntil = double.NegativeInfinity, IntimidateShownUntil, UnnervedUntil = double.NegativeInfinity,
         UnnerveShownUntil;
     public ushort IntimidateBuff, UnnerveBuff;
+    // Crushed by his hits (Awakened Brutality) until when, shown with its own crushed buff; Crush lowers its physical
+    // damage reduction (Game.CrushReduction).
+    public double CrushedUntil = double.NegativeInfinity, CrushShownUntil;
+    public ushort CrushBuff;
     // Blinded by his hits until when, one more source of his Blind (Game.Blinded), shown with its own blinded buff.
     public double BlindedUntil = double.NegativeInfinity, BlindShownUntil;
     public ushort BlindBuff;
