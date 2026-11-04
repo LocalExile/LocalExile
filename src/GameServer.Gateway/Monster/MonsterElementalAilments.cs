@@ -193,6 +193,16 @@ sealed class MonsterElementalAilments
             Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking * AsThough(Kind.Shock, attacker), threshold,
                 EffectModifier(Kind.Shock, attacker, target), ShockCap(attacker), attacker("shock_minimum_damage_taken_increase_%")))
                 { Spread = SpreadRadius(Kind.Shock, attacker, area) });
+        // Coursing Current: "inflict the equivalent Shock on inflicting Chill with Hits" and the reverse; the same
+        // magnitude, on the same hit.
+        if (added.LastOrDefault(e => e.Kind == Kind.Chill) is { } chill
+            && attacker("inflict_equivalent_shock_on_inflicting_chill_with_hits") != 0
+            && !CannotInflict("shock", attacker))
+            Add(new(Kind.Shock, now, now + 2, chill.Magnitude) { Spread = SpreadRadius(Kind.Shock, attacker, area) });
+        if (added.LastOrDefault(e => e.Kind == Kind.Shock) is { } shock
+            && attacker("inflict_equivalent_chill_on_inflicting_shock_with_hits") != 0
+            && !CannotInflict("chill", attacker))
+            Add(new(Kind.Chill, now, now + 2, shock.Magnitude) { Spread = SpreadRadius(Kind.Chill, attacker, area) });
         return added;
     }
 

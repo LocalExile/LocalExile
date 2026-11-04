@@ -31,10 +31,37 @@ static partial class Game
     internal static DamagePacket WithConditionalSupportDamageLocked(ClientState conn, IReadOnlyDictionary<uint, int>? skill,
         bool attack, SpawnedMonster target, DamagePacket rolled, double now)
     {
+        int Get(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
         double more = ConditionalSupportMore(skill, attack, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             FlaskRecovery.LowLife(target.Life, target.MaxLife), conn.PlayerLife >= conn.PlayerMaxLife,
             Lifetap.ActiveAt(conn, now), target.Poisons.Stacks(now), target.Bleeds.Burning,
             ChargesOf(conn).Effective(ChargeType.Power));
-        return more == 1 ? rolled : rolled.Scale(more);
+        var packet = more == 1 ? rolled : rolled.Scale(more);
+        // Immolate: added Fire Damage against Burning Enemies (the stat description's own wording).
+        if (target.Ignites.Burning)
+        {
+            int min = Get("global_minimum_added_fire_damage_vs_burning_enemies");
+            int max = Get("global_maximum_added_fire_damage_vs_burning_enemies");
+            if (min > 0 || max > 0)
+            {
+                double roll = min + Random.Shared.NextDouble() * (Math.Max(min, max) - min);
+                packet = packet.Add(DamageType.Fire, new(roll, roll));
+            }
+        }
+        // Bloodthirst: "gain X% of Maximum Life as added Physical Damage with Weapons while on Low Life".
+        if (conn.PlayerLife < conn.PlayerMaxLife * 0.35)
+        {
+            int percent = Get("blood_price_gain_%_maximum_life_as_added_physical_damage_with_weapons_while_on_low_life");
+            if (percent > 0)
+            {
+                double flat = conn.PlayerMaxLife * percent / 100.0;
+                packet = packet.Add(DamageType.Physical, new(flat, flat));
+            }
+        }
+        // Bonechill: "Chills also grant Cold Damage Taken +% equal to the Slow amount" for the hit's cold part.
+        double chillMagnitude = target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now);
+        if (Get("support_chills_also_grant_cold_damage_taken_+%_equal_to_slow_amount") != 0 && chillMagnitude > 0)
+            packet = packet.Select((type, range) => type == DamageType.Cold ? range.Scale(1 + chillMagnitude / 100.0) : range);
+        return packet;
     }
 }

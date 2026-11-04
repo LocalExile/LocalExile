@@ -175,6 +175,39 @@ static partial class Game
         return Stats.Key(stat) is uint key ? Math.Max(0, 1 + gem.Stats.GetValueOrDefault(key) / 100.0) : 1;
     }
 
+    // Hallow Support: a melee hit inflicts Hallowing Flame, and the next attack against that enemy gains its share of
+    // the attack's physical damage as extra fire (the sweep applies and removes it per target).
+    internal static void HallowOnMeleeHit(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int>? skill, double now)
+    {
+        int Get(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
+        if (Get("support_hallow_inflict_hallowing_flame_on_melee_hit") == 0) return;
+        double seconds = Math.Max(0, Get("hallowing_flame_duration_ms")) / 1000.0;
+        if (seconds <= 0) return;
+        m.HallowingFlameUntil = Math.Max(m.HallowingFlameUntil, now + seconds);
+        m.HallowingFlamePct = 25 * Math.Max(0, 1 + Get("hallowing_flame_magnitude_+%") / 100.0);
+    }
+
+    // Excommunicate Support: melee hits excommunicate the enemy for its listed duration; an excommunicated monster's
+    // chaos damage is suppressed (the support's physical-as-extra gains already use the conversion stats).
+    internal static void ExcommunicateOnMeleeHit(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int>? skill, double now)
+    {
+        int Get(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
+        double milliseconds = Math.Max(0, Get("support_excommunicate_on_melee_attack_hit_for_X_ms"));
+        if (milliseconds > 0) m.ExcommunicatedUntil = Math.Max(m.ExcommunicatedUntil, now + milliseconds / 1000.0);
+    }
+
+    // Devour Support: a killing blow recovers its flat life/mana (the corpse itself is not removed by this server yet).
+    internal static void DevourOnKill(ClientState conn, IReadOnlyDictionary<uint, int>? skill)
+    {
+        int Get(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
+        int life = Get("killing_blow_consumes_corpse_restore_x_life");
+        int mana = Get("killing_blow_consumes_corpse_restore_x_mana");
+        if (life > 0 && conn.PlayerLife > 0)
+            conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, (long)conn.PlayerLife + life);
+        if (mana > 0 && conn.PlayerLife > 0)
+            conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + mana);
+    }
+
     // Channelling repeats are not limited by the one-new-action-per-frame cap (Action speed, PoE Wiki): they use the
     // speed-only interval so a very fast channel can hit more than 30 times a second.
     static double SupportedChannelSeconds(ClientState conn, ushort skillId) =>
@@ -280,6 +313,18 @@ static partial class Game
         var raw = attack
             ? SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(weapon ?? WeaponFor(conn), Get), SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level))
             : DamageStats.RawAdded(plan.SpellBase, Get, spell: true, AddedEffectiveness(conn, gem.Effect, gem.Level));
+        // Spellblade: a supported spell gains a share of the one-hand melee weapon's damage as added spell damage,
+        // scaled by the spell's damage effectiveness like any other added damage.
+        if (!attack && Get("support_spell_weapon_damage_gain_%_of_one_hand_melee_weapon_damage_as_added_spell_damage") is int bladeGain and > 0)
+        {
+            var bladeWeapon = weapon ?? WeaponFor(conn);
+            if (bladeWeapon.Melee && bladeWeapon.LocalDamage is not null)
+            {
+                double effectiveness = AddedEffectiveness(conn, gem.Effect, gem.Level);
+                foreach (var (type, range) in SupportedAttackDamage.Raw(bladeWeapon, Get).Components)
+                    raw = raw.Add(type, range.Scale(bladeGain / 100.0 * effectiveness));
+            }
+        }
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (Stats.Name(s.Key) ?? "", s.Value)).ToList();
         return new(raw, Get, DamageStats.Conversion(stats, Stats, attack), attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get("is_area_damage") != 0,

@@ -222,6 +222,11 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
+    // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.
+    public double HallowingFlameUntil = double.NegativeInfinity;
+    public double HallowingFlamePct;
+    // Excommunicate Support: until when its chaos damage is suppressed.
+    public double ExcommunicatedUntil = double.NegativeInfinity;
     // "Killed Enemies drop X% increased Items" from the skill of the last player hit (Item Quantity Support).
     public int KilledWithItemQuantityPct;
     // Blinded by his hits until when, one more source of his Blind (Game.Blinded), shown with its own blinded buff.

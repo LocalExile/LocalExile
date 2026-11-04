@@ -317,6 +317,7 @@ static partial class Game
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
+            if (hit.Value.Life == 0) DevourOnKill(Conn, shot.SkillStats);
             if (!immune)
                 AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
                     at, contact.Projectile.ReactionRandomSource, poison: shot.Poison);

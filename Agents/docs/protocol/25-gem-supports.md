@@ -116,7 +116,13 @@ maximum damage (`Volatility.cs`); Combustion's `ignites_apply_fire_resistance_+`
 for its duration; Item Quantity's `base_killed_monster_dropped_item_quantity_+%` multiplies the loot of the last hit's
 kill (`ItemQuantityFactor`, a damage-over-time kill keeps no skill attribution); Iron Grip's `keystone_strong_bowman`
 adds Strength's damage bonus to projectile attack physical damage and Iron Will's `strong_casting` to spell damage
-(`DamageStats.StrengthDamageBonus`).
+(`DamageStats.StrengthDamageBonus`). Immolate's added fire against burning enemies, Bloodthirst's added physical from
+maximum life on low life, Bonechill's cold damage taken equal to the chill, and Coursing Current's equivalent
+shock/chill apply in the per-target support hook. Fist of War makes every 1.8 s slam a big hit (damage and area);
+Devour recovers its life/mana on a killing blow (the corpse is not removed); Sacrifice pays its share of current life
+for added chaos; Spellblade adds its share of the one-hand melee weapon as spell damage; Hallow's Hallowing Flame gives
+the next attack 25% of its physical damage as extra fire (scaled by the magnitude stat, then removed); and Excommunicate
+suppresses an excommunicated monster's chaos damage for its 3 seconds.
 
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
 A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.

@@ -930,11 +930,49 @@ static partial class Game
         int spellRepeats = SpellRepeats(conn, skillId, gem.Effect);
         int meleeRepeats = channelled || spellRepeats > 0 ? 0 : MeleeAttackRepeats(conn, skillId);
         double repeatInterval = meleeRepeats > 0 ? SupportedAttackSeconds(conn, skillId) / (meleeRepeats + 1) : 0;
+        // Fist of War: every ancestral_slam_interval_duration the next slam use is the big hit (more damage and area).
+        double fistMore = 1, fistRadius = 1;
+        bool spell = SkillsFor(conn).IsSpell(gem.Effect);
+        if (!spell && !channelled)
+        {
+            var fistStats = SupportedSkill(conn, skillId).Stats;
+            int Fist(string name) => Stats.Key(name) is uint key ? fistStats.GetValueOrDefault(key) : 0;
+            if (Fist("support_ancestral_slam_big_hit_max_count") > 0)
+            {
+                double interval = Math.Max(0, Fist("ancestral_slam_interval_duration")) / 1000.0;
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                bool ready;
+                lock (conn.Monsters)
+                {
+                    ready = now >= conn.FistOfWarAt.GetValueOrDefault(skillId, double.NegativeInfinity);
+                    if (ready) conn.FistOfWarAt[skillId] = now + interval;
+                }
+                if (ready)
+                {
+                    fistMore = 1 + Fist("support_ancestral_slam_big_hit_damage_with_hits_and_ailments_+%_final") / 100.0;
+                    fistRadius = 1 + Fist("support_ancestral_slam_big_hit_area_+%") / 100.0;
+                }
+            }
+        }
+        // Sacrifice: the use pays its share of current life and gains the listed share of it as added chaos damage.
+        int addedChaos = 0;
+        {
+            var sacStats = SupportedSkill(conn, skillId).Stats;
+            int Sac(string name) => Stats.Key(name) is uint key ? sacStats.GetValueOrDefault(key) : 0;
+            int percent = Sac("support_sacrifice_sacrifice_%_of_current_life");
+            if (percent > 0 && conn.PlayerLife > 1)
+            {
+                int sacrificed = (int)Math.Min((long)conn.PlayerLife - 1, (long)conn.PlayerLife * percent / 100);
+                conn.PlayerLife -= (uint)sacrificed;
+                addedChaos = (int)((long)sacrificed * Sac("support_sacrifice_gain_%_of_sacrificed_life_as_added_chaos_damage") / 100);
+            }
+        }
         return Task.WhenAll(Enumerable.Range(0, Math.Max(spellRepeats, meleeRepeats) + 1).Select(repeat =>
             AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from, to, immediate: channelled, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
-                targetId: targetId, repeat: repeat, repeatDelay: repeat * repeatInterval,
-                damageMore: meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1)));
+                targetId: targetId, repeat: repeat, repeatDelay: repeat * repeatInterval, radiusMore: fistRadius,
+                addedChaos: addedChaos,
+                damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1))));
     }
 
     // A channelled skill's hits (Cyclone): one sweep around the player every attack time (SupportedAttackSeconds: the
@@ -1044,7 +1082,8 @@ static partial class Game
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
-        uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0)
+        uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
+        double radiusMore = 1, int addedChaos = 0)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         bool Current() => (cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken))
@@ -1073,7 +1112,7 @@ static partial class Game
             ? castDuration.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject))
             : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false) + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
-        int radius = radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect);
+        int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect)) * radiusMore);
         // A melee skill aimed far away still lands in front of the player; a self-targeted spell goes off around the caster.
         var centre = VaalExecutor(conn, gem.Effect) || !spell && Dist(from, to) > radius + weapon.Range ? from
             : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
@@ -1209,6 +1248,7 @@ static partial class Game
                     mods = HitResistMods(player, skillStats);
                     sweepHit = shield is null ? SupportedHit(conn, skillId) : SupportedHitFor(conn, skillId, suppress: true, weapon: shield);
                     if (ruthless != 1) sweepHit = sweepHit.Scale(ruthless);
+                    if (addedChaos > 0) sweepHit = sweepHit.Add(DamageType.Chaos, new(addedChaos, addedChaos));
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                     if (!spell) accuracy = SupportedAccuracy(conn, skillId);
                     leech = HitLeechSources(player, !spell, skillStats, local);
@@ -1240,6 +1280,14 @@ static partial class Game
                         .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(conn, skillId, gem.Effect))
                         .RollOutgoingHit(contactHit, Random.Shared)),
                     ProjectileWorldTime(conn));
+                // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
+                // extra fire, and removes the flame.
+                if (!spell && m.HallowingFlameUntil > ProjectileWorldTime(conn) && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
+                {
+                    double flameFire = flamePhys * m.HallowingFlamePct / 100.0;
+                    rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
+                    m.HallowingFlameUntil = 0;
+                }
                 // The shared roll meets each target's current chance: a source can change between targets.
                 int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
                     SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
@@ -1271,6 +1319,8 @@ static partial class Game
                     // Item Quantity Support: the kill's loot rolls read the supported skill's share.
                     if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                         m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
+                    // Devour: a killing blow recovers the support's life/mana.
+                    if (applied.Value.Life == 0) DevourOnKill(conn, skillStats);
                     AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
                         reflected, poison);
                     // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
@@ -1296,7 +1346,12 @@ static partial class Game
                     if (!rageGranted) rageGranted = RageOnHitLocked(conn, attack: !spell,
                         melee: !spell && SkillsFor(conn).IsMelee(gem.Effect), critical, skillStats, player: player);
                     InflictMonsterBlind(conn, id, m, ResourceEffectsTime(conn), BlindInputs(player, skillStats));
-                    if (!spell && SkillsFor(conn).IsMelee(gem.Effect)) CombatRushOnHit(conn, skillStats, at);
+                    if (!spell && SkillsFor(conn).IsMelee(gem.Effect))
+                    {
+                        CombatRushOnHit(conn, skillStats, at);
+                        HallowOnMeleeHit(conn, m, skillStats, at);
+                        ExcommunicateOnMeleeHit(conn, m, skillStats, at);
+                    }
                 }
             }
             if (applied is not { } hit) continue;

@@ -55,5 +55,12 @@ public sealed class RedSupportMechanicsTests
             - DamageStats.AttackIncrease(withoutGrip, DamageType.Physical, melee: false, projectile: true), 9);
         Assert.Equal(0, DamageStats.AttackIncrease(strength, DamageType.Physical, melee: true, projectile: true)
             - DamageStats.AttackIncrease(withoutGrip, DamageType.Physical, melee: true, projectile: true), 9);
+
+        // Coursing Current: a chill also inflicts the equivalent shock on the same hit.
+        var ailments = new MonsterElementalAilments();
+        var coursing = ailments.Inflict(DamagePacket.Of(DamageType.Cold, 50, 50), critical: false, threshold: 100, now: 0,
+            Stats(("inflict_equivalent_shock_on_inflicting_chill_with_hits", 1)), Stats(), new Random(1));
+        Assert.Contains(coursing, e => e.Kind == MonsterElementalAilments.Kind.Chill);
+        Assert.Contains(coursing, e => e.Kind == MonsterElementalAilments.Kind.Shock);
     }
 }
