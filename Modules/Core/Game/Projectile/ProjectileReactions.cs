@@ -159,7 +159,7 @@ static partial class Game
     }
 
     internal static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
-        PublishProjectileGroundItem(session, session.Conn.Instance.Ground.Add(ground), ground);
+        PublishProjectileGroundItem(session, session.Conn.Instance.Ground.Add(ground, session.Conn), ground);
 
     internal static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
     {

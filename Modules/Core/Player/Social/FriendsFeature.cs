@@ -26,8 +26,12 @@ static class FriendsFeature
             if (peer.Owner is { } owner) Register(owner);
     }
 
+    static ClientState? Changing(string name) =>
+        Moving.TryGetValue(name, out var m) && DateTime.UtcNow - m.Since < MovingGrace ? m.From : null;
+
     static ClientState? Connected(string name) => Online.TryGetValue(name, out var c) && !c.Closed && !c.LeavingArea ? c : null;
-    static byte[] Details(Account a) => Connected(a.Name) is { } c
+    // Online, or between two connections of an area change (as the connection it left had them).
+    static byte[] Details(Account a) => (Connected(a.Name) ?? Changing(a.Name)) is { } c
         ? InstanceSocial.KnownPlayer(a.Name, CharacterName(c), c.Pools.Level, PackedClass(c), c.PortraitFrame, WornPortrait(c))
         : InstanceSocial.OfflinePlayer(a.Name);
 
@@ -45,9 +49,27 @@ static class FriendsFeature
             yield return ($"0x00a7 friend details {account.Name}", Details(account));
             yield return ($"0x00c9 friend relation {account.Name}", InstanceSocial.FriendRelation(account.Name, accepted));
         }
-        // Presence updates are sent after this entry's own messages by the ordinary packet/leave paths as well.
+        // Presence updates are sent after this entry's own messages by the ordinary packet/leave paths as well. After an
+        // area change the friends had no offline notice, so they need no online one either.
+        if (Moving.TryRemove(name, out var moved) && DateTime.UtcNow - moved.Since < MovingGrace) yield break;
         foreach (var other in Online.Values.Where(o => !ReferenceEquals(o, c) && !o.Closed && !o.LeavingArea))
             _ = RefreshSafely(other, me);
+    }
+
+    // The entry's list (Enter) is built when the entry starts and sent with its messages, seconds later in a hideout: a
+    // friend who came online in between was listed offline after their own online notice had arrived, and stayed so
+    // (live 2026-11-05: admin@admin.ru online at 00:40:44.180, then offline from test1's entry list at .186). On the
+    // player's first tick after the entry (SocialModule), the friends' presence as it is then.
+    public static async Task AfterEntry(ClientState c)
+    {
+        if (c.Closed || c.LeavingArea || c.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
+        Register(c);
+        foreach (var id in Store.Friends(me.Id))
+            if (Accounts.GetAccount(id) is { } friend) await RefreshSafely(c, friend);
+        // And every friend in game, wherever they are, gets this player's presence now (an entry is a status update for
+        // them too, the leave its other one: Leaving).
+        foreach (var other in Online.Values.Where(o => !ReferenceEquals(o, c) && !o.Closed && !o.LeavingArea).ToList())
+            await RefreshSafely(other, me);
     }
 
     static async Task RefreshSafely(ClientState viewer, Account about, bool removal = false)
@@ -101,6 +123,26 @@ static class FriendsFeature
     {
         if (c.Account is not { } name || !Online.TryRemove(new KeyValuePair<string, ClientState>(name, c))) return;
         if (Accounts.FindAccount(name) is not { } me) return;
+        // An area change: the player is still online, on the next connection. The friends hear nothing of it (an offline
+        // and an online notice on every area change, live 2026-11-05); a player who does not come back is told offline.
+        if (c.LeavingArea || c.TransferAccepted)
+        {
+            Moving[name] = (DateTime.UtcNow, c);
+            _ = OfflineIfNotBack(name, me);
+            return;
+        }
+        foreach (var other in Online.Values) await RefreshSafely(other, me);
+    }
+
+    // Accounts between two connections of an area change, since when.
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Since, ClientState From)> Moving = new(StringComparer.OrdinalIgnoreCase);
+    static readonly TimeSpan MovingGrace = TimeSpan.FromSeconds(60);
+
+    static async Task OfflineIfNotBack(string name, Account me)
+    {
+        await Task.Delay(MovingGrace);
+        if (!Moving.TryGetValue(name, out var moving) || DateTime.UtcNow - moving.Since < MovingGrace || Connected(name) is not null) return;
+        Moving.TryRemove(name, out _);
         foreach (var other in Online.Values) await RefreshSafely(other, me);
     }
 }

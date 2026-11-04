@@ -41,6 +41,12 @@ static partial class Game
                 || id == InstanceProtocol.ResurrectId && InstanceProtocol.ReadResurrectInTown(bytes)
                 || id == InstanceItems.CommandId && InstanceItems.ReadCommand(bytes).Id == InstanceItems.WarpToHideoutCommand;
             if (!transferIngress) AdvanceProjectiles(conn);
+            // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.
+            if (id == InstanceTransfer.LeaveAreaAckId)
+            {
+                if (conn.PendingTransfer is { } leaving) await Transfer(remote, stream, ciphers, conn, leaving);
+                continue;
+            }
             // Native TakeHit blocks predicted action starts too. Buffered normal actions must not restart the server's
             // movement/cast timeline during that same recovery. Flasks and instant skills retain their own paths.
             if (id is InstanceProtocol.UseSkillAtLocationId or InstanceTransfer.UseSkillOnObjectId or InstanceProtocol.ChannelUpdateId)
@@ -690,8 +696,6 @@ static partial class Game
             }
             // Unframed messages have the hooks too.
             if (Program.ServerHooks.WantsPacket(uid)) await Program.ServerHooks.Packet(PlayerOf(conn), uid, unknown);
-            // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.
-            if (uid == InstanceTransfer.LeaveAreaAckId && conn.PendingTransfer is { } t) await Transfer(remote, stream, ciphers, conn, t);
         }
     }
 }

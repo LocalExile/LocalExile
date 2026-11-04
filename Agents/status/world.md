@@ -124,10 +124,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Resync (S→C 0x128): sent on every stun, after a movement skill, on the client's own request (C→S 0x16 command 8) and by `/oos`;
   it corrects errors of 20 cells or more and leaves smaller ones alone.
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
-  Two authenticated clients in the same instance still need an end-to-end check.
-  Remote player creation, movement, life and departure are replicated; party formation and shared combat remain open.
+  Remote player creation, movement, life, departure and skill actions are replicated.
   Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Program.LivingCollision.cs`, `InstancePlayers.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md).
+- **Shared instance** (two clients, 2026-11-05): an instance's monsters are its own (`InstanceWorld`), on its clock and
+  ids; every client is shown them, any player's hits hurt the same ones and each monster targets the nearest player.
+  Ground items are shared, quest items and kill quest progress go to each player near, kill experience to all near.
+  Ailment ticks and monster collisions run on one connection's loop; the King in the Mists' arena objects and the
+  league encounters stay one player's.
+  Code: `InstanceWorld.cs`, `SharedMonsters.cs`, `SharedKills.cs`, `SharedGround.cs`.
 - **Spawn points.** Logins, Resurrect in Town and one-way entries other than The Twilight Strand → Lioneye's Watch use
   the area's spawn: the town's fixed point, or the walkable cell farthest from any edge in a generated area.
 - **Area seeds.** A new instance of an area the Gateway generates itself gets a random seed (`Game_RANDOM_SEEDS=0`

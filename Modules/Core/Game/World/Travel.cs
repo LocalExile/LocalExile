@@ -399,10 +399,16 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} transfer refused: saved life and mana belong to a newer connection");
             return;
         }
-        var r = await (control ?? (request => InstanceControl.CallAsync(request)))(new ControlRequest
+        var call = control ?? (request => InstanceControl.CallAsync(request));
+        ulong join = t.Instance != 0 || t.New ? 0 : GameEvents.TransferInstance.For(conn).Select(run => run(conn, t)).FirstOrDefault(i => i != 0);
+        var r = await call(new ControlRequest
         {
-            Op = "transfer", Ticket = conn.Ticket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed,
+            Op = "transfer", Ticket = conn.Ticket, Area = t.Area, Instance = join != 0 ? join : t.Instance, New = t.New, Seed = t.Seed,
         });
+        // The party member's instance may be gone or closed to this player: the default choice then.
+        if (join != 0 && !r.Ok)
+            r = await call(new ControlRequest { Op = "transfer", Ticket = conn.Ticket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed });
+        else if (join != 0) Console.WriteLine($"[gateway] {remote} transfer: joins party instance {join}");
         t.Done?.Invoke(r);
         if (!r.Ok)
         {
@@ -413,6 +419,7 @@ static partial class Game
             return;
         }
         lock (conn.Monsters) conn.TransferAccepted = true;
+        conn.TransferredTo = (r.Area, r.Instance);
         foreach (var resolved in GameEvents.TransferResolved.For(conn)) await resolved(conn, t, r);
         CarryCharges(conn, r.Ticket);
         CarryFortification(conn, r.Ticket);

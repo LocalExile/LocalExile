@@ -35,7 +35,7 @@ sealed record BotQuest(string Act, string Town, string Id, string Name, string W
 }
 
 /// <summary>What a bot is doing now.</summary>
-enum BotPhase { Arriving, Walking, Idling, Leaving, Questing }
+enum BotPhase { Arriving, Walking, Idling, Leaving, Questing, Following, Departing }
 
 /// <summary>A bot: its account and character in the save database, its place in the route, and its body in a town.</summary>
 sealed class Bot
@@ -61,21 +61,29 @@ sealed class Bot
     public string? PlacedIn;
     /// <summary>The instances this bot's body is published in (removed from them when it leaves).</summary>
     public readonly HashSet<InstanceState> Shown = [];
+    /// <summary>The player whose party it is in (BotParty), and that party's id; the instance it was placed in there.</summary>
+    public ClientState? Leader;
+    /// <summary>The leader's character: an area change is a new connection, which the bot follows by this name.</summary>
+    public string? LeaderName;
+    /// <summary>When the leader's connection went without a new one yet (an area change in progress).</summary>
+    public DateTime? LeaderGoneSince;
+    public uint Party;
+    public InstanceState? FollowIn;
 }
 
 /// <summary>Creates bots up to the limit, one per interval, walks them through the route and shows them in the towns
 /// where real players are: a bot is a published player (InstancePlayer without a connection) of each live instance of
 /// its town, which every client there replicates like another player (LivingCollision.SyncInstancePlayers). Quests are
 /// simulated out of sight; a bot that has done every quest of both guides is deleted and a new one takes its place.</summary>
-sealed class BotDirector
+sealed partial class BotDirector
 {
     readonly BotSettings _settings;
     readonly List<BotQuest> _route;
-    readonly BotLog _log;
+    internal readonly BotLog _log;
     readonly Action<string> _console;
     readonly SqliteAccountStore _accounts = new(Saves.Db);
-    readonly Random _random = new();
-    readonly List<Bot> _bots = [];
+    internal readonly Random _random = new();
+    internal readonly List<Bot> _bots = [];
     readonly CancellationTokenSource _stop = new();
     static int _nextPeer = 0x38000000;
     // In one town at once at most MaxQuick bots on a quick visit and MaxStaying staying; the places they stand are at
@@ -117,6 +125,9 @@ sealed class BotDirector
                 Quick = s.Quick, Gear = s.Gear ?? [], GearLevel = s.GearLevel,
             };
             if (bot.Gear.Count == 0) Dress(bot);
+            // Its party went with the restart: on with its quests.
+            if (bot.Phase is BotPhase.Following or BotPhase.Departing)
+                (bot.Phase, bot.Until, bot.Doing) = (BotPhase.Questing, DateTime.UtcNow, "идёт дальше по квестам");
             _bots.Add(bot);
             // A bot an earlier version left waiting for room in a town goes on with its quests.
             if (bot.Doing.StartsWith("ждёт", StringComparison.Ordinal))
@@ -259,7 +270,7 @@ sealed class BotDirector
 
     // ---- the route ----
 
-    void BeginQuest(Bot bot, DateTime now)
+    internal void BeginQuest(Bot bot, DateTime now)
     {
         if (bot.QuestIndex >= _route.Count) { Retire(bot); return; }
         var quest = _route[bot.QuestIndex];
@@ -338,6 +349,7 @@ sealed class BotDirector
 
     void Step(Bot bot, DateTime now, double seconds, Dictionary<string, List<ClientState>> towns)
     {
+        if (bot.Phase is BotPhase.Following or BotPhase.Departing) { StepWithLeader(bot, now, seconds); return; }
         if (bot.Phase == BotPhase.Questing)
         {
             if (now >= bot.Until) FinishQuest(bot, now);
@@ -461,11 +473,11 @@ sealed class BotDirector
 
     // A step toward the target, cell by cell on the town's walk map; true when there, or after being stuck a while (which
     // gives up and stands where it is). Bodies do not block (as players in the game).
-    static bool Walk(Bot bot, AreaLayout layout, double seconds)
+    internal static bool Walk(Bot bot, AreaLayout layout, double seconds, double speed = 1)
     {
         double dx = bot.TargetX - bot.X, dy = bot.TargetY - bot.Y, distance = Math.Sqrt(dx * dx + dy * dy);
         if (distance < 2) { (bot.X, bot.Y) = (bot.TargetX, bot.TargetY); return true; }
-        double step = Math.Min(distance, Program.WalkSpeed * seconds);
+        double step = Math.Min(distance, Program.WalkSpeed * speed * seconds);
         double nx = bot.X + dx / distance * step, ny = bot.Y + dy / distance * step;
         bool Free(double x, double y) => layout.Walkable?.Invoke((int)x, (int)y) ?? true;
         (double X, double Y)[] tries = [(nx, ny), (nx, bot.Y), (bot.X, ny),
@@ -491,7 +503,7 @@ sealed class BotDirector
         return towns;
     }
 
-    void Show(Bot bot, List<ClientState>? observers)
+    internal void Show(Bot bot, List<ClientState>? observers)
     {
         var instances = (observers ?? []).Select(c => c.Instance).Distinct().ToHashSet();
         foreach (var gone in bot.Shown.Where(i => !instances.Contains(i)).ToList()) { gone.RemovePlayer(bot.PeerId); bot.Shown.Remove(gone); }
@@ -502,13 +514,14 @@ sealed class BotDirector
             instance.PublishPlayer(new InstancePlayer(bot.PeerId, template.Type, template.Player, (int)bot.X, (int)bot.Y, template.Player.Life)
             {
                 // Walking: observers start one Move action to the target, which their client animates and paths.
-                Destination = bot.Phase is BotPhase.Walking or BotPhase.Leaving ? ((int)bot.TargetX, (int)bot.TargetY) : ((int)bot.X, (int)bot.Y),
+                Destination = bot.Phase is BotPhase.Walking or BotPhase.Leaving or BotPhase.Following or BotPhase.Departing
+                    ? ((int)bot.TargetX, (int)bot.TargetY) : ((int)bot.X, (int)bot.Y),
             });
             bot.Shown.Add(instance);
         }
     }
 
-    static void Hide(Bot bot)
+    internal static void Hide(Bot bot)
     {
         foreach (var instance in bot.Shown) instance.RemovePlayer(bot.PeerId);
         bot.Shown.Clear();
@@ -518,12 +531,13 @@ sealed class BotDirector
     // Stats.dat use_town_stance (row 21140; a stat key is its row + 1): the relaxed stance and walk players have in towns.
     const uint TownStance = 21141;
 
-    static (uint Type, PlayerObject Player) Template(Bot bot)
+    internal static (uint Type, PlayerObject Player) Template(Bot bot)
     {
         var cls = Program.Skills.ClassFor(Program.Skills.RowOfClass((int)bot.Class));
         uint life = (uint)(cls.BaseMaxLife + 12 * (bot.Level - 1)), mana = (uint)(cls.BaseMaxMana + 6 * (bot.Level - 1));
         var player = new PlayerObject(bot.Name, CharacterClassByte.Encode((byte)cls.IntegerId, 0), (int)bot.X, (int)bot.Y, life, mana,
-            AnimatedObject: cls.AnimatedObject, Skills: [], Stats: [(TownStance, 1)], Equipped: BotGear.Looks(bot.Gear));
+            AnimatedObject: cls.AnimatedObject, Skills: [], Stats: bot.Town.Contains("_town", StringComparison.Ordinal) ? [(TownStance, 1)] : [],
+            Equipped: BotGear.Looks(bot.Gear));
         return (InstanceEntities.ObjectTypeHash(cls.ObjectType), player);
     }
 }

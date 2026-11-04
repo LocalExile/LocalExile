@@ -520,9 +520,14 @@ static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await PushOutOfCollision(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await BurnIgnited(remote, stream, ciphers, conn);
-            await BleedMonsters(remote, stream, ciphers, conn);
-            await TickPoisons(remote, stream, ciphers, conn);
+            // The instance's monsters' ailments tick once: on the runner's tick (each player's tick did it again, which
+            // multiplied their damage by the players in the instance).
+            if (IsMonsterRunner(conn))
+            {
+                await BurnIgnited(remote, stream, ciphers, conn);
+                await BleedMonsters(remote, stream, ciphers, conn);
+                await TickPoisons(remote, stream, ciphers, conn);
+            }
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             var rf = conn.RighteousFire;
             if (conn.PlayerLife == 0)

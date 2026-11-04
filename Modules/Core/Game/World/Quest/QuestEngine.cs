@@ -82,7 +82,9 @@ static partial class Game
             return [];
         }
         bool carried = QuestItems.Carried(ItemsOf(conn)).Any(c => c.Item.Item.TypeHash == type.Hash);
-        bool onGround = conn.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash);
+        // This character's copy only: in a shared instance another player's quest item is theirs (SharedKills.cs).
+        bool onGround = conn.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash
+            && conn.Instance.Ground.Origin(e.Id) is var (by, shared) && (shared || by is ClientState c && CharacterName(c) == CharacterName(conn)));
         if (!QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(conn, f), carried, onGround))
         {
             Console.WriteLine($"[gateway] {remote} {source}: no {type.Name}, the character has one or does not need it");
@@ -90,9 +92,18 @@ static partial class Game
         }
         var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near(at) : at;
         var ground = new WorldItemObject(x, y, ItemCatalog.Create(type));
-        uint id = conn.Instance.Ground.Add(ground);
+        uint id = conn.Instance.Ground.Add(ground, conn, shared: false);
         return [(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
             $"0x02b9 quest item {type.Name} 0x{id:x} from {source} at ({x}, {y})"), (InstanceProtocol.EnterWakeZone(id), null)];
+    }
+
+    // A party kill's quest items for another player in the instance (SharedKills.cs): their own copy, on their own client.
+    internal static async Task DropQuestItemsForKill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        string varietyId, (int X, int Y) at, string source)
+    {
+        foreach (string item in QuestsOf(conn).DropsOnKill(conn.Layout.Id, varietyId))
+            foreach (var (packet, log) in CommitQuestItem(conn, item, at, source))
+                await Send(remote, stream, ciphers, packet, log);
     }
 
     internal static void CommitAcceptedQuestKill(KillContext kill)
@@ -112,7 +123,7 @@ static partial class Game
         }
         var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near(at) : at;
         var ground = new WorldItemObject(x, y, ItemCatalog.Create(type));
-        uint id = conn.Instance.Ground.Add(ground);
+        uint id = conn.Instance.Ground.Add(ground, conn, shared: false);
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
             $"0x02b9 {type.Name} 0x{id:x} from {source} at ({x}, {y})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);

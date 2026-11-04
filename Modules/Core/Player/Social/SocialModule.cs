@@ -14,6 +14,14 @@ public sealed class SocialModule : IModule
     {
         static (ClientState Conn, string Remote) Of(Packet p) => (ConnOf(p.Player), ConnOf(p.Player).Wire.Remote);
         module.OnEnterMessages(player => FriendsFeature.Enter(ConnOf(player)));
+        // The first tick after the entry: the party (after an area change) and the friends' presence as they are now.
+        module.OnTick(async (player, _) =>
+        {
+            if (ConnOf(player) is not { PlayerSent: true } c || !SocialFeature.Rebound.TryAdd(c, null)) return;
+            await SocialFeature.RebindParty(c);
+            await FriendsFeature.AfterEntry(c);
+        });
+        module.Lifetime.Own(GameEvents.TransferInstance.Add("Social", SocialFeature.PartyInstance));
         module.OnPlayerLeaving((player, why) => FriendsFeature.Leaving(ConnOf(player)));
         module.OnPacket(InstanceSocial.FriendAddId, async p =>
         {
@@ -77,8 +85,8 @@ public sealed class SocialModule : IModule
         module.OnPacket(InstanceSocial.PartyInviteId, async p =>
         {
             var (conn, remote) = Of(p);
-            await SocialFeature.InviteToParty(remote, conn, InstanceSocial.ReadPartyInvite(p.Bytes.ToArray()));
-            return true;
+            // Not a player here: another module may own the name (the PlayerBots module's bots).
+            return await SocialFeature.InviteToParty(remote, conn, InstanceSocial.ReadPartyInvite(p.Bytes.ToArray()));
         });
         module.OnPacket(InstanceSocial.PartyAcceptId, async p =>
         {
@@ -89,8 +97,7 @@ public sealed class SocialModule : IModule
         module.OnPacket(InstanceSocial.PartyLeaveId, async p =>
         {
             var (conn, remote) = Of(p);
-            await SocialFeature.LeaveParty(remote, conn, InstanceSocial.ReadPartyAccept(p.Bytes.ToArray()));
-            return true;
+            return await SocialFeature.LeaveParty(remote, conn, InstanceSocial.ReadPartyAccept(p.Bytes.ToArray()));
         });
     }
 }
@@ -136,11 +143,13 @@ static class SocialFeature
 
     // C→S 0x93: "Invite to Party" with the other character's name. Both sides learn each other (0xa7); the invited player
     // gets a party list (0xa9) with the inviter and themself.
-    internal static async Task InviteToParty(string remote, ClientState conn, string name)
+    internal static async Task<bool> InviteToParty(string remote, ClientState conn, string name)
     {
-        var other = conn.Instance.Presence.PlayersExcept(0).Select(p => p.Owner)
-            .FirstOrDefault(o => o is { Outbox: not null } && !ReferenceEquals(o, conn) && string.Equals(CharacterName(o), name, StringComparison.OrdinalIgnoreCase));
-        if (other is null) { Console.WriteLine($"[gateway] {remote} <= 0x0093 party invite to \"{name}\": not here"); return; }
+        // Anyone in game, wherever they are (the friends list invites by character or account name, from any area).
+        var other = InGame.Keys.FirstOrDefault(o => o is { Outbox: not null, Closed: false, LeavingArea: false } && !ReferenceEquals(o, conn)
+            && (string.Equals(CharacterName(o), name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(o.Account, name, StringComparison.OrdinalIgnoreCase)));
+        if (other is null) { Console.WriteLine($"[gateway] {remote} <= 0x0093 party invite to \"{name}\": not in game"); return false; }
         string me = CharacterName(conn), them = CharacterName(other);
         await Introduce(conn, other);
         await Introduce(other, conn);
@@ -152,6 +161,7 @@ static class SocialFeature
         Console.WriteLine($"[gateway] {remote} <= 0x0093 party invite: {me} -> {them} (party 0x{party:x})");
         PartyInvites[party] = (conn, other);
         await SendTo(other, info, $"0x00a9 party info for {them} (invited by {me})");
+        return true;
     }
 
     /// <summary>Open invites by party id: the inviter (leader) and the invited player.</summary>
@@ -189,25 +199,70 @@ static class SocialFeature
         for (int i = 0; i < members.Length; i++)
         {
             var to = members[i];
+            await Program.SetPartySize(to, members.Length);
             foreach (var m in members) await Introduce(to, m);
             await SendTo(to, InstanceSocial.PartyInfo(party, lead, leader.Account ?? lead, (byte)i, 0, 0, 0, entries),
                 $"0x00a9 party 0x{party:x} for {CharacterName(to)}: {string.Join(", ", members.Select(CharacterName))}");
         }
     }
 
+    // An area change is a new connection of the same character: it takes the old one's place in its party, and every
+    // member gets the party again (the new client has none).
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, object?> Rebound = new();
+
+    internal static async Task RebindParty(ClientState conn)
+    {
+        string name = CharacterName(conn);
+        foreach (var (party, list) in Parties)
+        {
+            bool found = false;
+            lock (list)
+                for (int i = 0; i < list.Count; i++)
+                    if (!ReferenceEquals(list[i], conn) && string.Equals(CharacterName(list[i]), name, StringComparison.Ordinal))
+                        (list[i], found) = (conn, true);
+            if (!found) continue;
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} {name} back in party 0x{party:x} after an area change");
+            await SendParty(party);
+        }
+    }
+
+    // A transfer without a chosen instance goes to a party member's instance of that area, when one is there.
+    internal static ulong PartyInstance(ClientState conn, PendingTransfer t)
+    {
+        foreach (var list in Parties.Values)
+        {
+            ClientState[] members;
+            lock (list) members = [.. list];
+            if (!members.Contains(conn)) continue;
+            foreach (var m in members)
+            {
+                if (ReferenceEquals(m, conn)) continue;
+                // On the way there (both went at once): where Auth is sending them.
+                if (m.TransferredTo is { } going && going.Area == t.Area) return going.Instance;
+                if (!m.Closed && !m.LeavingArea && m.Layout.Hash == t.Area && InGame.ContainsKey(m)) return m.InstanceNumber;
+            }
+        }
+        return 0;
+    }
+
     // C→S 0x96: "Leave Party". The player gets the party removed (0xaa); with fewer than two left the party is disbanded
     // for everyone, otherwise the others get the smaller party (the next member leads when the leader leaves).
-    internal static async Task LeaveParty(string remote, ClientState conn, uint party)
+    internal static async Task<bool> LeaveParty(string remote, ClientState conn, uint party)
     {
-        if (!Parties.TryGetValue(party, out var list)) { Console.WriteLine($"[gateway] {remote} <= 0x0096 leave party 0x{party:x}: no such party"); return; }
+        if (!Parties.TryGetValue(party, out var list)) { Console.WriteLine($"[gateway] {remote} <= 0x0096 leave party 0x{party:x}: no such party"); return false; }
         ClientState[] left;
         lock (list) { list.Remove(conn); left = [.. list]; }
         Console.WriteLine($"[gateway] {remote} <= 0x0096 {CharacterName(conn)} leaves party 0x{party:x}: {left.Length} left");
         await SendTo(conn, InstanceSocial.PartyRemove(party), $"0x00aa party 0x{party:x} removed (left)");
-        if (left.Length >= 2) { await SendParty(party); return; }
+        await Program.SetPartySize(conn, 1);
+        if (left.Length >= 2) { await SendParty(party); return true; }
         Parties.TryRemove(party, out _);
         foreach (var m in left)
+        {
             await SendTo(m, InstanceSocial.PartyRemove(party), $"0x00aa party 0x{party:x} removed (disbanded)");
+            await Program.SetPartySize(m, 1);
+        }
+        return true;
     }
 
     // C→S 0xba: "Trade" on another player in the same instance. The requester sees the waiting notice (0xb8 without

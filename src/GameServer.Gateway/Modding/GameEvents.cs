@@ -68,6 +68,8 @@ static class GameEvents
     public static readonly GameEvent<Func<ClientState, Task<bool>>> RewardClosing = new();
     /// <summary>A league encounter may refuse unrelated travel while its gate is closed.</summary>
     public static readonly GameEvent<Func<ClientState, PendingTransfer, string?>> TravelRefusal = new();
+    /// <summary>An instance to join for a transfer without a chosen one (a party member's), 0 for the default choice.</summary>
+    public static readonly GameEvent<Func<ClientState, PendingTransfer, ulong>> TransferInstance = new();
     /// <summary>The Auth transfer answer, after failed-transfer recovery and before a successful ticket is sent.</summary>
     public static readonly GameEvent<Func<ClientState, PendingTransfer, ControlResponse, Task>> TransferResolved = new();
     /// <summary>The player came back at a checkpoint or in town: a league encounter may restart its run.</summary>

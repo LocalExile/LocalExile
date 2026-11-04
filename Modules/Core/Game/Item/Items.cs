@@ -514,6 +514,7 @@ static partial class Game
         if (!GameEvents.AllowsLoot(conn)) return;
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
+            conn.SeenGround.Add(id);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
                 $"0x02b9 create world item 0x{id:x} left at ({ground.GridX}, {ground.GridY})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
@@ -634,7 +635,7 @@ static partial class Game
         }
         var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         var ground = new WorldItemObject(x, y, held.Item);
-        uint id = conn.Instance.Ground.Add(ground);
+        uint id = conn.Instance.Ground.Add(ground, conn);
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
             $"0x02b9 create world item 0x{id:x} at ({x}, {y})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 world item 0x{id:x} enters wake zone");
@@ -702,7 +703,7 @@ static partial class Game
                 {
                     // Fits said yes, so this is not expected; the rest goes back on the ground rather than vanish.
                     rest = new WorldItemObject(ground.GridX, ground.GridY, ground.Item with { StackSize = (ushort)stacked.Left });
-                    restId = conn.Instance.Ground.Add(rest);
+                    restId = conn.Instance.Ground.Add(rest, conn);
                 }
             }
             if (rest is not null)
@@ -781,7 +782,7 @@ static partial class Game
         catch
         {
             if (originalId is uint id) conn.Instance.Ground.Restore(id, ground);
-            else conn.Instance.Ground.Add(ground);
+            else conn.Instance.Ground.Add(ground, conn);
             throw;
         }
     }
