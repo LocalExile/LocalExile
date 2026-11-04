@@ -922,11 +922,16 @@ static partial class Game
         // A channelled skill (Cyclone, ActiveSkillType 47) hits as it starts: its spin is already in motion, and the later
         // sweeps follow on the attack timer (RunChannel).
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;
-        // A spell's repeats (SpellRepeats) land again a cast time apart, with the use's critical roll.
-        return Task.WhenAll(Enumerable.Range(0, SpellRepeats(conn, skillId, gem.Effect) + 1).Select(repeat =>
+        // A spell's repeats (SpellRepeats) land again a cast time apart, with the use's critical roll; a melee attack's
+        // Multistrike repeats are hits of the same use, spread over its attack time with their own more damage.
+        int spellRepeats = SpellRepeats(conn, skillId, gem.Effect);
+        int meleeRepeats = channelled || spellRepeats > 0 ? 0 : MeleeAttackRepeats(conn, skillId);
+        double repeatInterval = meleeRepeats > 0 ? SupportedAttackSeconds(conn, skillId) / (meleeRepeats + 1) : 0;
+        return Task.WhenAll(Enumerable.Range(0, Math.Max(spellRepeats, meleeRepeats) + 1).Select(repeat =>
             AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from, to, immediate: channelled, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
-                targetId: targetId, repeat: repeat)));
+                targetId: targetId, repeat: repeat, repeatDelay: repeat * repeatInterval,
+                damageMore: meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1)));
     }
 
     // A channelled skill's hits (Cyclone): one sweep around the player every attack time (SupportedAttackSeconds: the
@@ -1036,7 +1041,7 @@ static partial class Game
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
-        uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null)
+        uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         bool Current() => (cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken))
@@ -1063,7 +1068,7 @@ static partial class Game
         // swing's; the player swings where it stands, so without the walk-in offset.
         lock (conn.Monsters) delay = spell
             ? castDuration.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject))
-            : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false);
+            : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false) + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
         int radius = radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect);
         // A melee skill aimed far away still lands in front of the player; a self-targeted spell goes off around the caster.
@@ -1091,6 +1096,8 @@ static partial class Game
         }
         List<(uint Id, SpawnedMonster M)> targets;
         int sweep;
+        // Melee Splash victims and their damage multiplier (see MeleeSplash).
+        var splashMore = new Dictionary<uint, double>();
         // Ice Nova's ring reaches each victim in turn (IceNovaRing); a channel's sweep lands at once.
         bool ring = !immediate && SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action;
         int artVariation = ring ? SkillArtVariation(conn, gem.Gem) : 0;
@@ -1128,6 +1135,25 @@ static partial class Game
             if (echo is { } at)
                 targets.AddRange(conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), at) <= radius && struck.Add(e.Key)).Select(e => (e.Key, e.Value)));
+            // Melee Splash: each struck enemy splashes onto the enemies around it, for the support's less damage.
+            if (!spell)
+            {
+                var merged = SupportedStats(conn, skillId);
+                int SplashStat(string name) => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
+                if (MeleeSplash.Settings(SplashStat) is { } splash)
+                    foreach (var (_, m) in targets.ToArray())
+                    {
+                        var splashAt = m.Walk.Position(now);
+                        foreach (var (sid, sm) in conn.Monsters)
+                            if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null && struck.Add(sid)
+                                && Dist(sm.Walk.Position(now), splashAt) <= splash.Radius)
+                            {
+                                targets.Add((sid, sm));
+                                splashMore[sid] = splash.More;
+                                once?.Add(sid);
+                            }
+                    }
+            }
         }
         bool fortificationGranted = false; // One simultaneous sweep, independent of notification latency.
         bool rageGranted = false; // Only a positive gain takes this sweep's latch.
@@ -1224,6 +1250,7 @@ static partial class Game
                 var taken = MonsterTakenComponents(m, mitigated, spell);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = damageMore * bloodMore;
+                if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
                 if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
                 LeechOnHitLocked(conn, m, taken, damage, leech!);
                 damage = WithImpaleHitLocked(conn, m, damage, rolled, critical, sweepMultiplier,

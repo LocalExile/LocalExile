@@ -119,6 +119,30 @@ static partial class Game
 
     internal static double SupportedAttackSeconds(ClientState conn, ushort skillId) => SupportedAttackSecondsFor(conn, skillId, null);
 
+    // Multistrike: "Supported Skills Repeat an additional X times" (base_melee_attack_repeat_count). The repeats are
+    // hits of the same use, so the skill's attack time is split between them and the support's per-repeat more damage
+    // applies to each one after the first.
+    internal static int MeleeAttackRepeats(ClientState conn, ushort skillId)
+    {
+        var gem = SupportedSkill(conn, skillId);
+        if (!SkillsFor(conn).IsAttack(gem.Effect)) return 0;
+        return Math.Clamp(Stats.Key("base_melee_attack_repeat_count") is uint key
+            ? gem.Stats.GetValueOrDefault(key) : 0, 0, 3);
+    }
+
+    internal static double MeleeRepeatDamageMore(ClientState conn, ushort skillId, int repeat)
+    {
+        if (repeat <= 0) return 1;
+        var gem = SupportedSkill(conn, skillId);
+        string stat = repeat switch
+        {
+            1 => "multistrike_damage_+%_final_on_first_repeat",
+            2 => "multistrike_damage_+%_final_on_second_repeat",
+            _ => "multistrike_damage_+%_final_on_third_repeat",
+        };
+        return Stats.Key(stat) is uint key ? Math.Max(0, 1 + gem.Stats.GetValueOrDefault(key) / 100.0) : 1;
+    }
+
     // Channelling repeats are not limited by the one-new-action-per-frame cap (Action speed, PoE Wiki): they use the
     // speed-only interval so a very fast channel can hit more than 30 times a second.
     static double SupportedChannelSeconds(ClientState conn, ushort skillId) =>
@@ -130,8 +154,7 @@ static partial class Game
         SupportedAttackSecondsFor(conn, skillId, offHand);
 
     internal static double SupportedAttackSecondsFor(ClientState conn, ushort skillId, SkillCatalog.Unarmed? offHand,
-        bool clampToTick = true)
-    {
+        bool clampToTick = true)    {
         var stats = SupportedStats(conn, skillId);
         int Get(string stat) => Stats.Key(stat) is uint k ? stats.GetValueOrDefault(k) : 0;
         var gem = SupportedSkill(conn, skillId);
@@ -142,7 +165,7 @@ static partial class Game
             stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(gem.Stats.GetValueOrDefault(raw) * factor);
         }
         double more = Supports.AttackSpeedMultiplier(gem.Effect, gem.Level) * Math.Max(.01, 1 + Get("support_melee_physical_damage_attack_speed_+%_final") / 100.0)
-            * Math.Max(.01, 1 + Get("support_multistrike_attack_speed_+%_final") / 100.0);
+            * Math.Max(.01, 1 + Get("support_multiple_attacks_melee_attack_speed_+%_final") / 100.0);
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
         // already part of this factor. Do not apply the same GEPL value again.
         double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats)

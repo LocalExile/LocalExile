@@ -69,9 +69,15 @@ Hits from minions, warcries, passive-granted skills and Rampage do not cull yet,
 (against bleeding, burning, frozen, cursed or marked enemies, bow attacks, weapon-local critical strikes, flasks), the
 flat Life and Mana gained on cull, or the "Culled Recently" stats.
 
+Multistrike's repeats are hits of the same use: `MeleeAttackRepeats` splits the skill's attack time between them, each
+repeat after the first takes its `multistrike_damage_+%_final_on_{first,second,third}_repeat`, and the support's attack
+speed reads its actual `support_multiple_attacks_melee_attack_speed_+%_final` (the old code read a stat that does not
+exist, so the base support was a pure damage penalty). Melee Splash hits the enemies around each struck one for the
+support's less damage; its radius is the 12-cell default grown by the area modifier and
+`melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
+
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
-A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.
-Tests cover link isolation, duplicate families, multiple supports, compatibility expressions, costs,
+A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.Tests cover link isolation, duplicate families, multiple supports, compatibility expressions, costs,
 area quality, attack speed, damage prohibitions, conversion ordering and complete support record framing.
 Item-support regressions cover native references, rolled level 40, compatibility, duplicates with physical gems,
 link independence, removal, local level/quality and the 40% socketed-attack hit multiplier.
@@ -94,6 +100,8 @@ A native compatibility match and a displayed support letter do not prove that it
 Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except Ice Nova's and the final-repeat stats.
 Triggers, totems, mines, minion behaviour, attack repeats, projectile branching, leech and many conditional effects
 still require their own execution paths.
+Unleash's seals, minion damage on summoned minions, Spell Cascade's sideways repeats, Arrow Nova's landing pattern and
+the curses that Blasphemy and Hextouch would apply still need their own mechanics or client-side geometry.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
 Only the unconditional damage keys listed by GemSupportDamage and the three target conditions above receive
 multiplicative processing.
