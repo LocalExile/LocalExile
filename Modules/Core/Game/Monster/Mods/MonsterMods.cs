@@ -98,7 +98,7 @@ static partial class Game
     {
         var e = m.Mods.Effects;
         double physical = mitigated[DamageType.Physical].Min;
-        double physicalTaken = physical * Math.Max(0, 1 - e.PhysicalReduction / 100.0);
+        double physicalTaken = physical * Math.Max(0, 1 - (e.PhysicalReduction - CrushReduction(m, now)) / 100.0);
         double total = mitigated.MinTotal - physical + physicalTaken;
         // The player's debuffs on it add to its own increased damage taken (MonsterDamageTaken): his enemy auras' elemental
         // increase on fire, cold and lightning only, his Withered on chaos only, and Pride's more Physical Damage on the
@@ -114,9 +114,11 @@ static partial class Game
             + physicalTaken * factor * (physicalFactor - 1));
     }
 
-    internal static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell) =>
+    internal static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,
+        double now = double.NaN) =>
         mitigated.Select((type, range) => range.Scale(type == DamageType.Physical
-            ? Math.Max(0, 1 - m.Mods.Effects.PhysicalReduction / 100.0) : 1)).Scale(m.Mods.Effects.DamageTaken(spell));
+            ? Math.Max(0, 1 - (m.Mods.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0) : 1))
+            .Scale(m.Mods.Effects.DamageTaken(spell));
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
     internal static int SelfCriticalReduction(ClientState conn) =>

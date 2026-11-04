@@ -74,6 +74,9 @@ Nothing yet.
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).
+  Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
+  Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you"
+  ([25](../docs/protocol/25-gem-supports.md)).
   A real-client Cyclone control accepted the item-support records and displayed blue s/c, red W and white d.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
   Spell Echo repeats a supported spell's releases and area hits a cast time apart, with its 40% more cast speed

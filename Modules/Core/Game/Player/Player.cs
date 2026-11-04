@@ -39,8 +39,13 @@ static partial class Game
                 && !conn.Auras.Values.Any(a => AuraCatalog.Family(a.EffectId) == AuraCatalog.Family(effect))
                 && GemSkillInstanceDisabled(conn, gem.Effect, gem.Id) is null
                 && SupportedReservation(conn, gem.Id) is { } reservation)
+            {
+                var supported = SupportedSkill(conn, gem.Id);
+                var (supportEffect, affectsSelf) = AuraSupport(conn, gem.Id);
                 candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.NextBuff++, AuraCatalog.BuffRow(effect),
-                    reservation.Flat, reservation.Percent, SupportedSkill(conn, gem.Id).Level, SupportedSkill(conn, gem.Id).Quality, SourceBuff: conn.NextBuff++));
+                    reservation.Flat, reservation.Percent, supported.Level, supported.Quality, SourceBuff: conn.NextBuff++,
+                    SupportEffectPct: supportEffect, AffectsSelf: affectsSelf));
+            }
         var restored = AuraCatalog.Restore(saved, candidates, conn.Pools, InTown(conn));
         foreach (var aura in restored) conn.Auras[aura.SkillId] = aura;
         if (restored.Count > 0)

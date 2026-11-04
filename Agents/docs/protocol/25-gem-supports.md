@@ -69,9 +69,16 @@ Hits from minions, warcries, passive-granted skills and Rampage do not cull yet,
 (against bleeding, burning, frozen, cursed or marked enemies, bow attacks, weapon-local critical strikes, flasks), the
 flat Life and Mana gained on cull, or the "Culled Recently" stats.
 
+Awakened supports (their 3.29 rows are kept in the data) add mechanics of their own: every `supported_<type>_skill_gem_level_+`
+raises the supported gem's level like the generic `supported_active_skill_gem_level_+`; Awakened Brutality's
+`chance_to_crush_on_hit_%` crushes for 4 s and a crushed monster's physical damage reduction is 15% lower
+(BuffDefinitions `crushed`); Awakened Spell Echo's `spell_echo_plus_chance_double_damage_%_final` rolls only on the final
+repeat; Awakened Generosity's `non_curse_aura_effect_+%` scales the aura it supports, and its `aura_cannot_affect_self`
+keeps that aura out of the player's stats (the buff icon still shows, and an enemy-debuff aura such as Pride still
+applies). The rest of their extra stats wait on the subsystems below.
+
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
-A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.
-Tests cover link isolation, duplicate families, multiple supports, compatibility expressions, costs,
+A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.Tests cover link isolation, duplicate families, multiple supports, compatibility expressions, costs,
 area quality, attack speed, damage prohibitions, conversion ordering and complete support record framing.
 Item-support regressions cover native references, rolled level 40, compatibility, duplicates with physical gems,
 link independence, removal, local level/quality and the 40% socketed-attack hit multiplier.
