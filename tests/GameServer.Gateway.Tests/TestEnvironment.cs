@@ -22,4 +22,16 @@ static class TestEnvironment
 
     // Isolated --artifacts-path output can be a sibling of the checkout, with no repository among its ancestors.
     static string SourceFile([CallerFilePath] string path = "") => path;
+
+    // The save store (Saves) is one static: a test that opens its own and disposes it leaves the next test that reaches
+    // a save (a character's inventories, loaded once per run) with a closed connection, and the collections' order
+    // varies from run to run. A test that opened its own store releases it through here: the scratch store takes its
+    // place (Saves.Open disposes the one before it) and the test's files go.
+    internal static string ScratchSaves => Path.Combine(Path.GetTempPath(), "localexile-gateway-tests.db");
+
+    internal static void ReleaseSaves(string path)
+    {
+        Saves.Open(ScratchSaves);
+        foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
+    }
 }

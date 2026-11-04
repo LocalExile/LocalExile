@@ -14,8 +14,7 @@ public sealed class AttackAddedPerAttributeTests : IDisposable
 
     public void Dispose()
     {
-        Saves.Db.Dispose();
-        foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(_save + suffix);
+        GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(_save);
     }
 
     static ClientState Connection() => new(new(1, "alberon", 300, 300, 100, 100, null, []), 1, 1)

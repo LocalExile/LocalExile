@@ -115,8 +115,7 @@ public sealed class AscendancyModuleAdmissionTests
         public SaveFixture() => Saves.Open(_path);
         public void Dispose()
         {
-            Saves.Db.Dispose();
-            foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(_path + suffix);
+            GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(_path);
         }
     }
 }
