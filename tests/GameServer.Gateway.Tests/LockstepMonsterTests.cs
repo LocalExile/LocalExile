@@ -140,5 +140,13 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal(moveLeg.To, shooter.Walk.Destination);
         Assert.Equal(moveLeg.To, shooter.Leg);
         Assert.Empty(plan.Moves);
+
+        // Out of the wake zone (asleep), a monster gets no order at all: the client's copy stands frozen out there.
+        var asleep = Drowned(new PlayerWalk(170, 100, 8));
+        asleep.Asleep = true;
+        conn.Monsters[0x3003] = asleep;
+        plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 3);
+        Assert.DoesNotContain(0x3003u, plan.Legs.Select(l => l.Id).Concat(plan.Chases.Select(c => c.Id)).Concat(plan.MoveLegs.Select(l => l.Id)));
+        Assert.False(asleep.Walk.Moving(3.5));
     }
 }

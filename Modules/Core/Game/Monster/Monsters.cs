@@ -487,7 +487,10 @@ static partial class Game
             var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
             foreach (var (id, m) in conn.Monsters)
             {
-                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted
+                // Out of the wake zone the client's copy stands frozen (07 §3); the server's stands too (KeepWakeZone
+                // ended its walk) and gets no order until it is back, or the return's 0x128 would put the copy wherever
+                // the estimate walked meanwhile (live 2026-11-03: 162 cells, in one jump).
+                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted || m.Asleep
                     || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
                 // The King in the Mists has its own phase controller (KingInMists.cs): one action at a time, all its
                 // damage through MonsterSwing/MonsterAreaContact. Its Mystic Fetishes are stationary shrines the

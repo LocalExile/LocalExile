@@ -36,6 +36,10 @@ static partial class Game
                     if (!m.Asleep && d > WakeZoneRadius)
                     {
                         m.Asleep = true;
+                        // The client's copy stops ticking out there; the estimate stands where it is too, and the AI
+                        // leaves it until it is back (Game.PlanMonsterAi), as GGG's does.
+                        m.Walk.StopAt(now);
+                        m.Leg = null;
                         packets.AddRange(InstanceProtocol.LeaveWakeZone(id));
                     }
                     else if (m.Asleep && d <= WakeZoneReturn)

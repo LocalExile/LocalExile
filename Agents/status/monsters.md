@@ -81,7 +81,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   A melee chase repeats every 200 ms ([07](../docs/protocol/07-latency-visibility-movement.md) §5), in legs of 12 cells
   along its walk-up while the player is farther than a leg past its reach (the attack aimed at the player from within
   that), and a Move to a surround slot is cut to its first 12 cells the same way: each order's search then fits the
-  client's one path budget a frame. A Move chase has a
+  client's one path budget a frame. A monster out of the wake zone (171 cells) stands on the server as it does on the
+  client, with no order until it is back ([07](../docs/protocol/07-latency-visibility-movement.md) §5). A Move chase has a
   separate 100 ms budget and requires at least three cells of Manhattan target change, except that a walk still under
   way is ordered again every 200 ms to the same cell (a lockstep client's monster that a body stopped gets going again);
   on a lockstep client a walking monster's re-order waits for a frame start right after its estimate's step, at most
