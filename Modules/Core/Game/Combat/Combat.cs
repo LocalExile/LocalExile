@@ -1384,7 +1384,8 @@ static partial class Game
         if (m.Dead || m.Life == 0) return null;
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
         if (allyAt is null) conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
-        if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
+        if (m.Life == 0) { m.Aggro = false; m.Returning = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
+        else if (damage > 0) { m.Returning = false; m.Aggro = true; }
         TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: m.Life == 0, allyAt);
         return new(m.Life, starts);
     }

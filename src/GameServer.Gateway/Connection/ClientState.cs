@@ -127,6 +127,10 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public double ReceivedActionUntil;
     public bool ReceivedActionFloor;
     public double RecipientDebuffRate = 1;
+    /// <summary>The monster's initial spawn/camp location in grid cells.</summary>
+    public (int X, int Y) SpawnPoint { get; init; }
+    /// <summary>Returning to its spawn camp after over-leashing; immune to passive re-aggro.</summary>
+    public bool Returning;
     /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
     public bool Asleep;
     public MonsterAttack? Attack { get; init; }

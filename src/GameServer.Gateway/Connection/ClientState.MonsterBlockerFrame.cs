@@ -42,7 +42,7 @@ sealed partial class ClientState
             }
             foreach (var (id, m) in owner.Monsters)
             {
-                if (!LivingCollision.Blocks(m)) continue;
+                if (!LivingCollision.Blocks(m) || m.Asleep) continue;
                 var p = m.Walk.Position(now);
                 int size = LivingCollision.Size(m);
                 var blocker = new ClientPathfinder.Blocker(p.X, p.Y, size);

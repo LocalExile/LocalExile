@@ -252,6 +252,7 @@ static partial class Game
             MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique),
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
+                SpawnPoint = (x, y),
                 Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
                 Scripted = !friendly && scripted,
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = states,
@@ -424,6 +425,7 @@ static partial class Game
 
     internal sealed class MonsterAiPlan
     {
+        public readonly List<uint> EndedActions = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To, string Why)> Moves = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To)> Chases = [];
         // A far melee chase's leg: a Move to the cell LegCells along the walk-up. Placed by the plan on a predictive client
@@ -500,21 +502,58 @@ static partial class Game
                 if (m.Hostile && protectedEntry) continue;
                 var (mx, my) = m.Walk.Position(now);
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
-                if (!m.Aggro && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
+                if (!m.Aggro && !m.Returning && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
+                if (m.Returning)
+                {
+                    double campDist = (m.SpawnPoint == default) ? 0 : Math.Sqrt((double)(mx - m.SpawnPoint.X) * (mx - m.SpawnPoint.X) + (double)(my - m.SpawnPoint.Y) * (my - m.SpawnPoint.Y));
+                    if (campDist <= 15)
+                    {
+                        m.Returning = false;
+                        m.LastTarget = null;
+                        continue;
+                    }
+                    if (now >= m.Walk.ArrivesAt)
+                    {
+                        double length = campDist;
+                        int stepMax = 30;
+                        (int X, int Y) stepTarget = m.SpawnPoint;
+                        if (length > stepMax)
+                        {
+                            stepTarget = ((int)Math.Round(mx + (m.SpawnPoint.X - mx) * stepMax / length),
+                                          (int)Math.Round(my + (m.SpawnPoint.Y - my) * stepMax / length));
+                        }
+                        plan.Moves.Add((id, m, ++m.ActionGeneration, PlaceMove(plan, m, stepTarget, now), stepTarget, "returns to camp"));
+                    }
+                    continue;
+                }
                 if (m.Aggro && !m.BossBarShown && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
                 {
                     m.BossBarShown = true;
                     plan.BossBars.Add((id, m));
                 }
-                else if (m.Aggro && !m.Fleeing && d > 2 * m.AggroRange && !conn.Minions.Owns(id))   // a flee walk is not cut short; a minion keeps following
+                else if (m.Aggro && !m.Fleeing && !conn.Minions.Owns(id))
                 {
-                    m.Aggro = false;
-                    m.SwingGeneration = null;
-                    m.LastTarget = null;
-                    // A Move to its own cell does not replace the attack the client is still chasing with.
-                    var stay = NextCell(conn, m, mx, my);
-                    plan.Moves.Add((id, m, ++m.ActionGeneration, PlaceMove(plan, m, stay, now), stay, "gives up"));
-                    continue;
+                    double campDist = (m.SpawnPoint == default) ? 0 : Math.Sqrt((double)(mx - m.SpawnPoint.X) * (mx - m.SpawnPoint.X) + (double)(my - m.SpawnPoint.Y) * (my - m.SpawnPoint.Y));
+                    bool overLeashed = m.Rarity != MonsterRarity.Unique && campDist > m.AggroRange;
+                    bool lostPlayer = m.Rarity != MonsterRarity.Unique && d > m.AggroRange;
+                    if (overLeashed || lostPlayer)
+                    {
+                        m.Aggro = false;
+                        m.Returning = true;
+                        m.SwingGeneration = null;
+                        m.LastTarget = null;
+                        plan.EndedActions.Add(id);
+                        double length = campDist;
+                        int stepMax = 30;
+                        (int X, int Y) stepTarget = m.SpawnPoint;
+                        if (length > stepMax)
+                        {
+                            stepTarget = ((int)Math.Round(mx + (m.SpawnPoint.X - mx) * stepMax / length),
+                                          (int)Math.Round(my + (m.SpawnPoint.Y - my) * stepMax / length));
+                        }
+                        plan.Moves.Add((id, m, ++m.ActionGeneration, PlaceMove(plan, m, stepTarget, now), stepTarget, "returns to camp"));
+                        continue;
+                    }
                 }
                 // Frozen: it stands where it is and does nothing until the freeze ends. A chase order stays open on the client
                 // even when the estimate has stopped: the action goes on after the player until something replaces it.
@@ -796,6 +835,8 @@ static partial class Game
         using (ProjectileMutation(conn, phase: "ai")) plan = PlanMonsterAi(conn, cadence, Math.Max(ProjectileWorldTime(conn), AreaTime(conn)));
         const ushort Move = 0x2909;
         foreach (var (packet, log) in plan.Ailments) await Send(remote, stream, ciphers, packet, log);
+        foreach (uint id in plan.EndedActions)
+            await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
         // A chase is re-ordered every few ticks: its lines only with Game_TRACE=ai (the packet history keeps them).
         foreach (var (id, m, action, from, to, why) in plan.Moves)
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
@@ -813,7 +854,7 @@ static partial class Game
                     });
                     return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, Move, conn.NextActionSequence(), 0x0408);
                 },
-                ServerTrace.Ai || why == "gives up" ? $"0x01ab monster 0x{id:x} {why}: move from {from} to {to}" : null);
+                ServerTrace.Ai || why is "gives up" or "returns to camp" ? $"0x01ab monster 0x{id:x} {why}: move from {from} to {to}" : null);
         foreach (var (id, m, action, from, to) in plan.Chases)
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
                 {

@@ -33,7 +33,7 @@ static partial class Game
                     if (m.Dead || m.Life <= 0 || m.OwnerId is not null) continue;
                     var at = m.Walk.Position(now);
                     double d = Dist(at, player);
-                    if (!m.Asleep && d > WakeZoneRadius)
+                    if (!m.Asleep && d > WakeZoneRadius && !m.Returning)
                     {
                         m.Asleep = true;
                         // The client's copy stops ticking out there; the estimate stands where it is too, and the AI

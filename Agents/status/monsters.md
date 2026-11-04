@@ -14,6 +14,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   (red) or friendly, that chases the player when near (its attack aimed at the player, 0x1ab, client pathing).
   Code: `MonsterObject`, `MonsterCatalog.cs`, Gateway.
   Docs: [10](../docs/protocol/10-chat-and-commands.md) §5.
+- Monster camp leash and returning state: a non-unique monster remembers its spawn camp location (`SpawnPoint`);
+  when dragged beyond its `MaxAgroRange` from camp or player, it drops aggro, cancels the attack chase with S→C 0x1ac
+  `ActionEnded`, and steps smoothly back to its spawn camp in 30-cell legs (`Returning` state). Returning monsters are
+  immune to passive re-aggro until they arrive within 15 cells of camp, or resume combat when damaged.
+  Asleep monsters (> 171 cells, out of wake zone) are excluded from AI passes and collision blocker frames.
+  Code: `Monsters.cs`, `ClientState.cs`, `Resync.cs`, `LivingCollision.cs`.
 - Monster packs in areas: on entry the area fills with its MonsterPacks at the area level (The Coast: crab and Drowned
   packs, some magic, at least 2 with a rare; cannibal packs at the bonfires) and the unique boss at the camp's
   `mapboss` point with its boss pack (Fire Fury beside the campfire, verified live 2026-10-18);
