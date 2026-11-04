@@ -53,7 +53,7 @@ public class LockstepMonsterTests : IDisposable
         Assert.Null(arrived.LastTarget);
         Assert.Equal(arrived.ActionGeneration, arrived.SwingGeneration);
         Assert.DoesNotContain(0x3000u, plan.Swings.Select(s => s.Id));
-        Assert.Equal([0x3001u], plan.Chases.Select(c => c.Id));
+        Assert.Equal([0x3001u], plan.Legs.Select(c => c.Id));   // 40 cells off: its chase goes in legs
 
         // In reach on the way (its walk passes the player): the swing begins at this tick and the walk ends here.
         var met = Drowned(new PlayerWalk(140, 105, 8));
@@ -78,7 +78,7 @@ public class LockstepMonsterTests : IDisposable
         conn.Monsters[0x3005] = blocked;
         plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 7);
         Assert.DoesNotContain(0x3005u, plan.ArrivedSwings.Select(s => s.Id));
-        Assert.Contains(0x3005u, plan.Chases.Select(c => c.Id));
+        Assert.Contains(0x3005u, plan.Legs.Select(c => c.Id));   // 30 cells off: ordered again, in a leg
         // A ranged monster's in-place attack leaves its Move running to the end, on a lockstep client as on a predictive
         // one: the estimate keeps its walk.
         SpawnedMonster Spitter(PlayerWalk walk) => new("Spitter", walk, aggroRange: 60, stopRange: 2, maxLife: 10)
@@ -102,5 +102,28 @@ public class LockstepMonsterTests : IDisposable
         Assert.Empty(plan.ArrivedSwings);
         Assert.Equal([0x3000u, 0x3004u], plan.Swings.Select(s => s.Id).Order());
         Assert.True(walker.Walk.Moving(1.1));
+    }
+
+    // A melee chase farther than a leg past the reach goes as a Move to the cell a leg along its walk-up, placed by the
+    // plan (the client's one search budget per frame, 07 §5); within a leg of the reach the attack aimed at the player
+    // walks up as before.
+    [Fact]
+    public void A_far_melee_chase_goes_in_legs_and_a_near_one_as_the_attack_walk_up()
+    {
+        var conn = Connection(lockstep: false);
+        var far = Drowned(new PlayerWalk(160, 100, 8));    // 60 cells from the player, reach 8: beyond a leg of the reach
+        var near = Drowned(new PlayerWalk(115, 100, 8));   // 15 cells: within it
+        conn.Monsters[0x3000] = far;
+        conn.Monsters[0x3001] = near;
+        var plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 1);
+        var leg = Assert.Single(plan.Legs);
+        Assert.Equal(0x3000u, leg.Id);
+        Assert.Equal((160, 100), leg.From);
+        Assert.Equal((148, 100), leg.To);   // 12 cells along the walk-up, at 8 cells a second
+        Assert.Equal((148, 100), far.Walk.Destination);
+        Assert.True(far.Walk.Moving(1.5));
+        Assert.Null(far.LastTarget);
+        Assert.Equal([0x3001u], plan.Chases.Select(c => c.Id));
+        Assert.DoesNotContain(0x3000u, plan.Chases.Select(c => c.Id));
     }
 }

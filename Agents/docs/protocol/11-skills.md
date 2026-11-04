@@ -923,6 +923,10 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   where a body blocks a step the estimate does not see (live 2026-11-03: Sand Spitters standing 1.5 s two cells into a
   38-cell Move while the estimate walked 30), and only an order, from the estimate's cell, puts it back on its way;
   a chaser that stopped short of its cell retries it after arrival, at most every 0.5 s.
+  A melee chase farther than 12 cells past its reach goes in legs: a Move to the cell 12 along its walk-up, ordered
+  again on the same cadence, and the attack aimed at the player from within that, so that each order's search fits the
+  client's one path budget per frame ([07](07-latency-visibility-movement.md) §5: ordered straight at a far player,
+  half of a pack's searches found nothing and the monsters stood until their next order).
   This retains the current walk when the target moves slightly instead of repeatedly restarting its path.
   A hostile monster within reach stops and swings: 0x1ab with its skill, flags 0x0408 | 0x80, target the player,
   sequence 0xffff.

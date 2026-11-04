@@ -153,7 +153,11 @@ instead of 100 changed neither the failure rate (42–50 %) nor the lag: a dozen
 more than one search a frame, the client paths again by itself whenever a path the budget cut short ends, and fewer
 orders make each stand longer. Given the whole budget, a search still fails by what stands in the way: 6 % within 12
 cells, 42–57 % at 13–60 cells (the pack's own bodies, at the client's positions), 27 % beyond 60 (a partial path
-counts as found). The server cannot see which searches fail, so it leaves the cadence as it is.
+counts as found). The server cannot see which searches fail, so it keeps them short instead: a melee chase farther than
+a leg past its reach goes as a Move to the cell 12 along the walk-up, ordered again on the chase cadence, and the attack
+aimed at the player only from within a leg of the reach ([11](11-skills.md) §6). With that, 8 % of the client's searches
+found no path (6 % given 0), and the pack ran p90 4–17 cells from the estimate instead of 19–28, with 0–2 snaps a run
+instead of 1–7.
 
 - **Grid and size.** Walk values are 4 bits per cell in 3 layers (`0x141d85260`: map `+0xd0 + 0x18 × layer`, row stride
   `+0x100`, size `+0x18/+0x20` in 23-cell tiles). A mover of size *s* (Positioned `+0x1e3` = `object_size − 1`: the
