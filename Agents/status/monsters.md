@@ -196,6 +196,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   tests check it; live, the player was never evaded.
   Code: `MonsterMods.cs`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §5.
+- Monster summoning skills: a monster whose skill brings monsters (the stat set's `alternate_minion`, a
+  SummonedSpecificMonsters row; the Labyrinth's Immolator) uses it within its aggro range, at the skill's cast time and
+  cooldown, while fewer than five of its monsters live (our cap); at the action's contact its
+  `number_of_monsters_to_summon` appear `summon_specific_monsters_in_front_offset` ahead of it, towards the player,
+  hostile, giving no experience or items when the skill says so, and not kept in the instance; the summoner plays its
+  actor's `SpellAreaOfEffect` clip (0x1d1), as the skill's own action plays nothing on the client.
+  Built for the Crematorium trial: its Immolators' skeletons checked live (2026-11-01), their opening being checked.
+  Code: `SkillCatalog.MonsterSummon`, `Program.Monsters.cs` (`MonsterSummon`), Gateway.
+  Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md) ("Monsters").
 - Monster flee: a player hit with a chance to cause monsters to flee (Surfcaster's small nodes, Chance to Flee Support)
   makes a living monster walk to a floor cell 5 m away from the player and not attack until that walk ends.
   Magic monsters avoid half of the flees and rare and unique ones all, through their rarity's own mods.

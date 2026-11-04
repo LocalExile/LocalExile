@@ -9,9 +9,11 @@ static partial class Game
         bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped.
+        // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped, and so does
+        // physical damage taken as an element (PlayerDamageTaken.Shift).
         if (blocked || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
-            || !baseHit.Components.Any(c => DamageTypes.IsElemental(c.Type)) && Get("all_damage_taken_can_chill") == 0) return;
+            || !baseHit.Components.Concat(taken.Components).Any(c => DamageTypes.IsElemental(c.Type))
+                && Get("all_damage_taken_can_chill") == 0) return;
         var previousAilments = conn.ElementalAilments.Snapshot(now);
         double previousAction = conn.ElementalAilments.ActionFactor(now);
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
@@ -49,7 +51,9 @@ static partial class Game
         int damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
             MaxResistance(conn, DamageType.Fire), PlayerImmunities(conn).Contains(DamageType.Fire),
             source => DamageTakenFromBlindedPct(conn, source, stats));
-        int lifeDamage = conn.Immune ? 0 : conn.EnergyShield.Damage(damage, false, until);
+        damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry);
+        int lifeDamage = conn.Immune ? 0 : IncomingResourceDefences.DamageOverTime(conn.EnergyShield,
+            damage, Get(IncomingResourceDefences.BypassStat), until, ref conn.NonChaosDotBypassCarry);
         conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage);
         if (conn.PlayerLife == 0)
         {
@@ -98,7 +102,18 @@ static partial class Game
         return CharacterStatSources(conn).Stats.GetValueOrDefault(key);
     }
 
-    internal static double PlayerActionFactor(ClientState conn) =>
-        Math.Max(.01, conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds,
-            ActionSpeedReduction(conn)));
+    internal static double PlayerActionFactor(ClientState conn)
+    {
+        var sources = CharacterStatSources(conn).Stats;
+        return Math.Max(.01, PlayerActionFactorFrom(conn, name => Stats.Key(name) is uint k
+            ? conn.PlayerStats.GetValueOrDefault(k, sources.GetValueOrDefault(k)) : 0));
+    }
+
+    internal static double PlayerActionFactorFrom(ClientState conn, Func<string, int> get)
+    {
+        double extra = get("has_tailwind") == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get("tailwind_effect_on_self_+%") / 100d)) - 8;
+        double factor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, get("action_speed_-%") - extra)
+            * Math.Max(.01, 1 + get("temporal_chains_action_speed_+%_final") / 100d);
+        return get("action_speed_cannot_be_reduced_below_base") != 0 ? Math.Max(1, factor) : factor;
+    }
 }

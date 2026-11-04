@@ -94,6 +94,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Another character, including one reusing a deleted name, cannot inherit or join that state.
   Automated league/SSF instance checks pass.
   Shared peer presence preserves SSF town visibility while mutable world state remains private.
+  Other players walk with the Move action the client animates.
   Multi-client world joining and pickup boundaries remain covered by automated checks.
   See [league modes](../docs/game/league-modes.md).
 - **Predictive actor collision.** Player paths include living monsters and published players in the same instance.
@@ -177,15 +178,58 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [re/011](../docs/re/011-level-generation.md).
 - **Trials of Ascendancy.** In each LabyrinthTrials area the Gateway places the trial rooms' door, levers, Locked
   Doors, plaque and portal back, and the Bronze Monograph at the door, which reads at once when clicked.
-  The door opens, a lever opens the nearest Locked Door, the plaque sets the trial's quest flag (the client counts it
-  done), opens the portal back to the door and opens the Trial Plaque window (0x7b kind 9) with the trials done.
-  What an instance opened stays open; an opened Locked Door is removed, since the client keeps its cells closed.
+  The door opens, a lever opens what its room's links name (the `.arm` files' link section), the plaque sets the trial's quest flag and its league quest
+  flag, saved for the account's league so the trial is done for each of its characters there (the client counts it
+  done), opens the portal back to the door and opens the Trial Plaque window (0x7b kind 9) with the trials done; a
+  done trial's portal too opens only when its plaque is used.
+  Entering a trial's area gives the Lord's Labyrinth quest (`LabyrinthQuestReceived`): the client's tracker then says
+  "Solve the Trial of Ascendancy in this Area" until it is done, and "Enter the Labyrinth" once the six Normal trials
+  are ([labyrinth-trials](../docs/game/labyrinth-trials.md), "The Lord's Labyrinth quest"); checked live (2026-11-01).
+  What an instance opened stays open; an opened trial Locked Door (bars) is removed, a room's gate stays open.
   Verified with the real client in The Lower Prison (2026-10-31).
   Its spike traps cascade round their ring from the lever towards the door (the plaque room's as a checkerboard), rise
   over a stretched Emerge animation (0x1d1), hit a player on their tile for LbRetractableTrap's share of life and energy
   shield, bleed for a second and wall their tile while they show; matched by eye against the original game.
-  Not built: the other traps, the trials' monsters, the toggling, multi and timed levers of the other trials, and
-  league-wide trials (league quest flags are not saved).
+  The Imperial Gardens' 14 dart turrets fire together every 1.5 s, four poison darts each a quarter turn apart, through
+  the projectile world, stopping at walls and at the turrets' Hull; a dart hits for LbArrowTrap's share and adds a 2 s
+  poison stack reckoned from the hit's life share, less armour, and slows movement by 60% for 2 s. Being checked live.
+  The Catacombs' eight roombas run their rails (two rings round, two chains to and fro, set out as they face) and cut
+  a player inside them, who degenerates by a share of life and energy shield a second (fitted live to the original,
+  2026-11-01) with the roomba's own effect on them; the trial doors open for walking (checked in The Catacombs).
+  The Chamber of Sins' nine sawblades run their tracks (shown, Rail_Visible) to and fro, each pair together, and cut
+  as the roombas do; its two levers (`Switch`) go both ways: pulled, a lever shuts the cage round its room
+  (`Door_Open`) and stops the sawblades its links pause, pulled back it opens it and they run on. Checked live
+  against the original (2026-11-01).
+  The Crypt's twelve spinners (spinning morning stars) run their track pieces piece by piece, turning back at ends
+  and at stoppers, round corners, and at a junction as its rail switch stands, and cut as the roombas do; its
+  `Switch_Multi` lifts the two stoppers in the way up so those spinners run to their lanes' ends, its `Switch` sets
+  the upper room's TriCorner straight so its two spinners leave their small rings for the square, both going both
+  ways; the plain door between its upper spinner room and the plaque room stays shut until clicked, keeping the
+  plaque room's monsters in. Checked live against the original (2026-11-01).
+  The Crematorium's hot plates, those under the grates by its walls too, lie at their lines' fixed height under the
+  floor's grates and heat together on a timer (5 s at the peak, 6 s cold) and
+  burn a player while their lava lies (a share of life and energy shield a second, less fire resistance, with the lava
+  buff's burning look); each of its three levers opens its Locked Door and sets its gears turning; its Immolators
+  bring Ember Claimants. Timings, damage and the Immolators' skeletons checked live against the original (2026-11-01);
+  the plates' height under the grates is being checked.
+  The area's packs keep away from a trial's traps; its rooms get what their room file places: the Gardens' four
+  Devourers, the Lower Prison plaque platform's pack and its spawner's rare Brittle Poacher, the Crypt spawner's rare
+  Frost Priest, the Crematorium spawner's rare Cinder Elemental and its four Immolators, and the packs the original has where the room file
+  has none (two before the Chamber of Sins' upper cage, one past the Crypt trial's door and one by its plaque, one in
+  the Crematorium trial's first room and one past its second Locked Door).
+  Not built: the traps of Izaro's rooms and the hot plates' Cruel and Merciless rooms.
+  The Labyrinth's own rooms (`1_Labyrinth_*`) get the same traps, levers and doors from the Gateway's generated rooms,
+  wired by their rooms' links (spike chains and triggers, rails, levers, plates and their darts): spikes on their
+  `Trigger_*` timers and pressure spikes a step fires, abyss edge blades, dart turrets and wall darts, roombas,
+  sawblades, spinners with the two-lever rooms' swap piece, the ElegantHouse rooms' hot plates (`*_EH`), and their
+  puzzles: `Door_Counter` gates, `Counter_Handler(_Any)`, cranks that come back up, `Switch_Multi` levers that open
+  Locked Doors and flip shared cages. Their tiles add the ElegantHouse doorway rollers (a dropping roller that cuts while
+  down, rising spikes striking with their clips), abyss edge blades, smashable walls a hit breaks, the DryGarden secret
+  wall a pair of hidden switches opens, and statues whose monster steps off its pedestal when the player comes near.
+  Their areas get packs of the Labyrinth's own monsters by room set (ours: no data names them). Checked live on seed 1
+  of `1_Labyrinth_RT_straight`, `_C_straight`, `_OH_end`, `_P_straight`, `_EH_end`, `_EH_end_bottleneck`, `_DG_end`,
+  `_DG_quad_bottleneck`, `_P_end_bottleneck` and `_P_straight_bottleneck` (2026-11-01, 2026-11-02). The monsters'
+  skills beyond attacks (Discharge, tar, death novas) and the room exits (a run) are not built.
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.
   Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md).
 

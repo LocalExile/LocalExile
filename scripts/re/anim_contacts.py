@@ -215,6 +215,7 @@ def main():
         if text is None:
             raise ValueError(f"Missing character ACT asset: {act}")
         result[ao] = {"amd": amd, "act": act, "animations": contacts(animations), "positions": positions(animations),
+                      "indices": {a["name"]: i for i, a in enumerate(animations)},
                       "defaultAttack": default_attack_pools(text, animations, ao_views(ao))}
         print(f"{c['Name']}: {ao} -> {amd}, {len(result[ao]['animations'])} animations with a contact, "
               f"{len(result[ao]['defaultAttack'])} default attack stances", file=sys.stderr)

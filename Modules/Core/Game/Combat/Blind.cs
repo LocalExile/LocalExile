@@ -1,22 +1,166 @@
+using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 
-
-// Blind on monsters, from any of the player's sources: the smoke cloud of their flask (FlaskGrounds), a passive's blind
-// aura (PassiveBuffAuras) and his hits (HitDebuffs, SpawnedMonster.BlindedUntil). All are the player's own, so all count as
-// "Enemies Blinded by you". Each source keeps its own set and its own blinded buff on the monster, so one ending never
-// un-blinds another.
 static partial class Game
 {
+    static bool BlindImmune(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
+    {
+        if (Stats.Key("cannot_be_blinded") is not uint key) return false;
+        return conn.PlayerStats.TryGetValue(key, out int value) ? value != 0
+            : (player ?? CharacterStatSources(conn).Stats).GetValueOrDefault(key) != 0;
+    }
+    static (int Less, double Until) PlayerBlindValue(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
+    {
+        var state = ResourceEffectsOf(conn);
+        double now = ResourceEffectsTime(conn);
+        var value = state.PlayerBlind.Read(now, conn.PlayerLife == 0);
+        return value.Less > 0 && BlindImmune(conn, player) ? state.PlayerBlind.Read(now, true) : value;
+    }
+    internal static int PlayerBlindAccuracy(ClientState conn, int rating, IReadOnlyDictionary<uint, int>? player = null) =>
+        TimedBlind.Apply(rating, PlayerBlindValue(conn, player).Less);
+    internal static int PlayerAccuracy(ClientState conn, IReadOnlyDictionary<uint, int>? player = null) =>
+        PlayerBlindAccuracy(conn, conn.Pools.Accuracy, player);
+    internal static int PlayerEvasion(ClientState conn, IReadOnlyDictionary<uint, int>? player = null) =>
+        TimedBlind.Apply(PlayerEvasionBase(conn, ResourceEffectsTime(conn)), PlayerBlindValue(conn, player).Less);
+    internal static int PlayerEvasion(ClientState conn, double now) =>
+        TimedBlind.Apply(PlayerEvasionBase(conn, now), PlayerBlindValue(conn).Less);
+    static void WithBlind(ClientState conn, Dictionary<uint, int> stats)
+    {
+        var blind = PlayerBlindValue(conn, stats);
+        if (blind.Less > 0 || conn.ResourceEffectsState is ResourceEffectsState state && state.PlayerBlind.Sent.Less > 0)
+        { stats[973] = blind.Less > 0 ? 1 : 0; stats[15023] = stats[15024] = -blind.Less; }
+    }
+    internal static bool InflictPlayerBlind(ClientState conn, double seconds, int effect = 0,
+        IReadOnlyDictionary<uint, int>? player = null)
+    {
+        lock (conn.Monsters)
+        {
+            var state = ResourceEffectsOf(conn);
+            return ResourceEffectsCurrent(conn, state) && conn.PlayerLife > 0 && !conn.LeavingArea && !conn.Paused
+                && state.PlayerBlind.Inflict(ResourceEffectsTime(conn), seconds, effect, BlindImmune(conn, player));
+        }
+    }
+    static int BlindEffectLess(IReadOnlyDictionary<uint, int> stats) =>
+        (int)Math.Clamp(20L * Math.Max(0L, 100L + (Stats.Key("blind_effect_+%") is uint key ? stats.GetValueOrDefault(key) : 0)), 0, 10000) / 100;
+    static (int Less, double Until) MonsterBlindValue(ClientState conn, uint id, SpawnedMonster target, double at, int smokeLess)
+    {
+        var owner = ResourceEffectsOf(conn);
+        if (!ResourceEffectsCurrent(conn, owner)) return (0, 0);
+        var state = owner.TargetBlind(id, target);
+        bool immune = target.Dead || target.Life == 0 || target.Mods.Effects["cannot_be_blinded"] != 0;
+        var value = state.Read(at, immune);
+        if (immune) return (0, 0);
+        if (target.RampageBlindUntil > at && value.Less < 20) value = (20, target.RampageBlindUntil);
+        return (conn.FlaskGrounds.Blinded(id) || conn.BlindAura.Blinded(id)) && smokeLess > value.Less ? (smokeLess, 0) : value;
+    }
+    internal static int MonsterBlindRating(ClientState conn, uint id, SpawnedMonster target, int rating, double at,
+        IReadOnlyDictionary<uint, int>? player = null)
+    {
+        // The synchronous caller reuses its captured sources. Never build a full player panel for each target.
+        int smoke = !conn.FlaskGrounds.Blinded(id) && !conn.BlindAura.Blinded(id) ? 0
+            : BlindEffectLess(player ?? CharacterStatSources(conn).Stats);
+        return TimedBlind.Apply(rating, MonsterBlindValue(conn, id, target, at, smoke).Less);
+    }
+    internal static (int Chance, int Effect, double Seconds) BlindInputs(IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own = null)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? (int)Math.Clamp((long)player.GetValueOrDefault(key)
+            + (own?.GetValueOrDefault(key) ?? 0), int.MinValue, int.MaxValue) : 0;
+        return (Math.Clamp(Get("global_chance_to_blind_on_hit_%"), 0, 100), Get("blind_effect_+%"),
+            4 * Math.Max(0d, 1 + Get("blind_duration_+%") / 100d));
+    }
+    internal static bool InflictMonsterBlind(ClientState conn, uint id, SpawnedMonster target, double at,
+        (int Chance, int Effect, double Seconds) input, Random? random = null)
+    {
+        if (target.Dead || target.Life == 0 || input.Chance <= 0 || !CurrentGameRules || conn.LeavingArea || conn.Paused
+            || input.Chance < 100 && (random ?? Random.Shared).Next(100) >= input.Chance) return false;
+        var state = ResourceEffectsOf(conn);
+        return ResourceEffectsCurrent(conn, state) && state.TargetBlind(id, target)
+            .Inflict(at, input.Seconds, input.Effect, target.Mods.Effects["cannot_be_blinded"] != 0);
+    }
+    internal static byte[]? BlindPresentation(ClientState conn, IReadOnlyDictionary<uint, int>? snapshot = null)
+    {
+        lock (conn.Monsters)
+        {
+            if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
+            var state = ResourceEffectsOf(conn);
+            if (!ResourceEffectsCurrent(conn, state))
+            {
+                // Actual death has already retired the state synchronously. Publish primitive cleanup receipts
+                // without binding a new live state or acknowledging an obsolete module continuation.
+                if (conn.PlayerLife != 0 || conn.RetiredResourceBuffs.Count == 0) return null;
+                var cleanup = new List<byte>();
+                foreach (var (actor, buff) in conn.RetiredResourceBuffs)
+                {
+                    cleanup.AddRange(InstanceEntities.RemoveBuff(actor, buff));
+                    cleanup.AddRange(InstanceEntities.StatsUpdate(actor, [(973u, 0), (15023u, 0), (15024u, 0)]));
+                }
+                conn.RetiredResourceBuffs.Clear(); return [.. cleanup];
+            }
+            double now = ResourceEffectsTime(conn);
+            state.CollectRetiredTargets(conn);
+            bool work = state.PlayerBlind.Read(now).Less > 0 || state.PlayerBlind.Sent.Less > 0 || state.Targets.Count > 0
+                || conn.RetiredResourceBuffs.Count > 0 || conn.FlaskGrounds.BlindedMonsters().Any()
+                || conn.Monsters.Keys.Any(conn.BlindAura.Blinded)
+                || conn.Monsters.Values.Any(m => m.RampageBlindUntil > now);
+            if (!work) return null;
+            var player = snapshot ?? CharacterPlayerStats(conn); // One fresh snapshot for the whole publication pass, at the gate.
+            int smoke = BlindEffectLess(player);
+            var bytes = new List<byte>();
+            foreach (var (actor, buff) in conn.RetiredResourceBuffs)
+            {
+                bytes.AddRange(InstanceEntities.RemoveBuff(actor, buff));
+                bytes.AddRange(InstanceEntities.StatsUpdate(actor, [(973u, 0), (15023u, 0), (15024u, 0)]));
+                if (actor == PlayerId) state.PlayerBlind.Sent = (-1, 0);
+                else if (conn.Monsters.TryGetValue(actor, out var target)) state.TargetBlind(actor, target).Sent = (-1, 0);
+            }
+            conn.RetiredResourceBuffs.Clear();
+            void Present(uint actor, TimedBlind blind, (int Less, double Until) value, bool immune, bool isPlayer)
+            {
+                var own = blind.Read(now, immune);
+                bool ownChanged = own != blind.SentOwn, mergedChanged = value != blind.Sent;
+                if (!ownChanged && !mergedChanged) return;
+                // A weaker source renewed under stronger smoke still owns a new native duration.
+                if (ownChanged)
+                {
+                    if (blind.Buff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(actor, blind.Buff));
+                    blind.Buff = 0;
+                    if (own.Less > 0) bytes.AddRange(InstanceEntities.AddBuff(actor, blind.Buff = conn.NextBuff++, 179, PlayerId,
+                        u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, own.Until - now))));
+                    blind.SentOwn = own;
+                }
+                if (mergedChanged) bytes.AddRange(InstanceEntities.StatsUpdate(actor,
+                    [(973u, value.Less > 0 ? 1 : 0), (15023u, -value.Less), (15024u, -value.Less)]));
+                if (isPlayer) bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                blind.Sent = value;
+            }
+            Present(PlayerId, state.PlayerBlind, PlayerBlindValue(conn, player), conn.PlayerLife == 0 || BlindImmune(conn, player), true);
+            foreach (var (id, target) in conn.Monsters)
+            {
+                if (!state.Targets.ContainsKey(id) && target.RampageBlindUntil <= now && !conn.FlaskGrounds.Blinded(id) && !conn.BlindAura.Blinded(id)) continue;
+                var value = MonsterBlindValue(conn, id, target, now, smoke);
+                Present(id, state.TargetBlind(id, target), value,
+                    target.Dead || target.Life == 0 || target.Mods.Effects["cannot_be_blinded"] != 0, false);
+            }
+            return bytes.Count == 0 ? null : [.. bytes];
+        }
+    }
+    internal static Task SendBlind(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        Send(remote, stream, ciphers, [], null, atGate: () => BlindPresentation(conn));
+
     internal const string VsBlindedCriticalStat = "critical_strike_chance_+%_vs_blinded_enemies";
     internal const string FromBlindedDamageTakenStat = "damage_taken_+%_from_blinded_enemies";
 
-    internal static bool Blinded(ClientState conn, uint monster) =>
-        conn.FlaskGrounds.Blinded(monster) || conn.BlindAura.Blinded(monster)
-        || conn.Monsters.TryGetValue(monster, out var m) && m.BlindedUntil > ProjectileWorldTime(conn);
+    internal static bool Blinded(ClientState conn, uint monster) => conn.Monsters.TryGetValue(monster, out var target)
+        && !target.Dead && target.Life > 0 && target.Mods.Effects["cannot_be_blinded"] == 0
+        && (conn.FlaskGrounds.Blinded(monster) || conn.BlindAura.Blinded(monster)
+            || target.RampageBlindUntil > ResourceEffectsTime(conn)
+            || conn.ResourceEffectsState is ResourceEffectsState owner && owner.Targets.TryGetValue(monster, out var value)
+                && ReferenceEquals(value.Target, target) && value.Blind.Read(ResourceEffectsTime(conn)).Less > 0);
 
-    // A monster's accuracy (its hits on the player) or evasion (against the player's attacks): 20% less while Blinded
-    // (FlaskGrounds.BlindLessPct, PoB's Blind).
     internal static int UnderBlind(ClientState conn, uint monster, int value) =>
-        Blinded(conn, monster) ? FlaskGrounds.Blinded(value) : value;
+        conn.Monsters.TryGetValue(monster, out var target) ? MonsterBlindRating(conn, monster, target, value, ResourceEffectsTime(conn)) : value;
 
     static int StatOf(IReadOnlyDictionary<uint, int> stats, string name) =>
         Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;

@@ -6,6 +6,9 @@ sealed record InstancePlayer(uint Id, uint Type, PlayerObject Template, int X, i
 {
     // Only session liveness is read through the owner; all replicated values remain immutable snapshots.
     public bool Current => Owner is null || !Owner.Closed && !Owner.LeavingArea && Owner.PlayerSent;
+    /// <summary>Where the player is walking to (its walk's last cell; its own cell when standing). Observers start a Move
+    /// action toward it, which their client paths and animates, instead of gliding the body from pose to pose.</summary>
+    public (int X, int Y)? Destination { get; init; }
 }
 
 /// <summary>Player presence shared by one Auth instance, independently of its characters' private world state.</summary>
@@ -16,6 +19,13 @@ sealed class InstancePresence
     public void RemovePlayer(uint id) => _players.TryRemove(id, out _);
     public InstancePlayer[] PlayersExcept(uint id) => [.. _players.Values.Where(p => p.Id != id)];
     public InstancePlayer? Player(uint id) => _players.TryGetValue(id, out var p) && p.Current ? p : null;
+}
+
+partial class Program
+{
+    /// <summary>The connections in game now (entered an area, not yet gone), for what plays beside them without one of its
+    /// own: server-driven players (the PlayerBots module) look up the towns players are in.</summary>
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<ClientState, byte> InGame = new();
 }
 
 sealed partial class InstanceState

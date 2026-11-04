@@ -69,24 +69,38 @@ static partial class Game
     // longer needs it (QuestItems.Drops: remove_flag set, one carried or on this instance's ground).
     internal static async Task DropQuestItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string itemId, (int X, int Y) at, string source)
     {
+        foreach (var (packet, log) in CommitQuestItem(conn, itemId, at, source))
+            await Send(remote, stream, ciphers, packet, log);
+    }
+
+    static List<(byte[] Packet, string? Log)> CommitQuestItem(ClientState conn, string itemId, (int X, int Y) at, string source)
+    {
+        string remote = conn.Wire.Remote;
         if (ItemsFor(conn).Find(itemId) is not { Supported: true } type || type.Id != itemId)
         {
             Console.WriteLine($"[gateway] {remote} quest drop {itemId} from {source}: not in the item data");
-            return;
+            return [];
         }
         bool carried = QuestItems.Carried(ItemsOf(conn)).Any(c => c.Item.Item.TypeHash == type.Hash);
         bool onGround = conn.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash);
         if (!QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(conn, f), carried, onGround))
         {
             Console.WriteLine($"[gateway] {remote} {source}: no {type.Name}, the character has one or does not need it");
-            return;
+            return [];
         }
         var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near(at) : at;
         var ground = new WorldItemObject(x, y, ItemCatalog.Create(type));
         uint id = conn.Instance.Ground.Add(ground);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
-            $"0x02b9 quest item {type.Name} 0x{id:x} from {source} at ({x}, {y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        return [(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
+            $"0x02b9 quest item {type.Name} 0x{id:x} from {source} at ({x}, {y})"), (InstanceProtocol.EnterWakeZone(id), null)];
+    }
+
+    internal static void CommitAcceptedQuestKill(KillContext kill)
+    {
+        foreach (string item in QuestsOf(kill.Conn).DropsOnKill(kill.Conn.Layout.Id, kill.VarietyId))
+            kill.CommittedOutput!.AddRange(CommitQuestItem(kill.Conn, item, kill.At, kill.Monster.Label));
+        kill.Conn.Minions.OutputQueue.Add(new([], "quest kill effects (current Game)", Target: kill.Monster,
+            Kind: PlayerMinions.OutputKind.QuestKill, At: kill.At));
     }
 
     internal static async Task DropGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string itemId, (int X, int Y) at, string source)
@@ -203,10 +217,10 @@ static partial class Game
     // GameEvents.Kill, after the commit): its quest drops, a fight of several bosses, a boss that forms, NPCs that appear or
     // are freed, its second form, and whether the area is now cleared.
     internal static async Task QuestKillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m,
-        MonsterCatalog.Variety variety, (int X, int Y) at)
+        MonsterCatalog.Variety variety, (int X, int Y) at, bool dropsCommitted = false)
     {
         string area = conn.Layout.Id;
-        foreach (string item in QuestsOf(conn).DropsOnKill(area, variety.Id))
+        foreach (string item in dropsCommitted ? [] : QuestsOf(conn).DropsOnKill(area, variety.Id))
             await DropQuestItem(remote, stream, ciphers, conn, item, at, m.Label);
         // A fight of several bosses (Quests.KilledAllRule): its flags once none of them is left alive in the instance.
         foreach (var rule in QuestsOf(conn).KilledAllOf(area, variety.Id))

@@ -108,10 +108,13 @@ static class NpcShops
     /// ordinary colour tabs to those BaseItemTypes rows (a gem vendor's unlocked gems); null means every ordinary shop
     /// gem. The local <paramref name="fullGemStock"/> mode bypasses that filter and includes every creatable variant,
     /// splitting the Awakened and Exceptional gems out of the colour tabs. Full pages continue in numbered tabs.
+    /// <paramref name="developmentOnly"/> gives just the development tabs (Awakened Gems, Exceptional Gems and the map
+    /// tabs), to follow a progression window (<see cref="LeagueRules.DevelopmentShopTabs"/>).
     /// Unknown, unwritable or oversized item types are skipped and named in <paramref name="notes"/>.</summary>
     public static List<ShopTab> Tabs(string npcId, ItemCatalog items, Func<uint> nextId, List<string> notes,
         string dataFolder = "data", IReadOnlyCollection<int>? gemStock = null,
-        Func<ItemCatalog.BaseType, (string Currency, int Amount)>? gemPrice = null, bool fullGemStock = false, bool hardMode = false, LeagueRules? rules = null)
+        Func<ItemCatalog.BaseType, (string Currency, int Amount)>? gemPrice = null, bool fullGemStock = false, bool hardMode = false, LeagueRules? rules = null,
+        bool developmentOnly = false)
     {
         rules ??= LeagueRules.Standard;
         fullGemStock &= rules.FullGemStock;
@@ -141,7 +144,7 @@ static class NpcShops
         stock.RemoveAll(s => (!rules.SellsGemsInGoods && s.Type.Components.Contains("SkillGem")) || rules.ShopExcludedClasses.Contains(s.Type.Class)
             || (hardMode && hardModePrices!.For(s.Type) is null));
         // Goods, then Goods2, Goods3 … for what does not fit.
-        for (int page = 1; stock.Count > 0 || page == 1; page++)
+        for (int page = 1; !developmentOnly && (stock.Count > 0 || page == 1); page++)
             tabs.Add(new(page == 1 ? "Goods" : $"Goods{page}", Lay(stock, items,
                 (type, item) => hardModePrices?.For(type) is { } price ? item with { Price = [price] } : Priced(item), nextId, notes,
                 campaignNpcId: hardMode ? null : npcId)));
@@ -149,7 +152,7 @@ static class NpcShops
         {
             // Future progression shop, deliberately separate from the complete development assortment.
             // Missing progression input must never unlock everything in this tab, and an empty tab is not shown.
-            if (fullGemStock)
+            if (fullGemStock && !developmentOnly)
             {
                 var unlocked = new[] { false, true }.SelectMany(support => new[] { 1, 2, 3, 4 }
                         .SelectMany(colour => items.ShopGems(colour, support)))
@@ -161,16 +164,16 @@ static class NpcShops
                     for (int page = 1; unlocked.Count > 0 || page == 1; page++)
                         tabs.Add(new(page == 1 ? "Skills" : $"Skills {page}",
                             Lay(unlocked, items, PricedShop, nextId, notes, separateGemKinds: true)));
-                // Awakened and exceptional gems are development stock, separate from the ordinary colour tabs.
-                if (rules.SellsSupportGems)
-                {
-                    var awakened = items.AwakenedShopGems();
-                    if (awakened.Count > 0) AddGemTab("Awakened Gems", awakened, 0);
-                    var exceptional = items.ExceptionalShopGems();
-                    if (exceptional.Count > 0) AddGemTab("Exceptional Gems", exceptional, 0);
-                }
             }
-            foreach (var (name, colour, support) in GemTabs.Where(g => rules.SellsSupportGems || !g.Support))
+            // Awakened and exceptional gems are development stock, separate from the ordinary colour tabs.
+            if ((fullGemStock || developmentOnly) && rules.SellsSupportGems)
+            {
+                var awakened = items.AwakenedShopGems();
+                if (awakened.Count > 0) AddGemTab("Awakened Gems", awakened, 0);
+                var exceptional = items.ExceptionalShopGems();
+                if (exceptional.Count > 0) AddGemTab("Exceptional Gems", exceptional, 0);
+            }
+            foreach (var (name, colour, support) in GemTabs.Where(g => !developmentOnly && (rules.SellsSupportGems || !g.Support)))
             {
                 var gems = fullGemStock
                     ? items.FullShopGems(colour, support, ordinaryOnly: true)
@@ -183,7 +186,7 @@ static class NpcShops
                 AddGemTab(name, gems, TabColourOf(colour));
             }
         }
-        if (rules.SellsMaps && SellsMaps.Contains(npcId))
+        if ((rules.SellsMaps || developmentOnly) && SellsMaps.Contains(npcId))
         {
             var mapStock = NessaMapStock.Build(items, dataFolder);
             var originator = mapStock.Where(m => m.Originator).ToList();

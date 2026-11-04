@@ -12,6 +12,17 @@ sealed class PlayerElementalAilments
     sealed record Effect(Kind Kind, double From, double Until, double Magnitude, uint? Source = null);
     readonly List<Effect> effects = [];
     double carry;
+    double expiryRate = 1;
+    public void SetExpiryRate(double now, double rate)
+    {
+        lock (effects)
+        {
+            rate = Math.Max(.25, rate);
+            for (int i = 0; i < effects.Count; i++)
+                effects[i] = effects[i] with { Until = RecipientEffectTime.RetimedDeadline(effects[i].Until, now, expiryRate, rate) };
+            expiryRate = rate;
+        }
+    }
     double actionFloor, actionCeiling = double.PositiveInfinity, freezeEffect = 1;
     bool chillReversed, unaffectedByShock, unaffectedByIgnite;
 
@@ -103,7 +114,7 @@ sealed class PlayerElementalAilments
         seconds *= Math.Max(0, 1 - get($"self_{Name(kind)}_duration_-%") / 100.0);
         if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, get)
             || RandomRolls.Chance(get($"avoid_{Name(kind)}_%"), 100, random)) return;
-        effects.Add(new(kind, now, now + seconds, magnitude, source));
+        effects.Add(new(kind, now, now + seconds / expiryRate, magnitude, source));
     }
 
     // A chill, freeze or shock reflected back onto the player (a Mirrored monster) with the effect and duration it

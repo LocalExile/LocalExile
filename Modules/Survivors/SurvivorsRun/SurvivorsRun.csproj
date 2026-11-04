@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../SurvivorsSkills/SurvivorsSkills.csproj" Private="false" />
+    <ProjectReference Include="../SurvivorsRewards/SurvivorsRewards.csproj" Private="false" />
+    <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+  </ItemGroup>
+</Project>

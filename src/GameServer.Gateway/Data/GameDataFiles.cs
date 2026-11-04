@@ -46,9 +46,9 @@ static class GameDataFiles
         ("data/object-types.json", "monsters (emergence and inherited Life corpse flags), NPCs, area transitions, quest objects and chests, stationary collision footprints"),
         ("data/item-types.json", "items, quest items' Quest flags"),
         ("data/area-transitions.json", "area transitions of fixed layouts"),
-        ("data/room-points.json", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects"),
+        ("data/room-points.json", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
         ("data/hideouts.json", "hideouts and native stationary model collision radii"),
-        ("data/animation-contacts.json", "class spell contacts, the default attack's stance clips with their contact and lock_cancelling keyframes, the bow/wand release points"),
+        ("data/animation-contacts.json", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing and the bow/wand release points"),
         ("data/monster-takehit.json", "monster hit reactions (the TakeHit flinch and its sound)"),
         ("data/monster-contacts.json", "monster projectile release timing and points (a Sand Spitter mortar leaves at half the attack from the default height without it)"),
         ("data/projectile-clips.json", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
@@ -69,6 +69,7 @@ static class GameDataFiles
         ("tables", 3, "Kirac progression and gold refresh prices"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
+        ("animation-contacts", 4, "class rig animation indices for 0x1b2 cast clips: without them run casts have no character animation"),
         ("object-types", 6, "quest objects and chests (rooms' server objects, quest tile and room types): without them they get the wrong blob or none"),
     ];
 

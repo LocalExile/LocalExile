@@ -73,6 +73,8 @@ static class GatewayProjectileSkillProfiles
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows);
         // Its chains bounce on the ground instead of seeking another monster.
         if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
+        // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
+        if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };

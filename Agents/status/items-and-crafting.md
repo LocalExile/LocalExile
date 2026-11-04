@@ -106,7 +106,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Item mods: rarity (normal, magic, rare, unique), identified, and the implicit, explicit, enchant, scourge and hidden
   mod lists in the Mods component; new items roll their BaseItemTypes implicits (Driftwood Wand 8-12% increased Spell
   Damage); magic names come from the affixes; rarity and mods are saved with the item (characters and stash);
-  `/item_mod`, `/item_mod set`, `/item_mods`, `/rarity`, `/sockets` (colours and links, e.g. `/sockets RRGBBB`) on the held item;
+  `/item_mod`, `/item_mod set`, `/item_mod remove`, `/item_mods`, `/rarity`, `/sockets` (colours and links, e.g. `/sockets RRGBBB`) on the held item;
   `/item_give <JSON>` makes a whole item (base, rarity, mods with values, states, sockets, rare name) for tools such as
   the launcher's item crafter ([item-crafter.md](../docs/dev/item-crafter.md));
   `Game_SOCKET_CAPACITY=1..6` (dev) lets `/sockets` give any socketable base that many, e.g. a 6-link wand (its own
@@ -214,6 +214,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [15](../docs/protocol/15-progression.md) §3.
 
 ## Partly working
+
+- **Item modifier effect (implemented 2026-11-03, automated verification; live client pending):** the item-local
+  increased-effect stats scale the item's own explicit modifiers — every explicit one
+  (`local_explicit_mod_effect_+%`: Simplex Amulet 100%, Focused Amulet 100%, Subsume the Source 120–240%) or one side
+  only (`local_prefix_mod_effect_+%` / `local_suffix_mod_effect_+%`: the Cogwork, Geodesic, Composite, Manifold,
+  Ratcheting and Helical Rings, 25% or 50%). Implicits, enchants and the effect stats themselves stay raw, and values
+  round down like The Adorned's jewel effect. The same implicits' `local_maximum_prefixes_allowed_+` and
+  `local_maximum_suffixes_allowed_+` move the rare affix caps for currency and bench crafting
+  (Composite 6/0, Manifold 4/1, Simplex 1/2, Helical 1/4 …).
+  Not modelled: the weapon-tree damage-category effect stats (Mods.dat has no damage-type tags), unveiled/tincture
+  effect, and the per-socketed-abyss-jewel variant.
+  Code: `ItemModStats.cs`, `ItemRolls.cs`, `BenchCrafting.cs`, `ItemWeaponStats.cs`.
 
 - Utility-flask orbs: Enkindling and Instilling use native weighted enchant pools, replacing previous enchantments.
   Enkindling coefficients and the active-effect charge-gain lock are wired; Instilling uses paid flask-use events.
