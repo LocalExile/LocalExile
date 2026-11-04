@@ -215,6 +215,16 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- **On-kill explosions and attribute damage reduction (implemented 2026-11-04, automated verification; live client
+  pending):** "Enemies you Kill Explode, dealing X% of their Life as Physical Damage" (the Crusader body-armour prefix
+  and the synthesis implicit) deals X% of the killed monster's maximum life as physical damage to every hostile monster
+  within 20 cells, mitigated by each target's resistances; increased area of effect scales the radius, and a kill by the
+  explosion can trigger another one. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
+  Strength/Dexterity/Intelligence" reduce hits, ignite and the other damage over time taken as a final multiplier.
+  Not modelled: the chance-based and conditional (ignited, shocked, bleeding) explode variants, secondary damage's
+  scaling by global physical/area damage, and the exploded monster leaving no corpse.
+  Code: `KillExplosions.cs`, `IncomingResourceDefences.cs`, `IncomingDamage.cs`, `PlayerAilments.cs`, `Player.cs`.
+
 - **Item modifier effect (implemented 2026-11-03, automated verification; live client pending):** the item-local
   increased-effect stats scale the item's own explicit modifiers — every explicit one
   (`local_explicit_mod_effect_+%`: Simplex Amulet 100%, Focused Amulet 100%, Subsume the Source 120–240%) or one side
