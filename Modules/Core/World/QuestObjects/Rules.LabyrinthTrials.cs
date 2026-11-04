@@ -7,6 +7,37 @@ using GameServer.Data.Terrain.Generation;
 
 static partial class QuestobjectsRules
 {
+    // Whether the six Normal trials are done (Labyrinths RequiredTrials; the character's flag or the league's).
+    static bool NormalTrialsDone(ClientState conn, out int done, out int count) => LabyrinthTrialsDone(conn, 1, out done, out count);
+
+    // The plaza's device (Act3Objects.LabyrinthSelect): the Labyrinth's choice of difficulty (0x7b kind 0x10,
+    // LabyrinthSelectWindow); the choice comes back as C→S 0x212 (ChooseLabyrinth).
+    internal static async Task UseLabyrinthSelect(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthSelectUi), "0x007b open the Labyrinth select window");
+
+    // The plaza's portal (Act3Objects.ReturnPortal, "Return To Town"): to the character's last town, else Act 3's.
+    internal static async Task UsePlazaReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        ushort town = conn.LastTown != 0 ? conn.LastTown : AreaTransitionCatalog.HashOf(Act3Areas.SarnEncampment) ?? 0;
+        if (town != 0) await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(town, 0, false), "the plaza's portal back to town");
+    }
+
+    // The Sarn Encampment's Ascendancy plaque (Act3Objects.LabyrinthPlaque), once the player is at it: with the six Normal
+    // trials done (the character's flag or the league's) the statue opens for good (Act3Objects.StatueOpened, which the
+    // statue, the plaque and the way to the plaza follow); before, the trials done (the Trial Plaque window).
+    internal static async Task UseSarnPlaque(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        bool all = NormalTrialsDone(conn, out int done, out int count);
+        Console.WriteLine($"[gateway] {remote} Sarn plaque: {done} of {count} Normal trials done");
+        if (all)
+        {
+            if (!conn.HasQuestFlag(Act3Objects.StatueOpened))
+                await SetQuestFlags(remote, stream, ciphers, conn, [Act3Objects.StatueOpened, Act3Objects.LabyrinthAccess]);
+            return;
+        }
+        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window (Sarn plaque)");
+    }
+
     // A Trial of Ascendancy's room objects where the room fit places them (LabyrinthTrials, Agents/docs/game/
     // labyrinth-trials.md): the trial's door, its levers and locked doors, the plaque and the portal back. What this
     // instance transitioned stays so (InstanceState.Transition); the plaque and the portal are lit once the character
@@ -485,6 +516,9 @@ static partial class QuestobjectsRules
                             $"0x02ba trial portal 0x{id:x} opens: trial {trial.Flag} plaque used");
                 // Every use shows the trials done (the window reads their flags itself).
                 await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window");
+                break;
+            case LabyrinthTrials.Map:
+                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthMapUi), "0x007b open the Labyrinth map");
                 break;
             case LabyrinthTrials.Portal:
                 if (!conn.Instance.Transitioned(o.Type, o.X, o.Y)) break;   // closed until the plaque is used

@@ -90,7 +90,8 @@ static class PanelStats
         .. Hands(h => new($"{h}_chance_to_blind_on_hit_%", ["global_chance_to_blind_on_hit_%", "attacks_chance_to_blind_on_hit_%"],
             Local: ["local_chance_to_blind_on_hit_%"])),
         .. Hands(h => new($"virtual_total_{h}_chance_to_bleed_on_hit_%", ["bleed_on_hit_with_attacks_%"],
-            Local: ["local_chance_to_bleed_on_hit_%"])),
+            Local: ["local_chance_to_bleed_on_hit_%", new("local_chance_to_bleed_on_hit_25%", Mul: 25),
+                new("local_chance_to_bleed_on_hit_50%", Mul: 50)])),
         .. Hands(h => new($"virtual_total_{h}_chance_to_ignite_on_hit_%", [IgniteChance, FreezeShockIgniteChance])),
         .. Hands(h => new($"virtual_total_{h}_chance_to_poison_on_hit_%",
             ["base_chance_to_poison_on_hit_%", "chance_to_poison_on_hit_with_attacks_%"], Local: ["local_poison_on_hit_%"])),
@@ -490,9 +491,12 @@ static class PanelStats
         * Math.Max(0, 1 + get("life_recovery_rate_+%") / 100.0);
 
     /// <summary>Flat plus percentage Life regeneration, scaled by regeneration and recovery increases.
-    /// PoB 3.29.x CalcDefence's regeneration calculation; conditional/conversion operators remain separate.</summary>
+    /// PoB 3.29.x CalcDefence's regeneration calculation; conditional/conversion operators remain separate.
+    /// Fire Mastery's flat regeneration per 1% uncapped fire resistance counts only positive resistance.</summary>
     public static double LifePerMinute(Func<string, int> get, uint maxLife) =>
         (get("base_life_regeneration_rate_per_minute")
+            + (double)get("life_regeneration_per_minute_per_1%_uncapped_fire_damage_resistance")
+                * Math.Max(0, get("uncapped_fire_damage_resistance_%"))
             + maxLife * get("life_regeneration_rate_per_minute_%") / 100.0) * LifeRegenerationMultiplier(get);
 
     /// <summary>Zealot's Oath applies life regeneration to Energy Shield instead of Life; Geofri's Sanctuary carries

@@ -67,6 +67,9 @@ public sealed class RawDat
     /// <summary>A list of foreign rows (16 bytes each): their indexes.</summary>
     public int[] RefList(int row, int at) => List(row, at, 16, (d, i) => (int)BinaryPrimitives.ReadUInt64LittleEndian(d[i..]));
 
+    /// <summary>A list of rows of the same table (8 bytes each): their indexes.</summary>
+    public int[] RefList8(int row, int at) => List(row, at, 8, (d, i) => (int)BinaryPrimitives.ReadUInt64LittleEndian(d[i..]));
+
     T[] List<T>(int row, int at, int size, Func<ReadOnlySpan<byte>, int, T> read)
     {
         var r = Row(row);

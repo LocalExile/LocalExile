@@ -69,6 +69,11 @@ static int Dispatch(string[] args)
                     if (fs.TryReadFile(args[1], out var data)) File.WriteAllBytes(args[2], data);
                     else Console.WriteLine($"{args[1]}: not found");
                 break;
+            case "lablayout":
+                // lablayout <layouts.jsonl>: the port's Labyrinth day layouts (LabyrinthLayout) against the client's,
+                // dumped by scripts/re/frida/lab-layout.py: sections, connections, secrets and their numbers per node.
+                if ((fs = OpenGame()) is not null) LabLayouts(fs, args[1]);
+                break;
             case "rooms":
                 // rooms [area regex]: the port's placed .arm rooms (AreaObjects.Rooms) against the client's
                 // <area>_seed<seed>.rooms.json, and its quest tile objects (AreaObjects.QuestObjects) against
@@ -761,7 +766,11 @@ static void Generate(string areaId, uint seed, string? tracePath)
     int level = 1;
     if (tracePath is not null)
         using (var head = JsonDocument.Parse(File.ReadAllText(tracePath))) level = head.RootElement.TryGetProperty("level", out var l) ? l.GetInt32() : 1;
+    // LEVELGEN_LEVEL: the area level without a trace; LEVELGEN_LAB=seed:row:difficulty: a Labyrinth room's node (0x1d extra data).
+    if (int.TryParse(Environment.GetEnvironmentVariable("LEVELGEN_LEVEL"), out int levelOverride)) level = levelOverride;
     var area = AreaInfo.Load(p => fs.TryReadFile(p, out var d) ? d : null, areaId, level);
+    LabyrinthNodeKey? labyrinthNode = Environment.GetEnvironmentVariable("LEVELGEN_LAB") is { } lab && lab.Split(':') is [var ls, var lr, var ld]
+        ? new LabyrinthNodeKey(uint.Parse(ls), int.Parse(lr), int.Parse(ld)) : null;
 
     GenerationResult? result = null;
     var rng = new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
@@ -794,7 +803,7 @@ static void Generate(string areaId, uint seed, string? tracePath)
         dungeonLayouts[^1] = (dungeonLayouts[^1].Stages, rooms);
         dungeonLayouts.Add(([], null));
     };
-    try { result = LevelGenerator.Generate(files, area, seed, rng: rng, notes: notes, onStage: OnStage); }
+    try { result = LevelGenerator.Generate(files, area, seed, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode); }
     catch (Exception e) when (e is NotSupportedException or InvalidOperationException)
     {
         foreach (var n in notes) Console.WriteLine("  " + n);
@@ -1039,3 +1048,44 @@ static string EdgeText(TileGraph g, GraphEdge e) =>
     $"v [{e.VirtualEnd1[0].X},{e.VirtualEnd1[0].Y},{e.VirtualEnd2[0].X},{e.VirtualEnd2[0].Y},{e.VirtualEnd1[1].X},{e.VirtualEnd1[1].Y},{e.VirtualEnd2[1].X},{e.VirtualEnd2[1].Y}] " +
     $"off [{e.StartOffset.X},{e.StartOffset.Y},{e.EndOffset.X},{e.EndOffset.Y}] w [{e.MinWidth},{e.MaxWidth}]";
 
+
+// lablayout: each client layout (seed, difficulty, nodes) against LabyrinthLayout.Build, node by node.
+static void LabLayouts(GameFileSystem fs, string path)
+{
+    byte[]? Read(string p) => fs.TryReadFile(p, out var d) ? d : null;
+    var sections = new RawDat(Read("Data/LabyrinthSection.datc64")!);
+    var secrets = new RawDat(Read("Data/LabyrinthSecrets.datc64")!);
+    string? Secret(int row) => row < 0 ? null : secrets.String(row, 0);
+    int match = 0, total = 0;
+    foreach (var line in File.ReadLines(path))
+    {
+        if (string.IsNullOrWhiteSpace(line)) continue;
+        using var doc = JsonDocument.Parse(line);
+        var root = doc.RootElement;
+        uint seed = (uint)root.GetProperty("seed").GetInt64();
+        int difficulty = root.GetProperty("difficulty").GetInt32();
+        var want = root.GetProperty("nodes").EnumerateArray().Select(n =>
+            $"{n.GetProperty("section").GetString()}#{n.GetProperty("col1").GetInt32()} [{string.Join(",", n.GetProperty("links").EnumerateArray().Select(l => l.GetInt32()))}] " +
+            $"{(n.GetProperty("secret1").ValueKind == JsonValueKind.Null ? "-" : n.GetProperty("secret1").GetString() + ":" + n.GetProperty("number1").GetInt32())} " +
+            $"{(n.GetProperty("secret2").ValueKind == JsonValueKind.Null ? "-" : n.GetProperty("secret2").GetString() + ":" + n.GetProperty("number2").GetInt32())} " +
+            $"end {n.GetProperty("sectionEnd").GetInt32()}").ToList();
+        List<string> got;
+        try
+        {
+            var layout = LabyrinthLayout.Build(Read, seed, difficulty);
+            got = layout.Nodes.Select(n => $"{sections.String(n.Section, 0)}#{n.Place} [{string.Join(",", n.Links)}] " +
+                $"{(n.Secret1 < 0 ? "-" : Secret(n.Secret1) + ":" + n.Number1)} {(n.Secret2 < 0 ? "-" : Secret(n.Secret2) + ":" + n.Number2)} end {n.SectionEnd}").ToList();
+        }
+        catch (Exception e) { got = [$"exception: {e.Message}"]; }
+        total++;
+        if (got.SequenceEqual(want)) { match++; continue; }
+        Console.WriteLine($"seed {seed} difficulty {difficulty}: differs");
+        for (int i = 0; i < Math.Max(want.Count, got.Count); i++)
+        {
+            string w = i < want.Count ? want[i] : "(none)", g = i < got.Count ? got[i] : "(none)";
+            Console.WriteLine($"  {(w == g ? "  " : "!!")} {i,2} client {w}");
+            if (w != g) Console.WriteLine($"         port   {g}");
+        }
+    }
+    Console.WriteLine($"{match} of {total} layouts match");
+}

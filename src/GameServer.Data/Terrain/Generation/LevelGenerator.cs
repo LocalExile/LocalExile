@@ -85,7 +85,7 @@ public static class LevelGenerator
     /// log when generation stops at a part that is not ported, <paramref name="notes"/> to keep its notes and
     /// <paramref name="onStage"/> to see a tile graph at the stage boundaries the client trace records.</summary>
     public static GenerationResult Generate(TerrainCache files, AreaInfo area, uint seed, int topologyVariant = 60, LevelRandom? rng = null,
-        List<string>? notes = null, Action<string, TileGraph>? onStage = null)
+        List<string>? notes = null, Action<string, TileGraph>? onStage = null, LabyrinthNodeKey? labyrinthNode = null)
     {
         rng ??= new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
         notes ??= [];
@@ -103,7 +103,7 @@ public static class LevelGenerator
         var pool = ExtraRoomPool.Create(files.Raw, features);
         bool hideout = features.Any(f => f.Name == ExtraTerrainFeatures.DiscoverableHideout);
         var secondaries = SubAreas(files, area, topology.Graph, hideout, topologyVariant, pool, rng, notes);
-        var labyrinth = area.IsLabyrinth ? new LabyrinthPass(files.Raw, area.Id, area.IsLabyrinthBoss) : null;
+        var labyrinth = area.IsLabyrinth ? new LabyrinthPass(files.Raw, area.Id, area.IsLabyrinthBoss, labyrinthNode) : null;
         // A tile graph with sub-areas goes through the subgraph records too (0x142049d10), as their primary.
         bool dgr = topology.Graph.EndsWith(".dgr", StringComparison.OrdinalIgnoreCase) || secondaries.Count != 0;
         TileGrid grid;

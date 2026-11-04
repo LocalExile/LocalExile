@@ -1360,11 +1360,21 @@ static class CommandsFeature
                 bool on = args[0].Equals("on", StringComparison.OrdinalIgnoreCase);
                 await SetQuestFlags(remote, stream, ciphers, conn, [.. trials.Select(t => t.Flag)], on);
                 await SetLeagueQuestFlags(remote, stream, ciphers, conn, [.. trials.Select(t => t.LeagueFlag)], on);
+                // Without the Normal trials the Sarn Encampment's statue closes again (its plaque opens it).
+                if (!on && tier is 0 or 1)
+                    await SetQuestFlags(remote, stream, ciphers, conn, [LabyrinthTrials.SarnStatueOpened, LabyrinthTrials.LabyrinthAccess], false);
                 await conn.Commands!.Reply($"{trials.Count} trial(s) of {which} {(on ? "done" : "cleared")}: their quest flags and league quest flags.");
             }
             int own = trials.Count(t => conn.HasQuestFlag(t.Flag)), league = trials.Count(t => conn.LeagueQuestFlags.Contains(t.LeagueFlag));
             await conn.Commands!.Reply($"Trials done ({which}): {own} of {trials.Count} by the character's quest flag, {league} by the league's.");
             await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window (/trials)");
+        })
+        .Add("lab_layout", "/lab_layout [1|2|3|4] (dev: today's Labyrinth layout of a tier, 1 Normal by default: each room's area, section, connections and secrets; /goto a listed area to play that room with its node)", async args =>
+        {
+            int tier = args.Length > 0 && int.TryParse(args[0], out int n) && n is >= 1 and <= 4 ? n : 1;
+            uint seed = LabyrinthDay.Seed;
+            await conn.Commands!.Reply($"Labyrinth day {seed}, tier {tier}:");
+            foreach (var line in LabyrinthDay.Describe(seed, tier)) await conn.Commands!.Reply(line);
         })
         .Add("trial_spike_hit", "/trial_spike_hit [<from ms> <to ms>] (dev: how long after firing the Trials of Ascendancy spike traps hit, up to 3000 ms, e.g. /trial_spike_hit 1000 1250)", async args =>
         {

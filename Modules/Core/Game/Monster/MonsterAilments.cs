@@ -98,11 +98,13 @@ static partial class Game
     /// as killing an affected enemy; Elemental proliferation goes on from corpses), then the kill's own shock (Within the
     /// Tempest), unless the monster shatters; a corpse neither flees nor reflects. A living monster may flee (MonsterFlee), and a Mirrored one puts the
     /// ailments on the player too: at once, or into <paramref name="reflected"/> for the caller to apply after a sweep
-    /// whose hits land together (<see cref="ReflectAilmentsLocked"/>).
+    /// whose hits land together (<see cref="ReflectAilmentsLocked"/>). <paramref name="poison"/>: the hit's poison rows
+    /// (<see cref="PoisonOnHitLocked"/>); a hit without them does not poison.
     /// </summary>
     internal static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
-        double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null)
+        double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
+        MonsterPoisons.Settings poison = default)
     {
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -123,7 +125,7 @@ static partial class Game
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now);
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, Random.Shared);
         WitherOnHitLocked(m, name => Player(name) + Skill(name), now, Random.Shared);
-        PoisonOnHitLocked(conn, m, mitigated, spell, critical, player, skill, now, random);
+        PoisonOnHitLocked(conn, m, mitigated, spell, critical, player, skill, poison, now, random);
         // Fleeing (MonsterFlee): its own draws (Random.Shared), so a projectile's reaction draws stay in order.
         if (!m.Fleeing && MonsterFlee.Rolls(MonsterFlee.Chance(spell, Player, Skill),
                 m.Mods.Effects["monster_chance_to_not_flee_%"], Random.Shared))
