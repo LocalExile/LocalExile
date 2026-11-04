@@ -410,6 +410,10 @@ static class UtilityFlasks
                     or "base_maximum_lightning_damage_resistance_%" or "base_maximum_chaos_damage_resistance_%"
                     or "critical_strike_chance_+%" or "damage_+%" or "base_item_found_rarity_+%" => stat,
                 "base_cast_speed_+%" => "cast_speed_+%",
+                // Onslaught's attack speed is PoB's Speed INC (Attack): the attack-speed stat itself, not only the
+                // pools' timing bucket. The pools already add it through Apply, and PassiveBonus reads the passives'
+                // own sources, so the stat does not count it twice.
+                "attack_speed_+%" => "attack_speed_+%",
                 "life_regeneration_rate_per_minute_%" => stat,   // consecrated ground (FlaskGrounds)
                 // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141e9cd68: +0x52e "Phase Through
                 // Objects", which picks its blocker filter, 0x141e7b77c).

@@ -1174,7 +1174,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Enemy and ally passive auras are not applied.
   Code: `PassiveBuffAuras.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §12.
-- Onslaught on kill grants the Onslaught buff and its speed ([13](../docs/protocol/13-items.md) §8a).
+- Onslaught (on kill and a Silver Flask's) grants Path of Building's Speed modifier: 20% increased attack speed in the
+  attack-speed stat and the swing timing, 20% increased cast speed in the cast-speed stat, and 20% increased movement
+  speed in the walk ([13](../docs/protocol/13-items.md) §8a).
+  Code: `UtilityFlasks.cs`, `OnslaughtOnKill.cs`.
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.
   The [357-stat ledger](../docs/dev/issue75-stat-ledger.md) tracks current individual review state and remaining
