@@ -1,4 +1,5 @@
-# Builds a player's release: artifacts\release\LocalExile-v<version>-win-x64.zip and its .sha256 (Agents/docs/dev/releases.md).
+# Builds a player's release: artifacts\release\LocalExile-v<version>-win-x64.zip and its .sha256, or -linux-x64 under pwsh on
+# Linux (Agents/docs/dev/releases.md).
 # The release workflow runs this; it also runs by hand in a clean checkout (it builds in place: bin\ and obj\ of Release).
 # It needs the .NET SDK and npm, and neither the client nor data\: a package never holds game files, and this refuses one that does.
 #   -Version <x.y.z[-pre]>   required
