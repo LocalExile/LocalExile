@@ -238,7 +238,8 @@ public class StatSnapshotTailTests
         Select("Wand3");
         Assert.Equal(1, Snapshot(conn).GetValueOrDefault(Key("attacks_number_of_additional_projectiles")));
 
-        // 0.5% of Attack Damage Leeched as Life and Mana.
+        // 0.5% of Attack Damage Leeched as Life and Mana: a generic mastery effect (its stats carry no wand
+        // condition), so it applies with any weapon and is not one of the points the wand gates.
         Select("Wand5");
         Assert.Equal(50, Snapshot(conn).GetValueOrDefault(Key("base_life_leech_from_attack_damage_permyriad")));
         Assert.Equal(50, Snapshot(conn).GetValueOrDefault(Key("base_mana_leech_from_attack_damage_permyriad")));
@@ -247,12 +248,10 @@ public class StatSnapshotTailTests
         Select("Wand6");
         Assert.Equal(baseAccuracy + conn.Pools.Intelligence, conn.Pools.Accuracy);
 
-        // Without a wand the three wand-only effects stop applying.
+        // Without a wand the wand-only effects stop applying.
         Assert.NotNull(inventory.Remove(PlayerInventories.Weapon1, wand.Id));
         Rebuild();
         Assert.Equal(0, Snapshot(conn).GetValueOrDefault(Key("attacks_number_of_additional_projectiles")));
-        Assert.Equal(0, Snapshot(conn).GetValueOrDefault(Key("base_life_leech_from_attack_damage_permyriad")));
-        Assert.Equal(0, Snapshot(conn).GetValueOrDefault(Key("base_mana_leech_from_attack_damage_permyriad")));
         Assert.Equal(baseAccuracy, conn.Pools.Accuracy);
     }
 

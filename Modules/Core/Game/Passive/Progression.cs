@@ -368,14 +368,14 @@ static partial class Game
             foreach (var (key, value) in stats)
                 counts[key] = counts.GetValueOrDefault(key) + value;
         }
-        // Wand Mastery's extra projectile and attack leech are wand-only. The leech stats are ordinary generic
-        // attack-leech stats, so the effect must not be summed while another weapon is held; the extra projectile
-        // is mapped onto the generic attack count the projectile resolver reads.
+        // Wand Mastery's extra projectile is wand-only: its stat is tree-only and mapped onto the generic attack
+        // count the projectile resolver reads. The client further requires the skill's skill_can_fire_wand_projectiles
+        // flag, which the server does not have, so a wand also gives it to a non-wand projectile attack such as
+        // Spectral Shield Throw (an approximation, not the in-game rule). The mastery's attack life and mana leech
+        // uses ordinary generic stats and applies with any weapon, as the client's stat text does.
         bool wieldingWand = ActiveMainHand(conn)?.Type?.Class == "Wand";
         uint wandProjectile = Stats.Key("wand_attacks_fire_an_additional_projectile") ?? 0;
         uint attackProjectiles = Stats.Key("attacks_number_of_additional_projectiles") ?? 0;
-        uint wandLifeLeech = Stats.Key("base_life_leech_from_attack_damage_permyriad") ?? 0;
-        uint wandManaLeech = Stats.Key("base_mana_leech_from_attack_damage_permyriad") ?? 0;
         static bool HasStat(PassiveTree.MasteryEffect effect, uint key) => key != 0 && effect.Stats.Any(s => s.Key == key);
         var passives = new Dictionary<uint, int>();
         foreach (ushort node in nodes)
@@ -384,8 +384,6 @@ static partial class Game
                 foreach (var (key, value) in stats) passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
             if (masteries.TryGetValue(node, out ushort effect) && tree.FindEffect(effect) is { } mastery)
             {
-                bool wandLeech = HasStat(mastery, wandLifeLeech) && HasStat(mastery, wandManaLeech);
-                if (wandLeech && !wieldingWand) continue;
                 if (HasStat(mastery, wandProjectile))
                 {
                     if (wieldingWand && attackProjectiles != 0)
