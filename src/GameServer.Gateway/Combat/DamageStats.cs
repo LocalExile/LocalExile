@@ -42,10 +42,10 @@ static class DamageStats
         + (area ? get("area_damage_+%") : 0) + (projectile ? get("projectile_damage_+%") : 0)
         + SpellAttackIncrease(get, wieldingWand, retaliation);
 
-    /// <summary>Strength's damage bonus (CharacterStats' str / 5), 0 with
+    /// <summary>Strength's damage bonus as PoB's actor.strDmgBonus does it: floor(Strength / 5), 0 with
     /// gain_no_inherent_bonus_from_strength.</summary>
     public static double StrengthDamageBonus(Func<string, int> get) =>
-        get("gain_no_inherent_bonus_from_strength") != 0 ? 0 : get("strength") / 5.0;
+        get("gain_no_inherent_bonus_from_strength") != 0 ? 0 : get("strength") / 5;
 
     /// <summary>"Attack skills have added lightning damage equal to % of maximum mana" (Stats.dat row 11881, client key
     /// 11882): PassiveSkills.dat graph id 22720, Whisperer "we know all", grants row 11881 with the value 6.</summary>

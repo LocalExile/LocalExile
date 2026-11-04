@@ -108,8 +108,8 @@ support's less damage; its radius is the 12-cell default grown by the area modif
 `melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
 
 Red and blue supports whose stats had no consumer now apply too: Maim's `maim_on_hit_%` maims for 4 s and a maimed
-monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physical damage (its 30% reduced movement is
-not modelled); Bloodlust's more melee physical damage applies against a bleeding enemy; Pulverise's
+monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physical damage and 30% reduced movement
+(PoB's Maimed condition); Bloodlust's more melee physical damage applies against a bleeding enemy; Pulverise's
 `support_pulverise_attack_speed_+%_final` and Rage's `attack_speed_+%_with_at_least_10_rage` join the attack-speed
 factors; Power Charge on Critical adds its more damage per power charge; Volatility scales the attack's minimum and
 maximum damage (`Volatility.cs`); Combustion's `ignites_apply_fire_resistance_+` rides on the ignite as a fire Exposure
