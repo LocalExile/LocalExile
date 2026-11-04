@@ -1,6 +1,7 @@
 sealed partial class ClientState
 {
     internal RampageSession Rampage { get; } = new();
+    internal SoulEaterState SoulEater { get; } = new();
     internal ITransientCombatState? OwnedCombatState;
     internal ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
     internal HashSet<uint> RetiredCombatObjects { get; } = [];

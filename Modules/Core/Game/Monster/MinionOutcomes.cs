@@ -31,6 +31,7 @@ static partial class Game
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
+        SoulEaterSoul(conn, at);
         var killer = PlayerOf(conn); var modMonster = ModMonster(monster, at);
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)

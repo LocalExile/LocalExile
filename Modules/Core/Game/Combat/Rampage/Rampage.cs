@@ -45,11 +45,24 @@ static partial class Game
     static bool RampageActive(ClientState conn) =>
         !conn.Closed && !conn.LeavingArea && !conn.RageRetired && !conn.Paused;
 
+    /// <summary>The two streak sources, read from one place: an explicit /set_stat value for either wins over the
+    /// caller's snapshot and the passives/items, and one explicit key keeps the pair from rebuilding the sources.</summary>
+    static (bool Melee, bool Kill) RampageSources(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
+    {
+        uint? meleeKey = Stats.Key(RampageSession.Source), killKey = Stats.Key(RampageSession.KillSource);
+        bool Has(uint? key) => key is uint k && conn.PlayerStats.ContainsKey(k);
+        if (Has(meleeKey) || Has(killKey))
+            return (meleeKey is uint m && conn.PlayerStats.GetValueOrDefault(m) != 0,
+                killKey is uint k && conn.PlayerStats.GetValueOrDefault(k) != 0);
+        var stats = player ?? CharacterStatSources(conn).Stats;
+        return (meleeKey is uint m2 && stats.GetValueOrDefault(m2) != 0,
+            killKey is uint k2 && stats.GetValueOrDefault(k2) != 0);
+    }
+
     static bool RampageSource(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
     {
-        if (Stats.Key(RampageSession.Source) is not uint key) return false;
-        if (conn.PlayerStats.TryGetValue(key, out int current)) return current != 0;
-        return (player ?? CharacterStatSources(conn).Stats).GetValueOrDefault(key) != 0;
+        var (melee, kill) = RampageSources(conn, player);
+        return melee || kill;
     }
 
     // The caller may reuse this source decision for the same contact's lethal mutation, without a second stat read.
@@ -58,11 +71,13 @@ static partial class Game
     {
         if (!melee || !target.Hostile || target.Dead || target.Life == 0 || conn.PlayerLife == 0
             || !CurrentRampageWork || !RampageActive(conn)) return null;
-        bool enabled = RampageSource(conn, player);
+        var (meleeGrants, killSource) = RampageSources(conn, player);
+        bool enabled = meleeGrants || killSource;
+        // Kills alone (player_gain_rampage_stacks) do not make ordinary melee hits grant stacks.
         double now = ProjectileWorldTime(conn);
         ReconcileRampage(conn, enabled, now);
         int movement = conn.Rampage.Current.MovementPercent;
-        conn.Rampage.MeleeHit(now, enabled, true, true, true, true);
+        conn.Rampage.MeleeHit(now, enabled, true, true, meleeGrants, true);
         if (movement != conn.Rampage.Current.MovementPercent) conn.ApplyMovementSpeedAt(now);
         return enabled;
     }
@@ -112,7 +127,8 @@ static partial class Game
         lock (conn.Monsters)
         {
             if (!CurrentRampageWork) return;
-            bool enabled = Stats.Key(RampageSession.Source) is uint source && stats.GetValueOrDefault(source) != 0;
+            bool enabled = (Stats.Key(RampageSession.Source) is uint meleeKey && stats.GetValueOrDefault(meleeKey) != 0)
+                || (Stats.Key(RampageSession.KillSource) is uint killKey && stats.GetValueOrDefault(killKey) != 0);
             // Pausing holds the game clock; it does not remove a streak.
             double now = conn.LeavingArea && conn.RampageTransferAt is double frozen ? frozen : ProjectileWorldTime(conn);
             var value = ReconcileRampage(conn, enabled, now);
@@ -123,6 +139,10 @@ static partial class Game
             }
             Add("damage_+%", value.DamagePercent);
             Add("movement_velocity_+%", value.MovementPercent);
+            // "1% increased Rarity of Items found per X Rampage Kills": the streak's stack count.
+            if (Stats.Key("item_found_rarity_+1%_per_X_rampage_stacks") is uint rarityPerStacks
+                && stats.GetValueOrDefault(rarityPerStacks) is int perKills)
+                Add("base_item_found_rarity_+%", RampageRarity(value.Stacks, perKills));
             if (Stats.Key("current_rampage_stacks") is uint current) stats[current] = value.Stacks;
             if (Stats.Key("max_rampage_stacks") is uint maximum) stats[maximum] = RampageState.MaximumStacks;
         }
@@ -132,6 +152,10 @@ static partial class Game
     {
         lock (conn.Monsters) return conn.Rampage.Current.MovementPercent;
     }
+
+    /// <summary>"1% increased Rarity of Items found per X Rampage Kills": the streak's whole groups of X kills.</summary>
+    internal static int RampageRarity(int stacks, int perKills) =>
+        perKills > 0 ? Math.Max(0, stacks) / perKills : 0;
 
     internal static byte[]? RampagePresentation(ClientState conn)
     {

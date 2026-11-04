@@ -3,6 +3,8 @@
 sealed class RampageSession
 {
     public const string Source = "melee_hits_grant_rampage_stacks";
+    /// <summary>The other way to start a streak: kills grant the stacks instead of melee hits.</summary>
+    public const string KillSource = "player_gain_rampage_stacks";
     public static readonly int[] Thresholds = [15, 30, 45, 70, 100, 135, 175, 220, 270, 325, 385, 450, 520];
     readonly RampageState state = new(Thresholds);
     readonly HashSet<object> creditedKills = new(ReferenceEqualityComparer.Instance);

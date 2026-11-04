@@ -1599,6 +1599,8 @@ static partial class Game
             ChargesOnKill(conn, m);
             RecoverOnKill(conn, m);
         }
+        // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
+        SoulEaterSoul(conn, at);
         await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });
         // A summoned monster whose skill says so gives neither experience nor items.

@@ -98,6 +98,7 @@ static partial class Game
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
         }
+        SoulEaterSoul(conn, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };
