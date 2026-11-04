@@ -170,6 +170,9 @@ static class GatewayProjectileSkillProfiles
         {
             // Keep the base count and the skill's own contact/terminal areas: these are its normal arrows.
             NativeVolley = null, SpreadRadians = 0, AimSpreadDistance = 0,
+            // The client draws these itself (Frida 2026-11-04: the 18 SplitArrowDefault children were client objects),
+            // so a server object would be a second, later volley at the landing cell.
+            HideVisual = true,
             CountConsumer = ProjectileCountConsumer.Primary,
             DirectDamage = true, Lobbed = false,
             EndEmission = null, TravelEmission = null, Pulse = null,

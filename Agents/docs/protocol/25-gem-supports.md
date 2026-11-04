@@ -122,9 +122,10 @@ Arrow Nova turns a supported bow attack into one payload arrow that lands at the
 whole volley in a circle from there (`projectiles_rain` and `skill_is_rain_skill`). Captured from the 3.29.3b client
 on 2026-11-04 (Split Arrow, 18 arrows): every child started on the aim cell and the directions were exactly 20 degrees
 apart, the first on the aim ray, about 0.66 s after the use at 33 cells; the client drew both the payload and the
-children (`ClientPredicted`). `ArrowNovaChildren` makes the payload one non-damaging lobbed arrow whose end emission
-is the skill's radial volley; the child count takes the shared modifier pass's extra arrows. Not built: the payload's
-airborne arc and its exact flight time (the skill's projectile speed sets it) and the per-child launch order.
+children, so both profiles are `HideVisual` (the payload also `ClientPredicted`) and the server only simulates their
+damage. `ArrowNovaChildren` makes the payload one non-damaging lobbed arrow whose end emission is the skill's radial
+volley; the child count takes the shared modifier pass's extra arrows. Not built: the payload's airborne arc and its
+exact flight time (the skill's projectile speed sets it) and the per-child launch order.
 
 Red and blue supports whose stats had no consumer now apply too: Maim's `maim_on_hit_%` maims for 4 s and a maimed
 monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physical damage and 30% reduced movement
