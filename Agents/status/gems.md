@@ -81,7 +81,7 @@ Nothing yet.
   Reduction lowers the monster's block roll and applies Overpowered; Machinations counts allocated keystones for its
   chaos gain ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
-  Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you"
+  Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
   Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   A real-client Cyclone control accepted the item-support records and displayed blue s/c, red W and white d.
