@@ -143,6 +143,10 @@ partial class Program
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
                 await Logic.Entered(remote, conn, level, resolved.Level);
+                // The rooms of today's Labyrinth the character has been in, for the Labyrinth map (S→C 0x1cb).
+                if (labyrinthNode is not null && resolved.Character is { Length: > 0 } runner)
+                    await Send(remote, stream, ciphers, LabyrinthDay.Visit(runner, labyrinthNode),
+                        $"0x01cb labyrinth progress: rooms visited today, now node {labyrinthNode.Row}");
                 // The read loop answers ticks; everything else runs in order on the handler task (ClientInbox, issue #46).
                 var inbox = new ClientInbox(conn.Performance);
                 using var reading = new CancellationTokenSource();

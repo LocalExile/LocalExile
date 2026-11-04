@@ -83,6 +83,8 @@ public static class InstanceWaypoints
     /// the trials' flags (0x140b76170 → 0x141f69230), not from the message. Kind 0x66 (HUD virtual +0x1028, the live
     /// HUD's +0xa30) is Mirage's Wishes window instead (live 2026-10-31).</summary>
     public const byte TrialPlaqueUi = 9;
+    /// <summary>The Labyrinth map (LabyrinthMapWindow in the client's screen table at 0x142fc5920).</summary>
+    public const byte LabyrinthMapUi = 0x0f;
 
     /// <summary>
     /// S→C 0x4c (class 0x1435dc7e0, read 0x14219f460; dispatcher case 0x12): u32 BE (+0x10, passed with the bitset to the

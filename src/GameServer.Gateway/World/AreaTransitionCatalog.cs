@@ -268,8 +268,27 @@ static class AreaTransitionCatalog
     /// quest gates that exit (<see cref="Gated"/>). A
     /// disabled teleport (an arena's way in that the real game unlocks, e.g. the Upper Prison's into Brutus's room) is
     /// created open: the encounters that would unlock it are not modelled.</summary>
-    static List<AreaTransitionObject> FromLayout(AtlasArea area, ServerLevels.Level level, List<string> notes) =>
-        FromExits(area.Id, area.Hash16, area.Connections ?? [], level.Exits, notes, level.Entrances);
+    static List<AreaTransitionObject> FromLayout(AtlasArea area, ServerLevels.Level level, List<string> notes)
+    {
+        var labyrinth = LabyrinthConnections(area.Id, notes);
+        // Izaro's arena's way on (boss_portals.arm "entranceNdisabled") opens when he falls; the fight is not built yet, so
+        // in a room of today's Labyrinth it is open from the start.
+        return FromExits(area.Id, area.Hash16, labyrinth ?? area.Connections ?? [], level.Exits, notes, level.Entrances,
+            openDisabled: labyrinth is not null);
+    }
+
+    /// <summary>A room of today's Labyrinth has no WorldAreas connections: its exits lead to its neighbours in the day's
+    /// layout (<see cref="LabyrinthDay.Exits"/>). Null for any other area.</summary>
+    static List<AtlasConnection>? LabyrinthConnections(string areaId, List<string> notes)
+    {
+        if (LabyrinthDay.Exits(areaId) is not { } exits) return null;
+        var connections = new List<AtlasConnection>();
+        foreach (var (index, to) in exits)
+            if (HashOf(to) is ushort hash) connections.Add(new(index, to, hash));
+            else notes.Add($"labyrinth exit {index} → {to}: not in the atlas");
+        notes.Add($"labyrinth room of day {LabyrinthDay.Seed}: exits {string.Join(", ", connections.Select(c => $"{c.Index} → {c.Id}"))}");
+        return connections;
+    }
 
     /// <summary><see cref="FromLayout"/> for an area's id, HASH16, WorldAreas connections and placed exits.
     /// <paramref name="entrances"/> (the layout's entrance points): an enabled "entranceN" that got no object, to an area
@@ -278,7 +297,7 @@ static class AreaTransitionCatalog
     /// Reef), or a town's exit no tile marks (Karui Shores' camp.arm "entrance1" to Oriath, as the atlas's point-only
     /// exits); a quest gate on the destination still applies (Quests.FlagToEnter).</summary>
     internal static List<AreaTransitionObject> FromExits(string areaId, ushort areaHash, IReadOnlyList<AtlasConnection> connections,
-        IReadOnlyList<PlacedExit> exits, List<string> notes, IReadOnlyList<EntrancePoint>? entrances = null)
+        IReadOnlyList<PlacedExit> exits, List<string> notes, IReadOnlyList<EntrancePoint>? entrances = null, bool openDisabled = false)
     {
         var placed = new List<AreaTransitionObject>();
         foreach (var e in exits)
@@ -296,7 +315,7 @@ static class AreaTransitionCatalog
             switch (e.Kind)
             {
                 // A disabled entrance a quest gates is the game's scripted exit: created, and shown by the quest's flag.
-                case ExitKind.Entrance when !e.Enabled && !(connections.FirstOrDefault(c => c.Index == e.Number) is { } gated
+                case ExitKind.Entrance when !e.Enabled && !openDisabled && !(connections.FirstOrDefault(c => c.Index == e.Number) is { } gated
                         && Gated(areaId, gated.Id)):
                     notes.Add($"{what}: entrance{e.Number}disabled ({e.Why}), an arrival point only, not created");
                     break;
@@ -307,8 +326,8 @@ static class AreaTransitionCatalog
                         break;
                     }
                     placed.Add(new AreaTransitionObject(o.X, o.Y, to.Hash16, o.Model, Rotation: o.Rotation, Height: height,
-                        Type: Resolve(o.Type, what, notes)) { SourceType = o.Type, QuestSource = e.Enabled ? null : GateSourceOf(areaId, to.Id) });
-                    notes.Add($"{what} → {to.Id} (entrance{e.Number}{(e.Enabled ? "" : "disabled, gated by a quest")}, {e.Why})");
+                        Type: Resolve(o.Type, what, notes)) { SourceType = o.Type, QuestSource = e.Enabled || openDisabled ? null : GateSourceOf(areaId, to.Id) });
+                    notes.Add($"{what} → {to.Id} (entrance{e.Number}{(e.Enabled ? "" : openDisabled ? "disabled, open: Izaro's way on" : "disabled, gated by a quest")}, {e.Why})");
                     break;
                 case ExitKind.Teleport when e.Target is { } target:
                     // A Teleport (type 1) labelled with its ClientStrings key; "%areaname%" (or no key) shows the area's name.

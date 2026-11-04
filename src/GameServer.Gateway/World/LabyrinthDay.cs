@@ -50,6 +50,58 @@ static class LabyrinthDay
         return index < 0 ? null : new LabyrinthNodeKey(seed, day.Layout.Nodes[index].Row, difficulty);
     }
 
+    // The rooms each character has been in today, per layout (ours, kept while the server runs).
+    static readonly ConcurrentDictionary<(string Character, uint Seed, int Difficulty), HashSet<int>> Visited = new();
+
+    /// <summary>A character enters a room of today's Labyrinth: it is remembered, and the run's progress to send
+    /// (<see cref="Progress"/>) has every room they have been in.</summary>
+    public static byte[] Visit(string character, LabyrinthNodeKey node)
+    {
+        var day = For(node.Seed, node.Difficulty);
+        int index = day.Layout.Nodes.ToList().FindIndex(n => n.Row == node.Row);
+        var rooms = Visited.GetOrAdd((character, node.Seed, node.Difficulty), _ => []);
+        lock (rooms)
+        {
+            if (index >= 0) rooms.Add(index);
+            return Progress(rooms);
+        }
+    }
+
+    /// <summary>S→C 0x1cb, the run's progress (dispatcher case 0x84, 96 bits, bit i in byte i / 8): the Labyrinth map
+    /// (LabyrinthMapWindow, <c>0x140bcdf20</c>) shows a room whose bit 0x11 + its index is set, and Izaro's rooms (a
+    /// section's last, +0x5a = slot + 1) with his icon until bit slot + 1 is set. The secrets' numbers
+    /// (<see cref="LabyrinthLayout.Node.Number1"/>) start after the rooms' bits.</summary>
+    public static byte[] Progress(IEnumerable<int> rooms)
+    {
+        var bytes = new byte[2 + 12];
+        bytes[0] = 0x01; bytes[1] = 0xcb;
+        foreach (int room in rooms)
+            if (room + 0x11 is int bit and < 96) bytes[2 + bit / 8] |= (byte)(1 << (bit % 8));
+        return bytes;
+    }
+
+    /// <summary>The Aspirants' Plaza: where the first room's way out (its -1 connection) leads.</summary>
+    public const string Plaza = "Labyrinth_Airlock";
+
+    /// <summary>An area's exits today, as its WorldAreas connections would be: the room's "entranceN" leads to its N-th
+    /// connection in the layout (the client counts a passage secret's "entrance&lt;N&gt;" after them the same way), that
+    /// room's area; the first room's way out to the plaza. The last room's way out (to Izaro) has none yet. Null when the
+    /// area is not in today's Labyrinth.</summary>
+    public static IReadOnlyList<(int Index, string Area)>? Exits(string areaId)
+    {
+        if (NodeFor(areaId) is not { } node) return null;
+        var day = For(node.Seed, node.Difficulty);
+        int index = day.Layout.Nodes.ToList().FindIndex(n => n.Row == node.Row);
+        var exits = new List<(int, string)>();
+        var links = day.Layout.Nodes[index].Links;
+        for (int n = 0; n < links.Count; n++)
+        {
+            string? to = links[n] >= 0 ? day.Areas[links[n]] : index == 0 ? Plaza : null;
+            if (to is not null) exits.Add((n + 1, to));
+        }
+        return exits;
+    }
+
     /// <summary>The area extra data (0x1d's terrain block) naming the node: flags 0x08, 0x00, then u32 seed, u16 node
     /// (its LabyrinthSectionLayout row), u8 difficulty, little-endian (<c>0x141ec7220</c>).</summary>
     public static byte[] ExtraData(LabyrinthNodeKey node)

@@ -485,6 +485,9 @@ static partial class QuestobjectsRules
                 // Every use shows the trials done (the window reads their flags itself).
                 await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window");
                 break;
+            case LabyrinthTrials.Map:
+                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthMapUi), "0x007b open the Labyrinth map");
+                break;
             case LabyrinthTrials.Portal:
                 if (!conn.Instance.Transitioned(o.Type, o.X, o.Y)) break;   // closed until the plaque is used
                 if (NearestTrialObject(conn, LabyrinthTrials.IntroDoor, (o.X, o.Y), closed: false) is not { } entrance) break;
