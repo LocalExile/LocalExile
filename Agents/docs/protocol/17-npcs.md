@@ -308,7 +308,9 @@ completion flags. Other quest scripts are not thereby implemented.
 The reviewed [community snapshot](../../../scripts/re/vendor-stock/community-stock.json) compares
 [wiki vendor rewards](https://www.poewiki.net/wiki/List_of_vendor_rewards) with
 [PoEDB quest rewards](https://poedb.tw/us/QuestRewards). Only the wiki identifies vendors;
-agreement does not prove unlock timing or 3.29.3b parity. `snapshot.py` can refresh the source comparison.
+agreement does not prove unlock timing or 3.29.3b parity. `snapshot.py` can refresh the source comparison;
+then rebuild `ids.json` with `generate.py --ids` from English tables. The generator matches rows by those Ids, not
+display names: third-party translation patches write their text over the English tables the extractor reads.
 
 Original-client memory captures from 2026-11-02 cover one level-91 Luminary (base class Scion).
 Exact league mode and Atlas history were not recorded; Siosa was locked and not captured.
