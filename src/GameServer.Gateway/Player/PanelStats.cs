@@ -490,9 +490,12 @@ static class PanelStats
         * Math.Max(0, 1 + get("life_recovery_rate_+%") / 100.0);
 
     /// <summary>Flat plus percentage Life regeneration, scaled by regeneration and recovery increases.
-    /// PoB 3.29.x CalcDefence's regeneration calculation; conditional/conversion operators remain separate.</summary>
+    /// PoB 3.29.x CalcDefence's regeneration calculation; conditional/conversion operators remain separate.
+    /// Fire Mastery's flat regeneration per 1% uncapped fire resistance counts only positive resistance.</summary>
     public static double LifePerMinute(Func<string, int> get, uint maxLife) =>
         (get("base_life_regeneration_rate_per_minute")
+            + (double)get("life_regeneration_per_minute_per_1%_uncapped_fire_damage_resistance")
+                * Math.Max(0, get("uncapped_fire_damage_resistance_%"))
             + maxLife * get("life_regeneration_rate_per_minute_%") / 100.0) * LifeRegenerationMultiplier(get);
 
     /// <summary>Zealot's Oath applies life regeneration to Energy Shield instead of Life; Geofri's Sanctuary carries
