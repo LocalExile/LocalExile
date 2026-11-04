@@ -12,6 +12,34 @@ namespace GameServer.Gateway.Tests;
 public class StatSnapshotTailTests
 {
     [Fact]
+    public void Conditional_equipment_cache_rebuilds_when_runtime_condition_inputs_change()
+    {
+        using var setup = new SnapshotSetup();
+        var conn = Connection("ConditionalCache" + Guid.NewGuid().ToString("N"));
+        var equipment = Array.Empty<(byte Row, InventoryItem Item)>();
+        void Resolve() => Game("EquipmentStatSources", conn, equipment, null, null);
+        Resolve();
+        var cached = conn.StatSourcesCacheState;
+        Resolve();
+        Assert.Same(cached, conn.StatSourcesCacheState);
+
+        lock (conn.Monsters)
+            conn.Auras[1] = new AuraCatalog.Aura(1, 1, "Grace", "Grace", 1, 1, 0, 0);
+        Resolve();
+        Assert.NotSame(cached, conn.StatSourcesCacheState);
+        cached = conn.StatSourcesCacheState;
+
+        lock (conn.Monsters) conn.RecentEvents.Record(StatConditions.Crit, conn.Clock.Elapsed.TotalSeconds);
+        Resolve();
+        Assert.NotSame(cached, conn.StatSourcesCacheState);
+        cached = conn.StatSourcesCacheState;
+
+        lock (conn.Monsters) conn.Pools = conn.Pools with { Strength = conn.Pools.Strength + 1 };
+        Resolve();
+        Assert.NotSame(cached, conn.StatSourcesCacheState);
+    }
+
+    [Fact]
     public void A_reused_tail_is_the_fresh_one_through_every_stat_source()
     {
         using var setup = new SnapshotSetup();
