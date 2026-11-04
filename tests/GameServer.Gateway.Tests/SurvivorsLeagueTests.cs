@@ -106,6 +106,7 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsRunTests().A_run_hit_reaches_the_spawn_ring();
         new SurvivorsRunTests().Incoming_monster_hits_are_taken_at_sixty_percent_and_fortitude_softens_them();
         new SurvivorsRunTests().The_herald_pulse_reaches_its_own_aura_and_draws_every_hit();
+        new SurvivorsRunTests().A_pulse_casts_where_the_skill_lands();
         new SurvivorsRunTests().The_horde_gets_a_ranged_ring_wave_every_twenty_seconds();
         new SurvivorsRunTests().The_stage_caps_the_skill_count();
         new SurvivorsRunTests().A_run_moves_through_the_act_s_areas_in_order();
@@ -128,6 +129,7 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsSupportMatrixTests().Every_support_moves_its_own_number_on_every_skill_it_can_support();
         new SurvivorsSupportMatrixTests().A_run_skill_uses_the_reference_s_thirty_percent_a_rank();
         new SurvivorsSupportMatrixTests().Area_gems_join_the_catalogue_and_cast_an_area_pulse();
+        new SurvivorsSupportMatrixTests().The_catalogue_keeps_only_skills_the_run_can_present();
         new SurvivorsSupportMatrixTests().Every_non_herald_skill_can_link_five_supports();
         new SurvivorsAnimationTests().Every_class_and_weapon_resolves_a_cast_clip_and_the_projectile_impact();
         new SurvivorsAnimationTests().Every_run_skill_maps_to_a_cast_clip();

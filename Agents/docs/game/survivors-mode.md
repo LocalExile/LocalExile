@@ -53,11 +53,14 @@ current one holds every support it can take, so the player builds the skill set 
 first-skill choice; a voluntary `/survivors stop` does not restart it.
 The window's chat line names the skill each upgrade applies to (a support shows `Support -> Skill`), and `/survivors
 status` prints the same labels.
-Run skills are every gem the client can draw: a projectile gem flies its own `Projectiles` row, an area gem (Ice Nova,
-Firestorm and the like) casts a **nova pulse** around the player with the gem's own area hit, and a Herald pulses its
-aura. Heralds and areas share the pulse pipeline; an area gem's pulse radius is the run's 48-cell base grown by its
-rank and increased area, and the pulse gathers targets to that same radius (the 34-unit range is the projectile cast
-range only). Melee area skills (Cyclone, Ground Slam, Cleave) are attacks and stay out of the pool.
+Run skills are every gem the client can draw: a projectile gem flies its own `Projectiles` row, a self-centred area
+gem (Ice Nova, Shock Nova, Vortex) casts a **nova pulse** around the player, a ground-targeted one (Firestorm,
+Bladefall, Storm Call) casts on the nearest monster and hits around that point, and a Herald pulses its aura. Heralds
+and areas share the pulse pipeline; an area gem's pulse radius is the run's 48-cell base grown by its rank and
+increased area, and the pulse gathers targets to that same radius (the 34-unit range is the projectile cast range
+only). Melee area skills (Cyclone, Ground Slam, Cleave) are attacks and stay out of the pool.
+Trap, mine, totem, brand, channelled, travel, minion, orb, hex and corpse gems stay out: the run has no presentation for
+the object, beam or movement they place, so their animation and effect would not match the skill.
 A cast clip plays only while the player stands still: while moving it would replace the walk clip and read as strafing.
 Every run starts with one **Small Life Flask** in the flask bar, full, refilled by kills like any flask, so the emptied
 character still has recovery.

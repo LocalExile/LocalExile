@@ -255,4 +255,34 @@ public sealed class SurvivorsSupportMatrixTests
             GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
     }
+
+    public void The_catalogue_keeps_only_skills_the_run_can_present()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-catalogue-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        Saves.Open(path);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = Connection("SurvivorsCatalogue");
+        try
+        {
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
+            // A ground-targeted area spell lands on the monster it was aimed at; a nova stays on the player.
+            Assert.False(catalog.Single(s => s.Name == "Firestorm").SelfTargeted);
+            var iceNova = catalog.Single(s => s.Name == "Ice Nova");
+            Assert.True(iceNova.SelfTargeted);
+            Assert.True(iceNova.Nova);
+            // The run has no trap, mine, totem, brand, channel, travel, minion or orb presentation: those gems stay out.
+            Assert.DoesNotContain(catalog, s => s.Name is "Incinerate" or "Fire Trap" or "Storm Brand" or "Lightning Warp"
+                or "Shockwave Totem" or "Winter Orb");
+            // A projectile gem with no Projectiles row cannot fly, and must not be offered as a nova pulse instead.
+            Assert.DoesNotContain(catalog, s => s.Name is "Forbidden Rite" or "Creeping Frost" or "Essence Drain");
+            Assert.Contains(catalog, s => s.Name == "Firestorm");
+        }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!);
+            Program.SetGameLogic(previousLogic!);
+            GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
+        }
+    }
 }

@@ -22,6 +22,13 @@ public sealed record SurvivorsSkill(string Path, string Name, DamageType Type, i
 
     /// <summary>True for an attack gem: its hit is weapon damage times the gem's damage effectiveness, not spell damage.</summary>
     public bool Attack { get; init; }
+
+    /// <summary>True when the gem's own use is centred on the caster (Ice Nova, Blade Vortex): the run's pulse stays on
+    /// the player. A ground-targeted spell (Firestorm, Bladefall) casts on the nearest monster instead.</summary>
+    public bool SelfTargeted { get; init; }
+
+    /// <summary>True for a Nova: a ring the client draws around the caster even when the row also allows a target.</summary>
+    public bool Nova { get; init; }
 }
 
 /// <summary>A support: the support gem the window shows, its GrantedEffects row, and the run-local effect it links.</summary>

@@ -20,6 +20,11 @@ static partial class SurvivorsSkills
     /// <summary>How far a cast looks for targets: a pulse uses its own aura, a projectile the cast range.</summary>
     internal static double SurvivorsCastReach(bool herald, double radius) => herald ? radius : SurvivorsRules.Range;
 
+    /// <summary>Where a pulse lands: a self-centred nova or Herald on the player, a ground-targeted area spell on the
+    /// monster it was aimed at.</summary>
+    internal static (int X, int Y) SurvivorsPulseCenter(bool selfCentered, (int X, int Y) player, (int X, int Y) target) =>
+        selfCentered ? player : target;
+
     /// <summary>The struck targets that play a pulse's impact art: every one of them (the clip ends before the next
     /// pulse), so a pack does not look as if only the first few were hit.</summary>
     internal static int SurvivorsHeraldEffectCount(int struck) => Math.Max(struck, 0);
@@ -202,8 +207,9 @@ static partial class SurvivorsSkills
         foreach (string path in SurvivorsGemPaths(conn))
         {
             if (ItemsFor(conn).Find(path) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } gem) continue;
-            // A placeholder row ("[UNUSED] Coiling Assault") is not a skill a player can be offered.
+            // A placeholder row ("[UNUSED] Coiling Assault") or a playtest row is not a skill a player can be offered.
             if (baseType.Name.Contains("[UNUSED]", StringComparison.OrdinalIgnoreCase)) continue;
+            if (baseType.Name.Contains("Playtest", StringComparison.OrdinalIgnoreCase)) continue;
             if (gem.IsSupport || gem.Variants.Count == 0) continue;
             var variant = gem.Variant(0);
             // Heralds have no flight: the run casts them as an aura pulse around the player. Any other gem with a
@@ -214,6 +220,9 @@ static partial class SurvivorsSkills
             bool melee = SkillsFor(conn).IsMelee(variant.Effect);
             var projectileRow = Skills.ProjectileFor(variant.Effect);
             bool projectile = projectileRow is not null && !melee;
+            // A projectile gem with no Projectiles row has no flight to draw: falling back to a nova around the player
+            // would show the wrong effect. It stays out until its row (or a fallback) is known.
+            if (!herald && SkillsFor(conn).IsProjectile(variant.Effect) && projectileRow is null) continue;
             // An area gem without a flight and without a melee swing: its ActiveSkillTypes carry the Area flag, so the
             // run casts it as a nova pulse. It must also deal a hit: a warcry/curse/buff (Enduring Cry, Temporal
             // Chains) has no damage to pulse and too few supports to link.
@@ -221,6 +230,10 @@ static partial class SurvivorsSkills
             bool area = !herald && !attack && projectileRow is null
                 && Supports.Of(variant.Effect)?.Types.Contains(7) == true
                 && !SkillsFor(conn).HitDamage(variant.Effect, 1).IsZero;
+            // The run has one presentation for a hit: a flight at the nearest monster or a pulse at the cast's
+            // centre. A trap, mine, totem, brand, channel, travel or minion gem is not that; it stays out until the
+            // run models the object or movement it places.
+            if (!herald && !SurvivorsMechanicsSupported(conn, variant.Effect)) continue;
             if (!herald && !projectile && !area) continue;
             // The links-first offer needs the five supports a skill can take; a gem with fewer (Icefire) is left out.
             if (!herald && supports.Count(support => Linkable(variant.Effect, support)) < SurvivorsRules.MaxSupportsPerSkill)
@@ -233,9 +246,29 @@ static partial class SurvivorsSkills
             {
                 CastTimeMs = SurvivorsCastTimeMs(conn, variant.Effect),
                 Attack = SkillsFor(conn).IsAttack(variant.Effect),
+                SelfTargeted = SkillsFor(conn).IsSelfTargeted(variant.Effect),
+                Nova = SkillsFor(conn).IsNova(variant.Effect),
             });
         }
         return catalog;
+    }
+
+    // ActiveSkillTypes the run's flight/pulse presentation does not model. Heralds are exempt: their aura and impact
+    // art are run-specific already.
+    static readonly string[] SurvivorsUnsupportedSkillTypes =
+    [
+        "Trap", "Trapped", "Mine", "RemoteMined", "Totem", "SummonsTotem", "Brand", "Channel", "Travel",
+        "AppliesCurse", "Warcry", "Minion", "CreatesMinion", "Orb", "Hex", "Retaliation",
+        "RequiresOffHandNotWeapon", "DestroysCorpse", "CreatesCorpse", "HasReservation", "Aura",
+    ];
+
+    /// <summary>Whether the run can present the gem's use: a flight at one monster or a pulse at the cast's centre.
+    /// A trap, mine, totem, brand, channel, travel, minion or orb mechanic has no such presentation yet.</summary>
+    internal static bool SurvivorsMechanicsSupported(ClientState conn, int effect)
+    {
+        foreach (string type in SurvivorsUnsupportedSkillTypes)
+            if (SkillsFor(conn).HasType(effect, type)) return false;
+        return true;
     }
 
     // A gem's own cast time (GrantedEffects CastTime in EffectStats) is the run's interval base; an attack gem's
@@ -350,9 +383,11 @@ static partial class SurvivorsSkills
         (int X, int Y) origin;
         List<(int X, int Y)> aims = [];
         List<(uint Id, double Distance, uint Life, int X, int Y)> inReach = [];
-        // A pulse (a Herald or an area gem) gathers to its own aura, not the projectile cast range: the old 34-unit
-        // reach clipped a 48-unit aura, so monsters the client showed inside it took no hit.
-        double reach = SurvivorsCastReach(cast.Herald, cast.HeraldRadius);
+        // A self-centred pulse (a Herald, a nova) gathers to its own aura, not the projectile cast range: the old
+        // 34-unit reach clipped a 48-unit aura. A ground-targeted area spell first finds its target within the cast
+        // range, then gathers around that monster: its effect belongs where it lands, not at the player's feet.
+        bool selfCentered = cast.Herald && (skill.Kind == SurvivorsSkillKind.Herald || skill.SelfTargeted || skill.Nova);
+        double reach = cast.Herald && !selfCentered ? SurvivorsRules.Range : SurvivorsCastReach(cast.Herald, cast.HeraldRadius);
         using (ProjectileMutation(conn))
         {
             double world = ProjectileWorldTime(conn);
@@ -368,7 +403,30 @@ static partial class SurvivorsSkills
                 inReach.Add((id, distance, m.Life, at.X, at.Y));
             }
             if (inReach.Count == 0) return 0;
-            origin = here;
+            if (cast.Herald)
+            {
+                (int X, int Y) target = here;
+                if (!selfCentered)
+                {
+                    var nearest = inReach.OrderBy(t => t.Distance).First();
+                    target = (nearest.X, nearest.Y);
+                }
+                origin = SurvivorsPulseCenter(selfCentered, here, target);
+                if (!selfCentered)
+                {
+                    inReach.Clear();
+                    foreach (var (id, m) in conn.Monsters)
+                    {
+                        if (m.Dead || m.Life == 0 || !m.Hostile) continue;
+                        var at = m.Walk.Position(world);
+                        double distance = Dist(origin, at);
+                        if (distance > cast.HeraldRadius) continue;
+                        inReach.Add((id, distance, m.Life, at.X, at.Y));
+                    }
+                    if (inReach.Count == 0) return 0;
+                }
+            }
+            else origin = here;
         }
         // A pulse skill (a herald's aura or an area gem's nova): every hostile around the player takes the hit, and the
         // client plays the gem's cast.

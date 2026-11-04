@@ -127,6 +127,13 @@ public class SurvivorsRunTests
         Assert.Equal(30, SurvivorsSkills.SurvivorsHeraldEffectCount(30));
     }
 
+    public void A_pulse_casts_where_the_skill_lands()
+    {
+        (int X, int Y) player = (10, 10), target = (30, 20);
+        Assert.Equal(target, SurvivorsSkills.SurvivorsPulseCenter(selfCentered: false, player, target));
+        Assert.Equal(player, SurvivorsSkills.SurvivorsPulseCenter(selfCentered: true, player, target));
+    }
+
     public void The_horde_gets_a_ranged_ring_wave_every_twenty_seconds()
     {
         Assert.Equal(20, SurvivorsRules.RangedWaveIntervalSeconds);

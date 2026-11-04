@@ -674,7 +674,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Survivors league and three optional modules, including the seven stage gate bosses: [client presentation and limits](../docs/game/survivors-mode.md).
+- Survivors league and three optional modules, including the seven stage gate bosses; the catalogue keeps only skills the flight/pulse presentation can play, and ground area spells land on their target: [client presentation and limits](../docs/game/survivors-mode.md).
 
 - Attack-speed admission: gem attacks now use the supported attack speed (gem and support stats plus the inherent
   GrantedEffectsPerLevel multiplier) for both the admission gate and the swing interval, instead of mixing it with

@@ -492,6 +492,10 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>The native Brand skill type, independently of display name or gem tags.</summary>
     public bool IsBrand(int effectRow) => _brandEffects.Value.Contains(effectRow);
 
+    /// <summary>Whether a GrantedEffects row's ActiveSkill has an ActiveSkillType by its data Id (Trap, Mine, Totem,
+    /// Channel, ...): the named helpers cover the common ones, this reads any type a caller names.</summary>
+    public bool HasType(int effectRow, string typeId) => _skillTypes.HasType(effectRow, typeId);
+
     // The effects of one ActiveSkillType each: ActiveSkillType, ActiveSkills and GrantedEffects are parsed once for all
     // of them (each set used to parse the three tables again: ~100 MB of JSON per catalogue at the first spawn).
     private readonly SkillTypeSets _skillTypes = new(folder);
@@ -556,6 +560,18 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public Lazy<HashSet<int>> SelfTargeted { get; }
 
         Lazy<HashSet<int>> Of(string typeId, bool added = false) => new(() => Effects(_rows.Value, typeId, added));
+
+        // Any named type a caller asks for (Trap, Mine, Totem, ...): resolved once and reused, like the fixed sets.
+        readonly Dictionary<string, Lazy<HashSet<int>>> _byId = new(StringComparer.Ordinal);
+
+        public bool HasType(int effectRow, string typeId)
+        {
+            lock (_byId)
+            {
+                if (!_byId.TryGetValue(typeId, out var effects)) _byId[typeId] = effects = Of(typeId);
+                return effects.Value.Contains(effectRow);
+            }
+        }
 
         static HashSet<int> Effects(Rows? rows, string typeId, bool added)
         {
