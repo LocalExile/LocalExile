@@ -8,7 +8,7 @@ sealed partial class ClientState
         if (Phasing) return result;
         // Deterministic arrival arbitration: the later actor moves, instead of both choosing the same exit.
         foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
-            if (peer.Id < PeerId && peer.Life > 0) result.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+            if (peer.Id < PeerId && peer.Life > 0 && peer.Owner is not null) result.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
         return new BlockerSet(result);
     }
 
@@ -27,6 +27,6 @@ sealed partial class ClientState
             Layout.GridW > 0 ? Layout.GridW : 4096, Layout.GridH > 0 ? Layout.GridH : 4096,
             () => size < 0 ? StationaryBlockers : MonsterBlockers(id), Math.Max(0, size),
             // The client's budget for this mover (0x141e4d890): 1000 expansions for a unique, 100 for any other monster.
-            limit: unique ? ClientPathfinder.SearchLimit.Expansions1000 : ClientPathfinder.SearchLimit.Expansions100)
+            limit: unique ? ClientPathfinder.SearchLimit.Expansions1000 : ClientPathfinder.SearchLimit.Expansions100, sight: Layout.Sight)
         { FrameOf = LockstepFrameOf };
 }

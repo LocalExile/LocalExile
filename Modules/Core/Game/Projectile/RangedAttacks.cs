@@ -42,8 +42,8 @@ static partial class Game
         await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionBytes, actionLog, action, epoch);
     }
 
-    // Bows release at attack1_bow's contact. A wand's main-hand clip is the one the native ACT selects for this input's
-    // sequence (AnimationVariantSelector), so its contact comes from that clip rather than attack1's keyframe.
+    // A bow or wand releases at the contact of the clip the class ACT's stance pool gives this use: a wand's is the one
+    // the native selector picks for the input's sequence (AnimationVariantSelector), a bow's attack1_bow (the item's own).
     internal static double OrdinaryRangedContactDelay(ClientState conn, double attackSeconds, string projectileId,
         ushort sequence) => OrdinaryRangedContact(conn, attackSeconds, projectileId, sequence).Delay;
 
@@ -55,18 +55,17 @@ static partial class Game
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? Skills.ClassFor(conn.ClassRow).AnimatedObject;
         var profile = WeaponProfileFor(conn, activeSet: true);
-        if (projectileId == OrdinaryRangedAttack.Wand)
+        if (Animations.TryDefaultAttackClip(ao, profile, sequence, attackSeconds, out var selected))
         {
-            if (Animations.TryDefaultWandContact(ao, profile, sequence, out var selected))
-            {
-                double delay = Math.Max(0, attackSeconds * selected.ContactFraction);
+            double delay = Math.Max(0, selected.ContactSeconds(attackSeconds));
+            if (projectileId == OrdinaryRangedAttack.Wand)
                 Console.WriteLine($"[gateway] wand release sequence 0x{sequence:x4}: {selected.Stance}/{selected.Animation} " +
-                    $"(clip {selected.AnimationIndex}, contact {selected.ContactMs}/{selected.LengthMs} ms), " +
+                    $"(clip {selected.Index}, contact {selected.ContactMs}/{selected.LengthMs} ms), " +
                     $"attack {attackSeconds:0.000000} s, release after {delay:0.000000} s");
-                return (delay, selected.Point);
-            }
-            Console.WriteLine($"[gateway] WARNING: missing native wand variation metadata for {ao}; using approximate attack1 release");
+            return (delay, selected.Point);
         }
+        if (projectileId == OrdinaryRangedAttack.Wand)
+            Console.WriteLine($"[gateway] WARNING: missing native wand variation metadata for {ao}; using approximate attack1 release");
         return (AttackContactDelay(conn, attackSeconds, approach: false), Animations.AttackContactPoint(ao, profile));
     }
 

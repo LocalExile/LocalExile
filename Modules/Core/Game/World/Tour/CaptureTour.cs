@@ -165,7 +165,7 @@ static class CaptureTour
         bool Fresh(string file) => File.Exists(file) && File.GetLastWriteTimeUtc(file) >= t.StepStarted.AddSeconds(-1);
         DateTime lastChange = DateTime.UtcNow, last = DateTime.MinValue;
         bool ok = false;
-        for (var until = DateTime.UtcNow.AddSeconds(120); DateTime.UtcNow < until && !ok; await Task.Delay(250))
+        for (var until = DateTime.UtcNow.AddSeconds(120); DateTime.UtcNow < until && !ok; await Game.AreaWait(PlayerUpdateRole.Tour, 250))
         {
             var doodads = File.Exists(stem + ".doodads.json") ? File.GetLastWriteTimeUtc(stem + ".doodads.json") : DateTime.MinValue;
             if (doodads != last) { last = doodads; lastChange = DateTime.UtcNow; }

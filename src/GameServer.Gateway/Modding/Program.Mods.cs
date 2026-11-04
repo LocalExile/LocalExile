@@ -70,6 +70,20 @@ partial class Program
     internal static readonly ConditionalWeakTable<ClientState, IConnectionPlayer> ModPlayers = new();
 
     static IGameLogic? _logic;
+    static readonly Lock PlayerUpdatesGate = new();
+    static readonly ConditionalWeakTable<ClientState, object> ActivePlayerUpdates = new();
+
+    // Only admitted areas register. The registry holds Gateway identities, never old game callbacks.
+    internal static void ActivatePlayerUpdates(ClientState conn)
+    {
+        IGameLogic? logic;
+        lock (PlayerUpdatesGate)
+        {
+            ActivePlayerUpdates.GetValue(conn, _ => new object());
+            logic = GameLogicOrNull;
+        }
+        logic?.ResumePlayerUpdates(conn);
+    }
 
     /// <summary>The game's rules, once the game module is loaded. A reload's old rules keep running until the new ones replace
     /// them, so a connection always has some.</summary>
@@ -79,8 +93,18 @@ partial class Program
     /// <summary>The game module loaded. What held its old types is let go, so that its load context can be collected.</summary>
     internal static void SetGameLogic(IGameLogic logic)
     {
-        Volatile.Write(ref _logic, logic);
+        ClientState[] active;
+        lock (PlayerUpdatesGate)
+        {
+            Volatile.Write(ref _logic, logic);
+            active = [.. ActivePlayerUpdates.Select(p => p.Key)];
+        }
         ModPlayers.Clear();
+        foreach (var conn in active)
+        {
+            if (conn.Closed || conn.RageRetired) { ActivePlayerUpdates.Remove(conn); continue; }
+            logic?.ResumePlayerUpdates(conn);
+        }
     }
 
     /// <summary>The player as mods see it (one per connection).</summary>

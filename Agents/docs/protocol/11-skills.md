@@ -529,8 +529,26 @@ Ordinary attacks and non-attack skills retain their previous paths.
 A clip longer than its attack plays linearly. When the attack outlasts the clip, `0x141b0a9b0` (events found by
 `0x141b0a620`) plays the outside of the clip's `slow_begin`..`slow_end` span at normal speed and stretches the span
 instead, so the contact keyframe is no longer a plain fraction of the attack; the server's `AttackContactDelay` assumes it
-is. The 1.457 s attack above did this (span 223..394 ms, speed 0.305, contact at about 785 ms, measured). A slower weapon
-or a negative player speed would still reach it, for ordinary attacks too.
+is for attack gems. The 1.457 s attack above did this (span 223..394 ms, speed 0.305, contact at about 785 ms, measured).
+A slower weapon or a negative player speed would still reach it.
+
+The default attack's clip is the class ACT's stance `Melee` entry (`data/animation-contacts.json` "defaultAttack",
+`scripts/re/anim_contacts.py`): a rig clip (`attack1_wand`; `attack1_bow` with `item_animation`, the bow's own rig), or
+a *view* of one that the class's `<Class>NoWind.ao` defines (`view_of`/`view_name`/`view_begin`/`view_end`:
+`attack_sword_01a` is `doublestrike_sword` up to 365 ms, `attack_sword_01b` from 365 ms, and the client plays the two in
+an order not predicted: 51 sword swings, no sequence seed found), with an `attack_time` budget in seconds
+(`"attack_sword_01a:attack_time=0.45"`; daggers and claws 0.5, unarmed 0.55, staves and two-handers 0.7; wands and bows
+none). A budgeted view plays over its budget and, when the attack time is longer, is stretched to it before the contact
+(live 2026-11-03, Ranger, Rusted Sword at 0.645 s: 01a at 0.81 of the clip's speed for 100 ms, 0.29 through 430 ms,
+0.81 again, its contact at 299 ms playing 0.56 s into the swing; 01b at 1.62, 0.38 and 1.62, its contact at 534 ms at
+0.52 s), so the hit lands late in the swing, not at the attack1 keyframe's 0.45 of it. `DefaultAttackClip.ContactSeconds`
+follows this (an attack shorter than the budget is taken to compress the view: not measured); a clip without a budget
+is taken to stretch to the attack (the wand's 300 of 600 ms contact played 0.333 s into a 0.667 s attack; the bow's
+1066 ms clip played at 1.49 throughout a 0.714 s attack). A Move the client holds during the swing runs at the clip's
+`lock_cancelling` keyframe where it has one (`attack1_bow`: 600 ms, after the contact at 399; live 2026-11-03, Moves
+0.37 to 0.40 s into a 0.714 s attack ran at 0.40 to 0.43 s, later ones at once), else at the contact (the wand's and the
+sword's clips carry none): `DefaultAttackClip.CutInSeconds`. Many skill clips carry one too (Cleave's at 633 of
+1133 ms, Puncture's at 600 of 1066); attack gems do not use them yet.
 
 Burning Arrow's muzzle flash is `Projectiles.MiscAnimatedFlash` (row 3657), which `DefaultArrow` does not have. The client
 creates an effect object at the clip's contact, without a server message: in the same trace at about 375 ms after the
@@ -553,9 +571,10 @@ No generator output changes are needed: the multiplier is already extracted.
 2. On arrival it starts the swing: the 0x1ab echo (from the stop cell, aimed at the monster). Echoing at the click made
    the client swing on the spot, out of range.
 3. At the swing's contact point it rolls the accuracy check and, on a hit, lowers the monster's life with 0x1b1. The
-   contact point is the active weapon's `attack1_<weapon>` clip contact keyframe (`AnimationContacts.AttackContact`:
-   its shield or dual-wield variant, then any attack1 of that weapon, else 0.4) as a fraction of the attack time, since
-   the client stretches the clip to it.
+   contact point is the stance clip's contact as the client plays it (§4, `DefaultAttackContactDelay`: a one-hand
+   sword's 0.56 s into a 0.645 s swing), or without pool data the active weapon's `attack1_<weapon>` clip contact
+   keyframe (`AnimationContacts.AttackContact`: its shield or dual-wield variant, then any attack1 of that weapon, else
+   0.4) as a fraction of the attack time.
    Only an actual timed walk from the original cell to a different stop cell adds the walk-in compensation
    (`Game_HIT_OFFSET_MS`, default 150 ms); stationary attacks use the native keyframe without that extra delay.
    `DefaultAttackContactDelay` receives the original cells and departure/arrival times from the production attack.
@@ -895,10 +914,20 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   Chasers take surround cells around the player (`MonsterSurround`); a negative footprint keeps its direct approach.
   A ranged chaser (its first effect a ranged attack, or a ranged weapon) stands off: its first ring lies one cell inside
   its reach (MonsterVarieties `MaximumAttackDistance`, the Sand Spitter's 30; `MinimumAttackDistance` 6 is not read
-  yet) and a full ring sends it inward, so it stops where its attack covers the player instead of walking to the melee
+  yet; a ranged spell user such as the Maven keeps the larger of that and its aggro range, as the map affixes gave it:
+  between 2026-11-02 and 2026-11-03 every ranged attacker had that, and Spitters shot from 65 cells while walking)
+  and a full ring sends it inward, so it stops where its attack covers the player instead of walking to the melee
   contact ring (live 2026-10-29: Spitters chasing to the contact ring came in close).
-  Chase repaths have a separate 100 ms minimum interval and require at least three cells of Manhattan target change;
+  Chase repaths have a separate 100 ms minimum interval and require at least three cells of Manhattan target change,
+  except that a walk still under way is ordered again every 200 ms to the same cell: a lockstep client's monster stops
+  where a body blocks a step the estimate does not see (live 2026-11-03: Sand Spitters standing 1.5 s two cells into a
+  38-cell Move while the estimate walked 30), and only an order, from the estimate's cell, puts it back on its way;
   a chaser that stopped short of its cell retries it after arrival, at most every 0.5 s.
+  A chase farther than 12 cells goes in legs: a melee walk-up farther than that past its reach as a Move to the cell 12
+  along it, ordered again on the same cadence, with the attack aimed at the player from within that; a Move to a
+  surround slot cut to its first 12 cells, ordered on from the leg's end on the chase cadence — so that each order's
+  search fits the client's one path budget per frame ([07](07-latency-visibility-movement.md) §5: ordered straight at a far player,
+  half of a pack's searches found nothing and the monsters stood until their next order).
   This retains the current walk when the target moves slightly instead of repeatedly restarting its path.
   A hostile monster within reach stops and swings: 0x1ab with its skill, flags 0x0408 | 0x80, target the player,
   sequence 0xffff.
@@ -1744,6 +1773,15 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   bounces straight on even beside monsters (`trace-chain-decisions.js`). The client reads the budget from the skill
   record it holds, which is only resent with the skill list: with 0 there (the server's ground chains are not
   `Chain`) the orb stopped at its first impact, and after the fix it bounced only once the gem was socketed again.
+  Spectral Throw's row is `Metadata/Projectiles/ThrownWeapon` (1000). Its action (ThrownWeaponProjectile, HASH16
+  0xcf7b) draws its own weapon, as a spell does, so the server sends none. Frida 2026-11-02
+  (`scripts/re/frida/trace-projectile-path.js`, Positioned path of the client's object): the weapon slows evenly to a
+  stop 42 cells out over 0.85 s whatever the aim, rests 0.26 s, then speeds back to the thrower in about 0.84 s.
+  The release is not a throw clip: the class ACTs map `SpectralThrow = "@Melee"`, and with a one-handed sword, mace or
+  axe and a shield (there is no one-handed mace or axe stance) that Melee alternates the views
+  `attack_sword_shield_01a`/`01b` of `doublestrike_sword_shield`. Each view plays at its length over its ACT
+  `attack_time` outside its slow span, which stretches as §4 describes (Scion: 0.886 and 1.686, measured). The Witch's
+  01b played at 1.45 instead of 2.8, which is unexplained.
 - **Pierce.** Pierce Support's `projectile_base_number_of_targets_to_pierce` (2 at level 1, 4 at level 20) and the other
   pierce stats give a hit budget of 1 + pierce: the projectile passes through that many monsters, each hit landing as
   the glide reaches its cell; the support's more Projectile Damage is part of `SupportedHit`. `always_pierce` is
@@ -2641,8 +2679,8 @@ failed I/O, allocation limits, actual official values and every skill's successf
   per GrantedStats entry when the row's `IsRecovery` (+0x7c) is set, then a u32-counted list of u32. A row with either
   flag needs those fields, or the client misreads the message and the ones after it (the flask buffs, rows 5 and 9:
   [13](13-items.md) §8). `InstanceEntities.AddBuff` writes that u16 as `u82`: the chilled, frozen and shocked rows 1-3
-  have the bool ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)); what the client does with +0x82 is
-  not known. The client reads the BuffDefinitions row in memory as the
+  have the bool ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)); the buff's shown value is increased
+  by +0x82 percent. The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435dd918`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2ba update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
   The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and
@@ -2813,15 +2851,17 @@ failed I/O, allocation limits, actual official values and every skill's successf
   apply only while it is equipped. Staff passives (`staff_block_%`, `additional_staff_block_%`,
   `spell_block_with_staff_%`, `spell_block_chance_%_while_holding_staff_or_shield`) apply with a staff; dual wielding
   adds the inherent 20% attack block and the dual-wield block/spell-block passives; bows use their own
-  `with_bow_additional_block_%` / `spell_block_with_bow_%`. A successful block prevents the hit (`BlockEffect` defaults to full prevention).
+  `with_bow_additional_block_%` / `spell_block_with_bow_%`. A blocked hit deals only its blocked share, 0 by default
+  ([20](20-damage.md#damage-taken-from-hits)).
   Monster melee uses attack block; `/blockhit` tests attack/spell block and `/block` prints both chances. The character
   panel's attack row is `attack_block_%` with `uncapped_attack_block_%` in parentheses; a separate spell block row is
   drawn only when `display_spell_block_chance` is non-zero, so `ClassAttributes` sends both display stats. The Block
   Mastery effects (`PassiveSkillMasteryEffects.dat`) add +2 maximum attack block, +2 maximum spell block, 20 life and
   20 mana on a block, or +1% spell block per 5% attack block; the last uses the final capped attack block and is applied
   after the shield base. **Versatile Combatant** (`keystone_versatile_combatant`) reduces both maxima by 10% and adds
-  2% spell block for each 1% of attack block above the reduced maximum (uncapped attack block minus maximum). Glancing
-  Blows/`BlockEffect` modifiers, projectile block and other on-block triggers are not modelled. Lucky block
+  2% spell block for each 1% of attack block above the reduced maximum (uncapped attack block minus maximum). **Glancing
+  Blows** (`keystone_glancing_blows`) doubles both chances, a 100% more before the maxima (PoB ModParser), and adds its
+  65% to the blocked share. Projectile block and other on-block triggers are not modelled. Lucky block
   (`base_block_luck`, `attack_block_luck`, `spell_block_luck`) uses `1 - (1 - p)²` (PoB CalcDefence); Svalinn's unique
   item modifiers themselves are not supported yet.
 
@@ -3568,7 +3608,8 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
 - **Gains** (`ChargeGains.Rules`): each source stat is its own roll of `rng.Next(100) < chance`; 100 and the "Gain a …
   Charge" flags gain without a roll, and a random type is drawn with `rng.Next(3)`. On kill:
   `endurance_charge_on_kill_%`, `add_frenzy_charge_on_kill_%_chance`, `add_power_charge_on_kill_%_chance`, the two kill
-  flags, `power_frenzy_or_endurance_charge_on_kill_%`, the shield and dual-wield ones. On hit:
+  flags, `power_frenzy_or_endurance_charge_on_kill_%`, the shield and dual-wield ones, and power and frenzy on killing
+  a frozen enemy (`FrozenAtDeath`: the corpse kept a freeze, a spread or the killing hit's own, or shattered). On hit:
   `add_frenzy_charge_on_skill_hit_%` (the character's plus the used skill's), the rare-or-unique ones. On critical
   strike: power, endurance, melee endurance, frenzy, wand power, per enemy you crit. On non-critical strike: power,
   with claws or daggers. When hit: endurance, frenzy. On block: endurance, frenzy, attack-only frenzy, power,

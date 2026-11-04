@@ -7,7 +7,7 @@ string root = AppContext.BaseDirectory;
 while (!File.Exists(Path.Combine(root, "Tools", "ooz", "ooz_worker.mjs")))
     root = Path.GetDirectoryName(root.TrimEnd(Path.DirectorySeparatorChar))
         ?? throw new InvalidOperationException("Tools/ooz/ooz_worker.mjs not found above the build output");
-using var oodle = new NodeOodleDecoder("node", Path.Combine(root, @"Tools\ooz\ooz_worker.mjs"));
+using var oodle = new NodeOodleDecoder("node", Path.Combine(root, "Tools", "ooz", "ooz_worker.mjs"));
 using var fs = GameFileSystem.Open(args[0], oodle);
 // "list <regex>" (as the first path): print every path in the index that matches, case-insensitive.
 if (args.Length > 3 && args[2] == "list")

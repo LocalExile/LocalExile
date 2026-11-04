@@ -10,7 +10,8 @@ static partial class Game
     // each with the flask's latest charges. `change` makes the change and returns what to send (removed ids and the changed
     // items), or null for nothing.
     internal static async Task ChangeFlaskBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        Func<PlayerInventories, (uint[] Removed, List<InventoryItem> Changed)?> change, Func<List<InventoryItem>, string> log)
+        Func<PlayerInventories, (uint[] Removed, List<InventoryItem> Changed)?> change, Func<List<InventoryItem>, string> log,
+        bool retainOutput = false)
     {
         await conn.FlaskBarGate.WaitAsync();
         try
@@ -19,9 +20,10 @@ static partial class Game
             string message;
             lock (conn.Monsters)
             {
-                if (HardcoreProgressBlocked(conn)) return;
+                if (!CurrentGameWork || HardcoreProgressBlocked(conn)) return;
                 var items = ItemsOf(conn);
                 var before = items.Items(PlayerInventories.Flask).ToDictionary(i => i.Id, i => i.Item.Charges);
+                int outputAt = Automation(conn).Packets.Count;
                 if (change(items) is not { } done || done.Changed.Count == 0) return;
                 foreach (var changed in done.Changed)
                     if (before.TryGetValue(changed.Id, out int held) && changed.Item.Charges > held
@@ -32,13 +34,15 @@ static partial class Game
                 packet = InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
                     items.NextRevision(PlayerInventories.Flask), done.Removed, done.Changed);
                 message = log(done.Changed);
-                if (conn.ProjectileRuntime is { Active: true } session)
+                if (retainOutput) Automation(conn).Packets.Insert(outputAt, new(packet, message));
+                else if (conn.ProjectileRuntime is { Active: true } session)
                 {
                     session.Packet(packet, message);
                     return;
                 }
             }
-            await Send(remote, stream, ciphers, packet, message);
+            if (retainOutput) await PublishFlaskChanges(remote, stream, ciphers, conn);
+            else await Send(remote, stream, ciphers, packet, message);
         }
         finally
         {
@@ -49,11 +53,12 @@ static partial class Game
     // A use's charges taken from the flask (still in its cell, with enough charges: checked again under the gate, as a
     // gain or another use may have run meanwhile) and sent (S→C 0xbf): the spent flask, or null when there were too few.
     internal static async Task<InventoryItem?> SpendFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        InventoryItem flask, Flasks.Flask charges, uint slot)
+        InventoryItem flask, Flasks.Flask charges, uint slot, Func<bool>? still = null, Action<InventoryItem>? accepted = null)
     {
         InventoryItem? spent = null;
         await ChangeFlaskBar(remote, stream, ciphers, conn, items =>
         {
+            if (still is not null && !still()) return null;
             bool enough = false;
             var done = items.Change(PlayerInventories.Flask, flask.Id, i =>
             {
@@ -63,9 +68,17 @@ static partial class Game
             });
             if (!enough || done is null) return null;
             spent = done;
+            if (accepted is not null)
+            {
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                if (conn.EntryProtection.End(now, conn.Walk.Position(now), action: true) is ushort buff)
+                    Automation(conn).Packets.Add(new(InstanceEntities.RemoveBuff(PlayerId, buff),
+                        "Grace Period ends: movement, action or deadline"));
+                accepted(done);
+            }
             return ([done.Id], [done]);
-        }, changed => $"0x00bf flask {slot}: {changed[0].Item.Charges}/{charges.MaxCharges} charges");
-        if (spent is not null) await EndGracePeriod(remote, stream, ciphers, conn, action: true);
+        }, changed => $"0x00bf flask {slot}: {changed[0].Item.Charges}/{charges.MaxCharges} charges", retainOutput: accepted is not null);
+        if (spent is not null && accepted is null) await EndGracePeriod(remote, stream, ciphers, conn, action: true);
         return spent;
     }
 
@@ -153,18 +166,20 @@ static partial class Game
 
     // "Flasks gain # charges every 3 seconds" (FlaskCharges.PerThreeSeconds: every flask, utility, life, life on low life,
     // mana), every 3 s of game time (a pause holds it) while the connection is open.
-    internal static async Task RunFlaskChargeRegen(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RunFlaskChargeRegen(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
-        double next = conn.Clock.Elapsed.TotalSeconds + 3;
+        if (!PlayerUpdatesCurrent(conn, updates)) return;
+        double next = updates.Schedule.Now(conn) + 3;
         try
         {
-            while (!conn.Closed && !conn.RageRetired)
+            while (PlayerUpdatesCurrent(conn, updates))
             {
-                await Task.Delay(250);
-                if (conn.Closed || conn.RageRetired) break;
-                if (conn.LeavingArea) { next = conn.Clock.Elapsed.TotalSeconds + 3; continue; }
+                await updates.Schedule.Wait(PlayerUpdateRole.FlaskCharges, 250, updates.Stop.Token);
+                if (!PlayerUpdatesCurrent(conn, updates)) break;
+                if (conn.LeavingArea) { next = updates.Schedule.Now(conn) + 3; continue; }
                 await DrainFlaskTriggers(remote, stream, ciphers, conn);
-                if (conn.Clock.Elapsed.TotalSeconds < next || conn.PlayerLife == 0) continue;
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+                if (updates.Schedule.Now(conn) < next || conn.PlayerLife == 0) continue;
                 next += 3;
                 var character = CharacterPlayerStats(conn);
                 int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
@@ -175,6 +190,7 @@ static partial class Game
                     "every 3 seconds");
             }
         }
+        catch (OperationCanceledException) when (updates.Stop.IsCancellationRequested) { }
         catch (Exception ex)
         {
             if (!conn.Closed) Console.WriteLine($"[gateway] {remote} flask charges every 3 s: {ServerLog.Describe(ex)}");

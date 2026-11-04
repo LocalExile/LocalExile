@@ -18,8 +18,10 @@ static class AuraCatalog
         if (aura.SourceBuff is ushort source)
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, source, aura.BuffRow,
                 player, aura.SkillId, auraSource: true, displayState: 0);
-        yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
-            player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null);
+        // An enemy hex aura has a source on its caster, never a received self curse.
+        if (aura.EffectId != "TemporalChains")
+            yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
+                player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null);
     }
 
     public static IEnumerable<byte[]> EndPackets(Aura aura, uint player)
@@ -51,6 +53,7 @@ static class AuraCatalog
         ["Envy"] = 828,
         // Pride's buff is on nearby enemies; the same row also draws the player's aura icon (BuffVisuals 1098).
         ["Pride"] = PrideBuffRow,
+        ["TemporalChains"] = 69,
     };
 
     /// <summary>Pride's BuffDefinitions row: the enemy debuff, also the player's aura icon.</summary>
@@ -197,6 +200,19 @@ static class AuraCatalog
             foreach (string name in names)
                 if (stats.Key(name) is uint key) yield return (key, Value(skills, stats, aura, name, auraEffectPct));
         }
+    }
+
+    /// <summary>Watcher's Eye's "Damage Penetrates X% Lightning Resistance while affected by Wrath" and its Anger and
+    /// Hatred forms, as the base penetration stat while that aura runs. The character's own stat, so aura effect does
+    /// not scale it.</summary>
+    public static IEnumerable<(uint Key, int Value)> WhileAffectedPenetration(IEnumerable<Aura> auras,
+        IReadOnlyDictionary<uint, int> character, StatCatalog stats)
+    {
+        foreach (var aura in auras)
+            if (aura.EffectId switch { "Anger" => "fire", "Hatred" => "cold", "Wrath" => "lightning", _ => null } is { } element
+                && stats.Key($"reduce_enemy_{element}_resistance_%_while_affected_by_{aura.EffectId.ToLowerInvariant()}") is uint from
+                && stats.Key($"base_reduce_enemy_{element}_resistance_%") is uint to && character.GetValueOrDefault(from) is var value and not 0)
+                yield return (to, value);
     }
 
     /// <summary>The flat stat bonuses from the active auras (regeneration and Haste's cast speed), scaled by aura effect.</summary>

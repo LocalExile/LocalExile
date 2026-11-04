@@ -118,6 +118,9 @@ static class Charges
     /// left (seconds).</summary>
     public readonly record struct Carried(ChargeType Type, int Held, double Remaining);
 
+    /// <summary>A charge buff's count, original deadline, native instance and converted type.</summary>
+    public readonly record struct Shown(int Count, double ExpiresAt, ushort Buff, bool Converted = false);
+
     /// <summary>
     /// The charges a character holds: per type the number gained (on top of nothing: the minimum is added by
     /// <see cref="Effective"/>, not stored) and when they expire. Gaining refreshes the expiry of the whole type;
@@ -125,8 +128,19 @@ static class Charges
     /// </summary>
     public sealed class State
     {
+        internal readonly Shown[] Presented = new Shown[3];
         private readonly int[] held = new int[3];
         private readonly double[] expiresAt = [double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity];
+        double expiryRate = 1;
+        public double ExpiryRate => expiryRate;
+        public void SetExpiryRate(double now, double rate)
+        {
+            Expire(now);
+            rate = Math.Max(.25, rate);
+            for (int i = 0; i < expiresAt.Length; i++)
+                expiresAt[i] = RecipientEffectTime.RetimedDeadline(expiresAt[i], now, expiryRate, rate);
+            expiryRate = rate;
+        }
 
         /// <summary>The charges gained and not expired yet (without the minimum).</summary>
         public int Held(ChargeType type) => held[(int)type];
@@ -154,7 +168,7 @@ static class Charges
             if (count <= 0 || limits.Maximum <= 0) return (before, before);
             int i = (int)type;
             held[i] = toMaximum ? limits.Maximum : Math.Min(limits.Maximum, before + count);
-            expiresAt[i] = now + limits.DurationMs / 1000.0;
+            expiresAt[i] = now + limits.DurationMs / 1000.0 / expiryRate;
             return (before, Effective(type, limits));
         }
 
@@ -179,7 +193,7 @@ static class Charges
         {
             int i = (int)type;
             held[i] = Math.Clamp(count, 0, Math.Max(0, limits.Maximum));
-            expiresAt[i] = held[i] > 0 ? now + limits.DurationMs / 1000.0 : double.NegativeInfinity;
+            expiresAt[i] = held[i] > 0 ? now + limits.DurationMs / 1000.0 / expiryRate : double.NegativeInfinity;
         }
 
         /// <summary>The types whose duration ran out by <paramref name="now"/>: all their gained charges go at once (the
@@ -222,7 +236,7 @@ static class Charges
 
         /// <summary>What an area change carries on: each held type with the duration it has left.</summary>
         public List<Carried> Carry(double now) =>
-            [.. Charges.Types.Where(t => held[(int)t] > 0 && expiresAt[(int)t] > now).Select(t => new Carried(t, held[(int)t], expiresAt[(int)t] - now))];
+            [.. Charges.Types.Where(t => held[(int)t] > 0 && expiresAt[(int)t] > now).Select(t => new Carried(t, held[(int)t], (expiresAt[(int)t] - now) * expiryRate))];
 
         /// <summary>The charges carried from the last area, from <paramref name="now"/> on the new area's clock.</summary>
         public void Restore(IEnumerable<Carried> carried, double now)
@@ -231,8 +245,14 @@ static class Charges
                 if (c.Held > 0 && c.Remaining > 0)
                 {
                     held[(int)c.Type] = c.Held;
-                    expiresAt[(int)c.Type] = now + c.Remaining;
+                    expiresAt[(int)c.Type] = now + c.Remaining / expiryRate;
                 }
         }
     }
+}
+
+// The charge values/deadlines are neutral data; replacement Game sessions keep accepted gains and expiry.
+sealed partial class ClientState
+{
+    internal readonly Charges.State PlayerChargeState = new();
 }

@@ -6,6 +6,8 @@ using GameServer.Modding;
 /// connections, the state and the saves, and the module the rules. Agents/docs/dev/modules.md.</summary>
 interface IGameLogic
 {
+    /// <summary>Claim this already active area's player updates after entry or game replacement.</summary>
+    void ResumePlayerUpdates(ClientState conn) { }
     /// <summary>One read's client messages, in order, on the connection's handler task.</summary>
     Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers, IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt);
     /// <summary>A connection is about to be prepared; it may fail after this, and <see cref="Left"/> still runs.</summary>

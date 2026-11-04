@@ -30,8 +30,7 @@ static partial class Game
         {
             monster.LastTarget = target;
             monster.SwingGeneration = null;
-            plan.Moves.Add((id, monster, ++monster.ActionGeneration,
-                monster.Walk.Order(target.X, target.Y, now), target, "chases Rampage weapon"));
+            plan.Moves.Add((id, monster, ++monster.ActionGeneration, PlaceMove(plan, monster, target, now), target, "chases Rampage weapon"));
         }
         return true;
     }
@@ -41,7 +40,7 @@ static partial class Game
         uint targetId, SpawnedMonster weapon)
     {
         try { await MonsterSwingAtRampageWeapon(remote, stream, ciphers, conn, id, attacker, action, targetId, weapon); }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
         finally { lock (conn.Monsters) cadence.CompleteSwing(attacker, action); }
     }
 
@@ -71,8 +70,10 @@ static partial class Game
             if (!TargetCurrent() || Dist(attacker.Walk.Position(now), weapon.Walk.Position(now)) > attack.Range + 2)
                 return null;
             int accuracy = attacker.Mods.Effects.Accuracy(Monsters.BaseAccuracy(attacker.Level) ?? 0);
-            if (attacker.RampageBlindUntil > now) accuracy = accuracy * 4 / 5;
-            if (!RampageAttackHits(weapon, accuracy, now, Random.Shared)) return null;
+            var sources = conn.FlaskGrounds.Blinded(id) || conn.BlindAura.Blinded(id) || conn.FlaskGrounds.Blinded(targetId) || conn.BlindAura.Blinded(targetId)
+                ? CharacterStatSources(conn).Stats : null;
+            accuracy = MonsterBlindRating(conn, id, attacker, accuracy, now, sources);
+            if (!RampageAttackHits(conn, targetId, weapon, accuracy, now, Random.Shared, sources)) return null;
             var packet = MonsterModHit(attacker, attack.Damage.Roll(Random.Shared), weapon.Life,
                 weapon.MaxLife, Random.Shared, out bool critical);
             var (damage, _) = MonsterDamage(weapon, packet, critical, true, default);

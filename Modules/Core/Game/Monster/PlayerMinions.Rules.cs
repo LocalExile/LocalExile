@@ -8,16 +8,16 @@ static partial class Game
     internal static IEnumerable<SpawnedMonster> InstanceMonsters(ClientState conn) =>
         conn.Monsters.Where(kv => !conn.Minions.Owns(kv.Key)).Select(kv => kv.Value);
 
-    /// <summary>A minion leaves no corpse: its body goes (0x2bb, into <paramref name="bytes"/>) a second after its death,
-    /// once the death has played. Under the Monsters lock; every minion tick calls it.</summary>
-    internal static void RemoveMinionBodiesLocked(ClientState conn, double now, List<byte> bytes)
+    /// <summary>A minion leaves no corpse: queue its body's removal (0x2bb) a second after death.
+    /// Retain its identity through both server removal and publication. Under Monsters; every minion tick calls it.</summary>
+    internal static void RemoveMinionBodiesLocked(ClientState conn, double now)
     {
         foreach (var body in conn.Minions.Bodies.Where(b => now >= b.At).ToArray())
         {
             conn.Minions.Bodies.Remove(body);
-            if (!conn.Monsters.TryGetValue(body.Id, out var dead) || !dead.Dead) continue;
+            if (!conn.Monsters.TryGetValue(body.Id, out var dead) || !ReferenceEquals(dead, body.Monster) || !dead.Dead) continue;
             conn.Monsters.Remove(body.Id);
-            bytes.AddRange(InstanceProtocol.RemoveObject(body.Id));
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(body.Id), "minion body removed", body.Id, dead, PlayerMinions.OutputKind.Remove));
         }
     }
 

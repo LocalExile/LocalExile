@@ -1,0 +1,9 @@
+{
+  "id": "PlayerBots",
+  "version": "0.1.0",
+  "kind": "feature",
+  "depends": [
+    "Game"
+  ],
+  "assembly": "bin/playerbots.dll"
+}

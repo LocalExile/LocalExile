@@ -48,6 +48,15 @@ sealed class MonsterIgnites
     readonly record struct Ignite(double From, double Until, double DamagePerSecond);
     readonly List<Ignite> active = [];
     double last, carry;
+    double expiryRate = 1;
+    public void SetExpiryRate(double now, double rate)
+    {
+        rate = Math.Max(.25, rate);
+        for (int i = 0; i < active.Count; i++)
+            active[i] = active[i] with { Until = RecipientEffectTime.RetimedDeadline(active[i].Until, now, expiryRate, rate) };
+        expiryRate = rate;
+    }
+    public double RemainingBase(double now) => Math.Max(0, Until - now) * expiryRate;
 
     /// <summary>The native <c>ignited</c> buff instance on the monster while it burns (BuffDefinitions row 0).</summary>
     public ushort? Buff;
@@ -80,7 +89,7 @@ sealed class MonsterIgnites
     {
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         if (active.Count == 0) { last = now; carry = 0; }
-        active.Add(new(now, now + seconds, perSecond));
+        active.Add(new(now, now + seconds / expiryRate, perSecond));
         return true;
     }
 

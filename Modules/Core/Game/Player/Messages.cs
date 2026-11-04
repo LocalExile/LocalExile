@@ -159,12 +159,16 @@ static partial class Game
                 (int px, int py) = (0, 0);
                 CooldownUseTicket? cooldownUse = null;
                 int chargeBonus = cast && gem.Name is not null ? ShieldChargeBonusPct(conn, use.SkillId, gem.Effect) : 0, chargeToken = 0;
+                // A lockstep client's default attack at the ground (a held attack whose target died goes on at the ground,
+                // 07 §6) swings where the player stands: GGG's player stayed on its cell through 101 such attacks aimed
+                // 18 to 29 cells away, one per attack time. A predictive client sends a Move for that click instead.
+                bool inPlace = cast || conn.LockstepClient && use.SkillId == SkillCatalog.FirstSkillId;
                 void StartAction()
                 {
                     at = Math.Max(at, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
                     action = Interlocked.Increment(ref conn.ActionCount);
-                    (px, py) = cast ? conn.Walk.Position(at) : conn.Walk.Order(use.X, use.Y, at);
-                    if (cast) conn.Walk.Order(px, py, at);
+                    (px, py) = inPlace ? conn.Walk.Position(at) : conn.Walk.Order(use.X, use.Y, at);
+                    if (inPlace) conn.Walk.Order(px, py, at);
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
                     // there at its own speed instead (ShieldCharge.cs).
                     if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
@@ -188,6 +192,11 @@ static partial class Game
                     {
                         if (PlayerActionBlocked(conn, at, conn.Clock.Elapsed.TotalSeconds)) continue;
                         StartAction();
+                        // A lockstep client's default attack at the ground is a swing where it stands (inPlace), which takes
+                        // the attack time: the next use waits for it, as after a swing at a monster (Attack).
+                        if (inPlace && !cast && use.SkillId == SkillCatalog.FirstSkillId)
+                            conn.NextAttackAt = AttackTiming.After(at, conn.NextAttackAt,
+                                Math.Max(TickSeconds, WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn)) / PlayerActionFactor(conn)));
                     }
                 }
                 if (chargeToken != 0) _ = RunShieldCharge(remote, stream, ciphers, conn, chargeToken, conn.Walk.ArrivesAt,
@@ -538,7 +547,13 @@ static partial class Game
             {
                 var chat = InstanceChat.ReadChat(bytes);
                 Console.WriteLine($"[gateway] {remote} <= 0x0015 chat \"{chat.Text}\" (u8 {chat.U8})");
-                if (chat.IsCommand) await conn.Commands!.RunAsync(chat.Text);
+                if (chat.IsCommand)
+                {
+                    // A preceding slash command can finish a Game + Commands reload in this same batch.
+                    // Resolve the current league's builders after that wave, retaining Gateway sinks/mod fallback.
+                    conn.Commands = Program.Commands(remote, stream, ciphers, conn);
+                    await conn.Commands.RunAsync(chat.Text);
+                }
                 else await EchoChat(remote, stream, ciphers, conn, chat.Text);
             }
             else if (id == InstanceChat.JoinChannelId)
@@ -601,6 +616,9 @@ static partial class Game
                         Console.WriteLine($"[gateway] {remote} arrived by waypoint, but {conn.Layout.Id} seed {conn.Seed} has no captured waypoint " +
                             $"(run live.ps1 -Walkmaps): spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY}){(conn.Layout.Walkable is null ? ", no walk map either: the player may stand outside the map" : "")}");
                     RecordVisit(conn);
+                    // An area with a Trial of Ascendancy gives the Lord's Labyrinth quest, before the player object carries the flags.
+                    if (LabyrinthTrials.For(conn.Layout.Id) is not null && !conn.HasQuestFlag(Quests.LabyrinthQuestReceived))
+                        await SetQuestFlags(remote, stream, ciphers, conn, [Quests.LabyrinthQuestReceived]);
                     await SendPlayer(remote, stream, ciphers, conn);
                     await PlayerEnteredArea(remote, stream, ciphers, conn);
                     await SendWaypoints(remote, stream, ciphers, conn);
@@ -627,22 +645,12 @@ static partial class Game
                     if (!ServerLevels.IsSupported(conn.Layout.Id) && !CaptureTour.Active(CharacterName(conn)))
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     await Program.ServerHooks.AreaGenerated(PlayerOf(conn));
-                    _ = RunMonsterRegeneration(remote, stream, ciphers, conn);
+                    ActivateResourceEffects(conn, ProjectileWorldTime(conn));
                     _ = conn.LockstepServed ? RunLockstepFrames(remote, stream, ciphers, conn) : RunServerFrames(remote, stream, ciphers, conn);
-                    _ = RunMonsterAi(remote, stream, ciphers, conn);
-                    _ = ContinueTour(remote, stream, ciphers, conn);
-                    _ = RunLivingCollisions(remote, stream, ciphers, conn);
-                    _ = RunPlayerTick(remote, stream, ciphers, conn);
-                    _ = RunFootstepSkills(remote, stream, ciphers, conn);
-                    _ = RunResourceRecovery(remote, stream, ciphers, conn);
-                    _ = RunCharges(remote, stream, ciphers, conn);
-                    _ = RunFortification(remote, stream, ciphers, conn);
-                    _ = RunRage(remote, stream, ciphers, conn);
+                    Program.ActivatePlayerUpdates(conn);
                     _ = conn.RampageWorld;
                     lock (conn.Monsters)
                         if (conn.OwnedCombatState is RampageWorld world) EnsureRampageWorker(conn, world);
-                    _ = RunFlaskChargeRegen(remote, stream, ciphers, conn);
-                    _ = RunPlayerMinions(remote, stream, ciphers, conn);
                 }
             }
         }

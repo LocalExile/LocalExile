@@ -235,7 +235,7 @@ static class VendorsFeature
         var notes = new List<string>();
         var window = prepared ?? BuildWindow(conn,npc,notes);
         var tabs = window.Tabs;
-        bool nativeTabs = window.Key.Length > 0;
+        bool nativeTabs = window.Key.Length > 0 && !window.Labelled;
         foreach (var n in notes) Console.WriteLine($"[gateway] {remote} shop {npc.Npc.Name}: {n}");
         // One manager-1 inventory per tab (S→C 0xc0), then 0x8c lists them with their names.
         var ids = tabs.Select((_, i) => NpcShops.FirstTabId + (uint)i).ToList();
@@ -264,8 +264,12 @@ static class VendorsFeature
         if (league.Rules.FullGemStock && npc.Npc.Id == "Metadata/NPC/Act1/Nessa")
             return new(NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(conn).NewItemId,notes,gemStock:stock,
                 gemPrice:gems!.Price,fullGemStock:true,hardMode:league.HardMode,rules:league.Rules),"",[]);
-        return VendorStock.Open(CharacterName(conn),conn.League ?? "Standard",npc.Npc.Id,conn.Pools.Level,
+        var window = VendorStock.Open(CharacterName(conn),conn.League ?? "Standard",npc.Npc.Id,conn.Pools.Level,
             catalog,SkillsFor(conn),stock,ItemsOf(conn).NewItemId,league.Rules,league.HardMode,notes,refresh,account:PersonalStashOf(conn));
+        if (!league.Rules.DevelopmentShopTabs || npc.Npc.Id != "Metadata/NPC/Act1/Nessa") return window;
+        var development = NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(conn).NewItemId,notes,gemPrice:gems is null ? null : gems.Price,
+            hardMode:league.HardMode,rules:league.Rules,developmentOnly:true);
+        return window with { Tabs = [.. window.Tabs, .. development], Labelled = true };
     }
 
     internal static async Task RefreshKirac(ClientState conn)

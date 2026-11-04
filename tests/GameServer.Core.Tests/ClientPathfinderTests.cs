@@ -86,6 +86,25 @@ public class ClientPathfinderTests
             [npc], 1, 0, 7, 4, ClientPathfinder.SearchLimit.Player, out bool reached);
         Assert.True(reached);
         Assert.Equal((39, 10), path[^1]);
+
+        // A bow's walk-up (max range 119, precision 3) at a monster 40 cells off, with a low rock's band (projectile grid
+        // values 2) across the line: in range already, the walker still goes to the nearest cell whose line to the monster
+        // holds 3 everywhere. At precision 1 (a sword, a Move) the same line is clear and nothing is walked.
+        bool open(int x, int y) => x >= 0 && y >= 0 && x < 100 && y < 100;
+        int sight(int x, int y) => !open(x, y) ? 0 : x is >= 29 and <= 31 && y is >= 5 and <= 15 ? 2 : 5;
+        Assert.True(ClientPathfinder.LineBelow((10, 10), (50, 10), sight, 3));
+        Assert.False(ClientPathfinder.InReach((10, 10), (50, 10), 0, 119, 1, sight, 3));
+        Assert.True(ClientPathfinder.InReach((10, 10), (50, 10), 0, 119, 1, sight, 1));
+        var bow = ClientPathfinder.FindPath((10, 10), (50, 10), open, 100, 100, null, 1, 0, 119, 1, ClientPathfinder.SearchLimit.Player, sight, 3, out reached);
+        Assert.True(reached);
+        Assert.True(bow.Count >= 2 && Math.Max(Math.Abs(bow[^1].X - 10), Math.Abs(bow[^1].Y - 10)) >= 5, $"walked {string.Join(" ", bow)}");
+        Assert.False(ClientPathfinder.LineBelow(bow[^1], (50, 10), sight, 3));
+        Assert.Empty(ClientPathfinder.FindPath((10, 10), (50, 10), open, 100, 100, null, 1, 0, 119, 1, ClientPathfinder.SearchLimit.Player, sight, 1, out reached));
+        Assert.True(reached);
+        // The line only blocked within the monster's own body (size 2, a cell each side) still counts as in reach.
+        int body(int x, int y) => !open(x, y) ? 0 : x is >= 49 and <= 51 && y is >= 9 and <= 11 ? 0 : 5;
+        Assert.True(ClientPathfinder.InReach((10, 10), (50, 10), 0, 119, 2, body, 3));
+        Assert.False(ClientPathfinder.InReach((10, 10), (50, 10), 0, 119, 0, body, 3));
     }
 
     [Fact]

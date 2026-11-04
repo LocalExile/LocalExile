@@ -228,6 +228,19 @@ public sealed class BehemothRuntimeTests
                 () => { if (!instant) c.ActionCount++; }, out var ticket));
             Assert.True(ticket!.TryExecute(c, effect)); Assert.Equal(60, c.NextAttackAt);
         }
+        // A controlled positive cost snapshot isolates payment accounting; the catalog Vaal gem costs zero Mana.
+        c.PlayerStats[Program.Stats.Key(ManaRecoveryRules.RagePer200)!.Value] = 10;
+        c.PlayerStats[Program.Stats.Key("cannot_gain_rage_during_soul_gain_prevention")!.Value] = 0;
+        c.VaalPreventionUntil = 0; c.Rage.Clear(); Assert.True(c.Rage.Gain(30, 0, rage));
+        var resources = Game.ResourceEffectsOf(c); resources.Mana.Spent(199, 10);
+        var plan = (VaalUseReservation)typeof(Game).GetMethod("PlanVaalUse", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [c, skill.Id])!;
+        plan = plan with { Mana = 1, PreventionSeconds = 0 };
+        uint manaBeforeCommit = c.PlayerMana;
+        lock (c.Monsters) typeof(Game).GetMethod("CommitVaalUse", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [c, plan, 123d]);
+        Assert.Equal(manaBeforeCommit - 1, c.PlayerMana); Assert.Equal(0, resources.Mana.SpentRemainder);
+        Assert.Equal(30 - plan.Rage + 10, c.Rage.Read(0, rage).Current); Assert.Equal(123, c.NextAttackAt);
     }
 
     static Task Dispatch(ClientState conn, ushort skill, bool ground, ushort flags, ConnectionCiphers ciphers)
@@ -276,8 +289,7 @@ public sealed class BehemothRuntimeTests
             PlayerInventories.Forget(Conn.Character!);
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);
-            Saves.Db.Dispose();
-            foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
+            GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
     }
 }

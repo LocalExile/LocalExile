@@ -98,4 +98,23 @@ public sealed class NessaShopTabsTests
         Assert.All(maps.Concat(originatorMaps), item => Assert.NotEmpty(item.Item.Payload()));
         Assert.All(maps.Concat(originatorMaps), item => Assert.NotEmpty(item.Item.Price));
     }
+
+    [Fact]
+    public void Development_tabs_alone_are_the_full_layouts_five()
+    {
+        var catalog = new ItemCatalog("data");
+        string[] five = ["Awakened Gems", "Exceptional Gems", "Maps", "Originator Maps", "Unique Maps"];
+        bool OfFive(NpcShops.ShopTab tab) => five.Any(name => tab.Name == name || tab.Name.StartsWith(name + " ", StringComparison.Ordinal));
+        uint next = 1;
+        var added = NpcShops.Tabs(Nessa, catalog, () => next++, [], rules: LeagueRules.Standard, developmentOnly: true);
+
+        // What follows a progression window with LeagueRules.DevelopmentShopTabs: the five tabs and their pages, nothing else.
+        Assert.False(LeagueRules.Standard.DevelopmentShopTabs);
+        Assert.All(added, tab => Assert.True(OfFive(tab), tab.Name));
+        Assert.Equal(five, added.Select(t => t.Name).Where(five.Contains));
+        var full = Tabs(catalog).Where(OfFive).ToList();
+        Assert.Equal(full.Select(t => t.Name), added.Select(t => t.Name));
+        Assert.Equal(full.SelectMany(t => t.Items.Select(i => (i.X, i.Y, i.Item.TypeHash, i.Item.GemVariant, i.Item.Rarity))),
+            added.SelectMany(t => t.Items.Select(i => (i.X, i.Y, i.Item.TypeHash, i.Item.GemVariant, i.Item.Rarity))));
+    }
 }

@@ -193,7 +193,7 @@ static partial class Game
         {
             if (!RampageEffectCurrent(conn, epoch) || conn.Paused || target.Dead || !target.Hostile
                 || target.OwnerId is not null || !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), target)) return false;
-            if (attack && !RampageAttackHits(target, accuracy, ProjectileWorldTime(conn), Random.Shared)) return false;
+            if (attack && !RampageAttackHits(conn, id, target, accuracy, ProjectileWorldTime(conn), Random.Shared)) return false;
             if (MonsterBlocks(target, Random.Shared, !attack)) return false;
             bool critical = Random.Shared.Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0);
             (damage, _) = MonsterDamage(target, packet.Roll(Random.Shared), critical, attack, default);
@@ -218,10 +218,11 @@ static partial class Game
         return hit.Value.Life == 0;
     }
 
-    static bool RampageAttackHits(SpawnedMonster target, int accuracy, double now, Random random)
+    internal static bool RampageAttackHits(ClientState conn, uint id, SpawnedMonster target, int accuracy, double now, Random random,
+        IReadOnlyDictionary<uint, int>? player = null)
     {
         int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
-        if (target.RampageBlindUntil > now) evasion = evasion * 4 / 5;
+        evasion = MonsterBlindRating(conn, id, target, evasion, now, player);
         return DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), random.Next(100));
     }
 
@@ -244,7 +245,7 @@ static partial class Game
             stun = new(id, target, target.StunSerial, target.ActionGeneration, conn.IncomingHitEpoch,
                 conn.ProjectileEpoch, conn.RampageWorld.Epoch, target.FlinchUntil);
         }
-        if (own.Get("global_chance_to_blind_on_hit_%") > 0)
+        if (own.Get("global_chance_to_blind_on_hit_%") > 0 && target.Mods.Effects["cannot_be_blinded"] == 0)
         {
             target.RampageBlindUntil = now + 4 * (1 + own.Get("blind_duration_+%") / 100.0);
             ushort buff = conn.RampageWorld.Blinds.TryGetValue(id, out var old) ? old.Buff : conn.NextBuff++;
@@ -303,12 +304,14 @@ static partial class Game
             lock (conn.Monsters)
             {
                 if (!CurrentRampageWork || conn.OwnedCombatState is not RampageWorld world) return null;
+                var player = world.Blinds.Count > 0 ? CharacterPlayerStats(conn) : null;
+                if (!CurrentRampageWork || !ReferenceEquals(conn.OwnedCombatState, world)) return null;
                 List<byte> bytes = [];
                 foreach (var (actor, buff) in world.PendingBuffRemoval) bytes.AddRange(InstanceEntities.RemoveBuff(actor, buff));
                 world.PendingBuffRemoval.Clear();
                 double now = ProjectileWorldTime(conn);
                 foreach (var (id, entry) in world.Blinds.ToArray())
-                    if (!world.Enabled || entry.Until <= now || !conn.Monsters.TryGetValue(id, out var target) || target.Dead)
+                    if (!world.Enabled || entry.Until <= now || !conn.Monsters.TryGetValue(id, out var target) || target.Dead || target.Life == 0 || target.Mods.Effects["cannot_be_blinded"] != 0)
                     {
                         bytes.AddRange(InstanceEntities.RemoveBuff(id, entry.Buff));
                         if (conn.Monsters.TryGetValue(id, out var old)) old.RampageBlindUntil = 0;
@@ -322,6 +325,7 @@ static partial class Game
                             u68: BitConverter.SingleToUInt32Bits((float)(entry.Until - now))));
                         world.SentBlinds[id] = entry.Until;
                     }
+                if (bytes.Count > 0 && BlindPresentation(conn, player) is { } blind) bytes.AddRange(blind);
                 return bytes.Count > 0 ? bytes.ToArray() : null;
             }
         });

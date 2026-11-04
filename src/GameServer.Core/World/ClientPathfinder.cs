@@ -10,7 +10,8 @@ namespace GameServer.Core.World;
 /// a number of expansions (<see cref="SearchLimit"/>), and when that fails with the straight line blocked, search again
 /// guided by a coarse path (A* over 11.5-cell cells). An unreachable target ends at the explored cell with the lowest
 /// heuristic. The waypoints are the path's corners: walking back from the end, a cell is kept where the line (Bresenham)
-/// from its parent to the last kept waypoint is blocked.
+/// from its parent to the last kept waypoint is blocked. A cell in range is the goal only with the line to the target on
+/// the projectile grid at the order's precision (<see cref="LineBelow"/>): a bow's attack walks to where it can shoot.
 /// </summary>
 public static class ClientPathfinder
 {
@@ -61,22 +62,67 @@ public static class ClientPathfinder
 
     public static List<(int X, int Y)> FindPath((int X, int Y) start, (int X, int Y) target, Func<int, int, bool> walkable,
         int mapW, int mapH, IReadOnlyList<Blocker>? blockers, int moverSize, int minRange, int maxRange, int tolerance,
-        SearchLimit limit, out bool reached)
+        SearchLimit limit, out bool reached) =>
+        FindPath(start, target, walkable, mapW, mapH, blockers, moverSize, minRange, maxRange, tolerance, limit, null, 1, out reached);
+
+    /// <param name="sight">The projectile grid (the client's walk layer 1: 0 … 5, 0 outside the map), when the goal must
+    /// have the line to the target: a cell in range is the goal only if no cell of the line from it to the target, both
+    /// ends included, is below <paramref name="precision"/> (0x141d87160 at the order's precision: 1 for a Move or a
+    /// melee attack, 3 for a bow's). Null: any cell in range.</param>
+    /// <param name="precision">The order's precision (MoveTo +0x528, 1 … 5): the line test's threshold.</param>
+    public static List<(int X, int Y)> FindPath((int X, int Y) start, (int X, int Y) target, Func<int, int, bool> walkable,
+        int mapW, int mapH, IReadOnlyList<Blocker>? blockers, int moverSize, int minRange, int maxRange, int tolerance,
+        SearchLimit limit, Func<int, int, int>? sight, int precision, out bool reached)
     {
         reached = false;
         if (target.X < 0 || target.Y < 0 || target.X >= mapW || target.Y >= mapH) return [];
-        var ctx = new Search(start, target, walkable, blockers ?? [], moverSize, minRange, maxRange, tolerance, limit);
+        var ctx = new Search(start, target, walkable, blockers ?? [], moverSize, minRange, maxRange, tolerance, limit, sight, precision);
         // A monster whose straight line is blocked searches again, guided by a coarse path, when the first search fails.
         bool retry = limit != SearchLimit.Player && LineBlocked(start, target, ctx.Walkable);
         var path = ctx.Run(coarse: false, out reached);
-        if (!reached && retry) path = ctx.Run(coarse: true, out reached);
+        if (!reached && retry)
+        {
+            // When a cell in range lacked the line and the best cell was the start, the second search goes to the target itself.
+            if (ctx.SightFailed && ctx.Best == start) ctx.ToTarget();
+            path = ctx.Run(coarse: true, out reached);
+        }
         return path;
     }
 
+    /// <summary>
+    /// Where an order's goal is met without a step (0x141e7b260, what MoveTo tries before a search and an action tests
+    /// before it swings): <paramref name="here"/> is within [<paramref name="minRange"/>, <paramref name="maxRange"/>] of
+    /// the target, the target's size (<paramref name="tolerance"/>, −1 for none) widening the range, and, for a target
+    /// with a size, the line to it on the projectile grid holds <paramref name="precision"/> up to the target's body:
+    /// the last cell of the line at or above the threshold is within tolerance + 1 of the target (0x141d87500; a cell
+    /// each side on the diagonal). Without a size the range alone decides.
+    /// </summary>
+    public static bool InReach((int X, int Y) here, (int X, int Y) target, int minRange, int maxRange, int tolerance,
+        Func<int, int, int>? sight, int precision)
+    {
+        long d2 = (long)(here.X - target.X) * (here.X - target.X) + (long)(here.Y - target.Y) * (here.Y - target.Y);
+        if (tolerance < 0) return d2 <= (long)maxRange * maxRange && (long)minRange * minRange <= d2;
+        long max = maxRange + tolerance, min = minRange == 0 ? 0 : minRange - tolerance;
+        if (d2 > max * max || d2 < min * min) return false;
+        if (here == target || maxRange <= tolerance || sight is null) return true;
+        if (!LineBelow(here, target, sight, precision, out var last)) return true;
+        int dx = Math.Abs(target.X - last.X), dy = Math.Abs(target.Y - last.Y);
+        int left = tolerance < dx
+            ? tolerance < dy ? dx + dy - 2 * tolerance - 2 : Math.Max(dx - tolerance - 1, 0)
+            : Math.Max(dy - tolerance - 1, 0);
+        return left == 0;
+    }
+
     sealed class Search((int X, int Y) start, (int X, int Y) target, Func<int, int, bool> walkable,
-        IReadOnlyList<Blocker> blockers, int moverSize, int minRange, int maxRange, int tolerance, SearchLimit limit)
+        IReadOnlyList<Blocker> blockers, int moverSize, int minRange, int maxRange, int tolerance, SearchLimit limit,
+        Func<int, int, int>? sight, int precision)
     {
         public Func<int, int, bool> Walkable => walkable;
+        /// <summary>A cell in range was passed over for want of the line to the target.</summary>
+        public bool SightFailed { get; private set; }
+        /// <summary>The explored cell with the lowest heuristic, the first of its value.</summary>
+        public (int X, int Y) Best { get; private set; }
+        public void ToTarget() => (minRange, maxRange) = (0, 0);
         readonly int _threshold = moverSize + 1, _objectRadius = 5 - 1 + moverSize;   // DAT_143a5fe58 = 5
         readonly int _vx = target.X - start.X, _vy = target.Y - start.Y;
         // The coarse waypoints (goal first) and the path length from each to the target (DAT_1445bb850 / 0x1445bb868).
@@ -160,7 +206,13 @@ public static class ClientPathfinder
                 if (cf != c.F) continue;   // a stale entry: the node was reached cheaper since
                 int cx = start.X - Half + ci / Window, cy = start.Y - Half + ci % Window;
                 if (c.H < bestH) { best = (cx, cy); bestH = c.H; }
-                if (c.H == 0f) { end = (cx, cy); reached = true; break; }   // the goal line check (layer 1) never fails on walkable cells
+                if (c.H == 0f)
+                {
+                    // The goal line test (0x141d87160 on the projectile grid at the order's precision): a cell in range
+                    // without the line to the target is searched on from, like any other.
+                    if (sight is null || !LineBelow((cx, cy), target, sight, precision)) { end = (cx, cy); reached = true; break; }
+                    SightFailed = true;
+                }
                 if (maxExpansions >= 0 && ++expansions > maxExpansions) break;
                 Close(ref c);
                 for (int d = 0; d < 8; d++)
@@ -198,6 +250,7 @@ public static class ClientPathfinder
                     Push(heap, ni, n.F);
                 }
             }
+            Best = best;
             if (!reached) end = best;
             if (end == start) return [];
 
@@ -356,6 +409,26 @@ public static class ClientPathfinder
     {
         foreach (var (x, y) in Line(a, b))
             if (!free(x, y)) return true;
+        return false;
+    }
+
+    /// <summary>The client's line test against a threshold (0x141d87160): whether a cell of the line from
+    /// <paramref name="a"/> to <paramref name="b"/>, both ends included, has a value below <paramref name="threshold"/>
+    /// (a negative threshold: never).</summary>
+    public static bool LineBelow((int X, int Y) a, (int X, int Y) b, Func<int, int, int> value, int threshold) =>
+        LineBelow(a, b, value, threshold, out _);
+
+    /// <summary>The same test reporting where the line got to (0x141d87500): the last cell at or above the threshold
+    /// before the one below it, <paramref name="a"/> itself when that is the first.</summary>
+    public static bool LineBelow((int X, int Y) a, (int X, int Y) b, Func<int, int, int> value, int threshold, out (int X, int Y) last)
+    {
+        last = a;
+        if (threshold < 0) return false;
+        foreach (var cell in Line(a, b))
+        {
+            if (value(cell.X, cell.Y) < threshold) return true;
+            last = cell;
+        }
         return false;
     }
 
