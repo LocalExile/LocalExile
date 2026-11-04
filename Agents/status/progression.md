@@ -24,6 +24,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   a mastery node can be allocated normally and its effect selected/changed without spending another point.
   Block Mastery's four effects are implemented: max attack block +2, max spell block +2, 20 life + 20 mana on block,
   and +1% spell block per 5% attack block; the effects are saved with the character.
+  Fire Mastery's 1 Life regenerated per second per 1% uncapped fire resistance counts in the life regeneration
+  (positive resistance only; live 2026-11-03: 161% added 161 per second).
   Wand Mastery's wand-only points are modelled: the extra attack projectile and accuracy equal to intelligence, each
   only while a wand is held; the mastery's 0.5% attack life and mana leech is a generic effect that applies with any
   weapon. Power charge on wand crit and additive spell damage to wand attacks were already applied. Spellslinger's

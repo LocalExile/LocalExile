@@ -705,8 +705,11 @@ Strand seed 1: the first 83 draws match the trace, including all 21 cell-area to
    `LabyrinthPass`): only for a WorldAreas row with +0x171 (the 289 Labyrinth areas; +0x1bb marks the 24 boss areas;
    without a row, a graph path under `Metadata/Terrain/Labyrinth/Areas/`). Every node tagged "secret" or "secret" +
    one character (`0x14203a2e0`) is collected and gets exist 0. With a labyrinth node (instance +0x48, the server's
-   daily layout) its LabyrinthNodeOverrides apply and `0x142033660` hands the node's secrets to the "secret1" /
-   "secret2" nodes (not ported: the Gateway sends none). Without one: a boss area applies one LabyrinthNodeOverrides
+   daily layout) its LabyrinthNodeOverrides (its LabyrinthSectionLayout row's +0x5c) apply and, when it holds a
+   secret, the collected nodes are ordered as for the gold door below and `0x142033660` hands each secret's room
+   (LabyrinthSecrets +8) to the first: its tag, exist 100, an "entrance<N>" description for a passage secret (+0x6d;
+   N = the node's connections, then one more each) and "secret1" / "secret2". A live trace with a node matches
+   (`1_Labyrinth_OH_quad_#` seed 369399259); the gate does not know a trace's node yet. Without one: a boss area applies one LabyrinthNodeOverrides
    row (Id at +0, node tag +8, override tags +0x10, weights +0x20 — empty in every row): "Boss1_Sec1" (tag
    `boss_entrance1` → `boss_entrance1_1`), or for an id containing "_end" "FinalBossEasy" (difficulty 1: the id's
    first digit, 'E' = 4) / "FinalBoss" (`0x1420339a0` → `0x142033ad0`: a node with the row's tag takes the only
@@ -720,9 +723,11 @@ Strand seed 1: the first 83 draws match the trace, including all 21 cell-area to
    its tier range +0x18..+0x1c holds the tier, and it is not picked already (no exclusion group +8) or shares no
    picked row's group. A TinyMT seeded from seed + 0x11 + (tier + 4 × slot) × 0x13d picks among the candidates. Each
    section's LabyrinthSectionLayout rows become nodes, sorted by +0x10 (`0x1424e62c0`). With a server layout (seed,
-   node index and difficulty, read by `0x141ec7220`) the seed is the day's; the Gateway sends none, so the client
-   uses 0. `LabyrinthPass.LastLayoutRow` / `TinyMt` port all this, and the three boss-end traces match. Any other area whose id contains "_quad_door" or "_branch_door" gets the gold door: the collected nodes are
-   shuffled when all are plain "secret" (`Next(count − i)` per place, swap with the front) or else stably sorted by
+   node index and difficulty, read by `0x141ec7220`) the seed is the day's. `LabyrinthLayout` ports all of
+   `0x1424e30f0` (connections and secrets too: 168 client layouts match, `scripts/re/frida/lab-layout.py` and
+   `lg.ps1 lablayout`), and the three boss-end traces match. Any other area whose id contains "_quad_door" or "_branch_door" gets the gold door: the collected nodes are
+   shuffled when all are plain "secret" (one `Next(count)`, then `Uniform(count − i)` per place, swap with the front)
+   or else stably sorted by
    tag (`0x1420393f0`); the first takes LabyrinthSecrets "GoldDoor" +8 (`gold_door`) as its tag, exist 100 and a
    "secret1" description (+0x6d, an "entrance<N>" description, is clear in that row); none collected: "Not enough
    secret nodes in …" is logged. The nodes still collected then lose their descriptions too; the exist rolls remove

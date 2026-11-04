@@ -356,6 +356,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   the aim, explodes and bounces straight on once per chain, each impact an area hit (verified live 2026-11-01: damage at
   every impact, 3 impacts at level 1). The base radius 14 and 16 cells between impacts are not read from the client;
   its slower bounces (375 ms each) mean a bounce's hits land about 0.1 s early.
+  Split Arrow fires `Metadata/Projectiles/SplitArrowDefault` (`SkillCatalog.ProjectileFallbacks`; its row carries a
+  Default suffix, so every use was refused before).
+  Lightning Arrow's hits call secondary strikes on up to 3 nearby enemies in an 18-cell radius
+  (`ContactTargets`, `lightning_arrow_maximum_number_of_extra_targets`), scaling with Area of Effect modifiers.
   Projectiles spawn at the captured terrain height + the releasing clip's keyframe height (the bow 16 steps, a wand
   12, the Sand Spitter's spit 9; `Game_PROJECTILE_HEIGHT`, 5 steps, without rig data) on natural ground; without a
   capture they use the bare offset.
@@ -1513,15 +1517,21 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Elemental Equilibrium removes the Exposure of a hit's elements and inflicts -25% Exposure of the others.
   Not yet: Exposure from skills and auras, aura-dependent penetration, other added damage,
   increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)),
-  except the player's chill, freeze and shock on monsters and his ignites.
-  Projectile hits ignite from the panel's ignite rows captured at release; Abberath's Fury's footstep hits work out
+  except the player's chill, freeze, shock, ignite, bleed and poison on monsters.
+  Projectile hits ignite from the panel's ignite rows captured at release, and the default attack and melee or area
+  skills from the same rows at their hit; Abberath's Fury's footstep hits work out
   their own (90% of the hit's flat fire per second for 4 s, the ignite increases, damage over time multipliers, +50% on
   a critical strike, and duration stats).
   Both add to the monster's one set of ignites: only the strongest burns, through the monster's fire resistance, every
   player tick, with one timed `ignited` buff and kills.
   They burn on while the player is dead (unverified), with no progress from a dead Hardcore character's kills.
-  The default melee attack and melee or area gems do not ignite yet; the footstep ignite has Gateway coverage only,
-  not checked with the real client (`MonsterIgnites.cs`, [20](../docs/protocol/20-damage.md) §3).
+  The melee and area ignite and the footstep ignite are not checked with the real client (`MonsterIgnites.cs`,
+  [20](../docs/protocol/20-damage.md) §3).
+  Attack hits (the default attack, melee and area attacks, attack projectiles and bow shots) bleed monsters from the
+  panel's bleeding rows with the attack bleed chances, for 5 s and the bleed duration stats: only the strongest bleeds
+  (Crimson Dance: the 8 strongest), three times while the monster moves or aggravated, with one timed `bleeding` buff
+  and kills (`MonsterBleeds.cs`; not checked with the real client).
+  A hit's poisons deal the panel's poison rows (`MonsterPoisons.cs`), not checked with the real client.
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
   `action_speed_cannot_be_reduced_below_base` keeps the action factor at 1 under chill and freeze (Gateway coverage,

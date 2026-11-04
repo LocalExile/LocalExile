@@ -39,7 +39,7 @@ static partial class Game
         rows.Add(("secondary_critical_strike_multiplier", multiplier));
         rows.Add(("display_hundred_times_damage_per_skill_use", SpellDamage.Display((hit.MinTotal, hit.MaxTotal), 0, factor).PerUse));
         rows.Add(("hundred_times_damage_per_second", 0));
-        rows.AddRange(AilmentPanelStats.Compute(new("secondary", Spell: false, Area: area, Projectile: projectile),
+        rows.AddRange(AilmentPanelStats.Compute(new("secondary", Spell: false),
             secondaryBase, conversion, get));
         return rows;
     }

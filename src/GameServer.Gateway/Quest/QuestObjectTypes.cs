@@ -14,7 +14,12 @@ static class QuestObjectTypes
     /// <summary>A quest object type: its deserialized components in order, Transitionable's last state (2 when the .ot
     /// does not say), its Positioned size (object_size − 1, at least 1), whether it blocks, and the model when the type
     /// has no Animated model of its own (a Chests.dat row's AOFiles).</summary>
-    public sealed record Info(string Type, IReadOnlyList<string> Components, int States, int Size, bool Blocking, string? Model);
+    public sealed record Info(string Type, IReadOnlyList<string> Components, int States, int Size, bool Blocking, string? Model)
+    {
+        /// <summary>Whether the .ot names its own model (Animated animated_object); one that does not takes the placing
+        /// line's (the Aspirants' Plaza's LabyrinthAirlockPortal, LabyrinthAirlockPortal.ao in airlock.arm).</summary>
+        public bool OwnModel { get; init; } = true;
+    }
 
     /// <summary>Tile objects the quest engine may create: quest objects, quest chests, the Dark Altar and the quest
     /// doors, levers and gates of the areas' own objects (Metadata/Terrain/…/Objects/).</summary>
@@ -24,6 +29,11 @@ static class QuestObjectTypes
         || type.StartsWith("Metadata/Terrain/", StringComparison.Ordinal) && type.Contains("/Objects/", StringComparison.Ordinal);
 
     public static Info? Find(string type) => Catalog.Value.GetValueOrDefault(type);
+
+    /// <summary>Quest doors that open in place (0x2ba Transitionable plays their .ot's on_transition, 0x1c6 lifts their
+    /// TriggerableBlockage) instead of being created again open: the Aspirants' Plaza's door, whose opening the user
+    /// missed (live 2026-11-03).</summary>
+    public static bool OpensInPlace(string type) => type == "Metadata/Terrain/Labyrinth/Objects/LabyrinthAirlockDoor";
 
     static readonly Lazy<Dictionary<string, Info>> Catalog = new(() => Load());
 
@@ -47,7 +57,10 @@ static class QuestObjectTypes
                     if (pos.TryGetProperty("object_size", out var os) && int.TryParse(os.GetString(), out int s)) size = Math.Max(1, s - 1);
                     blocking = pos.TryGetProperty("blocking", out var b) && b.GetString() == "true";
                 }
-                types[id] = new Info(id, components, Math.Max(2, states), size, blocking, null);
+                types[id] = new Info(id, components, Math.Max(2, states), size, blocking, null)
+                {
+                    OwnModel = !components.Contains("Animated") || t.TryGetProperty("animated_object", out var ao) && ao.ValueKind == JsonValueKind.String,
+                };
             }
         // Chests.dat rows without an .ot: their InheritsFrom's components, the row's model.
         string chests = Path.Combine(folder, "tables", "Chests.json");
