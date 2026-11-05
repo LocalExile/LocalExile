@@ -33,6 +33,9 @@ public class ConditionalItemStatsTests
         Assert.Equal(14, events.NextExpiry(10));
         Assert.DoesNotContain(StatConditions.Crit, events.Snapshot(14));
         Assert.Null(events.NextExpiry(14));
+        events.Record(StatConditions.BeenHit, 10);
+        Assert.Contains(StatConditions.BeenHit, events.Snapshot(13.999));
+        Assert.DoesNotContain(StatConditions.BeenHit, events.Snapshot(14));
 
         var baseline = CacheKey(new HashSet<string> { "grace" }, new HashSet<string> { StatConditions.Crit }, 14, 600);
         Assert.False(baseline.Matches(CacheKey(new HashSet<string>(), new HashSet<string> { StatConditions.Crit }, 14, 600)));
@@ -77,6 +80,35 @@ public class ConditionalItemStatsTests
         Assert.Equal(StatConditions.State.Fails,
             StatConditions.Of("spell_damage_+%_if_you_have_crit_recently",
                 new StatConditions.Subject(Recent: new HashSet<string> { StatConditions.HitEnemy })));
+        // A bare "hit" is a hit received. The explicit enemy-hit spellings still mean a hit dealt, so the two directions
+        // cannot satisfy each other's recently conditions.
+        Assert.True(StatConditions.TryRecentEvent("evasion_+%_if_hit_recently", out string receivedHit, out bool receivedNegated));
+        Assert.Equal(StatConditions.BeenHit, receivedHit);
+        Assert.False(receivedNegated);
+        Assert.True(StatConditions.TryRecentEvent("damage_+%_if_hit_an_enemy_recently", out string dealtHit, out _));
+        Assert.Equal(StatConditions.HitEnemy, dealtHit);
+        Assert.True(StatConditions.TryRecentEvent("damage_+%_if_you_have_not_hit_an_enemy_recently",
+            out string notDealtHit, out bool notDealtHitNegated));
+        Assert.Equal(StatConditions.HitEnemy, notDealtHit);
+        Assert.True(notDealtHitNegated);
+        Assert.True(StatConditions.TryRecentEvent("damage_+%_if_enemy_hit_recently", out string otherDealtHit, out _));
+        Assert.Equal(StatConditions.HitEnemy, otherDealtHit);
+        Assert.Equal(StatConditions.State.Fails,
+            StatConditions.Of("evasion_+%_if_hit_recently",
+                new StatConditions.Subject(Recent: new HashSet<string> { StatConditions.HitEnemy })));
+        Assert.Equal(StatConditions.State.Holds,
+            StatConditions.Of("evasion_+%_if_hit_recently",
+                new StatConditions.Subject(Recent: new HashSet<string> { StatConditions.BeenHit })));
+        Assert.True(StatConditions.TryRecentEvent("damage_taken_+%_if_not_hit_recently_final",
+            out string notReceivedHit, out bool notReceivedNegated));
+        Assert.Equal(StatConditions.BeenHit, notReceivedHit);
+        Assert.True(notReceivedNegated);
+        Assert.Equal(StatConditions.State.Holds,
+            StatConditions.Of("damage_taken_+%_if_not_hit_recently_final",
+                new StatConditions.Subject(Recent: new HashSet<string>())));
+        Assert.Equal(StatConditions.State.Fails,
+            StatConditions.Of("damage_taken_+%_if_not_hit_recently_final",
+                new StatConditions.Subject(Recent: new HashSet<string> { StatConditions.BeenHit })));
         // "if enemy not killed recently" holds exactly when the kill event is absent.
         Assert.Equal(StatConditions.State.Holds,
             StatConditions.Of("attack_speed_+%_if_enemy_not_killed_recently",
@@ -209,6 +241,48 @@ public class ConditionalItemStatsTests
         var froze = StatConditions.Of("damage_+%_if_you_have_frozen_enemy_recently",
             new StatConditions.Subject(Recent: new HashSet<string> { StatConditions.FrozeEnemy }));
         Assert.Equal(StatConditions.State.Holds, froze);
+
+        // Kintsugi uses "evasion" in its stat id, but Progression's real evasion consumer reads "evasion_rating".
+        const string kintsugi = "IncreasedEvasionIfHitRecentlyUnique___1";
+        Assert.Contains(Mod(kintsugi).Stats, s => s.Id == "evasion_+%_if_hit_recently");
+        Assert.Equal("evasion_rating_+%", StatConditions.Fold("evasion_+%_if_hit_recently", exists));
+        var kintsugiItem = WithMod(kintsugi, 100);
+        var kintsugiHit = ItemModStats.Sum([kintsugiItem], Program.Items.Mods,
+            subject: new StatConditions.Subject(Recent: new HashSet<string> { StatConditions.BeenHit }),
+            statExists: exists);
+        Assert.Equal(100, kintsugiHit.GetValueOrDefault("evasion_rating_+%"));
+        Assert.False(kintsugiHit.ContainsKey("evasion_+%_if_hit_recently"));
+        var enemyHitOnly = ItemModStats.Sum([kintsugiItem], Program.Items.Mods,
+            subject: new StatConditions.Subject(Recent: new HashSet<string> { StatConditions.HitEnemy }),
+            statExists: exists);
+        Assert.Equal(0, enemyHitOnly.GetValueOrDefault("evasion_rating_+%"));
+
+        // The synthetic command uses the same accepted-incoming-hit commit as a monster contact. A failed transfer
+        // invalidates retired work without forgetting history; an actual lifecycle clear removes it.
+        string path = Path.Combine(Path.GetTempPath(), $"localexile-conditional-item-stats-{Guid.NewGuid():N}.db");
+        Saves.Open(path);
+        try
+        {
+            var conn = new ClientState(new(1, "received-hit", 300, 300, 100, 100, null, []), 1, 1)
+            {
+                Pools = new(1, 1000, 100, 2, 0), PlayerLife = 900,
+            };
+            Assert.True(CommandsRules.TryDevEnemyHit(conn, GameServer.Core.World.DamageType.Physical, 1,
+                block: false, spell: false, suppress: false, out _));
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            Assert.Equal(1, conn.RecentEnemyHits.Count(now));
+            Assert.True(conn.RecentEvents.Happened(StatConditions.BeenHit, now));
+            conn.InvalidateIncomingHits(clear: false);
+            Assert.Equal(1, conn.RecentEnemyHits.Count(now));
+            Assert.True(conn.RecentEvents.Happened(StatConditions.BeenHit, now));
+            conn.InvalidateIncomingHits();
+            Assert.Equal(0, conn.RecentEnemyHits.Count(now));
+            Assert.False(conn.RecentEvents.Happened(StatConditions.BeenHit, now));
+        }
+        finally
+        {
+            TestEnvironment.ReleaseSaves(path);
+        }
 
         // A stat with a consumer of its own is never folded, or its mod would count twice.
         var dedicated = WithMod("BlockWhileDualWieldingUniqueDagger3", 10);

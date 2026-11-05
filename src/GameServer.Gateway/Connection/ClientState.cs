@@ -361,7 +361,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                 monster.ActionGeneration++;
                 monster.SwingGeneration = null;
             }
-            if (clear) { RecentEnemyHits.Clear(); ElementalAilments.Clear(); }
+            if (clear) { RecentEnemyHits.Clear(); RecentEvents.Clear(); ElementalAilments.Clear(); }
         }
     }
     public int ProjectileEpoch;

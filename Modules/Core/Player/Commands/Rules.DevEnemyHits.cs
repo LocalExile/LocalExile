@@ -59,6 +59,7 @@ static partial class CommandsRules
             conn.EnergyShield.Recover(onBlock.EnergyShield);
             TrimLeechLocked(conn);
             conn.RecentEnemyHits.Record(now);
+            conn.RecentEvents.Record(StatConditions.BeenHit, now);
             if (block) ChargesWhenHit(conn, blocked, spell);
             if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
             RecordHardcoreDeath(conn);

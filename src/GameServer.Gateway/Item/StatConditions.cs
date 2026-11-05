@@ -112,6 +112,10 @@ public static class StatConditions
     /// </summary>
     public static string? Fold(string statId, Func<string, bool> exists)
     {
+        // Kintsugi's evasion roll spells the received-hit condition with "evasion", but the evasion consumer reads
+        // "evasion_rating". Keep this one table-specific name mapping here rather than guessing aliases for every stat.
+        if (statId == "evasion_+%_if_hit_recently")
+            return exists("evasion_rating_+%") ? "evasion_rating_+%" : null;
         if (DedicatedConsumers.Contains(statId) || NamesACharge(statId)) return null;
         if (PlainOf(statId) is not { } plain) return null;
         return exists(plain) ? plain : null;
@@ -134,7 +138,8 @@ public static class StatConditions
     /// <summary>
     /// The "recently" phrase a stat id uses, the event <see cref="Subject.Recent"/> answers it with, and whether the id
     /// asks for that event's <em>absence</em>. Several phrases name the same event, so they collapse to one key
-    /// (<c>hit_an_enemy</c> / <c>enemy_hit</c> / <c>hit</c> are all <see cref="HitEnemy"/>); a "not"/"haven't" phrase
+    /// (<c>hit_an_enemy</c> / <c>enemy_hit</c> are <see cref="HitEnemy"/>, while bare <c>hit</c> is
+    /// <see cref="BeenHit"/>); a "not"/"haven't" phrase
     /// names its event with <c>Negated</c> set, which the caller reads as "the event did not happen". Longest phrase
     /// first, so <c>enemy_not_killed</c> wins over <c>killed</c>.
     /// </summary>
@@ -154,7 +159,7 @@ public static class StatConditions
         ("used_movement_skill", UsedMovementSkill, false), ("used_retaliation", UsedRetaliation, false),
         ("taunted_an_enemy", TauntedEnemy, false), ("detonated_mine", DetonatedMine, false),
         ("frozen_enemy", FrozeEnemy, false), ("used_a_skill", UsedSkill, false), ("spent_mana", SpentMana, false),
-        ("crit", Crit, false), ("hit", HitEnemy, false),
+        ("crit", Crit, false), ("hit", BeenHit, false),
     ];
 
     /// <summary>The recent-event keys <see cref="Subject.Recent"/> carries, as this class uses them.</summary>
@@ -249,7 +254,7 @@ public static class StatConditions
         new(@"^add_(?:frenzy|power|endurance|inspiration|challenger|brutal|absorption)_charge", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     static readonly System.Text.RegularExpressions.Regex RecentId =
-        new(@"(?:^|_)(?:if_)?(?:you_)?(?:have_)?(?:havent_|not_)?(?<phrase>[a-z_]+?)_recently(?:_|$|%|\+)", System.Text.RegularExpressions.RegexOptions.Compiled);
+        new(@"(?:^|_)(?:if_)?(?:you_)?(?:have_)?(?<negation>havent_|not_)?(?<phrase>[a-z_]+?)_recently(?:_|$|%|\+)", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>The event a <c>recently</c> id names, and whether the id asks for the event's absence.</summary>
     public static bool TryRecentEvent(string statId, out string key, out bool negated)
@@ -259,9 +264,10 @@ public static class StatConditions
         if (!m.Success) return false;
         string phrase = m.Groups["phrase"].Value;
         // A "not"/"haven't" prefix negates whatever event the rest of the phrase names.
-        bool writtenNegated = phrase.StartsWith("not_", StringComparison.Ordinal)
+        bool phraseNegated = phrase.StartsWith("not_", StringComparison.Ordinal)
             || phrase.StartsWith("havent_", StringComparison.Ordinal);
-        string bare = writtenNegated ? phrase[(phrase.IndexOf('_') + 1)..] : phrase;
+        bool writtenNegated = m.Groups["negation"].Success ^ phraseNegated;
+        string bare = phraseNegated ? phrase[(phrase.IndexOf('_') + 1)..] : phrase;
         foreach (var (p, k, tableNegated) in RecentEvents)
             if (bare == p || bare.EndsWith("_" + p, StringComparison.Ordinal))
             {
