@@ -99,6 +99,15 @@ object id, u32 0, u16 0`) sets object `+0x8d |= 2` and calls `0x141ec0aa0` ("Obj
 Gateway sends 0x1a9 for the player right after 0x21. That alone made the model appear (in the washed-up pose) and let
 actions run.
 
+A create can wake the object itself: for a 0x2b9 whose blob's first byte has bit 0x02, `0x141ebe190` sets `+0x8d |= 2`
+and the create's handler (`0x142187480`) then calls `0x141ec0aa0`, as a 0x1a9 does. A 0x1a9 to an object that is awake
+and not waiting to leave changes nothing but a `[CRIT]` line in `Client.txt` saying the object was already in the wake
+zone (`0x141ec0aa0`, log id 0xaed1d716); after a 0x1aa, which lists the object to leave (World `+0xa48`), it takes the
+object off that list instead. So a 0x1a9 goes only to an object created with the bit clear, or after a 0x1aa. GGG sent
+none of its 4 726 0x1a9 (four lockstep recordings) to an awake object: it creates effects, items and some monsters awake
+(2 095 creates) and wakes them again only after a 0x1aa. Of the Gateway's objects only projectiles are created awake
+(`CreateInWakeZone`), in both modes.
+
 Also sent, not proven necessary: Positioned `flags1 0x02` with (hidden 0, shown 1) (`0x141e2f0b0` → vtable +0xb0), and
 Animated bit0 with the path `Metadata/Characters/Int/Int.ao` (the type already supplies it; the Animated deserializer
 only reloads when the path differs or none is set). Neither made the model appear before 0x1a9 was added.
@@ -121,7 +130,8 @@ Object header (all these messages): `u16 id, u32 object id (+0x10), u32 (+0x14),
 
 **C→S 0x25** "use skill at location" (sender `0x142166300`, class `0x1435bfbd8`, 16 bytes): `u32 x, u32 y` (target grid
 cell), `u16 skill id` (Move = 0x2909 for the Witch), `u16` action `+0x11a` (an action sequence number: 0x1001, 0x1002, …;
-only sent when ≥ 0), `u16` action `+0x122` (flags, 0x0408). 0x24 is the same aimed at an object id. The client starts the
+only sent when ≥ 0), `u16` action `+0x122` (flags: 0x0400, and 0x0008 when the client's `auto_equip` option is on;
+§6, "Action flags"). 0x24 is the same aimed at an object id. The client starts the
 action itself (prediction) but will not send another until the server echoes it.
 
 **S→C 0x1ab** "action started" (class `0x1435c2340`, read `0x141fdda70`): object header, `u16 flags` (+0x38 → action
@@ -618,6 +628,26 @@ the client walking on and preceded 76 of
 replaces a queued Move that can be cancelled (its vtable +0x190 and +0x208, flag 0x1000): the offer
 (`0x141e8cf10`) destroys that one before the test runs. A queued non-Move it replaces only when it carries flag 0x400
 and the walker's Player component, if it has one, has +0x2e9 other than 2 or 3; otherwise the offer refuses the Move.
+
+**Action flags.** A 0x1ab's u16 flags become action `+0x122` in both modes (`0x1421940a0`), less 0x80, which only says
+a target id follows (the reader `0x141fdda70` reads the id and clears the bit). Starting the action (`0x141e8e7e0`)
+reads none of them. The client reads:
+- 0x0400: on a Move, the queued non-Move replacement above (the offer `0x141e8cf10`). For an actor without a Monster
+  component the gate `0x141e8d900` also tests it before it lets an action in over the current one; a monster's gate
+  returns before that test.
+- 0x8000: the gate starts the action at once, before its tests of the current and queued actions. 0x0001, for an actor
+  without a Monster component: start with no reach or path check (the same gate). 0x1000: a queued action nothing
+  replaces (the offer). 0x0800: a Player-owned action skips the `virtual_action_speed_+%` block (`0x14193c9e0`).
+  0x0100 has readers (`0x141942c60`, `0x141942160`) whose effect is not traced.
+- 0x0008: read by no decompiled function (8 functions did not decompile, among them `0x141ec7790` and
+  `0x141947e70`). The client sets it on its own requests when its `auto_equip` option is on (`0x14011e950`), so an echo
+  of them carries it. No reader was found for the input bits 0x0002, 0x0004 or 0x0200.
+
+GGG sets neither 0x0400 nor 0x0008 on any monster order (56 175 in four lockstep recordings): Moves 0 (13 768), skills
+aimed at an object 0x0080 (41 946), at the ground 0 (353), an emerge 0x0880 (102). The player's own orders echo his
+request's bits (Moves 0x0400 21 014, 0 2 654), and other characters' Moves come with 0x0408 (938 of 1 015). The Gateway
+sends a lockstep client's monster orders the same (`MonsterOrderFlags`), so a monster's Move over a queued non-Move
+action is refused there as on GGG; a predictive client still gets 0x0408.
 
 A Move that reaches the client during a swing is taken (`0x141e8cf10`) but queued: the actor runs it when the clip's
 `lock_cancelling` keyframe has played, or its contact keyframe for a clip without one, and only then (live 2026-11-03,
