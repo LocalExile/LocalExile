@@ -214,6 +214,7 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal((148, 100), leg.To);   // 12 cells along the walk-up, at 8 cells a second
         Assert.Equal((148, 100), far.Walk.Destination);
         Assert.True(far.Walk.Moving(1.5));
+        Assert.Equal((1.125, (159, 100)), far.Walk.Steps(1, 2)[0]);   // from a stand, a whole step after the order
         Assert.Null(far.LastTarget);
         Assert.Equal([0x3001u], plan.Chases.Select(c => c.Id));
         Assert.DoesNotContain(0x3000u, plan.Chases.Select(c => c.Id));
@@ -240,6 +241,35 @@ public class LockstepMonsterTests : IDisposable
         plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 3);
         Assert.DoesNotContain(0x3003u, plan.Legs.Select(l => l.Id).Concat(plan.Chases.Select(c => c.Id)).Concat(plan.MoveLegs.Select(l => l.Id)));
         Assert.False(asleep.Walk.Moving(3.5));
+
+        // A predictive client gets only the leg, and only a lockstep walker keeps the time a stop leaves (PlayerWalk's
+        // kept time: LockstepFrameOf and the plan's FrameStart ask conn.LockstepClient). Each leg walks as an order to its
+        // cell alone does, from a stand a whole step after the order and under way with the step in progress carried
+        // over, also on a Gateway whose lockstep frames run for this connection (RunLockstepFrames, any served one).
+        var served = Connection(lockstep: false);
+        SpawnedMonster Spitter(uint id, int x, int y) => new("Spitter", served.NewMonsterWalk(id, x, y, 8, 2, false), aggroRange: 120,
+            stopRange: 2, maxLife: 10)
+        {
+            Attack = new(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true }, Aggro = true,
+        };
+        var walking = Spitter(0x3005, 190, 60);
+        walking.Walk.Order(190, 20, now: 1.5);     // north, a step every 0.125 s: (190, 56) at 2.0
+        var stopped = Spitter(0x3006, 190, 140);
+        served.LockstepFrame = (1.947, 1.98);
+        stopped.Walk.Order(230, 140, now: 1.5);    // east: (193, 140) at 1.875
+        stopped.Walk.Order(193, 140, now: 1.96);   // stopped 0.085 s into its next step
+        served.Monsters[0x3005] = walking;
+        served.Monsters[0x3006] = stopped;
+        served.LockstepFrame = (2.013, 2.046);
+        var legs = Game.PlanMonsterAi(served, new MonsterAiCadence(), now: 2.03).MoveLegs;
+        Assert.Equal([0x3005u, 0x3006u], legs.Select(l => l.Id));
+        Assert.Equal(((190, 56), (193, 140)), (legs[0].From, legs[1].From));
+        var steps = walking.Walk.Steps(2.03, 3);
+        Assert.Equal(2.03 + (1 - 0.24) * (steps[1].At - steps[0].At), steps[0].At, 9);   // 0.03 s into a 0.125 s step
+        steps = stopped.Walk.Steps(2.03, 3);
+        Assert.Equal(2.03 + (steps[1].At - steps[0].At), steps[0].At, 9);   // none of the 0.085 s (a lockstep stop keeps 0.105)
+        Assert.Equal((193, 140), stopped.Walk.Position(2.03));
+        Assert.Equal((legs[0].To, legs[1].To), (walking.Walk.Destination, stopped.Walk.Destination));
     }
 
     // On a lockstep client a walker's position reads as of the current frame's start, so the leg's end must be read
