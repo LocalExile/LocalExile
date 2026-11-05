@@ -45,6 +45,8 @@ sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 sealed partial class InstanceState
 {
     public InstanceGround Ground { get; } = new();
+    /// <summary>The instance's monsters, clock and object ids, shared by every connection in it.</summary>
+    public InstanceWorld World { get; } = new();
     /// <summary>The living monsters as the last connection left them (issue #12), or null before the first connection
     /// placed the area's packs.</summary>
     public volatile List<SavedMonster>? Monsters;
@@ -60,7 +62,7 @@ sealed partial class InstanceState
         lock (_startWeapons)
         {
             if (_startWeapons.TryGetValue(character, out var placed) && ReferenceEquals(placed.Weapon, weapon.Item)) return null;
-            uint id = Ground.Add(weapon);
+            uint id = Ground.Add(weapon, shared: false);
             _startWeapons[character] = (id, weapon.Item);
             return id;
         }
@@ -151,14 +153,27 @@ sealed class InstanceGround
         lock (_items) _items[id] = item;
     }
 
-    public uint Add(WorldItemObject item)
+    // Who put each item down (the client already shown it) and the items only that player sees (quest items, the start
+    // weapon): every other client in the instance is shown the rest (SharedGround.cs).
+    readonly Dictionary<uint, object> _by = [];
+    readonly HashSet<uint> _private = [];
+
+    public uint Add(WorldItemObject item, object? by = null, bool shared = true)
     {
         lock (_items)
         {
             uint id = _nextId++;
             _items[id] = item;
+            if (by is not null) _by[id] = by;
+            if (!shared) _private.Add(id);
             return id;
         }
+    }
+
+    /// <summary>Who put the item down (null when unknown) and whether the other players see it.</summary>
+    public (object? By, bool Shared) Origin(uint id)
+    {
+        lock (_items) return (_by.GetValueOrDefault(id), !_private.Contains(id));
     }
 
     public WorldItemObject? Get(uint id)
@@ -169,7 +184,13 @@ sealed class InstanceGround
     /// <summary>Removes the item: only one caller gets it, so a pickup can never duplicate it.</summary>
     public WorldItemObject? Take(uint id)
     {
-        lock (_items) return _items.Remove(id, out var item) ? item : null;
+        lock (_items)
+        {
+            if (!_items.Remove(id, out var item)) return null;
+            _by.Remove(id);
+            _private.Remove(id);
+            return item;
+        }
     }
 
     public IReadOnlyList<(uint Id, WorldItemObject Item)> All()

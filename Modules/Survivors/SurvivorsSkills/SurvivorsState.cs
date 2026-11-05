@@ -40,4 +40,18 @@ sealed class SurvivorsState
     public readonly List<ushort> SurvivorsHeraldBuffs = [];
     /// <summary>The catalogue indices of the heralds already published as auras.</summary>
     public readonly HashSet<int> SurvivorsHeraldSkills = [];
+    /// <summary>The experience orbs on the ground of the current area, oldest first.</summary>
+    public readonly List<SurvivorsExperienceOrb> SurvivorsOrbs = [];
+    /// <summary>The death ground zones on the ground of the current area (a DOT the player must leave).</summary>
+    public readonly List<SurvivorsGroundZone> SurvivorsGroundZones = [];
+    /// <summary>When each dead monster was first seen dead, so its body can be removed after a short linger: corpses
+    /// otherwise pile up on the server and client and make a long run glitch.</summary>
+    public readonly Dictionary<uint, double> SurvivorsCorpses = [];
 }
+
+/// <summary>One experience orb: its client object id, where it lies, and the raw experience it pays when collected.</summary>
+sealed record SurvivorsExperienceOrb(uint Id, int X, int Y, int Experience);
+
+/// <summary>One death ground zone: its client object id, centre, reach, deadline (connection clock seconds) and the
+/// life it drains per second while the player stands inside it.</summary>
+sealed record SurvivorsGroundZone(uint Id, int X, int Y, int Radius, double ExpiresAt, int DamagePerSecond);

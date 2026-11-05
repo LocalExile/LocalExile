@@ -32,7 +32,27 @@ static partial class Game
         public float FlightClipSpeed { get; init; } = 1;
         public uint? SecondFormClip { get; init; }
         public Func<ProjectileEvent, string?>? EventEffect { get; init; }
+        /// <summary>An effect object attached to the event effect's bone (the native attachment record). Arrow Nova
+        /// attaches its split-arrow art to the player's <c>aux_projectile_attach</c> bone.</summary>
+        public (string Ao, string Bone)? AttachEffect { get; init; }
+        /// <summary>The object id the attached effect rides on; zero uses the event effect's own object (Arrow Nova
+        /// attaches its arrow art to the player, as the official server does).</summary>
+        public uint AttachParent { get; init; }
         public long EffectLifetime { get; init; } = 60000;
+        /// <summary>Animated flags for the event effect object (bit3 plays the AO's default animation; the rain rig
+        /// uses 0x09). Zero uses the effect writer's path/attachment bits.</summary>
+        public byte EffectAnimatedFlags { get; init; }
+        /// <summary>The spawn (player-side) effect's Positioned flags0 and the 0x04 animation fields (the rain rig's
+        /// up-cast uses flags 0x04, word 22 and value -172.0). Zero keeps the landing effect's plain layout.</summary>
+        public byte SpawnFlags0 { get; init; }
+        public uint SpawnAnimationWord { get; init; }
+        public float SpawnAnimationValue { get; init; }
+        /// <summary>The spawn effect's Animated bit3 animation id (0 is the .ao's default). The official Arrow Nova
+        /// rain rig starts animation 6 at the caster and 0 at the target.</summary>
+        public uint SpawnAnimatedId { get; init; }
+        /// <summary>Place the spawn effect at the caster's own cell rather than the projectile's release point: the
+        /// official Arrow Nova rain rig stands at the player while its payload leaves from the bow.</summary>
+        public bool SpawnAtCaster { get; init; }
         /// <summary>A clip the projectile's own rig plays where a contact stops it (an ordinary wand bolt's impact, with its
         /// sound and particles); the object then stays for <see cref="ImpactLifetime"/> quanta of game time.</summary>
         public uint? ImpactClip { get; init; }

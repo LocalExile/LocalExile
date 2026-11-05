@@ -46,7 +46,11 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
 }
 public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
-    bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null);
+    bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null)
+{
+    /// <summary>Wait this long after the parent's end before emitting (Arrow Nova's rain delay).</summary>
+    public long Delay { get; init; }
+}
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);
 public sealed record ProjectileSplitFormRecipe(double SpeedMultiplier, int Pierce);
@@ -126,6 +130,9 @@ public sealed record ProjectileProfile(string Id)
     public bool DirectDamage { get; init; } = true;
     public int Pierce { get; init; }
     public int Fork { get; init; }
+    /// <summary>"X% chance for an additional Projectile when Forking" (Greater Fork): the extra child flies straight
+    /// ahead between the fork's two.</summary>
+    public int ForkExtraProjectileChancePercent { get; init; }
     public int Chain { get; init; }
     public int Split { get; init; }
     public double ChainRange { get; init; } = 60;
@@ -170,6 +177,9 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileEmissionRecipe? TravelEmission { get; init; }
     public ProjectilePulseRecipe? Pulse { get; init; }
     public bool Lobbed { get; init; }
+    /// <summary>A lobbed arc's apex in Positioned marker steps above the straight start-to-end line; the client's
+    /// mortar template is 40. Arrow Nova's payload is fired high into the air, so it uses a much larger apex.</summary>
+    public double ArcHeight { get; init; } = 40;
     public int GroundChains { get; init; }
     public double GroundBounceDistance { get; init; } = 20;
     public ProjectileCountConsumer CountConsumer { get; init; }

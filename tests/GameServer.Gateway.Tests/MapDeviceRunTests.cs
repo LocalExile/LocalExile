@@ -166,7 +166,7 @@ public sealed class MapDeviceRunTests
             Assert.True(Items.AlternateQualityOf(chisel) is not null, chisel.Name);
             Assert.True(CurrencyEffects.HandlesAction(Items.CurrencyAction(chisel)), chisel.Name);
             Assert.True(CurrencyEffects.TryAction(Items, Rolls, ItemCatalog.Create(mapBase!), chisel, new Random(1), out var chiselled));
-            Assert.Equal(1, chiselled!.Quality);
+            Assert.Equal(20, chiselled!.Quality);
             Assert.Equal(Items.AlternateQualityOf(chisel), chiselled.AlternateQualityType);
         }
 

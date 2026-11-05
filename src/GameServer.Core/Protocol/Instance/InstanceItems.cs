@@ -365,8 +365,10 @@ public static class InstanceItems
 
     /// <summary>
     /// C→S 0x16 (class 0x1435bff00, write 0x141f91480, sender 0x14215c3b0): a chat command from Commands.dat with
-    /// SendsGenericCommandPacket. u8 command (row + 1), then the argument: u16 byte count + UTF-8 (0x140e0c9b0; at most
-    /// 300 characters, 1000 for command 0x39). The Keep / Destroy popup for an item dropped in town sends
+    /// SendsGenericCommandPacket. u8 command (row + 1), then the argument as a compact wide string (0x140e0c9b0,
+    /// <see cref="LoginWriter.WStr"/>: u16 code points, each 1, 3 or 5 bytes; at most 300 characters, 1000 for command
+    /// 0x39). Read as u16 bytes + UTF-8, a non-ASCII argument (the Russian client's AFK answer "…отошёл.") left its tail
+    /// as a message of its own every two seconds (live 2026-11-04). The Keep / Destroy popup for an item dropped in town sends
     /// <see cref="DestroyCursorItemCommand"/> with no argument.
     /// </summary>
     public sealed record Command(byte Id, string Argument);
@@ -375,12 +377,21 @@ public static class InstanceItems
     {
         var r = new LoginReader(m[2..]);
         byte id = r.U8();
-        return new(id, System.Text.Encoding.UTF8.GetString(r.Blob()));
+        return new(id, r.WStr());
     }
 
     /// <summary>The length of a 0x16 at the start of <paramref name="data"/>, or null until its header has arrived.</summary>
-    public static int? CommandLength(ReadOnlySpan<byte> data) =>
-        data.Length < 5 ? null : 5 + System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[3..]);
+    public static int? CommandLength(ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 5) return null;
+        int count = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[3..]), at = 5;
+        for (int i = 0; i < count; i++)
+        {
+            if (at >= data.Length) return null;
+            at += data[at] switch { < 0x80 => 1, 0x80 => 3, _ => 5 };
+        }
+        return at <= data.Length ? at : null;
+    }
 
     // C→S 0x29 (class 0x14316c930, id only, sender 0x140117b80): drop the held item into the world. Outside town the
     // client sends it at once; in town (and for quest items) it shows the Keep / Destroy popup instead and sends nothing

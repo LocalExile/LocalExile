@@ -75,7 +75,9 @@ static partial class Game
         lock (conn.Monsters)
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || ownedCurrent is not null && !ownedCurrent()) return 0;
-            id = conn.NextObjectId++;
+            // The instance's own monsters (not a player's minions or allies; a monster's summons are) take the instance's ids: every client has
+            // them under the same id, and whoever runs the instance next keeps them (SharedMonsters.cs).
+            id = !friendly ? conn.Instance.World.NewMonsterId() : conn.NextObjectId++;
         }
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
         if (bodySize >= 0)
@@ -93,6 +95,9 @@ static partial class Game
         if (extraMods is not null) mods = mods with { Effects = mods.Effects.Plus(extraMods.Effects) };
         if (MapModsOf(conn) is { } mapMods && MapMonsterEffects(mapMods) is { Count: > 0 } mapStats)
             mods = mods with { Effects = mods.Effects.Combine(mapStats) };
+        // The party bonus (Game.PartyBonus): each player beyond the first adds to the monsters' life by their rarity.
+        if (PartyMonsterLife(conn, rarity) is int party and > 0)
+            mods = mods with { Effects = mods.Effects.Combine(new Dictionary<string, int> { ["maximum_life_+%"] = party }) };
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
         // and MonsterMapDifficulty): level 83 is 20.73× life, 1.15× damage.
@@ -227,7 +232,14 @@ static partial class Game
         else
         {
             await Send(remote, stream, ciphers, create, createLog);
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), !log ? null : $"0x01a9 monster 0x{id:x} enters wake zone");
+            // A boss far from the player (Dominus at the top of the Sceptre, created at the area entry) stays out of the
+            // wake zone until the player comes near: KeepWakeZone wakes it there. Woken at creation, the client put its far
+            // copy to sleep on its own while the server still had it awake, and the boss life bar (0x2ba boss_life_bar) for
+            // it crashed the client at 0x14012946a (an Actor lookup on an object without components, live 2026-11-05).
+            bool farBoss = variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
+            if (farBoss) lock (conn.Monsters) conn.AsleepMonsters.Add(id);
+            else await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), !log ? null : $"0x01a9 monster 0x{id:x} enters wake zone");
+            if (farBoss && log) Console.WriteLine($"[gateway] {remote} boss 0x{id:x} {variety} created asleep: far from the player");
         }
         // A magic or rare monster's glow is a buff of its own (MonsterRarityBuffs.cs), cancelled by the client at death.
         if (MonsterRarityBuffs.Row(rarity) is ushort glow)
@@ -263,6 +275,13 @@ static partial class Game
                 FetishGrace = !friendly && KingInMists.IsFetish(variety),
             }, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
+            if (friendly) conn.MinionOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
+            else
+            {
+                conn.Instance.World.MonsterOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
+                // Created on this client where it was spawned (SyncInstanceMonsters creates it on the others).
+                conn.MonsterViews[id] = new((x, y), (x, y), Math.Min(damagedLife ?? life, life));
+            }
         }
         if (waits) WatchBuried(remote, stream, ciphers, conn);
         // A kept monster that was hit: its life as a hit sets it (0x1b1).
@@ -277,6 +296,8 @@ static partial class Game
     // area without a walk map. Game_MONSTERS=0 turns it off.
     internal static async Task PopulateArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        // Another player already runs this instance's monsters: this client shows theirs (SharedMonsters.cs).
+        if (!ClaimMonsterHost(remote, conn)) return;
         var layout = conn.Layout;
         if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0") return;
         // The Crux of Nothingness fight places its three Mystic Fetishes at fixed offsets from the room's mapboss point
@@ -424,6 +445,9 @@ static partial class Game
 
     internal sealed class MonsterAiPlan
     {
+        // Chases ended this pass: each gets S→C 0x1ac before its give-up Move, as GGG's server sends it (925 of 1166
+        // live give-ups). Only a predictive client reads it; a lockstep one ignores 0x1ac (07 §11).
+        public readonly List<uint> EndedActions = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To, string Why)> Moves = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To)> Chases = [];
         // A far melee chase's leg: a Move to the cell LegCells along the walk-up. Placed by the plan on a predictive client
@@ -475,10 +499,13 @@ static partial class Game
         lock (conn.Monsters)
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PendingTransfer is not null) return plan;
-            if (!conn.Paused) plan.Ailments.AddRange(MonsterAilmentChangesLocked(conn, now));
+            // The instance's ailments and walks are stepped once, by the connection that runs them (SharedMonsters.cs);
+            // each monster's AI runs on its target player's connection (MonsterTargetsLocked below).
+            bool runner = IsMonsterRunner(conn);
+            if (!conn.Paused && runner) plan.Ailments.AddRange(MonsterAilmentChangesLocked(conn, now));
             if (!cadence.TryBeginStep(now, conn.AiEnabled && !conn.Paused && conn.PlayerLife > 0)) return plan;
             // Before any order replaces a walk: its steps since the last pass would go unchecked.
-            StepWalkers(conn, now);
+            if (runner) StepWalkers(conn, now);
             using var blockers = conn.BeginMonsterBlockerFrame(now);
             if (conn.LockstepClient && conn.LockstepFrame is { } sending) plan.FrameStart = Math.Min(now, sending.Start);
             var (px, py) = conn.Walk.Position(now);
@@ -492,6 +519,9 @@ static partial class Game
                 // the estimate walked meanwhile (live 2026-11-03: 162 cells, in one jump).
                 if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted || m.Asleep
                     || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
+                // Asleep for this client (its own wake zone, KeepWakeZone): no order and no boss bar about an object the
+                // client has put to sleep; the boss life bar for one crashed the client (live 2026-11-05).
+                if (conn.AsleepMonsters.Contains(id)) continue;
                 // The King in the Mists has its own phase controller (KingInMists.cs): one action at a time, all its
                 // damage through MonsterSwing/MonsterAreaContact. Its Mystic Fetishes are stationary shrines the
                 // controller activates; the ordinary chase would slowly drag them toward the player.
@@ -500,6 +530,8 @@ static partial class Game
                 if (m.Hostile && protectedEntry) continue;
                 var (mx, my) = m.Walk.Position(now);
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
+                // One player at a time: the instance's monster acts for whoever it targets, on that one's connection.
+                if (m.Hostile && !MonsterTargetsLocked(conn, id, m, (mx, my), d, now)) continue;
                 if (!m.Aggro && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
                 if (m.Aggro && !m.BossBarShown && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
                 {
@@ -511,6 +543,9 @@ static partial class Game
                     m.Aggro = false;
                     m.SwingGeneration = null;
                     m.LastTarget = null;
+                    // GGG's server ends the chase with S→C 0x1ac before the give-up Move (925 of 1166 live give-ups,
+                    // 3.29 capture); without it the client's attack action keeps chasing on its own.
+                    plan.EndedActions.Add(id);
                     // A Move to its own cell does not replace the attack the client is still chasing with.
                     var stay = NextCell(conn, m, mx, my);
                     plan.Moves.Add((id, m, ++m.ActionGeneration, PlaceMove(plan, m, stay, now), stay, "gives up"));
@@ -796,6 +831,8 @@ static partial class Game
         using (ProjectileMutation(conn, phase: "ai")) plan = PlanMonsterAi(conn, cadence, Math.Max(ProjectileWorldTime(conn), AreaTime(conn)));
         const ushort Move = 0x2909;
         foreach (var (packet, log) in plan.Ailments) await Send(remote, stream, ciphers, packet, log);
+        foreach (uint id in plan.EndedActions)
+            await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
         // A chase is re-ordered every few ticks: its lines only with Game_TRACE=ai (the packet history keeps them).
         foreach (var (id, m, action, from, to, why) in plan.Moves)
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
@@ -861,7 +898,7 @@ static partial class Game
                 ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases from {from} to {to}" : null);
         foreach (var (id, m) in plan.BossBars)
         {
-            lock (conn.Monsters) if (!MonsterPresent(conn, id, m)) continue;
+            lock (conn.Monsters) { if (!MonsterPresent(conn, id, m)) continue; conn.BossBarsSeen.Add(id); }
             await ShowBossLifeBar(remote, stream, ciphers, id, m, conn);
         }
         if (!CurrentGameWork) return;
@@ -987,6 +1024,8 @@ static partial class Game
                     checkedAtGate = true;
                     var bytes = packet();
                     sent = bytes is not null;
+                    // The others in the instance see it too (SharedMonsters.cs).
+                    if (bytes is not null) BroadcastMonsterMessage(conn, id, bytes);
                     return bytes;
                 }
             });
@@ -1035,7 +1074,9 @@ static partial class Game
                         $"(clip profile {clip.Index}), action {m.ActionGeneration}, recovery until {m.FlinchUntil:0.000}");
                     // Animation.dat row 5 selects TakeHit through this actor's native ACT. Keep clip selection and
                     // completion with Actor recovery instead of following it with a rig-only 0x1b2 override.
-                    return InstanceProtocol.ActorAnimation(id, seconds, PlayerHitRecovery.TakeHitAnimation);
+                    var flinch = InstanceProtocol.ActorAnimation(id, seconds, PlayerHitRecovery.TakeHitAnimation);
+                    BroadcastMonsterMessage(conn, id, flinch);
+                    return flinch;
                 }
             });
             if (checkedAtGate) return;
@@ -1340,6 +1381,8 @@ static partial class Game
             value = (int)Math.Round(value * conn.ElementalAilments.DamageTakenFactor(now,
                     blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged, StatOf))
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
+            // Excommunicate Support: an excommunicated enemy cannot deal chaos damage.
+            if (type == DamageType.Chaos && m.ExcommunicatedUntil > now) value = 0;
             ailmentTaken = ailmentTaken.Add(type, new(value, value));
             if (type == DamageType.Chaos) chaosDamage += value;
             if (type == DamageType.Physical) physicalDamage += value;
@@ -1379,6 +1422,14 @@ static partial class Game
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
             monsterCritical, blocked, now, stats, source: id);
         conn.RecentEnemyHits.Record(now);
+        conn.RecentEvents.Record(StatConditions.BeenHit, now);
+        if (blocked)
+        {
+            conn.RecentEvents.Record(StatConditions.Blocked, now);
+            conn.RecentEvents.Record(StatConditions.BlockedAttack, now);
+        }
+        if (lifeDamage > 0 && (long)lifeDamage * 100 >= (long)conn.PlayerMaxLife * 15)
+            conn.RecentEvents.Record(StatConditions.TakenSavageHit, now);
         ChargesWhenHit(conn, blocked);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.

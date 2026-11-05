@@ -122,7 +122,7 @@ static partial class Game
         // The skill list prepared before the gate for this very value, else built here (a value that moved meanwhile).
         var skills = prepared is { } p && p.Value == value && p.Inputs?.Matches(conn, stats) == true
             ? p.Skills : PlayerSkills(conn);
-        bytes.AddRange(InstanceEntities.PlayerSkillsChange(PlayerId, skills, []));
+        bytes.AddRange(PlayerSkillsIfChanged(conn, skills));
         conn.SentRage = value;
         conn.SentVaalPrevention = prevention;
         Console.WriteLine($"[gateway] {CharacterName(conn)} Rage {value.Current}/{value.Maximum}, "
@@ -173,6 +173,10 @@ static partial class Game
                 var value = conn.Rage.Read(conn.Clock.Elapsed.TotalSeconds, RageStats.Inputs(name => RageStat(stats, name)));
                 if (conn.SentRage != value) changed = value;
             }
+        // An unchanged value goes nowhere near the send gate: RagePresentation rebuilds the player's stats under it, and the
+        // 10 checks a second held every hit, echo and move behind that work (live 2026-11-05: the input queue grew to 16 s,
+        // the move echoes went out for clicks seconds old and put the player back where they had been).
+        if (changed is null) return Task.CompletedTask;
         if (changed is { } next)
         {
             if (!CurrentGameWork) return Task.CompletedTask;
@@ -192,7 +196,7 @@ static partial class Game
             while (PlayerUpdatesCurrent(conn, updates))
             {
                 await SendRage(remote, stream, ciphers, conn);
-                await updates.Schedule.Wait(PlayerUpdateRole.Rage, 100, updates.Stop.Token);
+                await updates.Schedule.Wait(PlayerUpdateRole.Rage, 250, updates.Stop.Token);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }

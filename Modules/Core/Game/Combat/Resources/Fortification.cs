@@ -144,8 +144,10 @@ static partial class Game
     }
 
     // Construct buffs, stats and Actor records together inside the send gate from the current owner state.
+    // Polled every 32 ms: without Fortification shown and with nothing changed since the last presentation (every gain moves
+    // the revision) there is nothing to send, so the send gate and the Monsters lock are left alone.
     internal static Task SendFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () =>
+        FortificationOf(conn) is { Buff: 0 } idle && idle.PresentedRevision == idle.Revision ? Task.CompletedTask : Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             using (conn.Performance.Lock(conn.Monsters, "fortification"))
             {
@@ -173,8 +175,11 @@ static partial class Game
                                 (value.NextExpiry!.Value - now) * session.State.ExpiryRate)),
                             stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
                     }
+                    // Fortification changes on every melee hit; rebuilding the whole skill list here held the
+                    // Monsters lock and the send gate for 50-110 ms (2026-11-05), starving input and the other sends.
+                    // Its stacks and attack speed are in the 0x1b3 stats; the server keeps the authoritative action
+                    // timings, so the skill records are left to the next gem/equipment refresh.
                     packets.Add(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                    packets.Add(InstanceEntities.PlayerSkillsChange(PlayerId, PlayerSkills(conn), []));
                     session.PresentedRevision = session.Revision;
                     return packets.SelectMany(p => p).ToArray();
                 });

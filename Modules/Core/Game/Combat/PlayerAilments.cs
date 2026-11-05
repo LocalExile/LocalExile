@@ -15,12 +15,15 @@ static partial class Game
             || !baseHit.Components.Concat(taken.Components).Any(c => DamageTypes.IsElemental(c.Type))
                 && Get("all_damage_taken_can_chill") == 0) return;
         var previousAilments = conn.ElementalAilments.Snapshot(now);
+        double previousFreeze = conn.ElementalAilments.FreezeUntil(now);
         double previousAction = conn.ElementalAilments.ActionFactor(now);
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
         // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
         int fire = critical ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
         var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
         conn.ElementalAilments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom, source);
+        if (conn.ElementalAilments.FreezeUntil(now) > previousFreeze)
+            conn.RecentEvents.Record(StatConditions.BeenFrozen, now);
         QueueFlaskAilmentChanges(conn, previousAilments, conn.ElementalAilments.Snapshot(now));
         PlayerAilmentsChangedLocked(conn, previousAction, now);
     }
@@ -51,7 +54,8 @@ static partial class Game
         int damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
             MaxResistance(conn, DamageType.Fire), PlayerImmunities(conn).Contains(DamageType.Fire),
             source => DamageTakenFromBlindedPct(conn, source, stats));
-        damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry);
+        damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry,
+            IncomingResourceDefences.LessTakenPct(conn.Pools, Get));
         int lifeDamage = conn.Immune ? 0 : IncomingResourceDefences.DamageOverTime(conn.EnergyShield,
             damage, Get(IncomingResourceDefences.BypassStat), until, ref conn.NonChaosDotBypassCarry);
         conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage);

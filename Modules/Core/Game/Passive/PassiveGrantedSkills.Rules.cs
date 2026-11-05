@@ -283,6 +283,7 @@ static partial class Game
                 if (applied is not { } landed) continue;
                 if (critical)
                 {
+                    conn.RecentEvents.Record(StatConditions.Crit, hitAt);
                     CommitAcceptedCritFlasksLocked(conn, player, conn.Clock.Elapsed.TotalSeconds);
                     MaybeCreateProfaneGroundLocked(conn, m.Walk.Position(hitAt), player);
                 }
@@ -302,8 +303,10 @@ static partial class Game
 
     // The current footstep role removes accepted temporary art at its pause-clock deadline, including
     // art created before replacement. Permanent connection state holds only object ids and deadlines.
+    // Polled every 50 ms: with no temporary art at all there is nothing to remove, so the send gate and the Monsters lock
+    // are left alone (a racy read of the count only delays a removal to the next poll).
     static Task SendTemporarySkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () =>
+        conn.TemporarySkillEffects.Count == 0 ? Task.CompletedTask : Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {

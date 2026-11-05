@@ -9,7 +9,8 @@ static class AuraCatalog
     /// <summary>One active reservation skill: the skill id, its GrantedEffects row and id, its buff instance, and its gem's
     /// level and quality.</summary>
     public sealed record Aura(ushort SkillId, int Effect, string EffectId, string Name, ushort Buff, ushort BuffRow,
-        int ManaFlat, int ManaPercent, int Level = 1, int Quality = 0, ushort? SourceBuff = null);
+        int ManaFlat, int ManaPercent, int Level = 1, int Quality = 0, ushort? SourceBuff = null,
+        int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null);
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
     // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
@@ -54,7 +55,23 @@ static class AuraCatalog
         // Pride's buff is on nearby enemies; the same row also draws the player's aura icon (BuffVisuals 1098).
         ["Pride"] = PrideBuffRow,
         ["TemporalChains"] = 69,
+        // Flesh and Stone's stance buff; BuffRow(effectId, stance) picks the other one. Its blind and physical-taken
+        // effects are on enemies, so EnemyDebuffsTick applies them (AuraCatalog.FleshAndStonePhysicalTaken).
+        ["FleshAndStone"] = FleshAndStoneBloodRow,
     };
+
+    /// <summary>Flesh and Stone's Blood Stance BuffDefinitions row: enemies nearby take more Physical Damage.</summary>
+    public const ushort FleshAndStoneBloodRow = 1308;
+
+    /// <summary>Flesh and Stone's Sand Stance BuffDefinitions row: nearby enemies are Blinded.</summary>
+    public const ushort FleshAndStoneSandRow = 1309;
+
+    /// <summary>Flesh and Stone's stances, the two the skill alternates between (its own description).</summary>
+    public static string OtherStance(string? stance) => stance == "Sand" ? "Blood" : "Sand";
+
+    /// <summary>The BuffDefinitions row that draws one activation of an aura: Flesh and Stone's row follows its stance.</summary>
+    public static ushort BuffRow(string effectId, string? stance) =>
+        Family(effectId) == "FleshAndStone" && stance == "Sand" ? FleshAndStoneSandRow : BuffRow(effectId);
 
     /// <summary>Pride's BuffDefinitions row: the enemy debuff, also the player's aura icon.</summary>
     public const ushort PrideBuffRow = 1331;
@@ -74,13 +91,25 @@ static class AuraCatalog
     /// <summary>Pride's "more Physical Damage taken" at its minimum and maximum, scaled by aura effect.</summary>
     public static (int Min, int Max) PridePhysicalDamageTaken(Aura aura, int auraEffectPct, SkillCatalog skills,
         StatCatalog stats) =>
-        (Value(skills, stats, aura, "physical_damage_aura_nearby_enemies_physical_damage_taken_+%", auraEffectPct),
-         Value(skills, stats, aura, "physical_damage_aura_nearby_enemies_physical_damage_taken_+%_max", auraEffectPct));
+        (Value(skills, stats, aura, "physical_damage_aura_nearby_enemies_physical_damage_taken_+%", auraEffectPct + aura.SupportEffectPct),
+         Value(skills, stats, aura, "physical_damage_aura_nearby_enemies_physical_damage_taken_+%_max", auraEffectPct + aura.SupportEffectPct));
 
     /// <summary>Pride's ramp: at least <paramref name="min"/> more Physical Damage, reaching
     /// <paramref name="max"/> after 4 seconds in the aura (linear).</summary>
     public static double PridePhysicalMore(int min, int max, double secondsInAura) =>
         min + Math.Max(0, max - min) * Math.Clamp(secondsInAura / 4.0, 0, 1);
+
+    /// <summary>Flesh and Stone's Blood Stance: the increased Physical Damage nearby enemies take, scaled by aura effect.
+    /// The data's stat is physical-only; the server's enemy debuff bucket is per type since 2026-11-05, so this goes to
+    /// the physical share (SpawnedMonster.TakenFromPlayer.Physical).</summary>
+    public static int FleshAndStonePhysicalTaken(Aura aura, int auraEffectPct, SkillCatalog skills, StatCatalog stats) =>
+        Value(skills, stats, aura, "flesh_stone_blood_stance_enemies_physical_damage_taken_when_hit_+%_final_from_player_distance",
+            auraEffectPct);
+
+    /// <summary>Flesh and Stone's Sand Stance: the share of an enemy hit's damage the player does not take at distance 0.
+    /// The data scales it with the attacker's distance; the server applies its full value (see Skills, Flesh and Stone).</summary>
+    public static int FleshAndStoneDamageReduction(Aura aura, int auraEffectPct, SkillCatalog skills, StatCatalog stats) =>
+        Value(skills, stats, aura, "flesh_stone_sand_stance_damage_taken_+%_final_from_distance_from_enemy_hits", auraEffectPct);
 
     public static IReadOnlyList<Aura> Restore(IEnumerable<string> saved, IEnumerable<Aura> available, CharacterStats.Pools pools, bool inTown = false)
     {
@@ -131,47 +160,47 @@ static class AuraCatalog
             switch (Family(aura.EffectId))
             {
                 case "Determination":
-                    armour += Value(skills, stats, aura, "base_physical_damage_reduction_rating", auraEffectPct);
-                    armourMore += Value(skills, stats, aura, "determination_aura_armour_+%_final", auraEffectPct);
+                    armour += Value(skills, stats, aura, "base_physical_damage_reduction_rating", auraEffectPct + aura.SupportEffectPct);
+                    armourMore += Value(skills, stats, aura, "determination_aura_armour_+%_final", auraEffectPct + aura.SupportEffectPct);
                     break;
                 case "Grace":
-                    evasion += Value(skills, stats, aura, "base_evasion_rating", auraEffectPct);
-                    evasionMore += Value(skills, stats, aura, "grace_aura_evasion_rating_+%_final", auraEffectPct);
+                    evasion += Value(skills, stats, aura, "base_evasion_rating", auraEffectPct + aura.SupportEffectPct);
+                    evasionMore += Value(skills, stats, aura, "grace_aura_evasion_rating_+%_final", auraEffectPct + aura.SupportEffectPct);
                     break;
                 case "Zealotry":
-                    spellCrit += Value(skills, stats, aura, "spell_critical_strike_chance_+%", auraEffectPct);
+                    spellCrit += Value(skills, stats, aura, "spell_critical_strike_chance_+%", auraEffectPct + aura.SupportEffectPct);
                     break;
                 case "Discipline":
                     // Flat energy shield before the increases (PoB: a BASE mod); RawStats only publishes the raw stat.
-                    energyShield += Value(skills, stats, aura, "base_maximum_energy_shield", auraEffectPct);
+                    energyShield += Value(skills, stats, aura, "base_maximum_energy_shield", auraEffectPct + aura.SupportEffectPct);
                     break;
                 case "PurityOfElements":
-                    int all = Value(skills, stats, aura, "base_resist_all_elements_%", auraEffectPct);
+                    int all = Value(skills, stats, aura, "base_resist_all_elements_%", auraEffectPct + aura.SupportEffectPct);
                     fire += all;
                     cold += all;
                     lightning += all;
                     break;
                 case "PurityOfFire":
-                    fire += Value(skills, stats, aura, "base_fire_damage_resistance_%", auraEffectPct);
-                    fireMax += Value(skills, stats, aura, "base_maximum_fire_damage_resistance_%", auraEffectPct);
+                    fire += Value(skills, stats, aura, "base_fire_damage_resistance_%", auraEffectPct + aura.SupportEffectPct);
+                    fireMax += Value(skills, stats, aura, "base_maximum_fire_damage_resistance_%", auraEffectPct + aura.SupportEffectPct);
                     break;
                 case "PurityOfIce":
-                    cold += Value(skills, stats, aura, "base_cold_damage_resistance_%", auraEffectPct);
-                    coldMax += Value(skills, stats, aura, "base_maximum_cold_damage_resistance_%", auraEffectPct);
+                    cold += Value(skills, stats, aura, "base_cold_damage_resistance_%", auraEffectPct + aura.SupportEffectPct);
+                    coldMax += Value(skills, stats, aura, "base_maximum_cold_damage_resistance_%", auraEffectPct + aura.SupportEffectPct);
                     break;
                 case "PurityOfLightning":
-                    lightning += Value(skills, stats, aura, "base_lightning_damage_resistance_%", auraEffectPct);
-                    lightningMax += Value(skills, stats, aura, "base_maximum_lightning_damage_resistance_%", auraEffectPct);
+                    lightning += Value(skills, stats, aura, "base_lightning_damage_resistance_%", auraEffectPct + aura.SupportEffectPct);
+                    lightningMax += Value(skills, stats, aura, "base_maximum_lightning_damage_resistance_%", auraEffectPct + aura.SupportEffectPct);
                     break;
                 case "Precision":
-                    accuracy += Value(skills, stats, aura, "accuracy_rating", auraEffectPct);
+                    accuracy += Value(skills, stats, aura, "accuracy_rating", auraEffectPct + aura.SupportEffectPct);
                     int crit = Value(skills, stats, aura, "skill_buff_grants_critical_strike_chance_+%",
-                        auraEffectPct);
+                        auraEffectPct + aura.SupportEffectPct);
                     criticalChance += crit;
                     break;
                 case "Haste":
-                    attackSpeed += Value(skills, stats, aura, "attack_speed_+%_granted_from_skill", auraEffectPct);
-                    movementSpeed += Value(skills, stats, aura, "base_movement_velocity_+%", auraEffectPct);
+                    attackSpeed += Value(skills, stats, aura, "attack_speed_+%_granted_from_skill", auraEffectPct + aura.SupportEffectPct);
+                    movementSpeed += Value(skills, stats, aura, "base_movement_velocity_+%", auraEffectPct + aura.SupportEffectPct);
                     break;
             }
         }
@@ -198,7 +227,7 @@ static class AuraCatalog
                 : element is not null ? [$"base_{element}_damage_resistance_%", $"base_maximum_{element}_damage_resistance_%"]
                 : [];
             foreach (string name in names)
-                if (stats.Key(name) is uint key) yield return (key, Value(skills, stats, aura, name, auraEffectPct));
+                if (stats.Key(name) is uint key) yield return (key, Value(skills, stats, aura, name, auraEffectPct + aura.SupportEffectPct));
         }
     }
 
@@ -209,7 +238,7 @@ static class AuraCatalog
         IReadOnlyDictionary<uint, int> character, StatCatalog stats)
     {
         foreach (var aura in auras)
-            if (aura.EffectId switch { "Anger" => "fire", "Hatred" => "cold", "Wrath" => "lightning", _ => null } is { } element
+            if (aura.AffectsSelf && aura.EffectId switch { "Anger" => "fire", "Hatred" => "cold", "Wrath" => "lightning", _ => null } is { } element
                 && stats.Key($"reduce_enemy_{element}_resistance_%_while_affected_by_{aura.EffectId.ToLowerInvariant()}") is uint from
                 && stats.Key($"base_reduce_enemy_{element}_resistance_%") is uint to && character.GetValueOrDefault(from) is var value and not 0)
                 yield return (to, value);
@@ -263,6 +292,12 @@ static class AuraCatalog
                 case "Haste":
                     Add("cast_speed_+%", "cast_speed_+%_granted_from_skill");
                     break;
+                case "FleshAndStone":
+                    // Sand Stance's share of an enemy hit's damage that is not taken; Blood Stance's effect is the enemy
+                    // debuff EnemyDebuffsTick applies, so it adds nothing to the player here.
+                    if (aura.Stance == "Sand")
+                        Add("base_damage_taken_+%", "flesh_stone_sand_stance_damage_taken_+%_final_from_distance_from_enemy_hits");
+                    break;
             }
 
             // Only size inputs compose here; this does not activate or add any aura.
@@ -282,7 +317,7 @@ static class AuraCatalog
             {
                 if (stats.Key(name) is not uint key) return;
                 result[key] = result.GetValueOrDefault(key)
-                    + Value(skills, stats, aura, source ?? name, auraEffectPct);
+                    + Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct);
             }
         }
         return result.Select(kv => (kv.Key, kv.Value));

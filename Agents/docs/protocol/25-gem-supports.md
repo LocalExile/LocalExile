@@ -47,11 +47,11 @@ Conditional modifiers are not treated as unconditional bonuses.
 Skill panel values and ordinary hit execution use the same supported-skill calculation.
 The Delve socketed attack/spell more-damage effects multiply the matching hit once through this calculation.
 Awakened Increased Area of Effect's `inc_aoe_plus_more_area_damage_+%_final` is one of those unconditional keys.
-Four supports' more damage depends on the hit's target or the player, so `WithConditionalSupportDamageLocked`
+Five supports' more damage depends on the hit's target or the player, so `WithConditionalSupportDamageLocked`
 scales each target's roll after the outgoing-damage hooks, on the area and projectile hit paths:
 Hypothermia against a chilled enemy, Behead against an enemy at half its maximum Life or less (PoB
-`LowPoolThreshold`), Damage on Full Life for an attack while the player's Life is full, and Lifetap while the player
-has its buff.
+`LowPoolThreshold`), Damage on Full Life for an attack while the player's Life is full, Lifetap while the player
+has its buff, and Vile Toxins for every poison on the enemy (at most the support's eight).
 The ailment share of "Hits and Ailments" follows the hit for chill, freeze and shock; ignite still takes its damage
 from the skill's ailment rows, without these multipliers.
 Channelled attacks pay the supported cost on subsequent channel hits.
@@ -68,6 +68,94 @@ on a cull, applied at once and sent with the next vitals update like instant lee
 Hits from minions, warcries, passive-granted skills and Rampage do not cull yet, nor do the conditional sources
 (against bleeding, burning, frozen, cursed or marked enemies, bow attacks, weapon-local critical strikes, flasks), the
 flat Life and Mana gained on cull, or the "Culled Recently" stats.
+
+Green supports with a condition or an execution of their own now run: Cull the Weak culls normal and magic enemies at
+`kill_normal_or_magic_enemy_on_hit_if_under_x%_life` (Culling Strike's share still applies to every rarity), Pacifism's
+`hits_cannot_kill_enemies` leaves the enemy at 1 Life and cancels the cull, Lethal Dose applies
+`additional_poisons_+_to_apply_vs_non_poisoned_enemies` extra poisons with one damage roll per hit, Hypothermia's
+`additional_chance_to_freeze_chilled_enemies_%` counts an enemy chilled by an earlier hit (not the hit's own chill),
+Sadism's `support_faster_ailments_ailment_duration_+%_final` shortens its ignites, bleeds and poisons, Vicious Projectiles'
+`support_projectile_attack_speed_+%_final` is a factor of the supported attack's rate, and Greater Chain's
+`support_chain_count_+%_final` multiplies the whole chain count, rounded up (`GatewayProjectileModifiers`).
+
+Greater Fork's `chance_to_fork_extra_projectile_%` rolls per projectile at the fork and adds a third child straight ahead
+(`ProjectileProfile.ForkExtraProjectileChancePercent`). Rupture's critical bleeding hits add up to four three-second
+Ruptures on the monster, each raising its bleeding damage taken by `support_rupture_bleeding_damage_taken_+%_final`
+(`MonsterRuptures`, `BleedTaken`); "bleeding expires more quickly" and the native Rupture buff are not modelled, because a
+bleed's duration is captured when it is applied. Close Combat's supported melee hit grants Combat Rush for its listed
+duration, and a travel skill the support does not support then takes
+`support_slashing_buff_attack_speed_+%_final_to_grant` as more attack speed; the buff ends at its deadline rather than
+when that travel skill is used. Block Chance Reduction's `support_reduce_enemy_block_and_spell_block_%` lowers the
+monster's block roll and a blocked supported hit applies Overpowered
+(`apply_overpowered_on_enemy_block_reduced_block_and_spell_block_%` for `support_overpowered_base_duration_ms`); monster
+spell block does not exist, so the spell-block half has nothing to lower. Machinations counts the character's allocated
+keystones (`KeystoneCount`) for its chaos gain; its skill-cost half has no consumer, as skill costs read player stats
+only.
+
+Awakened supports (their 3.29 rows are kept in the data) add mechanics of their own: every `supported_<type>_skill_gem_level_+`
+raises the supported gem's level like the generic `supported_active_skill_gem_level_+`; Awakened Brutality's
+`chance_to_crush_on_hit_%` crushes for 4 s and a crushed monster's physical damage reduction is 15% lower
+(BuffDefinitions `crushed`); Awakened Spell Echo's `spell_echo_plus_chance_double_damage_%_final` rolls only on the final
+repeat; Awakened Generosity's `non_curse_aura_effect_+%` scales the aura it supports, and its `aura_cannot_affect_self`
+keeps that aura out of the player's stats (the buff icon still shows, and an enemy-debuff aura such as Pride still
+applies).
+
+Multistrike's repeats are hits of the same use: `MeleeAttackRepeats` splits the skill's attack time between them, each
+repeat after the first takes its `multistrike_damage_+%_final_on_{first,second,third}_repeat`, and the support's attack
+speed reads its actual `support_multiple_attacks_melee_attack_speed_+%_final` (the old code read a stat that does not
+exist, so the base support was a pure damage penalty). Melee Splash hits the enemies around each struck one for the
+support's less damage; its radius is the 12-cell default grown by the area modifier and
+`melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
+
+Spell Cascade repeats a supported area spell in a line: one extra area per side along the caster-to-target
+direction (`support_spell_cascade_number_of_cascades_per_side`, 1) and, with `support_spell_cascade_sideways`
+(Greater and Awakened), one per side across it. Each centre is one effective radius from the aimed point, the radius
+the hit itself uses, so area of effect scales the spacing; the support's area and damage finals stay ordinary skill
+stats. Captured from the 3.29.3b client on 2026-11-04 (`scripts/re/frida/sniff-support-geometry.js`): Reap at 28.5
+effective radius placed its five Awakened areas 28-29 cells apart (three along the aim, two across it), the aimed cell
+in the middle; the client draws each effect half a radius toward the caster, so the hit centres are the aim +- radius.
+`LaunchProjectile` schedules one `AreaSkillHit` per area with the use's critical roll, so overlapping areas each hit.
+Not built: the client's per-area delay (`support_spell_cascade_area_delay_+%`) and whether the damage penalty applies
+to the centre area as well as the repeats (the stat is applied to every area, as PoB does).
+
+Arrow Nova turns a supported bow attack into one payload arrow that lands at the aimed cell and fires the skill's
+whole volley in a circle from there (`projectiles_rain` and `skill_is_rain_skill`). Captured from the 3.29.3b client
+on 2026-11-04 (Split Arrow, 18 arrows): every child started on the aim cell and the directions were exactly 20 degrees
+apart, the first on the aim ray about 0.66 s after the use at 33 cells; the client drew the volley's children, so
+`ArrowNovaChildren` is `HideVisual` and the server only simulates their damage. The official server draws the payload
+with the support's `rain_rig.ao` `PermanentServerEffect` at the caster's cell and again at the landing cell, attaching
+`split_arrow.ao` to the rig's `aux_projectile_attach` bone (the arrow rides the rig's own transform, so the rig must
+stand at the player, not at the bow's release point). The
+rig's `Animated` bit3 id is 6 at the caster and 0 at the landing, and the attachment record sends kind 0 and mask 3
+(`EffectObject.AnimationId`, `AttachKind`, `AttachFlags`); sending 0 on both ends played the landing backwards. The
+landing comes 415 ms after the use and the nova 221 ms later; `ArrowNovaChildren` uses `EndEmission.Delay` and takes
+the shared modifier pass's extra arrows. Not built: the per-child launch order.
+
+Red and blue supports whose stats had no consumer now apply too: Maim's `maim_on_hit_%` maims for 4 s and a maimed
+monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physical damage and 30% reduced movement
+(PoB's Maimed condition); Bloodlust's more melee physical damage applies against a bleeding enemy; Pulverise's
+`support_pulverise_attack_speed_+%_final` and Rage's `attack_speed_+%_with_at_least_10_rage` join the attack-speed
+factors; Power Charge on Critical adds its more damage per power charge; Volatility scales the attack's minimum and
+maximum damage (`Volatility.cs`); Combustion's `ignites_apply_fire_resistance_+` rides on the ignite as a fire Exposure
+for its duration; Item Quantity's `base_killed_monster_dropped_item_quantity_+%` multiplies the loot of the last hit's
+kill (`ItemQuantityFactor`, a damage-over-time kill keeps no skill attribution); Iron Grip's `keystone_strong_bowman`
+adds Strength's damage bonus to projectile attack physical damage and Iron Will's `strong_casting` to spell damage
+(`DamageStats.StrengthDamageBonus`). Immolate's added fire against burning enemies, Bloodthirst's added physical from
+maximum life on low life, Bonechill's cold damage taken equal to the chill, and Coursing Current's equivalent
+shock/chill apply in the per-target support hook. Fist of War makes every 1.8 s slam a big hit (damage and area);
+Devour recovers its life/mana on a killing blow (the corpse is not removed); Sacrifice pays its share of current life
+for added chaos; Spellblade adds its share of the one-hand melee weapon as spell damage; Hallow's Hallowing Flame gives
+the next attack 25% of its physical damage as extra fire (scaled by the magnitude stat, then removed); and Excommunicate
+suppresses an excommunicated monster's chaos damage for its 3 seconds.
+
+Arcane Surge Support tracks mana spent on each supported spell and grants its buff when that reaches the support's
+threshold; the buff adds its cast speed, mana regeneration and more Spell Damage for its base duration. Inspiration
+gains a charge on a supported mana spend, five at most, or loses all of them when a single use reaches the support's
+threshold; each charge adds its more Elemental Damage and increased Critical Strike Chance, and its reduced Mana Cost
+applies to the supported skill. Controlled Blaze counts enemies ignited in the last four seconds: each one adds the
+support's more Ignite Damage up to its cap and its less Damage down to its floor, and its base ignite chance applies
+to the hit. Cruelty's hit damage already reaches supported hits and their ailments; its buff's additional damage over
+time is not modelled.
 
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
 A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.
@@ -94,8 +182,14 @@ A native compatibility match and a displayed support letter do not prove that it
 Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except Ice Nova's and the final-repeat stats.
 Triggers, totems, mines, minion behaviour, attack repeats, projectile branching, leech and many conditional effects
 still require their own execution paths.
+Second Wind's extra cooldown use needs multi-use cooldown state (one stored use is all that is tracked); Momentum's
+stacks need a skill-use and movement signal; Barrage needs its own release pattern, not a stat.
+Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
+their own mechanics or client-side geometry. Arrogance and the blessing supports need life reservation and a temporary
+aura lifecycle; Overheat needs Fortification consumption and Overexertion needs warcry exertion. Cruelty's buff adds
+more damage over time on top of its hit damage.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
-Only the unconditional damage keys listed by GemSupportDamage and the three target conditions above receive
+Only the unconditional damage keys listed by GemSupportDamage and the five target conditions above receive
 multiplicative processing.
 Lifetap's spent-Life counter and buff are server state: the hidden `lifetap_life_spent` buff is not sent, minions do
 not gain the buff, and its more damage does not reach damage over time.

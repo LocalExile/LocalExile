@@ -16,9 +16,10 @@ static partial class Game
         Skills.IsAttack(effect) && Skills.WeaponRestrictions(effect).Contains(BowClassRow);
 
     /// <summary>Tornado Shot's primary arrow travels only to the targeted location, then releases its child group;
-    /// it must not keep flying to the generic projectile range. Other projectiles keep their full range.</summary>
-    internal static double PrimaryRange(string? effect, double range, double targetDistance) =>
-        effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
+    /// it must not keep flying to the generic projectile range. Arrow Nova's payload arrow lands at the aim before its
+    /// volley, so it stops there too. Other projectiles keep their full range.</summary>
+    internal static double PrimaryRange(string? effect, double range, double targetDistance, bool toTarget = false) =>
+        toTarget || effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
             ? Math.Min(range, Math.Max(.001, targetDistance)) : range;
 
     /// <summary>The shared client fan for a multi-arrow use. Attack gems and ordinary bow shots otherwise used the
@@ -108,7 +109,7 @@ static partial class Game
             int left = repeats - repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + repeat * cast.Value / 1000d + delay), Valid,
                 () => ClientDrawnVolley(conn, session, skillId, gem,
-                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left),
+                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay),
                     sequence, (uint)left));
         }
         return Task.CompletedTask;
@@ -221,7 +222,7 @@ static partial class Game
 
     internal static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0)
+        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0)
     {
         var player = CharacterPlayerStats(conn);
         var own = SupportedSkill(conn, skillId).Stats;
@@ -244,6 +245,9 @@ static partial class Game
         var target = ProjectileSession.Vector(aim);
         var direction = (target - origin).Unit;
         bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
+        // Arrow Nova fires one payload arrow to the aim, then the skill's arrows in a circle from there.
+        bool rain = SkillsFor(conn).IsAttack(gem.Effect)
+            && (Get("projectiles_rain") != 0 || Get("skill_is_rain_skill") != 0);
         // An attack gem leaves from its weapon's contact keyframe, as the default attack's shot does: puncture_bow (Burning
         // Arrow's clip) has attack1_bow's contact and position. Released at the feet 1.5 cells ahead, the arrow showed up
         // inside the body at the ground instead of at the bow.
@@ -254,7 +258,15 @@ static partial class Game
         // A point closer than the muzzle must not end up behind the released projectile.
         origin += direction * Math.Min(ahead, (target - origin).Length / 2);
         profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range,
-            (target - origin).Length) };
+            (target - origin).Length, toTarget: rain) };
+        // Arrow Nova's payload takes the rig's fixed timeline, not the arrow's speed: the official landing rig came
+        // 415 ms after the use at 40 cells (Frida 2026-11-04), so the flight is what is left after the release delay.
+        if (rain)
+        {
+            double flight = (target - origin).Length;
+            double untilLanding = Math.Max(0.05, 0.415 - releaseDelay);
+            profile = profile with { Speed = Math.Max(0.001, flight / untilLanding) };
+        }
         if (!spell) profile = NativeVolley(profile, Get);
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
@@ -290,9 +302,36 @@ static partial class Game
             // An attack gem's does not: Burning Arrow's action 0x415 started and created no projectile until the server's
             // 0x2b9, as the default attack's arrow (Frida 2026-10-31).
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
+            // Arrow Nova's volley is drawn by the client (the 18 SplitArrowDefault children were client objects), but
+            // its payload arrow is not, so the server still sends that one object.
             ClientPredicted = spell || SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow",
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
-            Presentation = release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
+            Presentation = rain
+                // Arrow Nova's payload is the support's rain rig: the official server sends no payload object, only
+                // this effect at the release and again where the volley leaves the ground (Frida 2026-11-04).
+                ? new()
+                {
+                    LaunchHeight = release is { } bow ? bow.HeightSteps : null,
+                    EventEffect = static e => e.Projectile.ParentId == 0
+                        && e.Kind is ProjectileEventKind.Spawn or ProjectileEventKind.End
+                        ? "Metadata/Effects/Spells/supports/arrow_rain/rain_rig.ao" : null,
+                    // The official server attaches the skill's own arrow art to the rig's projectile bone, which is
+                    // what draws the arrow leaving the bow (the rain rig alone is only the caster's animation).
+                    AttachEffect = SkillsFor(conn).ProjectileAo(profile.Id) is { } arrowAo
+                        ? (arrowAo, "aux_projectile_attach") : null,
+                    // The native rain rig's player-side Positioned uses flags0 0x04 with the Animation.dat row (22,
+                    // SpellAreaOfEffect) and its -172.0 value; the landing effect keeps the plain layout.
+                    EffectAnimatedFlags = 9,
+                    // The official rain rig's Animated bit3 word: 6 at the caster (the up-cast), 0 at the target
+                    // (the landing); sending 0 on both made the player side play the landing backwards.
+                    SpawnAnimatedId = 6,
+                    SpawnAtCaster = true,
+                    SpawnFlags0 = 4,
+                    SpawnAnimationWord = 22,
+                    SpawnAnimationValue = -172f,
+                    EffectLifetime = ProjectileRuntime.Time(1)
+                }
+                : release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };
         var use = new ProjectileUse(profile, new(PlayerId, conn.ProjectileEpoch), new(PlayerId, conn.ProjectileEpoch), 1, origin, target)
             { Payload = shot, ReturnAnchor = new(PlayerId, conn.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };

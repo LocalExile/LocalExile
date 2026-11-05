@@ -17,12 +17,16 @@ static partial class Game
             Console.WriteLine($"[gateway] {Skills.EffectId(effect)} projectile panel unavailable: {ex.Message}");
             return;
         }
-        Put("total_number_of_projectiles_to_fire", profile.Count);
-        Put("virtual_total_number_of_projectiles", profile.Count);
+        // Arrow Nova's record describes the volley that leaves the landing cell, not its single payload arrow: the
+        // client builds that volley from total_number_of_projectiles_to_fire, and 1 left it with one arrow
+        // (live 2026-11-04: one SplitArrowDefault child instead of the nine the stats resolve to).
+        int total = Get("projectiles_rain") != 0 && profile.EndEmission is { } rain ? rain.Child.Count : profile.Count;
+        Put("total_number_of_projectiles_to_fire", total);
+        Put("virtual_total_number_of_projectiles", total);
         if (arrows)
         {
-            Put("total_number_of_arrows_to_fire", profile.Count);
-            Put("virtual_total_number_of_arrows", profile.Count);
+            Put("total_number_of_arrows_to_fire", total);
+            Put("virtual_total_number_of_arrows", total);
         }
         Put("projectile_number_of_targets_to_pierce", profile.CannotPierce || profile.Pierce < 0 ? 0 : profile.Pierce);
         Put("virtual_always_pierce", !profile.CannotPierce && profile.Pierce < 0 ? 1 : 0);

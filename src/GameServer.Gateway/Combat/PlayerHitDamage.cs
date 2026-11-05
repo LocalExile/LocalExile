@@ -29,6 +29,9 @@ static class PlayerHitDamage
             + (melee ? get("melee_damage_+%") : 0) + (area ? get("area_damage_+%") : 0)
             + (projectile ? get("projectile_damage_+%") : 0)
             + (spell || secondary ? 0 : DamageStats.SpellAttackIncrease(get, wieldingWand, retaliation));
+        // Iron Will: Strength's damage bonus applies to spell damage.
+        double strength = DamageStats.StrengthDamageBonus(get);
+        if (spell && get("strong_casting") != 0) common += strength;
         bool lifeLeech = get("is_life_leeching") != 0, manaLeech = get("is_mana_leeching") != 0,
             shieldLeech = get("is_es_leeching") != 0, fullShield = get("on_full_energy_shield") != 0;
         bool anyLeech = lifeLeech || manaLeech || shieldLeech;
@@ -52,7 +55,9 @@ static class PlayerHitDamage
                 if ((path.History & source.History) != 0) increased += source.Increased;
             if ((path.History & DamageTypeHistory.Elemental) != 0) increased += elemental;
             if ((path.History & DamageTypeHistory.Physical) != 0)
-                increased += meleePhysical + (lifeLeech ? (double)get("physical_damage_+%_while_life_leeching") : 0);
+                increased += meleePhysical
+                    + (!melee && !spell && projectile && get("keystone_strong_bowman") != 0 ? strength : 0)
+                    + (lifeLeech ? (double)get("physical_damage_+%_while_life_leeching") : 0);
 
             // Preserve the existing attack multiply-before-divide projection and spell factor construction.
             // Clamp the complete increased bucket once: a negative original-type subtotal must survive until here.
