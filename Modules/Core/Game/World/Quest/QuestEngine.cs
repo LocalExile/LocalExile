@@ -381,6 +381,7 @@ static partial class Game
                 $"({string.Join(", ", QuestObjectTypes.Find(rule.ObjectType)?.Components ?? [])})");
             return;
         }
+        if (rule.GoneWhenTransitioned && QuestObjectTransitioned(conn, rule)) return;
         uint id = conn.NextObjectId++;
         lock (conn.QuestObjects) conn.QuestObjects[id] = (rule, at, info);
         if (info.Blocking) conn.SetBlocker(id, at.X, at.Y, info.Size);
@@ -490,6 +491,13 @@ static partial class Game
                 await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, (byte)opening, (byte)info.States),
                     $"0x02ba quest object 0x{id:x} {rule.ObjectType.Split('/')[^1]} opens: Transitionable → {info.States}");
                 await Send(remote, stream, ciphers, InstanceEntities.BlockageUpdate(id, false), $"0x01c6 quest object 0x{id:x} unblocked");
+                continue;
+            }
+            if (done && rule.GoneWhenTransitioned)
+            {
+                lock (conn.QuestObjects) conn.QuestObjects.Remove(id);
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
+                    $"0x02bb quest object 0x{id:x} {rule.ObjectType.Split('/')[^1]} removed (transitioned)");
                 continue;
             }
             if (info.Components.Contains("TriggerableBlockage"))
