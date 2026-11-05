@@ -614,15 +614,14 @@ A melee monster's chase order (an attack aimed at the player) swings by itself o
 test passes (§5, "A melee monster's chase"), since in lockstep `0x141e94720` waits for no 0x1ac and sets no 0.25 s
 repath: in the order's own frame when the monster stands in reach as it applies, else in the frame its own steps
 or the player's bring them within reach. With the player gone on, its action goes on after the live player, pathing
-again until he is in reach. In per-frame traces of six fights, every walk-up that came within reach swung by that rule
-(85 of 85: 82 at a path's end, 3 mid-path that took their due step first) and all 2 151 searches in a monster's tick
-aimed at the player's cell then. The Gateway runs the same test, at the order's apply (`TakeLockstepChase`) and in
-each frame of the step pass against the player's cell as his tick left it (`StepWalkUp`), and takes the swing as its
-own from that frame's start, with no order (`MonsterAiPlan.ArrivedSwings`): a second one only waits behind the swing
-(`0x141e8cf10`), and GGG's next 0x1ab to the same object after its 0x1ac comes 0.96 s later at the median. A lockstep
-melee monster standing in reach gets the chase, not a swing order. Before, the Gateway took the swing at its 50 ms AI
-pass with the player within reach of the estimate, 2 cells inside it while he walked: 105 of 298 swings the client
-began got orders sent into them (M0 bench). A ranged monster's
+again until he is in reach (per-frame traces of six fights: 85 of 85 walk-ups that came within reach). The Gateway
+runs the same test, at the order's apply (`TakeLockstepChase`) and in each frame of the step pass against the player's
+cell as his tick left it (`StepWalkUp`), and takes the swing as its own from that frame's start, with no order
+(`MonsterAiPlan.ArrivedSwings`): a second one only waits behind the swing (`0x141e8cf10`), and GGG's next 0x1ab to
+the same object after its 0x1ac comes 0.96 s later at the median. Dating the swing from the frame's start assumes the
+actor's clip advances in the tick the swing starts, which no hook has confirmed yet. A lockstep melee monster standing
+in reach gets the chase, not a swing order; one that never walks (MovementSpeed 0) gets no chase and keeps the swing
+order. A ranged monster's
 in-place attack leaves its Move running on a lockstep client as on a predictive one: per-frame, the shot's clip starts on
 the order's frame and the Sand Spitter walks on to its Move's target (377 shots ordered mid-Move: 1.4 cells left at the
 median, 4.2 at the 90th percentile, 7.6 at most), so the estimate keeps its walk; where its path is longer than the
