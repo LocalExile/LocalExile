@@ -300,7 +300,8 @@ and the hit lands at that clip's contact keyframe (`monster-contacts.json`).
 **The player's own walk-up.** The client's action goes on until the target is in reach, paths again every 0.05 s for a
 player (0.25 s for a monster, `0x141e8eb60`), and needs no word from the server to swing. The Gateway follows it: it
 paths again every 100 ms, for up to 3 s (`FollowMonsterToSwing`). In reach means the walk-up's own goal: the distance less
-the target's size within the weapon's range (WeaponTypes RangeMax: a bow or wand 120, the Rusted Sword 11; the client's
+the target's size within the weapon's range less one (WeaponTypes RangeMax: a bow or wand 120, the Rusted Sword 11;
+`0x141e8eb60` gives MoveTo `+0x168` − 1 as the max range and `+0x158` − 1 as the min (a 0 counts as 1), so the client's
 search runs with max range 119 for the bow and 10 for the sword, live 2026-11-03), with the line to the target. MoveTo
 (`0x141e7b530`) first tests where the player stands (`0x141e7b260`): in range, and the line to the target on layer 1
 (the projectile grid) holding the action's precision (`0x141e8eb60` → MoveTo `+0x528`: 3 for the bow's attack, 1 for

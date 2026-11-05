@@ -77,6 +77,18 @@ public class LockstepTests
     }
 
     [Fact]
+    public void A_player_attack_walks_up_to_the_weapon_range_less_one()
+    {
+        // A Drowned (size 2, the tolerance) 13 cells off and a sword of range 11: the client's MoveTo has max range 10, so
+        // the player is in reach only 12 cells off, one step on (the whole range would have it swing where it stands).
+        var conn = new ClientState(new(1, "walk-up", 300, 300, 100, 100, null, []), 1, 1);
+        var drowned = new SpawnedMonster("Drowned", new PlayerWalk(113, 100, 8, size: 2), 0, 4, 100);
+        var sword = new SkillCatalog.Unarmed(645, 1, 2, 11);
+        var (here, stop, _) = Game.WalkUpToSwing(conn, drowned, (113, 100), sword, 0, 1);
+        Assert.Equal(((100, 100), (101, 100)), (here, stop));
+    }
+
+    [Fact]
     public void Only_a_connection_confirmed_as_local_is_served()
     {
         Assert.Equal(LockstepMode.Local, LockstepLink.ModeOf("1"));
