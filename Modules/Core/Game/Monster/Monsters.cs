@@ -768,8 +768,9 @@ static partial class Game
                     if (!LockstepReorderDue(conn, plan, m, cadence, now) || !cadence.TryChase(m, to, now, walking: now < m.Walk.ArrivesAt || m.Leg is not null)) continue;
                     m.LastTarget = to;
                     m.SwingGeneration = null;
+                    var before = m.Walk.Save();
                     var from = PlaceMove(plan, m, to, now);
-                    plan.MoveLegs.Add((id, m, ++m.ActionGeneration, from, double.IsNaN(plan.FrameStart) ? CutToLeg(m, to, now) : to));
+                    plan.MoveLegs.Add((id, m, ++m.ActionGeneration, from, double.IsNaN(plan.FrameStart) ? CutToLeg(m, to, now, before) : to));
                 }
                 else if (LivingCollision.Blocks(m))
                     askers.Add((new(id, mx, my, LivingCollision.Size(m), m.LastTarget,
@@ -802,8 +803,9 @@ static partial class Game
                 if (!LockstepReorderDue(conn, plan, m, cadence, now) || !cadence.TryChase(m, to, now, retryAfterArrival: now >= m.Walk.ArrivesAt && !onLeg, walking: now < m.Walk.ArrivesAt || onLeg)) continue;
                 m.LastTarget = to;
                 m.SwingGeneration = null;
+                var before = m.Walk.Save();
                 var from = PlaceMove(plan, m, to, now);
-                plan.MoveLegs.Add((asker.Id, m, ++m.ActionGeneration, from, double.IsNaN(plan.FrameStart) ? CutToLeg(m, to, now) : to));
+                plan.MoveLegs.Add((asker.Id, m, ++m.ActionGeneration, from, double.IsNaN(plan.FrameStart) ? CutToLeg(m, to, now, before) : to));
             }
         }
         return plan;
@@ -829,14 +831,17 @@ static partial class Game
     static (int X, int Y) PlaceMove(MonsterAiPlan plan, SpawnedMonster m, (int X, int Y) to, double now) =>
         double.IsNaN(plan.FrameStart) ? m.Walk.Order(to.X, to.Y, now) : m.Walk.Position(now);
 
-    // A Move chase's walk, just placed at `at`, cut to its first LegCells cells when it is longer (07 §5): the walker goes
-    // to the leg's cell and is ordered on from there on the chase cadence. Returns the cell to order: the leg's, or the
-    // Move's own when the walk is no longer than a leg (or found no way).
-    static (int X, int Y) CutToLeg(SpawnedMonster m, (int X, int Y) to, double at)
+    // A Move chase's walk, just placed at `at` over the walk saved as `before`, cut to its first LegCells cells when it is
+    // longer (07 §5): the walker goes to the leg's cell and is ordered on from there on the chase cadence. Returns the cell
+    // to order: the leg's, or the Move's own when the walk is no longer than a leg (or found no way). The leg goes over
+    // `before`, as the client gets only the leg: the walk to `to` never ran, and over it a stand's kept time would be spent
+    // and the leg start a step late.
+    static (int X, int Y) CutToLeg(SpawnedMonster m, (int X, int Y) to, double at, GameServer.Core.World.PlayerWalk.Snapshot before)
     {
         double legSeconds = m.Walk.Speed > 0 ? LegCells / m.Walk.Speed : 0;
         var leg = legSeconds > 0 && m.Walk.ArrivesAt - at > legSeconds + 1e-9 ? m.Walk.Ahead(at, legSeconds) : to;
         if (leg == to || leg == m.Walk.Position(at)) { m.Leg = null; return to; }
+        m.Walk.Restore(before);
         m.Walk.Order(leg.X, leg.Y, at);
         m.Leg = leg;
         return leg;
@@ -1055,6 +1060,7 @@ static partial class Game
     internal static ((int X, int Y) Here, (int X, int Y) Aim, bool Attack) PlaceLockstepLeg(ClientState conn, SpawnedMonster m, int action, double at)
     {
         var player = conn.Walk.Position(at);
+        var before = m.Walk.Save();
         var walk = m.Walk.Approach(player.X, player.Y, m.Attack!.Range - 1, at, LivingCollision.PlayerSize);
         var leg = m.Walk.Ahead(at, LegCells / m.Walk.Speed);
         // A leg within two cells is no way either: the client would not take it (LockstepTakesMove), and the attack's
@@ -1064,6 +1070,9 @@ static partial class Game
             TakeLockstepChase(m, action, walk.Here, player, at);
             return (walk.Here, player, true);
         }
+        // The client gets only the leg, so it goes over the walk before the walk-up, which never ran: over the walk-up a
+        // stand's kept time would be spent and the leg start a step late.
+        m.Walk.Restore(before);
         return (m.Walk.Order(leg.X, leg.Y, at), leg, false);
     }
 
@@ -1100,7 +1109,7 @@ static partial class Game
         var here = m.Walk.Position(at);
         var (saved, leg) = (m.Walk.Save(), m.Leg);
         var placed = m.Walk.Order(to.X, to.Y, at);
-        var aim = CutToLeg(m, to, at);
+        var aim = CutToLeg(m, to, at, saved);
         if (LockstepTakesMove(here, aim)) return (placed, aim, true);
         m.Walk.Restore(saved);
         m.Leg = leg;

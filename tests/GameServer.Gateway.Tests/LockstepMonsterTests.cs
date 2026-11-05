@@ -227,6 +227,27 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal((100, 100), aim);   // the player's cell
         Assert.Null(walled.LastTarget);
         Assert.Null(walled.ClientChase);
+
+        // A monster a stop left 149 ms into a 177 ms diagonal step starts its leg from the stand with that time, as the
+        // client does with the one order it gets: a step in the order's frame. The walk-up placed to find the leg, and the
+        // Move a leg is cut from, never ran and must not spend it.
+        double start = 1.0;
+        SpawnedMonster Stood()
+        {
+            start = 1.0;
+            var m = Drowned(new PlayerWalk(161, 101, 8) { FrameOf = at => (Math.Min(at, start), start + .033) });
+            m.Walk.Order(150, 90, now: 0);
+            m.Walk.Order(156, 96, now: 1.0);   // stands at (156, 96) after the frame
+            start = 1.099;
+            return m;
+        }
+        conn.LockstepFrame = (1.099, 1.132);
+        var stood = Stood();
+        Assert.False(Game.PlaceLockstepLeg(conn, stood, 1, 1.099).Attack);
+        Assert.Single(stood.Walk.Steps(1.099, 1.132));
+        stood = Stood();
+        Assert.True(Game.PlaceLockstepMoveLeg(stood, (120, 96), 1.099).Taken);
+        Assert.Single(stood.Walk.Steps(1.099, 1.132));
     }
 
     // A lockstep client takes no Move whose target is within two cells of the walker (0x1419442d0): no set, no search,
