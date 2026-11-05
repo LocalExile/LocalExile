@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -23,6 +24,15 @@ static partial class Game
         }
     }
 
+    // Temporary lag instrumentation (remove with the investigation): this thread's CPU time tells a slow call from a
+    // stall (waiting for a lock or the pool, a collection, the thread descheduled).
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    static extern IntPtr GetCurrentThread();
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    static extern bool GetThreadTimes(IntPtr thread, out long creation, out long exit, out long kernel, out long user);
+    static long ThreadCpuMilliseconds() =>
+        GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user) ? (kernel + user) / 10_000 : 0;
+
     internal static async Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt = 0)
     {
@@ -30,6 +40,19 @@ static partial class Game
         {
             if (conn.Closed) return;
             using var timing = conn.Performance.Message(id);
+            // One character snapshot for this message: its validation, payment and launch read the same stats instead of
+            // rebuilding the whole character five or six times (2026-11-05: 154 builds/s cost a full core).
+            using var stats = new PlayerStatScope(conn);
+            // Temporary lag instrumentation (remove with the investigation): which phase of a cast message takes its time.
+            long useStarted = Stopwatch.GetTimestamp(), phaseAt = useStarted, useCpuStarted = ConnectionPerformance.LagProbe ? ThreadCpuMilliseconds() : 0;
+            var phases = new List<string>();
+            void Mark(string name)
+            {
+                if (!ConnectionPerformance.LagProbe) return;
+                long now = Stopwatch.GetTimestamp();
+                phases.Add($"{name}={Stopwatch.GetElapsedTime(phaseAt, now).TotalMilliseconds:0}");
+                phaseAt = now;
+            }
             // A terminal Hardcore owner may only leave for character selection.
             if (HardcoreProgressBlocked(conn) && id != 0x0153) continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
@@ -40,7 +63,10 @@ static partial class Game
                 or InstanceWaypoints.TravelId or InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitDelveHubId or InstanceWaypoints.VisitMenagerieId or InstanceWaypoints.VisitSanctumId or InstanceWaypoints.VisitKingsmarchId or InstanceWaypoints.VisitHeistHubId or InstanceWaypoints.VisitChayulaHubId or InstanceHideouts.SelectId
                 || id == InstanceProtocol.ResurrectId && InstanceProtocol.ReadResurrectInTown(bytes)
                 || id == InstanceItems.CommandId && InstanceItems.ReadCommand(bytes).Id == InstanceItems.WarpToHideoutCommand;
-            if (!transferIngress) AdvanceProjectiles(conn);
+            // Projectiles advance on their own 30 Hz pump. Advancing them again before every input message made a
+            // Kinetic Blast burst's backlog of contacts (and the kills and loot they enqueue) run inside the input
+            // handler: 0x0025 took 100-200 ms and the input queue reached 7 s (2026-11-05). Handlers that need a
+            // current simulation use ProjectileMutation, which advances under the same locks.
             // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.
             if (id == InstanceTransfer.LeaveAreaAckId)
             {
@@ -71,12 +97,16 @@ static partial class Game
                     conn.HeldMove = null;
                 }
             }
+            if (id == InstanceProtocol.UseSkillAtLocationId) Mark("hold");
             if (id == InstanceProtocol.UseSkillAtLocationId)
             {
+                try
+                {
                 // Echo the action so the client runs it (Move on a ground click); an attack gem is paced and may be movement
                 // (below). The client starts the action itself and waits for this echo before sending the next one.
                 var use = InstanceProtocol.ReadUseSkillAtLocation(bytes);
                 double at = conn.ClockAt(readAt);   // when the client applied the click, not when this handler runs
+                Mark("read");
                 if (use.SkillId == TutorialObjects.WashedUpSkillId)
                 {
                     await WakeUpOnBeach(remote, stream, ciphers, conn, (use.X, use.Y), use.Slot, use.Flags, at);
@@ -86,9 +116,12 @@ static partial class Game
                 if (InTown(conn) && SkillsFor(conn).ActionName(use.SkillId) != "Move") continue;
                 if (SkillsFor(conn).ActionName(use.SkillId) != "Move")
                     await EndGracePeriod(remote, stream, ciphers, conn, action: true);
+                Mark("grace");
                 bool cast = SkillsFor(conn).IsGemSkill(use.SkillId);
                 var gem = cast ? GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId) : default;
+                Mark("gem");
                 if (cast && gem.Name is not null && !ProjectilePathAvailable(remote, conn, use.SkillId, gem.Effect)) continue;
+                Mark("path");
                 // A disabled gem's skill is not confirmed: the client animates the cast and sends the use anyway (it only reds
                 // the gem), so without the 0x1ab the action does not run. No projectile, mana or cooldown either.
                 if (cast && gem.Name is not null
@@ -99,6 +132,7 @@ static partial class Game
                     await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (disabled skill, cost back)");
                     continue;
                 }
+                Mark("disabled");
                 // The ordinary ranged attack fires at the ground point; it is neither a melee hit nor a Move action.
                 // Both bows and wands create their native Projectiles.dat object at the weapon's attack contact.
                 string? ordinaryProjectile = OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true));
@@ -115,6 +149,7 @@ static partial class Game
                         (use.X, use.Y), duration, shot.Action, projectileEpoch, ordinaryProjectile, use.Slot, shot.CriticalRoll);
                     continue;
                 }
+                Mark("ordinary");
                 // An attack gem (Holy Strike, Ground Slam …) used on the ground with "Always Attack Without Moving" off: a
                 // point beyond the weapon's reach is an attack-move (the client walks to it itself and sends no C→S 0x25
                 // Move for that walk, so the server walks its own estimate after it), which costs no mana; a point within
@@ -153,6 +188,7 @@ static partial class Game
                         continue;
                     }
                 }
+                Mark("attackmove");
                 // An attack gem swings with the weapon's attack time, while the client keeps aiming it for as long as the
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
                 // (its pending hit), pay its cost or get a 0x1ab (live 2026-10-25).
@@ -161,6 +197,7 @@ static partial class Game
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                     continue;
                 }
+                Mark("ready");
                 int action = 0;
                 (int px, int py) = (0, 0);
                 CooldownUseTicket? cooldownUse = null;
@@ -205,11 +242,14 @@ static partial class Game
                                 Math.Max(TickSeconds, WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn)) / PlayerActionFactor(conn)));
                     }
                 }
+                Mark("begin");
                 if (chargeToken != 0) _ = RunShieldCharge(remote, stream, ciphers, conn, chargeToken, conn.Walk.ArrivesAt,
                     use.SkillId, use.Slot, cooldownUse?.ActionToken ?? action, cooldownUse);
+                Mark("charge");
                 bool projectileRuntime = cast && gem.Name is not null && UsesProjectileRuntime(gem.Effect);
                 if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId,
                     (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
+                Mark("cast");
                 bool acknowledged = false;
                 Func<Task> echo = () => Send(remote, stream, ciphers,
                     [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags), .. cast ? InstanceProtocol.ActionEnded(PlayerId) : []],
@@ -218,6 +258,7 @@ static partial class Game
                         () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
                 if (projectileRuntime) ProjectilesFor(remote, stream, ciphers, conn).Enqueue(echo);
                 else await echo();
+                Mark("echo");
                 if (!projectileRuntime && !acknowledged) continue;
                 if (cooldownUse?.Current(conn) == false) continue;
                 if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, (px, py), (use.X, use.Y), sequence: use.Slot,
@@ -236,6 +277,15 @@ static partial class Game
                     float speed = float.TryParse(Environment.GetEnvironmentVariable("Game_MOVE_SPEED"), System.Globalization.CultureInfo.InvariantCulture, out var sp) ? sp : 37f;
                     await Send(remote, stream, ciphers, InstanceProtocol.MoveTo(PlayerId, use.X, use.Y, speed),
                         $"0x01ba move to ({use.X}, {use.Y}) speed {speed}", still: () => PlayerActionCurrent(conn, action));
+                }
+                }
+                finally
+                {
+                    Mark("tail");
+                    double useTotal = Stopwatch.GetElapsedTime(useStarted).TotalMilliseconds;
+                    if (ConnectionPerformance.LagProbe && useTotal > 40)
+                        Console.WriteLine($"[slow-use] {remote} total={useTotal:0} cpu={(ThreadCpuMilliseconds() - useCpuStarted):0}"
+                            + $" {string.Join(" ", phases)}");
                 }
             }
             else if (InstanceProtocol.IsLockstepRequest(id))
@@ -647,7 +697,7 @@ static partial class Game
                     await SpawnTownNpcs(remote, stream, ciphers, conn);
                     await SpawnTownStash(remote, stream, ciphers, conn);
                     // All stationary objects must exist before validating the arrival cell.
-                    await PushOutOfCollision(remote, stream, ciphers, conn);
+                    await PushOutOfCollision(remote, stream, ciphers, conn, tell: true);
                     await conn.Commands!.Reply($"Area generated at Seed: {conn.Seed}");
                     // An area the Gateway does not generate itself (ServerLevels) runs on the client's layout alone.
                     if (!ServerLevels.IsSupported(conn.Layout.Id) && !CaptureTour.Active(CharacterName(conn)))

@@ -86,7 +86,7 @@ static partial class Game
             // The native client predicts regeneration between corrections. Removing the rate alone leaves
             // its predicted overshoot in place when the server has no further recovery tick to publish.
             bytes.AddRange(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife));
-            bytes.AddRange(InstanceEntities.PlayerSkillsChange(PlayerId, PlayerSkills(conn), []));
+            bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
             conn.SentWard = ward; conn.SentAdrenalineUntil = adrenaline;
             conn.SentStunRecoveryUntil = recovery;
             conn.SentEnduringCryUntil = cry;

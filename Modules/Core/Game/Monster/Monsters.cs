@@ -232,7 +232,14 @@ static partial class Game
         else
         {
             await Send(remote, stream, ciphers, create, createLog);
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), !log ? null : $"0x01a9 monster 0x{id:x} enters wake zone");
+            // A boss far from the player (Dominus at the top of the Sceptre, created at the area entry) stays out of the
+            // wake zone until the player comes near: KeepWakeZone wakes it there. Woken at creation, the client put its far
+            // copy to sleep on its own while the server still had it awake, and the boss life bar (0x2ba boss_life_bar) for
+            // it crashed the client at 0x14012946a (an Actor lookup on an object without components, live 2026-11-05).
+            bool farBoss = variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
+            if (farBoss) lock (conn.Monsters) conn.AsleepMonsters.Add(id);
+            else await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), !log ? null : $"0x01a9 monster 0x{id:x} enters wake zone");
+            if (farBoss && log) Console.WriteLine($"[gateway] {remote} boss 0x{id:x} {variety} created asleep: far from the player");
         }
         // A magic or rare monster's glow is a buff of its own (MonsterRarityBuffs.cs), cancelled by the client at death.
         if (MonsterRarityBuffs.Row(rarity) is ushort glow)
@@ -512,6 +519,9 @@ static partial class Game
                 // the estimate walked meanwhile (live 2026-11-03: 162 cells, in one jump).
                 if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted || m.Asleep
                     || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
+                // Asleep for this client (its own wake zone, KeepWakeZone): no order and no boss bar about an object the
+                // client has put to sleep; the boss life bar for one crashed the client (live 2026-11-05).
+                if (conn.AsleepMonsters.Contains(id)) continue;
                 // The King in the Mists has its own phase controller (KingInMists.cs): one action at a time, all its
                 // damage through MonsterSwing/MonsterAreaContact. Its Mystic Fetishes are stationary shrines the
                 // controller activates; the ordinary chase would slowly drag them toward the player.

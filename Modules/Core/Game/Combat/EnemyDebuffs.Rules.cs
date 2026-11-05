@@ -43,6 +43,9 @@ static partial class Game
     // Pride adds its own enemy aura (BuffDefinitions 1331) with the ramp each monster keeps while it stays inside.
     // Each monster then keeps the increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and
     // burns read. A refund or a death takes the auras off; a new area is a new connection.
+    // How many u32 stat values the client reads in Pride's enemy buff (BuffDefinitions 1331) before its counted list.
+    const int PrideEnemyValues = 15;
+
     internal static async Task EnemyDebuffsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         ushort[] nodes;
@@ -159,7 +162,15 @@ static partial class Game
                         if (distance > aura.Radius) continue;
                         if (!m.PlayerAuras.ContainsKey((conn.PeerId, aura.Definition)))
                         {
-                            bytes.AddRange(InstanceEntities.AddBuff(id, m.PlayerAuras[(conn.PeerId, aura.Definition)] = conn.NextBuff++, aura.Definition, PlayerId));
+                            // Pride's row (1331) has the bool at +0x7d (__col25 in the vendored schema) that, as IsRecovery
+                            // does, makes the client read its stat values: fifteen u32 before the counted list, whatever the
+                            // message holds (a probe on 0x141fdf870, live 2026-11-05), not the row's three GrantedStats (pride_physical_damage_taken_+%_final,
+                            // base_additional_physical_damage_reduction_%, receive_bleeding_chance_%_when_hit_by_attack).
+                            // Without them it read 12 bytes of the next message ("Unable to deserialise packet with pid
+                            // 1032. Last PID was 449", live 2026-11-05, Dominus' second form walking into the aura).
+                            uint[]? values = aura.Definition == AuraCatalog.PrideBuffRow ? [(uint)Math.Max(0, prideValues.Min), .. new uint[PrideEnemyValues - 1]] : null;
+                            bytes.AddRange(InstanceEntities.AddBuff(id, m.PlayerAuras[(conn.PeerId, aura.Definition)] = conn.NextBuff++, aura.Definition, PlayerId,
+                                values: values));
                             added++;
                         }
                         elemental += aura.Stats.Where(s => s.Key == elementalKey).Sum(s => s.Value);

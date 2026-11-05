@@ -59,24 +59,27 @@ static partial class Game
                     }
                 }
                 if (conn.LockstepClient) packets.AddRange(LockstepPlace(back));
-                else if (back.Count > 0) packets.AddRange(InstanceProtocol.Resync([(PlayerId, player.X, player.Y), .. back]));
+                else foreach (var (id, x, y) in back) packets.AddRange(InstanceProtocol.Teleport(id, x, y, 0x7fffffff));
                 return packets.Count == 0 ? null : [.. packets];
             }
         });
     }
 
-    // S→C 0x128 with the player first, then the monsters around it, where the server has them. Called under conn.Monsters.
+    // The monsters around the player where the server has them, each by its own teleport (S→C 0x1b7, terrain height).
+    // The player is not among them: the client's position is the truth and the server's walk only estimates it, so S→C
+    // 0x128 (whose first record the client puts the player on) snapped the player back to the estimate at every stun,
+    // freeze, movement skill and resync request. Called under conn.Monsters.
     internal static byte[] ResyncPacketLocked(ClientState conn, double now)
     {
         var player = conn.Walk.Position(now);
-        List<(uint Id, int X, int Y)> objects = [(PlayerId, player.X, player.Y)];
+        var bytes = new List<byte>();
         foreach (var (id, m) in conn.Monsters)
         {
-            if (m.Dead || m.Life <= 0) continue;
+            if (m.Dead || m.Life <= 0 || conn.AsleepMonsters.Contains(id) || conn.Instance is not null && !conn.MonsterViews.ContainsKey(id)) continue;
             var at = m.Walk.Position(now);
-            if (Dist(at, player) <= ResyncRadius) objects.Add((id, at.X, at.Y));
+            if (Dist(at, player) <= ResyncRadius) bytes.AddRange(InstanceProtocol.Teleport(id, at.X, at.Y, 0x7fffffff));
         }
-        return InstanceProtocol.Resync(objects);
+        return [.. bytes];
     }
 
     /// <summary>How far a skill that travels a set distance along the aimed line goes, whatever the target's distance

@@ -111,6 +111,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   "Resurrect at Checkpoint" (hardcore: "Exit"), and both buttons work (C→S 0x54; in town: the last town); `/heal`.
   Code: `MonsterAttack`, `Resurrect`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §6–7.
+- Dominus (Upper Sceptre of God): both forms fight to the end without a client crash (live 2026-11-05).
+  He swings `DominusLightningSlam` (bond, mark and souls effects are skipped); a far boss is created asleep and
+  woken when the player comes near. Code: `MavenNucleus.CombatEffect`, `SpawnMonster`.
+  Docs: [11](../docs/protocol/11-skills.md) §6.
 
 ## Partly working
 
