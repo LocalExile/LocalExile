@@ -1294,9 +1294,10 @@ static partial class Game
         }
     }
 
-    // A monster's 0x1d1 TakeHit for the recovery until `until` (FlinchUntil when it was accepted at `now`), written in its
-    // send gate (under conn.Monsters). On a lockstep client that recovery runs in the client's frames from the frame being
-    // sent, so FlinchUntil becomes the start of the frame it ends in (LockstepRecoveryEnds).
+    // A monster's 0x1d1 TakeHit for the recovery from `now` until `until` (its FlinchUntil when that is still the hit's),
+    // written in its send gate (under conn.Monsters): every hit's and a Rampage stun's (RampageStunPacket). On a lockstep
+    // client that recovery runs in the client's frames from the frame being sent, so FlinchUntil becomes the start of the
+    // frame it ends in (LockstepRecoveryEnds).
     internal static byte[] TakeHitPacket(ClientState conn, uint id, SpawnedMonster m, double until, double now)
     {
         float seconds = (float)(until - now);

@@ -277,14 +277,24 @@ static partial class Game
                     if (!Current()) { completed = true; return null; }
                     if (conn.Paused) return null;
                     completed = true;
-                    float remaining = (float)(token.Until - Now());
-                    return remaining > 0
-                        ? InstanceProtocol.ActorAnimation(token.Id, remaining, PlayerHitRecovery.TakeHitAnimation) : null;
+                    return RampageStunPacket(conn, token, Now());
                 }
             });
             if (completed) return;
             await Task.Delay(16);
         }
+    }
+
+    // A current stun's 0x1d1 at its send gate, for the recovery left of it at `now`, under conn.Monsters. It is a monster
+    // TakeHit like any other (TakeHitPacket), so a lockstep client's recovery is held in its frames, and the stun's own
+    // hold on the AI (BusyUntil, RampageStatusLocked) moves with it.
+    internal static byte[]? RampageStunPacket(ClientState conn, RampageStunToken token, double now)
+    {
+        var target = token.Target;
+        if ((float)(token.Until - now) <= 0) return null;
+        var packet = TakeHitPacket(conn, token.Id, target, token.Until, now);
+        if (target.BusyUntil == token.Until) target.BusyUntil = target.FlinchUntil;
+        return packet;
     }
 
     static Task SendRampageRemoval(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id) =>

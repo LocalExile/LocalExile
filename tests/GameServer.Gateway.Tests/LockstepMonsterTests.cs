@@ -145,6 +145,15 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal(((93, 102), (101, 101)), Game.PlaceLockstepChase(hurtConn, hurt, recovered, 2.046));
         Assert.Null(hurt.ClientSwingAt);
         Assert.Equal(recovered, hurt.ClientChase);
+        // A Rampage stun's 0x1d1 is held in the same frames, and the stun's hold on the AI with it: 0.35 s from 10.0,
+        // written at 10.001 in the frame from 9.990 with 0.349 s left, ends 11 frames later.
+        var stunned = Drowned(new PlayerWalk(93, 102, 8));
+        stunned.FlinchUntil = stunned.BusyUntil = 10.35;
+        hurtConn.LockstepFrame = (9.990, 10.023);
+        lock (hurtConn.Monsters)
+            Assert.NotNull(Game.RampageStunPacket(hurtConn, new(0x3001, stunned, 1, stunned.ActionGeneration, 0, 0, 0, 10.35), 10.001));
+        Assert.Equal(9.990 + 11 * 0.033, stunned.FlinchUntil, 9);
+        Assert.Equal(stunned.FlinchUntil, stunned.BusyUntil);
         // A frame end overtakes the next chase (the AI pass and the frame loop are separate tasks): in that frame the
         // client still runs the walk-up, which steps into reach at 0.25 and swings. The chase is not sent into the swing,
         // and the next pass takes it from that frame's start.
