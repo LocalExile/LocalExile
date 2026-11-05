@@ -324,7 +324,11 @@ and the hit lands at that clip's contact keyframe (`monster-contacts.json`). The
 0xb188, at Actor `+0x1b0` from its start: the moving flag, Positioned `+0x240`, was clear in 6 343 of 6 368 samples in
 24 lockstep pack fights and in 15 557 of 15 640 of GGG's melee monsters'): whether it reaches the player depends on
 where he is at the keyframe, not at the swing's start. The Gateway lands the hit only within reach + 2 cells of the
-monster then (`CommitMonsterHitLocked`), a margin with no source either.
+monster then (`CommitMonsterHitLocked`). GGG's recordings do not pin that margin, and they do not show a test at the
+reach (MaximumAttackDistance) alone either. By the player's client cell at the contact, GGG hit in 76 % of the swings
+within the reach, 54 % one cell beyond it, 30 % two beyond and 4 % farther. Its client's player runs about a round trip
+(1 to 2 cells) ahead of its server's copy, but a player who had stood for 0.4 s was hit 0.4 and 1.1 cells beyond the
+reach (2 of 3 swings), and in none of 5 swings 3 cells or more beyond.
 
 **The player's own walk-up.** The client's action goes on until the target is in reach and needs no word from the
 server to swing. A predictive client's paths again every 0.05 s for a player (0.25 s for a monster, `0x141e8eb60`, which
