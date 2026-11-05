@@ -246,7 +246,7 @@ static partial class Game
         });
 
     internal static Task SendPlayerEnergyShield(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], "0x01b1 player energy shield", atGate: () =>
+        Send(remote, stream, ciphers, [], "0x01b1 player energy shield", sync: "energy-shield", atGate: () =>
         {
             // Sample and deduplicate after earlier sends: a queued pool change can clamp ES or end recharge.
             // Publish the current resource and its predictor together, from the same locked state.

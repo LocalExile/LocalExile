@@ -68,12 +68,27 @@ static partial class Game
 
         public void Advance()
         {
-            // Match the existing XP -> connection lock order. Kill reactions may gain XP synchronously.
-            lock (LevelUpdatesFor(Conn).Gate)
-            lock (Conn.Monsters)
+            // Temporary lag instrumentation (remove with the investigation): how long a pump tick holds the Monsters lock.
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            double waited = 0;
+            int projectiles = 0;
+            try
             {
-                if (!Active) { Invalidate(); return; }
-                if (!Conn.Paused) Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(Conn.Clock.Elapsed.TotalSeconds)));
+                // Match the existing XP -> connection lock order. Kill reactions may gain XP synchronously.
+                lock (LevelUpdatesFor(Conn).Gate)
+                lock (Conn.Monsters)
+                {
+                    waited = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                    if (!Active) { Invalidate(); return; }
+                    if (!Conn.Paused) Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(Conn.Clock.Elapsed.TotalSeconds)));
+                    projectiles = Runtime.Projectiles.Count;
+                }
+            }
+            finally
+            {
+                double total = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                if (total > 40)
+                    Console.WriteLine($"[slow-tick] {remote} total={total:0} wait={waited:0} hold={total - waited:0} projectiles={projectiles}");
             }
         }
 
@@ -136,8 +151,9 @@ static partial class Game
         internal void PresentCharges() => Packet(() =>
         {
             _ = CharacterPlayerStats(Conn);
-            var (packet, changed) = CurrentChargePresentationLocked(Conn, remote);
-            if (changed) Conn.Minions.StatRevision++;
+            // The charge ticker publishes the stats once per step; a per-hit revision here rebuilt PlayerSkills
+            // inside the send gate for every projectile hit (2026-11-05: 0x0025 handlers at 100-200 ms).
+            var (packet, _) = CurrentChargePresentationLocked(Conn, remote);
             return packet;
         });
         internal void Packet(byte[] bytes, string? log = null) => Packet(() => bytes, log);
@@ -378,7 +394,10 @@ static partial class Game
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
                     return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(p.Profile.Id), obj.Blob(), headerU32: 0xffffffff);
                 });
-                Packet(() => visual.Created ? InstanceProtocol.EnterWakeZone(id) : null);
+                // The client puts a created projectile in its wake zone itself. Repeating 0x1a9 for every child made the
+                // client log "ObjectInWakeZone was called ... already in the wake zone" per Kinetic Blast projectile
+                // (live 2026-11-05), flooding its log and stalling its socket reads, so projectile visuals are not woken
+                // separately; the create is enough (the server drives their motion and removal).
                 if (presentation.FlightClip is { } clip)
                     Packet(() => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed) : null);
                 UpdateForm(p, visual);

@@ -126,5 +126,123 @@ sealed class ConnectionPerformance
         for (int i = 0; i < peaks.Length; i++)
             line.Append($" {Names[i]}={peaks[i] * 1000.0 / Stopwatch.Frequency:0.00}");
         Console.WriteLine(line);
+        // Temporary lag instrumentation (remove with the investigation): totals against the interval, so the maxima
+        // above can be read as work per second, and the runtime's own costs beside them.
+        var totals = new StringBuilder($"[latency-totals] {remote} interval={Stopwatch.GetElapsedTime(before, now).TotalSeconds:0.0}s");
+        for (int i = 0; i < peaks.Length; i++)
+            totals.Append($" {Names[i]}={Read((LatencyPhase)i).TotalMilliseconds:0}x{Read((LatencyPhase)i).Count}");
+        totals.Append(' ').Append(RuntimeSummary(before));
+        long builds = Interlocked.Exchange(ref statBuilds, 0), buildTicks = Interlocked.Exchange(ref statBuildTicks, 0);
+        double interval = Stopwatch.GetElapsedTime(before, now).TotalSeconds;
+        totals.Append($" stat-builds={builds / Math.Max(.001, interval):0}/s={buildTicks * 100.0 / Stopwatch.Frequency / Math.Max(.001, interval):0}%cpu");
+        Console.WriteLine(totals);
+        var kinds = new StringBuilder($"[latency-sends] {remote}");
+        var taken = TakeSends();
+        for (int i = 0; i < Math.Min(10, taken.Length); i++)
+            kinds.Append($" 0x{taken[i].Id:x4}={taken[i].Ticks * 1000.0 / Stopwatch.Frequency:0}msx{taken[i].Count}");
+        Console.WriteLine(kinds);
+        var empty = new StringBuilder($"[latency-empty] {remote} gate={Read(LatencyPhase.SendHold).TotalMilliseconds:0}ms");
+        var emptyTaken = TakeEmptySends();
+        for (int i = 0; i < Math.Min(10, emptyTaken.Length); i++)
+            empty.Append($" {emptyTaken[i].Caller}={emptyTaken[i].Ticks * 1000.0 / Stopwatch.Frequency:0}msx{emptyTaken[i].Count}");
+        Console.WriteLine(empty);
     }
+
+    readonly Dictionary<string, long> syncs = [];
+    long statBuilds, statBuildTicks;
+
+    /// <summary>One full player-stat build and how long it took. Temporary lag instrumentation.</summary>
+    public void StatBuild(long start) => StatBuildTicks(Stopwatch.GetTimestamp() - start);
+
+    void StatBuildTicks(long ticks)
+    {
+        Interlocked.Increment(ref statBuilds);
+        Interlocked.Add(ref statBuildTicks, ticks);
+    }
+
+    /// <summary>At most one state sync of a kind per window: the update loops call their publishers every 16-32 ms,
+    /// and each publish takes the send gate and <c>lock (conn.Monsters)</c> even when it has nothing new (2026-11-05:
+    /// ~230 such sends a second, the gate held 58% of the time, and the input handlers queued 4-8 s behind them). The
+    /// packets are idempotent state snapshots, so a skipped step's change goes out with the next publish.</summary>
+    public bool SyncDue(string name, double milliseconds)
+    {
+        long now = Stopwatch.GetTimestamp();
+        lock (syncs)
+        {
+            if (syncs.TryGetValue(name, out long last) && Stopwatch.GetElapsedTime(last, now).TotalMilliseconds < milliseconds)
+                return false;
+            syncs[name] = now;
+            return true;
+        }
+    }
+
+    readonly Dictionary<ushort, (long Count, long Ticks)> sends = [];
+    readonly Dictionary<string, (long Count, long Ticks)> emptySends = [];
+
+    /// <summary>A sync send whose builder published nothing (it took the gate and the Monsters lock to find that out).
+    /// Temporary lag instrumentation.</summary>
+    public void EmptySend(string caller, long ticks)
+    {
+        lock (sends)
+        {
+            emptySends.TryGetValue(caller, out var sample);
+            emptySends[caller] = (sample.Count + 1, sample.Ticks + ticks);
+        }
+    }
+
+    (string Caller, long Count, long Ticks)[] TakeEmptySends()
+    {
+        lock (sends)
+        {
+            var taken = new (string Caller, long Count, long Ticks)[emptySends.Count];
+            int i = 0;
+            foreach (var (caller, sample) in emptySends) taken[i++] = (caller, sample.Count, sample.Ticks);
+            emptySends.Clear();
+            Array.Sort(taken, (a, b) => b.Count.CompareTo(a.Count));
+            return taken;
+        }
+    }
+
+    /// <summary>One packet's gate hold, by message id. Temporary lag instrumentation.</summary>
+    public void Send(ushort id, long ticks)
+    {
+        lock (sends)
+        {
+            sends.TryGetValue(id, out var sample);
+            sends[id] = (sample.Count + 1, sample.Ticks + ticks);
+        }
+    }
+
+    (ushort Id, long Count, long Ticks)[] TakeSends()
+    {
+        lock (sends)
+        {
+            var taken = new (ushort Id, long Count, long Ticks)[sends.Count];
+            int i = 0;
+            foreach (var (id, sample) in sends) taken[i++] = (id, sample.Count, sample.Ticks);
+            sends.Clear();
+            Array.Sort(taken, (a, b) => b.Ticks.CompareTo(a.Ticks));
+            return taken;
+        }
+    }
+
+    /// <summary>Interval GC pause time and allocation, with the thread pool's backlog: a delayed continuation and a
+    /// collection both show up as a slow phase, and neither is the phase's own work. Temporary lag instrumentation.</summary>
+    public static string RuntimeSummary(long since)
+    {
+        var pause = GC.GetTotalPauseDuration().TotalMilliseconds;
+        long allocated = GC.GetTotalAllocatedBytes();
+        double seconds = Stopwatch.GetElapsedTime(since).TotalSeconds;
+        double pauseDelta = pause - Interlocked.Exchange(ref lastPauseMs, (long)pause);
+        long allocatedDelta = allocated - Interlocked.Exchange(ref lastAllocatedBytes, allocated);
+        double cpu = Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds;
+        double cpuDelta = cpu - Interlocked.Exchange(ref lastCpuMs, (long)cpu);
+        return $"gc-pause={pauseDelta:0}ms gc-alloc={allocatedDelta / (1024.0 * 1024.0) / Math.Max(.001, seconds):0}MB/s "
+            + $"gc-gen2={GC.CollectionCount(2)} proc-cpu={cpuDelta / Math.Max(.001, seconds) / 10:0}% "
+            + $"tp-threads={ThreadPool.ThreadCount} tp-pending={ThreadPool.PendingWorkItemCount}";
+    }
+
+    static long lastPauseMs = (long)GC.GetTotalPauseDuration().TotalMilliseconds;
+    static long lastAllocatedBytes = GC.GetTotalAllocatedBytes();
+    static long lastCpuMs = (long)Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds;
 }
