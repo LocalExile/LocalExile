@@ -174,7 +174,7 @@ static partial class Game
                             stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
                     }
                     packets.Add(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                    packets.Add(InstanceEntities.PlayerSkillsChange(PlayerId, PlayerSkills(conn), []));
+                    packets.Add(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
                     session.PresentedRevision = session.Revision;
                     return packets.SelectMany(p => p).ToArray();
                 });

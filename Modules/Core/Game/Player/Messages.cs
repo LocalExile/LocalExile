@@ -30,6 +30,7 @@ static partial class Game
         {
             if (conn.Closed) return;
             using var timing = conn.Performance.Message(id);
+            using var statsScope = id is 0x0024 or 0x0025 ? PlayerStatsScope(conn) : null;
             // A terminal Hardcore owner may only leave for character selection.
             if (HardcoreProgressBlocked(conn) && id != 0x0153) continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
@@ -647,7 +648,7 @@ static partial class Game
                     await SpawnTownNpcs(remote, stream, ciphers, conn);
                     await SpawnTownStash(remote, stream, ciphers, conn);
                     // All stationary objects must exist before validating the arrival cell.
-                    await PushOutOfCollision(remote, stream, ciphers, conn);
+                    await PushOutOfCollision(remote, stream, ciphers, conn, tell: true);
                     await conn.Commands!.Reply($"Area generated at Seed: {conn.Seed}");
                     // An area the Gateway does not generate itself (ServerLevels) runs on the client's layout alone.
                     if (!ServerLevels.IsSupported(conn.Layout.Id) && !CaptureTour.Active(CharacterName(conn)))

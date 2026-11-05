@@ -671,6 +671,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   every class's from its rig .amd), with the server duration adjusted once for cast speed.
   Code: `AnimationContacts.cs`, `scripts/re/anim_contacts.py`.
   Docs: [11](../docs/protocol/11-skills.md) §9.
+- Pride on enemies: its buff (row 1331) reaches every monster in the aura without breaking the client's stream.
+  Code: `EnemyDebuffs.Rules.cs`. Docs: [11](../docs/protocol/11-skills.md) (The player's debuffs on monsters).
+- Combat load: Rage leaves the send gate alone while unchanged, one skill use reuses its stat snapshot
+  (`PlayerStatsCache.cs`) and an unchanged skill list is not resent; the input queue stays near 1-2 s in a boss fight.
 
 ## Partly working
 

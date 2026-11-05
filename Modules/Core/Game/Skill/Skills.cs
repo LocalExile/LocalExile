@@ -193,7 +193,7 @@ static partial class Game
         IReadOnlyDictionary<string, int> MainHand, IReadOnlyDictionary<string, int> OffHand, bool MainArmed, bool OffArmed);
 
     internal static Dictionary<uint, int> CharacterPlayerStatsCore(ClientState conn, out double baselineLifePerSecond) =>
-        CharacterPlayerStatsSnapshot(conn, out baselineLifePerSecond, out _);
+        CachedPlayerStats(conn, out baselineLifePerSecond);
 
     internal static Dictionary<uint, int> CharacterPlayerStatsSnapshot(ClientState conn, out double baselineLifePerSecond,
         out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
@@ -1140,6 +1140,7 @@ static partial class Game
             gone = conn.ClientSkillIds.Except(skills.Select(s => s.Id)).Order().ToList();
             added = skills.Select(s => s.Id).Where(id => !conn.ClientSkillIds.Contains(id)).ToList();
             conn.ClientSkillIds = [.. skills.Select(s => s.Id)];
+            RecordPlayerSkills(conn, skills);
             return PlayerSkillsWithVaalSouls(conn, skills, gone);
         }, "0x02ba player Actor: current skill stats");
         if (!CurrentGameRules) return;
