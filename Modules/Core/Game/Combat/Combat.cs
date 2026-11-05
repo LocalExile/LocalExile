@@ -874,8 +874,13 @@ static partial class Game
             }
             else
             {
+                // Flesh and Stone alternates its stance on every activation (the skill's own description); other auras
+                // have none.
+                string? stance = AuraCatalog.Family(effectId) == "FleshAndStone" ? conn.NextFleshAndStoneStance : null;
                 var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
-                    AuraCatalog.BuffRow(effectId), reservation.Flat, reservation.Percent, level, quality, SourceBuff: conn.NextBuff++);
+                    AuraCatalog.BuffRow(effectId, stance), reservation.Flat, reservation.Percent, level, quality,
+                    SourceBuff: conn.NextBuff++, Stance: stance);
+                if (stance is not null) conn.NextFleshAndStoneStance = AuraCatalog.OtherStance(stance);
                 conn.Auras[skillId] = aura;
                 int reserved = RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent);
                 if (reserved > conn.Pools.Mana)

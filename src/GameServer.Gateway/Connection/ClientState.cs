@@ -225,7 +225,7 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public ushort WitherBuff;
     // By (the player's PeerId, the aura's BuffDefinitions row): each client's buff instance of each player's enemy aura.
     public readonly Dictionary<(uint Peer, ushort Definition), ushort> PlayerAuras = [];
-    public (int All, int Elemental) TakenFromPlayer;
+    public (int All, int Elemental, int Physical) TakenFromPlayer;
     // Pride's more Physical Damage taken, ramped by the time this monster has stayed in the aura (EnemyDebuffsTick).
     public double PrideSince = double.NaN;
     public double PridePhysicalMore;
@@ -609,6 +609,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // Only self-owned aura instances actually sent on this connection's current player object.
     public readonly Dictionary<ushort, AuraCatalog.Aura> PresentedAuras = [];
     public bool AuraStatsDirty;
+    /// <summary>The stance the next Flesh and Stone activation starts in ("Blood" or "Sand"): the skill alternates on each
+    /// use, and the stance flips when the aura starts (Game.ToggleAura), not when it ends.</summary>
+    public string NextFleshAndStoneStance = "Blood";
     public bool PlayerObjectCreated;
     // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Guarded by the Monsters lock.
     public readonly Dictionary<int, double> SkillReadyAt = [];
