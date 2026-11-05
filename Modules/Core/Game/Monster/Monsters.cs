@@ -1074,7 +1074,7 @@ static partial class Game
     // monster Moves applied under trace-lockstep-tick.js with the path search hooked: 317 of 317 within 2 cells
     // untouched, 8 244 of 8 244 farther ones searched, set when the from cell differed). The player's Moves follow the
     // same rule (07 §5).
-    static bool LockstepTakesMove((int X, int Y) here, (int X, int Y) aim) =>
+    internal static bool LockstepTakesMove((int X, int Y) here, (int X, int Y) aim) =>
         Math.Max(Math.Abs(aim.X - here.X), Math.Abs(aim.Y - here.Y)) > 2;
 
     static (int X, int Y) LockstepOrderFrom(ClientState conn, MonsterAiPlan plan, (int X, int Y) from, Func<double, (int X, int Y)> place)

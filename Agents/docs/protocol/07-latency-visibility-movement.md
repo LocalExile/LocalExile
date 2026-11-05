@@ -546,14 +546,15 @@ stands: GGG's player stayed on its cell through 101 such attacks aimed 18 to 29 
 Gateway stands for it on a lockstep client (`Messages.cs`, `inPlace`); it walked there before, which put the player on
 the dead monster's cell. A predictive client sends a Move for that click instead, so nothing changes there.
 
-A Move whose target is within two cells (Chebyshev) of the player's cell ends on the client as it starts: no path search,
-no step and no move onto the 0x1ab's position pair (live 2026-11-03: 25 of 25 such starts in a bow fight, where every
-start 3 or more cells away searched a path and took the pair first). The Gateway's estimate stands for such a Move as the
-client does; before, it walked a few cells to the target and the next start put the client on them (2 to 5 cells beside
-a monster). A monster's Move follows the same rule, and its current action (the Move before, under a shot too) goes on:
-317 of 317 such Moves untouched in six pack fights (2026-11-04), 8 244 of 8 244 farther ones searched. The Gateway sends
-no such Move to a lockstep client (a melee leg that short goes as the attack aimed at the player) and its estimate keeps
-the walk it had; sent, they left the client walking on and preceded 76 of 126 monster starts 2–3 cells off.
+A Move whose target is within two cells (Chebyshev) of the walker's cell is not taken by the client at all: no path
+search, no step and no move onto the 0x1ab's position pair, even when the pair is not the walker's cell, and the action
+the walker is in goes on (the Move before, under a shot too). Every Move 3 or more cells away searched a path and took
+the pair first. Live, with the 0x1ab apply and the path search hooked: the player 308 of 308 such Moves in two
+near-Move fights (2026-11-04; 127 of them with a pair other than the client's cell), monsters 317 of 317 in six pack
+fights, and 8 244 of 8 244 farther monster Moves searched. The Gateway sends no such Move to a lockstep client and its
+estimate keeps the walk it had (a melee leg that short goes as the attack aimed at the player). Sent, a monster's left
+the client walking on and preceded 76 of 126 monster starts 2–3 cells off. The player's used to stop the estimate while
+the client walked on.
 
 A Move that reaches the client during a swing is taken (`0x141e8cf10`) but queued: the actor runs it when the clip's
 `lock_cancelling` keyframe has played, or its contact keyframe for a clip without one, and only then (live 2026-11-03,

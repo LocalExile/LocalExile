@@ -135,16 +135,11 @@ static partial class Game
                     // A use at the ground starts at the end of this frame on the client, and holds the player from there.
                     if (!monster) conn.LockstepBusyUntil = (conn.LockstepFrame?.End ?? at) + LockstepActionHold(conn, conn.LockstepSkill.Skill);
                 }
-                else if (conn.LockstepHold.Due(conn.Walk.Moving(at), conn.Walk.Position(at)) is { } due)
+                else if (conn.LockstepHold.Due(conn.Walk.Moving(at), conn.Walk.Position(at)) is { } due
+                    && PlaceLockstepPlayerMove(conn, due, at) is { } placed)
                 {
-                    target = due;
+                    (target, from) = (due, placed);
                     action = Interlocked.Increment(ref conn.ActionCount);
-                    // A Move whose target is within two cells of the player's cell ends on the client as it starts: no
-                    // path, no step and no move onto the pair (live 2026-11-03: 25 of 25 such starts, where every start
-                    // 3 or more cells away walked). The estimate stands where it is, as the client does.
-                    var here = conn.Walk.Position(at);
-                    bool near = Math.Max(Math.Abs(target.X - here.X), Math.Abs(target.Y - here.Y)) <= 2;
-                    from = near ? conn.Walk.Order(here.X, here.Y, at) : conn.Walk.Order(target.X, target.Y, at);
                     conn.ChannelSkill = 0;
                     sequence = NextLockstepSequence(conn);
                 }
@@ -164,6 +159,18 @@ static partial class Game
         else await Send(remote, stream, ciphers, LockstepActionStart(conn, from, target, sequence),
             $"0x01ab lockstep walk from ({from.X}, {from.Y}) to ({target.X}, {target.Y})",
             still: () => PlayerActionCurrent(conn, action));
+    }
+
+    // A player Move due at `at`: placed and its start cell returned when the client takes it. A Move whose target is
+    // within two cells of the walker's cell is not taken at all: no position set, no search, and the action the player
+    // is in goes on (live 2026-11-04, the player's 0x1ab applied under trace-lockstep-tick.js with the path search
+    // hooked: 308 of 308 such Moves untouched, 127 of them with a from cell other than the client's; every farther one
+    // searched). So none is sent, the estimate's walk goes on as the client's does, and a held cursor stays due
+    // (LockstepHold: it is offered again once the walk stops short of it).
+    internal static (int X, int Y)? PlaceLockstepPlayerMove(ClientState conn, (int X, int Y) target, double at)
+    {
+        var here = conn.Walk.Position(at);
+        return LockstepTakesMove(here, target) ? conn.Walk.Order(target.X, target.Y, at) : null;
     }
 
     // A skill asked on a monster: GGG answers the request with the action's start in the next frame, from the player's

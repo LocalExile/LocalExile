@@ -194,5 +194,17 @@ public class LockstepMonsterTests : IDisposable
         Assert.True(taken);
         Assert.Equal((107, 100), aim);
         Assert.Equal((107, 100), shooter.Walk.Destination);
+
+        // The player's Moves follow the same rule (live 2026-11-04: 308 of 308): a held cursor 2 cells from the walking
+        // player starts nothing and the walk goes on; 3 cells away the Move is placed.
+        var conn = Connection(lockstep: true);
+        conn.LockstepFrame = (1.0, 1.033);
+        conn.Walk.Order(140, 100, 0.5);
+        var player = conn.Walk.Position(1.0);
+        Assert.Null(Game.PlaceLockstepPlayerMove(conn, (player.X + 2, player.Y), 1.0));
+        Assert.Equal((140, 100), conn.Walk.Destination);
+        Assert.True(conn.Walk.Moving(1.1));
+        Assert.Equal(player, Game.PlaceLockstepPlayerMove(conn, (player.X + 3, player.Y), 1.0));
+        Assert.Equal((player.X + 3, player.Y), conn.Walk.Destination);
     }
 }
