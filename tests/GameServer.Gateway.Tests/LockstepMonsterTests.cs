@@ -269,10 +269,13 @@ public class LockstepMonsterTests : IDisposable
         Assert.DoesNotContain(0x3003u, plan.Legs.Select(l => l.Id).Concat(plan.Chases.Select(c => c.Id)).Concat(plan.MoveLegs.Select(l => l.Id)));
         Assert.False(asleep.Walk.Moving(3.5));
 
-        // A predictive client gets only the leg, and only a lockstep walker keeps the time a stop leaves (PlayerWalk's
-        // kept time: LockstepFrameOf and the plan's FrameStart ask conn.LockstepClient). Each leg walks as an order to its
-        // cell alone does, from a stand a whole step after the order and under way with the step in progress carried
-        // over, also on a Gateway whose lockstep frames run for this connection (RunLockstepFrames, any served one).
+        // A predictive connection keeps the estimate it had before the lockstep rules: only the leg, walked as an order to
+        // its cell alone, from a stand a whole step after the order and under way with the step in progress carried over,
+        // also on a Gateway whose lockstep frames run for this connection (RunLockstepFrames, any served one). The estimate
+        // keeps no time after a stop there by design: PlayerWalk.FrameOf is null off lockstep (LockstepFrameOf and the
+        // plan's FrameStart ask conn.LockstepClient), as the server cannot place a predictive client's stop among that
+        // client's own ticks. Whether the predictive client keeps it is not traced; the stop and the tick (0x141e350e0,
+        // 0x141e32710) read no network mode, so it likely does (07 §5).
         var served = Connection(lockstep: false);
         SpawnedMonster Spitter(uint id, int x, int y) => new("Spitter", served.NewMonsterWalk(id, x, y, 8, 2, false), aggroRange: 120,
             stopRange: 2, maxLife: 10)
@@ -294,7 +297,7 @@ public class LockstepMonsterTests : IDisposable
         var steps = walking.Walk.Steps(2.03, 3);
         Assert.Equal(2.03 + (1 - 0.24) * (steps[1].At - steps[0].At), steps[0].At, 9);   // 0.03 s into a 0.125 s step
         steps = stopped.Walk.Steps(2.03, 3);
-        Assert.Equal(2.03 + (steps[1].At - steps[0].At), steps[0].At, 9);   // none of the 0.085 s (a lockstep stop keeps 0.105)
+        Assert.Equal(2.03 + (steps[1].At - steps[0].At), steps[0].At, 9);   // the estimate keeps none of the 0.085 s (lockstep: 0.105)
         Assert.Equal((193, 140), stopped.Walk.Position(2.03));
         Assert.Equal((legs[0].To, legs[1].To), (walking.Walk.Destination, stopped.Walk.Destination));
     }
