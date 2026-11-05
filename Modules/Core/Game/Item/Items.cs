@@ -858,6 +858,11 @@ static partial class Game
             await UseSkillBook(remote, stream, ciphers, conn, items, r, item, type);
             return;
         }
+        if (type.Id == CurrencyEffects.OrbOfUnmaking)
+        {
+            await UseOrbOfUnmaking(remote, stream, ciphers, conn, items, r, item, type);
+            return;
+        }
         if (type.Id != Regret && type.Name != RegretBook)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0058 use item {use}: {type.Name} is not handled: {hex}");
@@ -893,6 +898,36 @@ static partial class Game
             $"0x00bf inventory {inventoryId}: {type.Name} used" + (taken.Left is { } now ? $", {now.Item.StackSize} left" : ", stack empty"));
         await SendPassives(remote, stream, ciphers, conn);
         Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({use.ItemId}): {refunds} refund point(s)");
+    }
+
+    // Orb of Unmaking (C→S 0x58, right-click; CurrencyItems Action atlas_skill_point_respec), the documented LocalExile
+    // rule: it refunds every allocated Atlas passive point of all three presets and is consumed. With nothing allocated
+    // it stays in the bag.
+    internal static async Task UseOrbOfUnmaking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
+    {
+        int cleared = conn.AtlasPassives.Sum(preset => preset.Count);
+        if (cleared == 0)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({item.Id}): no Atlas passive allocated");
+            return;
+        }
+        PlayerInventories.Consumption? taken;
+        lock (conn.Monsters)
+        {
+            if (items.ConsumeOne(row, item.Id) is not { } consumed) return;
+            taken = consumed;
+            foreach (var preset in conn.AtlasPassives) preset.Clear();
+            if (CharacterName(conn) is { } character)
+                CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
+        }
+        uint inventoryId = PlayerInventories.InventoryId(row);
+        await Send(remote, stream, ciphers,
+            InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id],
+                taken.Left is { } left ? [left] : []),
+            $"0x00bf inventory {inventoryId}: {type.Name} used");
+        await SendAtlasSlots(remote, stream, ciphers, conn, "Orb of Unmaking refunded");
+        Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({item.Id}): refunded {cleared} Atlas passive point(s)");
     }
 
     // A Book of Skill used (C→S 0x58, right-click; any of the quest books named so, Metadata/Items/QuestItems/SkillBooks/…):
@@ -972,8 +1007,13 @@ static partial class Game
             CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target, RollsFor(conn), random),
             CurrencyEffects.VaalOrb => ItemsFor(conn).ByHash(target.TypeHash) is { } vaalType
                 ? CurrencyEffects.Vaal(target, vaalType, ItemsFor(conn).Requirements(vaalType), RollsFor(conn), random) : null,
+            CurrencyEffects.EldritchChaosOrb => CurrencyEffects.EldritchChaos(target, RollsFor(conn), random),
+            CurrencyEffects.EldritchExaltedOrb => CurrencyEffects.EldritchExalted(target, RollsFor(conn), random),
             _ when isEssence => EssencesFor(conn).Apply(type!.Hash, target, random),
-            _ => null,
+            // Rows the Id list above does not name, by their CurrencyItems.Action (CurrencyEffects.TryAction): the map
+            // chisels (add_map_alt_quality, Cartographer's and the Maven's ones) and any future row with that action.
+            _ => type is not null && CurrencyEffects.TryAction(ItemsFor(conn), RollsFor(conn), target, type, random,
+                    out var byAction, UniquesFor(conn).RollsOf(target)) ? byAction : null,
         };
     }
 

@@ -29,6 +29,25 @@ static class CurrencyEffects
     public const string GrandEldritchEmber = "Metadata/Items/Currency/CurrencyEldritchEmber3";
     public const string ExceptionalEldritchEmber = "Metadata/Items/Currency/CurrencyEldritchEmber4";
 
+    public const string EldritchChaosOrb = "Metadata/Items/Currency/CurrencyEldritchRerollRare";
+    public const string EldritchExaltedOrb = "Metadata/Items/Currency/CurrencyEldritchAddModToRare";
+
+    /// <summary>Orb of Unmaking (CurrencyItems Action atlas_skill_point_respec): used from the bag (C→S 0x58), it refunds
+    /// Atlas passive points. See Game.UseItem, the local rule is there.</summary>
+    public const string OrbOfUnmaking = "Metadata/Items/Currency/CurrencyAtlasPassiveRefund";
+
+    /// <summary>Eldritch Chaos Orb, the documented LocalExile rule: a Chaos Orb (all unprotected explicit affixes
+    /// rerolled, new tiers and values) on a rare item that carries an Eldritch implicit; the implicit stays. An item
+    /// without one is refused before the orb is spent.</summary>
+    public static Item? EldritchChaos(Item item, ItemRolls rolls, Random random) =>
+        rolls.HasEldritchImplicit(item) ? rolls.Chaos(item, random) : null;
+
+    /// <summary>Eldritch Exalted Orb, the documented LocalExile rule: an Exalted Orb (one more explicit affix within the
+    /// rare limits) on a rare item that carries an Eldritch implicit; the implicit stays. An item without one is
+    /// refused before the orb is spent.</summary>
+    public static Item? EldritchExalted(Item item, ItemRolls rolls, Random random) =>
+        rolls.HasEldritchImplicit(item) ? rolls.Exalted(item, random) : null;
+
     /// <summary>The Eater of Worlds implicit tier an Eldritch Ichor adds (Lesser 1 … Exceptional 4).</summary>
     public static int? EldritchIchorTier(string id) => id switch
     {
@@ -133,7 +152,8 @@ static class CurrencyEffects
             or OrbOfAlchemy or ChaosOrb or DivineOrb or BlessedOrb or OrbOfScouring or OrbOfTransmutation
             or OrbOfAlteration or OrbOfAugmentation or RegalOrb or ExaltedOrb or OrbOfAnnulment or AncientOrb
             or ArmourersScrap or SacredOrb or BlacksmithsWhetstone or OrbOfChance or VaalOrb or GlassblowersBauble
-            or GemcuttersPrism or FracturingOrb or CartographersChisel
+            or GemcuttersPrism or FracturingOrb or CartographersChisel or EldritchChaosOrb or EldritchExaltedOrb
+            or OrbOfUnmaking
             or LesserEldritchIchor or GreaterEldritchIchor or GrandEldritchIchor or ExceptionalEldritchIchor
             or LesserEldritchEmber or GreaterEldritchEmber or GrandEldritchEmber or ExceptionalEldritchEmber
             or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling;

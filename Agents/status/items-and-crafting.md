@@ -398,6 +398,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   coverage. A separate Eldritch dominance state and the Orb of Conflict remain separate, and native tooltip
   acceptance is pending.
   See [13](../docs/protocol/13-items.md), "Eldritch Embers", and [evidence](../docs/re/eldritch-ember-coe.md).
+- **Cartographer's Chisel, Eldritch Chaos/Exalted Orb and Orb of Unmaking (added 2026-11-05, not checked live):** the
+  chisels now reach the existing map-quality effect through their `CurrencyItems.Action` (`add_map_alt_quality`), so a
+  chisel or a Maven's Chisel adds +1% of its AlternateQualityTypes row to a map, up to 20%. Eldritch Chaos and Eldritch
+  Exalted Orb reroll an existing rare's explicits (as Chaos/Exalted do) only when the item carries an Eater of Worlds or
+  Searing Exarch implicit, which stays. Orb of Unmaking, used from the bag (C→S 0x58), refunds every allocated Atlas
+  passive of all three presets and is consumed; with nothing allocated it stays. The three local rules are not the
+  official ones. Two Gateway tests cover the chisel's admission and the Eldritch admission.
+  Code: `CurrencyEffects.Chisel/TryAction`, `EldritchChaos/EldritchExalted`, `Game.UseOrbOfUnmaking`.
 - **Enkindling Orb:** a utility flask of any rarity gets one of the five GenerationType 21 enchantments (increased
   effect / duration / Charge Recovery / maximum Charges, or reduced Charges per use, all with `Gains no Charges during
   Effect`) with the game's 250/100/100/100/100 weights. Life/mana, corrupted/mirrored, non-flask and
