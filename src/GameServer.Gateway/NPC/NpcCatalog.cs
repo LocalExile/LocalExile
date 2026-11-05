@@ -32,6 +32,9 @@ sealed class NpcCatalog
         /// <summary>A SelectHideout row's script opens the guild's list: <c>SendOpenScreen( HideoutSelectionWindow, 1 )</c>
         /// (the character's list has no argument or 0).</summary>
         public bool OpensGuildHideouts => System.Text.RegularExpressions.Regex.IsMatch(Script, @"HideoutSelectionWindow\s*,\s*1\s*\)");
+        public bool Introduction { get; init; }
+        public bool Automatic { get; init; }
+        public int Priority { get; init; }
         public IReadOnlyList<string> RequiredFlags { get; init; } = [];
         public IReadOnlyList<string> ExcludedFlags { get; init; } = [];
         /// <summary>NPCTalk QuestFlag3: the flags that mark the row as heard (they are the row's own QuestFlag4/5 or its
@@ -192,6 +195,10 @@ sealed class NpcCatalog
         return _talk.Values.Where(t => t.Npc == source).OrderBy(t => t.Index);
     }
 
+    public Talk? IntroductionOf(Npc npc, IReadOnlySet<string> flags) => TalksOf(npc)
+        .Where(t => t.Introduction && t.Automatic && t.StartFlag is { } start && !flags.Contains(start) && t.Available(flags))
+        .OrderByDescending(t => t.Priority).FirstOrDefault();
+
     public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags)
     {
         int source = TalkSource(npc).Row;
@@ -327,6 +334,9 @@ sealed class NpcCatalog
                     category >= 0 && category < names.Count ? names[category] : "", r.GetProperty("Script").GetString() ?? "",
                     [.. r.GetProperty("NPCTextAudioKeys").EnumerateArray().Select(e => e.GetInt32())])
                 {
+                    Introduction = r.TryGetProperty("__col13", out var introduction) && introduction.GetBoolean(),
+                    Automatic = r.TryGetProperty("__col33", out var automatic) && automatic.GetBoolean(),
+                    Priority = OptionalInt("__col34"),
                     RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"), HeardFlags = FlagList("QuestFlag3"),
                     StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
                     RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,

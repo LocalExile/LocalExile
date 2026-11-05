@@ -180,6 +180,18 @@ u8 = the chosen NPCTalk row's index among the NPC's rows (column 1). The client 
 C→S 0x85 during a talk = Continue → 0x84 0xff (back to the options); otherwise the Gateway answers 0x84 with object 0,
 which ends the dialogue (without an answer the client stays in its dialogue state and the player cannot move).
 
+Official opening capture `20261105-222849` starts Nessa's introduction (NPCTalk 0), then row 5;
+Bestel's introduction (58), then row 62; Tarkleigh's introduction (23), then reward offer 0 (`0xc0`, `0x87`).
+No `0x82` option request precedes these chains. Local capture `20261105-224157` sends only `0x84/0xff`
+on those clicks. The ordinary click now selects an eligible unstarted introduction through the quest execution path;
+automatic quest/reward continuation remains pending.
+Native selector `0x141e76d40` checks availability, start flag `+0x54`, automatic eligibility `+0x160`
+(NPCTalk `__col33`) and greatest priority `+0x161` (`__col34`), keeping the first row on ties.
+The introduction marker is `__col13`; heard introductions are skipped using their start flag.
+The full native predicate includes additional area/class/league gates; those need verification before
+extending automatic selection beyond the supported introduction path.
+The raw evidence and decoded `semantics.json`/`equipment.json` stay under ignored `Tools/re/out/gameplay-captures/`.
+
 ### NPCTalk scripts
 
 A row's `Script` / `Script2` (NPCTalk columns) can do more than set flags. The Game module runs these calls
