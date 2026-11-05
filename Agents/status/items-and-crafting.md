@@ -209,7 +209,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   database preserve overrides; invalid or non-finite weights are rejected before writing. The extracted JSON remains the fallback before seeding.
   Mod affix spawn/generation weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods.json`) are still
   loaded from JSON; moving them would also require clearing the affix-pool cache on reload. Drops have the monster's level as item level, +1 from magic, +2 from rare and +3 from unique
-  monsters.
+  monsters. One drop event's stackable items of one type become stacks up to its `CurrencyItems` StackSize (twenty-one
+  divine orbs lie as 10, 10 and 1), instead of one world item per unit (`ItemDrops.Stacked`).
   Code: `ItemDrops.cs`, Gateway (`DropLoot`, `CommitProjectileKill`).
   Docs: [15](../docs/protocol/15-progression.md) §3.
 

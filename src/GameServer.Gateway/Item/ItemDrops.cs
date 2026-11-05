@@ -213,6 +213,32 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         return drops;
     }
 
+    /// <summary>A drop event's stackable items combined into stacks of their type's maximum, as the game drops currency:
+    /// a monster's two Orb of Alteration rolls become one stack of two, and a total past the type's maximum becomes
+    /// several stacks (a divine orb's maximum is ten, so twenty-one become 10, 10 and 1). Everything else keeps one
+    /// world item each.</summary>
+    public static IReadOnlyList<Drop> Stacked(IEnumerable<Drop> drops)
+    {
+        var result = new List<Drop>();
+        var groups = new Dictionary<string, (Drop Drop, int Total)>(StringComparer.Ordinal);
+        var order = new List<string>();
+        foreach (var drop in drops)
+        {
+            if (drop.Type.MaxStack <= 1) { result.Add(drop); continue; }
+            // The type and the item without its count: two rolls of one currency are the same item whatever their stack.
+            string key = Convert.ToBase64String((drop.Item with { StackSize = 1 }).Payload());
+            if (groups.TryGetValue(key, out var group)) groups[key] = (group.Drop, group.Total + drop.Item.StackSize);
+            else { groups[key] = (drop, drop.Item.StackSize); order.Add(key); }
+        }
+        foreach (string key in order)
+        {
+            var (first, total) = groups[key];
+            for (int left = total; left > 0; left -= first.Type.MaxStack)
+                result.Add(new Drop(first.Item with { StackSize = (ushort)Math.Min(left, first.Type.MaxStack) }, first.Type));
+        }
+        return result;
+    }
+
     /// <summary>The gold item (ItemClasses "Gold"): on the ground a pile of <see cref="Item.StackSize"/> gold, which a pickup
     /// adds to the stash's gold instead of the inventory.</summary>
     public const string GoldId = "Metadata/Items/Currency/GoldCoin", GoldClass = "Gold";

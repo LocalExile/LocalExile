@@ -167,7 +167,7 @@ static partial class Game
         foreach (string query in modded?.Items ?? [])
             if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
-        foreach (var drop in drops)
+        foreach (var drop in ItemDrops.Stacked(drops))
         {
             double angle = random.NextDouble() * Math.Tau, radius = 3 + random.NextDouble() * 3;
             int x = position.X + (int)Math.Round(Math.Cos(angle) * radius), y = position.Y + (int)Math.Round(Math.Sin(angle) * radius);
