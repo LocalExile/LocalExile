@@ -173,8 +173,11 @@ static partial class Game
                                 (value.NextExpiry!.Value - now) * session.State.ExpiryRate)),
                             stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
                     }
+                    // Fortification changes on every melee hit; rebuilding the whole skill list here held the
+                    // Monsters lock and the send gate for 50-110 ms (2026-11-05), starving input and the other sends.
+                    // Its stacks and attack speed are in the 0x1b3 stats; the server keeps the authoritative action
+                    // timings, so the skill records are left to the next gem/equipment refresh.
                     packets.Add(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                    packets.Add(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
                     session.PresentedRevision = session.Revision;
                     return packets.SelectMany(p => p).ToArray();
                 });

@@ -362,11 +362,18 @@ partial class Program
     /// clients); it must copy what it keeps.</summary>
     internal static Action<ConnectionCiphers, byte[]>? Outgoing;
 
+    // How often a state sync that an update loop offers every 16-32 ms may take the send gate. The packets are
+    // idempotent snapshots, so a skipped step publishes nothing lost, and the input handlers stop queueing behind them.
+    internal const double SyncPublishMilliseconds = 100;
+
     internal static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
-        Func<bool>? still = null, Func<byte[]?>? atGate = null)
+        Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
     {
         var gate = SendGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
         var performance = MetricsFor(ciphers);
+        // A state sync the loops offer many times a second: unless its window is up, do not take the gate or the lock at
+        // all. See ConnectionPerformance.SyncDue: the queue behind these is what the input handlers waited in.
+        if (sync is not null && !performance.SyncDue(sync, SyncPublishMilliseconds)) return;
         long waitingAt = Stopwatch.GetTimestamp();
         await gate.WaitAsync();
         performance.Elapsed(LatencyPhase.SendWait, waitingAt);
@@ -399,7 +406,42 @@ partial class Program
             await Write(stream, ciphers, bytes);
             if (trace is not null) Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
         }
-        finally { gate.Release(); performance.Elapsed(LatencyPhase.SendHold, heldAt); }
+        finally
+        {
+            long held = Stopwatch.GetTimestamp();
+            var hold = Stopwatch.GetElapsedTime(heldAt, held);
+            gate.Release();
+            performance.Elapsed(LatencyPhase.SendHold, heldAt);
+            if (bytes.Length >= 2) performance.Send((ushort)(bytes[0] << 8 | bytes[1]), held - heldAt);
+            else performance.EmptySend(SendCaller(), held - heldAt);
+            // Temporary: which send holds the gate while input waits behind it.
+            if (hold > TimeSpan.FromMilliseconds(50))
+                Console.WriteLine($"[slow-send] {remote} {log ?? "?"} wait={Stopwatch.GetElapsedTime(waitingAt, heldAt).TotalMilliseconds:0} "
+                    + $"hold={hold.TotalMilliseconds:0} bytes={bytes.Length}"
+                    + (log is null ? " at=" + string.Join(" <- ", new StackTrace(1, false).GetFrames()
+                        .Take(4).Select(frame => frame.GetMethod()?.Name ?? "?")) : ""));
+        }
+    }
+
+    // Temporary lag instrumentation: the async method whose builder published nothing, from its state machine type.
+    static string SendCaller()
+    {
+        foreach (var frame in new StackTrace(1, false).GetFrames())
+        {
+            var method = frame.GetMethod();
+            string name = method?.Name ?? "?";
+            if (name is not ("Start" or "MoveNext"))
+            {
+                if (name is not "Send") return name;
+                continue;
+            }
+            string type = method?.DeclaringType?.Name ?? "";
+            int end = type.IndexOf('>');
+            if (!type.StartsWith('<') || end <= 1) continue;
+            string owner = type[1..end];
+            if (owner is not "Send") return owner;
+        }
+        return "?";
     }
 
     // The wire itself: the keystream must be applied and written in one order, so encryption and the write share this

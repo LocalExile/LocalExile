@@ -16,9 +16,12 @@ static partial class Game
                 name => Stats.Key(name) is uint key ? e.Skill!.GetValueOrDefault(key) : 0, e.Killed, e.Primary));
         var step = session.Admit(accepted.Max(e => e.At), events, Get, () => WeaponProfileFor(conn), conn.PlayerLife > 0, Random.Shared);
         foreach (string line in step.Log) Console.WriteLine($"[gateway] {conn.Wire.Remote} {line} (accepted contact)");
+        // Charge counts change on almost every hit; the charge ticker publishes the stats once per step instead of
+        // rebuilding the full skill list per hit (the 2026-11-05 log: 4 PlayerSkills builds in 80 ms, each inside the
+        // send gate, and 0x0025 handlers at 50-200 ms).
         if (step.CountsChanged)
         {
-            conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); conn.Minions.StatRevision++;
+            conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed();
         }
         conn.Minions.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.Charges, Charges: accepted));
     }
@@ -27,8 +30,9 @@ static partial class Game
     {
         if (conn.PlayerLife == 0) return null;
         _ = CharacterPlayerStats(conn);
-        var (packet, changed) = CurrentChargePresentationLocked(conn, remote);
-        if (changed) conn.Minions.StatRevision++;
+        // The charge ticker publishes the stats at its own cadence; a per-hit revision here rebuilt PlayerSkills for
+        // every charge change, inside the send gate.
+        var (packet, _) = CurrentChargePresentationLocked(conn, remote);
         return packet;
     }
 

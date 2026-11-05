@@ -134,28 +134,41 @@ static partial class Game
         }
         CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
             : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods));
-        if (Environment.GetEnvironmentVariable("Game_DROPS") != "0" && !monster.NoRewards && GameEvents.AllowsLoot(conn))
+        // Loot rolling is catalogue work (ItemDrops.Roll); doing it under the projectile runtime's Monsters lock held
+        // that lock 100-200 ms on a pack kill, and the stat sends and input handlers wait for the same lock. The session's
+        // output task runs after it.
+        session.Enqueue(() =>
         {
-            var balance = LeagueFor(conn).Rules;
-            var modded = Program.ServerHooks.Drops(killer, modMonster);
-            List<ItemDrops.Drop> drops = [];
-            if (modded is not { Cancel: true })
-            {
-                drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
-                    balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
-                if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
-                drops.AddRange(ExtraDropsFromMap(conn, monster.Rarity, random));
-            }
-            foreach (string query in modded?.Items ?? [])
-                if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
-                else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
-            foreach (var drop in drops)
-            {
-                double angle = random.NextDouble() * Math.Tau, radius = 3 + random.NextDouble() * 3;
-                int x = position.X + (int)Math.Round(Math.Cos(angle) * radius), y = position.Y + (int)Math.Round(Math.Sin(angle) * radius);
-                if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = position;
-                AddProjectileGroundItem(session, new(x, y, drop.Item));
-            }
+            CommitProjectileLoot(session, monster, position);
+            return Task.CompletedTask;
+        });
+    }
+
+    static void CommitProjectileLoot(ProjectileSession session, SpawnedMonster monster, (int X, int Y) position)
+    {
+        var conn = session.Conn;
+        if (!session.Active || Environment.GetEnvironmentVariable("Game_DROPS") == "0" || monster.NoRewards
+            || !GameEvents.AllowsLoot(conn)) return;
+        var random = Random.Shared;
+        var balance = LeagueFor(conn).Rules;
+        var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(monster, position));
+        List<ItemDrops.Drop> drops = [];
+        if (modded is not { Cancel: true })
+        {
+            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+            if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
+            drops.AddRange(ExtraDropsFromMap(conn, monster.Rarity, random));
+        }
+        foreach (string query in modded?.Items ?? [])
+            if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
+            else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
+        foreach (var drop in drops)
+        {
+            double angle = random.NextDouble() * Math.Tau, radius = 3 + random.NextDouble() * 3;
+            int x = position.X + (int)Math.Round(Math.Cos(angle) * radius), y = position.Y + (int)Math.Round(Math.Sin(angle) * radius);
+            if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = position;
+            AddProjectileGroundItem(session, new(x, y, drop.Item));
         }
     }
 
