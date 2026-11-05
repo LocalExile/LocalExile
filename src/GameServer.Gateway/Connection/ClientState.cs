@@ -283,6 +283,9 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // generation on. Set when the order is placed at the gate (Game.PlaceLockstepChase), cleared when an order the client
     // takes is placed there (Game.LockstepOrderFrom) and when the walk-up swings or fails (Game.StepFrames).
     public int? ClientChase;
+    // When its chase walk-up's MoveTo search timer (+0x55c) last started: the order's frame (Game.TakeLockstepChase), or
+    // a search again on the way (Game.StepWalkUp).
+    public double ClientChaseTimerFrom;
     // The start of the frame in which the client's walk-up found the player in reach and so began its swing, and the
     // action generation the swing belongs to, for the AI to take as its own (Game.PlanMonsterAi); null when none.
     public double? ClientSwingAt;
@@ -302,6 +305,41 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // Its StateMachine's shared states as last sent, and whether the big boss life bar is up.
     public StateMachineData? States;
     public bool BossBarShown;
+}
+
+/// <summary>A lockstep client's attack on a monster (07 §5, §6): the player's MoveTo toward the monster's own cell, which
+/// the client's frames run and the step pass follows (Game.StepFrames), and the swing it ends in. Under the Monsters
+/// lock.</summary>
+sealed class LockstepAttack(int action, uint targetId, SpawnedMonster target, int reach, int tolerance, int precision, double hold)
+{
+    public int Action { get; } = action;
+    public uint TargetId { get; } = targetId;
+    public SpawnedMonster Target { get; } = target;
+    // MoveTo's max range (+0x524, the weapon's range less one), the target's size (+0x52d) and the precision (+0x528).
+    public int Reach { get; } = reach;
+    public int Tolerance { get; } = tolerance;
+    public int Precision { get; } = precision;
+    // How long the swing holds the player from the end of the frame it began in (LockstepAttackCutIn and the tail).
+    public double Hold { get; } = hold;
+    // Placed where its 0x1ab went out and not decided yet: the step pass tests its goal every frame.
+    public bool Open;
+    // When MoveTo's search timer (+0x55c) last started (Game.StepWalkUp).
+    public double TimerFrom;
+    public readonly record struct Swing(double Start, double End, (int X, int Y) From);
+    // Completed under the Monsters lock by the step pass: the attack's task must not run on there.
+    readonly TaskCompletionSource<Swing?> decided = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // The swing (its frame and the cell it is swung from), or null when the walk-up failed or was replaced.
+    public Task<Swing?> Decided => decided.Task;
+    public void Swings(double start, double end, (int X, int Y) from)
+    {
+        Open = false;
+        decided.TrySetResult(new(start, end, from));
+    }
+    public void Fails()
+    {
+        Open = false;
+        decided.TrySetResult(null);
+    }
 }
 
 // A running Righteous Fire: the player's buff instance, the skill, its damage (percent of maximum life per minute, to
@@ -971,9 +1009,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
     // Until when the skill started last keeps the player (Clock seconds).
     public double LockstepBusyUntil;
-    // The action token of a skill on a monster whose walk-up or swing is still to come on a lockstep client, 0 for none
-    // (Game.LockstepAttackStart): the next use of a held skill waits for it.
-    public int LockstepAttackAction;
+    // A skill on a monster whose walk-up or swing is still to come on a lockstep client, null for none
+    // (Game.LockstepAttackStart): the next use of a held skill waits for it, and the step pass runs its walk-up.
+    public LockstepAttack? LockstepAttack;
     // The character's activated waypoints (WorldAreas Ids, kept in its save) and whether this connection was reached
     // by waypoint travel (the player then appears next to the area's waypoint).
     public readonly HashSet<string> Waypoints = [];

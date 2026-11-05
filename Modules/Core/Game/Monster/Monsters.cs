@@ -1115,11 +1115,12 @@ static partial class Game
     // where the monster stands first (0x141e7b530 → 0x141e7b260): met, the swing starts in the order's own frame
     // (0x141e7bc20 → 0x141e94720, no 0x1ac in lockstep), for the AI to take (PlanMonsterAi). A search that finds no path
     // ends the action (0x141e7b920 → 0x141e7bc20). Otherwise the walk-up is open, and the step pass tests its goal every
-    // frame (StepFrames).
+    // frame (StepFrames), with the search timer the setup's search zeroed (0x141e7b920) counting from this frame.
     static void TakeLockstepChase(SpawnedMonster m, int action, (int X, int Y) here, (int X, int Y) player, double at)
     {
         m.LastTarget = player;
         m.ClientChase = null;
+        m.ClientChaseTimerFrom = at;
         if (m.Walk.InReachOf(here, player, (int)(m.Attack!.Range - 1), LivingCollision.PlayerSize))
             (m.ClientSwingAt, m.ClientSwingAction) = (at, action);
         else if (m.Walk.Reached && !m.Walk.ReachedGoal) m.LastTarget = null;

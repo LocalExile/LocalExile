@@ -342,6 +342,8 @@ public class LockstepMonsterTests : IDisposable
         held.LockstepFrame = (1.0, 1.033);
         var (left, frozenWalker) = Pair(held, frames: true);
         (left.ClientChase, frozenWalker.ClientChase) = (left.ActionGeneration, frozenWalker.ActionGeneration);   // walk-ups
+        // whose searches set up those walks: their search timers run from then (0x141e7bfb0)
+        (left.ClientChaseTimerFrom, frozenWalker.ClientChaseTimerFrom) = (0.5, 0.5);
         var plan = Game.PlanMonsterAi(held, new MonsterAiCadence(), now: 1.0);
         Assert.Empty(plan.Moves);
         Assert.Equal((218, 100), left.Walk.Destination);

@@ -186,6 +186,12 @@ public sealed class PlayerWalk
     public bool InReachOf((int X, int Y) from, (int X, int Y) target, int reach, int tolerance) =>
         ClientPathfinder.InReach(from, target, 0, reach, tolerance, _sight, _precision);
 
+    /// <summary>The current order's precision (MoveTo +0x528): 1 again once a search above 1 found nothing.</summary>
+    public int Precision => _precision;
+
+    /// <summary>The target's cell the current order last searched toward (MoveTo +0x550, which 0x141e7b920 stores).</summary>
+    public (int X, int Y) SearchedFor => _target;
+
     /// <summary>Changes the walking speed. As in the client, the segment in progress starts again from the walker's cell
     /// at the new pace, at once (a held walk when its hold ends), and the following segments are set up at the new speed.</summary>
     public void SetSpeed(double speed, double now)

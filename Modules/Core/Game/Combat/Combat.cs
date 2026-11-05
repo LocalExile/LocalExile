@@ -138,7 +138,9 @@ static partial class Game
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0, early: !conn.LockstepClient);
     }
 
-    // How often the player's walk up to a monster paths again, and when the estimate stops following it.
+    // How often a predictive client's walk-up estimate paths again, and when it stops following. Neither is the client's
+    // (its actor paths again every 0.05 s for the player, 0x141e8eb60, run again by 0x141e8ef50 only in that mode, and gives
+    // a walk-up no time limit): the Gateway's guesses, not yet sourced. A lockstep walk-up runs on its frames (StepWalkUp).
     const double SwingFollowSeconds = .1, SwingFollowLimitSeconds = 3;
 
     // The projectile grid value a ranged attack's line to its target must hold, the action's precision for the walk-up and
@@ -160,11 +162,9 @@ static partial class Game
     // The swing's hit still tests the whole range (+ 2).
     static int WalkUpRange(SkillCatalog.Unarmed weapon) => Math.Max(weapon.Range, 1) - 1;
 
-    // The player's walk-up to a monster for a swing at it, from where the estimate has the player at `now`. Swing: the swing
-    // starts at once. MoveTo tests its goal where the player stands when the order applies (0x141e7b530), and met while he
-    // walks on a lockstep client, 0x141e7bc20 puts the stop off until the frame's steps (0x141e350e0) but tests that same
-    // cell again and goes on to the swing: the decision is Here's, and only the swing comes from Stop, where the steps leave
-    // him. A walk-up with steps swings once it is over at a cell in reach.
+    // A predictive client's walk-up to a monster for a swing at it, from where the estimate has the player at `now`. Swing:
+    // the swing starts at once, when MoveTo finds its goal where the player stands (0x141e7b530 → 0x141e7b260). A walk-up
+    // with steps swings once it is over at a cell in reach. A lockstep client's is PlaceLockstepAttack's.
     internal static ((int X, int Y) Here, (int X, int Y) Stop, double At, bool Swing) WalkUpToSwing(ClientState conn,
         SpawnedMonster m, (int X, int Y) target, SkillCatalog.Unarmed weapon, double now, int precision)
     {
@@ -175,14 +175,26 @@ static partial class Game
 
     // Walks up to a monster until it is in reach, whenever it moves or bodies cut the way: the client's action keeps going
     // until then, whatever the first path said, and its tick paths it again. A walk-up that swings at once (WalkUpToSwing's
-    // Swing) returns at once. Null when another action replaced this one.
-    internal static async Task<((int X, int Y) Stop, double Arrive)?> FollowMonsterToSwing(ClientState conn,
+    // Swing) returns at once. A lockstep client's walk-up is the step pass's (LockstepAttackStart), and this only waits for
+    // its decision. Returns where the swing is swung from, when the walk-up got there and when the swing began (on a
+    // lockstep client both the start of the frame it began in); null when the walk-up failed or another action replaced it.
+    internal static async Task<((int X, int Y) Stop, double Arrive, double Begun)?> FollowMonsterToSwing(ClientState conn,
         SpawnedMonster m, SkillCatalog.Unarmed weapon, Func<bool> current, Func<double, double, Task<bool>> until,
-        (int X, int Y) stop, double arrive, bool swing, double now, int precision = 1)
+        (int X, int Y) stop, double arrive, bool swing, double now, int precision = 1, LockstepAttack? lockstep = null)
     {
+        if (lockstep is not null)
+        {
+            // Woken by the step pass's decision, or every 16 ms to see whether another action took over.
+            while (!lockstep.Decided.IsCompleted && current() && !conn.Closed && !conn.LeavingArea)
+            {
+                var woke = await Task.WhenAny(lockstep.Decided, AreaWait(PlayerUpdateRole.Player, 16));
+                if (woke != lockstep.Decided) await woke;   // a stopped area's wait throws, as every AreaWait does
+            }
+            return lockstep.Decided.IsCompleted && await lockstep.Decided is { } decided ? (decided.From, decided.Start, decided.Start) : null;
+        }
         int reach = WalkUpRange(weapon);
         double giveUp = now + SwingFollowLimitSeconds;
-        if (swing) return (stop, arrive);
+        if (swing) return (stop, arrive, now);
         while (true)
         {
             double next = arrive > now ? Math.Min(arrive, now + SwingFollowSeconds) : now + SwingFollowSeconds;
@@ -193,10 +205,10 @@ static partial class Game
                 if (!current()) return null;
                 var target = m.Walk.Position(now);
                 bool done = m.Life == 0 || now >= giveUp;
-                if (now >= arrive && (done || SwingInReach(conn, m, stop, target, reach))) return (stop, arrive);
+                if (now >= arrive && (done || SwingInReach(conn, m, stop, target, reach))) return (stop, arrive, now);
                 if (done) continue;
                 (_, stop, arrive, swing) = WalkUpToSwing(conn, m, target, weapon, now, precision);
-                if (swing) return (stop, arrive);
+                if (swing) return (stop, arrive, now);
             }
         }
     }
@@ -242,15 +254,19 @@ static partial class Game
                 || PlayerActionBlocked(conn, requestedAt, now)) return;
             action = Interlocked.Increment(ref conn.ActionCount);
             target = m.Walk.Position(now);
-            (here, stop, arrive, atOnce) = WalkUpToSwing(conn, m, target, weapon, now, precision);
+            // A lockstep client's walk-up is placed where its 0x1ab goes out (LockstepAttackStart).
+            if (conn.LockstepClient) (here, stop, arrive, atOnce) = (conn.Walk.Position(now), conn.Walk.Position(now), now, false);
+            else (here, stop, arrive, atOnce) = WalkUpToSwing(conn, m, target, weapon, now, precision);
         }
         // "no path": no cell in reach with the line to the monster was found (nor the line from here at precision 1), so the
         // estimate stands; the swing then waits for the monster to come into reach (FollowMonsterToSwing) or is called off.
         string walkUp = arrive <= now && !atOnce ? " (no path)" : "";
-        Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} seq 0x{use.Sequence:x4} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
-            $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s{walkUp}, attack time {duration:0.000} s");
+        if (!conn.LockstepClient)
+            Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} seq 0x{use.Sequence:x4} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
+                $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s{walkUp}, attack time {duration:0.000} s");
         // A lockstep client's action starts now and walks up by itself (Lockstep.cs); the swing below then says nothing.
-        bool started = await LockstepAttackStart(remote, stream, ciphers, conn, use, here, target, action, "attack");
+        var lockstep = await LockstepAttackStart(remote, stream, ciphers, conn, use, m, weapon, precision, action, "attack");
+        bool started = lockstep is not null;
         bool Current() => conn.ActionCount == action && (!ranged || OrdinaryRangedReleaseCurrent(conn, action, projectileEpoch));
         async Task<bool> Until(double at, double from)
         {
@@ -258,31 +274,32 @@ static partial class Game
             await Task.Delay(TimeSpan.FromSeconds(at - from));
             return true;
         }
-        if (await FollowMonsterToSwing(conn, m, weapon, Current, Until, stop, arrive, atOnce, now, precision) is not { } swing)
+        if (await FollowMonsterToSwing(conn, m, weapon, Current, Until, stop, arrive, atOnce, now, precision, lockstep) is not { } swing)
         {
             Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} cancelled before the swing");
             LockstepAttackOver(conn, action);
             return;
         }
-        (stop, arrive) = swing;
+        (stop, arrive, double begun) = swing;
         now = conn.Clock.Elapsed.TotalSeconds;
+        // A lockstep client's swing began at the start of its goal frame (LockstepAttackSwings), tested against the monster's
+        // cell then; the hit and the next attack count from there.
+        if (!started) begun = now;
         SkillCriticalRoll criticalRoll;
         bool inReach;
         lock (conn.Monsters)
         {
-            target = m.Walk.Position(now);
-            conn.NextAttackAt = AttackTiming.After(now, conn.NextAttackAt, duration);
+            target = m.Walk.Position(begun);
+            // The swing holds a lockstep player from when it began until the client lets a Move cut it short
+            // (LockstepAttackSwings); the next attack waits the attack time (NextAttackAt).
+            conn.NextAttackAt = AttackTiming.After(begun, conn.NextAttackAt, duration);
             criticalRoll = CaptureSkillCriticalRoll(conn, SkillCatalog.FirstSkillId);
             inReach = SwingInReach(conn, m, stop, target, weapon.Range + 2);
-            // The swing holds the player until the client lets a Move cut it short (LockstepAttackCutIn), plus the client's
-            // frame or two; the next attack waits the attack time (NextAttackAt).
-            if (started && inReach)
-                LockstepAttackSwings(conn, action, now, LockstepAttackCutIn(conn, use.SkillId, use.Sequence) + conn.LockstepActionTail);
         }
+        LockstepAttackOver(conn, action);
         if (!inReach)
         {
             Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} out of reach: {Dist(stop, target):0.0} > {weapon.Range}");
-            LockstepAttackOver(conn, action);
             return;
         }
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
@@ -313,7 +330,8 @@ static partial class Game
             await Send(remote, stream, ciphers, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{use.SkillId:x4}");
         // The hit lands at the attack animation's contact keyframe (data/animation-contacts.json), not a fixed half: the
         // client stretches the clip to the attack time, so the blood and the weapon impact sound line up with the swing.
-        await Task.Delay(TimeSpan.FromSeconds(DefaultAttackContactDelay(conn, duration, here, stop, departedAt, arrive, use.Sequence)));
+        double contact = DefaultAttackContactDelay(conn, duration, here, stop, departedAt, arrive, use.Sequence);
+        await Task.Delay(TimeSpan.FromSeconds(started ? Math.Max(0, begun + contact - conn.Clock.Elapsed.TotalSeconds) : contact));
         await WhilePaused(conn);
         // One use, one Fortification and one Rage gain (as one AreaSkillHit sweep), whichever of its hits lands first.
         bool fortified = false, raged = false;
@@ -495,27 +513,32 @@ static partial class Game
                     now = ProjectileWorldTime(conn);
                     action = Interlocked.Increment(ref conn.ActionCount);
                     target = m.Walk.Position(now);
-                    (here, stop, arrive, atOnce) = WalkUpToSwing(conn, m, target, weapon, now, precision);
+                    // A lockstep client's walk-up is placed where its 0x1ab goes out (LockstepAttackStart).
+                    if (conn.LockstepClient) (here, stop, arrive, atOnce) = (conn.Walk.Position(now), conn.Walk.Position(now), now, false);
+                    else (here, stop, arrive, atOnce) = WalkUpToSwing(conn, m, target, weapon, now, precision);
                 }, out var approachTicket, reserve: false, requestedAt: requestedAt)) return;
-            Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
-                $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s (t={now:0.000})");
+            if (!conn.LockstepClient)
+                Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
+                    $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s (t={now:0.000})");
             // A lockstep client's action starts now and walks up by itself (Lockstep.cs); the swing below then says nothing.
-            bool started = await LockstepAttackStart(remote, stream, ciphers, conn, use, here, target, action, gem.Name);
+            var lockstep = await LockstepAttackStart(remote, stream, ciphers, conn, use, m, weapon, precision, action, gem.Name);
+            bool started = lockstep is not null;
             async Task<bool> Walked(double at, double from)
             {
                 await Task.Delay(TimeSpan.FromSeconds(at - from));
                 return true;
             }
             if (await FollowMonsterToSwing(conn, m, weapon, () => conn.ActionCount == action && approachTicket?.Current(conn) != false,
-                Walked, stop, arrive, atOnce, now, precision) is not { } swing)
+                Walked, stop, arrive, atOnce, now, precision, lockstep) is not { } swing)
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x} cancelled before the swing");
                 LockstepAttackOver(conn, action);
                 return;
             }
-            (stop, arrive) = swing;
+            (stop, arrive, double begun) = swing;
             now = conn.Clock.Elapsed.TotalSeconds;
-            lock (conn.Monsters) target = m.Walk.Position(now);
+            // A lockstep client's swing began at the start of its goal frame, tested against the monster's cell then.
+            lock (conn.Monsters) target = m.Walk.Position(started ? begun : now);
             if (!SwingInReach(conn, m, stop, target, weapon.Range + 2))
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x} out of reach: {Dist(stop, target):0.0} > {weapon.Range}");
@@ -529,7 +552,8 @@ static partial class Game
                 LockstepAttackOver(conn, action);
                 return;
             }
-            if (started) lock (conn.Monsters) LockstepAttackSwings(conn, action, now, LockstepAttackCutIn(conn, use.SkillId, use.Sequence) + conn.LockstepActionTail);
+            // The swing's hold was set when it began (LockstepAttackSwings).
+            LockstepAttackOver(conn, action);
             bool acknowledged = false;
             bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
             if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, target,
