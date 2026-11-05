@@ -77,8 +77,24 @@ public class LockstepMonsterTests : IDisposable
         conn.Monsters[0x3006] = standing;
         conn.Monsters[0x3007] = stopped;
         conn.Monsters[0x3009] = vine;
+        // Faster walkers (a step every 0.025 s straight on). Round a wall's corner, the waypoint (106, 95) at 0.275 is the
+        // first cell in reach: it stands there at once, though its next step is due at 0.308, in the next frame. Straight
+        // on, (94, 96) at 0.600 and (95, 96) at 0.625 come within reach in the frame from 0.594, mid-piece: the stop takes
+        // the next frame's step at 0.650 to (96, 96) and keeps the 10 ms since it for the next walk.
+        var cornering = Chasing(Drowned(new PlayerWalk(106, 84, 40, walkable: (x, y) => x is < 92 or > 105 || y is < 80 or > 95)));
+        cornering.Walk.Order(99, 101, now: 0);
+        var sprinter = Chasing(Drowned(new PlayerWalk(70, 96, 40)));
+        sprinter.Walk.Order(99, 96, now: 0);
+        conn.Monsters[0x300b] = cornering;
+        conn.Monsters[0x300c] = sprinter;
         var plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 1.03);
-        Assert.Equal([0x3000u, 0x3007u], plan.ArrivedSwings.Select(s => s.Id));
+        Assert.Equal([0x3000u, 0x3007u, 0x300bu, 0x300cu], plan.ArrivedSwings.Select(s => s.Id));
+        Assert.Equal(0.264, plan.ArrivedSwings[2].BegunAt, 3);
+        Assert.Equal((106, 95), cornering.Walk.Position(1.03));
+        Assert.Equal(0.594, plan.ArrivedSwings[3].BegunAt, 3);
+        Assert.Equal((96, 96), sprinter.Walk.Position(1.03));
+        sprinter.Walk.Order(99, 96, now: 1.03);
+        Assert.Equal(1.03 - 0.010 + 0.025, sprinter.Walk.Steps(1.03, 2)[0].At, 4);
         Assert.Equal(0.231, plan.ArrivedSwings[0].BegunAt, 3);
         Assert.Equal(0.231 + 2.0 + conn.LockstepActionTail, arrived.BusyUntil, 3);
         Assert.Equal((108, 100), arrived.Walk.Position(1.03));
