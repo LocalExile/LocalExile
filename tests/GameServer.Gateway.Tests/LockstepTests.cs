@@ -106,15 +106,26 @@ public class LockstepTests
     }
 
     [Fact]
-    public void A_player_attack_walks_up_to_the_weapon_range_less_one()
+    public async Task A_player_attack_walks_up_to_the_weapon_range_less_one()
     {
         // A Drowned (size 2, the tolerance) 13 cells off and a sword of range 11: the client's MoveTo has max range 10, so
         // the player is in reach only 12 cells off, one step on (the whole range would have it swing where it stands).
         var conn = new ClientState(new(1, "walk-up", 300, 300, 100, 100, null, []), 1, 1);
         var drowned = new SpawnedMonster("Drowned", new PlayerWalk(113, 100, 8, size: 2), 0, 4, 100);
         var sword = new SkillCatalog.Unarmed(645, 1, 2, 11);
-        var (here, stop, _) = Game.WalkUpToSwing(conn, drowned, (113, 100), sword, 0, 1);
-        Assert.Equal(((100, 100), (101, 100)), (here, stop));
+        var (here, stop, _, atOnce) = Game.WalkUpToSwing(conn, drowned, (113, 100), sword, 0, 1);
+        Assert.Equal(((100, 100), (101, 100), false), (here, stop, atOnce));
+
+        // A lockstep player walking away from one 12 cells behind: in reach where the frame starts, so the client swings at
+        // once, from where the frame's steps leave him, 13 cells off, with no wait and no walk back.
+        conn = new ClientState(new(1, "walk-up", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = true, LockstepFrame = (0, .033) };
+        drowned = new SpawnedMonster("Drowned", new PlayerWalk(89, 100, 8, size: 2), 0, 4, 100);
+        conn.Walk.Order(200, 100, 0);
+        conn.LockstepFrame = (.033, .066);
+        (here, stop, var arrive, atOnce) = Game.WalkUpToSwing(conn, drowned, (89, 100), sword, .04, 1);
+        Assert.Equal(((101, 100), (102, 100), true), (here, stop, atOnce));
+        var swing = await Game.FollowMonsterToSwing(conn, drowned, sword, () => true, (_, _) => Task.FromResult(false), stop, arrive, atOnce, .04);
+        Assert.Equal(((102, 100), arrive), swing);
     }
 
     [Fact]

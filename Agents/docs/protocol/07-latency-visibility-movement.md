@@ -326,7 +326,10 @@ search runs with max range 119 for the bow and 10 for the sword, live 2026-11-03
 (`0x141e7b530`) first tests where the player stands (`0x141e7b260`): in range, and the line to the target on layer 1
 (the projectile grid) holding the action's precision (`0x141e8eb60` → MoveTo `+0x528`: 3 for the bow's attack, 1 for
 the sword's and for a Move) up to the target's body: the last cell at or above the precision within size + 1 of the
-target (`0x141d87500`). Failing that, the search's goal is the first cell in range whose whole line to the target holds
+target (`0x141d87500`). Met there while a lockstep client's player walks, the action goes on to the swing at once:
+`0x141e7bc20` puts the stop off until the frame's steps (`0x141e350e0`) but tests that same cell again, so the player
+swings from where the steps leave him even when they carry him out of reach, walking away from the target
+(`Combat.WalkUpToSwing`). Failing that, the search's goal is the first cell in range whose whole line to the target holds
 the precision (the pathfinder above): the bow's attack walks to where it can shoot (in reach at 35 cells on the Strand the client
 walked 17 cells round a rock, then shot). When the ellipse holds no such cell the search returns nothing, and the goal
 is tested where the player stands at precision 1, which the order then keeps (`0x141e7b920`): a line without a 0 lets
