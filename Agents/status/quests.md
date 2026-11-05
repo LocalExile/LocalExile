@@ -10,7 +10,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   coming within 60 cells of Hillock sets `a1q1-SeenHillock` ("Kill Hillock");
   Hillock has the boss life bar at the top of the screen once he aggroes (StateMachine `boss_life_bar`, 0x2ba), unique
   life (311 at level 1) and a second stage: at half life he pulls out his sword (ZombieBossExtract, Transitionable → 2)
-  and his life fills up again; the force wall (`Tutorial_Blocker_3`, the room's angle and scale 2.7) stands across the
+  and heals at its extracted contact (~750 ms), with separate 3 s recovery; the force wall stands across the
   way to the gate until he dies, and the server closes the way on its own walk map too (`QuestBarriers`), so its
   position estimate stops where the client stops; after his death the quest log says to enter the gate (every
   character has `CompletedAllTutorials`); his death levels the character to 2, removes the wall and creates the gate
