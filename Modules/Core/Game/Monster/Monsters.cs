@@ -1069,13 +1069,19 @@ static partial class Game
         return (here, aim, false);
     }
 
-    // A lockstep client takes a Move order only when its target is 3 or more cells (Chebyshev) from the walker's cell:
-    // within 2 it does nothing at all, no position set and no search, and the current action goes on (live 2026-11-04,
-    // monster Moves applied under trace-lockstep-tick.js with the path search hooked: 317 of 317 within 2 cells
-    // untouched, 8 244 of 8 244 farther ones searched, set when the from cell differed). The player's Moves follow the
-    // same rule (07 §5).
-    internal static bool LockstepTakesMove((int X, int Y) here, (int X, int Y) aim) =>
-        Math.Max(Math.Abs(aim.X - here.X), Math.Abs(aim.Y - here.Y)) > 2;
+    // A lockstep client takes a Move order only when its target is 3 or more cells from the walker's cell. The test is
+    // the admission of Move and MoveSpecial (vtable slot +0x130, 0x1419442d0): dx*dx + dy*dy >= 9 from the walker's own
+    // cell to the target, which 0x141e8e060 runs before it ends the current action and before 0x141e8e7e0 sets the
+    // pair; the order's pair plays no part. A refused Move is destroyed there: no position set, no search, and the
+    // current action goes on. MoveForced (0x3f1f) has no such test. On whole cells this is Chebyshev 3 or more.
+    // Live 2026-11-04, monster Moves applied under trace-lockstep-tick.js with the path search hooked: 317 of 317 within
+    // 2 cells untouched, 8 244 of 8 244 farther ones searched, set when the from cell differed. The player's Moves
+    // follow the same rule (07 §6).
+    internal static bool LockstepTakesMove((int X, int Y) here, (int X, int Y) aim)
+    {
+        int dx = aim.X - here.X, dy = aim.Y - here.Y;
+        return dx * dx + dy * dy >= 9;
+    }
 
     static (int X, int Y) LockstepOrderFrom(ClientState conn, MonsterAiPlan plan, (int X, int Y) from, Func<double, (int X, int Y)> place)
     {

@@ -548,13 +548,17 @@ the dead monster's cell. A predictive client sends a Move for that click instead
 
 A Move whose target is within two cells (Chebyshev) of the walker's cell is not taken by the client at all: no path
 search, no step and no move onto the 0x1ab's position pair, even when the pair is not the walker's cell, and the action
-the walker is in goes on (the Move before, under a shot too). Every Move 3 or more cells away searched a path and took
-the pair first. Live, with the 0x1ab apply and the path search hooked: the player 308 of 308 such Moves in two
-near-Move fights (2026-11-04; 127 of them with a pair other than the client's cell), monsters 317 of 317 in six pack
-fights, and 8 244 of 8 244 farther monster Moves searched. The Gateway sends no such Move to a lockstep client and its
-estimate keeps the walk it had (a melee leg that short goes as the attack aimed at the player). Sent, a monster's left
-the client walking on and preceded 76 of 126 monster starts 2–3 cells off. The player's used to stop the estimate while
-the client walked on.
+the walker is in goes on (the Move before, under a shot too). The test is the admission of `Move` and `MoveSpecial`
+(vtable slot +0x130, `0x1419442d0`): dx² + dy² ≥ 9 from the walker's own cell to the target, which `0x141e8e060` runs
+before it ends the current action and before `0x141e8e7e0` sets the pair; a refused Move is destroyed there.
+`MoveForced` (0x3f1f) has no such test. Every Move 3 or more cells away searched a path and took the pair first. Live,
+with the 0x1ab apply and the path search hooked: the player 308 of 308 such Moves in two near-Move fights (2026-11-04;
+127 of them with a pair other than the client's cell), monsters 317 of 317 in six pack fights, and 8 244 of 8 244
+farther monster Moves searched. The Gateway sends no such Move to a lockstep client and its estimate keeps the walk it
+had (a melee leg that short goes as the attack aimed at the player). Sent, a monster's left the client walking on and
+preceded 76 of 126 monster starts 2–3 cells off. The player's used to stop the estimate while the client walked on. A
+near Move still replaces a queued action that can be cancelled: the offer (`0x141e8cf10`) destroys that one before the
+test runs.
 
 A Move that reaches the client during a swing is taken (`0x141e8cf10`) but queued: the actor runs it when the clip's
 `lock_cancelling` keyframe has played, or its contact keyframe for a clip without one, and only then (live 2026-11-03,

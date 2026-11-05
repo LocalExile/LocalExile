@@ -161,11 +161,13 @@ static partial class Game
             still: () => PlayerActionCurrent(conn, action));
     }
 
-    // A player Move due at `at`: placed and its start cell returned when the client takes it. A Move whose target is
-    // within two cells of the walker's cell is not taken at all: no position set, no search, and the action the player
-    // is in goes on (live 2026-11-04, the player's 0x1ab applied under trace-lockstep-tick.js with the path search
-    // hooked: 308 of 308 such Moves untouched, 127 of them with a from cell other than the client's; every farther one
-    // searched). So none is sent, the estimate's walk goes on as the client's does, and a held cursor stays due
+    // A player Move due at `at`: placed and its start cell returned when the client takes it (LockstepTakesMove). The
+    // client admits a Move by vtable slot +0x130 (0x1419442d0): dx*dx + dy*dy >= 9 from the walker's own cell, which
+    // 0x141e8e060 runs before it ends the current action and before 0x141e8e7e0 sets the pair. A refused Move is
+    // destroyed there: no position set, no search, and the action the player is in goes on (live 2026-11-04, the
+    // player's 0x1ab applied under trace-lockstep-tick.js with the path search hooked: 308 of 308 Moves within two
+    // cells untouched, 127 of them with a from cell other than the client's; every farther one searched). So none is
+    // sent and nothing is spent, the estimate's walk goes on as the client's does, and a held cursor stays due
     // (LockstepHold: it is offered again once the walk stops short of it).
     internal static (int X, int Y)? PlaceLockstepPlayerMove(ClientState conn, (int X, int Y) target, double at)
     {
