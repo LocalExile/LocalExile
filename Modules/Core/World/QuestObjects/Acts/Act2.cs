@@ -50,6 +50,7 @@ static class Act2Objects
     public const string AncientSeal = "Metadata/QuestObjects/Inca/IncaDarknessRelease";             // tile dungeon_bossrelease_v01_01.tdt
     public const string SealBlocker = "Metadata/QuestObjects/Inca/IncaDarknessReleaseBlocker";
     public const string ApexDoor = "Metadata/QuestObjects/Inca/ApexDoor", ApexDoorBlocker = "Metadata/QuestObjects/Inca/ApexDoorBlocker";
+    public static readonly string ApexDoorOpen = Quests.InstanceFlag("ApexDoor");
     public const string DarkAltar = "Metadata/Monsters/IncaShadowBoss/IncaBossSpawner";             // tile inca_boss_emerge.tdt
     public const string PyramidDoor = "Metadata/QuestObjects/Inca/IncaPyramidDoor";
 }
@@ -163,7 +164,11 @@ sealed class Act2 : Act
                 On.Blocker(VaalRuins, Act2Objects.SealBlocker, 4, "a2q8-UnleashedDarkness"),
                 On.Exit(VaalRuins, NorthernForest, "a2q8-UnleashedDarkness"),
                 On.Near(Caverns, Act2Objects.ApexDoor, "a2q8-SeenApexDoor"),
-                On.Object(Caverns, Act2Objects.ApexDoor, "a2b-SeenApexReward"),
+                // The door has no ApexDoor.ao: without its room line's model (IncaDungeon/door.ao) it was invisible live.
+                // It stands closed in every instance until used with a2b-SeenApexReward (its InteractionAction), then goes:
+                // shown open it still stopped the player.
+                On.Door(Caverns, Act2Objects.ApexDoor, Act2Objects.ApexDoorOpen),
+                On.UsedWith(Caverns, Act2Objects.ApexDoor, ["a2b-SeenApexReward"], Act2Objects.ApexDoorOpen),
                 On.Blocker(Caverns, Act2Objects.ApexDoorBlocker, 4, "a2b-SeenApexReward"),
                 On.Entered(AncientPyramid, "a2q8-SeenPyramid"),
                 On.Near(AncientPyramid, Act2Objects.DarkAltar, "a2q8-SeenAltar"),
