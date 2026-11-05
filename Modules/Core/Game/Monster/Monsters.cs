@@ -438,6 +438,9 @@ static partial class Game
 
     internal sealed class MonsterAiPlan
     {
+        // Chases ended this pass: each gets S→C 0x1ac before its give-up Move, as GGG's server sends it (925 of 1166
+        // live give-ups). Only a predictive client reads it; a lockstep one ignores 0x1ac (07 §11).
+        public readonly List<uint> EndedActions = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To, string Why)> Moves = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To)> Chases = [];
         // A far melee chase's leg: a Move to the cell LegCells along the walk-up. Placed by the plan on a predictive client
@@ -530,6 +533,9 @@ static partial class Game
                     m.Aggro = false;
                     m.SwingGeneration = null;
                     m.LastTarget = null;
+                    // GGG's server ends the chase with S→C 0x1ac before the give-up Move (925 of 1166 live give-ups,
+                    // 3.29 capture); without it the client's attack action keeps chasing on its own.
+                    plan.EndedActions.Add(id);
                     // A Move to its own cell does not replace the attack the client is still chasing with.
                     var stay = NextCell(conn, m, mx, my);
                     plan.Moves.Add((id, m, ++m.ActionGeneration, PlaceMove(plan, m, stay, now), stay, "gives up"));
@@ -815,6 +821,8 @@ static partial class Game
         using (ProjectileMutation(conn, phase: "ai")) plan = PlanMonsterAi(conn, cadence, Math.Max(ProjectileWorldTime(conn), AreaTime(conn)));
         const ushort Move = 0x2909;
         foreach (var (packet, log) in plan.Ailments) await Send(remote, stream, ciphers, packet, log);
+        foreach (uint id in plan.EndedActions)
+            await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
         // A chase is re-ordered every few ticks: its lines only with Game_TRACE=ai (the packet history keeps them).
         foreach (var (id, m, action, from, to, why) in plan.Moves)
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
