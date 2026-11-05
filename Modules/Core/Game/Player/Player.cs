@@ -522,6 +522,7 @@ static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendAttackerSlows(remote, stream, ciphers, conn);
             await SendLifetap(remote, stream, ciphers, conn);
+            await SendSupportGemBuffs(remote, stream, ciphers, conn);
             await SendLeechBuffs(remote, stream, ciphers, conn);
             await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;

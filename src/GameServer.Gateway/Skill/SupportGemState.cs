@@ -15,5 +15,10 @@ sealed class SupportGemState
     /// <summary>Inspiration charges held (0-5).</summary>
     public int InspirationCharges;
 
+    /// <summary>Client instances for the two buffs and the counts last shown for Inspiration.</summary>
+    public ushort ArcaneSurgeBuff, PresentedArcaneSurge, InspirationBuff, PresentedInspiration;
+    public int PresentedInspirationCharges;
+    public bool ArcaneSurgeRefresh, PendingStats;
+
     public bool ArcaneSurgeActiveAt(double now) => ArcaneSurgeUntil > now;
 }
