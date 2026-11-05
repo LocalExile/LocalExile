@@ -46,6 +46,12 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x01d4 pause: in a town or hideout, not paused");
             return;
         }
+        // The clock is the instance's (InstanceWorld): with another player in it, it goes on.
+        if (pause && conn.Instance.Presence.PlayersExcept(conn.PeerId).Any(p => p.Owner is { Closed: false }))
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x01d4 pause: another player is in the instance, not paused");
+            return;
+        }
         // Pause is a barrier: commit the preceding combat interval before freezing the world clock.
         using (ProjectileMutation(conn))
         {

@@ -358,6 +358,10 @@ partial class Program
     // before another task's packets were sent can check that it still applies (SendFlinch).
     // Projectile impacts commit their short locked damage mutation inside this gate before relocation.
     // A factory samples clock-sensitive state and constructs its packet after earlier sends; null sends nothing.
+    /// <summary>Sees every message before it is encrypted and written (the module's mirror of shared monsters to the other
+    /// clients); it must copy what it keeps.</summary>
+    internal static Action<ConnectionCiphers, byte[]>? Outgoing;
+
     internal static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
         Func<bool>? still = null, Func<byte[]?>? atGate = null)
     {
@@ -376,6 +380,8 @@ partial class Program
                 if (atGate() is not { } current) return;
                 bytes = current;
             }
+            // Nothing to send (a sync with no change): nothing written, nothing in the history.
+            if (bytes.Length == 0) return;
             if (log is not null)
             {
                 string line = $"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}";
@@ -386,6 +392,8 @@ partial class Program
             if (ServerTrace.Packets && PacketHistory.Kept(sent: true, PacketHistory.IdOf(bytes)))
                 Console.WriteLine($"[packets] {remote} => 0x{PacketHistory.IdOf(bytes):x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
             HistoryFor(ciphers).Sent(bytes);   // before Write, which encrypts the bytes in place
+            // What this client is sent may concern others too (the instance's shared monsters: SharedMonsters.cs).
+            if (Outgoing is { } outgoing) outgoing(ciphers, bytes);
             string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
                 ? Convert.ToHexString(bytes) : null;
             await Write(stream, ciphers, bytes);
