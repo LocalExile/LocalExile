@@ -237,6 +237,11 @@ The `washedup` room also has a force wall of its own (`Tutorial_Blocker_1`), the
 `BiteZombieSpawner`: the opening tutorial, not done yet (no quest manages them, so none of them is created).
 
 **Hillock's fight** (live 2026-10-21; `BossFights.cs`):
+
+Opening capture `20261105-222849` heals Hillock about 758 ms after extraction starts; the local capture waits
+3,015 ms. `ZombieBoss.act` maps Throw to `extract:attack_time=0.5`; the merged rig/AO clip is 1,833 ms long,
+with contact at 458 ms (AO slow span 440–557 ms). The contact fraction of the 3,000 ms cast is about 750 ms.
+`monster-contacts` v4 exports this Throw pool separately from ordinary attack selection.
 - **Boss life bar.** `ZombieBoss.ot` extends `Metadata/Monsters/BossLifeBar` (MonsterVarieties `BossHealthBar` set): its
   StateMachine shared states are `boss_life_bar`, `disable_life_bar`, `global_first_aggro`, then ZombieBoss's `aggro`.
   `on_state_boss_life_bar_1` calls `SetStaticLifeBarVisibilty(True)`. The StateMachine has an update reader
