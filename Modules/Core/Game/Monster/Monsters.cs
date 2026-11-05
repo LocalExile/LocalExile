@@ -520,6 +520,9 @@ static partial class Game
                 // Out of the wake zone the client's copy stands frozen (07 §3); the server's stands too (KeepWakeZone
                 // ended its walk) and gets no order until it is back, or the return's 0x128 would put the copy wherever
                 // the estimate walked meanwhile (live 2026-11-03: 162 cells, in one jump).
+                // A lockstep client's monster takes no order before the frame after the one its hit recovery ends in
+                // (TakeHitPacket): one sent earlier waits and starts after the player's steps of that frame, or a frame
+                // or more after the estimate's walk.
                 if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted || m.Asleep || conn.Golems.All.ContainsKey(id)
                     || !MonsterAiCadence.Due(double.IsNaN(plan.FrameStart) ? now : plan.FrameStart, m.FlinchUntil)) continue;
                 // Asleep for this client (its own wake zone, KeepWakeZone): no order and no boss bar about an object the
@@ -1061,14 +1064,13 @@ static partial class Game
     // The chase walk-up the order replaces stays open through those frames (NextPlannedAction), testing its goal as the
     // client's does. When it began its swing there, or the AI has since taken that swing, the order would only wait
     // behind the swing (0x141e8cf10), so nothing is sent and the AI takes the swing on its next pass.
-    // A melee chase leg placed at a lockstep frame's start `at`: the walk-up to the player's cell as the order finds it
-    // (LockstepChaseTarget), cut to its leg.
+    // A melee chase leg placed at a lockstep frame's start `at`: the walk-up to the player's cell then, cut to its leg.
     // Returns the walker's cell, the cell to order and whether to send the attack aimed at the player instead: an
     // estimate that finds no way keeps the attack order, as the planner does without frames (the client's own search
     // may find one; a Move to its own cell would leave it standing).
     internal static ((int X, int Y) Here, (int X, int Y) Aim, bool Attack) PlaceLockstepLeg(ClientState conn, SpawnedMonster m, int action, double at)
     {
-        var player = LockstepChaseTarget(conn, m, at);
+        var player = conn.Walk.Position(at);
         var before = m.Walk.Save();
         var walk = m.Walk.Approach(player.X, player.Y, m.Attack!.Range - 1, at, LivingCollision.PlayerSize);
         var leg = m.Walk.Ahead(at, LegCells / m.Walk.Speed);
@@ -1103,26 +1105,15 @@ static partial class Game
     }
 
     // A melee chase order (the attack aimed at the player) placed at a lockstep frame's start `at`: the walk-up to the
-    // player's cell as the order finds it (LockstepChaseTarget). Returns the walker's cell and the player's.
+    // player's cell then, as the order starts at the frame's start, before any object ticks (a monster in a hit's recovery
+    // is ordered only from the frame after it: TakeHitPacket). Returns the walker's cell and the player's.
     internal static ((int X, int Y) Here, (int X, int Y) Aim) PlaceLockstepChase(ClientState conn, SpawnedMonster m, int action, double at)
     {
-        var player = LockstepChaseTarget(conn, m, at);
+        var player = conn.Walk.Position(at);
         var here = m.Walk.Approach(player.X, player.Y, m.Attack!.Range - 1, at, LivingCollision.PlayerSize).Here;
         TakeLockstepChase(m, action, here, player, at);
         return (here, player);
     }
-
-    // The player's cell a lockstep chase placed at the start `at` of the frame being sent aims at and tests its goal on
-    // (TakeLockstepChase): his cell then, as the order starts at the frame's start, before any object ticks. In the frame
-    // the monster's hit recovery ends in (LockstepRecoveryEnds) the order has waited in its Actor until the monster's own
-    // tick ends the recovery and starts it (0x141e934b0 → 0x141e8e060), after the player (0x1000) has taken his steps of
-    // the frame (objects tick in ascending id): his cell at the frame's end. Its walk still steps in that frame (Moves sent
-    // in it matched the client's cell at the next order 21 of 23 times). Bench 2026-11-05: a chase sent in that frame
-    // with the player 7.3 cells off at its start and 8.1 after his step walked after him, and the server, which read the
-    // start, took a swing the client never played.
-    static (int X, int Y) LockstepChaseTarget(ClientState conn, SpawnedMonster m, double at) =>
-        conn.LockstepFrame is { } frame && Math.Abs(m.FlinchUntil - at) < 1e-9
-            ? conn.Walk.Ahead(at, frame.End - at) : conn.Walk.Position(at);
 
     // A chase order whose walk-up was just placed at `at` from `here`, as the client takes it. Its MoveTo tests the goal
     // where the monster stands first (0x141e7b530 → 0x141e7b260): met, the swing starts in the order's own frame
@@ -1296,8 +1287,12 @@ static partial class Game
 
     // A monster's 0x1d1 TakeHit for the recovery from `now` until `until` (its FlinchUntil when that is still the hit's),
     // written in its send gate (under conn.Monsters): every hit's and a Rampage stun's (RampageStunPacket). On a lockstep
-    // client that recovery runs in the client's frames from the frame being sent, so FlinchUntil becomes the start of the
-    // frame it ends in (LockstepRecoveryEnds).
+    // client that recovery runs in the client's frames from the frame being sent, so FlinchUntil becomes the end of the
+    // frame it ends in (LockstepRecoveryEnds), and the AI orders the monster from the next frame on, where an order starts
+    // at the frame's start as any other does. An order sent in the end frame itself would start in the monster's own
+    // tick, after the player's: its chase would test his cell after his step there, which the server knows only once that
+    // frame is complete (a body that blocks the step, or an order of his placed later in the frame, changes it). The cost
+    // is one frame's stand after the recovery; the frame GGG orders in after a TakeHit is not traced.
     internal static byte[] TakeHitPacket(ClientState conn, uint id, SpawnedMonster m, double until, double now)
     {
         float seconds = (float)(until - now);
@@ -1306,7 +1301,7 @@ static partial class Game
         return InstanceProtocol.ActorAnimation(id, seconds, PlayerHitRecovery.TakeHitAnimation);
     }
 
-    // The start of the frame in whose tick a lockstep client ends a monster's TakeHit recovery of `seconds`, its 0x1d1
+    // The end of the frame in whose tick a lockstep client ends a monster's TakeHit recovery of `seconds`, its 0x1d1
     // written in `frame`. Meanwhile the monster starts nothing: the 0x1d1's handler (0x141e95e60) sets Actor +0x219 & 2,
     // the action gate (0x141e8d900) refuses every start while it is set, and an order that comes meanwhile waits in the
     // Actor (0x141e8cf10 keeps it at +0x1c0). The monster's own tick counts each frame's time (33 ms as float seconds)
@@ -1326,7 +1321,7 @@ static partial class Game
             if (left - length == left) return double.PositiveInfinity;
             left -= length;
         }
-        return frame.Start + frames * (frame.End - frame.Start);
+        return frame.Start + (frames + 1) * (frame.End - frame.Start);
     }
 
     // "Gain X% of Missing Unreserved Life before being Hit by an Enemy" (PoB CalcDefence: only while alive, capped at the
