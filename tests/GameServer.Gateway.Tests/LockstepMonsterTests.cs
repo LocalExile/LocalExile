@@ -102,6 +102,21 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal(7, far.ClientChase);
         Assert.Null(far.ClientSwingAt);
         Assert.Equal((100, 100), far.LastTarget);
+        // A frame end overtakes the next chase (the AI pass and the frame loop are separate tasks): in that frame the
+        // client still runs the walk-up, which steps into reach at 0.25 and swings. The chase is not sent into the swing,
+        // and the next pass takes it from that frame's start.
+        var overtaken = Connection(lockstep: true);
+        overtaken.LockstepFrame = (0.231, 0.264);
+        var racing = Chasing(Drowned(new PlayerWalk(110, 100, 8)));
+        racing.Walk.Order(104, 100, now: 0);
+        overtaken.Monsters[0x300a] = racing;
+        plan = Game.PlanMonsterAi(overtaken, new MonsterAiCadence(), now: 0.235);
+        var (_, _, chase, chaseFrom, chaseTo) = Assert.Single(plan.Chases);
+        overtaken.LockstepFrame = (0.264, 0.297);
+        lock (overtaken.Monsters) Assert.Null(Game.ChaseAtGate(overtaken, plan, 0x300a, racing, chase, chaseFrom, chaseTo));
+        Assert.Equal((108, 100), racing.Walk.Position(0.3));
+        plan = Game.PlanMonsterAi(overtaken, new MonsterAiCadence(), now: 0.27);
+        Assert.Equal(0.231, Assert.Single(plan.ArrivedSwings).BegunAt, 3);
 
         // The player walks into its reach: his step to (105, 100) at 0.541 puts the Drowned at (100, 106) 7.8 cells off, in
         // the frame from 0.528, though outside the 2 cells inside the reach the server once kept for a walking player. It
@@ -270,7 +285,7 @@ public class LockstepMonsterTests : IDisposable
     // A lockstep client takes no Move whose target is within two cells of the walker (0x1419442d0): no set, no search,
     // its current action goes on (live 2026-11-04: 317 of 317). So such a surround-slot or other plan Move is not sent,
     // a give-up or a freeze sends nothing, a minion that near its approach cell attacks instead, and the estimate keeps
-    // the walk it had; three cells away the Move is placed as before.
+    // the walk it had, a chase's walk-up too; three cells away the Move is placed as before and ends the walk-up.
     [Fact]
     public async Task A_lockstep_move_within_two_cells_is_not_sent_and_the_walk_goes_on()
     {
@@ -310,19 +325,24 @@ public class LockstepMonsterTests : IDisposable
         var held = Connection(lockstep: true);
         held.LockstepFrame = (1.0, 1.033);
         var (left, frozenWalker) = Pair(held, frames: true);
+        (left.ClientChase, frozenWalker.ClientChase) = (left.ActionGeneration, frozenWalker.ActionGeneration);   // walk-ups
         var plan = Game.PlanMonsterAi(held, new MonsterAiCadence(), now: 1.0);
         Assert.Empty(plan.Moves);
         Assert.Equal((218, 100), left.Walk.Destination);
         Assert.True(left.Walk.Moving(1.5));
         Assert.Equal((140, 100), frozenWalker.Walk.Destination);
+        Assert.True(Game.WalkUpOpen(held, left));   // nothing reached the client: its action goes on
+        Assert.True(Game.WalkUpOpen(held, frozenWalker));
         // Any other plan Move (a flight, a minion's or a Rampage chase) is placed at the send gate only when the client
-        // takes it: 2 cells from (226, 100) it is not sent, 3 cells away it goes out.
+        // takes it: 2 cells from (226, 100) it is not sent, 3 cells away it goes out and ends the walk-up.
         lock (held.Monsters)
         {
-            Assert.Null(Game.PlanMoveAtGate(held, plan, 0x3000, left, (226, 100), (228, 100), "flees"));
+            Assert.Null(Game.PlanMoveAtGate(held, plan, 0x3000, left, Game.NextPlannedAction(left), (226, 100), (228, 100), "flees"));
             Assert.Equal((218, 100), left.Walk.Destination);
-            Assert.NotNull(Game.PlanMoveAtGate(held, plan, 0x3000, left, (226, 100), (229, 100), "flees"));
+            Assert.True(Game.WalkUpOpen(held, left));
+            Assert.NotNull(Game.PlanMoveAtGate(held, plan, 0x3000, left, Game.NextPlannedAction(left), (226, 100), (229, 100), "flees"));
             Assert.Equal((229, 100), left.Walk.Destination);
+            Assert.False(Game.WalkUpOpen(held, left));
         }
         var predictive = Connection(lockstep: false);
         var (gone, stopped) = Pair(predictive, frames: false);

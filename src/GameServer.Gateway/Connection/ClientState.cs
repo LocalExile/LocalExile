@@ -278,9 +278,10 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public bool SoulKillProcessed;
     public (int X, int Y)? LastTarget;
     // Lockstep (07 §5): the action generation of the chase order (the attack aimed at the player) whose walk-up the client
-    // runs. The walk-up is open while that is still the current generation (Game.WalkUpOpen): every later order, a flinch,
-    // a freeze and a transfer move the generation on. Set when the order is placed at the gate (Game.PlaceLockstepChase),
-    // cleared when the walk-up swings or fails (Game.StepFrames).
+    // runs. The walk-up is open while that is still the current generation (Game.WalkUpOpen): a planned order, a give-up
+    // and a freeze carry it along (Game.NextPlannedAction), while a swing order, a flinch, a stage and a transfer move the
+    // generation on. Set when the order is placed at the gate (Game.PlaceLockstepChase), cleared when an order the client
+    // takes is placed there (Game.LockstepOrderFrom) and when the walk-up swings or fails (Game.StepFrames).
     public int? ClientChase;
     // The start of the frame in which the client's walk-up found the player in reach and so began its swing, and the
     // action generation the swing belongs to, for the AI to take as its own (Game.PlanMonsterAi); null when none.

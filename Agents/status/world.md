@@ -272,7 +272,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The player walks, uses objects and skills; monsters chase in legs, take their surround slots and swing by the
   client's own rules, and no Move goes to a monster within 2 cells of its target, which the client would ignore, on
   any path: a give-up or a freeze sends nothing ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
-  A monster that gives up stands; GGG's goes on with idle orders. A frozen monster walks on (not traced).
+  A monster that gives up goes on with its last order as the client's does; GGG's goes on with idle orders. A frozen
+  monster walks on (not traced).
   Like for like with GGG's retail lockstep, standing monsters match; fast walkers, visible snaps and the player's
   standing starts still trail, and only a wand pack fight has run (roadmap: "Lockstep network mode").
   Without it the player is drawn but cannot move or use objects, and the Gateway asks for Predictive once per

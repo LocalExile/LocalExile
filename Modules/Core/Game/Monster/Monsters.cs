@@ -548,13 +548,14 @@ static partial class Game
                     m.SwingGeneration = null;
                     m.LastTarget = null;
                     // On a lockstep client it gets no order, as GGG's gets none when a pursuit ends: any order still at the
-                    // gate is dropped and the estimate walks on to its old target, as the client's monster does, so the
-                    // wake zone's return (LockstepPlace) finds the client's monster where the estimate is (M0 bench: 69
-                    // of 74 still walking 0.5 s after a dropped one-cell give-up Move). GGG's idle orders after it are a
-                    // difference (Lockstep.Differences.cs).
+                    // gate is dropped and the estimate goes on with its last order, as the client's monster does (a
+                    // chase's walk-up after the player, NextPlannedAction), so the wake zone's return (LockstepPlace)
+                    // finds the client's monster where the estimate is (M0 bench: 69 of 74 still walking 0.5 s after a
+                    // dropped one-cell give-up Move). GGG's idle orders after it are a difference
+                    // (Lockstep.Differences.cs).
                     if (conn.LockstepClient)
                     {
-                        m.ActionGeneration++;
+                        NextPlannedAction(m);
                         Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) gives up at ({mx}, {my}): not sent, its walk goes on to {m.Walk.Destination}");
                         continue;
                     }
@@ -563,7 +564,7 @@ static partial class Game
                     // A Move to its own cell does not replace the attack a predictive client is still chasing with, so it
                     // goes to the next cell.
                     var stay = NextCell(conn, m, mx, my);
-                    plan.Moves.Add((id, m, ++m.ActionGeneration, PlaceMove(plan, m, stay, now), stay, "gives up"));
+                    plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, stay, now), stay, "gives up"));
                     continue;
                 }
                 // Frozen: it does nothing until the freeze ends. On a predictive client it stands where it is: a chase order
@@ -576,9 +577,10 @@ static partial class Game
                     {
                         // A lockstep client takes no Move onto the walker's own cell (07 §6), so nothing stops it: no
                         // stop is sent, any order still at the gate is dropped, and the estimate keeps its walk as the
-                        // client's monster does (no is_frozen stop for the player, 07 §5; a monster's freeze is not traced).
-                        if (conn.LockstepClient) m.ActionGeneration++;
-                        else plan.Moves.Add((id, m, ++m.ActionGeneration, PlaceMove(plan, m, (mx, my), now), (mx, my), "is frozen"));
+                        // client's monster does, a chase's walk-up with its goal test (no is_frozen stop for the player,
+                        // 07 §5; a monster's freeze is not traced).
+                        if (conn.LockstepClient) NextPlannedAction(m);
+                        else plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, (mx, my), now), (mx, my), "is frozen"));
                     }
                     m.LastTarget = null;
                     continue;
@@ -592,7 +594,7 @@ static partial class Game
                     {
                         m.FleeTo = m.LastTarget = null;
                         m.SwingGeneration = null;
-                        plan.Moves.Add((id, m, ++m.ActionGeneration, PlaceMove(plan, m, flee, now), flee, "flees"));
+                        plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, flee, now), flee, "flees"));
                         continue;
                     }
                     if (now < m.Walk.ArrivesAt) continue;
@@ -646,7 +648,7 @@ static partial class Game
                         m.NextChaseRetryAt = now + 0.5;
                         m.LastTarget = target.Approach;
                         m.SwingGeneration = null;
-                        plan.Moves.Add((id, m, ++m.ActionGeneration, PlaceMove(plan, m, target.Approach, now),
+                        plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, target.Approach, now),
                             target.Approach, $"minion chases monster 0x{target.Id:x}"));
                     }
                     continue;
@@ -737,7 +739,7 @@ static partial class Game
                             if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) chase leg from {start} to {leg}: player ({px}, {py}) {d:0.0} away (t={now:0.000})");
                             m.LastTarget = null;
                             m.SwingGeneration = null;
-                            plan.Legs.Add((id, m, ++m.ActionGeneration, start, leg));
+                            plan.Legs.Add((id, m, NextPlannedAction(m), start, leg));
                             continue;
                         }
                     }
@@ -757,7 +759,7 @@ static partial class Game
                     }
                     m.LastTarget = (px, py);
                     m.SwingGeneration = null;
-                    plan.Chases.Add((id, m, ++m.ActionGeneration, here, (px, py)));
+                    plan.Chases.Add((id, m, NextPlannedAction(m), here, (px, py)));
                     continue;
                 }
                 // Bodies take distinct surround slots. A negative footprint does not collide with living actors,
@@ -773,7 +775,7 @@ static partial class Game
                     m.SwingGeneration = null;
                     var before = m.Walk.Save();
                     var from = PlaceMove(plan, m, to, now);
-                    plan.MoveLegs.Add((id, m, ++m.ActionGeneration, from, double.IsNaN(plan.FrameStart) ? CutToLeg(m, to, now, before) : to));
+                    plan.MoveLegs.Add((id, m, NextPlannedAction(m), from, double.IsNaN(plan.FrameStart) ? CutToLeg(m, to, now, before) : to));
                 }
                 else if (LivingCollision.Blocks(m))
                     askers.Add((new(id, mx, my, LivingCollision.Size(m), m.LastTarget,
@@ -808,7 +810,7 @@ static partial class Game
                 m.SwingGeneration = null;
                 var before = m.Walk.Save();
                 var from = PlaceMove(plan, m, to, now);
-                plan.MoveLegs.Add((asker.Id, m, ++m.ActionGeneration, from, double.IsNaN(plan.FrameStart) ? CutToLeg(m, to, now, before) : to));
+                plan.MoveLegs.Add((asker.Id, m, NextPlannedAction(m), from, double.IsNaN(plan.FrameStart) ? CutToLeg(m, to, now, before) : to));
             }
         }
         return plan;
@@ -827,6 +829,17 @@ static partial class Game
         if (!conn.LockstepClient || double.IsNaN(plan.FrameStart)) return true;
         var (into, step) = m.Walk.StepPhase(plan.FrameStart);
         return step == 0 || into < FrameMs / 1000d + 1e-6 || cadence.ChaseOverdue(m, now, 2 * step);
+    }
+
+    // The action generation of an order the plan makes, or of a lockstep give-up or freeze, which sends nothing: any
+    // older order still at the gate is dropped. A chase walk-up the client runs (WalkUpOpen) is carried to the new
+    // generation, as the client runs it until an order it takes applies (LockstepOrderFrom, at the start of the frame
+    // being sent; a Move it refuses leaves its action going on, 0x1419442d0), and a give-up or a freeze sends it nothing.
+    // A swing order, a flinch, a stage and a transfer move the generation on themselves and close it.
+    internal static int NextPlannedAction(SpawnedMonster m)
+    {
+        if (m.ClientChase == m.ActionGeneration) m.ClientChase = m.ActionGeneration + 1;
+        return ++m.ActionGeneration;
     }
 
     // A Move's walk: placed now on a predictive client; on a lockstep client the plan only names the target and the walk
@@ -873,33 +886,22 @@ static partial class Game
             await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
         // A chase is re-ordered every few ticks: its lines only with Game_TRACE=ai (the packet history keeps them).
         foreach (var (id, m, action, from, to, why) in plan.Moves)
-            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () => PlanMoveAtGate(conn, plan, id, m, from, to, why),
+            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () => PlanMoveAtGate(conn, plan, id, m, action, from, to, why),
                 ServerTrace.Ai || why == "gives up" ? $"0x01ab monster 0x{id:x} {why}: move from {from} to {to}" : null);
         foreach (var (id, m, action, from, to) in plan.Chases)
-            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
-                {
-                    // Placed at the gate, the chase aims at the player's cell at that frame's start, as the plan would have.
-                    var aim = to;
-                    var start = LockstepOrderFrom(conn, plan, from, at =>
-                    {
-                        var (here, player) = PlaceLockstepChase(conn, m, action, at);
-                        aim = player;
-                        return here;
-                    });
-                    return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, m.Attack!.SkillId, m.NextSequence(), 0, targetObjectId: PlayerId);
-                },
+            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () => ChaseAtGate(conn, plan, id, m, action, from, to),
                 ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases the player from {from} to {to}" : null);
         foreach (var (id, m, action, from, to) in plan.Legs)
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
                 {
                     var aim = to;
                     bool noWay = false;
-                    var start = LockstepOrderFrom(conn, plan, from, at =>
+                    if (LockstepOrderFrom(conn, plan, id, m, action, from, at =>
                     {
                         var (here, leg, attack) = PlaceLockstepLeg(conn, m, action, at);
                         (aim, noWay) = (leg, attack);
                         return here;
-                    });
+                    }) is not { } start) return null;
                     if (noWay)
                     {
                         if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) leg finds no way from {start}: attack order at the player {aim}");
@@ -913,12 +915,12 @@ static partial class Game
                 {
                     var aim = to;
                     bool taken = true;
-                    var start = LockstepOrderFrom(conn, plan, from, at =>
+                    if (LockstepOrderFrom(conn, plan, id, m, action, from, at =>
                     {
                         var (here, leg, take) = PlaceLockstepMoveLeg(m, to, at);
                         (aim, taken) = (leg, take);
                         return here;
-                    });
+                    }) is not { } start) return null;
                     if (!taken)
                     {
                         if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) Move to {aim} within 2 cells of {start}: not sent, its walk goes on");
@@ -1056,6 +1058,9 @@ static partial class Game
     // tasks: 14 of 1 193 chase orders in a traced fight, live 2026-11-03) started a frame early on the server, and the
     // overtaken frame was replayed with the new walk where the client still ran the old one. A predictive client's walk
     // is the plan's.
+    // The chase walk-up the order replaces stays open through those frames (NextPlannedAction), testing its goal as the
+    // client's does. When it began its swing there, or the AI has since taken that swing, the order would only wait
+    // behind the swing (0x141e8cf10), so nothing is sent and the AI takes the swing on its next pass.
     // A melee chase leg placed at a lockstep frame's start `at`: the walk-up to the player's cell then, cut to its leg.
     // Returns the walker's cell, the cell to order and whether to send the attack aimed at the player instead: an
     // estimate that finds no way keeps the attack order, as the planner does without frames (the client's own search
@@ -1074,9 +1079,26 @@ static partial class Game
             return (walk.Here, player, true);
         }
         // The client gets only the leg, so it goes over the walk before the walk-up, which never ran: over the walk-up a
-        // stand's kept time would be spent and the leg start a step late.
+        // stand's kept time would be spent and the leg start a step late. The leg ends any walk-up the client ran.
         m.Walk.Restore(before);
+        m.ClientChase = null;
         return (m.Walk.Order(leg.X, leg.Y, at), leg, false);
+    }
+
+    // A chase order at the send gate: the attack aimed at the player, from the cell its walk-up starts on, or null when
+    // the walk-up it replaces began its swing first (LockstepOrderFrom).
+    internal static byte[]? ChaseAtGate(ClientState conn, MonsterAiPlan plan, uint id, SpawnedMonster m, int action,
+        (int X, int Y) from, (int X, int Y) to)
+    {
+        // Placed at the gate, the chase aims at the player's cell at that frame's start, as the plan would have.
+        var aim = to;
+        if (LockstepOrderFrom(conn, plan, id, m, action, from, at =>
+        {
+            var (here, player) = PlaceLockstepChase(conn, m, action, at);
+            aim = player;
+            return here;
+        }) is not { } start) return null;
+        return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, m.Attack!.SkillId, m.NextSequence(), 0, targetObjectId: PlayerId);
     }
 
     // A melee chase order (the attack aimed at the player) placed at a lockstep frame's start `at`: the walk-up to the
@@ -1106,14 +1128,18 @@ static partial class Game
 
     // A Move chase (a surround slot) placed at a lockstep frame's start `at` and cut to its leg. Returns the walker's
     // cell, the cell to order and whether to send it: a Move the client would not take is not sent, and the walk the
-    // estimate had goes on, as the client's action does.
+    // estimate had goes on, as the client's action does (any walk-up too); one it takes ends that action.
     internal static ((int X, int Y) Here, (int X, int Y) Aim, bool Taken) PlaceLockstepMoveLeg(SpawnedMonster m, (int X, int Y) to, double at)
     {
         var here = m.Walk.Position(at);
         var (saved, leg) = (m.Walk.Save(), m.Leg);
         var placed = m.Walk.Order(to.X, to.Y, at);
         var aim = CutToLeg(m, to, at, saved);
-        if (LockstepTakesMove(here, aim)) return (placed, aim, true);
+        if (LockstepTakesMove(here, aim))
+        {
+            m.ClientChase = null;
+            return (placed, aim, true);
+        }
         m.Walk.Restore(saved);
         m.Leg = leg;
         return (here, aim, false);
@@ -1122,18 +1148,21 @@ static partial class Game
     // A plan Move (a flight, a minion's or a Rampage chase; a give-up or a freeze's stop on a predictive client) at the
     // send gate: its 0x1ab, or null when a lockstep client would not take it (LockstepTakesMove, 07 §6). On a lockstep
     // client the walk is placed at the start of the frame being sent (LockstepOrderFrom); a Move it would not take is not
-    // sent and the estimate keeps its walk, as the client's action goes on.
-    internal static byte[]? PlanMoveAtGate(ClientState conn, MonsterAiPlan plan, uint id, SpawnedMonster m,
+    // sent and the estimate keeps its walk, as the client's action goes on (any walk-up too); one it takes ends that
+    // action.
+    internal static byte[]? PlanMoveAtGate(ClientState conn, MonsterAiPlan plan, uint id, SpawnedMonster m, int action,
         (int X, int Y) from, (int X, int Y) to, string why)
     {
         const ushort Move = 0x2909;
         bool taken = true;
-        var start = LockstepOrderFrom(conn, plan, from, at =>
+        if (LockstepOrderFrom(conn, plan, id, m, action, from, at =>
         {
             var here = m.Walk.Position(at);
             taken = LockstepTakesMove(here, to);
-            return taken ? m.Walk.Order(to.X, to.Y, at) : here;
-        });
+            if (!taken) return here;
+            m.ClientChase = null;
+            return m.Walk.Order(to.X, to.Y, at);
+        }) is not { } start) return null;
         if (!taken)
         {
             if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) {why}: Move to {to} within 2 cells of {start}: not sent, its walk goes on to {m.Walk.Destination}");
@@ -1161,10 +1190,17 @@ static partial class Game
         }
     }
 
-    static (int X, int Y) LockstepOrderFrom(ClientState conn, MonsterAiPlan plan, (int X, int Y) from, Func<double, (int X, int Y)> place)
+    static (int X, int Y)? LockstepOrderFrom(ClientState conn, MonsterAiPlan plan, uint id, SpawnedMonster m, int action,
+        (int X, int Y) from, Func<double, (int X, int Y)> place)
     {
         if (double.IsNaN(plan.FrameStart) || conn.LockstepFrame is not { } frame) return from;
         StepWalkers(conn, frame.Start);
+        if (m.ClientSwingAt is not null && m.ClientSwingAction == action || m.SwingGeneration == action)
+        {
+            if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) order {action} not sent: its walk-up began its swing"
+                + $"{(m.ClientSwingAt is { } at ? $" at {at:0.000}" : "")} before the frame from {frame.Start:0.000}");
+            return null;
+        }
         return place(frame.Start);
     }
 

@@ -337,8 +337,10 @@ static partial class Game
     }
 
     // A lockstep client's monster walking up to the player on its chase order (the attack aimed at him) that has neither
-    // swung nor failed yet: the order went out (PlaceLockstepChase) and nothing has replaced it, as every later order, a
-    // flinch, a freeze and a transfer move the action generation on. Out of the wake zone its copy does not tick.
+    // swung nor failed yet: the order went out (PlaceLockstepChase) and nothing the client gets has replaced it. A planned
+    // order carries it to its own generation until the gate places it, and a give-up or a freeze, which send nothing,
+    // keep it (NextPlannedAction); a swing order, a flinch, a stage and a transfer move the action generation on and end
+    // it. Out of the wake zone its copy does not tick.
     internal static bool WalkUpOpen(ClientState conn, SpawnedMonster m) =>
         conn.LockstepClient && m.ClientChase == m.ActionGeneration && !m.Dead && m.Life > 0 && !m.Asleep;
 

@@ -30,7 +30,7 @@ static partial class Game
         {
             monster.LastTarget = target;
             monster.SwingGeneration = null;
-            plan.Moves.Add((id, monster, ++monster.ActionGeneration, PlaceMove(plan, monster, target, now), target, "chases Rampage weapon"));
+            plan.Moves.Add((id, monster, NextPlannedAction(monster), PlaceMove(plan, monster, target, now), target, "chases Rampage weapon"));
         }
         return true;
     }
