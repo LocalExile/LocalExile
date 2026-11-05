@@ -97,6 +97,7 @@ static partial class Game
             if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
+            session.Enqueue(() => ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
@@ -159,7 +160,7 @@ static partial class Game
     }
 
     internal static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
-        PublishProjectileGroundItem(session, session.Conn.Instance.Ground.Add(ground), ground);
+        PublishProjectileGroundItem(session, session.Conn.Instance.Ground.Add(ground, session.Conn), ground);
 
     internal static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
     {

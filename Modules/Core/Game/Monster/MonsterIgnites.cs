@@ -195,7 +195,11 @@ static partial class Game
             }
         }
         foreach (var (id, buff) in ended)
+        {
             await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, buff), null);
+            // The buff may be another player's (who applied the ailment): theirs goes too (instances are the instance's).
+            ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
+        }
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)
@@ -209,7 +213,7 @@ static partial class Game
             }
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);
-            if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
+            if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m);
         }
     }
 }

@@ -16,6 +16,11 @@ public static class InstanceTransfer
     public const ushort UseSkillOnObjectId = 0x24, ChangeAreaId = 0x2b2, InstanceListId = 0xae, LeaveAreaAckId = 0x2cb,
         ConnectInstanceId = 0x27, ChooseInstanceId = 0xaf;
 
+    /// <summary>The length of a C→S 0x2cb at the start of <paramref name="data"/> (writer 0x141f9fa50): u16 id, u16 BE byte
+    /// count, then that many bytes (u16 6 and 0x360 bytes: 870 in all). Null until its header has arrived.</summary>
+    public static int? LeaveAreaAckLength(ReadOnlySpan<byte> data) =>
+        data.Length < 4 ? null : 4 + System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[2..]);
+
     /// <summary>C→S 0xaf (3 bytes): the instance chooser's pick, u8 row of the last 0xae list, or <see cref="NewInstanceRow"/>
     /// for the "New" row (captured live 2026-10-16: 00AFFF on New with an empty list).</summary>
     public const byte NewInstanceRow = 0xff;

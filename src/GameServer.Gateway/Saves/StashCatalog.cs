@@ -14,6 +14,8 @@ static class StashCatalog
         // The Azurite Mine Encampment (Delve_Hub): placed live with /stash_place 355 295 180 (2026-10-30). It also gets
         // the guild stash (Program.SpawnTownStash), at TownGuildStashes.
         [DelveHub] = new(355, 295, MathF.PI),
+        // The Sarn Encampment (1_3_town): placed live with /stash_place 295 423 28 (2026-11-04).
+        [SarnEncampment] = new(295, 423, 28 * MathF.PI / 180),
         // The Menagerie (Menagerie_Hub): placed live with /stash_place 455 480 0 (2026-10-30).
         [MenagerieHub] = new(455, 480, 0),
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): by the waypoint (126, 149), to be placed live with /stash_place.
@@ -27,7 +29,8 @@ static class StashCatalog
     };
 
     /// <summary>A town's guild stash where it has a place of its own (else next to the stash), placed live with
-    /// /guild_stash_place (2026-10-30): the Mine Encampment 344 295 180, Lioneye's Watch 317 270 0, the Menagerie 440 480 0.</summary>
+    /// /guild_stash_place (2026-10-30): the Mine Encampment 344 295 180, Lioneye's Watch 317 270 0, the Menagerie 440 480 0;
+    /// the Sarn Encampment 285 418 28 (2026-11-04).</summary>
     public static Placement? GuildIn(ushort areaHash) => areaHash switch
     {
         DelveHub => new(344, 295, MathF.PI),
@@ -37,8 +40,12 @@ static class StashCatalog
         HeistHub => new(-6, 8, 0),
         ChayulaHub => new(-6, 8, 0),
         AreaLayouts.LioneyesWatch => new(317, 270, 0),
+        SarnEncampment => new(285, 418, 28 * MathF.PI / 180),
         _ => null,
     };
+
+    /// <summary>HASH16 of the Sarn Encampment (WorldAreas 1_3_town).</summary>
+    public const ushort SarnEncampment = 0x0431;
 
     /// <summary>HASH16 of the Azurite Mine Encampment (WorldAreas Delve_Hub).</summary>
     public const ushort DelveHub = 0x8b9b;

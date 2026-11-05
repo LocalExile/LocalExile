@@ -6,7 +6,7 @@ static partial class Game
     /// <summary>The monsters the instance keeps when the connection leaves (#12): all but the player's minions. Under the
     /// Monsters lock.</summary>
     internal static IEnumerable<SpawnedMonster> InstanceMonsters(ClientState conn) =>
-        conn.Monsters.Where(kv => !conn.Minions.Owns(kv.Key)).Select(kv => kv.Value);
+        conn.Monsters.Where(kv => conn.Instance.World.MonsterOrigins.ContainsKey(kv.Key)).Select(kv => kv.Value);
 
     /// <summary>A minion leaves no corpse: queue its body's removal (0x2bb) a second after death.
     /// Retain its identity through both server removal and publication. Under Monsters; every minion tick calls it.</summary>
@@ -25,7 +25,11 @@ static partial class Game
     /// player's minions go with him.</summary>
     internal static void KeepInstanceMonsters(ClientState left)
     {
-        lock (left.Monsters) left.Instance.Monsters = SavedMonster.Save(InstanceMonsters(left),
-            left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));
+        lock (left.Monsters)
+        {
+            left.Instance.Monsters = SavedMonster.Save(InstanceMonsters(left),
+                left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));
+            RemoveLeavingMinionsLocked(left);
+        }
     }
 }

@@ -103,9 +103,13 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsRunTests().The_run_has_the_reference_s_six_skill_slots();
         new SurvivorsRunTests().A_run_skill_gains_a_projectile_at_ranks_three_five_and_seven();
         new SurvivorsRunTests().Monsters_grow_tougher_and_hit_harder_over_a_run();
+        new SurvivorsRunTests().The_sustained_kill_rate_ramps_the_dps_pressure();
+        new SurvivorsRunTests().Experience_orbs_are_collected_only_inside_the_radius();
+        new SurvivorsRunTests().A_death_zone_drains_a_quarter_of_max_life_each_second();
         new SurvivorsRunTests().A_run_hit_reaches_the_spawn_ring();
         new SurvivorsRunTests().Incoming_monster_hits_are_taken_at_sixty_percent_and_fortitude_softens_them();
-        new SurvivorsRunTests().The_herald_pulse_reaches_four_times_farther();
+        new SurvivorsRunTests().The_herald_pulse_reaches_its_own_aura_and_draws_every_hit();
+        new SurvivorsRunTests().A_pulse_casts_where_the_skill_lands();
         new SurvivorsRunTests().The_horde_gets_a_ranged_ring_wave_every_twenty_seconds();
         new SurvivorsRunTests().The_stage_caps_the_skill_count();
         new SurvivorsRunTests().A_run_moves_through_the_act_s_areas_in_order();
@@ -126,8 +130,10 @@ public sealed class SurvivorsLeagueTests
         new SurvivorsRunTests().The_clock_ignores_paused_and_broken_steps();
         new SurvivorsRunTests().The_gate_boss_scales_to_the_stage_and_the_player();
         new SurvivorsSupportMatrixTests().Every_support_moves_its_own_number_on_every_skill_it_can_support();
+        new SurvivorsSupportMatrixTests().Heralds_take_only_the_supports_that_move_the_pulse();
         new SurvivorsSupportMatrixTests().A_run_skill_uses_the_reference_s_thirty_percent_a_rank();
         new SurvivorsSupportMatrixTests().Area_gems_join_the_catalogue_and_cast_an_area_pulse();
+        new SurvivorsSupportMatrixTests().The_catalogue_keeps_only_skills_the_run_can_present();
         new SurvivorsSupportMatrixTests().Every_non_herald_skill_can_link_five_supports();
         new SurvivorsAnimationTests().Every_class_and_weapon_resolves_a_cast_clip_and_the_projectile_impact();
         new SurvivorsAnimationTests().Every_run_skill_maps_to_a_cast_clip();

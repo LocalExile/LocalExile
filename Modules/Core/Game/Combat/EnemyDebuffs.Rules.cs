@@ -143,23 +143,23 @@ static partial class Game
                                 ExposureBuffRows[i], null))
                             EndExposureLocked(m, ExposureTypes[i]);
                     Withers(id, living, m);
-                    double distance = living && (enemyAuras.Count > 0 || m.PlayerAuras.Count > 0)
+                    double distance = living && (enemyAuras.Count > 0 || m.PlayerAuras.Keys.Any(k => k.Peer == conn.PeerId))
                         ? Dist(m.Walk.Position(now), here) : double.PositiveInfinity;
                     if (m.PlayerAuras.Count > 0)
-                        foreach (var (definition, buff) in m.PlayerAuras.ToArray())
-                            if (enemyAuras.FirstOrDefault(a => a.Definition == definition) is not { } kept || distance > kept.Radius)
+                        foreach (var ((peer, definition), buff) in m.PlayerAuras.ToArray())
+                            if (peer == conn.PeerId && (enemyAuras.FirstOrDefault(a => a.Definition == definition) is not { } kept || distance > kept.Radius))
                             {
                                 bytes.AddRange(InstanceEntities.RemoveBuff(id, buff));
-                                m.PlayerAuras.Remove(definition);
+                                m.PlayerAuras.Remove((peer, definition));
                                 removed++;
                             }
                     int elemental = 0;
                     foreach (var aura in enemyAuras)
                     {
                         if (distance > aura.Radius) continue;
-                        if (!m.PlayerAuras.ContainsKey(aura.Definition))
+                        if (!m.PlayerAuras.ContainsKey((conn.PeerId, aura.Definition)))
                         {
-                            bytes.AddRange(InstanceEntities.AddBuff(id, m.PlayerAuras[aura.Definition] = conn.NextBuff++, aura.Definition, PlayerId));
+                            bytes.AddRange(InstanceEntities.AddBuff(id, m.PlayerAuras[(conn.PeerId, aura.Definition)] = conn.NextBuff++, aura.Definition, PlayerId));
                             added++;
                         }
                         elemental += aura.Stats.Where(s => s.Key == elementalKey).Sum(s => s.Value);

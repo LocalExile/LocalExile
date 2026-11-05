@@ -87,11 +87,13 @@ public class OpeningSceneTests
         byte[] serverAction = InstanceProtocol.ActionStarted(Program.PlayerId, 10, 10, 10, 10, TutorialObjects.WashedUpSkillId, TutorialObjects.GetUpSequence, 0);
         Assert.Equal(serverAction, clicked.Read(serverAction.Length));
 
-        // Observers get no action to end the stance with: another player's copy is created standing, in the owner's stead.
+        // Observers get no action to end the stance with: another player's copy is created standing, in the owner's stead,
+        // with the owner's skills (their uses play on it) but not the wake-up.
         using var observer = new Wire();
         observer.Conn.Instance.PublishPlayer(new(0x20001234, 7, player with { WashedUp = true, Rotation = MathF.PI }, 115, 69, 50));
         await Game.SyncInstancePlayers("opening-scene-test", observer.Stream, observer.Ciphers, observer.Conn);
-        byte[] created = InstanceEntities.CreateObject(0x20001234, 7, (player with { Skills = [], QuestFlags = [], LeagueQuestFlags = [] }).Blob());
+        byte[] created = InstanceEntities.CreateObject(0x20001234, 7, (player with { Skills = player.Skills?.Where(s => s.Id != TutorialObjects.WashedUpSkillId).ToList(),
+            QuestFlags = [], LeagueQuestFlags = [] }).Blob());
         Assert.Equal(created, observer.Read(created.Length));
     }
 

@@ -28,22 +28,31 @@ static partial class Game
                 var player = conn.Walk.Position(now);
                 var packets = new List<byte>();
                 List<(uint Id, int X, int Y)> back = [];
+                // Each client's own wake zone (ClientState.AsleepMonsters), of the instance's monsters it was shown.
+                var others = InGame.Keys.Where(c => !ReferenceEquals(c, conn) && ReferenceEquals(c.Instance, conn.Instance)
+                    && !c.Closed && !c.LeavingArea && c.PlayerSent).ToArray();
                 foreach (var (id, m) in conn.Monsters)
                 {
-                    if (m.Dead || m.Life <= 0 || m.OwnerId is not null) continue;
+                    if (m.Dead || m.Life <= 0 || m.OwnerId is not null || !conn.MonsterViews.ContainsKey(id)) continue;
                     var at = m.Walk.Position(now);
                     double d = Dist(at, player);
-                    if (!m.Asleep && d > WakeZoneRadius)
+                    bool sleeping = conn.AsleepMonsters.Contains(id);
+                    if (!sleeping && d > WakeZoneRadius)
                     {
-                        m.Asleep = true;
-                        // The client's copy stops ticking out there; the estimate stands where it is too, and the AI
-                        // leaves it until it is back (Game.PlanMonsterAi), as GGG's does.
-                        m.Walk.StopAt(now);
-                        m.Leg = null;
+                        conn.AsleepMonsters.Add(id);
                         packets.AddRange(InstanceProtocol.LeaveWakeZone(id));
+                        // Out of every client's: the estimate stands where it is too, and the AI leaves it until it is
+                        // back (Game.PlanMonsterAi), as GGG's does.
+                        if (!m.Asleep && others.All(c => c.AsleepMonsters.Contains(id) || !c.MonsterViews.ContainsKey(id)))
+                        {
+                            m.Asleep = true;
+                            m.Walk.StopAt(now);
+                            m.Leg = null;
+                        }
                     }
-                    else if (m.Asleep && d <= WakeZoneReturn)
+                    else if (sleeping && d <= WakeZoneReturn)
                     {
+                        conn.AsleepMonsters.Remove(id);
                         m.Asleep = false;
                         packets.AddRange(InstanceProtocol.EnterWakeZone(id));
                         back.Add((id, at.X, at.Y));

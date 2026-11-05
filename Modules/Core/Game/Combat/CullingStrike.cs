@@ -32,6 +32,7 @@ static partial class Game
     internal static (uint Life, bool StageStarts) TakeOwnerHitLocked(ClientState conn, SpawnedMonster m, int damage, Cull cull,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null)
     {
+        m.LastHitBy = conn;
         int threshold = m.Rarity is MonsterRarity.Normal or MonsterRarity.Magic
             ? Math.Max(cull.Threshold, cull.NormalMagicThreshold) : cull.Threshold;
         if (cull.CannotKill)
