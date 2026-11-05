@@ -416,6 +416,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   passive of all three presets and is consumed; with nothing allocated it stays. The three local rules are not the
   official ones. Two Gateway tests cover the chisel's admission and the Eldritch admission.
   Code: `CurrencyEffects.Chisel/TryAction`, `EldritchChaos/EldritchExalted`, `Game.UseOrbOfUnmaking`.
+- **Orb of Binding, the Eldritch Orb of Annulment and the Tainted (Scourge) family (added 2026-11-05, not checked live):**
+  Orb of Binding turns a normal uncorrupted weapon or armour piece that can hold four sockets into a rare (as Alchemy) with
+  four linked sockets whose colours come from the base's requirements. The Eldritch Orb of Annulment follows the two other
+  Eldritch orbs: an Annulment on an item carrying an Eater of Worlds or Searing Exarch implicit, which stays. The seven
+  Tainted currencies this class applies (Chaos, Exalted, Chromatic, Fusing, Jeweller's, Armourer's Scrap, Blacksmith's
+  Whetstone) run the ordinary effect on a corrupted item and leave it corrupted: the item is handed to the effect with its
+  corruption cleared and the result is corrupted again, so a non-corrupted item is refused before spending, as is anything
+  the ordinary effect refuses. Tainted Mythic, Tainted Divine Teardrop, Tainted Catalyst, Tainted Oil and Tainted Blessing
+  are separate. Local rules, not the official ones. Two Gateway tests cover the Binding admission and the Tainted/Eldritch
+  admission.
+  Code: `CurrencyEffects.Binding/EldritchAnnulment/Tainted`, `Game.CurrencyResult`.
 - **Enkindling Orb:** a utility flask of any rarity gets one of the five GenerationType 21 enchantments (increased
   effect / duration / Charge Recovery / maximum Charges, or reduced Charges per use, all with `Gains no Charges during
   Effect`) with the game's 250/100/100/100/100 weights. Life/mana, corrupted/mirrored, non-flask and
