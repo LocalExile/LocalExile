@@ -35,7 +35,7 @@ public sealed class PlayerWalk
     // a walk the step loop ended (its path's end, a blocked step).
     private double _kept;
 
-    // Joined: the next segment goes on along the same piece of the path (a step already due, split off by Follow), so
+    // Joined: the next segment goes on along the same piece of the path (steps already due, split off by InFrame), so
     // this one's last cell is no waypoint (EndsPiece).
     private sealed record Segment((int X, int Y) From, (int X, int Y)[] Cells, double T0, float Step, bool Joined = false)
     {
@@ -438,25 +438,58 @@ public sealed class PlayerWalk
             float step = StepTime(path[i - 1], path[i]);
             // The first step comes when the step in progress would have: its elapsed fraction carries over. From a stand,
             // the time a stop kept carries over as it is.
-            double into = i > 1 ? 0 : standing ? _kept : fraction * step;
-            t -= into;
-            if (into >= step && cells.Length > 0)
-            {
-                // Kept time of this step or more: the first tick takes the step at once (0x141e32710). It goes in the
-                // order's frame before the walk's next step (halfway: the step pass reads only a step's frame and order),
-                // not before the frame, where no frame's pass would check it and the frame's start would show it.
-                double next = t + 2 * (double)step, by = Math.Min(next, FrameOf?.Invoke(now)?.End ?? next);
-                walk.Add(new Segment(path[i - 1], cells[..1], now, (float)((by - now) / 2), Joined: cells.Length > 1));
-                if (cells.Length > 1) walk.Add(new Segment(cells[0], cells[1..], t + step, step));
-            }
-            else walk.Add(new Segment(path[i - 1], cells, t, step));
+            if (i == 1) t -= standing ? _kept : fraction * step;
+            walk.Add(new Segment(path[i - 1], cells, t, step));
             t += cells.Length * (double)step;
         }
         if (walk.Count > 0) _kept = 0;
         // Whole: monsters' walks are read outside the lock too (Rampage's weapons).
         _rest = here;
         _restSince = now;
-        _segments = walk;
+        _segments = InFrame(walk, now);
+    }
+
+    // A kept time of a step or more leaves steps due before the order's frame. The client's first tick takes them all, as
+    // its loop steps while the accumulator holds a step (0x141e32710), so they go in the order's frame, in order, before
+    // the walk's first step not yet due and the frame's end (evenly: the step pass reads only a step's frame and order),
+    // not before the frame, where no frame's pass would check them and the frame's start would show them.
+    private List<Segment> InFrame(List<Segment> walk, double now)
+    {
+        static int Due(Segment s, double at)
+        {
+            int n = 0;
+            while (n < s.Cells.Length && s.T0 + (n + 1) * (double)s.Step <= at) n++;
+            return n;
+        }
+        int due = 0;
+        double next = double.PositiveInfinity;
+        foreach (var s in walk)
+        {
+            int d = Due(s, now);
+            due += d;
+            if (d < s.Cells.Length)
+            {
+                next = s.T0 + (d + 1) * (double)s.Step;
+                break;
+            }
+        }
+        if (due == 0 || FrameOf?.Invoke(now) is not { } frame || frame.End <= now) return walk;
+        float gap = (float)((Math.Min(next, frame.End) - now) / (due + 1));
+        var placed = new List<Segment>();
+        int before = 0;
+        foreach (var s in walk)
+        {
+            int d = Due(s, now);
+            if (d == 0)
+            {
+                placed.Add(s);
+                continue;
+            }
+            placed.Add(new Segment(s.From, s.Cells[..d], now + before * (double)gap, gap, Joined: d < s.Cells.Length));
+            if (d < s.Cells.Length) placed.Add(s with { From = s.Cells[d - 1], Cells = s.Cells[d..], T0 = s.T0 + d * (double)s.Step });
+            before += d;
+        }
+        return placed;
     }
 
     // 0x141e4d180: the segment's time is its length over the speed, spread evenly over its major-axis steps.

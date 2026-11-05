@@ -238,8 +238,9 @@ with the cell differing, 601 on a walking actor, all 601 zeroed; on a standing w
 2026-11-04): an order whose from cell is the client's cell keeps
 the fraction of the step in progress, one whose from cell differs by any distance loses it, and the actor's next step
 comes a whole step after the frame. `PlayerWalk`'s time model (step k of an order applied at frame start S with
-fraction f at S − f × step + k × step, from a stand a stop left at S − kept + k × step, with a step already
-due placed inside S's frame) puts every step in the frame the accumulator gives it, up to float32 rounding;
+fraction f at S − f × step + k × step, from a stand a stop left at S − kept + k × step, with every step already
+due placed inside S's frame, before the first one not yet due) puts every step in the frame the accumulator gives it,
+up to float32 rounding;
 what the Gateway's step pass adds for a lockstep client is the order within a frame and the cells each check sees
 (`StepWalkers` → `StepFrames`: whole frames, each walker's steps of the frame in ascending object id against the cells
 as moved so far, up to the start of the frame being sent).

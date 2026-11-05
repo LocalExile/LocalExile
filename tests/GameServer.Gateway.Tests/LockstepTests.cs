@@ -76,6 +76,18 @@ public class LockstepTests
         Assert.Equal([(1, 0)], walk.Steps(.165, .198).Select(s => s.Cell));
         start = .231; Assert.Equal((1, 0), walk.Position(.231));
         start = .264; Assert.Equal((2, 0), walk.Position(.264));
+
+        // A speed doubled at the stand (12.5 ms steps against 30.6 ms kept) leaves two steps due: both come in the order's
+        // frame, in order, before the walk's third step, and the client takes 5 steps in that frame's tick and 2 in the next.
+        start = 0; walk = Walker(40);
+        walk.Order(20, 20, 0);
+        start = .033; walk.Order(0, 0, .04);
+        walk.SetSpeed(80, .05);
+        start = .099; Assert.Equal((1, 1), walk.Order(20, 1, .099));
+        Assert.Equal((1, 1), walk.Position(.099));
+        Assert.Equal([.1013, .1036, .1059, .1184, .1309], walk.Steps(.099, .132).Select(s => Math.Round(s.At, 4)));
+        Assert.Equal([(2, 1), (3, 1), (4, 1), (5, 1), (6, 1)], walk.Steps(.099, .132).Select(s => s.Cell));
+        start = .165; Assert.Equal((8, 1), walk.Position(.165));
     }
 
     [Fact]
