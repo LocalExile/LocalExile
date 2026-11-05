@@ -34,6 +34,7 @@ sealed class NpcCatalog
         public bool OpensGuildHideouts => System.Text.RegularExpressions.Regex.IsMatch(Script, @"HideoutSelectionWindow\s*,\s*1\s*\)");
         public bool Introduction { get; init; }
         public bool Automatic { get; init; }
+        public bool AutomaticContextSupported { get; init; }
         public int Priority { get; init; }
         public IReadOnlyList<string> RequiredFlags { get; init; } = [];
         public IReadOnlyList<string> ExcludedFlags { get; init; } = [];
@@ -199,6 +200,12 @@ sealed class NpcCatalog
         .Where(t => t.Introduction && t.Automatic && t.StartFlag is { } start && !flags.Contains(start) && t.Available(flags))
         .OrderByDescending(t => t.Priority).FirstOrDefault();
 
+    public Talk? NextConversationOf(Npc npc, IReadOnlySet<string> flags, IReadOnlySet<int> visited) => TalksOf(npc)
+        .Where(t => t.Automatic && t.AutomaticContextSupported && !visited.Contains(t.Row)
+            && (t.Introduction || t.Category is "Quests" or "QuestReward")
+            && t.StartFlag is { } start && !flags.Contains(start) && t.Available(flags))
+        .OrderByDescending(t => t.Priority).FirstOrDefault();
+
     public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags)
     {
         int source = TalkSource(npc).Row;
@@ -337,6 +344,14 @@ sealed class NpcCatalog
                     Introduction = r.TryGetProperty("__col13", out var introduction) && introduction.GetBoolean(),
                     Automatic = r.TryGetProperty("__col33", out var automatic) && automatic.GetBoolean(),
                     Priority = OptionalInt("__col34"),
+                    AutomaticContextSupported = new[] { "__col15", "__col16", "__col18", "__col28" }
+                        .All(k => r.TryGetProperty(k, out var list) && list.GetArrayLength() == 0)
+                        && OptionalInt("__col17") == 0x777 && OptionalInt("__col19") == 0x777
+                        && OptionalInt("__col27") == 60 && OptionalInt("__col29") == 60
+                        && OptionalInt("__col31") == 0 && OptionalInt("__col32") < 0
+                        && r.TryGetProperty("BaseItemTypes", out var item) && item.ValueKind == JsonValueKind.Null
+                        && r.TryGetProperty("__col14", out var special) && !special.GetBoolean()
+                        && r.TryGetProperty("__col20", out var condition) && !condition.GetBoolean(),
                     RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"), HeardFlags = FlagList("QuestFlag3"),
                     StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
                     RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,

@@ -65,6 +65,7 @@ static partial class Game
         }
         uint id;
         lock (conn.Npcs) id = conn.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
+        conn.AutomaticNpcTalkRows.Clear();
         conn.TalkingTo = id;
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
@@ -72,9 +73,11 @@ static partial class Game
         if (await GameEvents.AnyNpcTalk(conn, id, npc)) return;
         if (Npcs.Value.IntroductionOf(npc.Npc, Quests.Names(PlayerQuestFlags(conn))) is { } introduction)
         {
+            conn.AutomaticNpcTalkRows.Add(introduction.Row);
             await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, introduction);
             return;
         }
+        if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 talk to npc 0x{id:x} {npc.Npc.Name}",
             still: () => PlayerActionCurrent(conn, action));
     }
@@ -103,6 +106,7 @@ static partial class Game
                 lock (conn.Npcs) speaker = conn.Npcs.GetValueOrDefault(id);
                 if (speaker is not null && await EndTalkScript(remote, stream, ciphers, conn, id, speaker, script)) return;
             }
+            if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
             await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 npc 0x{id:x}: back to the options (0x85 after a talk)");
             return;
         }
@@ -117,6 +121,20 @@ static partial class Game
         {
             lock (conn.Npcs) return conn.Npcs.GetValueOrDefault(id)?.Npc.Id == TutorialObjects.Exile;
         }
+    }
+
+    internal static async Task<bool> ContinueQuestConversation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint id)
+    {
+        SpawnedNpc? npc;
+        lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(id);
+        if (npc is null || conn.TalkingTo != id) return false;
+        var next = Npcs.Value.NextConversationOf(npc.Npc, Quests.Names(PlayerQuestFlags(conn)), conn.AutomaticNpcTalkRows);
+        // Rewards keep their existing explicit-selection path until automatic reward presentation is added.
+        if (next is null || next.Category == "QuestReward") return false;
+        conn.AutomaticNpcTalkRows.Add(next.Row);
+        await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, next);
+        return conn.InNpcTalk || conn.TalkingTo != id;
     }
 
     // C→S 0x82: an option picked in the NPC dialogue window (an NPCTalk row of the NPC talked to).
