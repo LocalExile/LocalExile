@@ -126,13 +126,17 @@ static partial class Game
         Console.WriteLine($"[gateway] {remote} <= 0x0082 npc {npc.Npc.Name} option {index}: " +
             (talk is null ? "no NPCTalk row" : $"NPCTalk row {talk.Row} \"{talk.Option}\" ({talk.Category}), text audio [{string.Join(", ", talk.TextAudio)}]"));
         if (talk is null) return;
+        await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, talk);
+    }
+
+    internal static async Task ExecuteQuestConversation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk)
+    {
         if (!talk.Available(Quests.Names(PlayerQuestFlags(conn)))) return;
         if (!await GameEvents.AllowNpcOption(conn, talk)) return;
         // A row that sets a quest item's remove_flag takes the item (Nessa's Medicine Chest, Fairgraves' Allflame).
         if (!await HandInQuestItems(remote, stream, ciphers, conn, talk, npc.Npc.Id)) return;
-        if (TalkStartFlag(conn, talk) is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
-        if (QuestsOf(conn).OnTalkRow(talk.Row) is { Count: > 0 } byRow) await SetQuestFlags(remote, stream, ciphers, conn, byRow);
-        await OnQuestTalk(remote, stream, ciphers, conn, id, npc, talk);
+        await ApplyQuestConversationStart(remote, stream, ciphers, conn, id, npc, talk, applyRowRules: true);
         conn.NpcFinishFlag = talk.FinishFlag;
         conn.NpcTalkScript = null;
         // A scripted row's end (FinishNPCChat, DoNPCChat, a screen, a move): after its talk, or now when it has none.
