@@ -4,8 +4,22 @@ static class IncomingResourceDefences
     internal const string TakenStat = "harbinger_channel_buff_damage_taken_+%_final";
     internal const string BypassStat = "base_non_chaos_damage_bypass_energy_shield_%";
 
-    internal static int Taken(int damage, Func<string, int> get) =>
-        (int)Math.Clamp(Math.Max(0L, damage) * Math.Max(0L, 100L + get(TakenStat)) / 100, 0, int.MaxValue);
+    // The Eater of Worlds body-armour implicits: "1% less Damage Taken per X Strength / Dexterity / Intelligence".
+    internal const string LessPerStrength = "body_armour_implicit_damage_taken_-1%_final_per_X_strength";
+    internal const string LessPerDexterity = "body_armour_implicit_damage_taken_-1%_final_per_X_dexterity";
+    internal const string LessPerIntelligence = "body_armour_implicit_damage_taken_-1%_final_per_X_intelligence";
+
+    /// <summary>The final "less Damage Taken" share from the attribute implicits: each stat's attribute total divided by
+    /// its X, added together and capped at 100%. The attribute totals include the item's own attributes.</summary>
+    internal static int LessTakenPct(CharacterStats.Pools pools, Func<string, int> get) =>
+        Per(pools.Strength, get(LessPerStrength)) + Per(pools.Dexterity, get(LessPerDexterity))
+        + Per(pools.Intelligence, get(LessPerIntelligence));
+
+    static int Per(int attribute, int per) => per > 0 ? Math.Clamp(attribute / per, 0, 100) : 0;
+
+    internal static int Taken(int damage, Func<string, int> get, int lessPct = 0) =>
+        (int)Math.Clamp(Math.Max(0L, damage) * Math.Max(0L, 100L + get(TakenStat))
+            * Math.Max(0L, 100L - Math.Clamp(lessPct, 0, 100)) / 10000, 0, int.MaxValue);
 
     internal static int Damage(EnergyShield shield, int damage, int bypassPercent, double now)
     {
@@ -13,9 +27,10 @@ static class IncomingResourceDefences
         return bypass + shield.Damage(Math.Max(0, damage) - bypass, false, now);
     }
 
-    internal static int TakenOverTime(int damage, Func<string, int> get, ref double carry)
+    internal static int TakenOverTime(int damage, Func<string, int> get, ref double carry, int lessPct = 0)
     {
-        double earned = Math.Max(0, damage) * Math.Max(0, 1 + get(TakenStat) / 100.0) + carry;
+        double earned = Math.Max(0, damage) * Math.Max(0, 1 + get(TakenStat) / 100.0)
+            * Math.Max(0, 1 - Math.Clamp(lessPct, 0, 100) / 100.0) + carry;
         int whole = (int)Math.Min(int.MaxValue, Math.Floor(earned + 1e-9));
         carry = Math.Max(0, earned - whole);
         return whole;

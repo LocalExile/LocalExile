@@ -15,9 +15,10 @@ static partial class Game
         physical = nonChaos == 0 ? 0 : (int)((long)physical * kept.NonChaos / nonChaos);
         other = kept.NonChaos - physical;
         chaos = kept.Chaos;
-        physical = IncomingResourceDefences.Taken(physical, Get);
-        other = IncomingResourceDefences.Taken(other, Get);
-        chaos = IncomingResourceDefences.Taken(chaos, Get);
+        int less = IncomingResourceDefences.LessTakenPct(conn.Pools, Get);
+        physical = IncomingResourceDefences.Taken(physical, Get, less);
+        other = IncomingResourceDefences.Taken(other, Get, less);
+        chaos = IncomingResourceDefences.Taken(chaos, Get, less);
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
         int bypass = Get(IncomingResourceDefences.BypassStat);
         int nonChaosLife = (int)Math.Min(int.MaxValue, (long)IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at)
