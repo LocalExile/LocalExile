@@ -677,11 +677,15 @@ static partial class Game
                         continue;
                     }
                 }
-                // A swing order: a monster's in-place skill, a summoner's (its actor's clip, not a walk-up), and any attack
-                // on a predictive client, where a walking player has already gone farther: no swing right at the edge of
-                // the reach. A lockstep client's melee monster swings only by its chase's goal test (above): standing in
-                // reach, it gets the chase, which starts the swing in the order's own frame.
-                if (m.Hostile && m.Attack is { } a && (a.InPlace || a.Summon is not null || !conn.LockstepClient)
+                // Totems, statues, vines and the like (MovementSpeed 0) never walk: the estimate's minimum speed must not
+                // move them, so they get no chase.
+                bool still = m.Variety is { MovementSpeed: 0 };
+                // A swing order: a monster's in-place skill, a summoner's (its actor's clip, not a walk-up), a melee attack
+                // of a monster that never walks (the chase's own 0x1ab, whose goal test passes as it applies: 0x141e7b530),
+                // and any attack on a predictive client, where a walking player has already gone farther: no swing right
+                // at the edge of the reach. A lockstep client's walking melee monster swings only by its chase's goal test
+                // (above): standing in reach, it gets the chase, which starts the swing in the order's own frame.
+                if (m.Hostile && m.Attack is { } a && (a.InPlace || a.Summon is not null || still || !conn.LockstepClient)
                     && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin)
                     && SummonReadyLocked(conn, id, m, a, now))
                 {
@@ -707,8 +711,7 @@ static partial class Game
                     plan.Swings.Add((id, m, m.ActionGeneration));
                     continue;
                 }
-                // Totems, statues and the like (MovementSpeed 0) never walk: the estimate's minimum speed must not move them.
-                if (m.Variety is { MovementSpeed: 0 }) continue;
+                if (still) continue;
                 // A melee monster chases as GGG's do: its attack aimed at the player, repeated, so the client walks it to
                 // where it really has the player. The estimate walks the same walk-up: until the distance is within the
                 // attack's reach (max range reach - 1, the player's size as the tolerance: 0x141e8eb60, 0x141e7b260).

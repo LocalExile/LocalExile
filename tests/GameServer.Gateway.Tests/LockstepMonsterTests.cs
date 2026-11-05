@@ -38,7 +38,8 @@ public class LockstepMonsterTests : IDisposable
     // player's cell as his tick left it, or where a blocked step stopped it; out of reach at its path's end it searches
     // again toward the player. The server takes that swing from that frame's start with no order, and gives a standing
     // lockstep melee monster in reach the chase, not a swing order. Only a chase the client runs is tested, not a Move
-    // that sets LastTarget; an in-place attack and a predictive client keep their swing orders.
+    // that sets LastTarget; an in-place attack, a monster that never walks and a predictive client keep their swing
+    // orders.
     [Fact]
     public void A_chase_walk_up_swings_in_the_frame_the_client_finds_the_player_in_reach()
     {
@@ -64,11 +65,18 @@ public class LockstepMonsterTests : IDisposable
         standing.LastTarget = null;
         var stopped = Chasing(Drowned(new PlayerWalk(100, 108, 8)));
         stopped.Walk.Order(100, 100, now: -0.1);
+        // A melee monster that never walks (MovementSpeed 0, a vine) gets no chase: in reach it keeps the swing order.
+        var vine = new SpawnedMonster("Vine", new PlayerWalk(105, 105, 8), aggroRange: 60, stopRange: 2, maxLife: 23)
+        {
+            Attack = new(0x3188, 2.0, 8, DamagePacket.Empty), Aggro = true,
+            Variety = new MonsterCatalog.Variety(0, "Vine", "Vine", "Vine", null, null, MovementSpeed: 0),
+        };
         conn.Monsters[0x3000] = arrived;
         conn.Monsters[0x3001] = walking;
         conn.Monsters[0x3005] = blocked;
         conn.Monsters[0x3006] = standing;
         conn.Monsters[0x3007] = stopped;
+        conn.Monsters[0x3009] = vine;
         var plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 1.03);
         Assert.Equal([0x3000u, 0x3007u], plan.ArrivedSwings.Select(s => s.Id));
         Assert.Equal(0.231, plan.ArrivedSwings[0].BegunAt, 3);
@@ -81,7 +89,7 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal((100, 108), stopped.Walk.Position(1.03));
         Assert.Equal([0x3001u, 0x3005u], plan.Legs.Select(c => c.Id));   // far off: ordered again, in legs
         Assert.Equal([0x3006u], plan.Chases.Select(c => c.Id));
-        Assert.Empty(plan.Swings);
+        Assert.Equal([0x3009u], plan.Swings.Select(s => s.Id));
         // The order's own apply: in reach where the monster stands, the swing starts in the order's frame and no walk-up
         // opens; out of reach, the walk-up opens for the step pass.
         var near = Drowned(new PlayerWalk(106, 100, 8));
