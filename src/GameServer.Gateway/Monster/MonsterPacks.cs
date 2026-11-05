@@ -148,6 +148,10 @@ sealed class PackCatalog(string folder = "data")
 /// </summary>
 static class AreaPopulation
 {
+    // Local population seed derivation. HashCode.Combine has a process-random salt and cannot reproduce instances.
+    public static int PopulationSeed(ushort areaHash, uint areaSeed) => unchecked((int)InstanceEntities.ObjectTypeHash(
+        FormattableString.Invariant($"population:{areaHash:x4}:{areaSeed:x8}")));
+
     public sealed record Spawn(int Variety, int X, int Y, MonsterRarity Rarity, string Pack);
 
     /// <summary>A named point of a room the client placed (found by <see cref="LoadPoints"/>).</summary>

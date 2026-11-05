@@ -26,11 +26,14 @@ The Coast (`1_1_2`, WorldAreas row 6, level 2):
 
 Packs whose `Id` is `<area>-<name>` have weight 0: the layout places them, through **room points** (§3).
 
-**Not in the client:** how many packs an area gets, and how often a pack is magic or has a rare: the official server
+**Not recovered:** how many packs an area gets, and how often a pack is magic or has a rare: the official server
 decides those. Ours (`AreaPopulation`): one scattered pack per 9 000 walkable cells (`CellsPerPack`; The Coast: 44
 packs), 12% magic packs (every member magic), 6% packs with one rare member, at least 2 rare packs per area. Pack
 centres keep 60 cells from the arrival point, 25 from area transitions, 28 from other packs and need 5 walkable cells
-around them; members stand within 9 cells. The roll is seeded by (area hash, seed): the same layout gets the same packs.
+around them; members stand within 9 cells. Population uses a stable MurmurHash2 over invariant ASCII
+`population:<area HASH16, 4 hex digits>:<area seed, 8 hex digits>`.
+The previous `HashCode.Combine` used a process-random salt, so a restart changed the population for the same seed.
+This is a local seed derivation; the official server population RNG and placement algorithm remain unrecovered.
 
 ## 2. Spawning
 
