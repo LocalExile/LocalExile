@@ -196,10 +196,6 @@ sealed class NpcCatalog
         return _talk.Values.Where(t => t.Npc == source).OrderBy(t => t.Index);
     }
 
-    public Talk? IntroductionOf(Npc npc, IReadOnlySet<string> flags) => TalksOf(npc)
-        .Where(t => t.Introduction && t.Automatic && t.StartFlag is { } start && !flags.Contains(start) && t.Available(flags))
-        .OrderByDescending(t => t.Priority).FirstOrDefault();
-
     public Talk? NextConversationOf(Npc npc, IReadOnlySet<string> flags, IReadOnlySet<int> visited) => TalksOf(npc)
         .Where(t => t.Automatic && t.AutomaticContextSupported && !visited.Contains(t.Row)
             && (t.Introduction || t.Category is "Quests" or "QuestReward")

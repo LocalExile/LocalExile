@@ -71,12 +71,6 @@ static partial class Game
         conn.NpcFinishFlag = null;
         conn.NpcRewardOffer = null;
         if (await GameEvents.AnyNpcTalk(conn, id, npc)) return;
-        if (Npcs.Value.IntroductionOf(npc.Npc, Quests.Names(PlayerQuestFlags(conn))) is { } introduction)
-        {
-            conn.AutomaticNpcTalkRows.Add(introduction.Row);
-            await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, introduction);
-            return;
-        }
         if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 talk to npc 0x{id:x} {npc.Npc.Name}",
             still: () => PlayerActionCurrent(conn, action));

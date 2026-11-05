@@ -3,7 +3,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class NpcConversationTests
 {
     [Fact]
-    public void Introductions_use_catalog_flags_and_are_not_replayed_after_being_heard()
+    public void Automatic_conversations_use_catalog_priority_flags_and_visited_rows()
     {
         var catalog = NpcCatalog.Load();
         Assert.Null(catalog.Error);
@@ -12,16 +12,17 @@ public sealed class NpcConversationTests
             var npc = catalog.Find(name)!;
             Assert.NotNull(npc);
             var flags = new HashSet<string>(StringComparer.Ordinal);
-            var first = catalog.IntroductionOf(npc, flags);
+            var first = catalog.NextConversationOf(npc, flags, new HashSet<int>());
             Assert.NotNull(first);
             Assert.Equal("Gossip", first.Category);
             Assert.True(first.Introduction && first.Automatic);
             Assert.NotNull(first.StartFlag);
             flags.Add(first.StartFlag);
-            Assert.Null(catalog.IntroductionOf(npc, flags));
+            Assert.NotEqual(first.Row, catalog.NextConversationOf(npc, flags, new HashSet<int>())?.Row);
             flags.Clear();
             foreach (string excluded in first.ExcludedFlags) flags.Add(excluded);
-            if (first.ExcludedFlags.Count > 0) Assert.Null(catalog.IntroductionOf(npc, flags));
+            if (first.ExcludedFlags.Count > 0)
+                Assert.NotEqual(first.Row, catalog.NextConversationOf(npc, flags, new HashSet<int>())?.Row);
         }
     }
     [Fact]
@@ -32,7 +33,7 @@ public sealed class NpcConversationTests
         {
             var npc = catalog.Find(name)!;
             var flags = new HashSet<string>();
-            var intro = catalog.IntroductionOf(npc, flags)!;
+            var intro = catalog.NextConversationOf(npc, flags, new HashSet<int>())!;
             flags.Add(intro.StartFlag!);
             var visited = new HashSet<int> { intro.Row };
             if (name == "Bestel")

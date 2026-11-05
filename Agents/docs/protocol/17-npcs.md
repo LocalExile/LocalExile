@@ -191,6 +191,7 @@ same selection point, preserving its class-filtered inventory, prerequisite chec
 Native selector `0x141e76d40` checks availability, start flag `+0x54`, automatic eligibility `+0x160`
 (NPCTalk `__col33`) and greatest priority `+0x161` (`__col34`), keeping the first row on ties.
 The introduction marker is `__col13`; heard introductions are skipped using their start flag.
+Initial clicks and Continue share this selector: introductions have no separate priority override.
 Availability `0x141e754b0` also checks context selectors `+0x124/+0x138`, class list `+0x128`,
 minimum level `+0x14c`, league lists `+0xbe/+0xd2` and item/special predicates.
 Automatic quest selection conservatively accepts only rows with empty extra lists, null item/flag conditions,
