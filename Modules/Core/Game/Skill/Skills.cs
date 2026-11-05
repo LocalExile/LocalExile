@@ -18,8 +18,14 @@ static partial class Game
         // Headhunter, Rage, Fortification and charge changes call this many times a second. A short cache keeps the
         // client's skill records at most a frame or two stale while preventing a full build inside the send gate per
         // change (2026-11-05: 180 builds in one fight, 0x0025 handlers at 100-200 ms).
+        // Reused until its inputs change (the character's stats, equipment, skill cosmetics, pools and life:
+        // SkillSnapshotInputs), not for a fixed time; a full refresh (SendCharacterStats: weapons, gems, items, passives)
+        // drops it at once. The stats carry Rage, charges, Onslaught and the auras, whose attack and cast times the
+        // client's actions follow, so those rebuild it too.
         double now = conn.Clock.Elapsed.TotalSeconds;
-        if (conn.PlayerSkillsCache is { } cached && now - conn.PlayerSkillsAt < .1) return cached;
+        var inputs = SkillSnapshotInputs.Capture(conn, CharacterPlayerStats(conn));
+        if (conn.PlayerSkillsCache is { } cached && PlayerSkillsInputs.TryGetValue(conn, out var was) && ReferenceEquals(was.Skills, cached)
+            && was.Inputs.Matches(conn, inputs.Stats)) return cached;
         // One build reads one snapshot of the character's stats, final stats and supported gems: every gem's cast time,
         // hit, crit and panel rows used to recompute them (CharacterPlayerStats, FinalPlayerStats, SupportedSkill) five or
         // six times per gem, 180-270 ms per build in the Debug server, inside the send gate. The snapshot also captures
@@ -34,6 +40,7 @@ static partial class Game
                 .. GemSkills(conn, player, character, panelSources!), .. GameEvents.ExtraSkills(conn)]);
             conn.PlayerSkillsCache = skills;
             conn.PlayerSkillsAt = now;
+            PlayerSkillsInputs.AddOrUpdate(conn, new(inputs, skills));
             return skills;
         }
         finally { StatsScope.Value = outer; }
@@ -1104,8 +1111,13 @@ static partial class Game
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2ba Actor), after the level or the passives changed.
+    // The inputs the cached skill list (ClientState.PlayerSkillsCache) was built from.
+    sealed record PlayerSkillsBuild(SkillSnapshotInputs Inputs, IReadOnlyList<GrantedSkill> Skills);
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, PlayerSkillsBuild> PlayerSkillsInputs = new();
+
     internal static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
+        conn.PlayerSkillsCache = null;   // a build change: the skill list is built again
         if (QuestKillCommitOutput is not null)
         {
             conn.Minions.StatRevision++;

@@ -17,7 +17,12 @@ sealed class ConnectionPerformance
     static readonly UpDownCounter<long> Pending = Meter.CreateUpDownCounter<long>("localexile.gateway.pending_batches");
     static readonly string[] Names = Enum.GetNames<LatencyPhase>();
     static readonly string?[] MessageIds = new string?[ushort.MaxValue + 1];   // "0x0025", made once per id
-    static readonly bool Verbose = GameServer.Core.Diagnostics.ServerTrace.Latency;   // Game_TRACE=latency (or Game_LATENCY_METRICS=1)
+    static readonly bool Verbose = GameServer.Core.Diagnostics.ServerTrace.Latency;
+    /// <summary>The lag probe (PR #624's measurements: [latency-totals], [latency-sends], [latency-empty], [slow-use],
+    /// [slow-send], the stat-build count): off unless Game_TRACE names <c>lag</c>, since it costs work of its own (a stack
+    /// trace per empty send, a thread-time read per message).</summary>
+    public static readonly bool LagProbe =
+        (Environment.GetEnvironmentVariable("Game_TRACE") ?? "").Contains("lag", StringComparison.OrdinalIgnoreCase);   // Game_TRACE=latency (or Game_LATENCY_METRICS=1)
     readonly Sample[] samples = Enumerable.Range(0, (int)LatencyPhase.Count).Select(_ => new Sample()).ToArray();
     long reportedAt = Stopwatch.GetTimestamp();
     int pendingBatches;
@@ -128,6 +133,7 @@ sealed class ConnectionPerformance
         Console.WriteLine(line);
         // Temporary lag instrumentation (remove with the investigation): totals against the interval, so the maxima
         // above can be read as work per second, and the runtime's own costs beside them.
+        if (!LagProbe) return;
         var totals = new StringBuilder($"[latency-totals] {remote} interval={Stopwatch.GetElapsedTime(before, now).TotalSeconds:0.0}s");
         for (int i = 0; i < peaks.Length; i++)
             totals.Append($" {Names[i]}={Read((LatencyPhase)i).TotalMilliseconds:0}x{Read((LatencyPhase)i).Count}");
@@ -152,7 +158,7 @@ sealed class ConnectionPerformance
     long statBuilds, statBuildTicks;
 
     /// <summary>One full player-stat build and how long it took. Temporary lag instrumentation.</summary>
-    public void StatBuild(long start) => StatBuildTicks(Stopwatch.GetTimestamp() - start);
+    public void StatBuild(long start) { if (LagProbe) StatBuildTicks(Stopwatch.GetTimestamp() - start); }
 
     void StatBuildTicks(long ticks)
     {
@@ -183,6 +189,7 @@ sealed class ConnectionPerformance
     /// Temporary lag instrumentation.</summary>
     public void EmptySend(string caller, long ticks)
     {
+        if (!LagProbe) return;
         lock (sends)
         {
             emptySends.TryGetValue(caller, out var sample);
@@ -206,6 +213,7 @@ sealed class ConnectionPerformance
     /// <summary>One packet's gate hold, by message id. Temporary lag instrumentation.</summary>
     public void Send(ushort id, long ticks)
     {
+        if (!LagProbe) return;
         lock (sends)
         {
             sends.TryGetValue(id, out var sample);

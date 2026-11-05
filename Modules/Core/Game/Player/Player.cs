@@ -500,23 +500,27 @@ static partial class Game
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
-            await SendAntiquarian(remote, stream, ciphers, conn);
-            await SendKillOnslaught(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendTotems(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
+            // The tick's state publications take the send gate once together (Program.SendBatched) instead of once each:
+            // eleven holds a tick, each with the Monsters lock, were what the input handlers queued behind. Spirit
+            // Chieftain stays outside: its minion follows its published state.
+            bool current = await Program.SendBatched(remote, stream, ciphers, async () =>
+            {
+                await SendAntiquarian(remote, stream, ciphers, conn);
+                await SendKillOnslaught(remote, stream, ciphers, conn);
+                if (!PlayerUpdatesCurrent(conn, updates)) return false;
+                await SendTotems(remote, stream, ciphers, conn);
+                await SendRecentEnemyHits(remote, stream, ciphers, conn);
+                await SendAttackerSlows(remote, stream, ciphers, conn);
+                await SendLifetap(remote, stream, ciphers, conn);
+                await SendLeechBuffs(remote, stream, ciphers, conn);
+                await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);
+                if (!PlayerUpdatesCurrent(conn, updates)) return false;
+                await TickPassiveAuras(remote, stream, ciphers, conn);
+                await SendBlind(remote, stream, ciphers, conn);
+                return PlayerUpdatesCurrent(conn, updates);
+            });
+            if (!current) return;
             await SendSpiritChieftain(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendRecentEnemyHits(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendAttackerSlows(remote, stream, ciphers, conn);
-            await SendLifetap(remote, stream, ciphers, conn);
-            await SendLeechBuffs(remote, stream, ciphers, conn);
-            await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await TickPassiveAuras(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendBlind(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await PushOutOfCollision(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;

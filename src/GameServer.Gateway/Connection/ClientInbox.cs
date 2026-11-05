@@ -32,14 +32,47 @@ sealed class ClientInbox(ConnectionPerformance? performance = null)
     public const ushort ClearQueue = ushort.MaxValue;
 
     /// <summary>
-    /// 0x1c's server delay: how long the Gateway held the tick, from reading the 0x1b off the socket to sending its
-    /// answer. The client's 0x1c handler (0x14214b8dc) clamps its shown latency (+0xc490, F1 NETWORK and the latency
-    /// graph) into [sample − delay, rtt − delay], each floored at 0, so it shows the round trip without the server's
-    /// own hold: the network plus the client's wait for its next update to read the socket. 0xFFFF here (issue #49)
-    /// zeroed both bounds and the meter read 0 always.
+    /// 0x1c's server delay: 0. The client's 0x1c handler (0x14214b8dc) clamps its shown latency (+0xc490, F1 NETWORK and
+    /// the latency graph) into [sample − delay, rtt − delay], each floored at 0. Each tick is answered only once the input
+    /// read before it has been handled (DeferTick), so with no delay subtracted the meter shows the whole wait: the
+    /// network, the client's next update and the server's input queue in a busy fight. 0xFFFF here (issue #49) zeroed
+    /// both bounds and the meter read 0 always.
     /// </summary>
-    public static ushort ServerDelayMs(long readAt) =>
-        (ushort)Math.Clamp(Math.Round(Stopwatch.GetElapsedTime(readAt).TotalMilliseconds), 0, ushort.MaxValue - 1);
+    public const ushort ServerDelayMs = 0;
+
+    long _posted, _handled;
+    readonly Queue<(long Target, Func<Task> Answer)> _ticks = new();
+    Task _answering = Task.CompletedTask;
+
+    /// <summary>Answers a tick once every batch queued before it has been handled, in tick order: the client then
+    /// measures how long the server took to take in what it sent, not only the network.</summary>
+    public void DeferTick(Func<Task> answer)
+    {
+        lock (_ticks) _ticks.Enqueue((Interlocked.Read(ref _posted), answer));
+        AnswerDue();
+    }
+
+    /// <summary>The handler finished one batch: the ticks waiting for it go out.</summary>
+    public void Handled()
+    {
+        Interlocked.Increment(ref _handled);
+        AnswerDue();
+    }
+
+    void AnswerDue()
+    {
+        lock (_ticks)
+        {
+            long handled = Interlocked.Read(ref _handled);
+            while (_ticks.TryPeek(out var tick) && tick.Target <= handled)
+            {
+                _ticks.Dequeue();
+                var answer = tick.Answer;
+                _answering = _answering.ContinueWith(async _ => { try { await answer(); } catch (Exception ex) when (ex is IOException or ObjectDisposedException) { } },
+                    TaskScheduler.Default).Unwrap();
+            }
+        }
+    }
 
     readonly Channel<Batch> _queue = Channel.CreateUnbounded<Batch>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
     bool _resync = true;
@@ -78,6 +111,7 @@ sealed class ClientInbox(ConnectionPerformance? performance = null)
                 Interlocked.Decrement(ref pending);
                 performance?.QueueDelta(-1);
             }
+            else Interlocked.Increment(ref _posted);
         }
         return ticks;
     }
@@ -93,6 +127,7 @@ sealed class ClientInbox(ConnectionPerformance? performance = null)
             Interlocked.Decrement(ref pending);
             performance?.QueueDelta(-1);
         }
+        lock (_ticks) _ticks.Clear();
     }
 
     public async IAsyncEnumerable<Batch> ReadAllAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token = default)

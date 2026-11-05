@@ -51,7 +51,7 @@ static partial class Game
     internal static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {
         if (CurrentPlayerStatsScope.Value is not { } scope || !ReferenceEquals(scope.Conn, conn))
-            return CharacterPlayerStatsSnapshot(conn, out baselineLifePerSecond, out _);
+            return ThrottledPlayerStats(conn, out baselineLifePerSecond);
         var key = PlayerStatsKey(conn, conn.Clock.Elapsed.TotalSeconds);
         lock (scope)
             if (scope.Entry is { Stats: { } hit } last && SameInputs(last, key))
@@ -63,6 +63,34 @@ static partial class Game
         key.Stats = new(stats);
         key.Baseline = baselineLifePerSecond;
         lock (scope) scope.Entry = key;
+        return stats;
+    }
+
+    // A live connection (its player update loops run) rebuilds its snapshot at most once a frame of 60 Hz while the inputs
+    // above are the same: a fight asked for 157 full builds a second (live 2026-11-05, 56% of a core), most of them for the
+    // same state. Anything slower than a frame (regeneration, Rage decay, Fortification expiry, "recently" windows) is at
+    // most that late; a change of the pools, a buff added, life, mana, the auras, moving or an override rebuilds at once.
+    // Off a live connection (tests, the build scopes) every read builds.
+    const double PlayerStatsFrame = 1.0 / 60;
+    sealed class ThrottledStats { public PlayerStatsEntry? Entry; }
+    static readonly ConditionalWeakTable<ClientState, ThrottledStats> ThrottledPlayerStatsEntries = new();
+
+    static Dictionary<uint, int> ThrottledPlayerStats(ClientState conn, out double baselineLifePerSecond)
+    {
+        if (conn.PlayerUpdatesState is null || conn.Closed)
+            return CharacterPlayerStatsSnapshot(conn, out baselineLifePerSecond, out _);
+        var holder = ThrottledPlayerStatsEntries.GetOrCreateValue(conn);
+        var key = PlayerStatsKey(conn, conn.Clock.Elapsed.TotalSeconds);
+        lock (holder)
+            if (holder.Entry is { Stats: { } hit } last && key.At - last.At is >= 0 and < PlayerStatsFrame && SameInputs(last, key))
+            {
+                baselineLifePerSecond = last.Baseline;
+                return new(hit);
+            }
+        var stats = CharacterPlayerStatsSnapshot(conn, out baselineLifePerSecond, out _);
+        key.Stats = new(stats);
+        key.Baseline = baselineLifePerSecond;
+        lock (holder) holder.Entry = key;
         return stats;
     }
 

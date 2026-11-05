@@ -44,10 +44,11 @@ static partial class Game
             // rebuilding the whole character five or six times (2026-11-05: 154 builds/s cost a full core).
             using var stats = new PlayerStatScope(conn);
             // Temporary lag instrumentation (remove with the investigation): which phase of a cast message takes its time.
-            long useStarted = Stopwatch.GetTimestamp(), phaseAt = useStarted, useCpuStarted = ThreadCpuMilliseconds();
+            long useStarted = Stopwatch.GetTimestamp(), phaseAt = useStarted, useCpuStarted = ConnectionPerformance.LagProbe ? ThreadCpuMilliseconds() : 0;
             var phases = new List<string>();
             void Mark(string name)
             {
+                if (!ConnectionPerformance.LagProbe) return;
                 long now = Stopwatch.GetTimestamp();
                 phases.Add($"{name}={Stopwatch.GetElapsedTime(phaseAt, now).TotalMilliseconds:0}");
                 phaseAt = now;
@@ -282,7 +283,7 @@ static partial class Game
                 {
                     Mark("tail");
                     double useTotal = Stopwatch.GetElapsedTime(useStarted).TotalMilliseconds;
-                    if (useTotal > 40)
+                    if (ConnectionPerformance.LagProbe && useTotal > 40)
                         Console.WriteLine($"[slow-use] {remote} total={useTotal:0} cpu={(ThreadCpuMilliseconds() - useCpuStarted):0}"
                             + $" {string.Join(" ", phases)}");
                 }
