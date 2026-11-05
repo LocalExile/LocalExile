@@ -175,8 +175,8 @@ public class LockstepMonsterTests : IDisposable
     }
 
     // A lockstep client takes no Move whose target is within two cells of the walker (0x1419442d0): no set, no search,
-    // its current action goes on (live 2026-11-04: 317 of 317). So such a surround-slot Move is not sent and the estimate
-    // keeps the walk it had; three cells away the Move is placed as before.
+    // its current action goes on (live 2026-11-04: 317 of 317). So such a surround-slot Move or give-up is not sent, a
+    // freeze sends no stop, and the estimate keeps the walk it had; three cells away the Move is placed as before.
     [Fact]
     public async Task A_lockstep_move_within_two_cells_is_not_sent_and_the_walk_goes_on()
     {
@@ -194,6 +194,36 @@ public class LockstepMonsterTests : IDisposable
         Assert.True(taken);
         Assert.Equal((107, 100), aim);
         Assert.Equal((107, 100), shooter.Walk.Destination);
+
+        // A give-up's Move to the next cell is not sent: the estimate walks on to its old target, as the client's monster
+        // did (M0 bench: 69 of 74 still walking 0.5 s later). A frozen walker gets no stop. A predictive client gets both.
+        (SpawnedMonster Leaving, SpawnedMonster Frozen) Pair(ClientState on, bool frames)
+        {
+            PlayerWalk At(int x) => frames ? new(x, 100, 8) { FrameOf = at => (Math.Min(at, 1.0), 1.033) } : new(x, 100, 8);
+            var leaving = Drowned(At(230));
+            leaving.Walk.Order(218, 100, now: 0.5);   // at (226, 100) at 1.0: 126 cells from the player, past twice its aggro range
+            var frozen = Drowned(At(160));
+            frozen.Walk.Order(140, 100, now: 0.5);   // at (156, 100) at 1.0, in its aggro range
+            Assert.NotNull(frozen.Ailments.Freeze(2, 0.9, _ => 0, _ => 0));
+            Assert.Equal(0d, Game.MonsterActionFactor(frozen, 1.0));   // the freeze took
+            (on.Monsters[0x3000], on.Monsters[0x3001]) = (leaving, frozen);
+            return (leaving, frozen);
+        }
+        var held = Connection(lockstep: true);
+        held.LockstepFrame = (1.0, 1.033);
+        var (left, frozenWalker) = Pair(held, frames: true);
+        var giveUp = Assert.Single(Game.PlanMonsterAi(held, new MonsterAiCadence(), now: 1.0).Moves);
+        Assert.Equal((0x3000u, "gives up", (226, 100), (227, 100)), (giveUp.Id, giveUp.Why, giveUp.From, giveUp.To));
+        Assert.Equal((140, 100), frozenWalker.Walk.Destination);
+        Assert.Equal(((226, 100), false), Game.PlaceLockstepPlanMove(left, giveUp.To, 1.0));
+        Assert.Equal((218, 100), left.Walk.Destination);
+        Assert.True(left.Walk.Moving(1.5));
+        var predictive = Connection(lockstep: false);
+        var (gone, stopped) = Pair(predictive, frames: false);
+        var moves = Game.PlanMonsterAi(predictive, new MonsterAiCadence(), now: 1.0).Moves;
+        Assert.Equal([(0x3000u, "gives up"), (0x3001u, "is frozen")], moves.Select(mv => (mv.Id, mv.Why)).Order());
+        Assert.Equal(moves.Single(mv => mv.Id == 0x3000u).To, gone.Walk.Destination);
+        Assert.False(stopped.Walk.Moving(1.1));
 
         // The player's Moves follow the same rule (live 2026-11-04: 308 of 308): a held cursor 2 cells from the walking
         // player starts nothing and the walk goes on; 3 cells away the Move is placed.
