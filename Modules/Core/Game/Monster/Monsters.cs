@@ -547,28 +547,36 @@ static partial class Game
                     m.Aggro = false;
                     m.SwingGeneration = null;
                     m.LastTarget = null;
-                    // GGG's server ends the chase with S→C 0x1ac before the give-up Move (925 of 1166 live give-ups,
-                    // 3.29 capture); without it the client's attack action keeps chasing on its own.
+                    // On a lockstep client it gets no order, as GGG's gets none when a pursuit ends: any order still at the
+                    // gate is dropped and the estimate walks on to its old target, as the client's monster does, so the
+                    // wake zone's return (LockstepPlace) finds the client's monster where the estimate is (M0 bench: 69
+                    // of 74 still walking 0.5 s after a dropped one-cell give-up Move). GGG's idle orders after it are a
+                    // difference (Lockstep.Differences.cs).
+                    if (conn.LockstepClient)
+                    {
+                        m.ActionGeneration++;
+                        Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) gives up at ({mx}, {my}): not sent, its walk goes on to {m.Walk.Destination}");
+                        continue;
+                    }
+                    // GGG ends a predictive chase with S→C 0x1ac before the give-up Move (925 of 1166 live give-ups).
                     plan.EndedActions.Add(id);
-                    // A Move to its own cell does not replace the attack the client is still chasing with, so it goes to
-                    // the next cell. A lockstep client takes no Move that near (07 §6): the gate drops it and the estimate
-                    // walks on to its old target, as the client's monster does, so the wake zone's return (LockstepPlace)
-                    // finds the client's monster where the estimate is. GGG sends nothing at that moment either; its
-                    // idle orders after it are a difference (Lockstep.Differences.cs).
+                    // A Move to its own cell does not replace the attack a predictive client is still chasing with, so it
+                    // goes to the next cell.
                     var stay = NextCell(conn, m, mx, my);
                     plan.Moves.Add((id, m, ++m.ActionGeneration, PlaceMove(plan, m, stay, now), stay, "gives up"));
                     continue;
                 }
-                // Frozen: it stands where it is and does nothing until the freeze ends. A chase order stays open on the client
-                // even when the estimate has stopped: the action goes on after the player until something replaces it.
+                // Frozen: it does nothing until the freeze ends. On a predictive client it stands where it is: a chase order
+                // stays open on the client even when the estimate has stopped (the action goes on after the player until
+                // something replaces it), so a Move onto its own cell stops it.
                 double action = MonsterActionFactor(m, now);
                 if (action == 0)
                 {
                     if (now < m.Walk.ArrivesAt || m.LastTarget is not null)
                     {
-                        // A lockstep client takes no Move onto the walker's own cell (07 §6): no stop is sent, any order
-                        // still at the gate is dropped, and the estimate keeps its walk as the client's monster does (no
-                        // is_frozen stop for the player, 07 §5; untraced for a monster).
+                        // A lockstep client takes no Move onto the walker's own cell (07 §6), so nothing stops it: no
+                        // stop is sent, any order still at the gate is dropped, and the estimate keeps its walk as the
+                        // client's monster does (no is_frozen stop for the player, 07 §5; a monster's freeze is not traced).
                         if (conn.LockstepClient) m.ActionGeneration++;
                         else plan.Moves.Add((id, m, ++m.ActionGeneration, PlaceMove(plan, m, (mx, my), now), (mx, my), "is frozen"));
                     }
@@ -611,16 +619,23 @@ static partial class Game
                 if (conn.Minions.Fights(id) && m.Attack is { } ma && MinionTargetLocked(conn, id, m, (mx, my), (px, py), now) is { } target)
                 {
                     // A lockstep client takes no Move within 2 cells (07 §6), so a minion that near its approach cell gets
-                    // its attack aimed at the target, whose walk-up closes the gap on the client (0x141e94720), as a melee
-                    // leg that short does (PlaceLockstepLeg); the estimate walks the same walk-up.
+                    // its attack aimed at the target instead. A melee (pathing) attack walks up on the client
+                    // (0x141e94720), as a melee leg that short does (PlaceLockstepLeg), and swings in the frame it gets
+                    // there (07 §6): the estimate walks the same walk-up and times the swing from its end. An in-place
+                    // one (skill_is_non_pathing) plays where the minion stands, and its walk is left as it is.
                     bool walkUp = !target.InReach && !double.IsNaN(plan.FrameStart) && !LockstepTakesMove((mx, my), target.Approach);
                     if (target.InReach || walkUp)
                     {
-                        m.BusyUntil = now + ma.Seconds;
+                        double begins = now;
+                        if (!ma.InPlace)
+                        {
+                            (int X, int Y) stop = walkUp ? target.Approach : (mx, my);
+                            m.Walk.Order(stop.X, stop.Y, now);
+                            if (walkUp) begins = Math.Max(now, m.Walk.ArrivesAt);
+                        }
+                        m.BusyUntil = begins + ma.Seconds;
                         m.LastTarget = null;
-                        if (walkUp) m.Walk.Order(target.Approach.X, target.Approach.Y, now);
-                        else if (!ma.InPlace) m.Walk.Order(mx, my, now);
-                        var attack = new PlayerMinions.Attack(id, m, (mx, my), target.Id, target.Monster, target.At, now + ma.Seconds / 2);
+                        var attack = new PlayerMinions.Attack(id, m, (mx, my), target.Id, target.Monster, target.At, begins + ma.Seconds / 2);
                         conn.Minions.Attacks[id] = attack;
                         plan.MinionSwings.Add(attack);
                     }
@@ -850,24 +865,7 @@ static partial class Game
             await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
         // A chase is re-ordered every few ticks: its lines only with Game_TRACE=ai (the packet history keeps them).
         foreach (var (id, m, action, from, to, why) in plan.Moves)
-            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
-                {
-                    bool taken = true;
-                    var start = LockstepOrderFrom(conn, plan, from, at =>
-                    {
-                        var (here, take) = PlaceLockstepPlanMove(m, to, at);
-                        taken = take;
-                        return here;
-                    });
-                    if (!taken)
-                    {
-                        // Send writes no line for an order the gate drops: a give-up's stays countable here.
-                        if (ServerTrace.Ai || why == "gives up")
-                            Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) {why}: Move to {to} within 2 cells of {start}: not sent, its walk goes on to {m.Walk.Destination}");
-                        return null;
-                    }
-                    return InstanceProtocol.ActionStarted(id, start.X, start.Y, to.X, to.Y, Move, conn.NextActionSequence(), 0x0408);
-                },
+            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () => PlanMoveAtGate(conn, plan, id, m, from, to, why),
                 ServerTrace.Ai || why == "gives up" ? $"0x01ab monster 0x{id:x} {why}: move from {from} to {to}" : null);
         foreach (var (id, m, action, from, to) in plan.Chases)
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
@@ -1109,13 +1107,27 @@ static partial class Game
         return (here, aim, false);
     }
 
-    // A plan Move (a give-up, a flight, a minion's or a Rampage chase) placed at a lockstep frame's start `at`: ordered
-    // when the client takes it (LockstepTakesMove, 07 §6), else not sent and the estimate keeps its walk, as the client's
-    // action goes on (M0 bench: 74 one-cell give-ups traced, each offered and dropped, 69 still walking 0.5 s later).
-    internal static ((int X, int Y) Here, bool Taken) PlaceLockstepPlanMove(SpawnedMonster m, (int X, int Y) to, double at)
+    // A plan Move (a flight, a minion's or a Rampage chase; a give-up or a freeze's stop on a predictive client) at the
+    // send gate: its 0x1ab, or null when a lockstep client would not take it (LockstepTakesMove, 07 §6). On a lockstep
+    // client the walk is placed at the start of the frame being sent (LockstepOrderFrom); a Move it would not take is not
+    // sent and the estimate keeps its walk, as the client's action goes on.
+    internal static byte[]? PlanMoveAtGate(ClientState conn, MonsterAiPlan plan, uint id, SpawnedMonster m,
+        (int X, int Y) from, (int X, int Y) to, string why)
     {
-        var here = m.Walk.Position(at);
-        return LockstepTakesMove(here, to) ? (m.Walk.Order(to.X, to.Y, at), true) : (here, false);
+        const ushort Move = 0x2909;
+        bool taken = true;
+        var start = LockstepOrderFrom(conn, plan, from, at =>
+        {
+            var here = m.Walk.Position(at);
+            taken = LockstepTakesMove(here, to);
+            return taken ? m.Walk.Order(to.X, to.Y, at) : here;
+        });
+        if (!taken)
+        {
+            if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) {why}: Move to {to} within 2 cells of {start}: not sent, its walk goes on to {m.Walk.Destination}");
+            return null;
+        }
+        return InstanceProtocol.ActionStarted(id, start.X, start.Y, to.X, to.Y, Move, conn.NextActionSequence(), 0x0408);
     }
 
     // A lockstep client takes a Move order only when its target is 3 or more cells from the walker's cell. The test is

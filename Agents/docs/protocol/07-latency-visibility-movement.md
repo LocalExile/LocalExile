@@ -579,13 +579,14 @@ before it ends the current action and before `0x141e8e7e0` sets the pair; a refu
 with the 0x1ab apply and the path search hooked: the player 308 of 308 such Moves in two near-Move fights (2026-11-04;
 127 of them with a pair other than the client's cell), monsters 317 of 317 in six pack fights, and 8 244 of 8 244
 farther monster Moves searched. The Gateway sends no such Move to a lockstep client on any monster path (chase legs,
-surround slots, a give-up, a freeze, a flight, a minion's approach) and its estimate keeps the walk it had (a melee leg
-that short goes as the attack aimed at the player, a minion's approach as its attack aimed at the target, whose walk-up
-closes the gap; a freeze's stop is not sent at all). Sent, a monster's left the client walking on and preceded 76 of
-126 monster starts 2–3 cells off. A give-up's Move was always one, a cell away: the client walked on to its old target
-(69 of 74 still walking 0.5 s later) while the estimate stood, and 17 of those monsters later jumped 5–12 cells when
-the wake zone's return put them on the estimate. The player's used to stop the estimate while the client walked on. A
-near Move still replaces a queued Move that can be cancelled (its vtable +0x190 and +0x208, flag 0x1000): the offer
+surround slots, a flight, a minion's approach, a Rampage weapon chase), and where it drops one the estimate keeps the
+walk it had. A melee leg that short goes as the attack aimed at the player instead, and a minion's approach as its
+attack aimed at the target: a melee one walks up and swings in the frame it gets there, an in-place one plays where the
+minion stands. A give-up and a freeze send nothing. A Rampage weapon chase that short is dropped at each retry, so a
+monster whose reach is under 3 cells (only the two Blood Swarm varieties, `LeagueAzmeri/PlagueSwarm`, reach 2) can
+stand short of the weapon until the weapon moves off. Sent, a monster's left the client walking on and preceded 76 of
+126 monster starts 2–3 cells off. The player's used to stop the estimate while the client walked on. A near Move still
+replaces a queued Move that can be cancelled (its vtable +0x190 and +0x208, flag 0x1000): the offer
 (`0x141e8cf10`) destroys that one before the test runs. A queued non-Move it replaces only when it carries flag 0x400
 and the walker's Player component, if it has one, has +0x2e9 other than 2 or 3; otherwise the offer refuses the Move.
 
@@ -657,14 +658,15 @@ own phase. GGG's server has none of this: it is the client's own simulation.
 | Sends 0x2b6 | Never | The client's default is not traced |
 | Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours stands out there too now (its walk ends at the 0x1aa, no order until it is back); 0x128 is skipped here, so the return places it with LockstepPlace |
 | No 0x1ac when a monster's chase walk-up starts its swing | One when its copy starts the swing | A lockstep client does nothing with a 0x1ac; the swing starts by its own goal test |
-| A monster that gives up a pursuit gets no order: it ends its walk and stands | Nothing then either, but idle orders after (131 pursuits ended with the player 60+ cells off: a Move of 3+ cells 65, a self-aimed Wait 30, a flight 9, an aimed order again 15, nothing 12) | No idle AI here; the give-up's own Move is within 2 cells, which the client does not take |
+| A monster that gives up a pursuit gets no order: it ends its walk and stands | Nothing then either, but idle orders after (131 pursuits ended with the player 60+ cells off: a Move of 3+ cells 65, a self-aimed Wait 30, a flight 9, an aimed order again 15, nothing 12) | No idle AI here |
+| A frozen monster gets no stop: its walk goes on, the estimate's too | Not traced | The client does not stop the player for `is_frozen` (§5) and takes no Move onto the walker's own cell; the player's freeze plays a recovery of its length (`ShowFreeze`), a monster's does not |
 | An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |
 | Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |
 | A spell at the ground holds everything for its cast time | Not measured | A Move during a cast is not traced; attacks hold until their contact as GGG's do (`LockstepActionHold`) |
 | A skill is echoed at any key 0, from the handlers Predictive uses | From the tick, keyed by the player | As for Moves |
 
-Still to do: monsters' order keys. A movement skill's landing comes from the server's own estimate; the client's snap at
-the next action settles any difference, and its 0x128 does nothing here.
+Still to do: monsters' order keys and a trace of a frozen monster. A movement skill's landing comes from the server's
+own estimate; the client's snap at the next action settles any difference, and its 0x128 does nothing here.
 
 ## 7. More client messages seen
 
