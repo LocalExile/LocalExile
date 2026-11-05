@@ -332,6 +332,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // Auth accepted the destination; PendingTransfer is already consumed before this handoff.
     public bool TransferAccepted;
     public readonly RecentEnemyHits RecentEnemyHits = new();
+    // The other "recently" events (issue #504): what happened in the last four seconds, for the stats that ask.
+    public readonly RecentEvents RecentEvents = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
     // The King in the Mists' Portent Vapors: stacks taken from his Mystic Fetishes and when they expire. The server
     // applies the increased damage taken to his hits; the buff icon and count are presentation.
@@ -370,7 +372,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                 monster.ActionGeneration++;
                 monster.SwingGeneration = null;
             }
-            if (clear) { RecentEnemyHits.Clear(); ElementalAilments.Clear(); }
+            if (clear) { RecentEnemyHits.Clear(); RecentEvents.Clear(); ElementalAilments.Clear(); }
         }
     }
     public int ProjectileEpoch;

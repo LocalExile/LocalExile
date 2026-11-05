@@ -96,6 +96,7 @@ static partial class Game
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
                 e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom)) return null;
+        conn.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
         return ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now);
     }
 

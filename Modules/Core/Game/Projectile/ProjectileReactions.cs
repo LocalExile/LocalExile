@@ -18,6 +18,9 @@ static partial class Game
         var conn = session.Conn;
         double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
         conn.LastEnemyHitAt = now;
+        // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
+        conn.RecentEvents.Record(StatConditions.HitEnemy, now);
+        if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
         uint id = contact.Target.Id;
         var random = contact.Projectile.ReactionRandomSource;
         if (hit.Life == 0)
