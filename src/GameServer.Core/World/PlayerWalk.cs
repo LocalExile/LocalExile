@@ -32,8 +32,9 @@ public sealed class PlayerWalk
     // frame's steps (0x141e350e0), and the tick after them clears only the step time (0x141e32710), so the time since
     // the last step stays; a forced set keeps it on a standing walker (0x141e31800 zeroes it only on one under way), and
     // the next walk takes it as it is, with no step time to rescale it from (0x141e4d180). Zero while walking and after
-    // a walk the step loop ended (its path's end, a blocked step).
-    private double _kept;
+    // a walk the step loop ended (its path's end, a blocked step). From: the end of the tick that stops the walk, from
+    // which it holds; a walk set up before then, in the stop's own frame, does not take it (Walk).
+    private (double Seconds, double From) _kept;
 
     // Joined: the next segment goes on along the same piece of the path (steps already due, split off by InFrame), so
     // this one's last cell is no waypoint (EndsPiece).
@@ -124,7 +125,7 @@ public sealed class PlayerWalk
         _rest = here;
         _restSince = at;
         _segments = kept;
-        _kept = 0;
+        _kept = default;
         Reached = true;
         _goalReached = false;
         WalksThrough = false;
@@ -169,7 +170,7 @@ public sealed class PlayerWalk
         _rest = kept.Count > 0 ? kept[^1].Cells[^1] : _segments.Count > 0 ? _segments[0].From : _rest;
         _restSince = until;
         _segments = kept;
-        _kept = beyond ? Math.Max(0, until - last) : 0;
+        _kept = beyond ? (Math.Max(0, until - last), until) : default;
         Reached = true;
         _goalReached = true;
         WalksThrough = false;
@@ -223,7 +224,8 @@ public sealed class PlayerWalk
     {
         readonly List<Segment> _segments;
         readonly (int X, int Y) _rest, _target;
-        readonly double _restSince, _kept;
+        readonly double _restSince;
+        readonly (double, double) _kept;
         readonly int _maxRange, _tolerance, _precision;
         readonly bool _reached, _goalReached, _walksThrough;
 
@@ -380,7 +382,9 @@ public sealed class PlayerWalk
         if (!_walkable(end.X, end.Y))
             end = ClientPathfinder.Line(end, here).FirstOrDefault(c => _walkable(c.X, c.Y), here);
         (_target, _maxRange, _tolerance) = (end, 0, -1);
-        Follow(end == here ? [here] : [here, end], here, fraction, now);
+        // From a stand the run starts a whole step after the use, with no kept time: its setup goes through 0x141e9a3c0,
+        // not the MoveTo the kept time was traced on, and its first step from a stand is not traced.
+        Follow(end == here ? [here] : [here, end], here, fraction, 0, now);
         Reached = true;
         WalksThrough = false;
         return here;
@@ -418,16 +422,18 @@ public sealed class PlayerWalk
         if (path.Count < 2 && FrameOf?.Invoke(now) is { } frame && Moving(now))
         {
             var stop = At(frame.End, out _);
-            double kept = Phase(frame.End).Into;
+            var kept = (Phase(frame.End).Into, frame.End);
             Teleport(stop.X, stop.Y, now);
             _kept = kept;
             return here;
         }
-        Follow(path, here, fraction, now);
+        // The stop's own frame went to the old walk's steps already: a walk set up in it takes no kept time.
+        Follow(path, here, fraction, now >= _kept.From ? _kept.Seconds : 0, now);
         return here;
     }
 
-    private void Follow(IReadOnlyList<(int X, int Y)> path, (int X, int Y) here, double fraction, double now)
+    // `kept`: the time since the last step that a walk from a stand starts with.
+    private void Follow(IReadOnlyList<(int X, int Y)> path, (int X, int Y) here, double fraction, double kept, double now)
     {
         bool standing = !Moving(now);
         var walk = new List<Segment>();
@@ -438,11 +444,11 @@ public sealed class PlayerWalk
             float step = StepTime(path[i - 1], path[i]);
             // The first step comes when the step in progress would have: its elapsed fraction carries over. From a stand,
             // the time a stop kept carries over as it is.
-            if (i == 1) t -= standing ? _kept : fraction * step;
+            if (i == 1) t -= standing ? kept : fraction * step;
             walk.Add(new Segment(path[i - 1], cells, t, step));
             t += cells.Length * (double)step;
         }
-        if (walk.Count > 0) _kept = 0;
+        if (walk.Count > 0) _kept = default;
         // Whole: monsters' walks are read outside the lock too (Rampage's weapons).
         _rest = here;
         _restSince = now;

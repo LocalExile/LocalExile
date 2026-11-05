@@ -88,6 +88,21 @@ public class LockstepTests
         Assert.Equal([.1013, .1036, .1059, .1184, .1309], walk.Steps(.099, .132).Select(s => Math.Round(s.At, 4)));
         Assert.Equal([(2, 1), (3, 1), (4, 1), (5, 1), (6, 1)], walk.Steps(.099, .132).Select(s => s.Cell));
         start = .165; Assert.Equal((8, 1), walk.Position(.165));
+
+        // A walk set up in the stop's own frame takes no kept time (that frame went to the old walk's steps), and Shield
+        // Charge none at all (its first step from a stand is not traced): each steps a whole step after it starts.
+        start = 0; walk = Walker(40);
+        walk.Order(20, 20, 0);
+        start = .033; walk.Order(0, 0, .04);   // stands at (1, 1) after the frame, 30.6 ms into its step
+        walk.Order(1, 20, .05);
+        Assert.Equal(.058, walk.Steps(.033, .2)[0].At, 4);
+        start = 0; walk = Walker(40);
+        walk.Order(20, 20, 0);
+        start = .033; walk.Order(0, 0, .04);
+        walk.SetSpeed(100, .04);
+        walk.Charge(30, 1, 100, .04);
+        Assert.Equal(.05, walk.Steps(.033, .2)[0].At, 4);
+        start = .099; Assert.Equal((6, 1), walk.Position(.099));
     }
 
     [Fact]

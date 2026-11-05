@@ -229,7 +229,10 @@ segments (a segment's setup, `0x141e4d180`, rescales it by new/old only when the
 1 627 mid-walk re-orders rescaled, all 3 231 segment transitions carried) and is zeroed when the step loop ends the
 walk (its path's end, a blocked step), not by a stop: in per-frame traces of six fights (2026-11-04), 28 of 28 player
 walks from a stand an action's stop left mid-step started with it unscaled, and 43 of 43 after a path's end or a
-blocked step started at 0. Each step's
+blocked step started at 0. A walk set up in the stop's own frame is not traced: by the decompile the client's MoveTo
+then clears the deferred stop (`0x141e34400`) and rescales the step time still set (`0x141e4d180`). The estimate gives
+such a walk no kept time, and Shield Charge (`0x141a6bae0` → `0x141e9a3c0`, its first step from a stand not traced)
+none at all. Each step's
 body check (`0x141e47ca0`) reads the other objects' cells as they are at that moment, so an object that ticked earlier
 in the frame is seen where that frame's steps put it and a later one where the frame before left it. The forced
 position set of an action start (`0x141e8e7e0` → `0x141e31800`: in lockstep whenever the actor's cell is not the 0x1ab's
@@ -666,7 +669,8 @@ own phase. GGG's server has none of this: it is the client's own simulation.
 | A spell at the ground holds everything for its cast time | Not measured | A Move during a cast is not traced; attacks hold until their contact as GGG's do (`LockstepActionHold`) |
 | A skill is echoed at any key 0, from the handlers Predictive uses | From the tick, keyed by the player | As for Moves |
 
-Still to do: monsters' order keys and a trace of a frozen monster. A movement skill's landing comes from the server's
+Still to do: monsters' order keys, a trace of a frozen monster, and a walk set up in a stop's own frame and Shield
+Charge's first step from a stand (§5). A movement skill's landing comes from the server's
 own estimate; the client's snap at the next action settles any difference, and its 0x128 does nothing here.
 
 ## 7. More client messages seen
