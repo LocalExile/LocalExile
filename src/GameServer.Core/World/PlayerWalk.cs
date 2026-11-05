@@ -28,6 +28,12 @@ public sealed class PlayerWalk
     // The current order's precision (MoveTo +0x528): the projectile grid value its line to the target needs; 1 again once
     // a search above 1 found nothing (0x141e7b920), for the rest of the order.
     private int _precision = 1;
+    // The client's step accumulator (+0x244) on a walker that a stop left standing mid-step. The stop waits for the
+    // frame's steps (0x141e350e0), and the tick after them clears only the step time (0x141e32710), so the time since
+    // the last step stays; a forced set keeps it on a standing walker (0x141e31800 zeroes it only on one under way), and
+    // the next walk takes it as it is, with no step time to rescale it from (0x141e4d180). Zero while walking and after
+    // a walk the step loop ended (its path's end, a blocked step).
+    private double _kept;
 
     private sealed record Segment((int X, int Y) From, (int X, int Y)[] Cells, double T0, float Step)
     {
@@ -116,6 +122,7 @@ public sealed class PlayerWalk
         _rest = here;
         _restSince = at;
         _segments = kept;
+        _kept = 0;
         Reached = true;
         _goalReached = false;
         WalksThrough = false;
@@ -169,27 +176,28 @@ public sealed class PlayerWalk
     {
         readonly List<Segment> _segments;
         readonly (int X, int Y) _rest, _target;
-        readonly double _restSince;
+        readonly double _restSince, _kept;
         readonly int _maxRange, _tolerance, _precision;
         readonly bool _reached, _goalReached, _walksThrough;
 
         internal Snapshot(PlayerWalk w) =>
-            (_segments, _rest, _target, _restSince, _maxRange, _tolerance, _precision, _reached, _goalReached, _walksThrough) =
-            (w._segments, w._rest, w._target, w._restSince, w._maxRange, w._tolerance, w._precision, w.Reached, w._goalReached, w.WalksThrough);
+            (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision, _reached, _goalReached, _walksThrough) =
+            (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision, w.Reached, w._goalReached, w.WalksThrough);
 
         internal void Into(PlayerWalk w)
         {
-            (w._segments, w._rest, w._target, w._restSince, w._maxRange, w._tolerance, w._precision) =
-                (_segments, _rest, _target, _restSince, _maxRange, _tolerance, _precision);
+            (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision) =
+                (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision);
             (w.Reached, w._goalReached, w.WalksThrough) = (_reached, _goalReached, _walksThrough);
         }
     }
 
     /// <summary>Where the walker is within its current step at <paramref name="now"/>: the seconds since the step before
     /// (the client's accumulator, +0x244) and the step's length; (0, 0) when it stands or is held.</summary>
-    public (double Into, double Step) StepPhase(double now)
+    public (double Into, double Step) StepPhase(double now) => Phase(Frame(now));
+
+    private (double Into, double Step) Phase(double now)
     {
-        now = Frame(now);
         foreach (var s in _segments)
         {
             if (now >= s.End) continue;
@@ -357,11 +365,14 @@ public sealed class PlayerWalk
         _goalReached = reached;
         WalksThrough = !_walkable(here.X, here.Y) || ClientPathfinder.ObjectBlocks(bodies, here.X, here.Y, _size + 1, _size + 4);
         // A stop takes effect after the frame's steps (0x141e350e0). The caller reports here, where the client is now; the
-        // walker stands where the client will, or the next start puts the client back up to two cells.
+        // walker stands where the client will, or the next start puts the client back up to two cells, and keeps the time
+        // since its last step for the next walk (_kept).
         if (path.Count < 2 && FrameOf?.Invoke(now) is { } frame && Moving(now))
         {
             var stop = At(frame.End, out _);
+            double kept = Phase(frame.End).Into;
             Teleport(stop.X, stop.Y, now);
+            _kept = kept;
             return here;
         }
         Follow(path, here, fraction, now);
@@ -370,17 +381,30 @@ public sealed class PlayerWalk
 
     private void Follow(IReadOnlyList<(int X, int Y)> path, (int X, int Y) here, double fraction, double now)
     {
+        bool standing = !Moving(now);
         var walk = new List<Segment>();
         double t = now;
         for (int i = 1; i < path.Count; i++)
         {
             var cells = ClientPathfinder.Line(path[i - 1], path[i]).Skip(1).ToArray();
             float step = StepTime(path[i - 1], path[i]);
-            // The first step comes when the step in progress would have: its elapsed fraction carries over.
-            if (i == 1) t -= fraction * step;
-            walk.Add(new Segment(path[i - 1], cells, t, step));
+            // The first step comes when the step in progress would have: its elapsed fraction carries over. From a stand,
+            // the time a stop kept carries over as it is.
+            double into = i > 1 ? 0 : standing ? _kept : fraction * step;
+            t -= into;
+            if (into >= step && cells.Length > 0)
+            {
+                // Kept time of this step or more: the first tick takes the step at once (0x141e32710). It goes in the
+                // order's frame before the walk's next step (halfway: the step pass reads only a step's frame and order),
+                // not before the frame, where no frame's pass would check it and the frame's start would show it.
+                double next = t + 2 * (double)step, by = Math.Min(next, FrameOf?.Invoke(now)?.End ?? next);
+                walk.Add(new Segment(path[i - 1], cells[..1], now, (float)((by - now) / 2)));
+                if (cells.Length > 1) walk.Add(new Segment(cells[0], cells[1..], t + step, step));
+            }
+            else walk.Add(new Segment(path[i - 1], cells, t, step));
             t += cells.Length * (double)step;
         }
+        if (walk.Count > 0) _kept = 0;
         // Whole: monsters' walks are read outside the lock too (Rampage's weapons).
         _rest = here;
         _restSince = now;

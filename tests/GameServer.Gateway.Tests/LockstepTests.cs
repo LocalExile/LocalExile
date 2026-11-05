@@ -16,7 +16,7 @@ public class LockstepTests
     {
         // 100 cells a second: one cell every 10 ms, 3.3 cells a frame.
         double start = 0;
-        PlayerWalk Walker() => new(0, 0, 100) { FrameOf = at => (Math.Min(at, start), start + .033) };
+        PlayerWalk Walker(double speed = 100) => new(0, 0, speed) { FrameOf = at => (Math.Min(at, start), start + .033) };
 
         var walk = Walker();
         walk.Order(100, 0, .005);   // sent 5 ms into the frame, it starts at the frame's start
@@ -35,6 +35,45 @@ public class LockstepTests
         Assert.Equal((6, 0), walk.Position(.099));
         start = .165;
         Assert.Equal((9, 0), walk.Position(.165));
+
+        // A stop keeps the time since the last step, and the next walk from the stand starts with it (40 cells a second:
+        // 25 ms a step; the client's accumulator 16 ms, + 33 ms is one step, + 33 ms two more).
+        start = 0; walk = Walker(40);
+        walk.Order(100, 0, 0);
+        start = .033; Assert.Equal((1, 0), walk.Order(1, 0, .04));   // stands at (2, 0) after the frame, 16 ms into its step
+        start = .099; walk.Order(100, 0, .099);
+        start = .165; Assert.Equal((5, 0), walk.Position(.165));
+
+        // The same through a walk-up found in reach where the walker stands, and a forced set at the stand keeps it.
+        start = 0; walk = Walker(40);
+        walk.Order(100, 0, 0);
+        start = .033; Assert.Equal((1, 0), walk.Approach(11, 0, 10, .04).Here);
+        start = .066; walk.Teleport(2, 0, .07);
+        start = .099; walk.Order(100, 0, .099);
+        start = .165; Assert.Equal((5, 0), walk.Position(.165));
+
+        // Kept time longer than the new step (30.6 ms into a 35.4 ms diagonal step, then 25 ms straight ones): the step
+        // already due comes in the order's frame, not before it; the client steps 2, 1 and 2 cells in the next frames.
+        start = 0; walk = Walker(40);
+        walk.Order(20, 20, 0);
+        start = .033; Assert.Equal((0, 0), walk.Order(0, 0, .04));
+        Assert.Equal((1, 1), walk.Destination);
+        start = .099; Assert.Equal((1, 1), walk.Order(20, 1, .099));
+        Assert.Equal((1, 1), walk.Position(.099));
+        Assert.Equal([.1087, .1184, .1434], walk.Steps(.05, .16).Select(s => Math.Round(s.At, 4)));
+        Assert.Equal([(2, 1), (3, 1)], walk.Steps(.099, .132).Select(s => s.Cell));
+        start = .132; Assert.Equal((3, 1), walk.Position(.132));
+        start = .165; Assert.Equal((4, 1), walk.Position(.165));
+        start = .198; Assert.Equal((6, 1), walk.Position(.198));
+
+        // A slow walker's too (10 cells a second: 132 ms kept, 100 ms steps): in the order's frame, not the next one.
+        start = 0; walk = Walker(10);
+        walk.Order(20, 20, 0);
+        start = .099; walk.Order(0, 0, .1);
+        start = .165; walk.Order(20, 0, .165);
+        Assert.Equal([(1, 0)], walk.Steps(.165, .198).Select(s => s.Cell));
+        start = .231; Assert.Equal((1, 0), walk.Position(.231));
+        start = .264; Assert.Equal((2, 0), walk.Position(.264));
     }
 
     [Fact]

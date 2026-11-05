@@ -209,7 +209,9 @@ step the next cell is checked again (terrain, objects) and a blocked step ends t
 path and no message (`0x141e7bc20`). A new segment, including the first one of a new order, rescales the accumulator to
 its own step time (`A × s_new / s_old`), so a re-order keeps the
 elapsed fraction of the step in progress. A stop (`0x141e350e0`) takes effect in the next tick, after that tick's
-steps, and keeps the accumulator. Verified on a capture (2026-10-21): the per-tick rule held in 55,915 of 56,069 player
+steps, and keeps the accumulator: the tick clears only the step time, so the next walk, with no step time to rescale
+from, starts with it as it is and steps that much sooner.
+Verified on a capture (2026-10-21): the per-tick rule held in 55,915 of 56,069 player
 ticks (the rest are counter resets), the rescale on 575 of 575 clicks. Speed (`0x141e7c0b0`) is the Pathfinding base
 (`+0x548`, `base_speed` 37 for the player, times the Actor's run-speed roll `+0x1a8`) × (1 + `movement_velocity_+%`
 / 100) × (1 + stat 0xce6 / 100), capped by stat 0x44f.
@@ -224,15 +226,20 @@ every monster, a monster before those created after it, and a walker takes all o
 next object ticks (1 488 frames with walker ticks, every one in ascending id). The accumulator gains exactly the frame's
 length (18 574 of 18 917 ticks; the rest ended a walk or changed segment), keeps its remainder across steps and
 segments (a segment's setup, `0x141e4d180`, rescales it by new/old only when the old step time is above zero: all
-1 627 mid-walk re-orders rescaled, all 3 231 segment transitions carried) and is zeroed when the walk ends. Each step's
+1 627 mid-walk re-orders rescaled, all 3 231 segment transitions carried) and is zeroed when the step loop ends the
+walk (its path's end, a blocked step), not by a stop: in per-frame traces of six fights (2026-11-04), 28 of 28 player
+walks from a stand an action's stop left mid-step started with it unscaled, and 43 of 43 after a path's end or a
+blocked step started at 0. Each step's
 body check (`0x141e47ca0`) reads the other objects' cells as they are at that moment, so an object that ticked earlier
 in the frame is seen where that frame's steps put it and a later one where the frame before left it. The forced
 position set of an action start (`0x141e8e7e0` → `0x141e31800`: in lockstep whenever the actor's cell is not the 0x1ab's
 pair, predictive at 46+ cells) ends the walk in progress and zeroes the accumulator (713 sets in the fight, every one
-with the cell differing, 601 on a walking actor, all 601 zeroed): an order whose from cell is the client's cell keeps
+with the cell differing, 601 on a walking actor, all 601 zeroed; on a standing walker it keeps it, 9 of 9 on
+2026-11-04): an order whose from cell is the client's cell keeps
 the fraction of the step in progress, one whose from cell differs by any distance loses it, and the actor's next step
 comes a whole step after the frame. `PlayerWalk`'s time model (step k of an order applied at frame start S with
-fraction f at S − f × step + k × step) puts every step in the frame the accumulator gives it, up to float32 rounding;
+fraction f at S − f × step + k × step, from a stand a stop left at S − kept + k × step, with a step already
+due placed inside S's frame) puts every step in the frame the accumulator gives it, up to float32 rounding;
 what the Gateway's step pass adds for a lockstep client is the order within a frame and the cells each check sees
 (`StepWalkers` → `StepFrames`: whole frames, each walker's steps of the frame in ascending object id against the cells
 as moved so far, up to the start of the frame being sent).
