@@ -15,6 +15,17 @@ static partial class Game
     // refused (GemDisabled).
     internal static IReadOnlyList<GrantedSkill> PlayerSkills(ClientState conn)
     {
+        // Headhunter, Rage, Fortification and charge changes call this many times a second. A short cache keeps the
+        // client's skill records at most a frame or two stale while preventing a full build inside the send gate per
+        // change (2026-11-05: 180 builds in one fight, 0x0025 handlers at 100-200 ms).
+        // Reused until its inputs change (the character's stats, equipment, skill cosmetics, pools and life:
+        // SkillSnapshotInputs), not for a fixed time; a full refresh (SendCharacterStats: weapons, gems, items, passives)
+        // drops it at once. The stats carry Rage, charges, Onslaught and the auras, whose attack and cast times the
+        // client's actions follow, so those rebuild it too.
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        var inputs = SkillSnapshotInputs.Capture(conn, CharacterPlayerStats(conn));
+        if (conn.PlayerSkillsCache is { } cached && PlayerSkillsInputs.TryGetValue(conn, out var was) && ReferenceEquals(was.Skills, cached)
+            && was.Inputs.Matches(conn, inputs.Stats)) return cached;
         // One build reads one snapshot of the character's stats, final stats and supported gems: every gem's cast time,
         // hit, crit and panel rows used to recompute them (CharacterPlayerStats, FinalPlayerStats, SupportedSkill) five or
         // six times per gem, 180-270 ms per build in the Debug server, inside the send gate. The snapshot also captures
@@ -25,22 +36,43 @@ static partial class Game
         try
         {
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
-            return [.. SkillsFor(conn).PlayerDefaults(player),
-                .. GemSkills(conn, player, character, panelSources!), .. GameEvents.ExtraSkills(conn)];
+            var skills = new List<GrantedSkill>([.. SkillsFor(conn).PlayerDefaults(player),
+                .. GemSkills(conn, player, character, panelSources!), .. GameEvents.ExtraSkills(conn)]);
+            conn.PlayerSkillsCache = skills;
+            conn.PlayerSkillsAt = now;
+            PlayerSkillsInputs.AddOrUpdate(conn, new(inputs, skills));
+            return skills;
         }
         finally { StatsScope.Value = outer; }
     }
 
     /// <summary>The PlayerSkills build running on this flow: what it computed once and reuses instead of recomputing.</summary>
-    internal sealed class SkillBuildScope(ClientState conn, Dictionary<uint, int> stats)
+    internal sealed class SkillBuildScope(ClientState conn, Dictionary<uint, int>? stats = null)
     {
+        Dictionary<uint, int>? character = stats;
         public ClientState Conn => conn;
-        public Dictionary<uint, int> Stats => stats;
+        /// <summary>The one character snapshot of this flow's work: a client message's whole validation, payment and
+        /// launch, or one PlayerSkills build. Built on the first read, so a message that reads no stats pays nothing.
+        /// (2026-11-05: a cast message built it five or six times, and 154 builds a second cost a full core.)</summary>
+        public Dictionary<uint, int> Stats => character ??= CharacterPlayerStatsSnapshot(conn, out _, out _);
         public List<(uint, int)>? Final;
         public readonly Dictionary<ushort, SupportedGem> Supported = [];
     }
 
     internal static readonly AsyncLocal<SkillBuildScope?> StatsScope = new();
+
+    /// <summary>One character snapshot for this flow's work (<c>using var</c> scope). A client message's validation,
+    /// payment and launch reuse the first build; a fresh one starts outside any scope. Nested scopes keep the outermost.</summary>
+    internal readonly struct PlayerStatScope : IDisposable
+    {
+        readonly SkillBuildScope? outer;
+        public PlayerStatScope(ClientState conn)
+        {
+            outer = StatsScope.Value;
+            if (outer is null || !ReferenceEquals(outer.Conn, conn)) StatsScope.Value = new(conn);
+        }
+        public void Dispose() => StatsScope.Value = outer;
+    }
 
     internal static SkillBuildScope? BuildScopeOf(ClientState conn) =>
         StatsScope.Value is { } scope && ReferenceEquals(scope.Conn, conn) ? scope : null;
@@ -184,8 +216,14 @@ static partial class Game
     // What /set_stat set, then the class's attributes and pools and the passives' stats for the stats it did not set.
     internal static Dictionary<uint, int> CharacterPlayerStats(ClientState conn)
     {
-        if (BuildScopeOf(conn) is { } scope) return new(scope.Stats);
-        return CharacterPlayerStatsCore(conn, out _);
+        // Temporary lag instrumentation: how often the full stat build runs and what it costs (per connection).
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            if (BuildScopeOf(conn) is { } scope) return new(scope.Stats);
+            return CharacterPlayerStatsCore(conn, out _);
+        }
+        finally { conn.Performance.StatBuild(started); }
     }
 
     internal sealed record PanelSourceSnapshot(IReadOnlyDictionary<uint, int> Raw,
@@ -193,7 +231,7 @@ static partial class Game
         IReadOnlyDictionary<string, int> MainHand, IReadOnlyDictionary<string, int> OffHand, bool MainArmed, bool OffArmed);
 
     internal static Dictionary<uint, int> CharacterPlayerStatsCore(ClientState conn, out double baselineLifePerSecond) =>
-        CharacterPlayerStatsSnapshot(conn, out baselineLifePerSecond, out _);
+        CachedPlayerStats(conn, out baselineLifePerSecond);
 
     internal static Dictionary<uint, int> CharacterPlayerStatsSnapshot(ClientState conn, out double baselineLifePerSecond,
         out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
@@ -1073,8 +1111,13 @@ static partial class Game
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2ba Actor), after the level or the passives changed.
+    // The inputs the cached skill list (ClientState.PlayerSkillsCache) was built from.
+    sealed record PlayerSkillsBuild(SkillSnapshotInputs Inputs, IReadOnlyList<GrantedSkill> Skills);
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, PlayerSkillsBuild> PlayerSkillsInputs = new();
+
     internal static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
+        conn.PlayerSkillsCache = null;   // a build change: the skill list is built again
         if (QuestKillCommitOutput is not null)
         {
             conn.Minions.StatRevision++;
@@ -1140,6 +1183,7 @@ static partial class Game
             gone = conn.ClientSkillIds.Except(skills.Select(s => s.Id)).Order().ToList();
             added = skills.Select(s => s.Id).Where(id => !conn.ClientSkillIds.Contains(id)).ToList();
             conn.ClientSkillIds = [.. skills.Select(s => s.Id)];
+            RecordPlayerSkills(conn, skills);
             return PlayerSkillsWithVaalSouls(conn, skills, gone);
         }, "0x02ba player Actor: current skill stats");
         if (!CurrentGameRules) return;

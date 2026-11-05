@@ -112,7 +112,7 @@ static partial class Game
             {
                 RecomputePoolsAndSpeed(conn);
                 bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                bytes.AddRange(InstanceEntities.PlayerSkillsChange(PlayerId, PlayerSkills(conn), []));
+                bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
                 Console.WriteLine($"[gateway] Onslaught on kill {(o.Applied ? "started" : "ended")}");
             }
             return [.. bytes];
