@@ -400,7 +400,7 @@ static partial class Game
             return;
         }
         var call = control ?? (request => InstanceControl.CallAsync(request));
-        ulong join = t.Instance != 0 || t.New ? 0 : GameEvents.TransferInstance.For(conn).Select(run => run(conn, t)).FirstOrDefault(i => i != 0);
+        ulong join = t.Instance != 0 || t.New ? 0 : InstanceEvents.TransferInstance.For(conn).Select(run => run(conn, t)).FirstOrDefault(i => i != 0);
         var r = await call(new ControlRequest
         {
             Op = "transfer", Ticket = conn.Ticket, Area = t.Area, Instance = join != 0 ? join : t.Instance, New = t.New, Seed = t.Seed,

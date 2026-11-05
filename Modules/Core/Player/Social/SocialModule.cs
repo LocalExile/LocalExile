@@ -21,7 +21,7 @@ public sealed class SocialModule : IModule
             await SocialFeature.RebindParty(c);
             await FriendsFeature.AfterEntry(c);
         });
-        module.Lifetime.Own(GameEvents.TransferInstance.Add("Social", SocialFeature.PartyInstance));
+        module.Lifetime.Own(InstanceEvents.TransferInstance.Add("Social", SocialFeature.PartyInstance));
         module.OnPlayerLeaving((player, why) => FriendsFeature.Leaving(ConnOf(player)));
         module.OnPacket(InstanceSocial.FriendAddId, async p =>
         {

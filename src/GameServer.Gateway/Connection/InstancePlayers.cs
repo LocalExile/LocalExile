@@ -21,6 +21,13 @@ sealed class InstancePresence
     public InstancePlayer? Player(uint id) => _players.TryGetValue(id, out var p) && p.Current ? p : null;
 }
 
+/// <summary>The instance's events (InstanceWorld): what a module can add to the shared instance.</summary>
+static class InstanceEvents
+{
+    /// <summary>An instance to join for a transfer without a chosen one (a party member's), 0 for the default choice.</summary>
+    public static readonly GameEvent<Func<ClientState, PendingTransfer, ulong>> TransferInstance = new();
+}
+
 sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life);
 sealed record SharedMonsterOrigin(uint Type, GameServer.Core.Protocol.Instance.MonsterObject Object, ushort Row, byte Level, MonsterRarity Rarity);
 sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedMonster Source, int X, int Y, (int X, int Y) Destination, uint Life);
