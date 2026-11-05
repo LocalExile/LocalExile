@@ -968,25 +968,33 @@ static partial class Game
             bool completed = false;
             await Send(remote, stream, ciphers, [], null, atGate: () =>
             {
-                lock (conn.Monsters)
-                {
-                    if (!MonsterPresent(conn, id, m) || !m.StageRunning || conn.Paused) return null;
-                    var stage = m.Stage!;
-                    var bytes = new List<byte>();
-                    if (m.Variety?.ComponentsOrBase.ToList().IndexOf("Transitionable") is int t and >= 0)
-                        bytes.AddRange(InstanceEntities.TransitionableUpdate(id, (byte)t, stage.TransitionTo));
-                    bytes.AddRange(InstanceProtocol.LifeUpdate(id, m.MaxLife));
-                    bytes.AddRange(InstanceProtocol.ActionEnded(id));
-                    m.Life = m.MaxLife;
-                    m.StageRunning = false;
-                    completed = true;
+                var bytes = AdvanceMonsterStage(conn, id, m);
+                completed = bytes is not null;
+                if (completed)
                     Console.WriteLine($"[gateway] {remote} => monster 0x{id:x} ({m.Label}) stage complete: " +
-                        $"Transitionable {stage.TransitionTo}, life {m.Life}, 0x01ac action ended");
-                    return bytes.ToArray();
-                }
+                        $"Transitionable {m.Stage!.TransitionTo}, life {m.Life}, 0x01ac action ended");
+                return bytes;
             });
             if (completed) return;
             await AreaWait(PlayerUpdateRole.MonsterAction, 16);
+        }
+    }
+
+    // Called only at the send gate; all one-shot state changes and their packets belong to the same guarded update.
+    internal static byte[]? AdvanceMonsterStage(ClientState conn, uint id, SpawnedMonster m)
+    {
+        lock (conn.Monsters)
+        {
+            if (!MonsterPresent(conn, id, m) || !m.StageRunning || conn.Paused) return null;
+            var stage = m.Stage!;
+            var bytes = new List<byte>();
+            if (m.Variety?.ComponentsOrBase.ToList().IndexOf("Transitionable") is int t and >= 0)
+                bytes.AddRange(InstanceEntities.TransitionableUpdate(id, (byte)t, stage.TransitionTo));
+            bytes.AddRange(InstanceProtocol.LifeUpdate(id, m.MaxLife));
+            bytes.AddRange(InstanceProtocol.ActionEnded(id));
+            m.Life = m.MaxLife;
+            m.StageRunning = false;
+            return bytes.ToArray();
         }
     }
 
