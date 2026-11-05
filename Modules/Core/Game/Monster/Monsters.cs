@@ -1209,6 +1209,19 @@ static partial class Game
         return place(frame.Start);
     }
 
+    // When an order written now in its send gate (under conn.Monsters) starts on the client. A lockstep client starts it at
+    // the start of the frame its 0x1ab goes out in, before any object ticks (07 §6), so an in-place attack is dated there
+    // (its contact and BusyUntil follow) and placed there, after the steps of the frames before it, as a walk is
+    // (LockstepOrderFrom). The walk already reads its cell at the frame's start (PlayerWalk.FrameOf), but until a pass
+    // replays those steps against the bodies (StepWalkers) it walks on through one the client found blocked: the from cell
+    // is then a step or more ahead of the client's, whose forced set (0x141e8e7e0) ends its walk there.
+    internal static double LockstepOrderStart(ClientState conn, double now)
+    {
+        if (!conn.LockstepClient || conn.LockstepFrame is not { } frame) return now;
+        StepWalkers(conn, frame.Start);
+        return Math.Min(now, frame.Start);
+    }
+
     internal static async Task<bool> SendMonsterAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null)
     {
@@ -1387,7 +1400,7 @@ static partial class Game
         bool walkUp = use is null && !area && !a.InPlace;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {
-            startedAt = AreaTime(conn);
+            startedAt = LockstepOrderStart(conn, AreaTime(conn));
             if (use is null && !area)
             {
                 double acceptedFactor = MonsterActionFactor(m, startedAt);

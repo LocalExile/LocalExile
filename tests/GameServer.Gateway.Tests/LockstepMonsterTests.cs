@@ -40,7 +40,9 @@ public class LockstepMonsterTests : IDisposable
     // again toward the player. The server takes that swing from that frame's start with no order, and gives a standing
     // lockstep melee monster in reach the chase, not a swing order. A monster in a hit's recovery is ordered only from the
     // frame after the one its tick ends the recovery in. Only a chase the client runs is tested, not a Move that sets
-    // LastTarget; an in-place attack, a monster that never walks and a predictive client keep their swing orders.
+    // LastTarget; an in-place attack, a monster that never walks and a predictive client keep their swing orders. A
+    // lockstep in-place attack starts at the start of the frame its order goes out in, from the cell the steps before
+    // that leave the monster on.
     [Fact]
     public void A_chase_walk_up_swings_in_the_frame_the_client_finds_the_player_in_reach()
     {
@@ -220,6 +222,22 @@ public class LockstepMonsterTests : IDisposable
         plan = Game.PlanMonsterAi(ranged, new MonsterAiCadence(), now: 6.5);
         Assert.Equal([0x3004u], plan.Swings.Select(s => s.Id));
         Assert.True(shooter.Walk.Moving(6.6));
+        // Its order starts at the start of the frame it goes out in, after that frame's earlier steps are replayed: the
+        // Drowned's step at 0.105 blocks the Spitter's to (50, 55) at 0.100 (the frame that ended at 0.132), so it shoots
+        // from (50, 56), not from where its unchecked walk would be. A predictive client's starts when written.
+        var shooting = Connection(lockstep: true);
+        shooting.LockstepFrame = (0.132, 0.165);
+        var blocker = Drowned(new PlayerWalk(50, 50, 1 / 0.105, size: 2));
+        blocker.Walk.Order(50, 70, now: 0);
+        var spitter = Spitter(new PlayerWalk(50, 56, 10, size: 2));
+        spitter.Walk.Order(50, 36, now: 0);
+        shooting.Monsters[0x3000] = blocker;
+        shooting.Monsters[0x3001] = spitter;
+        double shotAt;
+        lock (shooting.Monsters) shotAt = Game.LockstepOrderStart(shooting, 0.14);
+        Assert.Equal(0.132, shotAt, 9);
+        Assert.Equal((50, 56), spitter.Walk.Position(shotAt));
+        Assert.Equal(0.14, Game.LockstepOrderStart(Connection(lockstep: false), 0.14));
 
         var predictive = Connection(lockstep: false);
         var monster = Drowned(new PlayerWalk(104, 100, 8));
