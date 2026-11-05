@@ -7,6 +7,6 @@ public sealed class BossLootMod : IMod
 {
     public void Load(IModContext mod) => mod.ModifyDrops(drops =>
     {
-        if (drops.Monster.Rarity == MonsterRarity.Unique) drops.Items.Add("Exalted Orb");
+        if (drops.Monster.Rarity == MonsterRarity.Unique) drops.Items.Add("Exalted Orb*10");
     });
 }

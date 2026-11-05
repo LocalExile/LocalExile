@@ -15,8 +15,20 @@ static partial class Game
         if (UniquesFor(conn).Find(query) is { } unique
             && UniquesFor(conn).Create(unique, Random.Shared) is { } created && ItemsFor(conn).ByHash(created.TypeHash) is { } uniqueType)
             return new(created, uniqueType);
-        if (ItemsFor(conn).Find(query) is not { Supported: true } type) return null;
-        if (type.Stackable) return new(ItemCatalog.Create(type), type);
+        int stackSize = 1;
+int separator = query.LastIndexOf('*');
+
+if (separator > 0 &&
+    int.TryParse(query[(separator + 1)..], out int amount))
+{
+    stackSize = Math.Clamp(amount, 1, ushort.MaxValue);
+    query = query[..separator].Trim();
+}
+
+if (ItemsFor(conn).Find(query) is not { Supported: true } type) return null;
+
+if (type.Stackable)
+    return new(ItemCatalog.Create(type) with { StackSize = (ushort)stackSize }, type);
         var (sockets, links) = ItemsFor(conn).DefaultSockets(type, itemLevel);
         return new(ItemCatalog.Create(type, sockets, links) with { ItemLevel = (byte)Math.Clamp(itemLevel, 1, 100) }, type);
     }
