@@ -10,6 +10,16 @@ static partial class Game
     internal const int HitDebuffTakenPct = 10;
     // BuffDefinitions intimidated and unnerved; neither is IsRecovery, so 0x1c1 carries no values.
     internal const ushort IntimidatedBuffRow = 733, UnnervedBuffRow = 1412;
+    // Crush (Awakened Brutality: "10% chance to Crush Enemies for 4 seconds on Hit"): its own buff, and 15% off the
+    // monster's physical damage reduction for those 4 seconds.
+    internal const ushort CrushedBuffRow = 1600;
+    internal const double CrushSeconds = 4;
+    internal const int CrushReductionPct = 15;
+    // Maim (Maim Support: "30% chance to Maim on Hit"; Maimed enemies have 30% reduced Movement Speed and take 10%
+    // increased Physical Damage): its own BuffDefinitions row and four seconds.
+    internal const ushort MaimedBuffRow = 513;
+    internal const double MaimSeconds = 4;
+    internal const int MaimedPhysicalTakenPct = 10;
 
     /// <summary>Whether a hit intimidates and unnerves: chance_to_intimidate_on_hit_% (and attacks_intimidate_on_hit_%
     /// for an attack), chance_to_unnerve_on_hit_% (and chance_to_unnerve_on_hit_with_spells_% for a spell), and Grattus
@@ -39,9 +49,25 @@ static partial class Game
         var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, Random.Shared);
         if (intimidate) m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + HitDebuffSeconds);
         if (unnerve) m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds);
+        if (RandomRolls.Chance(get("chance_to_crush_on_hit_%"), 100, Random.Shared))
+            m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds);
+        if (RandomRolls.Chance(get("maim_on_hit_%"), 100, Random.Shared))
+        {
+            m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds);
+            m.MaimedPhysicalTakenPct = Math.Max(0, get("support_maimed_enemies_physical_damage_taken_+%"));
+        }
         if (BlindRoll(get, spell, critical, Random.Shared))
             m.BlindedUntil = Math.Max(m.BlindedUntil, now + BlindSeconds(get));
     }
+
+    /// <summary>The physical damage reduction Crush takes away from a monster at <paramref name="now"/> (15% while
+    /// crushed, 0 otherwise); without a time Crush does not count.</summary>
+    internal static int CrushReduction(SpawnedMonster m, double now) => m.CrushedUntil > now ? CrushReductionPct : 0;
+
+    /// <summary>The increased physical damage a maimed monster takes at <paramref name="now"/> (Maim's share, 0
+    /// otherwise); without a time Maim does not count.</summary>
+    internal static int MaimedPhysicalTaken(SpawnedMonster m, double now) =>
+        m.MaimedUntil > now ? Math.Max(MaimedPhysicalTakenPct, m.MaimedPhysicalTakenPct) : 0;
 
     // Exposure (poedb Exposure): an unspecified value "defaults to -10% to the affected resistance", a duration "defaults to
     // 4 seconds", and "only the highest Exposure of the element applies". BuffDefinitions Fire, Cold and Lightning

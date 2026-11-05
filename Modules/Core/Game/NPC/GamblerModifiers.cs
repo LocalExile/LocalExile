@@ -15,10 +15,12 @@ readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int EnemyDamag
         get("chance_to_deal_double_damage_%"), get("spell_chance_to_deal_double_damage_%"));
 
     /// <summary>One skill's hit: the skill's own chance to deal double damage (Heavy Strike's gem) adds to the player's,
-    /// and a spell adds spell_chance_to_deal_double_damage_%.</summary>
-    public GamblerModifiers ForSkill(Func<string, int> skill, bool spell) => this with
+    /// a spell adds spell_chance_to_deal_double_damage_%, and the final repeat of a spell adds Awakened Spell Echo's
+    /// spell_echo_plus_chance_double_damage_%_final.</summary>
+    public GamblerModifiers ForSkill(Func<string, int> skill, bool spell, bool finalRepeat = false) => this with
     {
-        DoubleDamageChance = DoubleDamageChance + skill("chance_to_deal_double_damage_%") + (spell ? SpellDoubleDamageChance : 0),
+        DoubleDamageChance = DoubleDamageChance + skill("chance_to_deal_double_damage_%") + (spell ? SpellDoubleDamageChance : 0)
+            + (spell && finalRepeat ? skill("spell_echo_plus_chance_double_damage_%_final") : 0),
     };
 
     /// <summary>Growing Accumulator's less damage applies to hits and damage over time; triple damage only to hits.</summary>

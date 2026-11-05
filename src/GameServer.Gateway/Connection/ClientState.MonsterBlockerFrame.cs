@@ -35,7 +35,7 @@ sealed partial class ClientState
                 if (peer.Life > 0 && peer.Owner is not null) fixedBodies.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
             FixedBlockers = new BlockerSet(fixedBodies);
             current = new(fixedBodies);
-            if (owner.PlayerSent && owner.PlayerLife > 0 && !owner.Phasing)
+            if (owner.PlayerSent && owner.PlayerLife > 0 && !owner.IsPhasing)
             {
                 var player = owner.Walk.Position(now);
                 playerBody = current.Add(new(player.X, player.Y, LivingCollision.PlayerSize));
@@ -50,7 +50,7 @@ sealed partial class ClientState
                 Bodies.Add((id, p.X, p.Y, size));
             }
             // Phasing (Quartz Flask): the player and the monsters pass each other.
-            forPlayer = owner.Phasing ? FixedBlockers : playerBody >= 0 ? current.Without(playerBody) : current;
+            forPlayer = owner.IsPhasing ? FixedBlockers : playerBody >= 0 ? current.Without(playerBody) : current;
             owner.Performance.Elapsed(LatencyPhase.BlockerBuild, startedAt);
         }
 

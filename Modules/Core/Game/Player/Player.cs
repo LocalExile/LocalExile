@@ -39,8 +39,13 @@ static partial class Game
                 && !conn.Auras.Values.Any(a => AuraCatalog.Family(a.EffectId) == AuraCatalog.Family(effect))
                 && GemSkillInstanceDisabled(conn, gem.Effect, gem.Id) is null
                 && SupportedReservation(conn, gem.Id) is { } reservation)
+            {
+                var supported = SupportedSkill(conn, gem.Id);
+                var (supportEffect, affectsSelf) = AuraSupport(conn, gem.Id);
                 candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.NextBuff++, AuraCatalog.BuffRow(effect),
-                    reservation.Flat, reservation.Percent, SupportedSkill(conn, gem.Id).Level, SupportedSkill(conn, gem.Id).Quality, SourceBuff: conn.NextBuff++));
+                    reservation.Flat, reservation.Percent, supported.Level, supported.Quality, SourceBuff: conn.NextBuff++,
+                    SupportEffectPct: supportEffect, AffectsSelf: affectsSelf));
+            }
         var restored = AuraCatalog.Restore(saved, candidates, conn.Pools, InTown(conn));
         foreach (var aura in restored) conn.Auras[aura.SkillId] = aura;
         if (restored.Count > 0)
@@ -298,6 +303,11 @@ static partial class Game
             // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
             if (cost > 0 && BloodCharges.Uses(Own))
                 cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
+            // Inspiration: "Supported Skills have (25-42)% reduced Mana Cost".
+            int inspirationCost = Own("support_inspiration_mana_cost_+%_final");
+            if (cost > 0 && inspirationCost != 0)
+                cost = (uint)Math.Max(0, Math.Round(cost * Math.Max(0, 1 + inspirationCost / 100.0),
+                    MidpointRounding.AwayFromZero));
             int life;
             if (Lifetap.ConvertsCostToLife(own))
             {
@@ -316,6 +326,7 @@ static partial class Game
                 Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
             }
             ManaSpentLocked(conn, cost, player);
+            SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
     }
@@ -479,6 +490,8 @@ static partial class Game
             if (conn.LeavingArea || conn.Paused || seconds <= 0) continue;
             await Program.ServerHooks.Tick(PlayerOf(conn), seconds);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            await SendConditionalItemStats(remote, stream, ciphers, conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
             {
                 leechContext = currentLeech;
@@ -512,6 +525,7 @@ static partial class Game
                 await SendRecentEnemyHits(remote, stream, ciphers, conn);
                 await SendAttackerSlows(remote, stream, ciphers, conn);
                 await SendLifetap(remote, stream, ciphers, conn);
+                await SendSupportGemBuffs(remote, stream, ciphers, conn);
                 await SendLeechBuffs(remote, stream, ciphers, conn);
                 await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return false;
@@ -955,7 +969,9 @@ static partial class Game
         foreach (var (key, value) in BaseStats(conn)) baseStats[key] = value;
         lock (conn.Monsters)
             foreach (var (key, value) in conn.PlayerStats) baseStats[key] = baseStats.GetValueOrDefault(key) + value;
-        return DamageImmunities.From(name => Stats.Key(name) is uint key ? baseStats.GetValueOrDefault(key) : 0);
+        var result = DamageImmunities.From(name => Stats.Key(name) is uint key ? baseStats.GetValueOrDefault(key) : 0);
+        if (conn.Clock.Elapsed.TotalSeconds < conn.PhysicalImmunityUntil) result.Add(DamageType.Physical);
+        return result;
     }
 
     // Spell Suppression: chance in 0..100 with the conditional passives that hold now (full life, full energy shield,
@@ -999,8 +1015,11 @@ static partial class Game
         });
 
     // The evasion rating monster attacks roll against: the while-moving rating during a walk (Devout of Garukhan).
-    internal static int PlayerEvasionBase(ClientState conn, double now) =>
-        conn.Walk.Moving(now) && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion;
+    internal static int PlayerEvasionBase(ClientState conn, double now)
+    {
+        EnsureConditionalItemPools(conn);
+        return conn.Walk.Moving(now) && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion;
+    }
 
     // The death screen's buttons (C→S 0x54). Both hide the screen (0x55 with bit1) and give the player full life; "at
     // checkpoint" revives next to the area's activated waypoint, else at its arrival point (teleport 0x1b7, AreaLayout.Checkpoint),

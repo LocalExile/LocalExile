@@ -861,10 +861,10 @@ refused before spending.
 CoE confirms the magic/rare rarity stays and the metamod candidate rule; see
 [the source comparison](../re/annulment-coe.md).
 
-### Armourer's Scrap (2026-10-21, verified live)
+### Armourer's Scrap
 
-`CurrencyArmourQuality`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.ArmourerScrap` adds 1% quality (the
-Quality component's u8) to an item with an Armour component, any rarity, up to 20%; the client shows the raised
+`CurrencyArmourQuality`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.ArmourerScrap` adds quality based on
+item level, or 1% for unique items, up to 20%; the client shows the raised
 defences from the quality. On this server the Orb of Scouring also sets an armour piece's quality back to 0 (and so
 accepts a normal armour piece with quality). Other items, or 20%, are refused and nothing is spent.
 
@@ -902,10 +902,10 @@ Shield and unique-rarity targets also rerolled successfully.
 After a Gateway restart, both characters' inventories and the stash retained every roll and currency count.
 The reloaded stash vest kept roll 9, quality 20 and its 50% local increase, displaying 54 armour and 54 evasion.
 
-### Blacksmith's Whetstone (2026-10-21, verified live)
+### Blacksmith's Whetstone
 
 `CurrencyWeaponQuality`, the same as Armourer's Scrap for items with a Weapon component (`CurrencyEffects.Whetstone`):
-+1% quality, any rarity, up to 20%, Shift included; the Orb of Scouring sets a weapon's quality back to 0 as well.
+quality based on item level, or 1% for uniques, up to 20%, Shift included; the Orb of Scouring sets quality back to 0.
 
 ### Orb of Chance (2026-10-21, verified live; CoE boundary 2026-10-30)
 
@@ -917,10 +917,10 @@ Corrupted/mirrored items, unsupported/unknown or `Unmodifiable` bases and empty 
 The CoE beta method tree has no Chance handler, so the official unique/rarity outcome remains separate work; see
 [the admission check and boundary](../re/chance-coe.md).
 
-### Glassblower's Bauble (2026-10-21, verified live)
+### Glassblower's Bauble
 
-`CurrencyFlaskQuality`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Glassblower`: +1% quality on an item with
-a Flask component, any rarity, up to 20%. The Orb of Scouring makes a flask normal, removes its explicit mods and sets its
+`CurrencyFlaskQuality`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Glassblower` adds quality based on item
+level, or 1% for uniques, up to 20%. The Orb of Scouring makes a flask normal, removes its explicit mods and sets its
 quality back to 0, as for armour and weapons.
 
 ### Gemcutter's Prism (2026-10-22, being tested)

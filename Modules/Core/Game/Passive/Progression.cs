@@ -136,7 +136,7 @@ static partial class Game
                         string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                             $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
             }
-        sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources))))));
+        sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
@@ -192,10 +192,34 @@ static partial class Game
         var exemptions = GameEvents.ExemptItems(conn);
         if (exemptions.Count > 0)
             before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
+        // Conditional item stats (issue #504) depend on state the connection keeps: the auras running now, the events of
+        // the last four seconds, and the attributes an "if you have at least N X" id compares. Capture a value snapshot
+        // for both the cache key and the resolver, so a change in any of them cannot reuse a result computed before it.
+        IReadOnlySet<string> auraEffects;
+        double conditionNow;
+        IReadOnlySet<string> recentEvents;
+        double? recentExpiry;
+        int strength, dexterity, intelligence, life, mana, energyShield;
+        IReadOnlyDictionary<string, bool> conditionFlags;
+        lock (conn.Monsters)
+        {
+            auraEffects = StatConditions.AuraSet(conn.Auras.Values.Select(a => a.EffectId));
+            conditionNow = conn.Clock.Elapsed.TotalSeconds;
+            recentEvents = conn.RecentEvents.Snapshot(conditionNow);
+            recentExpiry = conn.RecentEvents.NextExpiry(conditionNow);
+            strength = (int)conn.Pools.Strength;
+            dexterity = (int)conn.Pools.Dexterity;
+            intelligence = conn.Pools.Intelligence;
+            life = (int)conn.Pools.Life;
+            mana = (int)conn.Pools.Mana;
+            energyShield = (int)Math.Min(int.MaxValue, conn.Pools.EnergyShield);
+            conditionFlags = ItemConditionFlags(conn, conditionNow);
+        }
         // The sum below is a pure function of these inputs (items are immutable records), and the combat paths ask for
         // it many times a second (every monster hit): reuse the last result while none of them changed.
         var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level,
-            before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. exemptions.Order()]);
+            before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. exemptions.Order()],
+            auraEffects, recentEvents, recentExpiry, strength, dexterity, intelligence, life, mana, energyShield, conditionFlags);
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
         // A timeless jewel replaces (or augments) the stats of allocated ordinary nodes in its radius. The item is a
@@ -539,7 +563,30 @@ static partial class Game
             inactive.ExceptWith(exemptions);
         }
         var rawAttributes = RawAttributes(active);
-        var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats));
+        var conditionAttributes = AttributeInputs(rawAttributes, dev)
+            .Apply(c.Strength + (conn.God ? 1000 : 0), c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
+        // A stat whose id carries a condition only counts while that condition holds (issue #504). The subject answers
+        // from state the server already keeps: the weapon profile, the auras running right now, the events of the last
+        // four seconds (RecentEvents), and the attributes an "if you have at least N X" id compares. A condition it
+        // cannot answer stays unmodelled and keeps its previous behaviour rather than counting wrongly.
+        var conditionWeapons = WeaponProfileFor(conn);
+        var conditionSubject = new StatConditions.Subject(
+            DualWield: conditionWeapons.DualWield, Shield: conditionWeapons.Shield,
+            TwoHanded: conditionWeapons.TwoHand, OneHanded: conditionWeapons.OneHand,
+            Auras: auraEffects,
+            Recent: recentEvents,
+            Value: attribute => attribute switch
+            {
+                "strength" => conditionAttributes.Strength,
+                "dexterity" => conditionAttributes.Dexterity,
+                "intelligence" => conditionAttributes.Intelligence,
+                "life" => life,
+                "mana" => mana,
+                "energy_shield" => energyShield,
+                "rage" => null,
+                _ => (int?)null,
+            }, KnownRecent: TrackedItemRecentEvents, Flags: conditionFlags);
+        var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats, conditionSubject));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
         DevotionStats.Apply(sources, Stats);
@@ -574,7 +621,10 @@ static partial class Game
     /// <summary>The inputs of CharacterStatSources' passive and equipment sum, compared by value (items by reference).</summary>
     internal sealed record StatSourcesKey(ushort[] Nodes, IReadOnlyDictionary<ushort, ushort> Masteries,
         GameServer.Core.Protocol.Instance.InventoryItem[] Worn, Dictionary<uint, int> Dev, int ClassRow, bool God, int Level,
-        IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems)
+        IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems,
+        IReadOnlySet<string> Auras, IReadOnlySet<string> Recent, double? RecentExpiry,
+        int Strength, int Dexterity, int Intelligence, int Life, int Mana, int EnergyShield = 0,
+        IReadOnlyDictionary<string, bool>? Flags = null)
     {
         public bool Matches(StatSourcesKey o) =>
             ClassRow == o.ClassRow && God == o.God && Level == o.Level && TattooRevision == o.TattooRevision
@@ -584,7 +634,12 @@ static partial class Game
                 && p.First.X == p.Second.X && ReferenceEquals(p.First.Item, p.Second.Item))
             && Dev.Count == o.Dev.Count && Dev.All(kv => o.Dev.TryGetValue(kv.Key, out int v) && v == kv.Value)
             && (Before ?? new HashSet<uint>()).SetEquals(o.Before ?? new HashSet<uint>())
-            && RunItems.AsSpan().SequenceEqual(o.RunItems);
+            && RunItems.AsSpan().SequenceEqual(o.RunItems)
+            && Auras.SetEquals(o.Auras) && Recent.SetEquals(o.Recent) && RecentExpiry == o.RecentExpiry
+            && Strength == o.Strength && Dexterity == o.Dexterity && Intelligence == o.Intelligence
+            && Life == o.Life && Mana == o.Mana && EnergyShield == o.EnergyShield
+            && (Flags?.Count ?? 0) == (o.Flags?.Count ?? 0)
+            && (Flags is null || Flags.All(p => o.Flags is not null && o.Flags.TryGetValue(p.Key, out bool active) && p.Value == active));
     }
 
     internal sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,
@@ -600,7 +655,16 @@ static partial class Game
         lock (conn.Monsters)
         {
             using var snapshot = FortificationOf(conn).Capture(conn.Clock.Elapsed.TotalSeconds);
-            return BuildPoolsFor(conn, level);
+            var state = ConditionalItemPools.GetOrCreateValue(conn);
+            bool building = state.Building;
+            state.Building = true;
+            try
+            {
+                var pools = BuildPoolsFor(conn, level);
+                state.Applied = conn.StatSourcesCache;
+                return pools;
+            }
+            finally { state.Building = building; }
         }
     }
 
@@ -637,7 +701,7 @@ static partial class Game
         };
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = [.. conn.Auras.Values];
-        var aura = AuraCatalog.Bonus(auras, bonus.AuraEffectPct, SkillsFor(conn), Stats);
+        var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(conn), Stats);
         // Match CharacterPlayerStats: a dev value replaces the complete raw passive/equipment/aura input.
         // Read raw replacements once, preserving independent mana and incoming-hit consumers.
         Dictionary<uint, int> devStats;
@@ -755,7 +819,7 @@ static partial class Game
         // The bonus already includes Purity. Replacing one raw key must subtract its aura contribution too,
         // including an explicit zero maximum, without removing other resistance keys or altering presentation.
         var resistanceSources = new Dictionary<uint, int>(sources);
-        foreach (var (key, value) in AuraCatalog.ResistanceStats(auras, bonus.AuraEffectPct, SkillsFor(conn), Stats))
+        foreach (var (key, value) in AuraCatalog.ResistanceStats(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(conn), Stats))
             resistanceSources[key] = resistanceSources.GetValueOrDefault(key) + value;
         bonus = ResistanceOvercap.Applied(bonus, resistanceSources, devStats, ResistancePenalty(conn), Stats);
         var classInfo = SkillsFor(conn).ClassFor(conn.ClassRow);
