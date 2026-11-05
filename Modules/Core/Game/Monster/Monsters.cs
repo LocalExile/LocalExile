@@ -1422,6 +1422,14 @@ static partial class Game
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
             monsterCritical, blocked, now, stats, source: id);
         conn.RecentEnemyHits.Record(now);
+        conn.RecentEvents.Record(StatConditions.BeenHit, now);
+        if (blocked)
+        {
+            conn.RecentEvents.Record(StatConditions.Blocked, now);
+            conn.RecentEvents.Record(StatConditions.BlockedAttack, now);
+        }
+        if (lifeDamage > 0 && (long)lifeDamage * 100 >= (long)conn.PlayerMaxLife * 15)
+            conn.RecentEvents.Record(StatConditions.TakenSavageHit, now);
         ChargesWhenHit(conn, blocked);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.

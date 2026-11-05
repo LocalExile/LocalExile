@@ -18,6 +18,9 @@ static partial class Game
         var conn = session.Conn;
         double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
         conn.LastEnemyHitAt = now;
+        // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
+        conn.RecentEvents.Record(StatConditions.HitEnemy, now);
+        if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
         uint id = contact.Target.Id;
         var random = contact.Projectile.ReactionRandomSource;
         if (hit.Life == 0)
@@ -99,6 +102,7 @@ static partial class Game
             RecoverOnKill(conn, monster);
             session.Enqueue(() => ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
+        SoulEaterSoul(conn, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };

@@ -995,6 +995,17 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Discipline's ordinary ES pool and recharge are verified separately above; conditional effects remain partial.
   Reservation overflow is refused.
   See [11](../docs/protocol/11-skills.md) section 13.
+- Flesh and Stone (#471, 2026-11-05, not checked live): the aura now activates (it was refused as an unimplemented
+  effect) and alternates its stance on every activation, the skill's own description: Blood Stance's BuffDefinitions row
+  1308 for 1309, with `NextFleshAndStoneStance` flipping when the aura starts. Blood Stance gives the monsters within the
+  aura radius the data's increased Physical Damage taken, full beside the player and falling off with distance, on the
+  physical share only (`SpawnedMonster.TakenFromPlayer.Physical`, read by `MonsterTakesMitigated` and `MonsterDotTaken`).
+  Sand Stance blinds the monsters within the same radius (the passive blind aura's mechanism, whichever radius is
+  larger) and adds the data's Sand Stance damage-taken reduction to the player's `base_damage_taken_+%`. Local rules, not
+  the official ones: the reduction is applied at its full value (the data scales it by the attacker's distance), Maim is
+  not modelled (monsters have no movement-speed slow) and the skill's 2 s cooldown is the client's own. Two Gateway
+  tests cover the registration, the stance rows and both effects.
+  Code: `AuraCatalog` (`FleshAndStone*`, `RawStats`), `Game.ToggleAura` / `EnemyDebuffsTick`, `MonsterMods`.
 - Passive-granted skills: a passive's `GrantedEffectsPerLevel` skill joins the gem skills at the row's fixed level,
   with a stable id, no supports, quality 0 and no requirements; it casts, reserves, saves and ends like a gem's.
   Only self auras are listed until other granted skills (minions, other kinds) have executors.
@@ -1179,6 +1190,19 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Enemy and ally passive auras are not applied.
   Code: `PassiveBuffAuras.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §12.
+- Onslaught on kill grants the Onslaught buff and its speed ([13](../docs/protocol/13-items.md) §8a).
+- Kill-driven buffs from item stats: `player_gain_rampage_stacks` starts a Rampage streak and its kills feed the
+  "1% increased Rarity of Items found per X Rampage Kills" stat (whole groups of X); the melee-hit source keeps
+  granting stacks on hits as before. The "on Rampage threshold" modifiers now trigger once per tier crossed: life
+  recovery, dispelling ailments, physical damage immunity and phasing for their listed durations. The per-stack
+  modifiers for area of effect (per 25 kills) and Chain Hook / Shield Charge attack speed (per 10 kills) count, and a
+  kill grants the extra Vaal Soul while the streak is active. `gain_soul_eater_during_flask_effect` grants Soul Eater
+  while a flask effect runs: 5% increased attack and cast speed and 1% character size per soul, one soul per kill
+  within 60 cells, at most 45, and one lost every 0.5 s after 4 s without a kill. The Soul Eater icon is not sent yet.
+  Not modelled at present: the threshold smoke cloud (no timed smoke ground), Unholy Might (no Unholy Might system),
+  the frenzy charge every 50 kills (the charge session has no Rampage-count rule), starting a streak at maximum
+  endurance charges and losing them when it ends, and the map/leaguestone Rampage modifiers.
+  Code: `Rampage.cs`, `RampageSession.cs`, `SoulEater.cs`, `SoulEaterState.cs`, `GemSupports.Rules.cs`, `VaalSouls.cs`.
 - Onslaught (on kill and a Silver Flask's) grants Path of Building's Speed modifier: 20% increased attack speed in the
   attack-speed stat and the swing timing, 20% increased cast speed in the cast-speed stat, and 20% increased movement
   speed in the walk ([13](../docs/protocol/13-items.md) §8a).

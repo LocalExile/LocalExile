@@ -490,6 +490,8 @@ static partial class Game
             if (conn.LeavingArea || conn.Paused || seconds <= 0) continue;
             await Program.ServerHooks.Tick(PlayerOf(conn), seconds);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            await SendConditionalItemStats(remote, stream, ciphers, conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
             {
                 leechContext = currentLeech;
@@ -967,7 +969,9 @@ static partial class Game
         foreach (var (key, value) in BaseStats(conn)) baseStats[key] = value;
         lock (conn.Monsters)
             foreach (var (key, value) in conn.PlayerStats) baseStats[key] = baseStats.GetValueOrDefault(key) + value;
-        return DamageImmunities.From(name => Stats.Key(name) is uint key ? baseStats.GetValueOrDefault(key) : 0);
+        var result = DamageImmunities.From(name => Stats.Key(name) is uint key ? baseStats.GetValueOrDefault(key) : 0);
+        if (conn.Clock.Elapsed.TotalSeconds < conn.PhysicalImmunityUntil) result.Add(DamageType.Physical);
+        return result;
     }
 
     // Spell Suppression: chance in 0..100 with the conditional passives that hold now (full life, full energy shield,
@@ -1011,8 +1015,11 @@ static partial class Game
         });
 
     // The evasion rating monster attacks roll against: the while-moving rating during a walk (Devout of Garukhan).
-    internal static int PlayerEvasionBase(ClientState conn, double now) =>
-        conn.Walk.Moving(now) && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion;
+    internal static int PlayerEvasionBase(ClientState conn, double now)
+    {
+        EnsureConditionalItemPools(conn);
+        return conn.Walk.Moving(now) && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion;
+    }
 
     // The death screen's buttons (C→S 0x54). Both hide the screen (0x55 with bit1) and give the player full life; "at
     // checkpoint" revives next to the area's activated waypoint, else at its arrival point (teleport 0x1b7, AreaLayout.Checkpoint),

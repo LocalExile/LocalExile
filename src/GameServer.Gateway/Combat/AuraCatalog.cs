@@ -10,7 +10,7 @@ static class AuraCatalog
     /// level and quality.</summary>
     public sealed record Aura(ushort SkillId, int Effect, string EffectId, string Name, ushort Buff, ushort BuffRow,
         int ManaFlat, int ManaPercent, int Level = 1, int Quality = 0, ushort? SourceBuff = null,
-        int SupportEffectPct = 0, bool AffectsSelf = true);
+        int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null);
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
     // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
@@ -55,7 +55,23 @@ static class AuraCatalog
         // Pride's buff is on nearby enemies; the same row also draws the player's aura icon (BuffVisuals 1098).
         ["Pride"] = PrideBuffRow,
         ["TemporalChains"] = 69,
+        // Flesh and Stone's stance buff; BuffRow(effectId, stance) picks the other one. Its blind and physical-taken
+        // effects are on enemies, so EnemyDebuffsTick applies them (AuraCatalog.FleshAndStonePhysicalTaken).
+        ["FleshAndStone"] = FleshAndStoneBloodRow,
     };
+
+    /// <summary>Flesh and Stone's Blood Stance BuffDefinitions row: enemies nearby take more Physical Damage.</summary>
+    public const ushort FleshAndStoneBloodRow = 1308;
+
+    /// <summary>Flesh and Stone's Sand Stance BuffDefinitions row: nearby enemies are Blinded.</summary>
+    public const ushort FleshAndStoneSandRow = 1309;
+
+    /// <summary>Flesh and Stone's stances, the two the skill alternates between (its own description).</summary>
+    public static string OtherStance(string? stance) => stance == "Sand" ? "Blood" : "Sand";
+
+    /// <summary>The BuffDefinitions row that draws one activation of an aura: Flesh and Stone's row follows its stance.</summary>
+    public static ushort BuffRow(string effectId, string? stance) =>
+        Family(effectId) == "FleshAndStone" && stance == "Sand" ? FleshAndStoneSandRow : BuffRow(effectId);
 
     /// <summary>Pride's BuffDefinitions row: the enemy debuff, also the player's aura icon.</summary>
     public const ushort PrideBuffRow = 1331;
@@ -82,6 +98,18 @@ static class AuraCatalog
     /// <paramref name="max"/> after 4 seconds in the aura (linear).</summary>
     public static double PridePhysicalMore(int min, int max, double secondsInAura) =>
         min + Math.Max(0, max - min) * Math.Clamp(secondsInAura / 4.0, 0, 1);
+
+    /// <summary>Flesh and Stone's Blood Stance: the increased Physical Damage nearby enemies take, scaled by aura effect.
+    /// The data's stat is physical-only; the server's enemy debuff bucket is per type since 2026-11-05, so this goes to
+    /// the physical share (SpawnedMonster.TakenFromPlayer.Physical).</summary>
+    public static int FleshAndStonePhysicalTaken(Aura aura, int auraEffectPct, SkillCatalog skills, StatCatalog stats) =>
+        Value(skills, stats, aura, "flesh_stone_blood_stance_enemies_physical_damage_taken_when_hit_+%_final_from_player_distance",
+            auraEffectPct);
+
+    /// <summary>Flesh and Stone's Sand Stance: the share of an enemy hit's damage the player does not take at distance 0.
+    /// The data scales it with the attacker's distance; the server applies its full value (see Skills, Flesh and Stone).</summary>
+    public static int FleshAndStoneDamageReduction(Aura aura, int auraEffectPct, SkillCatalog skills, StatCatalog stats) =>
+        Value(skills, stats, aura, "flesh_stone_sand_stance_damage_taken_+%_final_from_distance_from_enemy_hits", auraEffectPct);
 
     public static IReadOnlyList<Aura> Restore(IEnumerable<string> saved, IEnumerable<Aura> available, CharacterStats.Pools pools, bool inTown = false)
     {
@@ -263,6 +291,12 @@ static class AuraCatalog
                     break;
                 case "Haste":
                     Add("cast_speed_+%", "cast_speed_+%_granted_from_skill");
+                    break;
+                case "FleshAndStone":
+                    // Sand Stance's share of an enemy hit's damage that is not taken; Blood Stance's effect is the enemy
+                    // debuff EnemyDebuffsTick applies, so it adds nothing to the player here.
+                    if (aura.Stance == "Sand")
+                        Add("base_damage_taken_+%", "flesh_stone_sand_stance_damage_taken_+%_final_from_distance_from_enemy_hits");
                     break;
             }
 

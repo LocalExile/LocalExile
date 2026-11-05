@@ -116,11 +116,18 @@ static partial class Game
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
         var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill),
             name => m.Mods.Effects[name], random, AilmentArea(Player, Skill, spell));
+        foreach (var effect in added)
+            if (effect.Kind == Kind.Freeze) conn.RecentEvents.Record(StatConditions.FrozeEnemy, now);
+            else if (effect.Kind == Kind.Shock) conn.RecentEvents.Record(StatConditions.ShockedEnemy, now);
         if (m.Dead || m.Life == 0)
         {
             // Shatter (wiki Shatter, Freeze): a non-unique monster a hit kills while frozen, the killing hit's own freeze
             // included, leaves no corpse, so nothing spreads from it and the kill's shock has nothing to land on.
-            if (m.Rarity != MonsterRarity.Unique && m.Ailments.Magnitude(Kind.Freeze, now) > 0) m.Ailments.Shatter();
+            if (m.Rarity != MonsterRarity.Unique && m.Ailments.Magnitude(Kind.Freeze, now) > 0)
+            {
+                m.Ailments.Shatter();
+                conn.RecentEvents.Record(StatConditions.ShatteredEnemy, now);
+            }
             else ShockOnKillLocked(conn, m, player, now);
             return;
         }

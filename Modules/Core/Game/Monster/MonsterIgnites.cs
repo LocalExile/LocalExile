@@ -125,6 +125,7 @@ static partial class Game
             target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
             target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until);
         }
+        conn.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
         return ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now);
     }
 
