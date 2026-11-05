@@ -1009,6 +1009,14 @@ static partial class Game
                 ? CurrencyEffects.Vaal(target, vaalType, ItemsFor(conn).Requirements(vaalType), RollsFor(conn), random) : null,
             CurrencyEffects.EldritchChaosOrb => CurrencyEffects.EldritchChaos(target, RollsFor(conn), random),
             CurrencyEffects.EldritchExaltedOrb => CurrencyEffects.EldritchExalted(target, RollsFor(conn), random),
+            CurrencyEffects.EldritchAnnulmentOrb => CurrencyEffects.EldritchAnnulment(target, RollsFor(conn), random),
+            CurrencyEffects.OrbOfBinding => ItemsFor(conn).ByHash(target.TypeHash) is { } bindingType
+                ? CurrencyEffects.Binding(target, bindingType, RollsFor(conn), ItemsFor(conn).Requirements(bindingType), random)
+                : null,
+            _ when CurrencyEffects.TaintedIds.Contains(type!.Id) => ItemsFor(conn).ByHash(target.TypeHash) is { } taintedType
+                ? CurrencyEffects.Tainted(type.Id, target, taintedType, RollsFor(conn),
+                    ItemsFor(conn).Requirements(taintedType), random)
+                : null,
             _ when isEssence => EssencesFor(conn).Apply(type!.Hash, target, random),
             // Rows the Id list above does not name, by their CurrencyItems.Action (CurrencyEffects.TryAction): the map
             // chisels (add_map_alt_quality, Cartographer's and the Maven's ones) and any future row with that action.
