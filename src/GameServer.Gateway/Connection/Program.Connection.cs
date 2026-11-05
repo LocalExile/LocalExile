@@ -270,7 +270,7 @@ partial class Program
             // Only a lockstep client's world counts frames behind (0x142183930), so only it reports any.
             if (conn.LockstepServed && bytes[2] != 0) conn.LockstepClient = true;
             if (conn.Ticks++ % 50 == 0 && ServerTrace.Ticks) Console.WriteLine($"[gateway] {remote} <= 0x001b tick #{conn.Ticks}: {Convert.ToHexString(bytes)} (answered with 0x001c)");
-            await SendPong(stream, ciphers, InstanceProtocol.Pong(serverDelayMs: ClientInbox.ServerDelayMs, ackIndex: inbox.NextAckIndex(), sideChannel: conn.Hnc!.NextIdleU32()));
+            await SendPong(stream, ciphers, InstanceProtocol.Pong(serverDelayMs: ClientInbox.ServerDelayMs(readAt), ackIndex: inbox.NextAckIndex(), sideChannel: conn.Hnc!.NextIdleU32()));
             var waited = Stopwatch.GetElapsedTime(readAt);
             if (waited > ClientInbox.SlowAfter)
                 Console.WriteLine($"[gateway] {remote} slow tick #{conn.Ticks}: 0x001c sent {waited.TotalMilliseconds:0} ms after the 0x001b was read");

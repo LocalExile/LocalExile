@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Threading.Channels;
 using GameServer.Core.Protocol.Instance;
 
@@ -31,13 +32,14 @@ sealed class ClientInbox(ConnectionPerformance? performance = null)
     public const ushort ClearQueue = ushort.MaxValue;
 
     /// <summary>
-    /// 0x1c's server delay. The client's 0x1c handler (0x14214b8dc) clamps its shown latency (+0xc490, F1 NETWORK and the
-    /// latency graph) into [sample − delay, rtt − delay], each floored at 0. Its rtt always includes waiting for its own
-    /// next update to read the socket (one frame), while the Gateway answers in under 0.3 ms. The largest delay makes
-    /// both bounds 0, so every 0x1c shows 0 (issue #49). An overdue tick still raises the value in the network update
-    /// (0x142148880), which ignores the delay, so a real stall still shows until the next 0x1c.
+    /// 0x1c's server delay: how long the Gateway held the tick, from reading the 0x1b off the socket to sending its
+    /// answer. The client's 0x1c handler (0x14214b8dc) clamps its shown latency (+0xc490, F1 NETWORK and the latency
+    /// graph) into [sample − delay, rtt − delay], each floored at 0, so it shows the round trip without the server's
+    /// own hold: the network plus the client's wait for its next update to read the socket. 0xFFFF here (issue #49)
+    /// zeroed both bounds and the meter read 0 always.
     /// </summary>
-    public const ushort ServerDelayMs = ushort.MaxValue;
+    public static ushort ServerDelayMs(long readAt) =>
+        (ushort)Math.Clamp(Math.Round(Stopwatch.GetElapsedTime(readAt).TotalMilliseconds), 0, ushort.MaxValue - 1);
 
     readonly Channel<Batch> _queue = Channel.CreateUnbounded<Batch>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
     bool _resync = true;

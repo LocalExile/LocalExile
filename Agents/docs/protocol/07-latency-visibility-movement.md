@@ -38,9 +38,11 @@ the client in the background (~6 updates/s), so the value stayed at the 12 measu
 Measured on one QPC clock (Frida on the client and the Gateway, 2026-10-19), the Gateway answers each 0x1b 0.15–0.28 ms
 after the client sends it; the rest is the 0x1c waiting in the client's socket until its next update.
 
-So the Gateway sends server delay 0xFFFF in every 0x1c (`ClientInbox.ServerDelayMs`, issue #49). Both clamp bounds
-become 0, so each 0x1c sets the value to 0 and F1 NETWORK reads 0. An overdue tick still raises it through the network
-update, which ignores the delay, so a real stall still shows until the next 0x1c.
+The Gateway sends as server delay how long it held the tick: from reading the 0x1b off the socket to writing the
+0x1c (`ClientInbox.ServerDelayMs`, under a millisecond normally). The value then reads the round trip without that
+hold: the network plus the client's wait for its next update. Until 2026-11-05 it sent 0xFFFF (issue #49), which
+zeroed both clamp bounds, so F1 NETWORK read 0 always and only an overdue tick showed. The input queue's age is not
+in it: the 0x1c goes out ahead of the queued gameplay work (below).
 
 The 0x1c takes only the connection's wire gate (`Program.Write`: encryption and the socket write), never the send gate
 whose packets evaluate game state in their `still`/`atGate` callbacks. Those callbacks wait for the combat lock, and in
