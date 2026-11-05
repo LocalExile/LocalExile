@@ -372,7 +372,8 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
 - **AI** (Gateway, `RunMonsterAi`; live 2026-10-17). Every 50 ms of game time (`MonsterAiCadence`) per connection: a monster within
   its MonsterVarieties `MaxAgroRange` (taken as grid cells: 60 for Hungry Corpse, 105 for most) of the server's estimate
   of the player starts chasing: a Move action (0x1ab, 0x2909) to its own cell around the player, re-sent when that cell
-  moves by 3+ cells; beyond twice the range it gives up (a Move to where it stands). The cells come from
+  moves by 3+ cells; beyond twice the range it gives up: an S→C 0x1ac ends the client's chase action (925 of 1166
+  live give-ups carry one, 3.29 capture), then a Move to where it stands. The cells come from
   `MonsterSurround`: the nearest chasers choose first, each takes the free cell on the innermost ring (its size + 3
   cells from the player) closest to its bearing, bodies never overlap, and a full ring sends the rest one ring out to
   wait. Candidates must also clear the player's square collision footprint, including when a ring-0 slot is reused.

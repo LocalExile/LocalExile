@@ -260,7 +260,7 @@ public sealed partial class DelveModule
                 var position = conn.Layout.Near((at.X + (int)Math.Round(Math.Cos(angle) * radius),
                     at.Y + (int)Math.Round(Math.Sin(angle) * radius)));
                 var ground = new WorldItemObject(position.X, position.Y, drops[i].Item);
-                groundItems.Add((conn.Instance.Ground.Add(ground), ground));
+                groundItems.Add((conn.Instance.Ground.Add(ground, conn), ground));
             }
         }
         foreach (var (id, ground) in groundItems)

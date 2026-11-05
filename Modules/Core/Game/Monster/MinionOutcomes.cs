@@ -93,6 +93,7 @@ static partial class Game
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+            drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash ? openMap.Area.Tier : 0;
             if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared) is { } map) drops.Add(map);
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, Random.Shared,
@@ -107,7 +108,7 @@ static partial class Game
             int x = at.X + (int)Math.Round(Math.Cos(angle) * radius), y = at.Y + (int)Math.Round(Math.Sin(angle) * radius);
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
-            uint id = conn.Instance.Ground.Add(ground);
+            uint id = conn.Instance.Ground.Add(ground, conn);
             state.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
                 $"0x02b9 create world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})"));
             state.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null));
