@@ -994,15 +994,15 @@ static partial class Game
                 CurrencyEffects.EldritchEmberTier(type!.Id) is int emberTier
                     ? CurrencyEffects.EldritchEmber(target, emberType, emberTier, RollsFor(conn), random)
                     : null,
-            CurrencyEffects.ArmourersScrap => CurrencyEffects.ArmourerScrap(target),
+            CurrencyEffects.ArmourersScrap => CurrencyEffects.ArmourerScrap(target, random),
             CurrencyEffects.SacredOrb => ItemsFor(conn).ByHash(target.TypeHash) is { } defenceType
                 ? CurrencyEffects.Sacred(target, ItemsFor(conn).Defences(defenceType), random) : null,
-            CurrencyEffects.BlacksmithsWhetstone => CurrencyEffects.Whetstone(target),
+            CurrencyEffects.BlacksmithsWhetstone => CurrencyEffects.Whetstone(target, random),
             CurrencyEffects.OrbOfChance => CurrencyEffects.Chance(target, RollsFor(conn), random),
             CurrencyEffects.AncientOrb => UniquesFor(conn).Reforge(target, DropsFor(conn).UniqueWeight, random),
             FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling => ItemsFor(conn).ByHash(target.TypeHash) is { } flaskType
                 ? FlaskEnchantments.Apply(target, flaskType, ItemsFor(conn).Mods, type.Id == FlaskEnchantments.Instilling, random) : null,
-            CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target),
+            CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target, random),
             CurrencyEffects.GemcuttersPrism => CurrencyEffects.Gemcutter(target),
             CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target, RollsFor(conn), random),
             CurrencyEffects.VaalOrb => ItemsFor(conn).ByHash(target.TypeHash) is { } vaalType

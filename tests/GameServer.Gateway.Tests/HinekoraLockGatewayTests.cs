@@ -110,6 +110,31 @@ public class HinekoraLockGatewayTests
 
         await WithSession(async (conn, items, stash, send, sendRaw, readPreview) =>
         {
+            var locked = new ItemRolls(Program.Items).ApplyLock(FourModWand() with { ItemLevel = 30 }, new Random(11))!;
+            var target = Put(items, stash, false, locked, 4);
+            var currency = Put(items, stash, false,
+                ItemCatalog.Create(Program.Items.Find(CurrencyEffects.BlacksmithsWhetstone)!) with { StackSize = 2 }, 0);
+
+            await sendRaw(PreviewRequest(10, currency, target));
+            var preview = await readPreview();
+            await sendRaw(PreviewRequest(11, currency, target));
+            var repeated = await readPreview();
+            Assert.Equal((ushort)0, preview.Status);
+            Assert.Equal(preview.Payload, repeated.Payload);
+            Assert.True(Current(items, target.Id).Item.Foreseeing);
+            Assert.Equal(2, Current(items, currency.Id).Item.StackSize);
+
+            await send(Request(currency, target));
+            var after = Current(items, target.Id).Item;
+            Assert.InRange(after.Quality, (byte)10, (byte)11);
+            Assert.Equal(preview.Payload, after.Payload());
+            Assert.False(after.Foreseeing);
+            Assert.Equal(0u, after.ForeseeSeed);
+            Assert.Equal(1, Current(items, currency.Id).Item.StackSize);
+        });
+
+        await WithSession(async (conn, items, stash, send, sendRaw, readPreview) =>
+        {
             var target = Put(items, stash, false, LockedWand(), 4);
             var currency = Put(items, stash, false,
                 ItemCatalog.Create(Program.Items.Find(CurrencyEffects.OrbOfTransmutation)!) with { StackSize = 2 }, 0);
