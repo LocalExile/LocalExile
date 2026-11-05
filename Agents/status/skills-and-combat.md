@@ -671,6 +671,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   every class's from its rig .amd), with the server duration adjusted once for cast speed.
   Code: `AnimationContacts.cs`, `scripts/re/anim_contacts.py`.
   Docs: [11](../docs/protocol/11-skills.md) §9.
+- Pride on enemies: its buff (row 1331) reaches every monster in the aura without breaking the client's stream.
+  Code: `EnemyDebuffs.Rules.cs`. Docs: [11](../docs/protocol/11-skills.md) (The player's debuffs on monsters).
+- Combat load: one stat snapshot per client message and at most one rebuild per 60 Hz frame (`PlayerStatsCache.cs`), the
+  skill list rebuilt only when its inputs change, the tick's state publications batched at the send gate, idle polls
+  skip it; a pack fight's input queue stays under ~400 ms (was 4-16 s). F1 NETWORK shows that wait.
 
 ## Partly working
 

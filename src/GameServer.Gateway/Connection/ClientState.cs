@@ -393,6 +393,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                 ? runtime.NowTicks / 120000d : Clock.Elapsed.TotalSeconds;
             ResourceEffectsState?.Freeze(RampageTransferAt.Value);
             LeavingArea = true;
+            PlayerSkillsCache = null;
             RetireOwnedCombat();
             InvalidateIncomingHits(clear: false);
             ProjectileEpoch++;
@@ -617,6 +618,11 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // The skill ids the client has on this connection's player (SendPlayer, SendSkills): the 0x40 skill list only adds,
     // so the ones that leave are removed by id.
     public HashSet<ushort> ClientSkillIds = [];
+    // The PlayerSkills build reused for a few frames: Headhunter, Rage, Fortification and charge stat changes call it
+    // many times a second, and rebuilding the whole list each time inside the send gate stalled input handlers
+    // (2026-11-05). A short lifetime keeps the client's skill records close while coalescing the builds.
+    public IReadOnlyList<GrantedSkill>? PlayerSkillsCache;
+    public double PlayerSkillsAt;
     // The character's level and the pools that follow from it and the class (CharacterStats).
     public EnergyShield EnergyShield { get; } = new();
     CharacterStats.Pools pools = new(1, 50, 40, 2, 0);

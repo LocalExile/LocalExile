@@ -153,7 +153,7 @@ static partial class Game
             }
             conn.ApplyMovementSpeed();
             bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-            bytes.AddRange(InstanceEntities.PlayerSkillsChange(PlayerId, PlayerSkills(conn), []));
+            bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
             conn.SentRampage = value;
             return [.. bytes];
         }
