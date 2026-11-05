@@ -238,7 +238,7 @@ static partial class Game
         }
         // "no path": no cell in reach with the line to the monster was found (nor the line from here at precision 1), so the
         // estimate stands; the swing then waits for the monster to come into reach (FollowMonsterToSwing) or is called off.
-        string walkUp = stop == here && !SwingInReach(conn, m, here, target, WalkUpRange(weapon)) ? " (no path)" : "";
+        string walkUp = arrive <= now && !SwingInReach(conn, m, stop, target, WalkUpRange(weapon)) ? " (no path)" : "";
         Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} seq 0x{use.Sequence:x4} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
             $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s{walkUp}, attack time {duration:0.000} s");
         // A lockstep client's action starts now and walks up by itself (Lockstep.cs); the swing below then says nothing.

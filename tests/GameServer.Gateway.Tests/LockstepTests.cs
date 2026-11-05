@@ -44,10 +44,12 @@ public class LockstepTests
         start = .099; walk.Order(100, 0, .099);
         start = .165; Assert.Equal((5, 0), walk.Position(.165));
 
-        // The same through a walk-up found in reach where the walker stands, and a forced set at the stand keeps it.
+        // The same through a walk-up found in reach where the walker stands, which stops where the frame's steps leave it,
+        // and a forced set at the stand keeps it.
         start = 0; walk = Walker(40);
         walk.Order(100, 0, 0);
-        start = .033; Assert.Equal((1, 0), walk.Approach(11, 0, 10, .04).Here);
+        start = .033; var (here, stop, _) = walk.Approach(11, 0, 10, .04);
+        Assert.Equal(((1, 0), (2, 0)), (here, stop));
         start = .066; walk.Teleport(2, 0, .07);
         start = .099; walk.Order(100, 0, .099);
         start = .165; Assert.Equal((5, 0), walk.Position(.165));
