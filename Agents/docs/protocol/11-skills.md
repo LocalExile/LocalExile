@@ -1110,6 +1110,9 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
     mana. A monster inside the skill's hit radius adds nothing to the decision: within reach the point is a swing (the
     hit still covers every monster within the skill's radius of it, the client aiming at the cell rather than the
     object: Holy Strike on a monster sends 0x25, live 2026-10-25), beyond reach it is an attack-move.
+    The client's threshold for that choice is not traced: its action's walk-up (`0x141e8eb60`) gives MoveTo the range
+    less one as the max range with no branch on the kind of target, as for a monster ([07](07-latency-visibility-movement.md)
+    §5), but the Gateway keeps the whole range here (`GroundAttackWalks`) until a trace settles it.
     The client spends the skill's mana on every use it starts, including an attack-move it only walks for, so the
     Gateway answers an attack-move with the authoritative mana (S→C 0x1b1, at most four a second); otherwise the orb
     falls behind the server's and recovery flasks are refused as "full" ([13](13-items.md) §8).
