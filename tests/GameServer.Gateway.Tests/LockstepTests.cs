@@ -131,9 +131,10 @@ public class LockstepTests
             return c;
         }
         var use = new InstanceTransfer.UseSkillOnObject(0x3000, SkillCatalog.FirstSkillId, 0x8001, 0x0400);
+        double hold = .5;   // the swing's hold (LockstepAttackCutIn and the tail), read as the swing begins
         LockstepAttack Attack(ClientState c, SpawnedMonster target)
         {
-            var attack = new LockstepAttack(++c.ActionCount, 0x3000, target, 10, 2, 1, hold: .5);
+            var attack = new LockstepAttack(++c.ActionCount, 0x3000, target, 10, 2, 1, hold: () => hold);
             c.LockstepAttack = attack;
             return attack;
         }
@@ -185,9 +186,10 @@ public class LockstepTests
         Assert.False(attack.Decided.IsCompleted);
         Assert.Equal((124, 100), conn.Walk.Destination);
         Assert.Equal((120, 100), conn.Walk.Position(.594));
+        hold = .6;   // slowed on the way (a chill): the swing holds him as long as the attack time it begins with
         Replay(conn, .627);
         Assert.Equal(new LockstepAttack.Swing(.594, .627, (123, 100)), await attack.Decided);
-        Assert.Equal(.627 + .5, conn.LockstepBusyUntil, 9);
+        Assert.Equal(.627 + .6, conn.LockstepBusyUntil, 9);
         Assert.Equal([(.6276, (122, 100)), (.6546, (123, 100))], conn.Walk.Steps(.627, .66).Select(s => (Math.Round(s.At, 4), s.Cell)));
         Replay(conn, .66);
         Replay(conn, .693);

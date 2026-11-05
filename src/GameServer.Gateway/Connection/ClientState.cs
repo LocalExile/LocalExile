@@ -310,7 +310,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
 /// <summary>A lockstep client's attack on a monster (07 §5, §6): the player's MoveTo toward the monster's own cell, which
 /// the client's frames run and the step pass follows (Game.StepFrames), and the swing it ends in. Under the Monsters
 /// lock.</summary>
-sealed class LockstepAttack(int action, uint targetId, SpawnedMonster target, int reach, int tolerance, int precision, double hold)
+sealed class LockstepAttack(int action, uint targetId, SpawnedMonster target, int reach, int tolerance, int precision,
+    Func<double> hold)
 {
     public int Action { get; } = action;
     public uint TargetId { get; } = targetId;
@@ -319,8 +320,9 @@ sealed class LockstepAttack(int action, uint targetId, SpawnedMonster target, in
     public int Reach { get; } = reach;
     public int Tolerance { get; } = tolerance;
     public int Precision { get; } = precision;
-    // How long the swing holds the player from the end of the frame it began in (LockstepAttackCutIn and the tail).
-    public double Hold { get; } = hold;
+    // How long the swing holds the player from the end of the frame it began in (LockstepAttackCutIn and the tail),
+    // read when the swing begins: the attack time then, not at the request.
+    public Func<double> Hold { get; } = hold;
     // Placed where its 0x1ab went out and not decided yet: the step pass tests its goal every frame.
     public bool Open;
     // When MoveTo's search timer (+0x55c) last started (Game.StepWalkUp).

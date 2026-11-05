@@ -25,11 +25,11 @@ static partial class Game
     // critical rules read the live owner at impact, and target evasion and impales resolve at contact.
     internal static Task ScheduleOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence,
-        SkillCriticalRoll criticalRoll)
+        SkillCriticalRoll criticalRoll, double? swingAt = null)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
-        double acceptedAt = conn.Clock.Elapsed.TotalSeconds;
+        double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
         var (delay, release) = OrdinaryRangedContact(conn, attackSeconds, projectileId, sequence);
         session.Schedule(ProjectileRuntime.Time(acceptedAt + AttackReleaseDelay(delay)),
             () => OrdinaryRangedReleaseCurrent(conn, action, epoch)

@@ -192,7 +192,7 @@ static partial class Game
         {
             conn.LockstepAttack?.Fails();
             conn.LockstepAttack = attack = new(action, use.TargetId, m, WalkUpRange(weapon), m.StopRange - 2, precision,
-                LockstepAttackCutIn(conn, use.SkillId, use.Sequence) + conn.LockstepActionTail);
+                () => LockstepAttackCutIn(conn, use.SkillId, use.Sequence) + conn.LockstepActionTail);
         }
         await Send(remote, stream, ciphers, [], $"0x01ab lockstep {what} 0x{use.SkillId:x4} on 0x{use.TargetId:x}",
             atGate: () =>
@@ -284,12 +284,14 @@ static partial class Game
     // The walk-up is over: the swing began in the frame [start, end] (the order's own, or the step pass's goal frame), from
     // where the stop leaves the player. It holds him for the attack's Hold (until the client lets a Move cut in,
     // LockstepAttackCutIn) from that frame's end (live: a wand's first Move 0.333 s after the client's start was refused
-    // at a 0.3335 s contact, 0.334 s taken), set here so a held Move in the same frame pass waits for it. Not traced for a
-    // walk-up's swing: no timer of the player's own swing was found (Actor +0x26c stays 0), so it is dated as a monster's
-    // walk-up swing is (its +0x26c one frame down at its frame's end, 48 of 48). Under conn.Monsters.
+    // at a 0.3335 s contact, 0.334 s taken), set here so a held Move in the same frame pass waits for it. Its attack time
+    // is the one the swing starts with, as the actor's animation takes it then (0x141e95e60, a monster's +0x26c), so a
+    // chill or a buff gone during the walk-up counts. Not traced for a walk-up's swing: no timer of the player's own
+    // swing was found (Actor +0x26c stays 0), so it is dated as a monster's walk-up swing is (its +0x26c one frame down
+    // at its frame's end, 48 of 48). Under conn.Monsters.
     internal static void LockstepAttackSwings(ClientState conn, LockstepAttack attack, double start, double end)
     {
-        conn.LockstepBusyUntil = Math.Max(conn.LockstepBusyUntil, end + attack.Hold);
+        conn.LockstepBusyUntil = Math.Max(conn.LockstepBusyUntil, end + attack.Hold());
         attack.Swings(start, end, conn.Walk.Destination);
     }
 

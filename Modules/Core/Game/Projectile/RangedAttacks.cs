@@ -71,9 +71,11 @@ static partial class Game
 
     // Ranged release has no walk-in offset or melee early-hit clamp: the shot is scheduled on the projectile runtime
     // at the weapon's contact and resolved there (Projectiles/Program.ProjectileRanged.cs). The use's critical roll was
-    // captured at acceptance and travels with the shot.
+    // captured at acceptance and travels with the shot. The contact counts from swingAt when the swing began before now
+    // (a lockstep walk-up's goal frame), else from now.
     internal static Task LaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence,
-        SkillCriticalRoll criticalRoll) =>
-        ScheduleOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll);
+        SkillCriticalRoll criticalRoll, double? swingAt = null) =>
+        ScheduleOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll,
+            swingAt);
 }

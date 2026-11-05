@@ -291,7 +291,9 @@ static partial class Game
         {
             target = m.Walk.Position(begun);
             // The swing holds a lockstep player from when it began until the client lets a Move cut it short
-            // (LockstepAttackSwings); the next attack waits the attack time (NextAttackAt).
+            // (LockstepAttackSwings); the next attack waits the attack time (NextAttackAt). On a lockstep client the
+            // next attack, the hit and the release take the attack time the swing began with, as the hold does.
+            if (started) duration = LockstepAttackSeconds(conn, use.SkillId);
             conn.NextAttackAt = AttackTiming.After(begun, conn.NextAttackAt, duration);
             criticalRoll = CaptureSkillCriticalRoll(conn, SkillCatalog.FirstSkillId);
             inReach = SwingInReach(conn, m, stop, target, weapon.Range + 2);
@@ -307,8 +309,10 @@ static partial class Game
         string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s";
         if (ordinaryProjectile is { } projectileId)
         {
-            // The runtime schedules the release first, anchored to this acceptance; the echo follows through the gate.
-            await LaunchOrdinaryRanged(remote, stream, ciphers, conn, target, duration, action, projectileEpoch, projectileId, use.Sequence, criticalRoll);
+            // The runtime schedules the release first, anchored to this acceptance (a lockstep client's to its swing's
+            // start, as the melee hit is); the echo follows through the gate.
+            await LaunchOrdinaryRanged(remote, stream, ciphers, conn, target, duration, action, projectileEpoch, projectileId, use.Sequence,
+                criticalRoll, swingAt: started ? begun : null);
             if (!started && !await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionBytes, actionLog, action, projectileEpoch)) return;
         }
         else if (!started) await Send(remote, stream, ciphers, actionBytes, actionLog, still: () => PlayerActionCurrent(conn, action));
@@ -552,12 +556,14 @@ static partial class Game
                 LockstepAttackOver(conn, action);
                 return;
             }
-            // The swing's hold was set when it began (LockstepAttackSwings).
+            // The swing's hold was set when it began (LockstepAttackSwings); its timer, hit and release count from then
+            // too, as the default attack's do.
             LockstepAttackOver(conn, action);
+            double? swingAt = started ? begun : null;
             bool acknowledged = false;
             bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
             if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, target,
-                use.TargetId, sequence: use.Sequence, actionToken: action, cooldownUse: cooldownUse);
+                use.TargetId, sequence: use.Sequence, actionToken: action, cooldownUse: cooldownUse, swingAt: swingAt);
             if (started)
                 acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action));
@@ -568,7 +574,7 @@ static partial class Game
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
             if (!projectileRuntime && !acknowledged) return;
             if (!projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, target, use.TargetId, sequence: use.Sequence,
-                actionToken: action, cooldownUse: cooldownUse);
+                actionToken: action, cooldownUse: cooldownUse, swingAt: swingAt);
             return;
         }
         double castAt = conn.Clock.Elapsed.TotalSeconds;
@@ -611,10 +617,11 @@ static partial class Game
     }
 
     // A gem skill's cast: Righteous Fire puts its buff on, any other skill launches its projectile (if it has one). False when
-    // it was refused (cooldown, mana), so its use is not confirmed to the client.
+    // it was refused (cooldown, mana), so its use is not confirmed to the client. An attack's timer, hit and release
+    // count from swingAt when its swing began before now (a lockstep walk-up's goal frame, CastOn), else from now.
     internal static async Task<bool> CastGemSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, uint targetId = 0, ushort sequence = 0,
-        int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool locationInstant = false)
+        int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool locationInstant = false, double? swingAt = null)
     {
         int action = actionToken ?? conn.ActionCount;
         int recoveryGeneration = 0;
@@ -692,7 +699,7 @@ static partial class Game
         if (vaalUse is null && gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect))
         {
             double duration = SupportedAttackSeconds(conn, skillId);
-            double now = conn.Clock.Elapsed.TotalSeconds, next;
+            double now = swingAt ?? conn.Clock.Elapsed.TotalSeconds, next;
             bool ready;
             lock (conn.Monsters)
             {
@@ -797,7 +804,8 @@ static partial class Game
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
             await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
-                actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration);
+                actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
+                swingAt: swingAt);
         return true;
     }
 
@@ -967,7 +975,7 @@ static partial class Game
     internal static Task LaunchProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
-        int? channelGeneration = null)
+        int? channelGeneration = null, double? swingAt = null)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
@@ -977,7 +985,7 @@ static partial class Game
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
-                sequence);
+                sequence, swingAt);
         // A channelled skill (Cyclone, ActiveSkillType 47) hits as it starts: its spin is already in motion, and the later
         // sweeps follow on the attack timer (RunChannel).
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;
@@ -1057,7 +1065,7 @@ static partial class Game
         {
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
-                criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat,
+                criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,
                 repeatDelay: repeat * repeatInterval, radiusMore: fistRadius, addedChaos: addedChaos,
                 damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1)));
             Hit(to);
@@ -1174,7 +1182,7 @@ static partial class Game
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
-        double radiusMore = 1, int addedChaos = 0)
+        double radiusMore = 1, int addedChaos = 0, double? swingAt = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         bool Current() => (cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken))
@@ -1220,7 +1228,9 @@ static partial class Game
                     targetId, ProjectileWorldTime(conn));
         if (memoryBuff is not null)
             await Send(remote, stream, ciphers, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}");
-        // A channel's hits (Cyclone, C→S 0x197) land at once, where the player is.
+        // A channel's hits (Cyclone, C→S 0x197) land at once, where the player is. A swing that began before now
+        // (swingAt) lands its contact after its start.
+        if (swingAt is { } swung) delay -= conn.Clock.Elapsed.TotalSeconds - swung;
         if (!immediate)
         {
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.05, delay)));

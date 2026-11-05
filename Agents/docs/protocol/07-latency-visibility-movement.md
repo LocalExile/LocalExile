@@ -573,8 +573,9 @@ use does: the client's own action walks up and swings when it gets there, as a m
 next use follows that swing. The Gateway does the same (`LockstepAttackStart`) with no second 0x1ab: it places the
 0x1ab, and the walk-up with it, at the start of the frame it goes out in, and its step pass runs that walk-up with the
 monsters' (§5, `StepWalkUp`). The swing begins in the goal frame (46 of 46 traced). No timer of the player's own swing
-was found (Actor `+0x26c` stays 0 for him), so his is dated as a monster's: the hit and the next attack from the goal
-frame's start, the Move cut-in from its end. An object use (a pickup, a chest, a quest object) likewise gets its one
+was found (Actor `+0x26c` stays 0 for him), so his is dated as a monster's, whose attack time is taken as its swing
+starts (`0x141e95e60`): the hit, a shot's release and the next attack from the goal frame's start, the Move cut-in from
+its end, all at the attack time the swing begins with. An object use (a pickup, a chest, a quest object) likewise gets its one
 0x1ab from the frame pass, and its handler sends none of its own (`UseSkillOnObject.Started`): the handler's second
 start put the client back on its from cell and had it path again, two cells and a frame lost on every pickup (live
 2026-11-03; the client's pickup walk, max

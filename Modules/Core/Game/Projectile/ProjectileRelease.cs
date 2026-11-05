@@ -78,7 +78,7 @@ static partial class Game
     internal static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
-        ushort sequence = 0)
+        ushort sequence = 0, double? swingAt = null)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -86,7 +86,8 @@ static partial class Game
         bool cancelOnNewAction = !attack || ResolveProjectileDefinition(gem.Effect)?.CancelWindupOnNewAction == true;
         int? cast = attack ? 0 : CastMs(conn, gem.Effect, skillId);
         if (cast is null) return Task.CompletedTask;
-        double acceptedAt = conn.Clock.Elapsed.TotalSeconds;
+        // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
+        double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
         double? thrown = attack && SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow"
             ? SpectralThrowRelease.Delay(conn, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
