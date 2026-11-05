@@ -89,6 +89,9 @@ static partial class Game
         // A monster that rises from the ground starts waiting to rise, unless it was kept after rising (MonsterEmerge.cs).
         var emerge = Emerges.Kind(variety, rarity);
         bool waits = emerge != EmergeKind.None && (unrisen ?? true);
+        ushort? hiddenBuff = null;
+        if (!friendly && waits && emerge == EmergeKind.Buried)
+            lock (conn.Monsters) hiddenBuff = conn.NextBuff++;
         // Its mods (MonsterMods.cs): the kept ones, else rolled for its rarity. They set its life, hit, speed and defences.
         mods = MonsterModsFor(conn, variety, level, rarity, mods, alone);
         // Additional encounter scaling composes with rolled rarity and map effects.
@@ -193,6 +196,7 @@ static partial class Game
             skills, stats)
         {
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation,
+            HiddenBuffInstance = hiddenBuff,
         };
         // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2b9 type is its hash.
         if (QuestKillCommitOutput is { } output)
@@ -265,6 +269,7 @@ static partial class Game
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
                 Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
+                HiddenBuffInstance = hiddenBuff,
                 Scripted = !friendly && scripted,
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = states,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,

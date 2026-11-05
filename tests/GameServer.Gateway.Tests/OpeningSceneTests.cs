@@ -18,7 +18,7 @@ public class OpeningSceneTests
     [InlineData(true)]
     public async Task An_untouched_character_lies_down_facing_the_room_and_gets_up_in_place_once(bool withSkills)
     {
-        if (!withSkills) await CheckSharedMessageOwnership();
+        if (!withSkills) { await CheckOpeningHiddenState(); await CheckSharedMessageOwnership(); }
         var tutorial = Untouched();
         Assert.True(TutorialObjects.ShouldStartWashedUp(TutorialObjects.Strand, true, () => tutorial));
         Assert.False(TutorialObjects.ShouldStartWashedUp(TutorialObjects.Strand, true, () => null));
@@ -96,6 +96,70 @@ public class OpeningSceneTests
         byte[] created = InstanceEntities.CreateObject(0x20001234, 7, (player with { Skills = player.Skills?.Where(s => s.Id != TutorialObjects.WashedUpSkillId).ToList(),
             QuestFlags = [], LeagueQuestFlags = [] }).Blob());
         Assert.Equal(created, observer.Read(created.Length));
+    }
+
+    static async Task CheckOpeningHiddenState()
+    {
+        const uint id = 0x08000099;
+        const ushort buff = 0x1234;
+        var template = new MonsterObject(10, 10, 23, [.. MonsterObject.BaseComponents, "Transitionable"], TransitionState: 1);
+        byte[] ordinary = template.Blob(), hidden = (template with { HiddenBuffInstance = buff }).Blob();
+        int offset = Enumerable.Range(0, ordinary.Length).First(i => ordinary[i] != hidden[i]);
+        // Native fixed creation layout with a synthetic instance id, including infinite duration and empty list.
+        byte[] entry = Convert.FromHexString("3412028A0000000000807F0000803F010000000000000000000000000000000000000000");
+        Assert.Equal(36, entry.Length);
+        Assert.Equal(ordinary.Length + entry.Length, hidden.Length);
+        Assert.Equal(new byte[] { 1, 0 }, hidden[offset..(offset + 2)]);
+        Assert.Equal(entry, hidden[(offset + 2)..(offset + 2 + entry.Length)]);
+        Assert.Equal(ordinary[(offset + 2)..], hidden[(offset + 2 + entry.Length)..]);
+
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        try
+        {
+            Game.CombatLifetime = lifetime;
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+            using var wire = new Wire();
+            var variety = new MonsterCatalog().Find("Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake1");
+            Assert.NotNull(variety);
+            var m = new SpawnedMonster("hidden", wire.Conn.NewMonsterWalk(id, 10, 10, 1, 1, false), 24, 2, 23)
+                { Variety = variety, HiddenBuffInstance = buff };
+            wire.Conn.Monsters[id] = m;
+            byte index = (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable");
+            var messages = MonsterEmerge.RiseMessages(id, (10, 10), 0x101, 0x8001, index, 2, buff);
+            Assert.Equal(InstanceEntities.RemoveBuff(id, buff), messages[0]);
+            Assert.Equal(InstanceProtocol.ActionStartedNow(id, 10, 10, 10, 10, 0x101, 0x8001, 0x0800, id), messages[1]);
+            Assert.Equal(InstanceEntities.TransitionableUpdate(id, index, 2), messages[2]);
+            await Game.Emerge("hidden-test", wire.Stream, wire.Ciphers, wire.Conn, id, m, (10, 10), 1);
+            byte[] rise = [.. messages.SelectMany(p => p)];
+            Assert.Equal(rise, wire.Read(rise.Length));
+
+            // Rejected work cannot remove only the buff or consume the next action's sequence.
+            var gate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+            await gate.WaitAsync();
+            var pending = Game.Emerge("hidden-test", wire.Stream, wire.Ciphers, wire.Conn, id, m, (10, 10), 1);
+            m.Dead = true;
+            gate.Release();
+            await pending;
+            Assert.Equal((ushort)0x8001, m.Sequence);
+
+            // A new viewer after the rise gets a targetable creation without the old hidden buff.
+            m.Dead = false;
+            wire.Conn.PlayerSent = true;
+            wire.Conn.Instance.World.MonsterOrigins[id] = new(123, template with { HiddenBuffInstance = buff }, (ushort)variety.Row, 1, MonsterRarity.Normal);
+            await Game.SyncInstanceMonsters("hidden-test", wire.Stream, wire.Ciphers, wire.Conn);
+            byte[] snapshot = [.. InstanceEntities.MonsterTypes([((ushort)variety.Row, (byte)1)]),
+                .. InstanceEntities.CreateObject(id, 123, (template with { TransitionState = 2 }).Blob()),
+                .. InstanceProtocol.EnterWakeZone(id)];
+            Assert.Equal(snapshot, wire.Read(snapshot.Length));
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            if (previousLogic is not null) Program.SetGameLogic(previousLogic);
+        }
     }
 
     static async Task CheckSharedMessageOwnership()

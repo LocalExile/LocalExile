@@ -605,6 +605,9 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
 
+    /// <summary>The hidden_monster creation buff of an unrisen buried monster (BuffDefinitions row 138).</summary>
+    public ushort? HiddenBuffInstance { get; init; }
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -649,7 +652,14 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                     MagicProperties.Write(w, (byte)Rarity, identified: true, Mods, NameWords, Name);
                     w.U8(0);
                     break;
-                case "Buffs": w.U16(0); break;
+                case "Buffs":
+                    if (HiddenBuffInstance is ushort hidden)
+                        // 0x141e114d0 -> 0x141e06bb0: fixed creation data, not the compact 0x1c1 layout.
+                        w.U16(1).U16(hidden).U8(2).U16(138).U16(0)
+                            .U32(0x7f800000).U32(0x3f800000).U16(1).U32(0).U16(0)
+                            .U16(0).U16(0).U32(0).U8(0).U32(0);
+                    else w.U16(0);
+                    break;
                 // life, mana, energy shield pools (current, reserved, i16, u32, u32), then the flags byte.
                 case "Life": Pool(w, Life); Pool(w, 0); Pool(w, 0); w.U8(LifeData?.Flags ?? 0); break;
                 case "Animated":

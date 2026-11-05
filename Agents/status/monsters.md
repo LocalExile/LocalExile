@@ -36,6 +36,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Emerge monsters (Gravel Eaters, Dripping Dead, the Twilight Strand's Drowned …) are created buried, cannot be hit
   while buried, and rise when the player comes within 24 cells: the client plays their emerge clip (Emerge action
   0x0101, then Transitionable 2), and they fight, die and give experience like other monsters.
+  Hostile buried monsters carry the initial hidden buff; rising removes it before Emerge, and reconnects keep it removed.
   The ones the client shows targetable while they wait (Tide Striders, Blood Elementals …) can be hit and rise when
   hit; unique bosses keep their own entrance state.
   Their packs are placed again (The Coast's `Act1-SandspitterEmerge`, the Mud Flats' `Act1-ZombieMiredEmerge`);

@@ -525,7 +525,7 @@ static partial class Game
                         var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = life };
                         if (m.Variety is { } v && !MonsterEmerge.Waiting(conn, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
                             && v.ComponentsOrBase.Contains("Transitionable"))
-                            shown = shown with { TransitionState = MonsterEmerge.RisenState(v) };
+                            shown = shown with { TransitionState = MonsterEmerge.RisenState(v), HiddenBuffInstance = null };
                         packets.Add(InstanceEntities.CreateObject(id, o.Type, shown.Blob()));
                         packets.Add(InstanceProtocol.EnterWakeZone(id));
                         if (MonsterRarityBuffs.Row(o.Rarity) is ushort glow) packets.Add(InstanceEntities.AddBuff(id, conn.NextBuff++, glow));
