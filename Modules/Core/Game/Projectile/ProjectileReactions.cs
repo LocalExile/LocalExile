@@ -82,7 +82,7 @@ static partial class Game
         monster.BusyUntil = recoveryAt / (double)ProjectileRuntime.QuantaPerSecond;
         monster.StageEffectAt = effectAt / (double)ProjectileRuntime.QuantaPerSecond;
         monster.StageActionStarted = true;
-        session.Packet(InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, 0xffff, 0x0408),
+        session.Packet(InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, 0xffff, session.Conn.MonsterOrderFlags),
             $"monster 0x{id:x} starts stage t={now:0.000000}; effect={monster.StageEffectAt:0.000000}, recovery={monster.BusyUntil:0.000000}");
         session.Runtime.Schedule(effectAt, Publish);
         session.Runtime.Schedule(recoveryAt, Publish);

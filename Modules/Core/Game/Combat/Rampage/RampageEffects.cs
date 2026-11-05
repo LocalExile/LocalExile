@@ -80,7 +80,7 @@ static partial class Game
         uint? actor = await CreateRampageActor(remote, stream, ciphers, conn, tier.Daemon, level, end, null, origin, epoch);
         if (actor is null) throw new InvalidOperationException($"Rampage tier {tier.Threshold} cannot create its actor");
         await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(actor.Value, origin.X, origin.Y,
-            origin.X, origin.Y, SkillCatalog.FirstSkillId, 0xffff, 0x0408), $"Rampage tier {tier.Threshold}",
+            origin.X, origin.Y, SkillCatalog.FirstSkillId, 0xffff, conn.MonsterOrderFlags), $"Rampage tier {tier.Threshold}",
             still: () => RampageEffectCurrent(conn, epoch));
         lock (conn.Monsters)
             if (RampageEffectCurrent(conn, epoch))

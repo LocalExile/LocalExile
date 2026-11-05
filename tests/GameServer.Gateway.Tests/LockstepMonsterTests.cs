@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using GameServer.Core.World;
 using GameServer.Modding;
 using Xunit;
@@ -370,7 +371,8 @@ public class LockstepMonsterTests : IDisposable
     // A lockstep client takes no Move whose target is within two cells of the walker (0x1419442d0): no set, no search,
     // its current action goes on (live 2026-11-04: 317 of 317). So such a surround-slot or other plan Move is not sent,
     // a give-up or a freeze sends nothing, a minion that near its approach cell attacks instead, and the estimate keeps
-    // the walk it had, a chase's walk-up too; three cells away the Move is placed as before and ends the walk-up.
+    // the walk it had, a chase's walk-up too; three cells away the Move is placed as before and ends the walk-up, with
+    // GGG's monster flags 0 (a predictive client's keeps 0x0408).
     [Fact]
     public async Task A_lockstep_move_within_two_cells_is_not_sent_and_the_walk_goes_on()
     {
@@ -427,16 +429,28 @@ public class LockstepMonsterTests : IDisposable
             Assert.Null(Game.PlanMoveAtGate(held, plan, 0x3000, left, Game.NextPlannedAction(left), (226, 100), (228, 100), "flees"));
             Assert.Equal((218, 100), left.Walk.Destination);
             Assert.True(Game.WalkUpOpen(held, left));
-            Assert.NotNull(Game.PlanMoveAtGate(held, plan, 0x3000, left, Game.NextPlannedAction(left), (226, 100), (229, 100), "flees"));
+            var sent = Game.PlanMoveAtGate(held, plan, 0x3000, left, Game.NextPlannedAction(left), (226, 100), (229, 100), "flees");
+            Assert.NotNull(sent);
             Assert.Equal((229, 100), left.Walk.Destination);
             Assert.False(Game.WalkUpOpen(held, left));
+            // It carries GGG's monster flags, 0 (none of its 56 175 monster orders has 0x400 or 0x8): without 0x400 the
+            // client refuses it while a non-Move action waits queued (0x141e8cf10), as GGG's client does.
+            Assert.Equal(0, BinaryPrimitives.ReadUInt16BigEndian(sent.AsSpan(12)));
         }
         var predictive = Connection(lockstep: false);
         var (gone, stopped) = Pair(predictive, frames: false);
-        var moves = Game.PlanMonsterAi(predictive, new MonsterAiCadence(), now: 1.0).Moves;
+        var relayPlan = Game.PlanMonsterAi(predictive, new MonsterAiCadence(), now: 1.0);
+        var moves = relayPlan.Moves;
         Assert.Equal([(0x3000u, "gives up"), (0x3001u, "is frozen")], moves.Select(mv => (mv.Id, mv.Why)).Order());
         Assert.Equal(moves.Single(mv => mv.Id == 0x3000u).To, gone.Walk.Destination);
         Assert.False(stopped.Walk.Moving(1.1));
+        // A predictive client's monster Moves keep 0x0408.
+        lock (predictive.Monsters)
+        {
+            var relayed = Game.PlanMoveAtGate(predictive, relayPlan, 0x3000, gone, Game.NextPlannedAction(gone),
+                (226, 100), (229, 100), "flees");
+            Assert.Equal(0x0408, BinaryPrimitives.ReadUInt16BigEndian(relayed.AsSpan(12)));
+        }
 
         // A fighting minion 2 cells from its approach cell gets its attack aimed at the target instead of that Move: a melee
         // one walks up on the client (0x141e94720) and swings at the walk-up's end, an in-place one shoots from where it

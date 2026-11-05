@@ -1746,7 +1746,7 @@ static partial class Game
                     m.StageActionStarted = true;
                     Console.WriteLine($"[gateway] {remote} => monster 0x{id:x} ({m.Label}) starts its stage at " +
                         $"{m.Life}/{m.MaxLife} life, game time {now:0.000}; effect at {m.StageEffectAt:0.000}, recovery at {m.BusyUntil:0.000}");
-                    return InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, StageSkillId, 0xffff, 0x0408);
+                    return InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, StageSkillId, 0xffff, conn.MonsterOrderFlags);
                 }
             });
             if (!m.StageActionStarted) await AreaWait(PlayerUpdateRole.MonsterAction, 16);
