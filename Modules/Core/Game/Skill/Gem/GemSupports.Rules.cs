@@ -140,6 +140,13 @@ static partial class Game
             var profile = WeaponProfileFor(conn);
             double factor = profile.DualWield || profile.Unarmed ? 1.1 : 1;
             stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(gem.Stats.GetValueOrDefault(raw) * factor);
+            // "Chain Hook and Shield Charge have X% increased Attack Speed per 10 Rampage Kills".
+            if (SkillsFor(conn).EffectId(gem.Effect) is { } effectId
+                && (effectId.StartsWith("ChainHook", StringComparison.Ordinal)
+                    || effectId.StartsWith("ShieldCharge", StringComparison.Ordinal))
+                && Stats.Key("chain_hook_and_shield_charge_attack_speed_+%_per_10_rampage_stacks") is uint rampageSpeed
+                && stats.GetValueOrDefault(rampageSpeed) is int perTen and > 0)
+                stats[final] += conn.Rampage.Current.Stacks / 10 * perTen;
         }
         double more = Supports.AttackSpeedMultiplier(gem.Effect, gem.Level) * Math.Max(.01, 1 + Get("support_melee_physical_damage_attack_speed_+%_final") / 100.0)
             * Math.Max(.01, 1 + Get("support_multistrike_attack_speed_+%_final") / 100.0);

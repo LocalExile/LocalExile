@@ -42,4 +42,8 @@ sealed class StatCatalog(string folder = "data")
     }
 
     public string Name(uint key) => key >= 1 && key <= _names.Value.Count ? _names.Value[(int)key - 1] : $"0x{key:x}";
+
+    /// <summary>Whether this build has a stat by this name. Uses the same name cache as <see cref="Key(string)"/>, so a
+    /// repeated question costs a dictionary lookup; a name that is absent stays cached as a miss.</summary>
+    public bool Has(string name) => Key(name) is not null;
 }

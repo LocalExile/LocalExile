@@ -388,6 +388,9 @@ static partial class Game
                 }
                 life = m.Life;
                 conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
+                // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
+                conn.RecentEvents.Record(StatConditions.HitEnemy, conn.Clock.Elapsed.TotalSeconds);
+                if (critical) conn.RecentEvents.Record(StatConditions.Crit, conn.Clock.Elapsed.TotalSeconds);
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
                     at, Random.Shared, poison: DefaultAttackPoison(conn, player));
@@ -874,8 +877,13 @@ static partial class Game
             }
             else
             {
+                // Flesh and Stone alternates its stance on every activation (the skill's own description); other auras
+                // have none.
+                string? stance = AuraCatalog.Family(effectId) == "FleshAndStone" ? conn.NextFleshAndStoneStance : null;
                 var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
-                    AuraCatalog.BuffRow(effectId), reservation.Flat, reservation.Percent, level, quality, SourceBuff: conn.NextBuff++);
+                    AuraCatalog.BuffRow(effectId, stance), reservation.Flat, reservation.Percent, level, quality,
+                    SourceBuff: conn.NextBuff++, Stance: stance);
+                if (stance is not null) conn.NextFleshAndStoneStance = AuraCatalog.OtherStance(stance);
                 conn.Auras[skillId] = aura;
                 int reserved = RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent);
                 if (reserved > conn.Pools.Mana)
@@ -1236,6 +1244,7 @@ static partial class Game
                     cull: Cull.Of(player, skillStats, critical, spell));
                 if (applied is not null)
                 {
+                    if (critical) conn.RecentEvents.Record(StatConditions.Crit, at);
                     landed++;
                     AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
                         reflected, poison);
@@ -1383,7 +1392,11 @@ static partial class Game
     {
         if (m.Dead || m.Life == 0) return null;
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
-        if (allyAt is null) conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
+        if (allyAt is null)
+        {
+            conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
+            conn.RecentEvents.Record(StatConditions.HitEnemy, m.PlayerHitAt);
+        }
         if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
         TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: m.Life == 0, allyAt);
         return new(m.Life, starts);
@@ -1464,6 +1477,7 @@ static partial class Game
             || conn.Closed || conn.PlayerLife == 0 || !conn.HitRecovery.Begin(now, seconds))
         { Trace($"not accepted (chance {chance:0.###}%, duration {seconds:0.###} s)"); return null; }
         Trace($"accepted ({seconds:0.###} s, {Get(AntiquarianEffects.StunRecoverySource)}% Life over one second)");
+        conn.RecentEvents.Record(StatConditions.BeenStunned, now);
         conn.Antiquarian.Stunned(now, conn.PlayerMaxLife, Get(AntiquarianEffects.StunRecoverySource));
         int action = Interlocked.Increment(ref conn.ActionCount);
         conn.ChannelSkill = 0; conn.NextAttackAt = now;
@@ -1598,8 +1612,15 @@ static partial class Game
             if (OnslaughtOnKill(conn)) await SendKillOnslaught(remote, stream, ciphers, conn);
             ChargesOnKill(conn, m);
             RecoverOnKill(conn, m);
+            // "Killed an enemy recently" (issue #504). The variant stats (a cursed enemy, a shattered one, a frozen one)
+            // need a fact about the victim the server does not track yet, so only the plain event is recorded and those
+            // ids stay NotModelled rather than being answered wrongly.
+            lock (conn.Monsters)
+                conn.RecentEvents.Record(StatConditions.KilledEnemy, conn.Clock.Elapsed.TotalSeconds);
             await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
         }
+        // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
+        SoulEaterSoul(conn, at);
         await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
         ShareKill(conn, id, m, variety, at);
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });

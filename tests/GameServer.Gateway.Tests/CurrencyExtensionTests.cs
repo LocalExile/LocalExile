@@ -26,7 +26,8 @@ public class CurrencyExtensionTests
         var map = ItemCatalog.Create(Map);
         var once = CurrencyEffects.Chisel(map, Map, qualityType);
         Assert.NotNull(once);
-        Assert.Equal(1, once!.Quality);
+        Assert.Equal(20, once!.Quality);
+        Assert.Equal(20, CurrencyEffects.Chisel(map with { Rarity = ItemRarity.Unique }, Map, qualityType)!.Quality);
         Assert.Equal(qualityType, once.AlternateQualityType);
         Assert.Equal(20, CurrencyEffects.Chisel(map with { Quality = 20, AlternateQualityType = qualityType }, Map, qualityType) is null ? 20 : 0);
 

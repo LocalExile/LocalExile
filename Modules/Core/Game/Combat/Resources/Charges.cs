@@ -49,7 +49,12 @@ static partial class Game
     {
         if (conn.PlayerLife == 0) return;
         bool frozen;
-        lock (conn.Monsters) frozen = m.Ailments.FrozenAtDeath(ProjectileWorldTime(conn));
+        lock (conn.Monsters)
+        {
+            double now = ProjectileWorldTime(conn);
+            frozen = m.Ailments.FrozenAtDeath(now);
+            conn.RecentEvents.Record(StatConditions.KilledEnemy, now);
+        }
         ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
     }
 

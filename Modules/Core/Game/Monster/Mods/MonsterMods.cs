@@ -109,7 +109,9 @@ static partial class Game
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
         double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true);
-        double physicalFactor = 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
+        // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
+        // physical part only, never to the elemental share's fallback factor.
+        double physicalFactor = 1 + (Math.Max(0, m.PridePhysicalMore) + Math.Max(0, m.TakenFromPlayer.Physical)) / 100.0;
         return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
             + physicalTaken * factor * (physicalFactor - 1));
     }
@@ -157,7 +159,7 @@ static partial class Game
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type),
                 chaos: type == DamageType.Chaos);
-        if (type == DamageType.Physical) factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
+        if (type == DamageType.Physical) factor *= 1 + (Math.Max(0, m.PridePhysicalMore) + Math.Max(0, m.TakenFromPlayer.Physical)) / 100.0;
         return factor;
     }
 

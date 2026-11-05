@@ -236,6 +236,7 @@ static partial class Game
     internal static Dictionary<uint, int> CharacterPlayerStatsSnapshot(ClientState conn, out double baselineLifePerSecond,
         out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
     {
+        EnsureConditionalItemPools(conn);
         EnsureAntiquarianPools(conn);
         EnsureOwnAuraPools(conn);
         Dictionary<uint, int> rawOverrides;
@@ -257,7 +258,8 @@ static partial class Game
         int devAttackSpeed = 0;
         foreach (uint key in StatKeys.AttackSpeedInputs)
             devAttackSpeed += rawOverrides.GetValueOrDefault(key);
-        stats[StatKeys.MainHandAttackSpeedPct] = conn.Pools.AttackSpeedPct + devAttackSpeed;
+        stats[StatKeys.MainHandAttackSpeedPct] = conn.Pools.AttackSpeedPct + devAttackSpeed
+            + SoulEaterAttackSpeed(conn, stats);
         // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
         int FlaskGet(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -268,6 +270,7 @@ static partial class Game
         AddTotemAuraStats(conn, stats);
         WithRage(conn, stats);
         WithBlind(conn, stats);
+        WithSoulEater(conn, stats);
         // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
         ActorScale.Project(stats, rawOverrides, CosmeticScaleSources(conn));
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;

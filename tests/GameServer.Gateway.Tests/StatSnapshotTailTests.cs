@@ -12,6 +12,93 @@ namespace GameServer.Gateway.Tests;
 public class StatSnapshotTailTests
 {
     [Fact]
+    public void Conditional_equipment_cache_rebuilds_when_runtime_condition_inputs_change()
+    {
+        using var setup = new SnapshotSetup();
+        var conn = Connection("ConditionalCache" + Guid.NewGuid().ToString("N"));
+        var equipment = Array.Empty<(byte Row, InventoryItem Item)>();
+        void Resolve() => Game("EquipmentStatSources", conn, equipment, null, null);
+        Resolve();
+        var cached = conn.StatSourcesCacheState;
+        Resolve();
+        Assert.Same(cached, conn.StatSourcesCacheState);
+
+        lock (conn.Monsters)
+            conn.Auras[1] = new AuraCatalog.Aura(1, 1, "Grace", "Grace", 1, 1, 0, 0);
+        Resolve();
+        Assert.NotSame(cached, conn.StatSourcesCacheState);
+
+        // Exercise final combat and published evasion, not just the raw-source cache. A native Kintsugi check caught
+        // the previous implementation updating that cache while leaving Pools.Evasion unchanged.
+        var live = Connection("ConditionalFinal" + Guid.NewGuid().ToString("N"));
+        var inventory = (PlayerInventories)Game("ItemsOf", live)!;
+        var items = (ItemCatalog)Game("ItemsFor", live)!;
+        var mod = items.Mods.All.Single(m => m.Id == "IncreasedEvasionIfHitRecentlyUnique___1")
+            .Roll(ModSection.Explicit, new Random(1));
+        var body = ItemCatalog.Create(items.Find("Exquisite Leather")!, random: new Random(1)) with
+        {
+            Mods = [mod with { Values = [100] }],
+        };
+        live.PlayerStats[Program.Stats.Key("additional_dexterity")!.Value] = 300;
+        inventory.Add(PlayerInventories.BodyArmour, 0, 0, body);
+        live.Pools = Pools(live, 85);
+        int baseline = (int)Game("PlayerEvasionBase", live, live.Clock.Elapsed.TotalSeconds)!;
+        Assert.True(baseline > 0);
+        live.RecentEvents.Record(StatConditions.HitEnemy, live.Clock.Elapsed.TotalSeconds);
+        Assert.Equal(baseline, (int)Game("PlayerEvasionBase", live, live.Clock.Elapsed.TotalSeconds)!);
+        live.RecentEvents.Record(StatConditions.BeenHit, live.Clock.Elapsed.TotalSeconds);
+        int active = (int)Game("PlayerEvasionBase", live, live.Clock.Elapsed.TotalSeconds)!;
+        Assert.True(active > baseline);
+        Assert.Equal(active, Snapshot(live)[Program.Stats.Key("evasion_rating")!.Value]);
+        var activePools = live.Pools;
+        Snapshot(live);
+        Assert.Same(activePools, live.Pools);
+        double now = live.Clock.Elapsed.TotalSeconds;
+        live.RecentEvents.Record(StatConditions.BeenHit, now - 3.999);
+        Assert.Equal(active, (int)Game("PlayerEvasionBase", live, now)!);
+        live.RecentEvents.Record(StatConditions.BeenHit, now - 4);
+        Assert.Equal(baseline, (int)Game("PlayerEvasionBase", live, now)!);
+        live.RecentEvents.Record(StatConditions.BeenHit, now);
+        Assert.Equal(active, (int)Game("PlayerEvasionBase", live, now)!);
+        live.InvalidateIncomingHits();
+        Assert.Equal(baseline, (int)Game("PlayerEvasionBase", live, now)!);
+        live.RecentEvents.Record(StatConditions.BeenHit, now);
+        Assert.Equal(active, (int)Game("PlayerEvasionBase", live, now)!);
+        live.RecentEvents.Clear();
+        object states = Rules.GetField("ConditionalItemPools", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        states.GetType().GetMethod("Remove", [typeof(ClientState)])!.Invoke(states, [live]);
+        Assert.Equal(baseline, (int)Game("PlayerEvasionBase", live, now)!);
+        // Spell sweeps and projectile kills use shared commits. Minion hits must not activate the owner's hit event.
+        var target = new SpawnedMonster("condition-target", new PlayerWalk(10, 10, 30), 20, 1, 100);
+        Game("ApplyMonsterHitLocked", live, target, 1, null, null, (10, 10), default(global::Game.Cull));
+        Assert.False(live.RecentEvents.Happened(StatConditions.HitEnemy, now));
+        Game("ApplyMonsterHitLocked", live, target, 1, null, null, null, default(global::Game.Cull));
+        Assert.True(live.RecentEvents.Happened(StatConditions.HitEnemy, now));
+        Game("ChargesOnKill", live, target);
+        Assert.True(live.RecentEvents.Happened(StatConditions.KilledEnemy, now));
+        var phaseRoll = items.Mods.All.Single(m => m.Id == "ChanceToDodgeAttacksWhilePhasingUnique___1")
+            .Roll(ModSection.Explicit, new Random(1));
+        var oldBody = inventory.Items(PlayerInventories.BodyArmour).Single();
+        inventory.Remove(PlayerInventories.BodyArmour, oldBody.Id);
+        inventory.Add(PlayerInventories.BodyArmour, 0, 0, body with { Mods = [.. body.Mods, phaseRoll with { Values = [50] }] });
+        live.Phasing = true;
+        int phased = (int)Game("PlayerEvasionBase", live, now)!;
+        Assert.True(phased > baseline);
+        live.Phasing = false;
+        Assert.Equal(baseline, (int)Game("PlayerEvasionBase", live, now)!);
+        cached = conn.StatSourcesCacheState;
+
+        lock (conn.Monsters) conn.RecentEvents.Record(StatConditions.Crit, conn.Clock.Elapsed.TotalSeconds);
+        Resolve();
+        Assert.NotSame(cached, conn.StatSourcesCacheState);
+        cached = conn.StatSourcesCacheState;
+
+        lock (conn.Monsters) conn.Pools = conn.Pools with { Strength = conn.Pools.Strength + 1 };
+        Resolve();
+        Assert.NotSame(cached, conn.StatSourcesCacheState);
+    }
+
+    [Fact]
     public void A_reused_tail_is_the_fresh_one_through_every_stat_source()
     {
         using var setup = new SnapshotSetup();
