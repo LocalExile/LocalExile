@@ -11,6 +11,16 @@ namespace GameServer.Gateway.Tests;
 /// </summary>
 public class ConditionalItemStatsTests
 {
+    [Fact]
+    public void Conditional_operators_resolve_real_item_mods_and_recent_event_lifecycles()
+    {
+        Recent_events_expire_at_four_seconds_and_cache_inputs_track_condition_changes();
+        A_stats_condition_is_decided_from_the_state_the_server_keeps();
+        The_shield_condition_is_answered_in_every_spelling_the_tables_use();
+        A_shield_condition_that_holds_counts_on_its_plain_stat_and_not_without_a_shield();
+        A_held_condition_counts_on_its_plain_stat_and_nothing_changes_without_a_subject();
+    }
+
     static ModCatalog.Mod Mod(string id) => Program.Items.Mods.All.Single(m => m.Id == id);
 
     /// <summary>An item carrying one explicit roll of the named mod, at the given value.</summary>
@@ -24,8 +34,7 @@ public class ConditionalItemStatsTests
         };
     }
 
-    [Fact]
-    public void Recent_events_expire_at_four_seconds_and_cache_inputs_track_condition_changes()
+    void Recent_events_expire_at_four_seconds_and_cache_inputs_track_condition_changes()
     {
         var events = new RecentEvents();
         events.Record(StatConditions.Crit, 10);
@@ -47,8 +56,7 @@ public class ConditionalItemStatsTests
                 auras, recent, expiry, strength, 0, 0, 1, 1);
     }
 
-    [Fact]
-    public void A_stats_condition_is_decided_from_the_state_the_server_keeps()
+    void A_stats_condition_is_decided_from_the_state_the_server_keeps()
     {
         // A stat without a condition always counts, even with everything known.
         Assert.Equal(StatConditions.State.None, StatConditions.Of("maximum_life", StatConditions.Subject.Unknown));
@@ -152,8 +160,7 @@ public class ConditionalItemStatsTests
         }
     }
 
-    [Fact]
-    public void The_shield_condition_is_answered_in_every_spelling_the_tables_use()
+    void The_shield_condition_is_answered_in_every_spelling_the_tables_use()
     {
         // The 3.29.3b tables spell the shield condition two ways: "_while_holding_a_shield" (18 ids) and
         // "_while_holding_shield" (29 ids, the jewel/shield mods such as Battlemage's). Both name the same subject, so
@@ -180,8 +187,7 @@ public class ConditionalItemStatsTests
         Assert.Equal("attack_damage_+%", StatConditions.PlainOf("attack_damage_+%_while_holding_a_shield"));
     }
 
-    [Fact]
-    public void A_shield_condition_that_holds_counts_on_its_plain_stat_and_not_without_a_shield()
+    void A_shield_condition_that_holds_counts_on_its_plain_stat_and_not_without_a_shield()
     {
         var exists = (string n) => Program.Stats.Has(n);
 
@@ -215,8 +221,7 @@ public class ConditionalItemStatsTests
             .GetValueOrDefault("attack_speed_+%_while_holding_shield"));
     }
 
-    [Fact]
-    public void A_held_condition_counts_on_its_plain_stat_and_nothing_changes_without_a_subject()
+    void A_held_condition_counts_on_its_plain_stat_and_nothing_changes_without_a_subject()
     {
         // A real jewel roll whose plain name the damage pipeline reads.
         const string id = "SynthesisImplicitSpellDamageWithDualWieldJewel1";

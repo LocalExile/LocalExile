@@ -29,6 +29,88 @@ static class CurrencyEffects
     public const string GrandEldritchEmber = "Metadata/Items/Currency/CurrencyEldritchEmber3";
     public const string ExceptionalEldritchEmber = "Metadata/Items/Currency/CurrencyEldritchEmber4";
 
+    public const string EldritchChaosOrb = "Metadata/Items/Currency/CurrencyEldritchRerollRare";
+    public const string EldritchExaltedOrb = "Metadata/Items/Currency/CurrencyEldritchAddModToRare";
+
+    /// <summary>Orb of Unmaking (CurrencyItems Action atlas_skill_point_respec): used from the bag (C→S 0x58), it refunds
+    /// Atlas passive points. See Game.UseItem, the local rule is there.</summary>
+    public const string OrbOfUnmaking = "Metadata/Items/Currency/CurrencyAtlasPassiveRefund";
+
+    /// <summary>Eldritch Chaos Orb, the documented LocalExile rule: a Chaos Orb (all unprotected explicit affixes
+    /// rerolled, new tiers and values) on a rare item that carries an Eldritch implicit; the implicit stays. An item
+    /// without one is refused before the orb is spent.</summary>
+    public static Item? EldritchChaos(Item item, ItemRolls rolls, Random random) =>
+        rolls.HasEldritchImplicit(item) ? rolls.Chaos(item, random) : null;
+
+    /// <summary>Eldritch Exalted Orb, the documented LocalExile rule: an Exalted Orb (one more explicit affix within the
+    /// rare limits) on a rare item that carries an Eldritch implicit; the implicit stays. An item without one is
+    /// refused before the orb is spent.</summary>
+    public static Item? EldritchExalted(Item item, ItemRolls rolls, Random random) =>
+        rolls.HasEldritchImplicit(item) ? rolls.Exalted(item, random) : null;
+
+    public const string EldritchAnnulmentOrb = "Metadata/Items/Currency/CurrencyEldritchRemoveMod";
+
+    /// <summary>Eldritch Orb of Annulment, the documented LocalExile rule: an Orb of Annulment (one random unprotected
+    /// explicit affix leaves, the implicits stay) on a magic or rare item that carries an Eldritch implicit; the implicit
+    /// stays. An item without one is refused before the orb is spent.</summary>
+    public static Item? EldritchAnnulment(Item item, ItemRolls rolls, Random random) =>
+        rolls.HasEldritchImplicit(item) ? rolls.Annul(item, random) : null;
+
+    public const string OrbOfBinding = "Metadata/Items/Currency/CurrencyUpgradeToRareAndSetSockets";
+
+    /// <summary>Orb of Binding, the documented LocalExile rule: a normal, uncorrupted weapon or armour piece that can hold
+    /// four sockets becomes a rare item (as Orb of Alchemy, 4-6 affixes and a rare name) with four sockets, all linked,
+    /// their colours from the base's requirements. Refused before spending when the item is not normal, cannot hold four
+    /// sockets or has a gem in one.</summary>
+    public static Item? Binding(Item item, ItemCatalog.BaseType type, ItemRolls rolls,
+        (int Str, int Dex, int Int) requirements, Random random)
+    {
+        if (item.Rarity != ItemRarity.Normal || item.Corrupted || item.Mirrored) return null;
+        if (!type.Components.Contains("Weapon") && !type.Components.Contains("Armour")) return null;
+        if (SocketCapacity(item, type) < 4 || MaximumSockets(item, type) < 4 || item.Sockets.Any(s => s.Gem is not null))
+            return null;
+        var sockets = Enumerable.Range(0, 4).Select(_ => new ItemSocket(SocketColours.Colour(requirements, random))).ToArray();
+        return rolls.Alchemy(item with { Sockets = sockets, Links = [4] }, random);
+    }
+
+    public const string TaintedChaosOrb = "Metadata/Items/Currency/CurrencyHellscapeRerollRare";
+    public const string TaintedExaltedOrb = "Metadata/Items/Currency/CurrencyHellscapeAddModToRare";
+    public const string TaintedChromaticOrb = "Metadata/Items/Currency/CurrencyHellscapeRerollSocketColours";
+    public const string TaintedOrbOfFusing = "Metadata/Items/Currency/CurrencyHellscapeRerollSocketLinks";
+    public const string TaintedJewellersOrb = "Metadata/Items/Currency/CurrencyHellscapeRerollSocketNumbers";
+    public const string TaintedArmourersScrap = "Metadata/Items/Currency/CurrencyHellscapeArmourQuality";
+    public const string TaintedBlacksmithsWhetstone = "Metadata/Items/Currency/CurrencyHellscapeWeaponQuality";
+
+    /// <summary>The Tainted (Scourge) currencies this class applies: the ordinary effect, but only on a corrupted item.</summary>
+    public static readonly IReadOnlySet<string> TaintedIds = new HashSet<string>
+    {
+        TaintedChaosOrb, TaintedExaltedOrb, TaintedChromaticOrb, TaintedOrbOfFusing, TaintedJewellersOrb,
+        TaintedArmourersScrap, TaintedBlacksmithsWhetstone,
+    };
+
+    /// <summary>Tainted currency, the documented LocalExile rule: the ordinary effect on a corrupted item, which stays
+    /// corrupted. A non-corrupted or mirrored item is refused before the orb is spent, and so is anything the ordinary
+    /// effect refuses (wrong rarity, no room, maximum sockets, a gem in the sockets, and so on). The item is handed to the
+    /// ordinary effect with its corruption flag cleared, then the result is corrupted again.</summary>
+    public static Item? Tainted(string id, Item item, ItemCatalog.BaseType type, ItemRolls rolls,
+        (int Str, int Dex, int Int) requirements, Random random)
+    {
+        if (!item.Corrupted || item.Mirrored) return null;
+        var plain = item with { Corrupted = false };
+        Item? result = id switch
+        {
+            TaintedChaosOrb => rolls.Chaos(plain, random),
+            TaintedExaltedOrb => rolls.Exalted(plain, random),
+            TaintedChromaticOrb => Chromatic(plain, requirements, random),
+            TaintedOrbOfFusing => Fusing(plain, type, random),
+            TaintedJewellersOrb => Jewellers(plain, type, random),
+            TaintedArmourersScrap => ArmourerScrap(plain),
+            TaintedBlacksmithsWhetstone => Whetstone(plain),
+            _ => null,
+        };
+        return result is { } changed ? changed with { Corrupted = true } : null;
+    }
+
     /// <summary>The Eater of Worlds implicit tier an Eldritch Ichor adds (Lesser 1 … Exceptional 4).</summary>
     public static int? EldritchIchorTier(string id) => id switch
     {
@@ -133,7 +215,10 @@ static class CurrencyEffects
             or OrbOfAlchemy or ChaosOrb or DivineOrb or BlessedOrb or OrbOfScouring or OrbOfTransmutation
             or OrbOfAlteration or OrbOfAugmentation or RegalOrb or ExaltedOrb or OrbOfAnnulment or AncientOrb
             or ArmourersScrap or SacredOrb or BlacksmithsWhetstone or OrbOfChance or VaalOrb or GlassblowersBauble
-            or GemcuttersPrism or FracturingOrb or CartographersChisel
+            or GemcuttersPrism or FracturingOrb or CartographersChisel or EldritchChaosOrb or EldritchExaltedOrb
+            or EldritchAnnulmentOrb or OrbOfBinding or OrbOfUnmaking
+            or TaintedChaosOrb or TaintedExaltedOrb or TaintedChromaticOrb or TaintedOrbOfFusing or TaintedJewellersOrb
+            or TaintedArmourersScrap or TaintedBlacksmithsWhetstone
             or LesserEldritchIchor or GreaterEldritchIchor or GrandEldritchIchor or ExceptionalEldritchIchor
             or LesserEldritchEmber or GreaterEldritchEmber or GrandEldritchEmber or ExceptionalEldritchEmber
             or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling;

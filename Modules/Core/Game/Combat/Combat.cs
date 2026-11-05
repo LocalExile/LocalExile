@@ -1604,9 +1604,12 @@ static partial class Game
             // "Killed an enemy recently" (issue #504). The variant stats (a cursed enemy, a shattered one, a frozen one)
             // need a fact about the victim the server does not track yet, so only the plain event is recorded and those
             // ids stay NotModelled rather than being answered wrongly.
-            conn.RecentEvents.Record(StatConditions.KilledEnemy, conn.Clock.Elapsed.TotalSeconds);
+            lock (conn.Monsters)
+                conn.RecentEvents.Record(StatConditions.KilledEnemy, conn.Clock.Elapsed.TotalSeconds);
+            await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
         }
         await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
+        ShareKill(conn, id, m, variety, at);
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });
         // A summoned monster whose skill says so gives neither experience nor items.
         if (!m.NoRewards && alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
@@ -1647,6 +1650,7 @@ static partial class Game
         {
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+            drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign.
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
                 ? openMap.Area.Tier : 0;
@@ -1668,7 +1672,7 @@ static partial class Game
             int x = at.X + (int)Math.Round(Math.Cos(angle) * r), y = at.Y + (int)Math.Round(Math.Sin(angle) * r);
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
-            uint id = conn.Instance.Ground.Add(ground);
+            uint id = conn.Instance.Ground.Add(ground, conn);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
                 $"0x02b9 create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);

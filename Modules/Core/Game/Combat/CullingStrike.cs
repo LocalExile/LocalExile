@@ -25,6 +25,7 @@ static partial class Game
     internal static (uint Life, bool StageStarts) TakeOwnerHitLocked(ClientState conn, SpawnedMonster m, int damage, Cull cull,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null)
     {
+        m.LastHitBy = conn;
         var hit = TakeOwnerDamageLocked(conn, m, damage, rampageSource, player);
         if (cull.Threshold == 0 || hit.Life == 0 || hit.StageStarts || m.StageRunning
             || hit.Life * 100L > m.MaxLife * (long)cull.Threshold || m.Mods.Effects["immune_to_culling_strike"] != 0) return hit;

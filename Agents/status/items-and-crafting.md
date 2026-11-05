@@ -215,6 +215,18 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Conditional stat gates: automated checks pass; native checks pending ([13](../docs/protocol/13-items.md)).
+
+- **On-kill explosions and attribute damage reduction (implemented 2026-11-04, automated verification; live client
+  pending):** "Enemies you Kill Explode, dealing X% of their Life as Physical Damage" (the Crusader body-armour prefix
+  and the synthesis implicit) deals X% of the killed monster's maximum life as physical damage to every hostile monster
+  within 20 cells, mitigated by each target's resistances; increased area of effect scales the radius, and a kill by the
+  explosion can trigger another one. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
+  Strength/Dexterity/Intelligence" reduce hits, ignite and the other damage over time taken as a final multiplier.
+  Not modelled: the chance-based and conditional (ignited, shocked, bleeding) explode variants, secondary damage's
+  scaling by global physical/area damage, and the exploded monster leaving no corpse.
+  Code: `KillExplosions.cs`, `IncomingResourceDefences.cs`, `IncomingDamage.cs`, `PlayerAilments.cs`, `Player.cs`.
+
 - **Item modifier effect (implemented 2026-11-03, automated verification; live client pending):** the item-local
   increased-effect stats scale the item's own explicit modifiers — every explicit one
   (`local_explicit_mod_effect_+%`: Simplex Amulet 100%, Focused Amulet 100%, Subsume the Source 120–240%) or one side
@@ -398,6 +410,25 @@ Part of [Status](../Status.md); what to build next in this area is in
   coverage. A separate Eldritch dominance state and the Orb of Conflict remain separate, and native tooltip
   acceptance is pending.
   See [13](../docs/protocol/13-items.md), "Eldritch Embers", and [evidence](../docs/re/eldritch-ember-coe.md).
+- **Cartographer's Chisel, Eldritch Chaos/Exalted Orb and Orb of Unmaking (added 2026-11-05, not checked live):** the
+  chisels now reach the existing map-quality effect through their `CurrencyItems.Action` (`add_map_alt_quality`), so a
+  chisel or a Maven's Chisel adds +1% of its AlternateQualityTypes row to a map, up to 20%. Eldritch Chaos and Eldritch
+  Exalted Orb reroll an existing rare's explicits (as Chaos/Exalted do) only when the item carries an Eater of Worlds or
+  Searing Exarch implicit, which stays. Orb of Unmaking, used from the bag (C→S 0x58), refunds every allocated Atlas
+  passive of all three presets and is consumed; with nothing allocated it stays. The three local rules are not the
+  official ones. Two Gateway tests cover the chisel's admission and the Eldritch admission.
+  Code: `CurrencyEffects.Chisel/TryAction`, `EldritchChaos/EldritchExalted`, `Game.UseOrbOfUnmaking`.
+- **Orb of Binding, the Eldritch Orb of Annulment and the Tainted (Scourge) family (added 2026-11-05, not checked live):**
+  Orb of Binding turns a normal uncorrupted weapon or armour piece that can hold four sockets into a rare (as Alchemy) with
+  four linked sockets whose colours come from the base's requirements. The Eldritch Orb of Annulment follows the two other
+  Eldritch orbs: an Annulment on an item carrying an Eater of Worlds or Searing Exarch implicit, which stays. The seven
+  Tainted currencies this class applies (Chaos, Exalted, Chromatic, Fusing, Jeweller's, Armourer's Scrap, Blacksmith's
+  Whetstone) run the ordinary effect on a corrupted item and leave it corrupted: the item is handed to the effect with its
+  corruption cleared and the result is corrupted again, so a non-corrupted item is refused before spending, as is anything
+  the ordinary effect refuses. Tainted Mythic, Tainted Divine Teardrop, Tainted Catalyst, Tainted Oil and Tainted Blessing
+  are separate. Local rules, not the official ones. Two Gateway tests cover the Binding admission and the Tainted/Eldritch
+  admission.
+  Code: `CurrencyEffects.Binding/EldritchAnnulment/Tainted`, `Game.CurrencyResult`.
 - **Enkindling Orb:** a utility flask of any rarity gets one of the five GenerationType 21 enchantments (increased
   effect / duration / Charge Recovery / maximum Charges, or reduced Charges per use, all with `Gains no Charges during
   Effect`) with the game's 250/100/100/100/100 weights. Life/mana, corrupted/mirrored, non-flask and

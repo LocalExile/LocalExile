@@ -178,6 +178,7 @@ Part of [Status](../Status.md); what to build next in this area is in
     22-item victory reward and normal pickup into the saved inventory (assisted escort).
   - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
     guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).
+    The Sarn Encampment has them at (295, 423) and (285, 418), facing 28° (2026-11-04).
     The user placed all of these live (2026-10-30).
   - `/stash_place` and `/guild_stash_place <x> <y> <degrees>` move the stash and the guild stash of any area until the
     player leaves it, to find their places.

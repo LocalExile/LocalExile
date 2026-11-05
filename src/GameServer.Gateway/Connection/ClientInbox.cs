@@ -20,8 +20,8 @@ sealed class ClientInbox(ConnectionPerformance? performance = null)
 
     /// <summary>Reads in a row in which nothing frames after which the client's stream is taken as lost: its bytes no
     /// longer decrypt with our cipher (live 2026-10-30, after the Glyph Wall opened: every later message was garbage and
-    /// the connection stayed open, deaf). A healthy connection has at most one such read, its last message (0x2cb) when
-    /// it leaves the area. The client's ticks alone make about five reads a second.</summary>
+    /// the connection stayed open, deaf). A healthy connection frames every read. The client's ticks alone make about
+    /// five reads a second.</summary>
     public const int LostAfterUnframedReads = 25;
 
     /// <summary>The run of reads that framed nothing, after one more read: back to 0 when anything framed.</summary>

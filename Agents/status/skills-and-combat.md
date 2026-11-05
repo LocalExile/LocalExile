@@ -674,7 +674,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Survivors league and three optional modules, including the seven stage gate bosses: [client presentation and limits](../docs/game/survivors-mode.md).
+- Survivors league and three optional modules, including the seven stage gate bosses; the catalogue keeps only skills the flight/pulse presentation can play (every projectile gets a visible fallback), ground area spells land on their target, the support pool is every normal support gem whose numbers the cast pipeline reads, and enemies are 5x tougher and 4x harder-hitting (ranged shots at 30%) with a DPS threat on life, nearby experience orbs, a first window that pauses before any spawn, 25%-of-life death zones and corpse cleanup; uniques persist between runs and bosses are 5x their ladder: [client presentation and limits](../docs/game/survivors-mode.md).
 
 - Attack-speed admission: gem attacks now use the supported attack speed (gem and support stats plus the inherent
   GrantedEffectsPerLevel multiplier) for both the admission gate and the swing interval, instead of mixing it with
@@ -1174,7 +1174,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Enemy and ally passive auras are not applied.
   Code: `PassiveBuffAuras.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §12.
-- Onslaught on kill grants the Onslaught buff and its speed ([13](../docs/protocol/13-items.md) §8a).
+- Onslaught (on kill and a Silver Flask's) grants Path of Building's Speed modifier: 20% increased attack speed in the
+  attack-speed stat and the swing timing, 20% increased cast speed in the cast-speed stat, and 20% increased movement
+  speed in the walk ([13](../docs/protocol/13-items.md) §8a).
+  Code: `UtilityFlasks.cs`, `OnslaughtOnKill.cs`.
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.
   The [357-stat ledger](../docs/dev/issue75-stat-ledger.md) tracks current individual review state and remaining
