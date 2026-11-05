@@ -321,10 +321,10 @@ itself (§6).
 
 Each melee order has its own rising sequence with the top bit set, as GGG's do. The client picks the swing's clip by it,
 and the hit lands at that clip's contact keyframe (`monster-contacts.json`). The swing plays where it began (Melee,
-0xb188, at Actor `+0x1b0` from its start: 6 343 of 6 368 samples in 24 lockstep pack fights did not move, GGG's 12 867
-of 13 153): whether it reaches the player depends on where he is at the keyframe, not at the swing's start. The
-Gateway lands the hit only within reach + 2 cells of the monster then (`CommitMonsterHitLocked`), a margin with no
-source either.
+0xb188, at Actor `+0x1b0` from its start: the moving flag, Positioned `+0x240`, was clear in 6 343 of 6 368 samples in
+24 lockstep pack fights and in 15 557 of 15 640 of GGG's melee monsters'): whether it reaches the player depends on
+where he is at the keyframe, not at the swing's start. The Gateway lands the hit only within reach + 2 cells of the
+monster then (`CommitMonsterHitLocked`), a margin with no source either.
 
 **The player's own walk-up.** The client's action goes on until the target is in reach and needs no word from the
 server to swing. A predictive client's paths again every 0.05 s for a player (0.25 s for a monster, `0x141e8eb60`, which
