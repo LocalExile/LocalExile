@@ -118,7 +118,8 @@ static partial class Game
                 // A held skill repeats once per action, as GGG's does: an attack's next use waits for the attack time of
                 // the one before, aimed at a monster (its walk-up and swing: LockstepAttackStart) or at the ground (live
                 // 2026-11-03: a ground attack sent as soon as the player was free came 0.4 s into a 0.645 s swing, and
-                // the client queued it until the swing's end).
+                // the client queued it until the swing's end). A new click goes at the next frame start over an open
+                // walk-up, as over a walk, and its action ends that walk-up (PlayerWalkUpOpen); only a swing holds it.
                 bool monster = conn.LockstepSkill.Target is { } t && t != PlayerId;
                 bool attack = LockstepAttackSkill(conn, conn.LockstepSkill.Skill);
                 if (conn.LockstepUse is { } object_)
@@ -128,7 +129,8 @@ static partial class Game
                     from = conn.Walk.Position(at);
                     sequence = NextLockstepSequence(conn);
                 }
-                else if (conn.LockstepAttack is null && (!attack || at + 1e-9 >= conn.NextAttackAt) && conn.LockstepSkill.Due(free))
+                else if ((!attack || at + 1e-9 >= conn.NextAttackAt)
+                    && conn.LockstepSkill.Due(free, repeat: conn.LockstepAttack is null))
                 {
                     skill = true;
                     sequence = NextLockstepSequence(conn);

@@ -330,6 +330,15 @@ public class LockstepTests
         Assert.False(skill.Due(free: false));
         Assert.True(skill.Due(free: true));
 
+        // During an attack's open walk-up the held attack's next use waits for its swing, and a new click does not.
+        skill.Press((9, 9), 0x3007, 0x0102, 0x0401, repeats: true);
+        Assert.True(skill.Due(free: true, repeat: false));
+        Assert.False(skill.Due(free: true, repeat: false));
+        Assert.True(skill.Due(free: true));
+        skill.Press((10, 10), null, 0x0200, 0x0401, repeats: true);
+        Assert.True(skill.Due(free: true, repeat: false));
+        skill.Clear();
+
         // A channel starts once and ends on the release.
         skill.Press((8, 8), null, 0x0200, 0x0401, repeats: false);
         Assert.True(skill.Due(free: true));
