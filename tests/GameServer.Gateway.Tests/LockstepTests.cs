@@ -1,5 +1,7 @@
 using System.Net;
+using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 using Xunit;
 
@@ -163,14 +165,45 @@ public class LockstepTests
         Assert.Equal(((102, 100), .033, .033), await Game.FollowMonsterToSwing(conn, drowned, sword, () => true,
             (_, _) => Task.FromResult(false), (0, 0), 0, false, .04, lockstep: attack));
 
-        // Its 0x1ab goes out a frame after the request (a frame end overtook it): placed at that frame's start, from the cell
-        // the player's steps have reached by then.
+        // Asked in the frame from 0.033, its 0x1ab goes out a frame later (a frame end overtook it at the send gate):
+        // the walk-up is placed at that frame's start, from the cell the player's steps have reached by then, and its
+        // search timer starts there. The target then moves off: out of reach at the path's end, the walk-up searches
+        // again in that frame's Positioned tick, so the timer counts from the frame's start.
         drowned = new SpawnedMonster("Drowned", new PlayerWalk(80, 100, 8, size: 2), 0, 4, 100);
         conn = Lockstep(drowned);
         conn.Walk.Order(200, 100, 0);
-        attack = Attack(conn, drowned);
-        Assert.Equal(Start(102, 100, 80, 100), Gate(conn, attack, .066));
+        conn.LockstepFrame = (.033, .066);
+        using (var listener = new TcpListener(IPAddress.Loopback, 0))
+        {
+            listener.Start();
+            using var writer = new TcpClient();
+            var accepting = listener.AcceptTcpClientAsync();
+            await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+            using var reader = await accepting;
+            var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
+            var gate = Program.SendGates.GetValue(ciphers, _ => new(1, 1));
+            Assert.True(gate.Wait(0));   // the frame end holds the send gate
+            var starting = Game.LockstepAttackStart("walk-up", writer.GetStream(), ciphers, conn, use, drowned, sword,
+                1, ++conn.ActionCount, "attack");
+            Assert.False(starting.IsCompleted);
+            conn.LockstepFrame = (.066, .099);
+            gate.Release();
+            attack = (await starting)!;
+            var sent = Start(102, 100, 80, 100);
+            var wire = new byte[sent.Length];
+            await reader.GetStream().ReadExactlyAsync(wire);
+            new ConnectionCiphers(new byte[64], isClient: true).Receive.Process(wire);
+            Assert.Equal(sent, wire);
+        }
         Assert.True(attack.Open);
+        Assert.Equal((92, 100), conn.Walk.Destination);
+        Assert.Equal(.066, attack.TimerFrom, 9);
+        drowned.Walk.Teleport(60, 100, .07);
+        Replay(conn, .297);
+        Assert.Equal((92, 100), conn.Walk.Destination);
+        Replay(conn, .33);   // there at 0.324, 32 cells off
+        Assert.Equal((72, 100), conn.Walk.Destination);
+        Assert.Equal(.297, attack.TimerFrom, 9);
 
         // Toward a Drowned walking at him (a step every 0.143 s, to (132, 100) at 0.571): the path goes to (124, 100) and is
         // not searched again. In the frame from 0.561 he is 13 cells from the monster's cell at that frame's start, though
