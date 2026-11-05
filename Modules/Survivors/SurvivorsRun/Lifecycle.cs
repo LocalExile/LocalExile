@@ -109,7 +109,7 @@ static partial class SurvivorsRunRules
             var state = StateOf(conn);
             state.Cancellation?.Cancel();
             if (state.Ownership is { } previous)
-                conn.ProjectileRuntime?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
+                (conn.ProjectileRuntimeState as global::Game.ProjectileSession)?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
                     && ReferenceEquals(shot.Owner, previous));
             if (state.SurvivorsPausedByWindow) conn.Clock.Start();
             state.SurvivorsPausedByWindow = false;
@@ -140,7 +140,7 @@ static partial class SurvivorsRunRules
             var retired = state.Ownership;
             state.Ownership = null;
             if (retired is not null)
-                conn.ProjectileRuntime?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
+                (conn.ProjectileRuntimeState as global::Game.ProjectileSession)?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
                     && ReferenceEquals(shot.Owner, retired));
             state.Survivors = null;
             state.SurvivorsCatalog = null;
