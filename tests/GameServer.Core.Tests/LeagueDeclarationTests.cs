@@ -17,11 +17,11 @@ public sealed class LeagueFolderTests : IDisposable
     }
 
     [Fact]
-    public void The_shipped_leagues_match_the_real_create_screen()
+    public void The_shipped_leagues_offer_native_modes_and_opt_in_calibration()
     {
         var leagues = LeagueCatalog.FromEnvironment();
         Assert.Empty(leagues.Errors);
-        Assert.Equal(["Standard", "Phrecia", "Allflame", "Survivors", "Hardcore Allflame"], leagues.Entries().Where(e => (e.Flags0 & LeagueEntry.Main) != 0).Select(e => e.Name).OrderBy(n => n != "Standard").ThenBy(n => n.Length));
+        Assert.Equal(["Standard", "Phrecia", "Allflame", "Survivors", "Hardcore Allflame", "Campaign Calibration"], leagues.Entries().Where(e => (e.Flags0 & LeagueEntry.Main) != 0).Select(e => e.Name).OrderBy(n => n != "Standard").ThenBy(n => n.Length));
         Assert.Equal("Standard", leagues.Find("Hardcore")!.EntryOf);
         Assert.Null(leagues.Find("Void"));
         Assert.NotNull(leagues.FindLoaded("Void"));

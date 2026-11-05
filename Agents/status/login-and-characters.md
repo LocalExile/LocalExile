@@ -5,6 +5,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Opt-in Campaign Calibration restores earned progress without development unlocks: [league modes](../docs/game/league-modes.md).
+
 - Remember Password now returns and verifies the official client's 32-byte saved-login credential in account login
   0x03 / result 0x04.
   It survives server restarts, is device/account-bound and is invalidated by changing the password.

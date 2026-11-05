@@ -27,7 +27,7 @@ public sealed class AtlasModule : IModule, IDisposable
         module.OnTick((player, _) => AtlasFeature.EnsureUnlocked(ConnOf(player)));
         module.OnChatCommand("atlas_unlock", "/atlas_unlock (dev: grant Atlas beacons, invitations and primordial keys)", async command =>
         {
-            int n = await AtlasFeature.EnsureUnlocked(ConnOf(command.Player));
+            int n = await AtlasFeature.EnsureUnlocked(ConnOf(command.Player), explicitRequest: true);
             await command.Player.Tell(n == 0 ? "Atlas: beacons and invitations already unlocked." : $"Atlas: granted {n} beacon/invitation flag(s).");
         });
         module.OnMonsterKilled(async kill =>
@@ -163,8 +163,9 @@ static class AtlasFeature
 
     static readonly Regex OpenMavenInvitation = new(@"open_maven_invitation\s+(\w+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    internal static async Task<int> EnsureUnlocked(ClientState conn)
+    internal static async Task<int> EnsureUnlocked(ClientState conn, bool explicitRequest = false)
     {
+        if (!explicitRequest && !LeagueFor(conn).Rules.DevelopmentUnlocks) return 0;
         var missing = UnlockFlags.Where(f => !ClientHasQuestFlag(conn, f)).ToList();
         bool leagueChanged = ApplyLeagueFlags(conn);
         if (!conn.PlayerSent) return missing.Count + (leagueChanged ? 1 : 0);
@@ -189,10 +190,10 @@ static class AtlasFeature
     /// League flags are put on the connection here, before <c>PlayerForCreation</c> reads them.</summary>
     internal static IEnumerable<(string Log, byte[] Message)> Restore(IModuleContext module, ClientState conn)
     {
-        ApplyLeagueFlags(conn);
+        if (LeagueFor(conn).Rules.DevelopmentUnlocks) ApplyLeagueFlags(conn);
         var player = PlayerOf(conn);
         var data = module.World(player).CharacterData;
-        AtlasProgress.Complete(data, AtlasProgress.Maps);
+        if (LeagueFor(conn).Rules.DevelopmentUnlocks) AtlasProgress.Complete(data, AtlasProgress.Maps);
         var completed = AtlasProgress.Completed(data);
         var slots = SlotsOf(player);
         byte stones = AtlasProgress.VoidstoneMask(slots);

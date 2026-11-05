@@ -883,6 +883,18 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// account saved in its league (AccountStash.LeagueQuestFlags, Game.SetLeagueQuestFlags).</summary>
     public HashSet<int> LeagueQuestFlags = [.. Quests.League.EveryCharacter, .. Program.Bench.UnlockFlags];
 
+    internal void RestoreQuestFlags(IEnumerable<string> saved, IEnumerable<int> leagueSaved, bool developmentUnlocks)
+    {
+        lock (Monsters)
+        {
+            QuestFlags = new(saved, StringComparer.Ordinal);
+            UnearnedQuestFlags = developmentUnlocks ? new(Quests.EveryCharacter.Except(QuestFlags)) : [];
+            if (developmentUnlocks) QuestFlags.UnionWith(Quests.EveryCharacter.Except(Quests.EndgameOnly));
+            LeagueQuestFlags = new(leagueSaved);
+            if (developmentUnlocks) LeagueQuestFlags.UnionWith(Quests.League.EveryCharacter.Concat(Program.Bench.UnlockFlags));
+        }
+    }
+
     /// <summary>The hideout doodads created in this area (the map device), by object id.</summary>
     public readonly Dictionary<uint, HideoutCatalog.Doodad> HideoutDoodads = [];
 

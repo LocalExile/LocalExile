@@ -20,6 +20,9 @@ public sealed record LeagueRules
     /// <summary>Standard's rules.</summary>
     public static LeagueRules Standard { get; } = new();
 
+    /// <summary>Grant development hideout, tutorial, crafting and Atlas unlocks independently of earned progress.</summary>
+    public bool DevelopmentUnlocks { get; init; } = true;
+
     /// <summary>Scales how many items drop.</summary>
     public double ItemDropMultiplier { get; init; } = 1;
     /// <summary>Scales gold piles.</summary>

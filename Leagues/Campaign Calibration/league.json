@@ -1,0 +1,8 @@
+{
+  "name": "Campaign Calibration",
+  "parent": "Standard",
+  "base": "Campaign Calibration",
+  "hardcore": false,
+  "ssf": false,
+  "description": "Campaign progression without automatic development unlocks."
+}

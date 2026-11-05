@@ -1,3 +1,5 @@
+using GameServer.Modding;
+
 namespace GameServer.Gateway.Tests;
 
 public class LeagueQuestFlagSaveTests
@@ -20,5 +22,21 @@ public class LeagueQuestFlagSaveTests
         Assert.True(AccountStash.For(league, catalog).ChangeLeagueQuestFlags([263], on: false));
         AccountStash.Forget(league);
         Assert.Empty(AccountStash.For(league, catalog).LeagueQuestFlags);
+
+        Assert.True(LeagueRules.Standard.DevelopmentUnlocks);
+        var conn = new ClientState(new(1, "calibration", 100, 100, 10, 10, null, []), 1, 1);
+        conn.RestoreQuestFlags([], [], developmentUnlocks: true);
+        Assert.Contains("HideoutUnlocked", conn.QuestFlags);
+        Assert.Contains(Quests.EndGameAvailable, conn.UnearnedQuestFlags);
+        Assert.DoesNotContain(Quests.EndGameAvailable, conn.QuestFlags);
+        conn.RestoreQuestFlags([], [], developmentUnlocks: false);
+        Assert.Empty(conn.QuestFlags);
+        Assert.Empty(conn.UnearnedQuestFlags);
+        Assert.Empty(conn.LeagueQuestFlags);
+        conn.RestoreQuestFlags(["a1q1-KilledHillock", "HideoutUnlocked", Quests.EndGameAvailable], [263], developmentUnlocks: false);
+        Assert.True(conn.EarnedQuestFlag(Quests.EndGameAvailable));
+        Assert.Contains("HideoutUnlocked", conn.QuestFlags);
+        Assert.Contains("a1q1-KilledHillock", conn.QuestFlags);
+        Assert.Equal([263], conn.LeagueQuestFlags);
     }
 }
