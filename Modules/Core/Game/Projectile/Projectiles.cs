@@ -398,7 +398,7 @@ static partial class Game
                         Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
-                    return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(p.Profile.Id), obj.Blob(), headerU32: 0xffffffff);
+                    return InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(p.Profile.Id), obj.Blob(), headerU32: 0xffffffff);
                 });
                 // No 0x1a9: an object created with the header's u32 at 0xffffffff is in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of
@@ -477,9 +477,8 @@ static partial class Game
             {
                 if (visual.Ended) return null;
                 visual.Created = true;
-                return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
+                return InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
             });
-            Packet(() => visual.Created ? InstanceProtocol.EnterWakeZone(id) : null);
             Runtime.Schedule(Runtime.Now + lifetime, () =>
             {
                 visual.Ended = true;

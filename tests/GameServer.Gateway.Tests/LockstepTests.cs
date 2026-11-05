@@ -263,6 +263,23 @@ public class LockstepTests
         Assert.Equal(new LockstepAttack.Swing(.759, .792, (126, 101)), await farAttack.Decided);
     }
 
+    // A create whose blob's first byte has 0x02 (a projectile's) wakes the object itself; a 0x1a9 after it only logs on the
+    // client. An object created asleep (an effect's blob starts with 0) still gets its 0x1a9 right behind the create.
+    [Fact]
+    public void An_object_its_create_wakes_gets_no_wake_zone_message()
+    {
+        const uint id = 0x4000;
+        uint type = InstanceEntities.ObjectTypeHash("Metadata/Projectiles/Fireball");
+        byte[] projectile = new ProjectileObject("Metadata/Projectiles/Fireball", 40, 30).Blob();
+        Assert.Equal(InstanceEntities.CreateObject(id, type, projectile, headerU32: 0xffffffff),
+            InstanceEntities.CreateInWakeZone(id, type, projectile, headerU32: 0xffffffff));
+
+        uint effectType = InstanceEntities.ObjectTypeHash(EffectObject.TypePath);
+        byte[] effect = new EffectObject(40, 30, "a.ao").Blob();
+        Assert.Equal([.. InstanceEntities.CreateObject(id, effectType, effect), .. InstanceProtocol.EnterWakeZone(id)],
+            InstanceEntities.CreateInWakeZone(id, effectType, effect));
+    }
+
     [Fact]
     public void Only_a_connection_confirmed_as_local_is_served()
     {
