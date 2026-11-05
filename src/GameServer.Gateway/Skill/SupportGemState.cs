@@ -12,13 +12,16 @@ sealed class SupportGemState
     /// <summary>Mana spent on each supported spell since its last Arcane Surge trigger.</summary>
     public readonly Dictionary<ushort, long> ArcaneSurgeSpent = [];
 
-    /// <summary>Inspiration charges held (0-5).</summary>
+    /// <summary>Inspiration charges held (0-5), when they expire, and the shared mana counter towards the support's
+    /// reset threshold.</summary>
     public int InspirationCharges;
+    public double InspirationUntil;
+    public long InspirationSpent;
 
     /// <summary>Client instances for the two buffs and the counts last shown for Inspiration.</summary>
     public ushort ArcaneSurgeBuff, PresentedArcaneSurge, InspirationBuff, PresentedInspiration;
     public int PresentedInspirationCharges;
-    public bool ArcaneSurgeRefresh, PendingStats;
+    public bool ArcaneSurgeRefresh, InspirationRefresh, PendingStats;
 
     public bool ArcaneSurgeActiveAt(double now) => ArcaneSurgeUntil > now;
 }
