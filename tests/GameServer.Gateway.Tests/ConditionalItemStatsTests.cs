@@ -19,9 +19,74 @@ public class ConditionalItemStatsTests
         The_shield_condition_is_answered_in_every_spelling_the_tables_use();
         A_shield_condition_that_holds_counts_on_its_plain_stat_and_not_without_a_shield();
         A_held_condition_counts_on_its_plain_stat_and_nothing_changes_without_a_subject();
+        Real_aura_and_numeric_threshold_rolls_reach_existing_consumers();
     }
 
     static ModCatalog.Mod Mod(string id) => Program.Items.Mods.All.Single(m => m.Id == id);
+
+    void Real_aura_and_numeric_threshold_rolls_reach_existing_consumers()
+    {
+        var exists = (string name) => Program.Stats.Has(name);
+        var wrath = WithMod("WrathIncreasedLightningDamage", 40);
+        Assert.Equal(40, ItemModStats.Sum([wrath], Program.Items.Mods,
+            subject: new(Auras: new HashSet<string> { "wrath" }), statExists: exists)["lightning_damage_+%"]);
+        Assert.Empty(ItemModStats.Sum([wrath], Program.Items.Mods,
+            subject: new(Auras: new HashSet<string>()), statExists: exists));
+        Assert.Contains("a_herald", StatConditions.AuraSet(["HeraldOfAsh"]));
+        Assert.Equal("spell_damage_+%", StatConditions.PlainOf("spell_damage_+%_while_wielding_two_handed_weapon"));
+
+        var threshold = WithMod("DoubleDamageWith200StrengthUnique__1", 10);
+        foreach (int strength in new[] { 199, 200, 201 })
+        {
+            var sum = ItemModStats.Sum([threshold], Program.Items.Mods,
+                subject: new(Value: name => name == "strength" ? strength : null), statExists: exists);
+            Assert.Equal(strength >= 200 ? 10 : 0, sum.GetValueOrDefault("chance_to_deal_double_damage_%"));
+        }
+        var es = WithMod("LifeRegenerationWith500EnergyShieldUnique__1", 60);
+        foreach (int shield in new[] { 499, 500 })
+        {
+            var sum = ItemModStats.Sum([es], Program.Items.Mods,
+                subject: new(Value: name => name == "energy_shield" ? shield : null), statExists: exists);
+            Assert.Equal(shield >= 500 ? 60 : 0, sum.GetValueOrDefault("base_life_regeneration_rate_per_minute"));
+        }
+        Assert.Equal("movement_velocity_+%", StatConditions.Fold("movement_speed_+%_if_enemy_killed_recently", exists));
+        Assert.False(StatConditions.TryRecentEvent("damage_+%_per_enemy_killed_recently", out _, out _));
+        Assert.False(StatConditions.TryRecentEvent("damage_+%_if_killed_at_least_5_enemies_recently", out _, out _));
+        Assert.False(StatConditions.TryRecentEvent("x_if_used_a_skill_recently_if_4_warlord_items", out _, out _));
+        Assert.Equal(StatConditions.State.NotModelled, StatConditions.Of("x_if_you_have_used_a_fire_skill_recently",
+            new(Recent: new HashSet<string>(), KnownRecent: new HashSet<string> { StatConditions.BeenHit })));
+        Assert.Equal(StatConditions.State.Fails, StatConditions.Of("x_if_blocked_a_spell_recently",
+            new(Recent: new HashSet<string> { StatConditions.BlockedAttack })));
+        Assert.Equal(StatConditions.State.Holds, StatConditions.Of("x_if_blocked_a_spell_recently",
+            new(Recent: new HashSet<string> { StatConditions.BlockedSpell })));
+
+        const string coefficient = "base_attack_speed_+%_per_frenzy_charge";
+        var chargeMod = Program.Items.Mods.All.First(m => m.Stats.Count == 1 && m.Stats[0].Id == coefficient);
+        var raw = ItemModStats.Sum([WithMod(chargeMod.Id, 7)], Program.Items.Mods,
+            subject: new(Recent: new HashSet<string>()), statExists: exists);
+        Assert.Equal(7, raw[coefficient]);
+        Assert.Equal(0, raw.GetValueOrDefault("attack_speed_+%"));
+        var expanded = ChargeEffects.Expand(name => raw.GetValueOrDefault(name),
+            type => type == ChargeType.Frenzy ? 3 : 0);
+        Assert.Equal(21, expanded["attack_speed_+%"]);
+        var phased = WithMod("MovementSpeedWhilePhasedUnique__1", 20);
+        var lowLife = WithMod("SpellBlockPercentageOnLowLifeUniqueShieldStrDex1_", 25);
+        foreach (bool active in new[] { false, true })
+        {
+            var subject = new StatConditions.Subject(Flags: new Dictionary<string, bool>
+            {
+                ["_while_phasing"] = active, ["_while_on_low_life"] = active,
+                ["_while_at_maximum_power_charges"] = active,
+            });
+            Assert.Equal(active ? 20 : 0, ItemModStats.Sum([phased], Program.Items.Mods,
+                subject: subject, statExists: exists).GetValueOrDefault("movement_velocity_+%"));
+            Assert.Equal(active ? 25 : 0, ItemModStats.Sum([lowLife], Program.Items.Mods,
+                subject: subject, statExists: exists).GetValueOrDefault("base_spell_block_%"));
+            var maximum = WithMod("PhysAddedAsChaosWithMaxPowerChargesUnique__1", 15);
+            Assert.Equal(active ? 15 : 0, ItemModStats.Sum([maximum], Program.Items.Mods,
+                subject: subject, statExists: exists).GetValueOrDefault("physical_damage_%_to_add_as_chaos"));
+        }
+    }
 
     /// <summary>An item carrying one explicit roll of the named mod, at the given value.</summary>
     static Item WithMod(string id, int value)

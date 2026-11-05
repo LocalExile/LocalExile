@@ -283,6 +283,7 @@ static partial class Game
                 if (applied is not { } landed) continue;
                 if (critical)
                 {
+                    conn.RecentEvents.Record(StatConditions.Crit, hitAt);
                     CommitAcceptedCritFlasksLocked(conn, player, conn.Clock.Elapsed.TotalSeconds);
                     MaybeCreateProfaneGroundLocked(conn, m.Walk.Position(hitAt), player);
                 }

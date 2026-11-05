@@ -215,7 +215,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Conditional stat gates: automated checks pass; native checks pending ([13](../docs/protocol/13-items.md)).
+- Conditional item gates feed live pools and stat publication; Kintsugi incoming hits, expiry and lifecycle verified.
+  Weapon/aura, tracked-event, numeric-threshold and supported runtime-state gates have automated coverage.
+  Untracked, counted-recent and compound operators remain partial ([13](../docs/protocol/13-items.md)).
 
 - **On-kill explosions and attribute damage reduction (implemented 2026-11-04, automated verification; live client
   pending):** "Enemies you Kill Explode, dealing X% of their Life as Physical Damage" (the Crusader body-armour prefix

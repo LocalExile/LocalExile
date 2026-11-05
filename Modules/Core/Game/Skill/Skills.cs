@@ -198,6 +198,7 @@ static partial class Game
     internal static Dictionary<uint, int> CharacterPlayerStatsSnapshot(ClientState conn, out double baselineLifePerSecond,
         out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
     {
+        EnsureConditionalItemPools(conn);
         EnsureAntiquarianPools(conn);
         EnsureOwnAuraPools(conn);
         Dictionary<uint, int> rawOverrides;

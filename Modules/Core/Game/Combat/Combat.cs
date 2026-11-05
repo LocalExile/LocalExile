@@ -1239,6 +1239,7 @@ static partial class Game
                     cull: Cull.Of(player, skillStats, critical, spell));
                 if (applied is not null)
                 {
+                    if (critical) conn.RecentEvents.Record(StatConditions.Crit, at);
                     landed++;
                     AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
                         reflected, poison);
@@ -1386,7 +1387,11 @@ static partial class Game
     {
         if (m.Dead || m.Life == 0) return null;
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
-        if (allyAt is null) conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
+        if (allyAt is null)
+        {
+            conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
+            conn.RecentEvents.Record(StatConditions.HitEnemy, m.PlayerHitAt);
+        }
         if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
         TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: m.Life == 0, allyAt);
         return new(m.Life, starts);
@@ -1467,6 +1472,7 @@ static partial class Game
             || conn.Closed || conn.PlayerLife == 0 || !conn.HitRecovery.Begin(now, seconds))
         { Trace($"not accepted (chance {chance:0.###}%, duration {seconds:0.###} s)"); return null; }
         Trace($"accepted ({seconds:0.###} s, {Get(AntiquarianEffects.StunRecoverySource)}% Life over one second)");
+        conn.RecentEvents.Record(StatConditions.BeenStunned, now);
         conn.Antiquarian.Stunned(now, conn.PlayerMaxLife, Get(AntiquarianEffects.StunRecoverySource));
         int action = Interlocked.Increment(ref conn.ActionCount);
         conn.ChannelSkill = 0; conn.NextAttackAt = now;
