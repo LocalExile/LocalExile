@@ -379,6 +379,10 @@ static partial class Game
         var gem = SupportedSkill(conn, skillId);
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
         if (!hitPlan.CanHit) return 0;
+        // Inspiration: "Supported Skills have (6-11)% increased Critical Strike Chance per Inspiration Charge".
+        if (conn.SupportGems.InspirationCharges > 0
+            && Stats.Key("critical_strike_chance_+%_per_righteous_charge") is uint chargeCrit)
+            extraIncrease += (long)gem.Stats.GetValueOrDefault(chargeCrit) * conn.SupportGems.InspirationCharges;
         var player = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         int Own(string name) => release && IsCriticalProhibition(name) ? 0
             : Stats.Key(name) is uint k ? gem.Stats.GetValueOrDefault(k) : 0;

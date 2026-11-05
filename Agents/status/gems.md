@@ -88,6 +88,9 @@ Nothing yet.
   Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
   Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Devour, Sacrifice, Spellblade, Hallow and
   Excommunicate apply too ([25](../docs/protocol/25-gem-supports.md)).
+  Arcane Surge tracks each spell's mana spent and grants its buff; Inspiration gains charges on mana spent; Controlled
+  Blaze scales ignite damage and hit damage by enemies ignited recently
+  ([25](../docs/protocol/25-gem-supports.md)).
   A real-client Cyclone control accepted the item-support records and displayed blue s/c, red W and white d.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
   Spell Echo repeats a supported spell's releases and area hits a cast time apart, with its 40% more cast speed

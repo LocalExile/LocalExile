@@ -62,6 +62,9 @@ sealed class MonsterIgnites
     readonly record struct Ignite(double From, double Until, double DamagePerSecond, bool Aggravated = false);
     readonly List<Ignite> active = [];
 
+    /// <summary>When an ignite was last applied (Controlled Blaze's "Enemy Ignited Recently" window).</summary>
+    public double LastApplied { get; private set; }
+
     /// <summary>How many of the strongest deal damage at once: 1, or Crimson Dance's 8 for bleeds.</summary>
     public int Stacks { get; set; } = 1;
 
@@ -119,6 +122,7 @@ sealed class MonsterIgnites
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         if (active.Count == 0) { last = now; carry = 0; }
         active.Add(new(now, now + seconds / expiryRate, perSecond, aggravated));
+        LastApplied = now;
         return true;
     }
 

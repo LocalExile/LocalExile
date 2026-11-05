@@ -136,7 +136,7 @@ static partial class Game
                         string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                             $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
             }
-        sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources))))));
+        sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;

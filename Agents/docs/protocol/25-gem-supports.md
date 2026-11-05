@@ -148,6 +148,15 @@ for added chaos; Spellblade adds its share of the one-hand melee weapon as spell
 the next attack 25% of its physical damage as extra fire (scaled by the magnitude stat, then removed); and Excommunicate
 suppresses an excommunicated monster's chaos damage for its 3 seconds.
 
+Arcane Surge Support tracks mana spent on each supported spell and grants its buff when that reaches the support's
+threshold; the buff adds its cast speed, mana regeneration and more Spell Damage for its base duration. Inspiration
+gains a charge on a supported mana spend, five at most, or loses all of them when a single use reaches the support's
+threshold; each charge adds its more Elemental Damage and increased Critical Strike Chance, and its reduced Mana Cost
+applies to the supported skill. Controlled Blaze counts enemies ignited in the last four seconds: each one adds the
+support's more Ignite Damage up to its cap and its less Damage down to its floor, and its base ignite chance applies
+to the hit. Cruelty's hit damage already reaches supported hits and their ailments; its buff's additional damage over
+time is not modelled.
+
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
 A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.
 Tests cover link isolation, duplicate families, multiple supports, compatibility expressions, costs,
@@ -174,9 +183,11 @@ Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except I
 Triggers, totems, mines, minion behaviour, attack repeats, projectile branching, leech and many conditional effects
 still require their own execution paths.
 Second Wind's extra cooldown use needs multi-use cooldown state (one stored use is all that is tracked); Momentum's
-stacks need a skill-use and movement signal; Barrage and Arrow Nova need their own release patterns, not a stat.
-Unleash's seals, minion damage on summoned minions and
-the curses that Blasphemy and Hextouch would apply still need their own mechanics or client-side geometry.
+stacks need a skill-use and movement signal; Barrage needs its own release pattern, not a stat.
+Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
+their own mechanics or client-side geometry. Arrogance and the blessing supports need life reservation and a temporary
+aura lifecycle; Overheat needs Fortification consumption and Overexertion needs warcry exertion. Cruelty's buff adds
+more damage over time on top of its hit damage.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
 Only the unconditional damage keys listed by GemSupportDamage and the five target conditions above receive
 multiplicative processing.

@@ -9,7 +9,8 @@ using GameServer.Core.World;
 static partial class Game
 {
     internal static double ConditionalSupportMore(IReadOnlyDictionary<uint, int>? skill, bool attack, bool chilled,
-        bool lowLife, bool fullLife, bool lifetap, int poisonStacks = 0, bool bleeding = false, int powerCharges = 0)
+        bool lowLife, bool fullLife, bool lifetap, int poisonStacks = 0, bool bleeding = false, int powerCharges = 0,
+        bool arcaneSurge = false, int recentIgnites = 0)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
         double more = 1;
@@ -19,11 +20,20 @@ static partial class Game
         Apply(attack && fullLife, "support_damage_while_on_full_life_+%_final");
         Apply(lifetap, "support_lifetap_damage_+%_final_while_buffed");
         Apply(bleeding, "support_bloodlust_melee_physical_damage_+%_final_vs_bleeding_enemies");
+        Apply(arcaneSurge, "support_arcane_surge_spell_damage_+%_final_while_you_have_arcane_surge");
         // The per-stack share applies to the stacks that count (PoB: capped by the support's maximum).
         int counted = Math.Clamp(poisonStacks, 0, Math.Max(0, Get("support_debilitate_hit_damage_max_poison_stacks")));
         if (counted > 0) more *= Math.Max(0, 1 + Get("support_debilitate_hit_damage_+%_final_per_poison_stack") * counted / 100.0);
         if (powerCharges > 0)
             more *= Math.Max(0, 1 + Get("support_power_charge_on_crit_damage_+%_final_per_power_charge") * powerCharges / 100.0);
+        // Controlled Blaze: "(3)% less Damage per Enemy Ignited Recently", floored by the support's minimum.
+        int recentPer = Get("support_recent_ignites_damage_per_recent_ignite_+%_final");
+        if (recentPer != 0)
+        {
+            int recentMin = Get("support_recent_ignites_damage_per_recent_ignite_+%_final_minimum");
+            long total = Math.Max(recentMin, (long)recentPer * recentIgnites);
+            more *= Math.Max(0, 1 + total / 100.0);
+        }
         return more;
     }
 
@@ -35,7 +45,7 @@ static partial class Game
         double more = ConditionalSupportMore(skill, attack, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             FlaskRecovery.LowLife(target.Life, target.MaxLife), conn.PlayerLife >= conn.PlayerMaxLife,
             Lifetap.ActiveAt(conn, now), target.Poisons.Stacks(now), target.Bleeds.Burning,
-            ChargesOf(conn).Effective(ChargeType.Power));
+            ChargesOf(conn).Effective(ChargeType.Power), ArcaneSurgeActive(conn, now), RecentlyIgnitedCount(conn, now));
         var packet = more == 1 ? rolled : rolled.Scale(more);
         // Immolate: added Fire Damage against Burning Enemies (the stat description's own wording).
         if (target.Ignites.Burning)
@@ -62,6 +72,15 @@ static partial class Game
         double chillMagnitude = target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now);
         if (Get("support_chills_also_grant_cold_damage_taken_+%_equal_to_slow_amount") != 0 && chillMagnitude > 0)
             packet = packet.Select((type, range) => type == DamageType.Cold ? range.Scale(1 + chillMagnitude / 100.0) : range);
+        // Inspiration: "Supported Skills deal (3-7)% more Elemental Damage per Inspiration Charge".
+        int charges = conn.SupportGems.InspirationCharges;
+        int perCharge = Get("elemental_damage_+%_final_per_righteous_charge");
+        if (charges > 0 && perCharge > 0)
+        {
+            double elemental = Math.Max(0, 1 + (double)perCharge * charges / 100.0);
+            packet = packet.Select((type, range) => type is DamageType.Fire or DamageType.Cold or DamageType.Lightning
+                ? range.Scale(elemental) : range);
+        }
         return packet;
     }
 }

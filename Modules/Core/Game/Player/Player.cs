@@ -303,6 +303,11 @@ static partial class Game
             // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
             if (cost > 0 && BloodCharges.Uses(Own))
                 cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
+            // Inspiration: "Supported Skills have (25-42)% reduced Mana Cost".
+            int inspirationCost = Own("support_inspiration_mana_cost_+%_final");
+            if (cost > 0 && inspirationCost != 0)
+                cost = (uint)Math.Max(0, Math.Round(cost * Math.Max(0, 1 + inspirationCost / 100.0),
+                    MidpointRounding.AwayFromZero));
             int life;
             if (Lifetap.ConvertsCostToLife(own))
             {
@@ -321,6 +326,7 @@ static partial class Game
                 Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
             }
             ManaSpentLocked(conn, cost, player);
+            SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
     }
