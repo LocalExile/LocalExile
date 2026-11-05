@@ -206,7 +206,8 @@ public class LockstepMonsterTests : IDisposable
     // On a lockstep client a walker's position reads as of the current frame's start, so the leg's end must be read
     // along the walk itself: read as a position it was the walker's own cell, and every far melee chase went out as a
     // Move onto its own cell (live 2026-11-04: all 3 303 leg orders of two fights; the melee monsters stood). An
-    // estimate that finds no way keeps the attack aimed at the player, whose action then ends with no walk-up.
+    // estimate that finds no way, standing or walking, keeps the attack aimed at the player, whose action then ends with
+    // no walk-up.
     [Fact]
     public void A_lockstep_leg_placed_at_the_gate_goes_a_leg_along_or_keeps_the_attack()
     {
@@ -227,6 +228,14 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal((100, 100), aim);   // the player's cell
         Assert.Null(walled.LastTarget);
         Assert.Null(walled.ClientChase);
+        // Walled in while it walks: the stop waits for the frame's steps, and the action ends all the same.
+        bool walls = false;
+        var cutOff = Drowned(new PlayerWalk(160, 100, 8, walkable: (x, y) => !walls || (x, y) == (160, 100)) { FrameOf = at => (Math.Min(at, 1.0), 1.033) });
+        cutOff.Walk.Order(150, 100, now: 0.9);
+        walls = true;
+        Assert.True(Game.PlaceLockstepLeg(conn, cutOff, 1, 1.0).Attack);
+        Assert.Null(cutOff.LastTarget);
+        Assert.Null(cutOff.ClientChase);
 
         // A monster a stop left 149 ms into a 177 ms diagonal step starts its leg from the stand with that time, as the
         // client does with the one order it gets: a step in the order's frame. The walk-up placed to find the leg, and the

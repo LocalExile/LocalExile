@@ -424,6 +424,8 @@ public sealed class PlayerWalk
             var stop = At(frame.End, out _);
             var kept = (Phase(frame.End).Into, frame.End);
             Teleport(stop.X, stop.Y, now);
+            // At its goal only when it was in range where it stood, not when the search found no path (ReachedGoal).
+            _goalReached = reached;
             _kept = kept;
             return here;
         }
