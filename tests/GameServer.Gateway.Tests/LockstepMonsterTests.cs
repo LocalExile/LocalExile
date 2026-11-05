@@ -23,9 +23,9 @@ public class LockstepMonsterTests : IDisposable
         if (previousLogic is not null) Program.SetGameLogic(previousLogic);
     }
 
-    static ClientState Connection(bool lockstep) => new(new(1, "chase", 300, 300, 100, 100, null, []), 1, 1)
+    static ClientState Connection(bool lockstep, string? character = null) => new(new(1, "chase", 300, 300, 100, 100, null, []), 1, 1)
     {
-        Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true, LockstepClient = lockstep,
+        Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true, LockstepClient = lockstep, Character = character,
     };
 
     static SpawnedMonster Drowned(PlayerWalk walk) => new("Drowned", walk, aggroRange: 60, stopRange: 2, maxLife: 23)
@@ -174,11 +174,11 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal((100, 100), walled.LastTarget);
     }
 
-    // A lockstep client takes no Move whose target is within two cells of the walker: no set, no search, its current
-    // action goes on (live 2026-11-04: 317 of 317). So such a surround-slot Move is not sent and the estimate keeps the
-    // walk it had; three cells away the Move is placed as before.
+    // A lockstep client takes no Move whose target is within two cells of the walker (0x1419442d0): no set, no search,
+    // its current action goes on (live 2026-11-04: 317 of 317). So such a surround-slot Move is not sent and the estimate
+    // keeps the walk it had; three cells away the Move is placed as before.
     [Fact]
-    public void A_lockstep_move_within_two_cells_is_not_sent_and_the_walk_goes_on()
+    public async Task A_lockstep_move_within_two_cells_is_not_sent_and_the_walk_goes_on()
     {
         PlayerWalk Walker() => new(100, 100, 8) { FrameOf = at => (Math.Min(at, 1.0), 1.033) };
         var shooter = new SpawnedMonster("Spitter", Walker(), aggroRange: 60, stopRange: 2, maxLife: 10);
@@ -197,11 +197,28 @@ public class LockstepMonsterTests : IDisposable
 
         // The player's Moves follow the same rule (live 2026-11-04: 308 of 308): a held cursor 2 cells from the walking
         // player starts nothing and the walk goes on; 3 cells away the Move is placed.
-        var conn = Connection(lockstep: true);
+        var conn = Connection(lockstep: true, character: "LockstepNearMove");
         conn.LockstepFrame = (1.0, 1.033);
         conn.Walk.Order(140, 100, 0.5);
         var player = conn.Walk.Position(1.0);
         Assert.Null(Game.PlaceLockstepPlayerMove(conn, (player.X + 2, player.Y), 1.0));
+        Assert.Equal((140, 100), conn.Walk.Destination);
+        Assert.True(conn.Walk.Moving(1.1));
+        // The frame pass spends nothing on it either: no sequence, no action, no 0x1ab (none can go out here). The pass
+        // reads the character's gems, so it gets a save store of its own.
+        conn.LockstepLatency = LockstepLatency.Unconditional();
+        conn.LockstepHold.Press((player.X + 2, player.Y), 0x2909, 0x0408);
+        var spent = (conn.LockstepSequence, conn.ActionCount);
+        string saves = Path.Combine(Path.GetTempPath(), $"localexile-lockstep-near-{Guid.NewGuid():N}.db");
+        Saves.Open(saves);
+        try { await Game.StartLockstepActions("near", null!, null!, conn, 1.0); }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!);
+            TestEnvironment.ReleaseSaves(saves);
+        }
+        Assert.Single(conn.LockstepTrail);   // the pass ran past the latency gate
+        Assert.Equal(spent, (conn.LockstepSequence, conn.ActionCount));
         Assert.Equal((140, 100), conn.Walk.Destination);
         Assert.True(conn.Walk.Moving(1.1));
         Assert.Equal(player, Game.PlaceLockstepPlayerMove(conn, (player.X + 3, player.Y), 1.0));
