@@ -98,7 +98,8 @@ static partial class Game
     {
         var e = m.Mods.Effects;
         double physical = mitigated[DamageType.Physical].Min;
-        double physicalTaken = physical * Math.Max(0, 1 - e.PhysicalReduction / 100.0);
+        double physicalTaken = physical * Math.Max(0, 1 - (e.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+            * (1 + MaimedPhysicalTaken(m, now) / 100.0);
         double total = mitigated.MinTotal - physical + physicalTaken;
         // The player's debuffs on it add to its own increased damage taken (MonsterDamageTaken): his enemy auras' elemental
         // increase on fire, cold and lightning only, his Withered on chaos only, and Pride's more Physical Damage on the
@@ -116,18 +117,37 @@ static partial class Game
             + physicalTaken * factor * (physicalFactor - 1));
     }
 
-    internal static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell) =>
+    internal static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,
+        double now = double.NaN) =>
         mitigated.Select((type, range) => range.Scale(type == DamageType.Physical
-            ? Math.Max(0, 1 - m.Mods.Effects.PhysicalReduction / 100.0) : 1)).Scale(m.Mods.Effects.DamageTaken(spell));
+            ? Math.Max(0, 1 - (m.Mods.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+                * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1))
+            .Scale(m.Mods.Effects.DamageTaken(spell));
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
     internal static int SelfCriticalReduction(ClientState conn) =>
         Stats.Key("base_self_critical_strike_multiplier_-%") is uint key ? CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
 
     /// <summary>Whether the monster blocks a hit of the player (Stalwart's monster_base_block_%: attacks only). Rolled
-    /// before anything of the hit happens: a blocked hit has no damage, impale, flinch or hit message.</summary>
-    internal static bool MonsterBlocks(SpawnedMonster m, Random random, bool spell) =>
-        !spell && m.Mods.Effects.BlockChance > 0 && random.Next(100) < m.Mods.Effects.BlockChance;
+    /// before anything of the hit happens: a blocked hit has no damage, impale, flinch or hit message. The skill's
+    /// "reduced Enemy Block Chance" (Block Chance Reduction) applies to the roll, and a blocked supported hit applies
+    /// Overpowered, which lowers the monster's block chance further for its duration.</summary>
+    internal static bool MonsterBlocks(SpawnedMonster m, Random random, bool spell, double now = 0,
+        IReadOnlyDictionary<uint, int>? skill = null)
+    {
+        if (spell) return false;
+        int Skill(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
+        int chance = m.Mods.Effects.BlockChance - Math.Max(0, Skill("support_reduce_enemy_block_and_spell_block_%"));
+        if (m.OverpoweredUntil > now) chance -= m.OverpoweredPercent;
+        if (chance <= 0 || random.Next(100) >= chance) return false;
+        if (Skill("apply_overpowered_on_enemy_block_reduced_block_and_spell_block_%") is var overpowered and > 0
+            && Skill("support_overpowered_base_duration_ms") is var duration and > 0)
+        {
+            m.OverpoweredPercent = overpowered;
+            m.OverpoweredUntil = Math.Max(m.OverpoweredUntil, now + duration / 1000.0);
+        }
+        return true;
+    }
 
     /// <summary>A blocked projectile's damage (<see cref="MonsterBlocks"/>): the impact applies nothing.</summary>
     internal const int Blocked = -1;
@@ -159,7 +179,11 @@ static partial class Game
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type),
                 chaos: type == DamageType.Chaos);
-        if (type == DamageType.Physical) factor *= 1 + (Math.Max(0, m.PridePhysicalMore) + Math.Max(0, m.TakenFromPlayer.Physical)) / 100.0;
+        // Pride's more damage, the Maim support's increased physical damage taken and Flesh and Stone's Blood Stance
+        // all apply to the physical part only.
+        if (type == DamageType.Physical)
+            factor *= 1 + (Math.Max(0, m.PridePhysicalMore) + MaimedPhysicalTaken(m, now)
+                + Math.Max(0, m.TakenFromPlayer.Physical)) / 100.0;
         return factor;
     }
 

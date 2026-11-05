@@ -795,7 +795,8 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 {
     public const string TypePath = "Metadata/Effects/PermanentServerEffect";
     const string RootBone = "<root>";
-    // The attachment's kind byte, a mask on its transform (0x142900da0): 1 drops the scale, 2 the translation, 4 the rotation.
+    // The attachment's kind byte written after the bone (the native AttachedAnimatedObject reader 0x141e5adb0).
+    // The official Arrow Nova arrow sends 0 here and 3 for the mask byte, which keeps the bone's rotation.
     const byte AttachWithoutRotation = 4;
 
     /// <summary>Positioned flags0 0x80 (→ +0x1e6 bit 2): the object keeps its rotation while it glides (0x1ba); without it
@@ -817,18 +818,47 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     /// moves it, and it does not turn with the parent.</summary>
     public uint Parent { get; init; }
 
+    /// <summary>The parent's bone the effect rides on; the native attachment record. Defaults to the root.</summary>
+    public string Bone { get; init; } = "<root>";
+
+    /// <summary>The byte after the bone in the native attachment record (param_6 of 0x141e5a440). The Arrow Nova
+    /// arrow sends 0; the effect writer's older attachments use <see cref="AttachWithoutRotation"/>.</summary>
+    public byte AttachKind { get; init; } = AttachWithoutRotation;
+
+    /// <summary>The attachment mask byte (0x141e5a440 sets bits 0, 1, 2 and 7 of +0x220 from it). The Arrow Nova
+    /// arrow sends 3, keeping the bone's rotation so the arrow follows aux_projectile_attach.</summary>
+    public byte AttachFlags { get; init; }
+
+    /// <summary>Animated flags override: bit0 the .ao path, bit2 the attachment, bit3 the native default animation
+    /// (the rain rig uses 0x09; zero computes 1, or 5 with a parent).</summary>
+    public byte AnimatedFlags { get; init; }
+
+    /// <summary>Positioned flags0 0x04's two fields: the native skill/action animation row and its time value
+    /// (the rain rig's player-side effect sends 22 and -172.0).</summary>
+    public uint AnimationWord { get; init; }
+    public float AnimationValue { get; init; }
+
+    /// <summary>Animated bit3's first word: the animation the client starts (0 is the .ao's default). The official
+    /// Arrow Nova rain rig sends 6 at the caster and 0 at the target, which is what makes the player-side rig play
+    /// the up-cast instead of the landing.</summary>
+    public uint AnimationId { get; init; }
+
     public byte[] Blob()
     {
         var w = new BlobWriter();
         bool scaled = Scale != 1;
         w.U8(0).U8(0);                                              // object flags, base data entry count
-        w.I32(GridX).I32(GridY).F32(0).U16(0).U8((byte)((Flags0 & 0x81) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
+        w.I32(GridX).I32(GridY).F32(0).U16(0).U8((byte)((Flags0 & 0x85) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
+        if ((Flags0 & 4) != 0) w.U32(AnimationWord).F32(AnimationValue);    // flags0 0x04's native animation fields
         if (scaled) w.F32(Scale).F32(1).F32(1);                     // uniform scale, x and y stretch
         w.U8(0).U8(1);
-        w.U8(Parent != 0 ? (byte)5 : (byte)1).WStr32(AnimatedObject); // Animated: bit0 + the .ao path, bit2 the attachment
+        w.U8(AnimatedFlags != 0 ? AnimatedFlags : Parent != 0 ? (byte)5 : (byte)1).WStr32(AnimatedObject); // Animated
+        // Bit 3 makes the client read the animation's id, a second word and its speed after the path (the official
+        // rain rig's 12 bytes: id, 0, 1.0); without them the read runs past the blob and crashes the client.
+        if ((AnimatedFlags & 8) != 0) w.U32(AnimationId).U32(0).F32(1);
         if (Parent != 0)
-            w.U32(Parent).F32(0).F32(0).U32((uint)RootBone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(RootBone))
-                .U8(AttachWithoutRotation).U8(0).F32(0).F32(0).F32(0);
+            w.U32(Parent).F32(0).F32(0).U32((uint)Bone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(Bone))
+                .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
         w.U8(0);                                                    // tasks
         return w.ToArray();
     }

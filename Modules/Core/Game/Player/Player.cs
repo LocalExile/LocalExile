@@ -39,8 +39,13 @@ static partial class Game
                 && !conn.Auras.Values.Any(a => AuraCatalog.Family(a.EffectId) == AuraCatalog.Family(effect))
                 && GemSkillInstanceDisabled(conn, gem.Effect, gem.Id) is null
                 && SupportedReservation(conn, gem.Id) is { } reservation)
+            {
+                var supported = SupportedSkill(conn, gem.Id);
+                var (supportEffect, affectsSelf) = AuraSupport(conn, gem.Id);
                 candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.NextBuff++, AuraCatalog.BuffRow(effect),
-                    reservation.Flat, reservation.Percent, SupportedSkill(conn, gem.Id).Level, SupportedSkill(conn, gem.Id).Quality, SourceBuff: conn.NextBuff++));
+                    reservation.Flat, reservation.Percent, supported.Level, supported.Quality, SourceBuff: conn.NextBuff++,
+                    SupportEffectPct: supportEffect, AffectsSelf: affectsSelf));
+            }
         var restored = AuraCatalog.Restore(saved, candidates, conn.Pools, InTown(conn));
         foreach (var aura in restored) conn.Auras[aura.SkillId] = aura;
         if (restored.Count > 0)
@@ -298,6 +303,11 @@ static partial class Game
             // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
             if (cost > 0 && BloodCharges.Uses(Own))
                 cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
+            // Inspiration: "Supported Skills have (25-42)% reduced Mana Cost".
+            int inspirationCost = Own("support_inspiration_mana_cost_+%_final");
+            if (cost > 0 && inspirationCost != 0)
+                cost = (uint)Math.Max(0, Math.Round(cost * Math.Max(0, 1 + inspirationCost / 100.0),
+                    MidpointRounding.AwayFromZero));
             int life;
             if (Lifetap.ConvertsCostToLife(own))
             {
@@ -316,6 +326,7 @@ static partial class Game
                 Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
             }
             ManaSpentLocked(conn, cost, player);
+            SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
     }
@@ -514,6 +525,7 @@ static partial class Game
                 await SendRecentEnemyHits(remote, stream, ciphers, conn);
                 await SendAttackerSlows(remote, stream, ciphers, conn);
                 await SendLifetap(remote, stream, ciphers, conn);
+                await SendSupportGemBuffs(remote, stream, ciphers, conn);
                 await SendLeechBuffs(remote, stream, ciphers, conn);
                 await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return false;

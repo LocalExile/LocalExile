@@ -185,6 +185,11 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public readonly MonsterIgnites Bleeds = new();
     // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
     public readonly MonsterPoisons Poisons = new();
+    // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), under the Monsters lock.
+    public readonly MonsterRuptures Ruptures = new();
+    // Overpowered (Block Chance Reduction): the block chance its blocked supported hits take away until the deadline.
+    public int OverpoweredPercent;
+    public double OverpoweredUntil;
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
     public readonly MonsterElementalAilments Ailments = new();
     // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.
@@ -209,6 +214,21 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public double IntimidatedUntil = double.NegativeInfinity, IntimidateShownUntil, UnnervedUntil = double.NegativeInfinity,
         UnnerveShownUntil;
     public ushort IntimidateBuff, UnnerveBuff;
+    // Crushed by his hits (Awakened Brutality) until when, shown with its own crushed buff; Crush lowers its physical
+    // damage reduction (Game.CrushReduction).
+    public double CrushedUntil = double.NegativeInfinity, CrushShownUntil;
+    public ushort CrushBuff;
+    // Maimed by his hits until when and the physical damage increase its source gave, shown with its own maimed buff.
+    public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
+    public ushort MaimBuff;
+    public int MaimedPhysicalTakenPct;
+    // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.
+    public double HallowingFlameUntil = double.NegativeInfinity;
+    public double HallowingFlamePct;
+    // Excommunicate Support: until when its chaos damage is suppressed.
+    public double ExcommunicatedUntil = double.NegativeInfinity;
+    // "Killed Enemies drop X% increased Items" from the skill of the last player hit (Item Quantity Support).
+    public int KilledWithItemQuantityPct;
     // Blinded by his hits until when, one more source of his Blind (Game.Blinded), shown with its own blinded buff.
     public double BlindedUntil = double.NegativeInfinity, BlindShownUntil;
     public ushort BlindBuff;
@@ -578,6 +598,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly PetrifiedBloodState PetrifiedBlood = new();
     /// <summary>Lifetap Support's life-paid costs, spent-Life counter and buff (Combat/Lifetap.cs).</summary>
     public readonly LifetapState Lifetap = new();
+    /// <summary>Arcane Surge's buff and Inspiration's charges (Skill/SupportGemBuffs.cs).</summary>
+    public readonly SupportGemState SupportGems = new();
     /// <summary>The invisible leech recovery buffs shown on the resource orbs (Combat/Leech.cs).</summary>
     public readonly LeechDisplayState LeechDisplay = new();
     // Life Recoup of the hits the player took (Game.RecoupHitLocked), paid by the resource recovery loop.

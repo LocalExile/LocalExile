@@ -16,6 +16,11 @@ sealed partial class ClientState
     internal double VaalPreventionUntil;
     internal bool SentVaalPrevention;
     internal object? VaalUseState;
+    // Close Combat's Combat Rush: more Attack Speed for a travel skill (GemSupports.Rules.CombatRushOnHit).
+    internal double CombatRushUntil;
+    internal int CombatRushAttackSpeed;
+    // Fist of War: per skill, when its next use counts as the big hit (ClientState.cs).
+    internal readonly Dictionary<ushort, double> FistOfWarAt = [];
 
     internal void RetireOwnedCombat()
     {

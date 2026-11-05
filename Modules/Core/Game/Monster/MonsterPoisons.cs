@@ -59,8 +59,12 @@ static partial class Game
         if (avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return;
 
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
-        target.Poisons.Add(now, min + (Math.Max(min, max) - min) * random.NextDouble(),
-            settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]));
+        // Lethal Dose: a hit that finds the enemy unpoisoned applies additional poisons on top of its own.
+        int stacks = 1 + (target.Poisons.Stacks(now) == 0
+            ? Math.Max(0, Get("additional_poisons_+_to_apply_vs_non_poisoned_enemies")) : 0);
+        double perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
+        double seconds = settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]);
+        for (int i = 0; i < stacks; i++) target.Poisons.Add(now, perSecond, seconds);
     }
 
     internal static async Task TickPoisons(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)

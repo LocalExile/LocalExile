@@ -109,9 +109,11 @@ static partial class Game
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
-        // The physical part counts after the monster's physical reduction, as the hit's damage does.
+        // The physical part counts after the monster's physical reduction and its Maim, as the hit's damage does.
         var taken = mitigated.Select((type, range) => range.Scale(factor
-            * (type == DamageType.Physical ? Math.Max(0, 1 - m.Mods.Effects.PhysicalReduction / 100.0) : 1)));
+            * (type == DamageType.Physical
+                ? Math.Max(0, 1 - (m.Mods.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+                    * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
         var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill),
             name => m.Mods.Effects[name], random, AilmentArea(Player, Skill, spell));
         foreach (var effect in added)
@@ -186,6 +188,8 @@ static partial class Game
             double action = m.Mods.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
                 : (1 - a.Magnitude(Kind.Chill, now) / 100) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
             double walk = m.Mods.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
+            // Maim: 30% reduced movement speed while maimed (PoB: MovementSpeed INC -30 with the Maimed condition).
+            if (m.MaimedUntil > now) walk *= 0.7;
             if (walk != a.WalkFactor)
             {
                 if (m.Walk.Speed > 0) m.Walk.SetSpeed(m.Walk.Speed / a.WalkFactor * walk, now);
