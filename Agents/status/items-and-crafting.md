@@ -215,14 +215,18 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- **On-kill explosions and attribute damage reduction (implemented 2026-11-04, automated verification; live client
-  pending):** "Enemies you Kill Explode, dealing X% of their Life as Physical Damage" (the Crusader body-armour prefix
-  and the synthesis implicit) deals X% of the killed monster's maximum life as physical damage to every hostile monster
-  within 20 cells, mitigated by each target's resistances; increased area of effect scales the radius, and a kill by the
-  explosion can trigger another one. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
+- **On-kill explosions and attribute damage reduction (implemented 2026-11-04; native behavior checked with the
+  official client 2026-11-05, server live check pending):** "Enemies you Kill Explode, dealing X% of their Life as
+  Physical Damage" (the Crusader body-armour prefix and the synthesis implicit) deals X% of the killed monster's
+  maximum life as physical damage to every hostile monster within 25 cells, mitigated by each target's resistances;
+  increased area of effect scales the radius, and a kill by the explosion can trigger another one. The explosion
+  consumes the corpse (0x2bb at once) and plays the native `HolyExplosion` art (MiscAnimated 2877,
+  `Metadata/Effects/Spells/holy_explode/holy_explode.ao`) for two seconds. Official 3.29.3b check: corpses removed
+  0-6 ms after the death, kills at 22.85 and 24.35 cells from one explosion; the base radius is 25 (the character's
+  extra area of effect was not extracted). The Eater of Worlds body-armour implicits "1% less Damage Taken per X
   Strength/Dexterity/Intelligence" reduce hits, ignite and the other damage over time taken as a final multiplier.
-  Not modelled: the chance-based and conditional (ignited, shocked, bleeding) explode variants, secondary damage's
-  scaling by global physical/area damage, and the exploded monster leaving no corpse.
+  Not modelled: the chance-based and conditional (ignited, shocked, bleeding) explode variants and secondary damage's
+  scaling by global physical/area damage.
   Code: `KillExplosions.cs`, `IncomingResourceDefences.cs`, `IncomingDamage.cs`, `PlayerAilments.cs`, `Player.cs`.
 
 - **Item modifier effect (implemented 2026-11-03, automated verification; live client pending):** the item-local
