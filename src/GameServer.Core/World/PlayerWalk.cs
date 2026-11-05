@@ -35,7 +35,9 @@ public sealed class PlayerWalk
     // a walk the step loop ended (its path's end, a blocked step).
     private double _kept;
 
-    private sealed record Segment((int X, int Y) From, (int X, int Y)[] Cells, double T0, float Step)
+    // Joined: the next segment goes on along the same piece of the path (a step already due, split off by Follow), so
+    // this one's last cell is no waypoint (EndsPiece).
+    private sealed record Segment((int X, int Y) From, (int X, int Y)[] Cells, double T0, float Step, bool Joined = false)
     {
         public double End => T0 + Cells.Length * (double)Step;
     }
@@ -128,6 +130,51 @@ public sealed class PlayerWalk
         WalksThrough = false;
     }
 
+    /// <summary>Whether the step at <paramref name="at"/> (a time from <see cref="Steps"/>) ends a piece of the path: the
+    /// walker steps into one of its waypoints, where the client's MoveTo tests its goal (0x141e7bec0).</summary>
+    public bool EndsPiece(double at)
+    {
+        foreach (var s in _segments)
+            if (s.Cells.Length > 0 && s.End == at) return !s.Joined;
+        return false;
+    }
+
+    /// <summary>Ends the walk at its goal once it has taken its steps up to <paramref name="until"/> (a lockstep client's
+    /// MoveTo found its goal, 0x141e7bc20). Mid-piece the stop (0x141e350e0) waits for the next tick, whose due steps the
+    /// walker still takes: <paramref name="until"/> is that tick's end. At a waypoint the piece's step time is already
+    /// spent and the walker stands there at once: <paramref name="until"/> is that step's time. The steps up to then stay,
+    /// so a position asked for an earlier time is still the walked cell, and the time since the last step stays for the
+    /// next walk as after any stop that waits for a tick (the stop clears only the step time, 0x141e32710); none when the
+    /// walk's own steps ended by then (the step loop ended it).</summary>
+    public void StopAfter(double until)
+    {
+        var kept = new List<Segment>();
+        double last = _segments.Count > 0 ? _segments[0].T0 : until;
+        bool beyond = false;
+        foreach (var s in _segments)
+        {
+            int k = 0;
+            while (k < s.Cells.Length && s.T0 + (k + 1) * (double)s.Step <= until) k++;
+            if (k > 0)
+            {
+                kept.Add(k == s.Cells.Length ? s : s with { Cells = s.Cells[..k] });
+                last = s.T0 + k * (double)s.Step;
+            }
+            if (k < s.Cells.Length)
+            {
+                beyond = true;
+                break;
+            }
+        }
+        _rest = kept.Count > 0 ? kept[^1].Cells[^1] : _segments.Count > 0 ? _segments[0].From : _rest;
+        _restSince = until;
+        _segments = kept;
+        _kept = beyond ? Math.Max(0, until - last) : 0;
+        Reached = true;
+        _goalReached = true;
+        WalksThrough = false;
+    }
+
     /// <summary>Paths again to the current order's target from where the walk ended, at <paramref name="at"/>.</summary>
     public (int X, int Y) Repath(double at) => Walk(_target, _maxRange, _tolerance, at, _precision);
 
@@ -151,7 +198,7 @@ public sealed class PlayerWalk
         var end = left.Cells[^1];
         float step = StepTime(here, end);
         double start = now < left.T0 ? left.T0 : now - fraction * step;
-        var walk = new List<Segment> { new(here, [.. ClientPathfinder.Line(here, end).Skip(1)], start, step) };
+        var walk = new List<Segment> { left with { From = here, Cells = [.. ClientPathfinder.Line(here, end).Skip(1)], T0 = start, Step = step } };
         foreach (var next in _segments.Skip(i + 1))
             walk.Add(next with { T0 = walk[^1].End, Step = StepTime(next.From, next.Cells[^1]) });
         _segments = walk;
@@ -248,7 +295,7 @@ public sealed class PlayerWalk
         if (i < 0) return;
         var left = _segments[i];
         int done = Math.Max(0, (int)((now - left.T0) / left.Step));
-        var walk = new List<Segment> { new(here, left.Cells[done..], Math.Max(left.T0, now + seconds - fraction * left.Step), left.Step) };
+        var walk = new List<Segment> { left with { From = here, Cells = left.Cells[done..], T0 = Math.Max(left.T0, now + seconds - fraction * left.Step) } };
         foreach (var next in _segments.Skip(i + 1)) walk.Add(next with { T0 = walk[^1].End });
         _segments = walk;
     }
@@ -399,7 +446,7 @@ public sealed class PlayerWalk
                 // order's frame before the walk's next step (halfway: the step pass reads only a step's frame and order),
                 // not before the frame, where no frame's pass would check it and the frame's start would show it.
                 double next = t + 2 * (double)step, by = Math.Min(next, FrameOf?.Invoke(now)?.End ?? next);
-                walk.Add(new Segment(path[i - 1], cells[..1], now, (float)((by - now) / 2)));
+                walk.Add(new Segment(path[i - 1], cells[..1], now, (float)((by - now) / 2), Joined: cells.Length > 1));
                 if (cells.Length > 1) walk.Add(new Segment(cells[0], cells[1..], t + step, step));
             }
             else walk.Add(new Segment(path[i - 1], cells, t, step));

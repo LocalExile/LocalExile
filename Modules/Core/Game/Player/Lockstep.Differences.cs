@@ -164,4 +164,8 @@ static partial class Game
     // the Gateway has no idle AI. GGG sends nothing at that moment either, but idle orders follow: of 131 pursuits it ended
     // with the player 60+ cells off, 65 got a Move of 3+ cells, 30 a self-aimed Wait (the variety's granted Wait skill,
     // flags 0x80), 9 a flight and 15 an aimed order again after 3 s or more.
+
+    // Differs from GGG: a monster whose chase walk-up starts its swing (StepWalkUp, TakeLockstepChase) gets no 0x1ac
+    // (MonsterSwing's begunAt path). GGG sends one when its own copy starts the swing; a lockstep client does nothing with
+    // a 0x1ac (0x14164dc70), and its swing starts by its own goal test either way.
 }

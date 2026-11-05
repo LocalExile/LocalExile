@@ -33,63 +33,116 @@ public class LockstepMonsterTests : IDisposable
         Attack = new(0x3188, 2.0, 8, DamagePacket.Empty), Aggro = true, LastTarget = (100, 100),
     };
 
-    // A melee chase order's walk-up swings by itself on a lockstep client once the player is in its reach, so the server
-    // takes that swing instead of ordering a second one; a walk-up still out of reach, and a predictive client, get the
-    // chase or swing order as before.
+    // A lockstep client's chase walk-up (the attack aimed at the player) swings by itself in the frame its own goal test
+    // finds the player in reach (07 §5): where it stands when the order applies, after its steps in a frame against the
+    // player's cell as his tick left it, or where a blocked step stopped it; out of reach at its path's end it searches
+    // again toward the player. The server takes that swing from that frame's start with no order, and gives a standing
+    // lockstep melee monster in reach the chase, not a swing order. Only a chase the client runs is tested, not a Move
+    // that sets LastTarget; an in-place attack and a predictive client keep their swing orders.
     [Fact]
-    public void A_chase_walk_up_that_got_there_swings_without_a_second_order_on_a_lockstep_client()
+    public void A_chase_walk_up_swings_in_the_frame_the_client_finds_the_player_in_reach()
     {
+        static SpawnedMonster Chasing(SpawnedMonster m)
+        {
+            m.ClientChase = m.ActionGeneration;   // its chase order went out
+            return m;
+        }
+        // Its own step: (108, 100) at 0.25 is 8 cells from the player, in the frame from 0.231; the stop waits for the next
+        // tick's steps, and the next is due at 0.375, so it stands there.
         var conn = Connection(lockstep: true);
-        var arrived = Drowned(new PlayerWalk(104, 100, 8));   // at rest since 0, four cells from the player
+        conn.LockstepFrame = (1.023, 1.056);
+        var arrived = Chasing(Drowned(new PlayerWalk(110, 100, 8)));
+        arrived.Walk.Order(104, 100, now: 0);   // a step every 0.125 s
         var walking = Drowned(new PlayerWalk(140, 100, 8));
-        walking.Walk.Order(100, 100, now: 1);   // five seconds from the player's cell
-        conn.Monsters[0x3000] = arrived;
-        conn.Monsters[0x3001] = walking;
-        var plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 1);
-        Assert.Equal([0x3000u], plan.ArrivedSwings.Select(s => s.Id));
-        // In reach while standing: the swing began within the last AI step.
-        Assert.Equal(1 - MonsterAiCadence.StepSeconds, plan.ArrivedSwings[0].BegunAt, 6);
-        Assert.Equal(1 - MonsterAiCadence.StepSeconds + 2.0 + conn.LockstepActionTail, arrived.BusyUntil, 3);
-        Assert.Null(arrived.LastTarget);
-        Assert.Equal(arrived.ActionGeneration, arrived.SwingGeneration);
-        Assert.DoesNotContain(0x3000u, plan.Swings.Select(s => s.Id));
-        Assert.Equal([0x3001u], plan.Legs.Select(c => c.Id));   // 40 cells off: its chase goes in legs
-
-        // In reach on the way (its walk passes the player): the swing begins at this tick and the walk ends here.
-        var met = Drowned(new PlayerWalk(140, 105, 8));
-        met.Walk.Order(96, 105, now: 0);   // past the player five cells off: within reach from 4.3 s, arriving at 5.5 s
-        conn.Monsters[0x3002] = met;
-        plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 4.5);
-        Assert.Contains(0x3002u, plan.ArrivedSwings.Select(s => s.Id));
-        Assert.Equal(4.5, plan.ArrivedSwings.Single(s => s.Id == 0x3002u).BegunAt, 6);
-        Assert.False(met.Walk.Moving(4.6));
-        // At the path's end with the player gone on: no swing there (the client's monster goes on after the player), the
-        // chase is ordered again.
-        var late = Drowned(new PlayerWalk(120, 100, 8));
-        late.Walk.Order(118, 100, now: 0);   // a two-cell walk, over at 0.25 s, ending 18 cells from the player
-        conn.Monsters[0x3003] = late;
-        plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 6);
-        Assert.DoesNotContain(0x3003u, plan.ArrivedSwings.Select(s => s.Id));
-        Assert.Contains(0x3003u, plan.Chases.Select(c => c.Id));
-        // A walk that a body stopped short is no arrival: the chase goes on (ordered again) instead of a swing there.
+        walking.Walk.Order(100, 100, now: 1);   // 40 cells from the player
         var blocked = Drowned(new PlayerWalk(130, 100, 8));
         blocked.Walk.Order(100, 100, now: 0);
-        blocked.Walk.StopAt(0.5);   // a step found blocked half a second in, 26 cells from the player
+        blocked.Walk.StopAt(0.5);   // a step found blocked half a second in, 27 cells from the player
+        // Standing 4 cells off with no chase open: the chase, not a swing order. A walk-up whose first step, at 0.025,
+        // runs into that body tests the goal where it stopped, 8 cells off: it swings, from the first frame.
+        var standing = Drowned(new PlayerWalk(100, 104, 8));
+        standing.LastTarget = null;
+        var stopped = Chasing(Drowned(new PlayerWalk(100, 108, 8)));
+        stopped.Walk.Order(100, 100, now: -0.1);
+        conn.Monsters[0x3000] = arrived;
+        conn.Monsters[0x3001] = walking;
         conn.Monsters[0x3005] = blocked;
-        plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 7);
-        Assert.DoesNotContain(0x3005u, plan.ArrivedSwings.Select(s => s.Id));
-        Assert.Contains(0x3005u, plan.Legs.Select(c => c.Id));   // 30 cells off: ordered again, in a leg
+        conn.Monsters[0x3006] = standing;
+        conn.Monsters[0x3007] = stopped;
+        var plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 1.03);
+        Assert.Equal([0x3000u, 0x3007u], plan.ArrivedSwings.Select(s => s.Id));
+        Assert.Equal(0.231, plan.ArrivedSwings[0].BegunAt, 3);
+        Assert.Equal(0.231 + 2.0 + conn.LockstepActionTail, arrived.BusyUntil, 3);
+        Assert.Equal((108, 100), arrived.Walk.Position(1.03));
+        Assert.False(arrived.Walk.Moving(1.03));
+        Assert.Null(arrived.LastTarget);
+        Assert.Equal(arrived.ActionGeneration, arrived.SwingGeneration);
+        Assert.Equal(0.0, plan.ArrivedSwings[1].BegunAt, 3);
+        Assert.Equal((100, 108), stopped.Walk.Position(1.03));
+        Assert.Equal([0x3001u, 0x3005u], plan.Legs.Select(c => c.Id));   // far off: ordered again, in legs
+        Assert.Equal([0x3006u], plan.Chases.Select(c => c.Id));
+        Assert.Empty(plan.Swings);
+        // The order's own apply: in reach where the monster stands, the swing starts in the order's frame and no walk-up
+        // opens; out of reach, the walk-up opens for the step pass.
+        var near = Drowned(new PlayerWalk(106, 100, 8));
+        Assert.Equal(((106, 100), (100, 100)), Game.PlaceLockstepChase(conn, near, 7, 1.023));
+        Assert.Equal(1.023, near.ClientSwingAt);
+        Assert.Equal(7, near.ClientSwingAction);
+        Assert.Null(near.ClientChase);
+        var far = Drowned(new PlayerWalk(130, 100, 8));
+        Game.PlaceLockstepChase(conn, far, 7, 1.023);
+        Assert.Equal(7, far.ClientChase);
+        Assert.Null(far.ClientSwingAt);
+        Assert.Equal((100, 100), far.LastTarget);
+
+        // The player walks into its reach: his step to (105, 100) at 0.541 puts the Drowned at (100, 106) 7.8 cells off, in
+        // the frame from 0.528, though outside the 2 cells inside the reach the server once kept for a walking player. It
+        // swings, and its step due at 0.625 is not taken.
+        var walkIn = Connection(lockstep: true);
+        walkIn.LockstepFrame = (0.561, 0.594);
+        walkIn.Walk.Teleport(125, 100, 0);
+        walkIn.Walk.Order(60, 100, 0);
+        var crossing = Chasing(Drowned(new PlayerWalk(100, 110, 8)));
+        crossing.Walk.Order(100, 90, now: 0);
+        walkIn.Monsters[0x3002] = crossing;
+        plan = Game.PlanMonsterAi(walkIn, new MonsterAiCadence(), now: 0.57);
+        Assert.Equal(0.528, Assert.Single(plan.ArrivedSwings).BegunAt, 3);
+        Assert.Empty(plan.Swings);
+        Assert.Equal((100, 106), crossing.Walk.Position(0.7));
+
+        // At its path's end out of reach (the player went on to (100, 60)), the walk-up searches again toward his cell, in
+        // the same frame. A Move that sets LastTarget (the King's, a Rampage chase) is no walk-up: it walks on past the
+        // player within reach.
+        var gone = Connection(lockstep: true);
+        gone.LockstepFrame = (3.003, 3.036);
+        gone.Walk.Order(100, 60, 0);
+        var late = Chasing(Drowned(new PlayerWalk(130, 100, 8)));
+        var walkUp = late.Walk.Approach(100, 100, 7, 0, tolerance: 1);
+        Assert.Equal(((108, 100), 2.75), (walkUp.Stop, walkUp.At));
+        var mover = Drowned(new PlayerWalk(106, 75, 8));
+        mover.Walk.Order(106, 40, now: 1.5);   // within reach of the player's cell from (106, 65) at 2.75
+        mover.LastTarget = (106, 40);
+        gone.Monsters[0x3003] = late;
+        gone.Monsters[0x3008] = mover;
+        lock (gone.Monsters) Game.StepWalkers(gone, 3.01);
+        Assert.True(late.Walk.Moving(3.003));
+        Assert.InRange(Math.Sqrt(Math.Pow(late.Walk.Destination.X - 100, 2) + Math.Pow(late.Walk.Destination.Y - 60, 2)), 0, 8);
+        Assert.Equal(late.ActionGeneration, late.ClientChase);
+        Assert.Equal((106, 40), mover.Walk.Destination);
+        Assert.True(mover.Walk.Moving(3.003));
+
         // A ranged monster's in-place attack leaves its Move running to the end, on a lockstep client as on a predictive
         // one: the estimate keeps its walk.
         SpawnedMonster Spitter(PlayerWalk walk) => new("Spitter", walk, aggroRange: 60, stopRange: 2, maxLife: 10)
         {
             Attack = new(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true }, Aggro = true, LastTarget = (120, 100),
         };
+        var ranged = Connection(lockstep: true);
         var shooter = Spitter(new PlayerWalk(130, 100, 8));
         shooter.Walk.Order(120, 100, now: 6);
-        conn.Monsters[0x3004] = shooter;
-        plan = Game.PlanMonsterAi(conn, new MonsterAiCadence(), now: 6.5);
-        Assert.Contains(0x3004u, plan.Swings.Select(s => s.Id));
+        ranged.Monsters[0x3004] = shooter;
+        plan = Game.PlanMonsterAi(ranged, new MonsterAiCadence(), now: 6.5);
+        Assert.Equal([0x3004u], plan.Swings.Select(s => s.Id));
         Assert.True(shooter.Walk.Moving(6.6));
 
         var predictive = Connection(lockstep: false);
@@ -153,25 +206,27 @@ public class LockstepMonsterTests : IDisposable
     // On a lockstep client a walker's position reads as of the current frame's start, so the leg's end must be read
     // along the walk itself: read as a position it was the walker's own cell, and every far melee chase went out as a
     // Move onto its own cell (live 2026-11-04: all 3 303 leg orders of two fights; the melee monsters stood). An
-    // estimate that finds no way keeps the attack aimed at the player.
+    // estimate that finds no way keeps the attack aimed at the player, whose action then ends with no walk-up.
     [Fact]
     public void A_lockstep_leg_placed_at_the_gate_goes_a_leg_along_or_keeps_the_attack()
     {
         var conn = Connection(lockstep: true);
         conn.LockstepFrame = (1.0, 1.033);
         var far = Drowned(new PlayerWalk(160, 100, 8) { FrameOf = at => (Math.Min(at, 1.0), 1.033) });
-        var (here, aim, attack) = Game.PlaceLockstepLeg(conn, far, 1.0);
+        var (here, aim, attack) = Game.PlaceLockstepLeg(conn, far, 1, 1.0);
         Assert.False(attack);
         Assert.Equal((160, 100), here);
         Assert.Equal((148, 100), aim);   // 12 cells along the walk-up, at 8 cells a second
         Assert.Equal((148, 100), far.Walk.Destination);
+        Assert.Null(far.ClientChase);
 
         var walled = Drowned(new PlayerWalk(160, 100, 8, walkable: (x, y) => (x, y) == (160, 100)) { FrameOf = at => (Math.Min(at, 1.0), 1.033) });
-        (here, aim, attack) = Game.PlaceLockstepLeg(conn, walled, 1.0);
+        (here, aim, attack) = Game.PlaceLockstepLeg(conn, walled, 1, 1.0);
         Assert.True(attack);
         Assert.Equal((160, 100), here);
         Assert.Equal((100, 100), aim);   // the player's cell
-        Assert.Equal((100, 100), walled.LastTarget);
+        Assert.Null(walled.LastTarget);
+        Assert.Null(walled.ClientChase);
     }
 
     // A lockstep client takes no Move whose target is within two cells of the walker (0x1419442d0): no set, no search,

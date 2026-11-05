@@ -290,9 +290,25 @@ swing's timing on both sides. `skill_is_non_pathing` on the skill skips all of t
 stands, without a 0x1ac. The Gateway's melee skills no longer carry it, and its ranged skills and boss stages still do.
 It chases the same way (`PlanMonsterAi`, `InstanceProtocol.ActionStartedNow`), and its estimate walks the same walk-up
 with `PlayerWalk.Approach` at the search budget of §5.
+
+Whether the walk-up has got there is MoveTo's goal test (`0x141e7b260`) on the target's own cell: the action's target
+(`0x14123d600`) is the player's Positioned cell itself, so the goal follows him as he walks. It is tested where the
+monster stands when the order applies (`0x141e7b530`), after the monster's steps in every tick (Pathfinding's tick,
+`0x141e7bfb0`; objects tick in ascending id, so the player's cell is as his steps this tick left it), and at every
+waypoint of its path it steps into (`0x141e7bec0`). Met, `0x141e7bc20` stops the walk and fires the arrival
+(`0x141e942f0` → `0x141e94720`): at a waypoint the walker stands at once, since the piece's step time is spent; mid-piece
+the stop (`0x141e350e0`) waits for the next tick's steps. A blocked step reaches `0x141e7bc20` too (listener table
+`0x1435a6728` slot 2, `0x141e7bf80`), which tests the goal again where the walker stopped: met, that is an arrival;
+otherwise, as when a search finds no path, the action ends. At the path's end out of reach it searches again from
+there toward the target's cell in the same tick (`0x141e7b920`). `0x141e94720` also waits for the actor to face its
+target, but only for an action with `action_required_target_facing_angle_tolerance_degrees` (slots +0x230 and +0x238,
+`0x14123d650` and `0x14193ebc0`: 0 reads as a full turn); no granted effect, skill level or monster variety has it, so
+no monster here waits for it.
 A monster told to swing while the player is out of its reach does not stand: on the client it walks after the player
-until it can swing. So the Gateway calls a swing off when the player is out of reach in its first 150 ms, and swings at a
-walking player only from 2 cells inside the reach, since the client's player is already farther on.
+until it can swing. So on a predictive client the Gateway calls a swing off when the player is out of reach in its first
+150 ms, and swings at a walking player only from 2 cells inside the reach, since the client's player is already farther
+on. Both numbers are the Gateway's guesses, for a client it cannot see; a lockstep client's swing follows the goal test
+itself (§6).
 
 Each melee order has its own rising sequence with the top bit set, as GGG's do. The client picks the swing's clip by it,
 and the hit lands at that clip's contact keyframe (`monster-contacts.json`).
@@ -584,17 +600,19 @@ monster and at the ground alike. A held attack's next use, at a monster or at
 the ground, waits for the attack time of the one before (`NextAttackAt`): one sent as soon as the player was free came
 0.4 s into a 0.645 s swing and was queued to its end, with the server's swing and hit ahead of the client's by as much.
 
-A melee monster's chase order (an attack aimed at the player) swings by itself on a lockstep client once the player is
-in its reach, since the client waits for no 0x1ac (`0x141e94720`): on the way, or at its walk's end with the player still
-there. With the player gone on it does not swing at the cell the order named: its action goes on after the live player,
-pathing again until it is in reach (live 2026-11-03, pack fights with the AI trace: in 32 of 34 silences of the server
-the client's Drowned stood in its swing with the player 7 to 9 cells off; in the other 3 it walked 8 to 19 cells on
-after a player 9 to 16 cells off, and the next order snapped it back). The Gateway counts that swing from the tick the
-player is within reach of its estimate, 2 cells inside the reach while the player walks, since a running player's cell
-differs by a cell or two between the two sides at one instant and chasing on costs less than a swing the client does
-not make (`MonsterAiPlan.ArrivedSwings`), instead of ordering a second one, which the client only played
-after the first, or chasing on, which left the estimate 10 to 17 cells ahead of the standing monster by the swing's
-end; a walk that ended out of reach, cut short or not, is ordered again on its cadence. A ranged monster's
+A melee monster's chase order (an attack aimed at the player) swings by itself on a lockstep client in the tick its goal
+test passes (§5, "A melee monster's chase"), since in lockstep `0x141e94720` waits for no 0x1ac and sets no 0.25 s
+repath: in the order's own frame when the monster stands in reach as it applies, else in the frame its own steps
+or the player's bring them within reach. With the player gone on, its action goes on after the live player, pathing
+again until he is in reach. In per-frame traces of six fights, every walk-up that came within reach swung by that rule
+(85 of 85: 82 at a path's end, 3 mid-path that took their due step first) and all 2 151 searches in a monster's tick
+aimed at the player's cell then. The Gateway runs the same test, at the order's apply (`TakeLockstepChase`) and in
+each frame of the step pass against the player's cell as his tick left it (`StepWalkUp`), and takes the swing as its
+own from that frame's start, with no order (`MonsterAiPlan.ArrivedSwings`): a second one only waits behind the swing
+(`0x141e8cf10`), and GGG's next 0x1ab to the same object after its 0x1ac comes 0.96 s later at the median. A lockstep
+melee monster standing in reach gets the chase, not a swing order. Before, the Gateway took the swing at its 50 ms AI
+pass with the player within reach of the estimate, 2 cells inside it while he walked: 105 of 298 swings the client
+began got orders sent into them (M0 bench). A ranged monster's
 in-place attack leaves its Move running on a lockstep client as on a predictive one: per-frame, the shot's clip starts on
 the order's frame and the Sand Spitter walks on to its Move's target (377 shots ordered mid-Move: 1.4 cells left at the
 median, 4.2 at the 90th percentile, 7.6 at most), so the estimate keeps its walk; where its path is longer than the
@@ -637,6 +655,7 @@ own phase. GGG's server has none of this: it is the client's own simulation.
 | Orders a walking monster again only at a frame start right after its estimate's step | On its cadence, from its own simulation | A set after an order whose from cell is off zeroes the client's step accumulator while the estimate keeps its fraction; right after the estimate's step there is under a frame to lose |
 | Sends 0x2b6 | Never | The client's default is not traced |
 | Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours stands out there too now (its walk ends at the 0x1aa, no order until it is back); 0x128 is skipped here, so the return places it with LockstepPlace |
+| No 0x1ac when a monster's chase walk-up starts its swing | One when its copy starts the swing | A lockstep client does nothing with a 0x1ac; the swing starts by its own goal test |
 | A monster that gives up a pursuit gets no order: it ends its walk and stands | Nothing then either, but idle orders after (131 pursuits ended with the player 60+ cells off: a Move of 3+ cells 65, a self-aimed Wait 30, a flight 9, an aimed order again 15, nothing 12) | No idle AI here; the give-up's own Move is within 2 cells, which the client does not take |
 | An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |
 | Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |

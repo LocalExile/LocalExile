@@ -32,8 +32,9 @@ static partial class Game
     /// <summary>The sequence of a monster's actions (0x1ab); the client's clip selector is seeded with it.</summary>
     internal const ushort MonsterActionSequence = 0xffff;
 
-    // How long after its order a melee swing can still turn out not to have begun on the client, and how far inside its
-    // reach a monster must be to swing at a walking player (37 cells a second over the order's way to the client).
+    // Predictive only (a lockstep client's chase walk-up swings by its own goal test, StepFrames): how long after its order
+    // a melee swing can still turn out not to have begun on the client, and how far inside its reach a monster must be to
+    // swing at a walking player (37 cells a second over the order's way to the client). Neither is sourced yet.
     const double SwingOrderSeconds = .15, MovingReachMargin = 2;
     // A melee walk-up farther than this past the reach goes in legs of this many cells (07 §5): the client paths every
     // order out of one budget per frame, which a search toward a player a long way off spends, finding nothing 27–57 %
@@ -461,7 +462,7 @@ static partial class Game
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To)> MoveLegs = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action)> Swings = [];
         // Swings a lockstep client's monster began by itself when its chase walk-up got there (no 0x1ab: the client's
-        // action is already swinging), with when the walk-up ended.
+        // action is already swinging), with the start of the frame the swing began in.
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, double BegunAt)> ArrivedSwings = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, uint Target, SpawnedMonster Weapon)> WeaponSwings = [];
         public readonly List<(uint Id, SpawnedMonster Monster)> BossBars = [];
@@ -639,39 +640,34 @@ static partial class Game
                 // Attack cadence remains the attack's own duration; faster AI only reduces the delay after expiry.
                 // A pending echo/contact keeps its original generation instead of reserving repeated swings at the gate.
                 // A chill slows the swing by its action speed, as the native clip does.
-                // A walking player has already gone farther on the client, unless both run on frames: no swing right at
-                // the edge of the reach.
-                // A lockstep client's monster waits for no 0x1ac: a chase order's walk-up swings the moment the player is
-                // in its reach (0x141e94720), on the client's frame: on the way, or at the walk's end with the player still
-                // there. A walk that ends with the player gone on is no swing: the client's action goes on after the live
-                // player, pathing again until it is in reach (live 2026-11-03: in 32 of 34 silences of the server the
-                // client's monster stood in its swing with the player 7 to 9 cells off; in the other 3 it walked 8 to 19
-                // cells on after a player 9 to 16 cells off and the next order snapped it back). So the server takes the
-                // client's swing as its own only with the player in reach of the estimate now, 2 cells inside it while the
-                // player walks (a running player's cell differs by a cell or two between the two sides at one instant,
-                // and chasing on costs less than a swing the client does not make), instead of ordering a second swing, which
-                // the client would only play after the first, or chasing on, which left the client's monster standing
-                // through its swing with the chase orders queued behind it; a walk that ended out of reach is ordered
-                // again on its cadence. GGG's server, being the client's own simulation, swings at that same moment. The
-                // hit still asks the reach at the contact.
-                if (conn.LockstepClient && m.Hostile && m.Attack is { InPlace: false } chase && m.LastTarget is not null
-                    && m.SwingGeneration is null && d <= chase.Range - (conn.Walk.Moving(now) ? MovingReachMargin : 0))
+                // A lockstep client's chase walk-up swings by itself, waiting for no 0x1ac (0x141e94720), in the frame its
+                // goal test finds the player in reach: where the monster stands when the order applies
+                // (PlaceLockstepChase), or on the way, every frame and at each waypoint, against the player's cell then
+                // (StepFrames). The server takes that swing as its own, from that frame's start, with no order: a second
+                // one would only wait behind the swing (0x141e8cf10), and GGG's next 0x1ab after its 0x1ac comes 0.96 s
+                // later at the median. The hit still asks the reach at the contact.
+                if (conn.LockstepClient && m.ClientSwingAt is { } begun)
                 {
-                    // The client's swing began at its walk's end when that was within the last AI step, else just now.
-                    double begun = Math.Max(Math.Min(now, m.Walk.ArrivesAt), now - MonsterAiCadence.StepSeconds);
-                    if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) swings from its chase at ({mx}, {my}): player ({px}, {py}) {d:0.0} away, "
-                        + $"walk {(m.Walk.ArrivesAt <= now ? "ended" : "under way")} toward {m.LastTarget}, reached goal {m.Walk.ReachedGoal}, begun {now - begun:0.000} s ago (t={now:0.000})");
-                    // In reach on the way: the client's monster stops where it is for the swing.
-                    if (m.Walk.ArrivesAt > now) m.Walk.Order(mx, my, now);
-                    m.BusyUntil = begun + MonsterSwingSeconds(conn, m, begun) / action + conn.LockstepActionTail;
-                    m.LastTarget = null;
-                    m.SwingGeneration = m.ActionGeneration;
-                    m.SwingOrderedAt = begun;
-                    cadence.BeginSwing(m, m.ActionGeneration);
-                    plan.ArrivedSwings.Add((id, m, m.ActionGeneration, begun));
-                    continue;
+                    m.ClientSwingAt = null;
+                    if (m.ClientSwingAction == m.ActionGeneration && m.SwingGeneration is null)
+                    {
+                        if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) swings from its walk-up at {m.Walk.Position(begun)}: "
+                            + $"player ({px}, {py}) {d:0.0} away now, begun {now - begun:0.000} s ago (t={now:0.000})");
+                        m.BusyUntil = begun + MonsterSwingSeconds(conn, m, begun) / action + conn.LockstepActionTail;
+                        m.LastTarget = null;
+                        m.SwingGeneration = m.ActionGeneration;
+                        m.SwingOrderedAt = begun;
+                        cadence.BeginSwing(m, m.ActionGeneration);
+                        plan.ArrivedSwings.Add((id, m, m.ActionGeneration, begun));
+                        continue;
+                    }
                 }
-                if (m.Hostile && m.Attack is { } a && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin)
+                // A swing order: a monster's in-place skill, a summoner's (its actor's clip, not a walk-up), and any attack
+                // on a predictive client, where a walking player has already gone farther: no swing right at the edge of
+                // the reach. A lockstep client's melee monster swings only by its chase's goal test (above): standing in
+                // reach, it gets the chase, which starts the swing in the order's own frame.
+                if (m.Hostile && m.Attack is { } a && (a.InPlace || a.Summon is not null || !conn.LockstepClient)
+                    && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin)
                     && SummonReadyLocked(conn, id, m, a, now))
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action + conn.LockstepActionTail;
@@ -880,9 +876,9 @@ static partial class Game
                     var aim = to;
                     var start = LockstepOrderFrom(conn, plan, from, at =>
                     {
-                        aim = conn.Walk.Position(at);
-                        m.LastTarget = aim;
-                        return m.Walk.Approach(aim.X, aim.Y, m.Attack!.Range - 1, at, LivingCollision.PlayerSize).Here;
+                        var (here, player) = PlaceLockstepChase(conn, m, action, at);
+                        aim = player;
+                        return here;
                     });
                     return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, m.Attack!.SkillId, m.NextSequence(), 0, targetObjectId: PlayerId);
                 },
@@ -894,7 +890,7 @@ static partial class Game
                     bool noWay = false;
                     var start = LockstepOrderFrom(conn, plan, from, at =>
                     {
-                        var (here, leg, attack) = PlaceLockstepLeg(conn, m, at);
+                        var (here, leg, attack) = PlaceLockstepLeg(conn, m, action, at);
                         (aim, noWay) = (leg, attack);
                         return here;
                     });
@@ -1058,7 +1054,7 @@ static partial class Game
     // Returns the walker's cell, the cell to order and whether to send the attack aimed at the player instead: an
     // estimate that finds no way keeps the attack order, as the planner does without frames (the client's own search
     // may find one; a Move to its own cell would leave it standing).
-    internal static ((int X, int Y) Here, (int X, int Y) Aim, bool Attack) PlaceLockstepLeg(ClientState conn, SpawnedMonster m, double at)
+    internal static ((int X, int Y) Here, (int X, int Y) Aim, bool Attack) PlaceLockstepLeg(ClientState conn, SpawnedMonster m, int action, double at)
     {
         var player = conn.Walk.Position(at);
         var walk = m.Walk.Approach(player.X, player.Y, m.Attack!.Range - 1, at, LivingCollision.PlayerSize);
@@ -1067,10 +1063,35 @@ static partial class Game
         // walk-up is the one the estimate just placed.
         if (!LockstepTakesMove(walk.Here, leg))
         {
-            m.LastTarget = player;
+            TakeLockstepChase(m, action, walk.Here, player, at);
             return (walk.Here, player, true);
         }
         return (m.Walk.Order(leg.X, leg.Y, at), leg, false);
+    }
+
+    // A melee chase order (the attack aimed at the player) placed at a lockstep frame's start `at`: the walk-up to the
+    // player's cell then. Returns the walker's cell and the player's.
+    internal static ((int X, int Y) Here, (int X, int Y) Aim) PlaceLockstepChase(ClientState conn, SpawnedMonster m, int action, double at)
+    {
+        var player = conn.Walk.Position(at);
+        var here = m.Walk.Approach(player.X, player.Y, m.Attack!.Range - 1, at, LivingCollision.PlayerSize).Here;
+        TakeLockstepChase(m, action, here, player, at);
+        return (here, player);
+    }
+
+    // A chase order whose walk-up was just placed at `at` from `here`, as the client takes it. Its MoveTo tests the goal
+    // where the monster stands first (0x141e7b530 → 0x141e7b260): met, the swing starts in the order's own frame
+    // (0x141e7bc20 → 0x141e94720, no 0x1ac in lockstep), for the AI to take (PlanMonsterAi). A search that finds no path
+    // ends the action (0x141e7b920 → 0x141e7bc20). Otherwise the walk-up is open, and the step pass tests its goal every
+    // frame (StepFrames).
+    static void TakeLockstepChase(SpawnedMonster m, int action, (int X, int Y) here, (int X, int Y) player, double at)
+    {
+        m.LastTarget = player;
+        m.ClientChase = null;
+        if (m.Walk.InReachOf(here, player, (int)(m.Attack!.Range - 1), LivingCollision.PlayerSize))
+            (m.ClientSwingAt, m.ClientSwingAction) = (at, action);
+        else if (m.Walk.Reached && !m.Walk.ReachedGoal) m.LastTarget = null;
+        else m.ClientChase = action;
     }
 
     // A Move chase (a surround slot) placed at a lockstep frame's start `at` and cut to its leg. Returns the walker's
@@ -1215,7 +1236,7 @@ static partial class Game
         // Entry protection: a protected player is not attacked (the planner also skips hostile monsters meanwhile).
         if (!CurrentGameWork || InGracePeriod(conn)) return;
         // A swing the client's own chase action began when its walk-up got there (a lockstep client, PlanMonsterAi): no
-        // order goes out, the clip is the chase order's, and the contact counts from the walk-up's end.
+        // order goes out, the clip is the chase order's, and the contact counts from the start of the frame it began in.
         if (begunAt is { } begun && use is null && !area)
         {
             double begunSeconds;

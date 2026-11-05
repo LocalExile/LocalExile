@@ -277,6 +277,15 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
     public bool SoulKillProcessed;
     public (int X, int Y)? LastTarget;
+    // Lockstep (07 §5): the action generation of the chase order (the attack aimed at the player) whose walk-up the client
+    // runs. The walk-up is open while that is still the current generation (Game.WalkUpOpen): every later order, a flinch,
+    // a freeze and a transfer move the generation on. Set when the order is placed at the gate (Game.PlaceLockstepChase),
+    // cleared when the walk-up swings or fails (Game.StepFrames).
+    public int? ClientChase;
+    // The start of the frame in which the client's walk-up found the player in reach and so began its swing, and the
+    // action generation the swing belongs to, for the AI to take as its own (Game.PlanMonsterAi); null when none.
+    public double? ClientSwingAt;
+    public int ClientSwingAction;
     public double NextChaseRetryAt;
     // The cell a Move chase's current walk was cut to (Game.LegCells along its way), or null when the walk goes the whole
     // way: a walk at its leg's end is still on its way for the chase cadence.
