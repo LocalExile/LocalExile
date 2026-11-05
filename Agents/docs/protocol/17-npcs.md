@@ -186,7 +186,8 @@ Bestel's introduction (58), then row 62; Tarkleigh's introduction (23), then rew
 No `0x82` option request precedes these chains. Local capture `20261105-224157` sends only `0x84/0xff`
 on those clicks. Ordinary clicks and Continue now execute eligible unstarted introductions/quest talks through
 the shared quest path, after explicit script continuation/termination. Per-interaction visited rows prevent loops;
-saved start flags prevent replay after reconnect. Automatic reward presentation remains pending.
+saved start flags prevent replay after reconnect. Eligible reward rows use the existing reward handler at the
+same selection point, preserving its class-filtered inventory, prerequisite checks and atomic claim handling.
 Native selector `0x141e76d40` checks availability, start flag `+0x54`, automatic eligibility `+0x160`
 (NPCTalk `__col33`) and greatest priority `+0x161` (`__col34`), keeping the first row on ties.
 The introduction marker is `__col13`; heard introductions are skipped using their start flag.

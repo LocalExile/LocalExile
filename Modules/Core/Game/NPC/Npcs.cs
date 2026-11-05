@@ -130,11 +130,10 @@ static partial class Game
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(id);
         if (npc is null || conn.TalkingTo != id) return false;
         var next = Npcs.Value.NextConversationOf(npc.Npc, Quests.Names(PlayerQuestFlags(conn)), conn.AutomaticNpcTalkRows);
-        // Rewards keep their existing explicit-selection path until automatic reward presentation is added.
-        if (next is null || next.Category == "QuestReward") return false;
+        if (next is null) return false;
         conn.AutomaticNpcTalkRows.Add(next.Row);
         await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, next);
-        return conn.InNpcTalk || conn.TalkingTo != id;
+        return conn.InNpcTalk || conn.NpcRewardOffer is not null || conn.TalkingTo != id;
     }
 
     // C→S 0x82: an option picked in the NPC dialogue window (an NPCTalk row of the NPC talked to).

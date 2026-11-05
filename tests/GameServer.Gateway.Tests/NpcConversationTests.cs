@@ -49,5 +49,15 @@ public sealed class NpcConversationTests
             flags.Add(next.StartFlag!);
             Assert.NotEqual(next.Row, catalog.NextConversationOf(npc, flags, visited)?.Row);
         }
+        var tarkleigh = catalog.Find("Tarkleigh")!;
+        var rewardFlags = new HashSet<string> { "TarkleighIntroduced" };
+        Assert.Null(catalog.NextConversationOf(tarkleigh, rewardFlags, new HashSet<int>()));
+        rewardFlags.Add("a1q1-KilledHillock");
+        var reward = catalog.NextConversationOf(tarkleigh, rewardFlags, new HashSet<int>());
+        Assert.NotNull(reward);
+        Assert.Equal("QuestReward", reward.Category);
+        Assert.Equal(0, reward.RewardOffer);
+        rewardFlags.Add("a1q1-QuestRewardTaken");
+        Assert.Null(catalog.NextConversationOf(tarkleigh, rewardFlags, new HashSet<int>()));
     }
 }
