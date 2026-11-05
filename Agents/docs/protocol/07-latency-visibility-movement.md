@@ -585,8 +585,9 @@ closes the gap; a freeze's stop is not sent at all). Sent, a monster's left the 
 126 monster starts 2–3 cells off. A give-up's Move was always one, a cell away: the client walked on to its old target
 (69 of 74 still walking 0.5 s later) while the estimate stood, and 17 of those monsters later jumped 5–12 cells when
 the wake zone's return put them on the estimate. The player's used to stop the estimate while the client walked on. A
-near Move still replaces a queued action that can be cancelled: the offer (`0x141e8cf10`) destroys that one before the
-test runs.
+near Move still replaces a queued Move that can be cancelled (its vtable +0x190 and +0x208, flag 0x1000): the offer
+(`0x141e8cf10`) destroys that one before the test runs. A queued non-Move it replaces only when it carries flag 0x400
+and the walker's Player component, if it has one, has +0x2e9 other than 2 or 3; otherwise the offer refuses the Move.
 
 A Move that reaches the client during a swing is taken (`0x141e8cf10`) but queued: the actor runs it when the clip's
 `lock_cancelling` keyframe has played, or its contact keyframe for a clip without one, and only then (live 2026-11-03,
