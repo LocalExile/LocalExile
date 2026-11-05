@@ -37,7 +37,8 @@ public class LockstepMonsterTests : IDisposable
     // finds the player in reach (07 §5): where it stands when the order applies, after its steps in a frame against the
     // player's cell as his tick left it, or where a blocked step stopped it; out of reach at its path's end it searches
     // again toward the player. The server takes that swing from that frame's start with no order, and gives a standing
-    // lockstep melee monster in reach the chase, not a swing order. Only a chase the client runs is tested, not a Move
+    // lockstep melee monster in reach the chase, not a swing order. A chase that reaches a monster in a hit's recovery
+    // starts when its tick ends the recovery, after the player's. Only a chase the client runs is tested, not a Move
     // that sets LastTarget; an in-place attack, a monster that never walks and a predictive client keep their swing
     // orders.
     [Fact]
@@ -118,6 +119,32 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal(7, far.ClientChase);
         Assert.Null(far.ClientSwingAt);
         Assert.Equal((100, 100), far.LastTarget);
+        // A hit's recovery holds the client's monster (0x141e8d900): a chase that comes meanwhile waits, and the monster's
+        // own tick starts it in the frame that ends the recovery, after the player's tick. A 1.0 s 0x1d1 written in the
+        // frame from 1.023 ends 31 frames later: nothing is ordered in the frame from 2.013, even with the clock past its
+        // end before its 0x2b5 has gone out, and the chase in the frame from 2.046 tests the player's cell after his step
+        // there, 8.1 cells off (7.3 at the frame's start), so it walks up instead of swinging.
+        var hurtConn = Connection(lockstep: true);
+        hurtConn.Walk.Order(140, 140, now: 2.013);   // his first step, diagonal, at 2.051
+        var hurt = new SpawnedMonster("Drowned", new PlayerWalk(93, 102, 8), aggroRange: 60, stopRange: 2, maxLife: 23)
+        {
+            Attack = new(0x3188, 2.0, 8, DamagePacket.Empty), Aggro = true, HitAnimations = [new(0, 1.0)],
+        };
+        hurtConn.Monsters[0x3000] = hurt;
+        hurtConn.LockstepFrame = (1.023, 1.056);
+        lock (hurtConn.Monsters)
+        {
+            Assert.NotNull(HitReaction.TryFlinch(hurt, 10, 1.024, new Random(1)));
+            Game.TakeHitPacket(hurtConn, 0x3000, hurt, hurt.FlinchUntil, 1.024);   // its send gate
+        }
+        Assert.Equal(1.023 + 31 * 0.033, hurt.FlinchUntil, 9);
+        hurtConn.LockstepFrame = (2.013, 2.046);
+        Assert.Empty(Game.PlanMonsterAi(hurtConn, new MonsterAiCadence(), now: 2.047).Chases);
+        hurtConn.LockstepFrame = (2.046, 2.079);
+        var (_, _, recovered, _, _) = Assert.Single(Game.PlanMonsterAi(hurtConn, new MonsterAiCadence(), now: 2.05).Chases);
+        Assert.Equal(((93, 102), (101, 101)), Game.PlaceLockstepChase(hurtConn, hurt, recovered, 2.046));
+        Assert.Null(hurt.ClientSwingAt);
+        Assert.Equal(recovered, hurt.ClientChase);
         // A frame end overtakes the next chase (the AI pass and the frame loop are separate tasks): in that frame the
         // client still runs the walk-up, which steps into reach at 0.25 and swings. The chase is not sent into the swing,
         // and the next pass takes it from that frame's start.

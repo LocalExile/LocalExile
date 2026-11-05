@@ -645,6 +645,16 @@ the order's frame and the Sand Spitter walks on to its Move's target (377 shots 
 median, 4.2 at the 90th percentile, 7.6 at most), so the estimate keeps its walk; where its path is longer than the
 client's, it walks on alone (one 18-cell case in eight pack fights).
 
+A monster in a 0x1d1 TakeHit's recovery starts no action (Actor `+0x219` & 2, tested by the action gate
+`0x141e8d900`). An order that comes meanwhile waits (`0x141e8cf10`), and the monster's own tick starts it in the frame
+that ends the recovery (`0x141e934b0`), after the player has taken that frame's steps. That frame comes as many frames
+after the 0x1d1's own as the duration needs at 33 ms each: 31 for 1.0 s, the only duration in the bench data (orders
+sent 30 frames after it still waited after their own frame's step; none of 114 sent 31 after did). A chase sent in that
+frame, with the player in reach at its start and out of it after his step, walked up where the server took a swing
+(bench 2026-11-05). So the Gateway orders a recovering monster from that frame on (`LockstepRecoveryEnds`), and a
+chase in it takes the player's cell at the frame's end (`LockstepChaseTarget`). A chilled monster's count and a
+TakeHit the client refuses are not traced.
+
 **Keeping the estimate's walk the client's.** The client's walk is exact in time (§5, the lockstep tick), so the
 estimate's steps fall in the client's frames as long as the two start a walk in the same frame with the same phase. The
 step pass replays whole frames in object order (`StepFrames`), and a monster's order places its walk when the 0x1ab
