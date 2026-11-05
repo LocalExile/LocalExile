@@ -61,6 +61,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Local map viewer: `scripts/dev/map-viewer/start.ps1` shows generated tiles, walkability, exits and placed objects;
+  coverage follows the level generator and game data, and real terrain rendering is not implemented.
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64
