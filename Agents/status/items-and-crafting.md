@@ -224,6 +224,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   The explosion consumes the corpse (0x2bb at once) and plays the native `HolyExplosion` art (MiscAnimated 2877,
   `Metadata/Effects/Spells/holy_explode/holy_explode.ao`) for two seconds; its corpse was removed 0-6 ms after the
   death. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
+- Conditional item gates feed live pools and stat publication; Kintsugi incoming hits, expiry and lifecycle verified.
+  Weapon/aura, tracked-event, numeric-threshold and supported runtime-state gates have automated coverage.
+  Untracked, counted-recent and compound operators remain partial ([13](../docs/protocol/13-items.md)).
+
+- **On-kill explosions and attribute damage reduction (implemented 2026-11-04, automated verification; live client
+  pending):** "Enemies you Kill Explode, dealing X% of their Life as Physical Damage" (the Crusader body-armour prefix
+  and the synthesis implicit) deals X% of the killed monster's maximum life as physical damage to every hostile monster
+  within 20 cells, mitigated by each target's resistances; increased area of effect scales the radius, and a kill by the
+  explosion can trigger another one. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
   Strength/Dexterity/Intelligence" reduce hits, ignite and the other damage over time taken as a final multiplier.
   Not modelled: the chance-based and conditional (ignited, shocked, bleeding) explode variants and secondary damage's
   scaling by global physical/area damage.
@@ -377,9 +386,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   CoE rarity/metamod checks, ordinary/Shift inventory/stash dispatch and save reloads have automated coverage.
   The old live check (2026-10-21) predates these rules; native re-acceptance is pending.
   See [13](../docs/protocol/13-items.md), "Orb of Annulment", and [evidence](../docs/re/annulment-coe.md).
-- **Armourer's Scrap (verified live, 2026-10-21):** +1% quality on armour, up to 20%; Scouring resets it to 0.
+- **Armourer's Scrap:** quality scales with item level, up to 20%; the revised scaling is not yet verified live.
   See [13](../docs/protocol/13-items.md), "Armourer's Scrap".
-- **Blacksmith's Whetstone (verified live, 2026-10-21):** +1% quality on weapons, up to 20%; Scouring resets it.
+- **Blacksmith's Whetstone:** quality scales with item level, up to 20%; the revised scaling is not yet verified live.
   See [13](../docs/protocol/13-items.md), "Blacksmith's Whetstone".
 - **Gemcutter's Prism (no test, not checked live):** +1% gem quality, up to 20% ([13](../docs/protocol/13-items.md)).
 - **Ancient Orb:** reforges an uncorrupted unique piece of equipment as another of its item class, by the uniques' drop
@@ -414,7 +423,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [13](../docs/protocol/13-items.md), "Eldritch Embers", and [evidence](../docs/re/eldritch-ember-coe.md).
 - **Cartographer's Chisel, Eldritch Chaos/Exalted Orb and Orb of Unmaking (added 2026-11-05, not checked live):** the
   chisels now reach the existing map-quality effect through their `CurrencyItems.Action` (`add_map_alt_quality`), so a
-  chisel or a Maven's Chisel adds +1% of its AlternateQualityTypes row to a map, up to 20%. Eldritch Chaos and Eldritch
+  chisel or a Maven's Chisel adds 20% of its AlternateQualityTypes row to a map. Eldritch Chaos and Eldritch
   Exalted Orb reroll an existing rare's explicits (as Chaos/Exalted do) only when the item carries an Eater of Worlds or
   Searing Exarch implicit, which stays. Orb of Unmaking, used from the bag (C→S 0x58), refunds every allocated Atlas
   passive of all three presets and is consumed; with nothing allocated it stays. The three local rules are not the
@@ -425,7 +434,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   four linked sockets whose colours come from the base's requirements. The Eldritch Orb of Annulment follows the two other
   Eldritch orbs: an Annulment on an item carrying an Eater of Worlds or Searing Exarch implicit, which stays. The seven
   Tainted currencies this class applies (Chaos, Exalted, Chromatic, Fusing, Jeweller's, Armourer's Scrap, Blacksmith's
-  Whetstone) run the ordinary effect on a corrupted item and leave it corrupted: the item is handed to the effect with its
+  Whetstone) apply to a corrupted item and leave it corrupted; tainted quality currency adds 1%. The item is handed with its
   corruption cleared and the result is corrupted again, so a non-corrupted item is refused before spending, as is anything
   the ordinary effect refuses. Tainted Mythic, Tainted Divine Teardrop, Tainted Catalyst, Tainted Oil and Tainted Blessing
   are separate. Local rules, not the official ones. Two Gateway tests cover the Binding admission and the Tainted/Eldritch
@@ -456,7 +465,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   visible. Enkindling and Instilling both appeared on one flask, repeated use replaced only its own type, and magic
   explicit affixes stayed. No visual defects were found. Vaal on jewels remains outside the local rule; official
   jewel/Vaal outcomes are separate work. Stash/Shift and the remaining refusal paths stay under automated coverage.
-- **Glassblower's Bauble (verified live, 2026-10-21):** +1% flask quality up to 20%; Scouring resets it.
+- **Glassblower's Bauble:** quality scales with item level, up to 20%; the revised scaling is not yet verified live.
   See [13](../docs/protocol/13-items.md), "Glassblower's Bauble".
 - **Fracturing Orb (verified live, 2026-10-21; rules rechecked 2026-10-30):** one random explicit mod of a rare item
   with 4+ explicit mods is fractured and kept by every other currency, Scouring included; shown fractured (magic

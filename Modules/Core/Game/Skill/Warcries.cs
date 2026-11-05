@@ -21,6 +21,11 @@ static partial class Game
     internal static async Task WarcryReleased(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) at, int radius, int epoch)
     {
+        lock (conn.Monsters)
+        {
+            if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
+            conn.RecentEvents.Record(StatConditions.UsedWarcry, ProjectileWorldTime(conn));
+        }
         var stats = AreaPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         if (Get(CorpseExplosionStat) is int percent and > 0)
@@ -63,6 +68,7 @@ static partial class Game
             {
                 // Gone for the client (0x2bb below), so gone here too: a later removal (a projectile kill's) must not send it again.
                 corpse.CorpseConsumed = true;
+                conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
                 conn.Monsters.Remove(id);
                 var hit = CorpseExplosionHit(corpse.MaxLife, percent, get, conversion);
                 var centre = corpse.Walk.Position(now);

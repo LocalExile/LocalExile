@@ -104,8 +104,8 @@ static class CurrencyEffects
             TaintedChromaticOrb => Chromatic(plain, requirements, random),
             TaintedOrbOfFusing => Fusing(plain, type, random),
             TaintedJewellersOrb => Jewellers(plain, type, random),
-            TaintedArmourersScrap => ArmourerScrap(plain),
-            TaintedBlacksmithsWhetstone => Whetstone(plain),
+            TaintedArmourersScrap => AddQuality(plain, "Armour", 1),
+            TaintedBlacksmithsWhetstone => AddQuality(plain, "Weapon", 1),
             _ => null,
         };
         return result is { } changed ? changed with { Corrupted = true } : null;
@@ -179,11 +179,20 @@ static class CurrencyEffects
             || defences is not { HasVariableRange: true } ? null
             : item with { DefenceBaseRoll = (byte)random.Next(Item.MaximumDefenceBaseRoll + 1) };
 
-    /// <summary>Armourer's Scrap: +1% quality on an armour piece (any rarity), up to 20%; the client derives the higher
-    /// armour / evasion / energy shield from the quality. Refused for other items or at 20%.</summary>
-    public static Item? ArmourerScrap(Item item) =>
-        !item.Components.Contains("Armour") || !item.Components.Contains("Quality") || item.Quality >= MaximumQuality ? null
-            : item with { Quality = (byte)(item.Quality + 1) };
+    static int QualityGain(Item item, Random random)
+    {
+        if (item.Rarity == ItemRarity.Unique) return 1;
+        double gain = Math.Clamp(30 * Math.Exp(-item.ItemLevel / 30.0) - 0.3, 1, 20);
+        int whole = (int)gain;
+        return whole + (random.NextDouble() < gain - whole ? 1 : 0);
+    }
+
+    static Item? AddQuality(Item item, string component, int gain) =>
+        !item.Components.Contains(component) || !item.Components.Contains("Quality") || item.Quality >= MaximumQuality ? null
+            : item with { Quality = (byte)Math.Min(MaximumQuality, item.Quality + gain) };
+
+    public static Item? ArmourerScrap(Item item, Random? random = null) =>
+        AddQuality(item, "Armour", QualityGain(item, random ?? Random.Shared));
 
     public const string VaalOrb = "Metadata/Items/Currency/CurrencyCorrupt";
 
@@ -240,9 +249,9 @@ static class CurrencyEffects
             "identify" => target.Identified || !target.Components.Contains("Mods") ? null : target with { Identified = true },
             "add_map_alt_quality" => targetType is not null && items.AlternateQualityOf(currency) is byte qualityType
                 ? Chisel(target, targetType, qualityType) : null,
-            "add_armour_quality" => ArmourerScrap(target),
-            "add_weapon_quality" => Whetstone(target),
-            "add_flask_quality" => Glassblower(target),
+            "add_armour_quality" => ArmourerScrap(target, random),
+            "add_weapon_quality" => Whetstone(target, random),
+            "add_flask_quality" => Glassblower(target, random),
             "add_gem_quality" => Gemcutter(target),
             "corrupt_item" or "special_corrupt_item" => targetType is not null
                 ? Vaal(target, targetType, items.Requirements(targetType), rolls, random) : null,
@@ -285,7 +294,7 @@ static class CurrencyEffects
     public static bool IsMap(Item item, ItemCatalog.BaseType type) =>
         item.Components.Contains("Map") || item.Components.Contains("MapKey") || IsMap(type);
 
-    /// <summary>Any map quality chisel (CurrencyItems Action add_map_alt_quality): +1% quality of that
+    /// <summary>Any map quality chisel (CurrencyItems Action add_map_alt_quality): 20% quality of that
     /// AlternateQualityTypes row, up to 20%. A different type replaces the old one. Refused for non-maps, or at 20% of
     /// the same type.</summary>
     public static Item? Chisel(Item item, ItemCatalog.BaseType type, byte qualityType) =>
@@ -293,16 +302,14 @@ static class CurrencyEffects
         : item.Quality >= MaximumQuality && item.AlternateQualityType == qualityType ? null
         : item with
         {
-            Quality = item.Quality >= MaximumQuality ? item.Quality : (byte)(item.Quality + 1),
+            Quality = item.Quality >= MaximumQuality ? item.Quality : (byte)MaximumQuality,
             AlternateQualityType = qualityType,
         };
 
     public const string GlassblowersBauble = "Metadata/Items/Currency/CurrencyFlaskQuality";
 
-    /// <summary>Glassblower's Bauble: +1% quality on a flask (any rarity), up to 20%. Refused for other items or at 20%.</summary>
-    public static Item? Glassblower(Item item) =>
-        !item.Components.Contains("Flask") || !item.Components.Contains("Quality") || item.Quality >= MaximumQuality ? null
-            : item with { Quality = (byte)(item.Quality + 1) };
+    public static Item? Glassblower(Item item, Random? random = null) =>
+        AddQuality(item, "Flask", QualityGain(item, random ?? Random.Shared));
 
     public const string FracturingOrb = "Metadata/Items/Currency/CurrencyFractureRare";
 
@@ -340,11 +347,8 @@ static class CurrencyEffects
 
     public const string BlacksmithsWhetstone = "Metadata/Items/Currency/CurrencyWeaponQuality";
 
-    /// <summary>Blacksmith's Whetstone: +1% quality on a weapon (any rarity), up to 20%; the client derives the higher
-    /// physical damage from the quality. Refused for other items or at 20%.</summary>
-    public static Item? Whetstone(Item item) =>
-        !item.Components.Contains("Weapon") || !item.Components.Contains("Quality") || item.Quality >= MaximumQuality ? null
-            : item with { Quality = (byte)(item.Quality + 1) };
+    public static Item? Whetstone(Item item, Random? random = null) =>
+        AddQuality(item, "Weapon", QualityGain(item, random ?? Random.Shared));
 
     /// <summary>Orb of Alchemy: a modifiable normal item becomes an identified rare one with 4-6 new weighted
     /// affixes (CoE's 2/3, 1/4, 1/12) and a rare name. Flasks are magic-only; unknown/unmodifiable bases, non-normal
