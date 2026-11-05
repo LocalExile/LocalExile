@@ -995,6 +995,17 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Discipline's ordinary ES pool and recharge are verified separately above; conditional effects remain partial.
   Reservation overflow is refused.
   See [11](../docs/protocol/11-skills.md) section 13.
+- Flesh and Stone (#471, 2026-11-05, not checked live): the aura now activates (it was refused as an unimplemented
+  effect) and alternates its stance on every activation, the skill's own description: Blood Stance's BuffDefinitions row
+  1308 for 1309, with `NextFleshAndStoneStance` flipping when the aura starts. Blood Stance gives the monsters within the
+  aura radius the data's increased Physical Damage taken, full beside the player and falling off with distance, on the
+  physical share only (`SpawnedMonster.TakenFromPlayer.Physical`, read by `MonsterTakesMitigated` and `MonsterDotTaken`).
+  Sand Stance blinds the monsters within the same radius (the passive blind aura's mechanism, whichever radius is
+  larger) and adds the data's Sand Stance damage-taken reduction to the player's `base_damage_taken_+%`. Local rules, not
+  the official ones: the reduction is applied at its full value (the data scales it by the attacker's distance), Maim is
+  not modelled (monsters have no movement-speed slow) and the skill's 2 s cooldown is the client's own. Two Gateway
+  tests cover the registration, the stance rows and both effects.
+  Code: `AuraCatalog` (`FleshAndStone*`, `RawStats`), `Game.ToggleAura` / `EnemyDebuffsTick`, `MonsterMods`.
 - Passive-granted skills: a passive's `GrantedEffectsPerLevel` skill joins the gem skills at the row's fixed level,
   with a stable id, no supports, quality 0 and no requirements; it casts, reserves, saves and ends like a gem's.
   Only self auras are listed until other granted skills (minions, other kinds) have executors.

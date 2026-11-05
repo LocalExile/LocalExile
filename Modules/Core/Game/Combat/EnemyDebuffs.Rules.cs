@@ -85,6 +85,21 @@ static partial class Game
                     enemyAuras = [.. auras, new PassiveBuffAuras.Aura(0, "Pride", AuraCatalog.PrideBuffRow,
                         prideRadius, [3], [])];
                 }
+                // Flesh and Stone is an enemy aura too: Blood Stance's increased Physical Damage taken, Sand Stance's
+                // blind (below, with the passive blind aura's radius). Its stance comes from the activation (ToggleAura).
+                AuraCatalog.Aura? fleshAndStone = conn.Auras.Values.FirstOrDefault(a =>
+                    AuraCatalog.Family(a.EffectId) == "FleshAndStone");
+                int fleshRadius = 0, fleshPhysical = 0;
+                bool fleshBlood = false;
+                if (fleshAndStone is not null)
+                {
+                    var fleshSkills = SkillsFor(conn);
+                    fleshRadius = AuraRadius.Of(fleshAndStone, conn.Pools.AuraAreaPct, fleshSkills, Stats);
+                    fleshBlood = fleshAndStone.Stance != "Sand";
+                    if (fleshBlood)
+                        fleshPhysical = AuraCatalog.FleshAndStonePhysicalTaken(fleshAndStone, conn.Pools.AuraEffectPct,
+                            fleshSkills, Stats);
+                }
                 var bytes = new List<byte>();
                 int added = 0, removed = 0;
                 // One timed debuff on a monster: its buff shown for the time left, shown again when that changes, taken
@@ -183,9 +198,16 @@ static partial class Game
                         m.PrideSince = double.NaN;
                         m.PridePhysicalMore = 0;
                     }
-                    m.TakenFromPlayer = (taunted ? config.TauntedDamageTakenPct : 0, elemental);
+                    // Blood Stance: the increased Physical Damage taken falls off with the monster's distance from the
+                    // player, full at 0 and nothing at the aura's edge (the data's ..._from_player_distance).
+                    int physical = fleshBlood && living && fleshPhysical > 0 && distance <= fleshRadius
+                        ? (int)Math.Round(fleshPhysical * (1 - distance / fleshRadius), MidpointRounding.AwayFromZero)
+                        : 0;
+                    m.TakenFromPlayer = (taunted ? config.TauntedDamageTakenPct : 0, elemental, physical);
                 }
-                int? radius = conn.PlayerLife > 0 ? blindRadius : null;
+                // Sand Stance blinds the monsters within its radius, on top of the passive blind aura (if any).
+                int blindReach = Math.Max(blindRadius ?? 0, fleshAndStone is not null && !fleshBlood ? fleshRadius : 0);
+                int? radius = conn.PlayerLife > 0 && blindReach > 0 ? blindReach : null;
                 HashSet<uint> inside = radius is int r
                     ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && kv.Value.Mods.Effects["cannot_be_blinded"] == 0 && Dist(kv.Value.Walk.Position(now), here) <= r)
                         .Select(kv => kv.Key).ToHashSet()
