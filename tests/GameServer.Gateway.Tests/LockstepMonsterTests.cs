@@ -249,6 +249,10 @@ public class LockstepMonsterTests : IDisposable
         Assert.True(taken);
         Assert.Equal((107, 100), aim);
         Assert.Equal((107, 100), shooter.Walk.Destination);
+        // The client's sum of squares is a 32-bit int read as unsigned (0x1400f0a10): one past int's top is far, one that
+        // wraps to 0 is not (a player's target is its cell plus the 0x18e's i32 offsets, unclamped).
+        Assert.True(Game.LockstepTakesMove((0, 0), (46341, 0)));
+        Assert.False(Game.LockstepTakesMove((0, 0), (65536, 0)));
 
         // A give-up's Move to the next cell is not sent: the estimate walks on to its old target, as the client's monster
         // did (M0 bench: 69 of 74 still walking 0.5 s later). A frozen walker gets no stop. A predictive client gets both.
