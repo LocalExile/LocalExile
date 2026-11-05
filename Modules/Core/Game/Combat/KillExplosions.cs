@@ -6,9 +6,10 @@ using DamageType = GameServer.Core.World.DamageType;
 
 static partial class Game
 {
-    /// <summary>An on-kill explosion's base radius in cells, from the official 3.29.3b client (2026-11-05: a kill
-    /// exploded monsters 22.85 and 24.35 cells away; the character's extra area of effect was not extracted).
-    /// Increased area of effect still scales it through <see cref="SkillArea.Radius"/>.</summary>
+    /// <summary>An on-kill explosion's fixed radius in cells, from the official 3.29.3b client (2026-11-05: a kill
+    /// exploded monsters 22.85 and 24.35 cells away). The native radius does not follow the character's increased area
+    /// of effect; scaling our 25 by a 85% AoE build produced 37 cells and hit roughly twice the native crowd, which
+    /// flooded kills, loot and packets and stalled the input handlers.</summary>
     internal const int KillExplosionRadius = 25;
 
     /// <summary>The explosion's art: the server effect's MiscAnimated row 2877, `HolyExplosion` (official 3.29.3b,
@@ -32,7 +33,7 @@ static partial class Game
         if (percent <= 0) return;
         int amount = (int)Math.Min(int.MaxValue, corpse.MaxLife * (long)percent / 100);
         if (amount <= 0) return;
-        int radius = SkillArea.Radius(KillExplosionRadius, Get, spell: false);
+        int radius = KillExplosionRadius;
         var packet = DamagePacket.Of(DamageType.Physical, amount, amount);
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit)>();
         uint effect;

@@ -380,7 +380,7 @@ static partial class Game
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats (charges {why})");
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
-            () => InstanceEntities.PlayerSkillsChange(PlayerId, PlayerSkills(conn), []),
+            () => PlayerSkillsIfChanged(conn, PlayerSkills(conn)),
             $"0x02ba player Actor: {skills.Count} skill(s), charge stats");
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
     }

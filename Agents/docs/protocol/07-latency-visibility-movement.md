@@ -38,16 +38,21 @@ the client in the background (~6 updates/s), so the value stayed at the 12 measu
 Measured on one QPC clock (Frida on the client and the Gateway, 2026-10-19), the Gateway answers each 0x1b 0.15–0.28 ms
 after the client sends it; the rest is the 0x1c waiting in the client's socket until its next update.
 
-So the Gateway sends server delay 0xFFFF in every 0x1c (`ClientInbox.ServerDelayMs`, issue #49). Both clamp bounds
-become 0, so each 0x1c sets the value to 0 and F1 NETWORK reads 0. An overdue tick still raises it through the network
-update, which ignores the delay, so a real stall still shows until the next 0x1c.
+Each 0x1c goes out once the input read before its 0x1b has been handled (`ClientInbox.DeferTick`), in tick order, with
+server delay 0. The value then reads the whole wait the player feels: the network, the client's next update and the
+server's input queue (on localhost a steady ~14 ms, one client update; 100-400 ms in a fight the server lags in).
+Until 2026-11-05 it sent 0xFFFF (issue #49), which zeroed both clamp bounds, so F1 NETWORK read 0 always and only an
+overdue tick showed.
 
 The 0x1c takes only the connection's wire gate (`Program.Write`: encryption and the socket write), never the send gate
 whose packets evaluate game state in their `still`/`atGate` callbacks. Those callbacks wait for the combat lock, and in
 a crowd of 148 monsters they held the send gate for up to 4 s, so the answers queued behind them and the meter jumped
 to 0.5–4 s. Measured afterwards: no 0x1c later than 50 ms in a crowded Coast session.
 
-Tick latency does not measure queued gameplay work.
+Tick latency includes the input queue (above) but not the sends queued at the send gate.
+Set `$env:Game_TRACE = 'lag'` for the lag probe (`ConnectionPerformance.LagProbe`, off by default for its own cost):
+`[latency-totals]` (cumulative since the connection opened), `[latency-sends]` by message id, `[latency-empty]` by
+calling method, `[slow-use]` and `[slow-send]`.
 `ConnectionPerformance` separately records socket-read-to-handler queue age, handler duration, send-gate wait/hold,
 wire-gate wait/hold, socket writes, hot combat-lock wait/hold, channel lateness, surround time, blocker-index builds and
 each client message's handling (`Message`, the message id as the operation, such as `0x0025`).

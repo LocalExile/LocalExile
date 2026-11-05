@@ -63,7 +63,13 @@ static partial class Game
                 string? id = skills.EffectId(effect);
                 if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
                     || id.Contains("Daemon", StringComparison.Ordinal)
-                    || id.Contains("MemoryGame", StringComparison.Ordinal))) continue;
+                    || id.Contains("MemoryGame", StringComparison.Ordinal)
+                    // A bond, mark or soul skill links the monster to a second object the server does not create: Dominus'
+                    // first effect, DominusChillingBond, as his plain attack crashed the client at 0x14012946a when the
+                    // client linked it to entity 0 (0x141a291a0, live 2026-11-05). His DominusLightningSlam is the swing.
+                    || id.Contains("Bond", StringComparison.Ordinal)
+                    || id.Contains("Mark", StringComparison.Ordinal)
+                    || id.Contains("Souls", StringComparison.Ordinal))) continue;
                 if (!(skills.IsAttack(effect) || skills.IsSpell(effect) || skills.IsProjectile(effect))) continue;
                 if (Shot(skills, effect) is not null) return effect;
                 fallback ??= effect;

@@ -246,7 +246,7 @@ static partial class Game
         });
 
     internal static Task SendPlayerEnergyShield(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], "0x01b1 player energy shield", atGate: () =>
+        Send(remote, stream, ciphers, [], "0x01b1 player energy shield", sync: "energy-shield", atGate: () =>
         {
             // Sample and deduplicate after earlier sends: a queued pool change can clamp ES or end recharge.
             // Publish the current resource and its predictor together, from the same locked state.
@@ -500,23 +500,27 @@ static partial class Game
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
-            await SendAntiquarian(remote, stream, ciphers, conn);
-            await SendKillOnslaught(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendTotems(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
+            // The tick's state publications take the send gate once together (Program.SendBatched) instead of once each:
+            // eleven holds a tick, each with the Monsters lock, were what the input handlers queued behind. Spirit
+            // Chieftain stays outside: its minion follows its published state.
+            bool current = await Program.SendBatched(remote, stream, ciphers, async () =>
+            {
+                await SendAntiquarian(remote, stream, ciphers, conn);
+                await SendKillOnslaught(remote, stream, ciphers, conn);
+                if (!PlayerUpdatesCurrent(conn, updates)) return false;
+                await SendTotems(remote, stream, ciphers, conn);
+                await SendRecentEnemyHits(remote, stream, ciphers, conn);
+                await SendAttackerSlows(remote, stream, ciphers, conn);
+                await SendLifetap(remote, stream, ciphers, conn);
+                await SendLeechBuffs(remote, stream, ciphers, conn);
+                await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);
+                if (!PlayerUpdatesCurrent(conn, updates)) return false;
+                await TickPassiveAuras(remote, stream, ciphers, conn);
+                await SendBlind(remote, stream, ciphers, conn);
+                return PlayerUpdatesCurrent(conn, updates);
+            });
+            if (!current) return;
             await SendSpiritChieftain(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendRecentEnemyHits(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendAttackerSlows(remote, stream, ciphers, conn);
-            await SendLifetap(remote, stream, ciphers, conn);
-            await SendLeechBuffs(remote, stream, ciphers, conn);
-            await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await TickPassiveAuras(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendBlind(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await PushOutOfCollision(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
