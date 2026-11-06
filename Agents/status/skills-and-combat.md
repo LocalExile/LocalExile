@@ -324,8 +324,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([11-skills](../docs/protocol/11-skills.md) "The client's volley"; static RE, the fan fitted to live Spark volleys)
   and its seeded random directions (static RE, checked live 2026-10-31: damage only where a projectile was drawn).
   Parallel volleys still use the server's own fan.
-  An attack gem's projectiles are not predicted: they get a server object like the default attack's arrow (Burning
-  Arrow showed no arrow before; live 2026-10-31, the arrows fly and ignite).
+  Ordinary Burning Arrow uses the client's primary arrow visual; real mouse-input tracing exposed the duplicate
+  server arrow missed by the old packet-driven control. Its server collision/damage simulation remains active.
+  Other attack gems retain their existing presentation until verified individually.
   Spark's action fires through the same client method, so its sparks are the client's too; they live the skill's
   `skill_effect_duration`, which gem skills now carry (without it no spark was drawn; static RE 2026-10-30, not yet
   checked live).
