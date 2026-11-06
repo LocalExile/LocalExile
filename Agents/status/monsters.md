@@ -17,6 +17,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Monster packs in areas: on entry the area fills with its MonsterPacks at the area level (The Coast: crab and Drowned
   packs, some magic, at least 2 with a rare; cannibal packs at the bonfires) and the unique boss at the camp's
   `mapboss` point with its boss pack (Fire Fury beside the campfire, verified live 2026-10-18);
+  Seeded pack plans repeat across server restarts.
   room points are found by fitting rooms to the doodads `-Walkmaps` captures.
   The Tidal Island's boat rooms are too sparse to fit and use their captured placement: Hailrake stands on the wreck.
   Rooms with a boss point take their actual placement (captured or generated); an unplaced sibling room adds none.

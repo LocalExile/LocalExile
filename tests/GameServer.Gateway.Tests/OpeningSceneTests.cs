@@ -19,6 +19,17 @@ public class OpeningSceneTests
     public async Task An_untouched_character_lies_down_facing_the_room_and_gets_up_in_place_once(bool withSkills)
     {
         if (!withSkills) await CheckSharedMessageOwnership();
+        if (!withSkills)
+        {
+            Assert.Equal(unchecked((int)0xcb7dc2d3), AreaPopulation.PopulationSeed(0xf00a, 1604777343));
+            Assert.Equal(unchecked((int)0xb32f95cf), AreaPopulation.PopulationSeed(0xf00a, 1));
+            Assert.Equal(unchecked((int)0xac1dc826), AreaPopulation.PopulationSeed(0x7ad2, 1));
+            var coast = new PackCatalog().For("1_1_2")!;
+            bool Walk(int x, int y) => x is > 5 and < 595 && y is > 5 and < 595;
+            List<AreaPopulation.Spawn> Plan() => AreaPopulation.Plan(coast, 600, 600, Walk, (50, 50), [],
+                [new("mapboss", 500, 500)], AreaPopulation.PopulationSeed(0x7ad2, 1), _ => true, []);
+            Assert.Equal(Plan(), Plan()); // Fixed vectors also reject a process-salted seed implementation.
+        }
         var tutorial = Untouched();
         Assert.True(TutorialObjects.ShouldStartWashedUp(TutorialObjects.Strand, true, () => tutorial));
         Assert.False(TutorialObjects.ShouldStartWashedUp(TutorialObjects.Strand, true, () => null));
