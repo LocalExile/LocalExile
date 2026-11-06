@@ -382,6 +382,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (an attack or spell hit in the last 4 s), and `_while_on_full_energy_shield` from the effective ES pool.
   Full ES requires a living player with positive capacity and whole current ES at maximum; zero ES does not qualify.
   The raw base and active conditions add before one 0..100 clamp, shared by the panel and spell-hit roll.
+  Monster spells apply suppression after armour and flat damage taken.
   Sixteen native controls checked damage/refill, actual recharge, cap, conversion, independent ES, no-ES/zero-ES
   sources and independent full-Life/full-ES conditions. The guaranteed first spell dealt 60 damage to 118 ES,
   leaving 58 ES and changing suppression from 100% to 90% for the next hit.
