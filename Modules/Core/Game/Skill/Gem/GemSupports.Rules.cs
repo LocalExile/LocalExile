@@ -253,10 +253,13 @@ static partial class Game
             more *= Math.Max(.01, 1 + conn.CombatRushAttackSpeed / 100.0);
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
         // already part of this factor. Do not apply the same GEPL value again.
-        double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats)
-            : DualWieldPanel.OffHandSeconds(offHand, SkillCatalog.Unarmed.OffHandAttackSpeedPct(
-                stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), WeaponProfileFor(conn, activeSet: true).LocalAttackSpeedPct));
-        double paced = seconds / more / PlayerActionFactor(conn);
+        int baseSpeed = offHand is null ? WeaponFor(conn).IncreasedAttackSpeed(stats)
+            : SkillCatalog.Unarmed.OffHandAttackSpeedPct(stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct),
+                WeaponProfileFor(conn, activeSet: true).LocalAttackSpeedPct);
+        double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats) : DualWieldPanel.OffHandSeconds(offHand, baseSpeed);
+        // Preserve the weapon timing's existing minimum, but compose MORE through the native integer final percent.
+        double paced = seconds * Math.Max(.01, 1 + baseSpeed / 100.0)
+            / (1 + SkillAttackTiming.FinalSpeedPercent(baseSpeed, more) / 100.0) / PlayerActionFactor(conn);
         return clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced);
     }
 

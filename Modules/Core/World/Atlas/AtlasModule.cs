@@ -19,6 +19,24 @@ public sealed class AtlasModule : IModule, IDisposable
         foreach (var e in _events) e.Dispose();
     }
 
+    /// <summary>The points the Atlas's completed maps are worth: one per map, up to the 100 the tree's map half has.
+    /// Bonus objectives and the Maven's invitations are not counted yet (#382 item 3).</summary>
+    internal const int MapCompletionPoints = 100;
+
+    /// <summary>Gives the character <paramref name="maps"/> Atlas passive points for maps first completed, saves them and
+    /// sends the three presets again so the tree's counter follows (S→C 0x3d, the message a click in the tree gets).</summary>
+    static async Task AwardMapPoints(ClientState conn, IPlayer player, int maps, string label)
+    {
+        if (maps <= 0 || conn.AtlasPassivePoints >= MapCompletionPoints) return;
+        int before = conn.AtlasPassivePoints;
+        conn.AtlasPassivePoints = (ushort)Math.Min(MapCompletionPoints, before + maps);
+        if (CharacterName(conn) is { } character)
+            CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
+        await global::Game.SendAtlasSlots(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, label);
+        await player.Tell($"Atlas: {conn.AtlasPassivePoints - before} passive point(s) for the maps completed " +
+            $"({conn.AtlasPassivePoints}/{MapCompletionPoints}).");
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
@@ -38,6 +56,7 @@ public sealed class AtlasModule : IModule, IDisposable
             await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, AtlasProgress.NodeMessage(node),
                 $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {kill.Monster.Name}");
             await kill.Player.Tell($"Atlas: {node.Name} completed.");
+            await AwardMapPoints(conn, kill.Player, 1, "Atlas map completed");
         });
         module.OnChatCommand("atlas_complete", "/atlas_complete <map name or AtlasNode id | all> (dev: mark Atlas maps completed, saved)",
             async command =>
@@ -50,11 +69,15 @@ public sealed class AtlasModule : IModule, IDisposable
                     await command.Player.Tell($"No Atlas map '{what}'. Usage: /atlas_complete <map name or AtlasNode id | all>");
                     return;
                 }
-                AtlasProgress.Complete(module.World(command.Player).CharacterData, nodes);
+                var data = module.World(command.Player).CharacterData;
+                var before = AtlasProgress.Completed(data);
+                AtlasProgress.Complete(data, nodes);
+                int earned = nodes.Count(n => !before.Contains(n.Id));
                 if (nodes.Count == 1)
                     await command.Player.Send(AtlasProgress.NodeMessage(nodes[0]),
                         $"0x01a4 /atlas_complete {nodes[0].Name} ({nodes[0].Id})");
                 await command.Player.Tell(nodes.Count == 1 ? $"Atlas: {nodes[0].Name} completed." : $"Atlas: {nodes.Count} maps completed.");
+                await AwardMapPoints(ConnOf(command.Player), command.Player, earned, "/atlas_complete");
             });
         module.OnChatCommand("atlas_reset", "/atlas_reset (dev: clear the Atlas's completed maps)", async command =>
         {
@@ -194,10 +217,26 @@ static class AtlasFeature
         var data = module.World(player).CharacterData;
         AtlasProgress.Complete(data, AtlasProgress.Maps);
         var completed = AtlasProgress.Completed(data);
+        // One Atlas passive point per map completed, up to the 100 the tree's map half has (#382 item 3). The completed set
+        // is restored above, so a character whose Atlas was filled before the award existed gets its points too.
+        bool pointsChanged = false;
+        if (Math.Min(AtlasModule.MapCompletionPoints, completed.Count) is int earned and > 0 && earned > conn.AtlasPassivePoints)
+        {
+            conn.AtlasPassivePoints = (ushort)earned;
+            if (CharacterName(conn) is { } character)
+                CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
+            pointsChanged = true;
+        }
         var slots = SlotsOf(player);
         byte stones = AtlasProgress.VoidstoneMask(slots);
         yield return ($"0x01a3 Atlas progress, {completed.Count} map(s) saved, {AtlasProgress.OnAtlasRows.Count} on-atlas row(s), voidstones 0x{stones:X2} ({slots.Count})",
             AtlasProgress.FullMessage(completed, stones, (byte)slots.Count));
+        // The presets in the player batch were built before the budget above changed: send them again so the tree's
+        // counter follows on this login.
+        if (pointsChanged)
+            for (int preset = 0; preset < conn.AtlasPassives.Length; preset++)
+                yield return ($"0x003d atlas passive preset {preset} ({conn.AtlasPassives[preset].Count}/{conn.AtlasPassivePoints} points) after the map points",
+                    global::Game.AtlasSlots(conn, preset));
     }
 
     static bool ApplyLeagueFlags(ClientState conn)

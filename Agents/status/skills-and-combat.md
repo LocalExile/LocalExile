@@ -324,8 +324,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([11-skills](../docs/protocol/11-skills.md) "The client's volley"; static RE, the fan fitted to live Spark volleys)
   and its seeded random directions (static RE, checked live 2026-10-31: damage only where a projectile was drawn).
   Parallel volleys still use the server's own fan.
-  An attack gem's projectiles are not predicted: they get a server object like the default attack's arrow (Burning
-  Arrow showed no arrow before; live 2026-10-31, the arrows fly and ignite).
+  Ordinary Burning Arrow uses the client's primary arrow visual; real mouse-input tracing exposed the duplicate
+  server arrow missed by the old packet-driven control. Its server collision/damage simulation remains active.
+  Other attack gems retain their existing presentation until verified individually.
   Spark's action fires through the same client method, so its sparks are the client's too; they live the skill's
   `skill_effect_duration`, which gem skills now carry (without it no spark was drawn; static RE 2026-10-30, not yet
   checked live).
@@ -688,7 +689,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   GrantedEffectsPerLevel multiplier) for both the admission gate and the swing interval, instead of mixing it with
   `SkillAttackSeconds`. Tornado Shot's -20% and player/bow attack speed apply. Projectile speed adds the player's
   `projectile_speed_+%` to the skill's `base_projectile_speed_+%`. Automated pace and projectile-speed checks pass;
-  no native check yet. Code: `GemSupports.Rules.cs`, `Combat.cs`, `ProjectileSpeed.cs`.
+  native Burning Arrow numeric controls confirm integer final-speed rounding before duration, while broader native
+  admission checks remain pending. Code: `GemSupports.Rules.cs`, `Combat.cs`, `ProjectileSpeed.cs`.
 - Lifetap Support: supported skills pay their whole Mana cost as Life, including the 300% cost multiplier; the paid
   Life is accumulated against `support_lifetap_spent_life_threshold`. Reaching it grants the 4 s (plus quality) Lifetap
   buff, whose more damage applies to supported hits and whose 20% increased Life recovery applies to flasks.

@@ -52,6 +52,13 @@ public sealed class BowProjectileCountTests
         };
         Game.ApplyProjectilePanelStats(skills.EffectRow("Fireball"), fireball);
         Assert.Equal(1, fireball[Program.Stats.Key("total_number_of_projectiles_to_fire")!.Value]);
+        // A native mouse-triggered Burning Arrow creates a client primary even though its existing simulation
+        // does not take the spell/Spectral Throw geometry path. Do not generalize this to unverified attacks.
+        Assert.True(Game.ClientDrawsPrimaryProjectile(false, skills.EffectId(skills.EffectRow("BurningArrow"))));
+        Assert.False(Game.ClientDrawsPrimaryProjectile(false, skills.EffectId(skills.EffectRow("VaalBurningArrow"))));
+        Assert.False(Game.ClientDrawsPrimaryProjectile(false, "Melee"));
+        Assert.True(Game.ClientDrawsPrimaryProjectile(true, "Fireball"));
+        Assert.True(Game.ClientDrawsPrimaryProjectile(true, "SpectralThrow"));
     }
 
     // Tornado Shot's primary arrow ends at the targeted location where the client releases its child group. It must

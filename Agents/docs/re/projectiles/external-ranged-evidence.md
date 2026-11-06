@@ -156,6 +156,8 @@ Faridun `SareshFleshPillar` uses `(-20,-20)`.
 Their nominal native factors are 1.30/0.80 rather than the port's 1.00.
 Whether the current Gateway spawns or moves those objects is separate from this confirmed semantic difference.
 No production fix was made in this research batch.
+The current server now preserves fixed percentages, with prepared-client readback of all three affected varieties;
+see [the movement protocol notes](../../protocol/07-latency-visibility-movement.md#5-movement).
 
 ### 3.3 Result presentation must preserve native identity
 

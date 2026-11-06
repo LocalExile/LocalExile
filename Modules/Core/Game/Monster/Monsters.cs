@@ -376,7 +376,7 @@ static partial class Game
         var scale = mapMods?.Packs ?? default;
         var spawns = WithTwinBosses(AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
-            HashCode.Combine(layout.Hash, conn.Seed), Spawnable, notes, scale,
+            AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
             unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points)],
             scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y))), mapMods).ToList();
         foreach (var room in trialRooms)
@@ -958,9 +958,8 @@ static partial class Game
         CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PendingTransfer is null && !m.Dead && m.Life > 0
         && ReferenceEquals(conn.Monsters.GetValueOrDefault(id), m);
 
-    // Keep the stage's final transition, refill and ActionEnded contiguous at the actual send gate. Only then may
-    // the planner reserve another action; that action's write must follow this batch through the same gate.
-    // Completion waits through a pause, but never writes to a departed area or a replacement monster with the same id.
+    // Apply the stage effect and end recovery on the area game clock, at the actual send gate. Hot-reloaded
+    // workers resume the same deadlines and one-shot state; a pause cannot consume the remaining stage time.
     internal static async Task CompleteMonsterStage(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, SpawnedMonster m)
     {
@@ -970,25 +969,50 @@ static partial class Game
             bool completed = false;
             await Send(remote, stream, ciphers, [], null, atGate: () =>
             {
-                lock (conn.Monsters)
-                {
-                    if (!MonsterPresent(conn, id, m) || !m.StageRunning || conn.Paused) return null;
-                    var stage = m.Stage!;
-                    var bytes = new List<byte>();
-                    if (m.Variety?.ComponentsOrBase.ToList().IndexOf("Transitionable") is int t and >= 0)
-                        bytes.AddRange(InstanceEntities.TransitionableUpdate(id, (byte)t, stage.TransitionTo));
-                    bytes.AddRange(InstanceProtocol.LifeUpdate(id, m.MaxLife));
-                    bytes.AddRange(InstanceProtocol.ActionEnded(id));
-                    m.Life = m.MaxLife;
-                    m.StageRunning = false;
-                    completed = true;
-                    Console.WriteLine($"[gateway] {remote} => monster 0x{id:x} ({m.Label}) stage complete: " +
-                        $"Transitionable {stage.TransitionTo}, life {m.Life}, 0x01ac action ended");
-                    return bytes.ToArray();
-                }
+                var bytes = AdvanceMonsterStage(conn, id, m, AreaTime(conn));
+                completed = !m.StageRunning;
+                if (bytes is not null)
+                    Console.WriteLine($"[gateway] {remote} => monster 0x{id:x} ({m.Label}) stage " +
+                        $"{(completed ? "complete" : "effect")}: life {m.Life}, game time {AreaTime(conn):0.000}");
+                return bytes;
             });
             if (completed) return;
-            await AreaWait(PlayerUpdateRole.MonsterAction, 16);
+            int wait;
+            lock (conn.Monsters)
+            {
+                double next = m.StageEffectApplied ? m.BusyUntil : m.StageEffectAt;
+                wait = conn.Paused ? 100 : (int)Math.Clamp(Math.Ceiling((next - AreaTime(conn)) * 1000), 16, 1000);
+            }
+            await AreaWait(PlayerUpdateRole.MonsterAction, wait);
+        }
+    }
+
+    // Called only at the send gate; all one-shot state changes and their packets belong to the same guarded update.
+    internal static byte[]? AdvanceMonsterStage(ClientState conn, uint id, SpawnedMonster m, double now)
+    {
+        lock (conn.Monsters)
+        {
+            if (!MonsterPresent(conn, id, m) || !m.StageRunning || conn.Paused) return null;
+            var stage = m.Stage!;
+            // A stage started by an older loaded module retains its recovery deadline.
+            if (double.IsNaN(m.StageEffectAt))
+                m.StageEffectAt = m.BusyUntil - stage.CastSeconds + stage.EffectSeconds(m.Variety is { } variety
+                    ? SkillsFor(conn).MonsterContact(variety.Id, "Throw", 0xffff) : null);
+            var bytes = new List<byte>();
+            if (!m.StageEffectApplied && now >= m.StageEffectAt)
+            {
+                if (m.Variety?.ComponentsOrBase.ToList().IndexOf("Transitionable") is int t and >= 0)
+                    bytes.AddRange(InstanceEntities.TransitionableUpdate(id, (byte)t, stage.TransitionTo));
+                bytes.AddRange(InstanceProtocol.LifeUpdate(id, m.MaxLife));
+                m.Life = m.MaxLife;
+                m.StageEffectApplied = true;
+            }
+            if (now >= m.BusyUntil)
+            {
+                bytes.AddRange(InstanceProtocol.ActionEnded(id));
+                m.StageRunning = false;
+            }
+            return bytes.Count > 0 ? bytes.ToArray() : null;
         }
     }
 
