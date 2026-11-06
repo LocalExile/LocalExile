@@ -16,8 +16,12 @@ abstract record ChargeEvent
     /// included (MonsterElementalAilments.FrozenAtDeath).</summary>
     public sealed record Kill(MonsterRarity Rarity, bool Frozen = false) : ChargeEvent;
 
-    /// <summary>A monster's hit landed on the player (not evaded, not blocked).</summary>
+    /// <summary>A monster's hit reached the player: it landed or was blocked, not evaded (blocking keeps the defender's
+    /// when-hit effects, wiki Blocking).</summary>
     public sealed record WhenHit : ChargeEvent;
+
+    /// <summary>The player's hit stunned a monster (<see cref="HitReaction"/>).</summary>
+    public sealed record Stun : ChargeEvent;
 
     /// <summary>The player blocked a hit (an attack, or a spell with <paramref name="Spell"/>).</summary>
     public sealed record Block(bool Spell) : ChargeEvent;
@@ -36,7 +40,7 @@ abstract record ChargeEvent
 /// <c>rng.Next(100) &lt; chance</c>; 100 and above always gain without a roll.
 /// Skill rules: the Frenzy gem gives a Frenzy Charge when it hits (ActiveSkills <c>frenzy</c>: "gives the character a
 /// frenzy charge if it hits"), once per use; Power Siphon a Power Charge when its hit kills (ActiveSkills <c>power_siphon</c>; the
-/// "or soon after the hit" part is not modelled). Gains that need mechanics the server does not have (stun, freeze,
+/// "or soon after the hit" part is not modelled). Gains that need mechanics the server does not have (freeze,
 /// bleed, poison, curses, traps, mines, Vaal souls, support gems) are not here; 11-skills.md §15 lists them.
 /// </summary>
 static class ChargeGains
@@ -83,6 +87,7 @@ static class ChargeGains
         // When hit
         new("chance_to_gain_endurance_charge_when_hit_%", ChargeType.Endurance, (e, _) => e is ChargeEvent.WhenHit),
         new("add_frenzy_charge_when_hit_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.WhenHit),
+        new("chance_to_gain_endurance_charge_when_you_stun_enemy_%", ChargeType.Endurance, (e, _) => e is ChargeEvent.Stun),
         // On block
         new("chance_to_gain_endurance_charge_on_block_%", ChargeType.Endurance, (e, _) => e is ChargeEvent.Block),
         new("chance_to_gain_frenzy_charge_on_block_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Block),

@@ -694,7 +694,7 @@ static partial class Game
         SuspendRestrictedOwnAuras(conn, new(sources));
         var weapons = WeaponProfileFor(conn);
         var activeWeapon = WeaponProfileFor(conn, activeSet: true);
-        var bonus = PassiveBonus(sources, weapons, snapshot.Attributes);
+        var bonus = PassiveBonus(WithDevDefenceInputs(conn, sources), weapons, snapshot.Attributes);
         int EquipmentInput(string name) => Stats.Key(name) is uint key
             ? conn.PlayerStats.TryGetValue(key, out int value) ? value : sources.GetValueOrDefault(key) : 0;
         var gear = EquippedBaseDefences(conn, EquipmentInput);
@@ -799,6 +799,9 @@ static partial class Game
             DexterityAccuracyTriple = RawAccuracy("dexterity_accuracy_bonus_grants_accuracy_rating_+3_per_dexterity_instead") != 0,
             AccuracyEqualsIntelligence = RawAccuracy("gain_accuracy_rating_equal_to_intelligence") != 0
                 || (activeWeapon.Wand && RawAccuracy("gain_wand_accuracy_rating_equal_to_intelligence") != 0),
+            AccuracyFromStrengthPct = (RawAccuracy("gain_accuracy_rating_equal_to_2_times_strength") != 0 ? 200 : 0)
+                + (RawAccuracy("gain_accuracy_rating_equal_to_strength") != 0 ? 100 : 0),
+            AttackSpeedPer150Accuracy = (int)RawAccuracy("attack_speed_+%_per_200_accuracy_rating"),
             AccuracyMoreVsUniquePct = (int)RawAccuracy("accuracy_rating_+%_final_vs_unique_enemies_from_mastery"),
             AccuracyMoreInCloseRangePct = (int)RawAccuracy("accuracy_rating_+%_final_vs_enemies_in_close_range_from_mastery"),
             Armour = bonus.Armour + aura.Armour,
@@ -922,6 +925,21 @@ static partial class Game
     // damage, the base resistances (base_resist_all_elements_% applies to fire, cold and lightning), the shield-specific
     // block nodes when a shield is equipped, critical strike chance and multiplier, and reservation efficiency and aura
     // effect.
+    // A /set_stat value for a block stat, flat armour or Glancing Blows replaces that stat's raw passive and equipment sum,
+    // as in the client's stats (CharacterPlayerStats). Only these: the other raw inputs have their own replacement in
+    // BuildPoolsFor, or a consumer that adds the dev value on top of the pools (attack speed).
+    internal static bool IsDevDefenceInput(string? name) => name is not null
+        && (name.Contains("block", StringComparison.Ordinal) || name is "base_physical_damage_reduction_rating" or "keystone_glancing_blows");
+
+    static Dictionary<uint, int> WithDevDefenceInputs(ClientState conn, Dictionary<uint, int> sources)
+    {
+        Dictionary<uint, int>? merged = null;
+        lock (conn.Monsters)
+            foreach (var (key, value) in conn.PlayerStats)
+                if (IsDevDefenceInput(Stats.Name(key))) (merged ??= new(sources))[key] = value;
+        return merged ?? sources;
+    }
+
     internal static CharacterStats.Bonus PassiveBonus(Dictionary<uint, int> stats, WeaponProfile weapons, AttributeModifiers attributes)
     {
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;

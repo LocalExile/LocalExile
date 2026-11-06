@@ -190,6 +190,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Selection requires `Game_VERIFIED_ANTIQUARIAN=1` and read-only verification of the exact installed compatible graph.
   Ordinary Juggernaut selection after a full refund restores the Default graph.
   Docs: [whole-class evidence, setup and explicit model boundaries](../docs/game/antiquarian.md).
+- Juggernaut: all 14 ordinary nodes apply and passed native acceptance, [node by node](../docs/game/juggernaut.md).
 
 - Gambler: every node in its installed graph has a gameplay consumer, including both Block Luck choices and drawbacks.
   Legal eight-point builds, exclusive choices, paid refunds, failed-save rollback and reload have Gateway coverage.

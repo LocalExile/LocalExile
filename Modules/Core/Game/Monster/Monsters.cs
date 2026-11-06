@@ -1080,13 +1080,13 @@ static partial class Game
     // actions. ActionEnded or a rig-only AnimationUpdate leaves Positioned's movement advancing underneath the clip.
     // If the send gate was busy, recovery starts when sent; a pause does not consume that recovery time.
     internal static async Task SendMonsterFlinch(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedMonster m, int damage, bool log)
+        ClientState conn, uint id, SpawnedMonster m, StunHit stun, bool log)
     {
         while (true)
         {
             lock (conn.Monsters)
-                if (!MonsterPresent(conn, id, m) || damage <= 0 || m.Invulnerable || m.HitAnimations is not { Count: > 0 }
-                    || m.Mods.Effects.CannotBeStunned || damage < m.MaxLife * HitReaction.DamageFraction) return;
+                if (!MonsterPresent(conn, id, m) || m.Invulnerable || m.HitAnimations is not { Count: > 0 }
+                    || m.Mods.Effects.CannotBeStunned || HitReaction.Chance(stun, m.MaxLife) <= 0) return;
             bool checkedAtGate = false;
             await Send(remote, stream, ciphers, [], null, atGate: () =>
             {
@@ -1095,10 +1095,10 @@ static partial class Game
                     if (!MonsterPresent(conn, id, m) || conn.Paused) return null;
                     checkedAtGate = true;
                     double now = conn.Clock.Elapsed.TotalSeconds;
-                    if (HitReaction.TryFlinch(m, damage, now, Random.Shared) is not { } clip) return null;
+                    if (!HitReaction.TryFlinch(m, stun, now, Random.Shared)) return null;
                     float seconds = (float)(m.FlinchUntil - now);
-                    if (log) Console.WriteLine($"[gateway] {remote} => 0x01d1 monster 0x{id:x} TakeHit recovery {seconds:0.000} s " +
-                        $"(clip profile {clip.Index}), action {m.ActionGeneration}, recovery until {m.FlinchUntil:0.000}");
+                    if (log) Console.WriteLine($"[gateway] {remote} => 0x01d1 monster 0x{id:x} TakeHit recovery {seconds:0.000} s, " +
+                        $"action {m.ActionGeneration}, recovery until {m.FlinchUntil:0.000}");
                     // Animation.dat row 5 selects TakeHit through this actor's native ACT. Keep clip selection and
                     // completion with Actor recovery instead of following it with a rig-only 0x1b2 override.
                     var flinch = InstanceProtocol.ActorAnimation(id, seconds, PlayerHitRecovery.TakeHitAnimation);
@@ -1383,8 +1383,8 @@ static partial class Game
         var suppression = a.Spell ? Suppression(conn) : default;
         bool suppressed = a.Spell && suppression.Chance > 0
             && DamageModel.Suppresses(suppression.Chance, conn.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
-        var taken = PlayerDamageTaken.Avoid(PlayerDamageTaken.Shift(rolled, StatOf), StatOf, conn.IncomingHitRandom,
-            out var avoided);
+        var shifted = PlayerDamageTaken.Shift(rolled, StatOf);
+        var taken = PlayerDamageTaken.Avoid(shifted, StatOf, conn.IncomingHitRandom, out var avoided);
         baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
         var mitigated = gambler.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
@@ -1442,6 +1442,8 @@ static partial class Game
             chaosDamage = (int)Math.Round((double)chaosDamage * damage / full);
             physicalDamage = Math.Min((int)Math.Round((double)physicalDamage * damage / full), Math.Max(0, damage - chaosDamage));
         }
+        // Untiring: avoidance, suppression and what a block keeps out count as prevented; damage taken as another type does not.
+        PreventedDamageOf(conn).Add(now, shifted[DamageType.Physical].Min - physicalDamage);
         if (!blocked) m.HitPlayerAt = now;
         uint manaBefore = conn.PlayerMana;
         var onBlock = blocked ? BlockRecovery(conn, stats) : default;

@@ -58,9 +58,13 @@ static partial class Game
         ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
     }
 
-    // A monster's hit on the player that landed (when hit) or was blocked (on block).
-    internal static void ChargesWhenHit(ClientState conn, bool blocked, bool spell = false) =>
-        ChargesOf(conn).Enqueue(blocked ? new ChargeEvent.Block(spell) : new ChargeEvent.WhenHit());
+    // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit
+    // recently" counts blocked hits too (wiki Blocking, fixed in 3.11.1c).
+    internal static void ChargesWhenHit(ClientState conn, bool blocked, bool spell = false)
+    {
+        ChargesOf(conn).Enqueue(new ChargeEvent.WhenHit());
+        if (blocked) ChargesOf(conn).Enqueue(new ChargeEvent.Block(spell));
+    }
 
     // Transfer: the charges go with the player to the area of the new ticket.
     // Whether the official server keeps charges across areas is not documented (poewiki's Charge page says nothing about

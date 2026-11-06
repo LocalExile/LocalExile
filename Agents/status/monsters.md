@@ -45,17 +45,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   lurking Tide Striders on Tidal Island).
   Code: `MonsterEmerge.cs`, `Program.Emerge.cs`, Gateway.
   Docs: [10](../docs/protocol/10-chat-and-commands.md) §5.
-- Monster hit reaction: a positive hit that leaves a monster alive and takes at least a tenth of its maximum life
+- Monster hit reaction: a hit that leaves a monster alive and passes the wiki's stun roll
   requests native Actor TakeHit recovery (S→C 0x1d1, animation type 5).
-  Stun immunity, an absent TakeHit profile or an existing recovery prevents it; a killing blow gets no flinch.
-  A randomly chosen extracted clip length supplies the duration profile, with a 0.4 s minimum.
+  Stun immunity, a boss's 4 s immunity, an absent TakeHit profile or an existing recovery prevents it.
+  A killing blow gets no flinch.
+  [Chance and duration](../docs/game/juggernaut.md#stun) follow the wiki and `Character.ot`, not a clip's length.
   The actor's native ACT selects and fits the presented clip; the server does not force a rig index.
   Recovery stops server and client movement, holds AI and invalidates old ordinary swing echoes and contacts.
   Historical LocalExile moving-Drowned samples held one cell through recovery, then resumed a fresh AI walk.
   This standalone port has fresh automated coverage; native integration remains pending in the
   [port record](../docs/dev/ranged-monster-actions-port.md).
   Rig-only 0x1b2 did not stop locomotion; it is no longer used as the enemy's recovery packet.
-  Thresholds and duration profiles remain a bounded local policy rather than a complete official stun formula.
   The weapon impact sound and the target's blood come from S→C 0x1af "action hit", sent on melee and attack-gem hits
   and on monster hits on the player (2026-10-25; not yet checked live after the timing cap).
   GGG's server sends it too, but with the monster action's own sequence and skill index 2, where we send 0xffff and 0

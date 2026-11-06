@@ -262,6 +262,7 @@ static partial class Game
                 var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
                     gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier));
+                var stun = OwnerStun(conn, m, damage, mitigated, melee: false, spell: true, critical, player, own);
                 var applied = ApplyMonsterHitLocked(conn, m, damage);
                 if (applied is { StageStarts: true } staged)
                 {
@@ -288,7 +289,7 @@ static partial class Game
                     MaybeCreateProfaneGroundLocked(conn, m.Walk.Position(hitAt), player);
                 }
                 CommitAcceptedHitLocked(conn, id, m, landed, damage, hitAt,
-                    $"{skill.EffectId} (footstep){(critical ? " (critical)" : "")}", playerKill: true, deferKill: true);
+                    $"{skill.EffectId} (footstep){(critical ? " (critical)" : "")}", playerKill: true, deferKill: true, stun: stun);
                 if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.RareHit);
                 charges.Add(new(false, critical, m.Rarity, skill.EffectId, own, id == targets[0].Id, hitAt, landed.Life == 0));
                 if (landed.Life == 0) deaths.Add((id, m));

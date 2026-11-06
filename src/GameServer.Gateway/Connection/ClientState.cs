@@ -264,6 +264,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // Until when its last flinch plays (Clock seconds; HitReaction): no new action or flinch before.
     // Guarded by the Monsters lock.
     public double FlinchUntil = double.NegativeInfinity;
+    // A boss cannot be stunned again until then (HitReaction). Guarded by the Monsters lock.
+    public double StunImmuneUntil = double.NegativeInfinity;
     public bool Aggro, Dead;
     /// <summary>The player the instance's monster acts for now (its chase, swings and damage run on that player's
     /// connection: SharedMonsters.cs MonsterTargetsLocked); null while it has none.</summary>

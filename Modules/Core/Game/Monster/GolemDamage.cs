@@ -141,7 +141,7 @@ static partial class Game
             if (g.Abilities.FirstOrDefault(a => a.Effect == 4839) is { } death)
                 GolemReserveLocked(conn, g, death, 0, null, m.Walk.Position(now), now);
         }
-        else if (HitReaction.TryFlinch(m, damage, now, Random.Shared) is not null)
+        else if (HitReaction.TryFlinch(m, new(damage), now, Random.Shared))
         {
             g.Pending = null; g.Pulses.RemoveAll(p => p.Follows);
             conn.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Flinch, Until: m.FlinchUntil, Action: m.ActionGeneration));
