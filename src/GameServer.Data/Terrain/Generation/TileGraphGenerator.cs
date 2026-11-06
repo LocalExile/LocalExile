@@ -18,6 +18,9 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
     /// <summary>The Labyrinth's graph pass, for a Labyrinth area.</summary>
     public LabyrinthPass? Labyrinth { get; init; }
 
+    /// <summary>The AzmeriPlugin's clearing rooms, for the woods' graph.</summary>
+    public AzmeriWoods? Azmeri { get; init; }
+
     /// <summary>The area's TSI override (WorldAreas +0x192), the master in place of the graph's.</summary>
     public string? Master { get; init; }
 
@@ -123,6 +126,8 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         string graphPath, int orientation, TileGrid? shared, int x, int y, bool primary)
     {
         Graph = TileGraph.Parse(files.Text(graphPath) ?? throw new FileNotFoundException(graphPath));
+        // The AzmeriPlugin's graph hook (0x141f29070): the woods' clearing nodes take the blob's rooms.
+        if (Azmeri is { } woods && AzmeriWoods.IsWoodsGraph(graphPath)) woods.Apply(Graph, files, notes);
         if (orientation != 0) throw new NotSupportedException($"turning a tile graph (orientation {orientation}) is not ported");
         SideAreaKept = Prepare(Graph, rng, vaalSideArea, Hideout, primary, Pool ?? PreparePool, Labyrinth);
         notes.Add($"graph {graphPath}: {Graph.Nodes.Count} nodes, {Graph.Edges.Count} edges after exist rolls");
@@ -224,7 +229,9 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         // (0x141fef240) is still idle: the levels are not stored yet (2_6_2 seed 1814151108's shrine keeps trims1).
         var roomSet = new DungeonRoomSet(files, TerrainText.Resolve(masterPath, master["RoomSet"]));
         var placer = new Fill(files, rng, grid, _ox, _oy, Graph.Width, Graph.Height, store,
-            gftPath is null ? new Dictionary<string, List<(int Weight, string Path, int Orientation)>>() : files.FillTiles(gftPath), special.Rooms, notes);
+            gftPath is null ? new Dictionary<string, List<(int Weight, string Path, int Orientation)>>() : files.FillTiles(gftPath), special.Rooms, notes)
+            // the extra room pool's own tiles (+0x90): the second store an area unique room's tagged slot falls back to
+            { PoolStore = () => Pool is { HasTiles: true } p ? p.Store(files) : null };
         AreaUniqueRooms(placer);
         Shrines(roomSet, placer);
         PreUniqueRooms(roomSet, placer);
@@ -270,6 +277,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
                 if ((c.Flags & 8) != 0) continue;
                 list.Add((x, y));
             }
+        notes.Add($"area unique rooms: {list.Count} openings on the {Graph.Width}x{Graph.Height} view at ({_ox}, {_oy})");
         rng.Next((uint)list.Count);
         rng.Shuffle(list);
         return list;
@@ -413,7 +421,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
     /// the subgraph record <paramref name="primary"/> says is the first (the passes that take the record index). True
     /// when a Vaal side area entrance was kept (the generator's +0xa is then cleared).</summary>
     internal static bool Prepare(TileGraph graph, LevelRandom rng, bool vaalSideArea, bool hideout, bool primary, ExtraRoomPool? pool,
-        LabyrinthPass? labyrinth = null)
+        LabyrinthPass? labyrinth = null, bool vaalRow = true)
     {
         foreach (var n in graph.Nodes)
         {
@@ -442,8 +450,10 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         }
         bool? sideArea = SideAreas(graph, rng, vaalSideArea);
         // Without side area nodes the rolled Vaal side area becomes the VaalSideArea extra terrain feature (its room
-        // `vaal_side_area.arm`) and +0xa stays set, so every later graph without nodes adds it again.
-        if (sideArea is null && vaalSideArea) (pool ?? throw new InvalidOperationException("no extra room pool")).Add("VaalSideArea", 1);
+        // `vaal_side_area.arm`) and +0xa stays set, so every later graph without nodes adds it again. A tile graph adds
+        // it here for good; a dungeon record adds it for its own block (DungeonTiler.Layout, vaalRow false) and takes it
+        // back when the block did not place it.
+        if (sideArea is null && vaalSideArea && vaalRow) (pool ?? throw new InvalidOperationException("no extra room pool")).Add("VaalSideArea", 1);
         // 0x142032760 / 0x142033e30: the Labyrinth's pass (secret nodes, the gold door, boss overrides).
         labyrinth?.Run(graph, rng);
         // 0x142035350 / 0x142034e60, for the first record only: a node with "subarea=hideout…" or
@@ -457,17 +467,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
                     n.Exist = 0;
                     n.Descriptions.Clear();
                 }
-        // 0x141f29730, the Betrayal plugin (generator plugin vtable +0x40) for a record after the first: the
-        // "targetroom2" nodes take a Next(count) draw and a shuffle, "targetroom1" goes in front, and each takes the
-        // server's next Betrayal target (BetrayalTargets.dat +0x59, its room) or exist 0 when none is left. The server
-        // sends no targets, so all of them drop (the Betrayal safe houses).
-        if (!primary && graph.Nodes.Any(n => n.Tag is "targetroom1" or "targetroom2"))
-        {
-            var targets = graph.Nodes.Where(n => n.Tag == "targetroom2").ToList();
-            rng.Next((uint)targets.Count);
-            rng.Shuffle(targets);
-            foreach (var n in graph.Nodes.Where(n => n.Tag == "targetroom1").Take(1).Concat(targets)) n.Exist = 0;
-        }
+        // 0x141f29730, the Betrayal plugin's target rooms, ran before this pass (SafehouseRooms, from DungeonTiler.Layout).
         // 0x142031390: exist rolls, nodes then edges; failed edges go first, then failed nodes.
         var nodesOut = new List<GraphNode>();
         foreach (var n in graph.Nodes)

@@ -79,6 +79,9 @@ public sealed record EdgeType(string Path, string Name, string? Ground1, string?
     string?[] SubEdges, bool[] SubChirality, int MinWidth, int MaxWidth, int Wiggle = 0, bool CanEnd = false)
 {
     public bool Wildcard => Name.StartsWith("Wildcard", StringComparison.Ordinal);
+
+    /// <summary>The optional trailing ground line (type +0x30, the inside ground of a wall-like type).</summary>
+    public string? CentreGround { get; init; }
 }
 
 /// <summary>One slot of a room's grid: 'k' (a key at its top-left slot), 'n' (covered by a larger key or nothing),
@@ -186,7 +189,8 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         int wiggle = !isVirtual ? Number(0) : 0;
         // Then can_end (flag 0x10, 0x141d7b6e0) and force_height_zero.
         bool canEnd = !isVirtual && Number(0) != 0;
-        return new EdgeType(path, words[0], g1, g2, n0, size, n2 != 0, isVirtual, sub, chirality, minW, maxW, wiggle, canEnd);
+        string? centre = words.Skip(at).FirstOrDefault(w => w.EndsWith(".gt\"", StringComparison.OrdinalIgnoreCase) || w.EndsWith(".gt", StringComparison.OrdinalIgnoreCase))?.Trim('"');
+        return new EdgeType(path, words[0], g1, g2, n0, size, n2 != 0, isVirtual, sub, chirality, minW, maxW, wiggle, canEnd) { CentreGround = centre };
     });
 
     public TileDef? Tile(string path) => Get("tdt", path, d => ParseTile(path, d));

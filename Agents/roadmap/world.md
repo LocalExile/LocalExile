@@ -40,9 +40,17 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ### Server-side level generation
 
-- **Known:** the port reproduces the client's generator for every recorded trace and logged load
+- **Known:** the port reproduces the client's generator for every recorded trace and logged load, and every load of
+  a 1142-load server corpus given the server's inputs
   ([re/011](../docs/re/011-level-generation.md), [status/world.md](../status/world.md)).
   `/tour <file>` with `live.ps1 -Walkmaps` records new (area, seed) loads; `levelgen tourlist` writes the lists.
+- **Next, the server's inputs:** the 0x1d area stats' account block (`AreaStats.cs` composes the rest: the atlas
+  completion quantity bonus, the voidstone / Maven / astrolabe / uber-map / gold-conversion unlocks and the tier bonus
+  permillage are account state the corpus shows per account), the activated atlas node and the boss option from the
+  map device activation (C→S 0xd8), `map_area_underlevelled` (rule unknown), and the terrain plugin blobs the server
+  decides (Incursion rooms and temples, Heist contracts, Deepwater boards, Azmeri clearings, Betrayal rosters and
+  jobs), each a league's server side. The gate baseline must be re-saved once: the Gateway now generates with topology
+  variant 59 (re/011 §3b).
 - **Start:** the supported areas get random seeds, and a 5-seed tour of them found 4 loads the port gets wrong
   (1_2_15 at `0x14211532d`, 1_2_14_2 at `0x142031e88`, [re/011](../docs/re/011-level-generation.md) §8 Random seeds)
   and 202 seeds it cannot generate (the Gateway plays a new instance at such a seed at a replacement seed it can,

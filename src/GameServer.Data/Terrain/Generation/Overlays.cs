@@ -39,11 +39,20 @@ sealed class Overlays
     // The rooms placed so far, per room (.arm) across the groups its orientations went to (0x1420041b0).
     readonly Dictionary<RoomDef, int> _placed = [];
 
+    // A dungeon record's view inside its margins, relative to the record's corner, and the master's RoomOverlap: the
+    // 3-step spot grid of a size-3 key is anchored one RoomOverlap before that view's origin (the server corpus: the
+    // Canals heist intro of the Prohibited Library 3006058035, view (3, 3), overlap 1, the client's anchors at x 8 / 11 /
+    // 14 - a grid from 2, not 3; the outdoor masters have no overlap).
+    readonly (int X0, int Y0, int X1, int Y1)? _innerView;
+    readonly int _roomOverlap;
+
     public Overlays(TerrainCache files, LevelRandom rng, List<string> notes, TileGrid grid, int offsetX, int offsetY, int width, int height,
         RoomTiler tiler, IReadOnlyList<PlacedRoom> rooms, int roomOverlap, IEnumerable<(int X0, int Y0, int X1, int Y1)>? extraFeatures = null,
-        bool dungeon = false)
+        bool dungeon = false, (int X0, int Y0, int X1, int Y1)? innerView = null)
     {
         _dungeon = dungeon;
+        _innerView = innerView;
+        _roomOverlap = roomOverlap;
         (_files, _rng, _notes, _grid, _offsetX, _offsetY, _width, _height, _tiler) = (files, rng, notes, grid, offsetX, offsetY, width, height, tiler);
         // 0x141ffe240: rooms of nodes with descriptions 0x10; rooms 4 (shrunk by the master's RoomOverlap when the room's
         // own overlap, room data +1, is the same) and 8; tiles with a tag 2; the pool's placed rooms (unique rooms and
@@ -233,11 +242,23 @@ sealed class Overlays
             spot.Weight += g.Weight;
             spot.Groups.Add(g);
         }
-        if (!_dungeon && g.Key.Edges.Any(e => e is not null && _files.Edge(e)?.Size == 3))
+        if (g.Key.Edges.Any(e => e is not null && _files.Edge(e)?.Size == 3))
         {
-            for (int y = 0; y <= _height - 3; y += 3)
-                for (int x = 0; x <= _width - 3; x += 3) Add(x, y);
-            return;
+            if (!_dungeon)
+            {
+                for (int y = 0; y <= _height - 3; y += 3)
+                    for (int x = 0; x <= _width - 3; x += 3) Add(x, y);
+                return;
+            }
+            // A dungeon record (the Canals heist intro): the grid over the view inside the margins, anchored one RoomOverlap
+            // before its origin, positions up to three short of the view's far side.
+            if (_innerView is { } v)
+            {
+                int shift = (3 - _roomOverlap % 3) % 3;
+                for (int y = v.Y0 + shift; y < v.Y1 - 2; y += 3)
+                    for (int x = v.X0 + shift; x < v.X1 - 2; x += 3) Add(x, y);
+                return;
+            }
         }
         for (int y = 0; y < _height; y++)
             for (int x = 0; x < _width; x++) Add(x, y);
