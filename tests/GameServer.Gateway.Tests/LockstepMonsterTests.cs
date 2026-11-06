@@ -222,21 +222,27 @@ public class LockstepMonsterTests : IDisposable
         plan = Game.PlanMonsterAi(ranged, new MonsterAiCadence(), now: 6.5);
         Assert.Equal([0x3004u], plan.Swings.Select(s => s.Id));
         Assert.True(shooter.Walk.Moving(6.6));
-        // Its order starts at the start of the frame it goes out in, after that frame's earlier steps are replayed: the
-        // Drowned's step at 0.105 blocks the Spitter's to (50, 55) at 0.100 (the frame that ended at 0.132), so it shoots
-        // from (50, 56), not from where its unchecked walk would be. A predictive client's starts when written.
+        // Its order starts at the start of the frame it goes out in, from where the steps before it leave it. Written after
+        // the 0x2b5 that ended the frame from 0.099 and before that frame's steps were replayed: the Drowned's step at
+        // 0.105 blocks the Spitter's to (50, 55) at 0.100, so it shoots from (50, 56), busy from 0.132. A freeze sent
+        // after the frame's start and before the order cancels it; a predictive client's starts when written.
         var shooting = Connection(lockstep: true);
         shooting.LockstepFrame = (0.132, 0.165);
+        shooting.WalkersSteppedTo = 0.099;
         var blocker = Drowned(new PlayerWalk(50, 50, 1 / 0.105, size: 2));
         blocker.Walk.Order(50, 70, now: 0);
         var spitter = Spitter(new PlayerWalk(50, 56, 10, size: 2));
         spitter.Walk.Order(50, 36, now: 0);
         shooting.Monsters[0x3000] = blocker;
         shooting.Monsters[0x3001] = spitter;
-        double shotAt;
-        lock (shooting.Monsters) shotAt = Game.LockstepOrderStart(shooting, 0.14);
-        Assert.Equal(0.132, shotAt, 9);
-        Assert.Equal((50, 56), spitter.Walk.Position(shotAt));
+        lock (shooting.Monsters)
+        {
+            var shot = Game.MonsterSwingOrderLocked(shooting, spitter, spitter.Attack!, 7, generic: true, 0, 0.14);
+            Assert.Equal((0.132, 1.0, (50, 56)), (Math.Round(shot!.Value.StartedAt, 9), shot.Value.Seconds, shot.Value.From));
+            Assert.Equal(0.132 + 1.0 + 0.066, spitter.BusyUntil, 9);
+            Assert.NotNull(spitter.Ailments.Freeze(2, 0.15, _ => 0, _ => 0));
+            Assert.Null(Game.MonsterSwingOrderLocked(shooting, spitter, spitter.Attack!, 8, generic: true, 0, 0.16));
+        }
         Assert.Equal(0.14, Game.LockstepOrderStart(Connection(lockstep: false), 0.14));
 
         var predictive = Connection(lockstep: false);

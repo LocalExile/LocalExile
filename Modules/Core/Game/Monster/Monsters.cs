@@ -1212,9 +1212,9 @@ static partial class Game
     // When an order written now in its send gate (under conn.Monsters) starts on the client. A lockstep client starts it at
     // the start of the frame its 0x1ab goes out in, before any object ticks (07 §6), so an in-place attack is dated there
     // (its contact and BusyUntil follow) and placed there, after the steps of the frames before it, as a walk is
-    // (LockstepOrderFrom). The walk already reads its cell at the frame's start (PlayerWalk.FrameOf), but until a pass
-    // replays those steps against the bodies (StepWalkers) it walks on through one the client found blocked: the from cell
-    // is then a step or more ahead of the client's, whose forced set (0x141e8e7e0) ends its walk there.
+    // (LockstepOrderFrom). Those steps are usually replayed already (the plan's pass and the frame pass after each 0x2b5
+    // step the walkers to the frame's start); a gate that runs between a 0x2b5 and that frame pass still has the frame
+    // before it to replay, where a step the client found blocked would otherwise leave the from cell a step ahead.
     internal static double LockstepOrderStart(ClientState conn, double now)
     {
         if (!conn.LockstepClient || conn.LockstepFrame is not { } frame) return now;
@@ -1350,6 +1350,27 @@ static partial class Game
             (conn.PlayerMaxLife - conn.PlayerLife) * (double)pct / 100.0, ref leech.LifeInstantCarry, minimum: 1);
     }
 
+    // A swing order written in its send gate at `now` (under conn.Monsters): when it starts (LockstepOrderStart), its
+    // attack time, the monster's and the player's cells there, and the monster's state from it; null when the monster
+    // cannot act. A generic swing's action speed is read at `now`, not at the order's start: a freeze or chill sent
+    // earlier in the frame reaches the client before the order applies.
+    internal static (double StartedAt, double Seconds, (int X, int Y) From, (int X, int Y) Player)? MonsterSwingOrderLocked(
+        ClientState conn, SpawnedMonster m, MonsterAttack a, int action, bool generic, double seconds, double now)
+    {
+        double startedAt = LockstepOrderStart(conn, now);
+        if (generic)
+        {
+            double acceptedFactor = MonsterActionFactor(m, now);
+            if (acceptedFactor <= 0) return null;
+            seconds = MonsterSwingSeconds(conn, m, now) / acceptedFactor;
+        }
+        m.BusyUntil = startedAt + seconds + conn.LockstepActionTail;
+        if (a.Summon is { } summoning) m.SummonReadyAt = startedAt + summoning.CooldownSeconds;
+        m.SwingGeneration = action;
+        m.SwingOrderedAt = startedAt;
+        return (startedAt, seconds, m.Walk.Position(startedAt), conn.Walk.Position(startedAt));
+    }
+
     internal static async Task MonsterSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster m, int action, MonsterAttack? use = null, bool area = false, double areaRadius = 0, ushort? sequence = null,
         double? begunAt = null)
@@ -1400,20 +1421,10 @@ static partial class Game
         bool walkUp = use is null && !area && !a.InPlace;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {
-            startedAt = LockstepOrderStart(conn, AreaTime(conn));
-            if (use is null && !area)
-            {
-                double acceptedFactor = MonsterActionFactor(m, startedAt);
-                if (acceptedFactor <= 0) return null;
-                seconds = MonsterSwingSeconds(conn, m, startedAt) / acceptedFactor;
-            }
+            if (MonsterSwingOrderLocked(conn, m, a, action, use is null && !area, seconds, AreaTime(conn)) is not { } order) return null;
+            (startedAt, seconds) = (order.StartedAt, order.Seconds);
+            var (from, player) = (order.From, order.Player);
             if (walkUp) seq = m.NextSequence();
-            var from = m.Walk.Position(startedAt);
-            var player = conn.Walk.Position(startedAt);
-            m.BusyUntil = startedAt + seconds + conn.LockstepActionTail;
-            if (a.Summon is { } summoning) m.SummonReadyAt = startedAt + summoning.CooldownSeconds;
-            m.SwingGeneration = action;
-            m.SwingOrderedAt = startedAt;
             // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
             // 2026-11-01: the Immolator stayed shut): its actor's clip is played instead (0x1d1, SummonAnimation).
             if (a.Summon is not null) return InstanceProtocol.ActorAnimation(id, (float)seconds, SummonAnimation);
