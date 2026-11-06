@@ -93,6 +93,14 @@ public class StatSnapshotTailTests
         Assert.NotSame(cached, conn.StatSourcesCacheState);
         cached = conn.StatSourcesCacheState;
 
+        lock (conn.Monsters) conn.RecentEvents.Record(StatConditions.Crit, conn.Clock.Elapsed.TotalSeconds + .1);
+        Resolve();
+        Assert.Same(cached, conn.StatSourcesCacheState);
+        lock (conn.Monsters) conn.RecentEvents.Clear();
+        Resolve();
+        Assert.NotSame(cached, conn.StatSourcesCacheState);
+        cached = conn.StatSourcesCacheState;
+
         lock (conn.Monsters) conn.Pools = conn.Pools with { Strength = conn.Pools.Strength + 1 };
         Resolve();
         Assert.NotSame(cached, conn.StatSourcesCacheState);

@@ -143,7 +143,20 @@ static class ItemModStats
     }
 
     /// <summary>One item's local stats by Stats.dat Id (local_critical_strike_chance_+% …).</summary>
-    public static Dictionary<string, int> Local(Item item, ModCatalog mods) => Sum([item], mods, local: true);
+    sealed record LocalValues(Dictionary<string, int> Stats);
+    sealed class LocalItems
+    {
+        public readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, LocalValues> Items = new();
+    }
+    static System.Runtime.CompilerServices.ConditionalWeakTable<ModCatalog, LocalItems>? LocalCatalogs;
+
+    public static Dictionary<string, int> Local(Item item, ModCatalog mods)
+    {
+        // Local rows use only this immutable item and catalogue, without a combat subject. A changed item or a different
+        // catalogue has a different key. Return a copy: callers merge their own values into these dictionaries.
+        var cache = System.Threading.LazyInitializer.EnsureInitialized(ref LocalCatalogs).GetOrCreateValue(mods).Items;
+        return new(cache.GetValue(item, current => new(Sum([current], mods, local: true))).Stats);
+    }
 
     /// <summary>A worn item with what it needs: strength, dexterity, intelligence and character level.</summary>
     public sealed record Worn(uint Id, Item Item, int Strength, int Dexterity, int Intelligence, int Level);

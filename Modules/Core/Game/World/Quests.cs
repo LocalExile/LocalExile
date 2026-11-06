@@ -226,8 +226,42 @@ static partial class Game
     // A quest flag as the client has it: the character's own, or one the World panel's access flags carry (an activated
     // waypoint's area, 16-waypoints.md §4: the Submerged Passage's waypoint brings a1q4-PlacedGlyphs). The client opens
     // its ways by these, so the server's checks follow them.
-    internal static bool ClientHasQuestFlag(ClientState conn, string flag) =>
-        Quests.IsInstanceFlag(flag) ? conn.Instance.HasState(flag) : Quests.ClientHas(flag, conn.QuestFlagsSnapshot(), PlayerQuestFlags(conn));
+    internal static bool ClientHasQuestFlag(ClientState conn, string flag)
+    {
+        if (Quests.IsInstanceFlag(flag)) return conn.Instance.HasState(flag);
+        if (conn.HasQuestFlag(flag)) return true;
+        if (Quests.Rows([flag]) is not [int row]) return false;
+        bool inHideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null || conn.Layout.Hash == StashCatalog.DelveHub;
+        lock (conn.Monsters)
+            if (conn.UnearnedQuestFlags.Contains(flag) && Quests.EndgameOnly.Contains(flag)
+                && (inHideout || MapDevices.Value.IsMapArea(conn.Layout.Hash))) return true;
+        // Combat reads individual flags for every Pantheon/stat calculation. Keep the World panel's access and visit
+        // semantics without rebuilding, sorting and allocating its complete flag list for each membership test.
+        lock (conn.Waypoints)
+        {
+            var world = WorldQuestFlagLookups.GetOrCreateValue(conn);
+            if (!world.Waypoints.SetEquals(conn.Waypoints) || !world.Visited.SetEquals(conn.Visited))
+            {
+                world.Waypoints = [.. conn.Waypoints];
+                world.Visited = [.. conn.Visited];
+                world.Rows.Clear();
+                foreach (var area in WaypointCatalog.Areas.Entries)
+                    if (conn.Waypoints.Contains(area.Id)) world.Rows.UnionWith(area.AccessFlags ?? []);
+                foreach (string area in conn.Visited) world.Rows.UnionWith(WaypointCatalog.Visits.For(area));
+                foreach (string area in conn.Waypoints) world.Rows.UnionWith(WaypointCatalog.Visits.For(area));
+            }
+            return world.Rows.Contains(row);
+        }
+    }
+
+    // Only the World panel's derived flags are cached. Own/session/instance flags above remain live; adding or
+    // removing a visit or waypoint rebuilds these rows, including replacements that leave the set's count unchanged.
+    sealed class WorldQuestFlagLookup
+    {
+        public HashSet<string> Waypoints = [], Visited = [];
+        public readonly HashSet<int> Rows = [];
+    }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, WorldQuestFlagLookup> WorldQuestFlagLookups = new();
 
     // The first ground click in WashedUp sends this action instead of Move, and any other request to move gets it from the
     // server (0x141e94fc0). It plays getup in place; treating a target as a walk would move only the server's position estimate.
