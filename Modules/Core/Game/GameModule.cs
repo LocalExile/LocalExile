@@ -13,6 +13,10 @@ public sealed class GameModule : IModule
     {
         Rules.CombatLifetime = module.Lifetime;
         Program.SetGameLogic(new GameLogic(module.Lifetime));
+        module.OnTick((player, _) => global::BrineKing.Tick(Program.ConnOf(player)));
+        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("BrineKing", global::BrineKing.PlayerStats));
+        module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
+        module.OnPlayerLeaving((player, _) => global::BrineKing.Leaving(Program.ConnOf(player)));
     }
 }
 

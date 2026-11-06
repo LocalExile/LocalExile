@@ -45,7 +45,9 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             await SpawnTrialObjects(remote, stream, ciphers, conn);
             // The quest engine: quest items synced, entered flags, quest chests and objects, room NPCs, blockers.
             await StartQuestArea(remote, stream, ciphers, conn);
+            await TickBeacon(conn);
         });
+        module.OnTick((player, _) => TickBeacon(ConnOf(player)));
         // The quests after a kill's flags: quest drops (Hailrake's Medicine Chest), second forms (Merveil), NPCs that appear
         // or are freed, a fight of several bosses, a cleared area (a1q8).
         On(GameEvents.Kill, kill =>
@@ -127,6 +129,7 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             lock (conn.QuestObjects) questObject = conn.QuestObjects.TryGetValue(use.TargetId, out var qo) ? qo : null;
             if (questObject is var (objectRule, objectAt, objectInfo))
             {
+                if (!CanUseBeacon(conn, objectRule.ObjectType)) return true;
                 await UseQuestObject(remote, stream, ciphers, conn, use, objectRule, objectAt, objectInfo, requestedAt,
                     objectRule.ObjectType switch
                     {

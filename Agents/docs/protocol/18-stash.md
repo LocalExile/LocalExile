@@ -222,9 +222,31 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   when every requested item fits (issue #249).
   Each is one transaction
   (`ItemMoves`, [saves](../saves.md)).
-- **The map tab takes nothing yet.** The 3.29 client lists a map tab's maps by tier ([maps](../game/maps.md)), not at
-  grid cells: two Beach Maps saved at (0, 0) and (0, 1) were not shown (live 2026-10-20). Until its layout is known,
-  `StashRules.NotShown` refuses every item, and maps already there move out at load.
+- **The map tab's maps live on hidden child pages.** The 3.29 client draws the map tab's 16 tier buttons, the crown
+  (special maps) and the leaf (legendary maps) itself ([maps](../game/maps.md)), and it shows as its pages only the
+  hidden children whose key matches its `StashViewMapsNS::GenerateExpectedSubStashKeys`. That generator returns 191 keys
+  of the form `key = (page << 37) | (HASH32 of the map's base type << 5) | group` (read from the running client with a
+  hardware breakpoint on the returned vector, 2026-11-06; the binary is not stripped and the generator is at
+  `0x140b59a80`):
+
+  | group | id | pages | keys |
+  |---|---|---|---|
+  | 0 | the 20 map bases: `Map (Tier 1..16)`, Nightmare, Vaal Temple, Valdo and Shaper Guardian maps | 6 | 120 |
+  | 1 | the 23 legendary maps (`MapStashUniqueMapInfo` HASH16) | 1 | 23 |
+  | 2 | 1..4, the four conquerors | 6 | 24 |
+  | 3 | 1..4, the four elder guardians | 6 | 24 |
+
+  A page is a hidden child of the map tab with that key, and the client asks it for the page's inventory. The client
+  drops a map on the tab itself (by click or from the cursor), never on a page, so the Gateway gives every base its six
+  pages, every legendary map its one page and the two special groups their six each (`AccountStash.MapPageKey`,
+  `EnsureMapChildren`) and routes a drop to the first page of the item's own kind that has room (`MapDestination`): its
+  base type, its visual identity for a legendary map, or the guardian named by its map modifiers
+  (`MapConquerorContainsBossN` → group 2, `MapElderContainsBossN` → group 3, Baran 1 to Drox 4), with the influence flags
+  as the fallback when the map carries no such modifier. A page takes only maps that belong to it (`MapPageTakes`), so a
+  request addressed straight at a child cannot put a tier-1 map on the tier-4 page or a conqueror's map on an elder's.
+  Live 2026-11-06: the tier buttons then show their page strip, the tier and legendary badges count the maps and the maps
+  draw on their page; a full page hands the next map to the next page. `StashRules.NotShown` still refuses items on
+  the tab itself.
 - **A plain click on a special tab's item** sends C→S 0x7c (split) with the whole stack (live 2026-10-20, the currency
   tab: `Amount` = the stack, `B` = 0; Shift + click sends `B` = 3 with the amount chosen). The Gateway puts the whole
   stack on the cursor, keeping its id; a slot holding more than the item's inventory stack gives a full stack
