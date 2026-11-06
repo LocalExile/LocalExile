@@ -101,6 +101,12 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 
     /// <summary>The definition a name matches, or null: the exact name, then the name followed by a base type's name for
     /// a unique with several bases ("Grand Spectrum Cobalt Jewel"), then the first containing it.</summary>
+    /// <summary>A legendary map (UniqueMaps) by name: the named-map catalogue builds it on 3.29's tier-1 map base. Null
+    /// when no unique map has that name. Its visual identity keys its map tab page (#477).</summary>
+    public Item? NamedMap(string name) =>
+        NessaMapStock.Build(items, folder).FirstOrDefault(e => e.Item.Rarity == ItemRarity.Unique
+            && NameKey(e.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase)) is { } entry ? entry.Item : null;
+
     public Definition? Find(string name) =>
         All.FirstOrDefault(d => NameKey(d.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase))
         ?? All.FirstOrDefault(d => name.StartsWith(d.Name + " ", StringComparison.OrdinalIgnoreCase)
