@@ -20,7 +20,7 @@ static class Tools
         start.Environment["Game_GGDUMP_EXE"] = Path.GetFullPath(Path.Combine(App, Platform.Program("GgDump")));
     }
 
-    static ProcessStartInfo Info(string exe, IEnumerable<string> arguments)
+    internal static ProcessStartInfo Info(string exe, IEnumerable<string> arguments)
     {
         var start = new ProcessStartInfo(Path.GetFullPath(exe))
         {

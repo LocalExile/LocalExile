@@ -40,6 +40,7 @@ static class EndWithThisProcess
     static readonly List<PosixSignalRegistration> Signals = [];
 
     public static void Add(Process process) { lock (Started) Started.Add(process); }
+    public static void Remove(Process process) { lock (Started) Started.Remove(process); }
 
     public static void Arrange()
     {

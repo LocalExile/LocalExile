@@ -42,25 +42,29 @@ public sealed class NodeOodleDecoder : IOodleDecoder, IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
 
-            Span<byte> reqHeader = stackalloc byte[8];
-            BinaryPrimitives.WriteUInt32LittleEndian(reqHeader, (uint)uncompressedSize);
-            BinaryPrimitives.WriteUInt32LittleEndian(reqHeader[4..], (uint)compressed.Length);
-            _toWorker.Write(reqHeader);
-            _toWorker.Write(compressed.Span);
-            _toWorker.Flush();
+            try
+            {
+                Span<byte> reqHeader = stackalloc byte[8];
+                BinaryPrimitives.WriteUInt32LittleEndian(reqHeader, (uint)uncompressedSize);
+                BinaryPrimitives.WriteUInt32LittleEndian(reqHeader[4..], (uint)compressed.Length);
+                _toWorker.Write(reqHeader);
+                _toWorker.Write(compressed.Span);
+                _toWorker.Flush();
 
-            Span<byte> respHeader = stackalloc byte[8];
-            ReadExactly(_fromWorker, respHeader);
-            uint status = BinaryPrimitives.ReadUInt32LittleEndian(respHeader);
-            int outLen = (int)BinaryPrimitives.ReadUInt32LittleEndian(respHeader[4..]);
+                Span<byte> respHeader = stackalloc byte[8];
+                ReadExactly(_fromWorker, respHeader);
+                uint status = BinaryPrimitives.ReadUInt32LittleEndian(respHeader);
+                int outLen = (int)BinaryPrimitives.ReadUInt32LittleEndian(respHeader[4..]);
+                if (status > 1 || outLen < 0 || (status == 0 ? outLen != uncompressedSize : outLen > 65536))
+                    throw new GgpkFormatException("decoder-error", $"invalid ooz worker response: status={status}, length={outLen}, expected={uncompressedSize}");
 
-            var payload = new byte[outLen];
-            ReadExactly(_fromWorker, payload);
-
-            if (status != 0)
-                throw new GgpkFormatException($"ooz worker error: {Encoding.UTF8.GetString(payload)}");
-
-            return payload;
+                var payload = new byte[outLen];
+                ReadExactly(_fromWorker, payload);
+                if (status != 0)
+                    throw new GgpkFormatException("decoder-error", $"ooz worker error: {Encoding.UTF8.GetString(payload)}");
+                return payload;
+            }
+            catch (IOException e) { throw new GgpkFormatException("decoder-error", e.Message, e); }
         }
     }
 
