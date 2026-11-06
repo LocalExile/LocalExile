@@ -44,6 +44,23 @@ sealed class MonsterEmerge(string folder = "data")
     /// <summary>The Transitionable state a monster waiting to rise is created in (untransitioned).</summary>
     public const byte UnrisenState = 1;
 
+    // Creation and removal values paired in the official Drowned Wake capture (0x2b9 / 0x1b3).
+    static readonly string[] HiddenStatNames = ["base_cannot_be_damaged", "base_cannot_be_stunned", "cannot_be_stunned",
+        "ignored_by_enemy_target_selection", "cannot_be_damaged", "virtual_is_hidden_monster"];
+
+    internal static List<(uint Key, int Value)> RestoreHiddenStats(StatCatalog stats, IReadOnlyList<(uint Key, int Value)>? baseline) =>
+        [.. HiddenStatNames.Select(stats.Key).OfType<uint>().Select(key =>
+            (key, baseline?.LastOrDefault(s => s.Key == key).Value ?? 0))];
+
+    // Keep the saved/shared template's original stats: only the initial hidden creation receives these overrides.
+    internal static MonsterObject WithHiddenStats(MonsterObject monster, StatCatalog stats)
+    {
+        if (monster.HiddenBuffInstance is null) return monster;
+        var hidden = RestoreHiddenStats(stats, null).Select(s => (s.Key, Value: 1)).ToArray();
+        var keys = hidden.Select(s => s.Key).ToHashSet();
+        return monster with { Stats = [.. (monster.Stats ?? []).Where(s => !keys.Contains(s.Key)), .. hidden] };
+    }
+
     private readonly Lazy<Dictionary<string, EmergeKind>> _types = new(() => LoadTypes(folder));
     private readonly Lazy<Dictionary<string, (double Seconds, int Index)>> _clips = new(() => LoadClips(folder));
     private readonly Lazy<ushort?> _action = new(() => LoadAction(folder));
@@ -77,12 +94,14 @@ sealed class MonsterEmerge(string folder = "data")
     public uint? ClipIndex(MonsterCatalog.Variety v) =>
         _clips.Value.TryGetValue(v.Id, out var clip) && clip.Index >= 0 ? (uint)clip.Index : null;
 
-    /// <summary>The rise, in GGG's order and tick: the Transitionable step (0x2ba), then the Emerge action in place aimed
-    /// at the monster itself, with the 0x1ac that starts its clip.</summary>
-    public static byte[][] RiseMessages(uint id, (int X, int Y) at, ushort skill, ushort sequence, byte transitionableIndex, byte state) =>
+    /// <summary>The captured rise order: remove hidden buff/stats, start Emerge (0x1ab/0x1ac), then transition.</summary>
+    public static byte[][] RiseMessages(uint id, (int X, int Y) at, ushort skill, ushort sequence, byte transitionableIndex, byte state,
+        ushort? hiddenBuff = null, IReadOnlyList<(uint Key, int Value)>? restoredStats = null) =>
     [
-        InstanceEntities.TransitionableUpdate(id, transitionableIndex, state),
+        .. hiddenBuff is ushort buff ? new[] { InstanceEntities.RemoveBuff(id, buff) } : [],
+        .. restoredStats is { Count: > 0 } ? new[] { InstanceEntities.StatsUpdate(id, restoredStats) } : [],
         InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, skill, sequence, 0x0800, id),
+        InstanceEntities.TransitionableUpdate(id, transitionableIndex, state),
     ];
 
     /// <summary>The buried monsters of a connection by object id: not in <see cref="ClientState.Monsters"/> until they

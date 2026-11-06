@@ -18,6 +18,7 @@ public class OpeningSceneTests
     [InlineData(true)]
     public async Task An_untouched_character_lies_down_facing_the_room_and_gets_up_in_place_once(bool withSkills)
     {
+        if (!withSkills) { await CheckOpeningHiddenState(); await CheckSharedMessageOwnership(); }
         var tutorial = Untouched();
         Assert.True(TutorialObjects.ShouldStartWashedUp(TutorialObjects.Strand, true, () => tutorial));
         Assert.False(TutorialObjects.ShouldStartWashedUp(TutorialObjects.Strand, true, () => null));
@@ -97,6 +98,205 @@ public class OpeningSceneTests
         Assert.Equal(created, observer.Read(created.Length));
     }
 
+    static async Task CheckOpeningHiddenState()
+    {
+        const uint id = 0x08000099;
+        const ushort buff = 0x1234;
+        var template = new MonsterObject(10, 10, 23, [.. MonsterObject.BaseComponents, "Transitionable"], TransitionState: 1);
+        byte[] ordinary = template.Blob(), hidden = (template with { HiddenBuffInstance = buff }).Blob();
+        int offset = Enumerable.Range(0, ordinary.Length).First(i => ordinary[i] != hidden[i]);
+        // Native fixed creation layout with a synthetic instance id, including infinite duration and empty list.
+        byte[] entry = Convert.FromHexString("3412028A0000000000807F0000803F010000000000000000000000000000000000000000");
+        Assert.Equal(36, entry.Length);
+        Assert.Equal(ordinary.Length + entry.Length, hidden.Length);
+        Assert.Equal(new byte[] { 1, 0 }, hidden[offset..(offset + 2)]);
+        Assert.Equal(entry, hidden[(offset + 2)..(offset + 2 + entry.Length)]);
+        Assert.Equal(ordinary[(offset + 2)..], hidden[(offset + 2 + entry.Length)..]);
+
+        var stats = new StatCatalog();
+        uint baseStun = stats.Key("base_cannot_be_stunned")!.Value, stun = stats.Key("cannot_be_stunned")!.Value;
+        template = template with { Stats = [(baseStun, 1), (stun, 1), (StatKeys.MaximumLife, 23)] };
+        var hiddenState = MonsterEmerge.WithHiddenStats(template with { HiddenBuffInstance = buff }, stats);
+        var restored = MonsterEmerge.RestoreHiddenStats(stats, template.Stats);
+        Assert.Equal(6, restored.Count);
+        Assert.Equal(7, hiddenState.Stats!.Count); // One key per hidden stat plus the unrelated maximum life.
+        Assert.All(restored, s => Assert.Contains((s.Key, 1), hiddenState.Stats));
+        Assert.Contains((StatKeys.MaximumLife, 23), hiddenState.Stats);
+        Assert.Equal(1, restored.Single(s => s.Key == baseStun).Value);
+        Assert.Equal(1, restored.Single(s => s.Key == stun).Value);
+        Assert.All(restored.Where(s => s.Key != baseStun && s.Key != stun), s => Assert.Equal(0, s.Value));
+        Assert.Equal(3, template.Stats!.Count); // Hidden overrides never mutate the reconnect template.
+
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        try
+        {
+            Game.CombatLifetime = lifetime;
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+            using var wire = new Wire();
+            var variety = new MonsterCatalog().Find("Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake1");
+            Assert.NotNull(variety);
+            var m = new SpawnedMonster("hidden", wire.Conn.NewMonsterWalk(id, 10, 10, 1, 1, false), 24, 2, 23)
+                { Variety = variety, HiddenBuffInstance = buff };
+            wire.Conn.Monsters[id] = m;
+            wire.Conn.MonsterViews[id] = new((10, 10), (10, 10), 23);
+            wire.Conn.Instance.World.MonsterOrigins[id] = new(123, template with { HiddenBuffInstance = buff }, (ushort)variety.Row, 1, MonsterRarity.Normal);
+            byte index = (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable");
+            var messages = MonsterEmerge.RiseMessages(id, (10, 10), 0x101, 0x8001, index, 2, buff, restored);
+            Assert.Equal(InstanceEntities.RemoveBuff(id, buff), messages[0]);
+            Assert.Equal(InstanceEntities.StatsUpdate(id, restored), messages[1]);
+            Assert.Equal(InstanceProtocol.ActionStartedNow(id, 10, 10, 10, 10, 0x101, 0x8001, 0x0800, id), messages[2]);
+            Assert.Equal(InstanceEntities.TransitionableUpdate(id, index, 2), messages[3]);
+            await Game.Emerge("hidden-test", wire.Stream, wire.Ciphers, wire.Conn, id, m, (10, 10), 1);
+            byte[] rise = [.. messages.SelectMany(p => p)];
+            Assert.Equal(rise, wire.Read(rise.Length));
+
+            // Rejected work cannot remove only the buff or consume the next action's sequence.
+            var gate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+            await gate.WaitAsync();
+            var pending = Game.Emerge("hidden-test", wire.Stream, wire.Ciphers, wire.Conn, id, m, (10, 10), 1);
+            m.Dead = true;
+            gate.Release();
+            await pending;
+            Assert.Equal((ushort)0x8001, m.Sequence);
+
+            // A new viewer after the rise gets a targetable creation without the old hidden buff.
+            m.Dead = false;
+            wire.Conn.PlayerSent = true;
+            wire.Conn.MonsterViews.Remove(id);
+            await Game.SyncInstanceMonsters("hidden-test", wire.Stream, wire.Ciphers, wire.Conn);
+            byte[] snapshot = [.. InstanceEntities.MonsterTypes([((ushort)variety.Row, (byte)1)]),
+                .. InstanceEntities.CreateObject(id, 123, (template with { TransitionState = 2 }).Blob()),
+                .. InstanceProtocol.EnterWakeZone(id)];
+            Assert.Equal(snapshot, wire.Read(snapshot.Length));
+            await CheckWaitingMonsterReplay(variety);
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            if (previousLogic is not null) Program.SetGameLogic(previousLogic);
+        }
+    }
+
+    static async Task CheckWaitingMonsterReplay(MonsterCatalog.Variety variety)
+    {
+        const uint id = 0x08000077;
+        const ushort buff = 0x4321;
+        var template = new MonsterObject(20, 20, 23, variety.ComponentsOrBase, TransitionState: 1) { HiddenBuffInstance = buff };
+        using var wire = new Wire();
+        var conn = wire.Conn;
+        conn.PlayerSent = true;
+        var m = new SpawnedMonster("waiting-replay", conn.NewMonsterWalk(id, 20, 20, 1, 1, false), 60, 2, 23)
+            { Variety = variety, HiddenBuffInstance = buff };
+        conn.Instance.World.MonsterOrigins[id] = new(123, template, (ushort)variety.Row, 1, MonsterRarity.Normal);
+        MonsterEmerge.AddLocked(conn, id, m, EmergeKind.Buried, true);
+        // This test steps the watcher explicitly; no real-time worker or delay is started.
+        MonsterEmerge.StartWatch(conn);
+        await Game.SyncInstanceMonsters("waiting-replay", wire.Stream, wire.Ciphers, conn);
+        byte[] creation = [.. InstanceEntities.MonsterTypes([((ushort)variety.Row, (byte)1)]),
+            .. InstanceEntities.CreateObject(id, 123, MonsterEmerge.WithHiddenStats(template, new()).Blob()),
+            .. InstanceProtocol.EnterWakeZone(id)];
+        Assert.Equal(creation, wire.Read(creation.Length));
+        Assert.True(conn.MonsterViews.ContainsKey(id));
+        Assert.False(conn.Monsters.ContainsKey(id));
+        await Game.SyncInstanceMonsters("waiting-replay", wire.Stream, wire.Ciphers, conn);
+        Assert.True(conn.MonsterViews.ContainsKey(id)); // A buried view must survive the next snapshot.
+
+        var delivered = new List<byte[]>();
+        var rejected = new List<byte[]>();
+        foreach (var (known, asleep) in new[] { (true, false), (false, false), (true, true) })
+        {
+            var other = new ClientState(conn.Layout, 0, 1) { Instance = conn.Instance, PlayerSent = true };
+            other.Outbox = (bytes, _) => { (known && !asleep ? delivered : rejected).Add(bytes); return Task.CompletedTask; };
+            if (known) other.MonsterViews[id] = new((20, 20), (20, 20), 23);
+            if (asleep) other.AsleepMonsters.Add(id);
+            // AwakeMonsters is deliberately empty: the actor has only just left the buried roster.
+            conn.Instance.PublishPlayer(new(other.PeerId, 7, new("Peer", 1, 10, 10, 50, 40), 10, 10, 50, other));
+        }
+        Assert.Single(new MonsterEmerge().RiseLocked(conn, (20, 20), 10, out _));
+        byte index = (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable");
+        byte[] rise = [.. MonsterEmerge.RiseMessages(id, (20, 20), 0x101, 0x8001, index, 2, buff,
+            MonsterEmerge.RestoreHiddenStats(new(), null)).SelectMany(p => p)];
+        await Game.Emerge("waiting-replay", wire.Stream, wire.Ciphers, conn, id, m, (20, 20), 1);
+        Assert.Equal(rise, wire.Read(rise.Length)); // No duplicate creation/removal was emitted by the second snapshot.
+        Assert.Equal(rise, Assert.Single(delivered));
+        Assert.Empty(rejected);
+        MonsterEmerge.StopWatch(conn);
+
+        // If a new runner has not received any snapshot yet, updates cannot precede its creation.
+        using var unseen = new Wire();
+        unseen.Conn.PlayerSent = true;
+        unseen.Conn.Monsters[id] = new("already-rising", unseen.Conn.NewMonsterWalk(id, 20, 20, 1, 1, false), 60, 2, 23)
+            { Variety = variety, HiddenBuffInstance = buff };
+        unseen.Conn.Instance.World.MonsterOrigins[id] = new(123, template, (ushort)variety.Row, 1, MonsterRarity.Normal);
+        await Game.Emerge("unseen-replay", unseen.Stream, unseen.Ciphers, unseen.Conn, id, unseen.Conn.Monsters[id], (20, 20), 1);
+        await Game.SyncInstanceMonsters("unseen-replay", unseen.Stream, unseen.Ciphers, unseen.Conn);
+        byte[] risenCreation = [.. InstanceEntities.MonsterTypes([((ushort)variety.Row, (byte)1)]),
+            .. InstanceEntities.CreateObject(id, 123, (template with { HiddenBuffInstance = null, TransitionState = 2 }).Blob()),
+            .. InstanceProtocol.EnterWakeZone(id)];
+        Assert.Equal(risenCreation, unseen.Read(risenCreation.Length));
+    }
+
+    static async Task CheckSharedMessageOwnership()
+    {
+        const uint id = 0x08000055;
+        using var sender = new Wire();
+        using var first = new Wire(sender.Conn.Instance);
+        using var second = new Wire(sender.Conn.Instance);
+        var pending = new List<Task>();
+        foreach (var peer in new[] { first, second })
+        {
+            peer.Conn.AwakeMonsters = [id];
+            peer.Conn.Outbox = (bytes, log) =>
+            {
+                var send = Program.Send("fanout-test", peer.Stream, peer.Ciphers, bytes, log);
+                pending.Add(send);
+                return send;
+            };
+            sender.Conn.Instance.PublishPlayer(new(peer.Conn.PeerId, 7, new("Peer", 1, 10, 10, 50, 40), 10, 10, 50, peer.Conn));
+        }
+        byte[] bytes = InstanceEntities.RemoveBuff(id, 7), expected = (byte[])bytes.Clone();
+        Game.ToOthers(sender.Conn, id, bytes);
+        await Task.WhenAll(pending);
+        Assert.Equal(2, pending.Count);
+        Assert.Equal(expected, bytes); // Neither peer's cipher may mutate the owner's plaintext.
+        Assert.Equal(expected, first.Read(expected.Length));
+        Assert.Equal(expected, second.Read(expected.Length));
+
+        // Rewritten combat packets also need a copy per peer, not one copy for the fan-out.
+        sender.Conn.Instance.World.MonsterOrigins[id] = new(123, new(10, 10, 23, []), 0, 1, MonsterRarity.Normal);
+        sender.Conn.Wire = ("fanout-test", sender.Stream, sender.Ciphers);
+        Program.InGame[sender.Conn] = 0;
+        foreach (var peer in new[] { first, second })
+            peer.Conn.SeenPlayers[sender.Conn.PeerId] = new(sender.Conn.PeerId, 7, new("Owner", 1, 10, 10, 50, 40), 10, 10, 50, sender.Conn);
+        try
+        {
+            await Check(InstanceProtocol.ActionEnded(id), InstanceProtocol.ActionEnded(id),
+                packet => Game.BroadcastMonsterMessage(sender.Conn, id, packet));
+            sender.Conn.PeerActing = true;
+            await Check(InstanceProtocol.ActionEnded(0x1000), InstanceProtocol.ActionEnded(sender.Conn.PeerId),
+                packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+            await Check(InstanceProtocol.ActionHit(0x1000, 12, id, kind: 1),
+                InstanceProtocol.ActionHit(sender.Conn.PeerId, 0xffff, id, kind: 1),
+                packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+        }
+        finally { Program.InGame.TryRemove(sender.Conn, out _); }
+
+        async Task Check(byte[] original, byte[] mirrored, Action<byte[]> broadcast)
+        {
+            pending.Clear();
+            var unchanged = (byte[])original.Clone();
+            broadcast(original);
+            await Task.WhenAll(pending);
+            Assert.Equal(2, pending.Count);
+            Assert.Equal(unchanged, original);
+            Assert.Equal(mirrored, first.Read(mirrored.Length));
+            Assert.Equal(mirrored, second.Read(mirrored.Length));
+        }
+    }
+
     [Fact]
     public void The_exile_picks_its_voice_line_and_closing_it_skips_only_the_running_scene()
     {
@@ -128,10 +328,11 @@ public class OpeningSceneTests
         readonly TcpClient reader;
         readonly ConnectionCiphers decrypt = new(new byte[64], true);
         public readonly ConnectionCiphers Ciphers = new(new byte[64], false);
-        public readonly ClientState Conn = new(new(0, TutorialObjects.Strand, 32, 32, 10, 10, null, []), 0, 1) { Instance = new(), PlayerLife = 50 };
+        public readonly ClientState Conn;
         public NetworkStream Stream => writer.GetStream();
-        public Wire()
+        public Wire(InstanceState? instance = null)
         {
+            Conn = new(new(0, TutorialObjects.Strand, 32, 32, 10, 10, null, []), 0, 1) { Instance = instance ?? new(), PlayerLife = 50 };
             listener.Start();
             var accepting = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
