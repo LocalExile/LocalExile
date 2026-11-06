@@ -7,13 +7,13 @@ using GameServer.Core.World;
 /// Skills the server grants: a GrantedEffects Id at a level becomes the GrantedEffectsPerLevel row and the
 /// GrantedEffectStatSetsPerLevel row (of the effect's StatSet1 at that gem level) the Actor skill list refers to
 /// (Agents/docs/protocol/11-skills.md). Reads data/tables (game data, loaded on first use). Without the tables it
-/// knows only the default attack, PlayerMelee at level 1 (GEPL 4474, GESSPL 4430 in 3.29.3b).
+/// knows only the default attack, PlayerMelee at level 1 (GEPL 4474, GESSPL 4430 in 3.29.3c).
 /// </summary>
 sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 {
     /// <summary>The ids the server gives its skills (+0x40). Basic actions use their ActionTypes HASH16 instead, so these
     /// must not collide with the type's basic actions (Character.ot: Move 0x2909, Interaction 0x0266 …). 0x0101 did: a
-    /// Monster.ot basic action masks to it. 0x0102 is no ActionType's id in 3.29.3b.</summary>
+    /// Monster.ot basic action masks to it. 0x0102 is no ActionType's id in 3.29.3c.</summary>
     public const ushort FirstSkillId = 0x0102;
 
     private readonly Lazy<Tables?> _tables = new(() => Tables.Load(folder));
@@ -79,7 +79,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     }
 
     /// <summary>Skill ids for the server's skills from <see cref="FirstSkillId"/> on, skipping every id an ActionType's
-    /// HASH16 masks to (0x3fff): 0x0106, 0x010a and 0x0114 are basic actions in 3.29.3b, and a gem skill numbered after
+    /// HASH16 masks to (0x3fff): 0x0106, 0x010a and 0x0114 are basic actions in 3.29.3c, and a gem skill numbered after
     /// the default attack would replace one.</summary>
     public IEnumerable<ushort> SkillIds()
     {

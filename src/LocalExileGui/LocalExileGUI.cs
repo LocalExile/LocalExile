@@ -996,7 +996,7 @@ namespace LocalExileGui
                 if (Directory.Exists(client))
                 {
                     var check = await Cli.Capture(Cli.ExePath, new[] { "check" }, null);
-                    report(check.Code == 0, I18n.T("check.client", client, check.Code == 0 ? "3.29.3b" : Cli.ExitCodeText(check.Code)),
+                    report(check.Code == 0, I18n.T("check.client", client, check.Code == 0 ? "3.29.3c" : Cli.ExitCodeText(check.Code)),
                         check.Code == 0 ? null : I18n.T("check.redoSetup"));
                 }
                 else report(false, I18n.T("check.noClient"), I18n.T("check.noClientFix"));

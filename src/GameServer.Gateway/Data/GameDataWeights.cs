@@ -37,7 +37,7 @@ static class GameDataWeights
     }
 
     /// <summary>The client-derived rows, before any override. Kept in the same order as the source table; duplicate
-    /// names (none in 3.29.3b) keep their first row.</summary>
+    /// names (none in 3.29.3c) keep their first row.</summary>
     internal static List<GameDataStore.UniqueWeightRow> Read(string folder)
     {
         var rows = new List<GameDataStore.UniqueWeightRow>();

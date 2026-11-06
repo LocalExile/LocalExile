@@ -44,8 +44,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   [dev-server.md](../docs/dev-server.md).
 - Walk-map recorder on 3.29.3c (2026-11-07): `scripts/walkmaps/walkmaps.js` detects 3.29.3b/3.29.3c from the main grid
   hook and selects the build's addresses. Captures were used for the two server-generated MTX hideouts
-  (`HideoutExilecon2026`, `HideoutMaze_`). The 3.29.3c tile-object hook and the graph-stage snapshots are not ported;
-  the grid, projectile grid, heights, doodads, rooms and generation trace are.
+  (`HideoutExilecon2026`, `HideoutMaze_`). The 3.29.3c tile-object hook and the graph-stage snapshots are now ported
+  too (every hook address and signature was checked against the 3.29.3c executable; the next live capture should
+  confirm them). The grid, projectile grid, heights, doodads, rooms and generation trace are also ported.
   Code: `scripts/walkmaps/walkmaps.js`.
 - Gateway hot reload, on by default (`live.ps1 -NoHotReload` turns it off): the Gateway runs under `dotnet watch`,
   which applies saved code edits to the running server; `HotReload.cs` logs each applied edit and tells players in
@@ -215,7 +216,7 @@ Code: `scripts/re/ghidra/ReadSchema.java`, `SendSites.java`, `scripts/re/schema_
 
 Optional [native client control](../docs/dev/client-control.md) provides CLI/JSON RPC for development without repeated
 UI input.
-It targets the copied standalone 3.29.3b client and local services only; its native signatures are not yet updated for 3.29.3c.
+It targets the copied standalone 3.29.3b and 3.29.3c clients and local services only; the native signatures are selected from the detected build.
 Login keeps waiting within its existing timeout when success 0 precedes authenticated state 3.
 Mocked execute/RPC regressions cover this wait, rejection 6 and timeouts; this fix has no new native verification.
 It also creates and deletes characters, travels by waypoint (by WorldAreas Id too), waits for an area and knows the

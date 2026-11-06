@@ -66,9 +66,10 @@ static class Shared
             .Where(d => d[0].GetString() is "n" or "u" or "l" && !ObjectScriptDraws.Contains(d[1].GetString()!))
             .Select(d => (Kind: d[0].GetString()![0], Caller: d[1].GetString()!, Arg: d[2].GetUInt32(), Result: d[3].GetUInt32())).ToList();
 
-    /// <summary>The local client's version. Its sessions log the patch root as https://patch.poecdn.com/3.29.3.3/
-    /// or, started by live.ps1, our patch server's http://127.0.0.1:8080/ (no version in it).</summary>
-    public const string LocalVersion = "3.29.3.3";
+    /// <summary>The local client's version. 3.29.3c sessions log the patch root as https://patch.poecdn.com/3.29.3.4/
+    /// or, started by live.ps1, our patch server's http://127.0.0.1:8080/ (no version in it). Pass
+    /// <c>only: "3.29.3.3"</c> to compare against the older 3.29.3b logs.</summary>
+    public const string LocalVersion = "3.29.3.4";
 
     /// <summary>The (area, seed) → (level, tile hash) pairs the client logged, only from the local client's sessions:
     /// Client/logs/Client-*-archive.txt (older log parts kept aside, in log order) and then Client/logs/Client.txt. Each

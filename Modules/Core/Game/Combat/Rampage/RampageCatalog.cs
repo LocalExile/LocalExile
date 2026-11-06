@@ -2,7 +2,7 @@ using System.Collections.Frozen;
 using System.Text.Json;
 
 /// <summary>
-/// Read-only 3.29.3b Rampage execution plans, not an effect executor. Thresholds join their actual daemon variety,
+/// Read-only 3.29.3c Rampage execution plans, not an effect executor. Thresholds join their actual daemon variety,
 /// granted effect, GEPL and stat-set level rows. Animated weapons retain their own variety/mod/skill records.
 /// Production data always defaults to the repository's data/; a fixture may supply a different folder explicitly.
 /// </summary>

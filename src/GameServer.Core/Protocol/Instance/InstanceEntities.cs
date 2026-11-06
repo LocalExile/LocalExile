@@ -420,17 +420,17 @@ public static partial class InstanceInventories
         public byte Flags => (byte)((SingleItem ? 1 : 0) | (Equipment ? 2 : 0));
     }
 
-    /// <summary>The Inventories.dat rows whose column 4 is set (3.29.3b).</summary>
+    /// <summary>The Inventories.dat rows whose column 4 is set (3.29.3c).</summary>
     static readonly byte[] EquipmentRows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 54, 78, 102];
 
-    /// <summary>The Inventories.dat rows whose column 3 is set (3.29.3b).</summary>
+    /// <summary>The Inventories.dat rows whose column 3 is set (3.29.3c).</summary>
     static readonly byte[] SingleItemRows =
         [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 28, 31, 33, 35, 37, 41, 42, 43, 44, 54, 55,
          66, 67, 71, 74, 78, 81, 82, 93, 98, 100, 102, 103, 105, 109, 111];
 
     public const byte CursorRow = 12;
 
-    /// <summary>Every Inventories.dat row of 3.29.3b (117, dumped from Data/Inventories.datc64): kind = the row's first
+    /// <summary>Every Inventories.dat row of 3.29.3c (117, dumped from Data/Inventories.datc64): kind = the row's first
     /// u32, width = second u32, height = byte 10 after the Id. The client looks inventories up by row from many UI places
     /// (409 call sites of 0x141d621a0 across ~50 rows), so an empty inventory is registered for every row.</summary>
     public static readonly Slot[] PlayerDefaults =
@@ -1032,7 +1032,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     /// <summary>Start in the client's washed-up beach state, which handles lying down and getting up on input.</summary>
     public bool WashedUp { get; init; }
     public float Rotation { get; init; }
-    // All seven 3.29.3b character .act files put WashedUp at stance index 68 (0 is the base stance).
+    // All seven 3.29.3c character .act files put WashedUp at stance index 68 (0 is the base stance).
     public const byte WashedUpStance = 68;
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;

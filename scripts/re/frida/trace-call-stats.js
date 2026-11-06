@@ -1,10 +1,10 @@
 // Self-contained (Frida 17 gives each script its own scope). Every stat read made while FUNCTION runs (on its thread),
 // with the value returned, and FUNCTION's return; plus the return of each call to ANIMATION from inside it. Each distinct
 // (key, value) is sent once per call. Keys are Stats.dat row + 1.
-// Shield Charge (3.29.3b): FUNCTION 0x141a6df00, its arrival hook (the final hit, then the end attack's animation
-// through 0x141e9a3c0); 0x141a6bae0, its setup (path, range, the mover's speed). After FUNCTION returns, the action's
+// Shield Charge (3.29.3c): FUNCTION 0x141a70910, its arrival hook (the final hit, then the end attack's animation
+// through 0x141ea0c60); 0x141a6e4f0, its setup (path, range, the mover's speed). After FUNCTION returns, the action's
 // mover speed (+0xe8 → +8 → +0x98 → float +0x240, what the moving-attack update walks at) is sent too.
-const FUNCTION = '0x141a6bae0', ANIMATION = '0x141e9a3c0';
+const FUNCTION = '0x141a6e4f0', ANIMATION = '0x141ea0c60';
 const m = Process.getModuleByName('Game.patched.exe');
 const at = va => m.base.add(ptr(va).sub(ptr('0x140000000')));
 const va = p => (p.compare(m.base) >= 0 && p.compare(m.base.add(m.size)) < 0) ? '0x' + p.sub(m.base).add(ptr('0x140000000')).toString(16) : p.toString();
@@ -25,7 +25,7 @@ Interceptor.attach(at(ANIMATION), {
   onEnter() { this.mine = inside > 0; },
   onLeave(r) { if (this.mine) anims.push(r.toString()); }
 });
-for (const [addr, getter] of [['0x1424fc1e0', 'stats'], ['0x1424cfa40', 'network']])
+for (const [addr, getter] of [['0x142502d90', 'stats'], ['0x1424d6510', 'network']])
   Interceptor.attach(at(addr), {
     onEnter(args) { this.key = inside > 0 ? args[1].toUInt32() : null; this.caller = this.returnAddress; },
     onLeave(r) { if (this.key !== null) reads[getter + ':0x' + this.key.toString(16)] = r.toInt32(); }

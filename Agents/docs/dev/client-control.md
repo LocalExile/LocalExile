@@ -1,9 +1,9 @@
 # Native client control
 
-`scripts/dev/client_control.py` provides CLI and persistent JSON-lines RPC for the copied standalone **3.29.3b**
-client. The native code signatures and addresses in `client-control.js` are pinned to 3.29.3b; update them before
-using the bridge with 3.29.3c. It calls existing client functions through [Frida RPC](https://frida.re/docs/javascript-api/#rpc), on the
-game thread. It uses the normal local authentication, character list, Play, instance connection, and Gateway command
+`scripts/dev/client_control.py` provides CLI and persistent JSON-lines RPC for the copied standalone **3.29.3b** and
+**3.29.3c** clients. The native code signatures in `client-control.js` cover both builds; the agent checks them at
+attach and selects the matching address table before it exposes RPC. It calls existing client functions through
+[Frida RPC](https://frida.re/docs/javascript-api/#rpc), on the game thread. It uses the normal local authentication, character list, Play, instance connection, and Gateway command
 handlers. No screenshots, keyboard/mouse events, HTTP listener, save editing, or server authentication bypass are used.
 
 Start the local servers normally through `scripts/dev/live.ps1`. Python needs `frida` (the walk-map recorder's `.venv`
@@ -62,6 +62,10 @@ The ordinary handshake can submit a remembered form before the explicit login RP
 `AccountLogin +0x95` must therefore be cleared when replacing that form with a password digest.
 The Remember Password preference at `+0x94` is retained; `login:saved` has no pending replacement and stays unchanged.
 The server still validates saved credentials and password digests through their separate normal paths.
+An explicit login to a different account also replaces the client's remembered `*_login.credentials` with that
+account's password digest. The next `login:saved` sends the new digest with the old remembered form account and is
+rejected (result 6). Log in with the remembered account's password again (or restore its credentials file) before using
+`login:saved`.
 Native verification used a new synthetic account and the unchanged strict Auth server on `bbb658a9`.
 A remembered form first produced result 6 with `Flag95=true`; the corrected script reached selection with result 0.
 The tested combined source was `9736945d`, whose controller script is identical to this standalone correction.
@@ -112,6 +116,33 @@ The bridge refuses a different executable path or code signatures. Addresses bel
 | `0x140dfb760` / `0x140dfb8c0` | Existing buffered socket writer/flush, for `0x153` return to selection and `0x15` slash commands. Encryption remains the client's. |
 | `0x14216e940` | Signature-checked reference for socket write coordination: mark writing, acquire the socket lock while threaded, write, release and unmark before flushing. |
 
+### 3.29.3c addresses
+
+The functions keep their bytes; the 3.29.3c build moves every address and both singletons:
+
+| Address | Purpose |
+|---|---|
+| `0x141528fbf` | State-stack update (frame point). |
+| `0x1445d6fd8` / `0x1445d6fb0` | App and state-stack singletons; app `+0x358` login, `+0x348` instance. |
+| `0x142144340` | Connect. |
+| `0x142145360` / `0x142142fb0` | Login sender / native account-login writer. |
+| `0x142145ae0` | Login result dispatcher (`0x04`, `0x0d`, `0x13`). |
+| `0x142147040` | Play. |
+| `0x142146de0` | C→S 0x12 create-character sender. |
+| `0x141f9baf0` / class `0x1435ca710` | C→S 0x0c delete writer. |
+| `0x140d146c0` | Logout button handler; call it with state 7 (the state object `game:status` reports). |
+| `0x140dfa000` / `0x140dfa160` | Socket writer / flush. |
+| `0x140d0f770` | Bare logout routine; not used on 3.29.3c (it leaves a dead login connection). |
+| `0x1415284c0` | State push. |
+| `0x140134a00` | Native string assignment. |
+| `0x141e70730` / `0x141e70550` | Life tick / pool update. |
+| `0x1421752b0` | Client instance send (socket write coordination). |
+
+The server ids the bridge's commands rely on also moved: gold is `0x2aa` (0x2a9 in 3.29.3b) and change area is `0x2b4`
+(0x2b2 in 3.29.3b); see the [3.29.3c client diff](../re/3.29.3c-client-diff.md). The 3.29.3c logout handler raises a
+handled C++ "system error" after switching to the login screen; the bridge swallows that exception and waits for the
+login screen.
+
 The bridge coordinates buffered writes with the network thread's flush through the socket's own lock.
 An unsynchronized write could desynchronize encryption permanently; author-reported native quest runs verified the fix.
 
@@ -123,6 +154,12 @@ and are observations rather than guarantees. Only the Witch class was exercised 
 client's own cell (Positioned +0x294/+0x298, as `scripts/re/frida/trace-player-drift.js` reads it) equalled the
 Gateway's `/pos` every time, and the `/pos`, `/tp list` and refusal replies came back in `replies`. An attached bridge is for the
 local development client; it has no official-service support.
+
+Live verified 2026-11-07 with the 3.29.3c client: automatic build detection, `game:status`, `login:saved`, character
+list, Play into Exilecon 2026 and The Twilight Strand, `/pos`, `tp`, chat, `game:resources`, `game:frames`, waypoint
+travel to Lioneye's Watch with `area:wait`, return to character selection, logout to the login screen, explicit `c3293`
+login, and character create/play/delete. `character:create` and the following `character:play` must run in the same
+persistent session: the "waiting for Play" flag lives in the agent and is lost when a one-shot process detaches.
 
 Checks: `node --check scripts/dev/client-control.js` and
 `.venv/Scripts/python.exe -m unittest discover -s scripts/dev -p test_client_control.py`.

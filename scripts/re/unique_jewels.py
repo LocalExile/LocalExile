@@ -136,7 +136,7 @@ def main():
         return "[" + ", ".join("null" if value is None else str(value) for value in values) + "]"
 
     lines = [
-        "// Generated from Path of Building src/Export/Uniques/jewel.lua for the target 3.29.3b data.",
+        "// Generated from Path of Building src/Export/Uniques/jewel.lua for the target 3.29.3c data.",
         "// Do not edit by hand; regenerate with scripts/re/unique_jewels.py (a read-only third-party reference).",
         "// Global jewels have no radius and no conditional mechanic; Special jewels have an item source but a",
         "// mechanic that is not modelled yet.",
@@ -184,7 +184,7 @@ def main():
     # The unique art of every unique jewel (not only the Global ones): Voices and the cluster jewels, the radius
     # jewels and the timeless ones all get their own icon from here once their mechanic exists.
     visual_lines = [
-        "// Generated from the client's UniqueStashLayout, Words and ItemVisualIdentity for the target 3.29.3b data.",
+        "// Generated from the client's UniqueStashLayout, Words and ItemVisualIdentity for the target 3.29.3c data.",
         "// Do not edit by hand; regenerate with scripts/re/unique_jewels.py.",
         "",
         "/// <summary>The unique art of every unique jewel the stash layout lists, by name: the ItemVisualIdentity",

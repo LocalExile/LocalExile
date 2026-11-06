@@ -93,7 +93,7 @@ static class TutorialObjects
         return added;
     });
 
-    // The 3.29.3b WoundedMale1Zombie/Rig.amd has bite at index 1. 0x1b2 kind zero plays the clip; speed zero pauses it.
+    // The 3.29.3c WoundedMale1Zombie/Rig.amd has bite at index 1. 0x1b2 kind zero plays the clip; speed zero pauses it.
     public static byte[] BiteAnimation(uint id, float speed) => new LoginWriter().U16(0x1b2).U32(id).U32(0).U16(0)
         .U8(0).U32(1).U32(BitConverter.SingleToUInt32Bits(speed)).ToArray();
 

@@ -1,7 +1,7 @@
-LocalExile: a local server for the Path of Exile 3.29.3b client. You play on your own PC against servers on 127.0.0.1.
+LocalExile: a local server for the Path of Exile 3.29.3c client. You play on your own PC against servers on 127.0.0.1.
 Not affiliated with or endorsed by Grinding Gear Games. This package holds no game files.
 
-You need Windows 10/11 x64 and your own copy of the standalone Path of Exile 3.29.3b client. Nothing else to install.
+You need Windows 10/11 x64 and your own copy of the standalone Path of Exile 3.29.3c client. Nothing else to install.
 
 TO PLAY
 Double-click LocalExile.exe, or run it in a terminal, and answer its questions. The first start copies the client if you
@@ -11,7 +11,7 @@ LocalExileGUI.exe does the same in a window (English, Simplified or Traditional 
 
 ALWAYS START THE GAME WITH LocalExile.exe (OR LocalExileGUI.exe)
 Started any other way (the game's own executable, Steam, the official launcher), the client contacts the official patch
-servers and can update itself. A newer client does not work with LocalExile, and you cannot get 3.29.3b back that way.
+servers and can update itself. A newer client does not work with LocalExile, and you cannot get 3.29.3c back that way.
 
 TO UPDATE LOCALEXILE
 Close the game, then extract the new zip to the same place, so its LocalExile folder goes over this one. Your characters, keys and extracted data in data\ and your

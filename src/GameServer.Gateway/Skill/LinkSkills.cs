@@ -10,7 +10,7 @@
 /// </summary>
 sealed class LinkSkills
 {
-    /// <summary>A link gem's buffs (BuffDefinitions 3.29.3b): the source on the caster, the target on the linked one.
+    /// <summary>A link gem's buffs (BuffDefinitions 3.29.3c): the source on the caster, the target on the linked one.
     /// The source buff grants <c>number_of_active_links</c> (its condition stats); the target buffs' stats act on the
     /// target only.</summary>
     internal static readonly IReadOnlyDictionary<string, (ushort Source, ushort Target)> Buffs = new Dictionary<string, (ushort, ushort)>

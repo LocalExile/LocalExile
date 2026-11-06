@@ -22,8 +22,9 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
    capture its output (for example `powershell -File live.ps1 | Out-String`). The servers it starts keep the pipe
    open, so the call never returns. Read `logs\` instead.
 6. **3.29.3c is the supported play client.** Login, character list, instance connect, area generation and area entry
-   all work ([3.29.3c diff](docs/re/3.29.3c-client-diff.md)). 3.29.3b remains usable for comparison; the login patch
-   and several protocol constants are build-specific, and 3.29.3c shifted every world message id from `0x2b5` by +2.
+   all work ([3.29.3c diff](docs/re/3.29.3c-client-diff.md)). The server's extracted constants and message ids target
+   3.29.3c; keep a 3.29.3b copy only to compare the executable, not to play. 3.29.3c shifted every world message id
+   from `0x2b5` by +2.
 
 ## What you need
 

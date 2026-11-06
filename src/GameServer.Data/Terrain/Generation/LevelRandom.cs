@@ -1,6 +1,6 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The level generator's random numbers, as client 3.29.3b draws them
+/// <summary>The level generator's random numbers, as client 3.29.3c draws them
 /// (Agents/docs/re/011-level-generation.md §2).
 /// <list type="bullet">
 /// <item>A thread-local <c>std::mt19937</c> seeded with the area seed when generation starts (<c>0x14204d820</c>);

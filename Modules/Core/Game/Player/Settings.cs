@@ -51,7 +51,7 @@ static partial class Game
     // How close (cells, centre to centre) gold on the ground is picked up by itself (RunPlayerTick): our own number, a
     // little inside a click's PickupReach.
     // A monster's second skill, after its attack (SkillCatalog.FirstSkillId): a boss's stage skill (BossFights). 0x0103
-    // is free in 3.29.3b (SkillCatalog.SkillIds).
+    // is free in 3.29.3c (SkillCatalog.SkillIds).
     internal const ushort StageSkillId = 0x0103;
     // NPCs.dat with the NPC types' components; loaded with the first town.
     internal static readonly Lazy<NpcCatalog> Npcs = new(() => NpcCatalog.Load());
@@ -77,7 +77,7 @@ static partial class Game
     internal static readonly uint[] SuppressionChanceKeys = [.. new[] { "spell_suppression_chance_%",
         "base_spell_suppression_chance_%", "combined_spell_suppression_chance_%" }.Select(n => Stats.Key(n)).OfType<uint>()];
     // Per character: the skill ids of the socketed gems (GemSkillIds), and the ids gem skills may use (after the default
-    // attack, the ids below FirstSkillId + 64 that no basic action uses: SkillCatalog.IsGemSkill; 55 in 3.29.3b).
+    // attack, the ids below FirstSkillId + 64 that no basic action uses: SkillCatalog.IsGemSkill; 55 in 3.29.3c).
     internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> GemSkillIdsOf = new(StringComparer.OrdinalIgnoreCase);
     internal static readonly Lazy<ushort[]> GemSkillIdPool = new(() => [.. Skills.SkillIds().Skip(1).Where(Skills.IsGemSkill)]);
     // Maps.dat: which area each map opens (MapDevice.cs); loaded with the first Activate.

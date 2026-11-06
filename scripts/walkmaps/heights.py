@@ -13,7 +13,8 @@ import struct
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# Client tables (3.29.3b): 0x142fa04b0 (9 x 3 bytes, the code's axis choice) and 0x142fb7f98 (code byte -> row).
+# Client tables (3.29.3c): 0x142fa7278 (9 x 3 bytes, the code's axis choice) and 0x143015ab8 (code byte -> row);
+# the bytes are unchanged from 3.29.3b (0x142fa04b0 / 0x142fb7f98).
 CODES = bytes.fromhex("000101010001000000010100000001010000000100010101000101")
 CLAMP = bytes.fromhex("00030201040506070800000000000000")
 UNKNOWN = -32768

@@ -1,4 +1,4 @@
-// Generated from Path of Building src/Export/Uniques/*.lua for the target 3.29.3b data.
+// Generated from Path of Building src/Export/Uniques/*.lua for the target 3.29.3c data.
 // Do not edit by hand; regenerate with scripts/re/unique_items.py (a read-only third-party reference).
 using GameServer.Core.Protocol.Instance;
 

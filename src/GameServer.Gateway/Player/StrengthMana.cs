@@ -1,7 +1,7 @@
 /// <summary>Flat maximum mana from complete groups of final Strength, before ordinary mana increases.</summary>
 static class StrengthMana
 {
-    // 3.29.3b Stats.dat row 4992, client key 4993; Mental Conditioning graph node 38080 grants 8.
+    // 3.29.3c Stats.dat row 4992, client key 4993; Mental Conditioning graph node 38080 grants 8.
     public const string PerFourStrength = "X_mana_per_4_strength";
 
     public static long Flat(int finalStrength, int perFourStrength) =>

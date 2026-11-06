@@ -55,7 +55,7 @@ public sealed class LoginServerSession(AccountService accounts)
 
     /// <summary>
     /// 0x14 for the account's first character. The area hash is WorldAreas.HASH16 (Lioneye's Watch, 1_1_town = 0x235c
-    /// in 3.29.3b); an unknown hash makes the client throw "Area reported by instance does not exist". +0x30 is the port
+    /// in 3.29.3c); an unknown hash makes the client throw "Area reported by instance does not exist". +0x30 is the port
     /// (live-verified). The client echoes +0x34 (here the IPv4 address) in instance 0x0E and the ticket at +0x38 in
     /// instance 0x0F. The 64 key bytes become the instance connection's Salsa20 key material (Agents/docs/re/010). Data8 goes
     /// into the 0x0E digest and stays zero.

@@ -1,4 +1,4 @@
-"""Fast, structured control of the local 3.29.3b client through its native functions.
+"""Fast, structured control of the local 3.29.3b/3.29.3c client through its native functions.
 
     .venv/Scripts/python.exe scripts/dev/client_control.py game:status
     .venv/Scripts/python.exe scripts/dev/client_control.py game:open

@@ -917,7 +917,7 @@ static partial class Game
 
     // The permanent resistance penalty from Kitava: -30% after the Act 5 encounter and another -30% after the final
     // Act 10 Kitava. It is a quest penalty, not a buff/aura: the client keeps it through its quest flags, and the server
-    // mirrors it from the same flags. (In the 3.29.3b tables QuestStaticRewards 38 is a5q6-CompletedBoss and 39 is
+    // mirrors it from the same flags. (In the 3.29.3c tables QuestStaticRewards 38 is a5q6-CompletedBoss and 39 is
     // EndGameAvailable, set when Kitava dies in The Feeding Trough; a10q3-UsedRewardBook, Lani's book after him, implies
     // it. EndGameAvailable counts only once earned: every character is given it for the Atlas (in a hideout and the maps
     // only until then, Quests.EndgameOnly), ClientState.UnearnedQuestFlags.

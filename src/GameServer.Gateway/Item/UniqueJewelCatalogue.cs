@@ -1,4 +1,4 @@
-// Generated from Path of Building src/Export/Uniques/jewel.lua for the target 3.29.3b data.
+// Generated from Path of Building src/Export/Uniques/jewel.lua for the target 3.29.3c data.
 // Do not edit by hand; regenerate with scripts/re/unique_jewels.py (a read-only third-party reference).
 // Global jewels have no radius and no conditional mechanic; Special jewels have an item source but a
 // mechanic that is not modelled yet.

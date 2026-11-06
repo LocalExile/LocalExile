@@ -1,5 +1,5 @@
 /// <summary>
-/// The game's Low Life boundary: 50% of maximum Life or less by default (the 3.29.3b
+/// The game's Low Life boundary: 50% of maximum Life or less by default (the 3.29.3c
 /// <c>ReminderTextLowLife</c> text), replaced by a positive <c>low_life_threshold_%_override</c>, then by
 /// <c>low_life_threshold_%</c>. The critical policy and Petrified Blood share this rule.
 /// </summary>

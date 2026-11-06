@@ -11,7 +11,7 @@ $notPeople = 'opencode', 'LocalExile Agent', 'LocalExile', 'Claude', 'github-act
 
 $previous = @(git tag --list 'v*' --sort=-v:refname --merged $Head) | Select-Object -First 1
 $lines = [System.Collections.Generic.List[string]]::new()
-$lines.Add("For the Path of Exile **3.29.3b** client. Download the zip below, extract it, run ``LocalExile.exe``; nothing else to install.")
+$lines.Add("For the Path of Exile **3.29.3c** client. Download the zip below, extract it, run ``LocalExile.exe``; nothing else to install.")
 $lines.Add('**Always start the game with `LocalExile.exe`:** any other way can update the client, which breaks the setup.')
 $lines.Add('')
 $lines.Add('## Highlights')

@@ -87,8 +87,8 @@ namespace LocalExileGui
             Add("exit.1", "Unexpected error; see the log", "意外错误，请查看日志", "意外錯誤，請查看日誌");
             Add("exit.2", "Bad input (for example an invalid account name, a weak password or an account that already exists)",
                 "参数有误（例如账号名不合法、密码太弱、账号已存在）", "參數有誤（例如帳號名稱不合法、密碼太弱、帳號已存在）");
-            Add("exit.3", "Client not usable: the standalone Path of Exile 3.29.3b client is required",
-                "客户端不可用：需要 Path of Exile 3.29.3b 独立版客户端", "用戶端無法使用：需要 Path of Exile 3.29.3b 獨立版用戶端");
+            Add("exit.3", "Client not usable: the standalone Path of Exile 3.29.3c client is required",
+                "客户端不可用：需要 Path of Exile 3.29.3c 独立版客户端", "用戶端無法使用：需要 Path of Exile 3.29.3c 獨立版用戶端");
             Add("exit.4", "Extracting the game data failed; see the logs folder", "游戏数据解包失败，请查看 logs 目录", "遊戲資料解包失敗，請查看 logs 資料夾");
             Add("exit.5", "A server failed; see the logs folder", "服务器出错，请查看 logs 目录", "伺服器出錯，請查看 logs 資料夾");
             Add("exit.6", "A port is in use, or LocalExile is already running (try Stop first)",
@@ -154,22 +154,22 @@ namespace LocalExileGui
 
             Add("setup.clientDir", "Client folder", "客户端目录", "用戶端目錄");
             Add("setup.browse", "Browse…", "浏览…", "瀏覽…");
-            Add("setup.browseTitle", "Choose the Path of Exile 3.29.3b install folder (the one with PathOfExile.exe)",
-                "选择 Path of Exile 3.29.3b 的安装目录（包含 PathOfExile.exe 的文件夹）", "選擇 Path of Exile 3.29.3b 的安裝目錄（包含 PathOfExile.exe 的資料夾）");
+            Add("setup.browseTitle", "Choose the Path of Exile 3.29.3c install folder (the one with PathOfExile.exe)",
+                "选择 Path of Exile 3.29.3c 的安装目录（包含 PathOfExile.exe 的文件夹）", "選擇 Path of Exile 3.29.3c 的安裝目錄（包含 PathOfExile.exe 的資料夾）");
             Add("setup.mode", "Mode", "使用方式", "使用方式");
             Add("setup.copy", "Make a copy (recommended; keeps the original)", "复制一份（推荐，原客户端不会被改动）", "複製一份（建議，原用戶端不會被改動）");
             Add("setup.link", "Use the folder itself (changes it)", "直接使用原目录（会修改它）", "直接使用原目錄（會修改它）");
             Add("setup.check", "Check client", "检查客户端", "檢查用戶端");
             Add("setup.run", "Start setup", "开始设置", "開始設定");
             Add("setup.hint",
-                "The client must be the standalone Path of Exile 3.29.3b. The copy takes about 65 GB, and extracting the data a few minutes.\n" +
+                "The client must be the standalone Path of Exile 3.29.3c. The copy takes about 65 GB, and extracting the data a few minutes.\n" +
                 "With a local account already, the account fields can stay empty. Account names are 3-32 letters, digits, _ or -; passwords at least 4 characters. Do not reuse a real password.",
-                "客户端必须是 Path of Exile 3.29.3b 独立版。复制约 65GB，解包数据需要几分钟。\n" +
+                "客户端必须是 Path of Exile 3.29.3c 独立版。复制约 65GB，解包数据需要几分钟。\n" +
                 "已经有本地账号时可以不填账号和密码。账号名 3-32 位，只能用字母、数字、_ 或 -；密码至少 4 位，不要用你在别处用过的密码。",
-                "用戶端必須是 Path of Exile 3.29.3b 獨立版。複製約 65GB，解包資料需要幾分鐘。\n" +
+                "用戶端必須是 Path of Exile 3.29.3c 獨立版。複製約 65GB，解包資料需要幾分鐘。\n" +
                 "已經有本機帳號時可以不填帳號和密碼。帳號名稱 3-32 位，只能用字母、數字、_ 或 -；密碼至少 4 位，不要用你在別處用過的密碼。");
             Add("setup.needDir", "Choose the client folder first.", "请先选择客户端目录。", "請先選擇用戶端目錄。");
-            Add("setup.clientOk", "Client usable (3.29.3b)", "客户端可用（3.29.3b）", "用戶端可用（3.29.3b）");
+            Add("setup.clientOk", "Client usable (3.29.3c)", "客户端可用（3.29.3c）", "用戶端可用（3.29.3c）");
             Add("setup.needAccount", "There is no local account yet: fill in an account name and a password.",
                 "还没有本地账号，请填写账号名和密码。", "還沒有本機帳號，請填寫帳號名稱和密碼。");
             Add("setup.linkWarn", "\"Use the folder itself\" changes the client in that folder. Continue?",

@@ -8,7 +8,7 @@ public sealed record DelveProgress(uint Azurite = 0, byte Flares = 0, byte Dynam
     public byte Level(int type) => type >= 0 && type < (Upgrades?.Count ?? 0) ? Upgrades![type] : (byte)0;
 }
 
-/// <summary>Equipment prices and limits from the shipped 3.29.3b tables; no guessed upgrade costs.</summary>
+/// <summary>Equipment prices and limits from the shipped 3.29.3c tables; no guessed upgrade costs.</summary>
 public static class DelveEquipment
 {
     sealed record Upgrade(int Type, byte Level, uint Cost, int[] Keys, int[] Values);

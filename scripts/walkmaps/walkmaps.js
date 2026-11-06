@@ -21,7 +21,8 @@ const BUILDS = [
     roomsBytes: '488bc44c894820488950104889480855',
     height: '0x141d84a10',
     roomPick: '0x142105a70',
-    graphStages: true,
+    graphStages: false,
+    tileObjects: { hook: '0x1420415e0', codes: '0x142fa04b0', quarter: '0x1436a3318', turn: '0x1436a3674', noHeight: '0x1436a48d4' },
     generation: {
       generate: ['0x14204d820', '4c8bdc49894b08535657415441554156'],
       next: ['0x141ff9720', '48895c24084889742410574883ec3065'],
@@ -39,8 +40,9 @@ const BUILDS = [
     rooms: '0x142046fc0',
     roomsBytes: '488bc44c894820488950104889480855',
     height: '0x141d880a0',
-    roomPick: null,
-    graphStages: false,
+    roomPick: '0x14210c370',
+    graphStages: true,
+    tileObjects: { hook: '0x142047e30', codes: '0x142fa7278', quarter: '0x1436ae110', turn: '0x1436ae46c', noHeight: '0x1436af6cc' },
     generation: {
       generate: ['0x142054070', '4c8bdc49894b08535657415441554156'],
       next: ['0x141ffff70', '48895c24084889742410574883ec3065'],
@@ -86,9 +88,9 @@ if (!exe) {
         send({ type: 'error', message: String(e) });
       }
     });
-    // 3.29.3c has no ported tile-object hook yet: the hideout's transitions are room doodads, and regions without a
-    // capture leave the gate's Objects check at -1 (not compared), as before.
-    if (BUILD.name === '3.29.3b') hookTileObjects(exe);
+    // Tile objects are ported for both builds: the hook function kept its bytes, only its address and the constant
+    // tables moved (see BUILD.tileObjects).
+    if (BUILD.tileObjects) hookTileObjects(exe);
     hookDoodads(exe);
     hookGeneration(exe);
     hookRooms(exe);
@@ -114,7 +116,7 @@ function hookRoomPickProbe(exe) {
     const len = p.add(0x10).readU64().toNumber(), cap = p.add(0x18).readU64().toNumber();
     return (cap > 7 ? p.readPointer() : p).readUtf16String(len);
   };
-  Interceptor.attach(at('0x142105a70'), {
+  Interceptor.attach(at(BUILD.roomPick), {
     onEnter(a) {
       if (currentGen === null) return;
       const area = areaOf();
@@ -154,23 +156,26 @@ function hookRooms(exe) {
 }
 
 // Area transitions and waypoints of the generated layout (Agents/docs/protocol/08-area-transitions.md §5).
-// While generating, 0x141d7f700 walks each placed tile's .tmd records and calls 0x1420415e0(ctx, record):
+// While generating, 0x141d82d90 (3.29.3b 0x141d7f700) walks each placed tile's .tmd records and calls
+// 0x142047e30 (3.29.3b 0x1420415e0)(ctx, record):
 //   ctx[1] → placed tile: +0x30 i16 height offset (steps of 7.8125), +0x36 u8 rotation/flip code 0..7
 //   ctx[2] → i32 x, i32 y: the tile's grid origin;  ctx[3] → handle, *handle+0x28 → +0x60/+0x61 u8 size in tiles
 //   record: i32 x, i32 y (tile-local cell), f32 z (+0x10), f32 angle (+0x14); +0x30 type, +0x38 .ao (handle+8 → path)
 // The client spawns only its own doodads from them; server types (AreaTransition …) are skipped there, so their
-// placement is computed here the way 0x14202f1c0 does it, with the constants read from the client.
+// placement is computed here the way 0x142035a10 (3.29.3b 0x14202f1c0) does it, with the constants read from the
+// client.
 function hookTileObjects(exe) {
   const at = va => exe.base.add(ptr(va).sub(IMAGE_BASE));
-  const hook = at('0x1420415e0');
+  const t = BUILD.tileObjects;
+  const hook = at(t.hook);
   const bytes = Array.from(new Uint8Array(hook.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
   if (bytes !== '488bc448895808555657415441554156') {
-    send({ type: 'refused', reason: 'tile object hook: code does not match 3.29.3b' });
+    send({ type: 'refused', reason: `tile object hook: code does not match ${BUILD.name}` });
     return;
   }
-  const codes = Array.from(new Uint8Array(at('0x142fa04b0').readByteArray(24)));
-  const quarter = at('0x1436a3318').readFloat(), turn = at('0x1436a3674').readFloat();
-  const noHeight = at('0x1436a48d4').readFloat();
+  const codes = Array.from(new Uint8Array(at(t.codes).readByteArray(24)));
+  const quarter = at(t.quarter).readFloat(), turn = at(t.turn).readFloat();
+  const noHeight = at(t.noHeight).readFloat();
   const path = h => { try { return h.isNull() ? null : h.add(8).readPointer().readUtf16String(); } catch (e) { return null; } };
   Interceptor.attach(hook, {
     onEnter(a) {
@@ -395,7 +400,7 @@ function hookGeneration(exe) {
   traced('u', hooks.uniform[0]);
   traced('r', hooks.raw[0]);
   traced('l', hooks.lcg[0]);
-  // The graph/dungeon stage snapshots are only ported for 3.29.3b; the capture's draws and tiles do not need them.
+  // The graph/dungeon stage snapshots are ported for 3.29.3c; 3.29.3b keeps the draw/tile capture without them.
   if (BUILD.graphStages) hookGraphStages(exe, () => thread, () => draws.length);
 }
 
@@ -428,14 +433,14 @@ var heightStages = [], currentGen = null;
 function hookGraphStages(exe, currentThread, drawCount) {
   const at = va => exe.base.add(ptr(va).sub(IMAGE_BASE));
   const stages = [
-    ['special', '0x1421225d0', '48895c24184889742420555741544156', a => a[0].add(0x78).readPointer().add(0x20).readPointer()],
+    ['special', '0x142128ed0', '48895c24184889742420555741544156', a => a[0].add(0x78).readPointer().add(0x20).readPointer()],
     // Taken on entry: the graph as the relaxation sees it (special and plain nodes placed, not yet pushed).
-    ['relax', '0x1421239d0', '488bc448895810448840184889480855', a => a[0].add(0x78).readPointer().add(0x20).readPointer(), true],
-    ['route', '0x142125790', '48895c24185556574154415541564157', a => a[0].readPointer()],
-    ['corners', '0x142114f00', '48895c2410488974241855574156488d', a => a[0].add(0x20).readPointer()],
-    ['virtualNode', '0x14211e9b0', '4885d20f840601000048894c24085553', a => a[0].add(0x78).readPointer().add(0x20).readPointer()],
-    ['split', '0x142113c10', '48895c2410488974242055574156488d', a => a[0].add(0x20).readPointer()],
-    ['merge', '0x1421148c0', '48895c24185556574881ecb000000048', a => a[0].add(0x20).readPointer()],
+    ['relax', '0x14212a2d0', '488bc448895810448840184889480855', a => a[0].add(0x78).readPointer().add(0x20).readPointer(), true],
+    ['route', '0x14212c090', '48895c24185556574154415541564157', a => a[0].readPointer()],
+    ['corners', '0x14211b800', '48895c2410488974241855574156488d', a => a[0].add(0x20).readPointer()],
+    ['virtualNode', '0x1421252b0', '4885d20f840601000048894c24085553', a => a[0].add(0x78).readPointer().add(0x20).readPointer()],
+    ['split', '0x14211a510', '48895c2410488974242055574156488d', a => a[0].add(0x20).readPointer()],
+    ['merge', '0x14211b1c0', '48895c24185556574881ecb000000048', a => a[0].add(0x20).readPointer()],
   ];
   const wstring = s => s.add(0x18).readU64().compare(7) > 0 ? s.readPointer().readUtf16String() : s.readUtf16String();
   const vector = (p, size) => {
@@ -491,7 +496,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
     return [h.isNull() ? null : wstring(h.add(8)), r.add(8).readS32(), r.add(0xc).readS32(), r.add(0x20).readS32(), r.add(0x24).readS32(),
             r.add(0x13).readU8(), r.add(0x12).readU8(), r.add(0x14).readU8(), r.add(0x15).readU8(), r.add(0x10).readU8(), exits];
   };
-  const dungeonAt = at('0x1421038d0'), roomAt = at('0x1420fe780');
+  const dungeonAt = at('0x14210a1d0'), roomAt = at('0x142105080');
   const bytesAt = p => Array.from(new Uint8Array(p.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
   const cellsOf = l => {
     const w = l.add(0x28).readU32(), h = l.add(0x2c).readU32(), c = [];
@@ -500,14 +505,14 @@ function hookGraphStages(exe, currentThread, drawCount) {
   };
   // The cells as each layout stage starts ('<') and returns ('>').
   const dungeonStageHooks = [
-    ['fill', '0x1420fd4e0', '488bc448895010488948085553565741'], ['connect', '0x1420facb0', '405355565741544155415641574881ec'],
-    ['prune', '0x1420fd9c0', '48894c24085553565741544155415641'], ['fc690', '0x1420fc690', '48895c24184889542410555657415441'],
-    ['fca30', '0x1420fca30', '48895c2410488974241848897c242055'], ['100d60', '0x142100d60', '4c89442418488954241048894c240855'],
-    ['1012c0', '0x1421012c0', '4c894424184889542410555356574154'], ['100910', '0x142100910', '4c8bdc5553564155498d6ba14881ec88'],
-    ['108dc0', '0x142108dc0', '40534883ec60488bd9488b4928e88e06'], ['pick', '0x1421083e0', '48895c2410488974241848897c242055'],
+    ['fill', '0x142103de0', '488bc448895010488948085553565741'], ['connect', '0x1421015b0', '405355565741544155415641574881ec'],
+    ['prune', '0x1421042c0', '48894c24085553565741544155415641'], ['fc690', '0x142102f90', '48895c24184889542410555657415441'],
+    ['fca30', '0x142103330', '48895c2410488974241848897c242055'], ['100d60', '0x142107660', '4c89442418488954241048894c240855'],
+    ['1012c0', '0x142107bc0', '4c894424184889542410555356574154'], ['100910', '0x142107210', '4c8bdc5553564155498d6ba14881ec88'],
+    ['108dc0', '0x14210f6c0', '40534883ec60488bd9488b4928e8eea0'], ['pick', '0x14210ece0', '48895c2410488974241848897c242055'],
   ];
   for (const [name, va0, expected] of dungeonStageHooks) {
-    if (bytesAt(at(va0)) !== expected) { send({ type: 'refused', reason: `dungeon stage ${name} (${va0}) does not match 3.29.3b` }); continue; }
+    if (bytesAt(at(va0)) !== expected) { send({ type: 'refused', reason: `dungeon stage ${name} (${va0}) does not match 3.29.3c` }); continue; }
     Interceptor.attach(at(va0), {
       onEnter(a) {
         this.on = this.threadId === currentThread() && dungeonMap !== null;
@@ -521,8 +526,8 @@ function hookGraphStages(exe, currentThread, drawCount) {
     });
   }
   // 0x1420fd4e0 after its lookup (rdi): the edge type's room sizes [w, h, weight] and their total (+0x18).
-  if (bytesAt(at('0x1420fd58e')) === '48897d7f488b47084839070f84fb0300')
-    Interceptor.attach(at('0x1420fd58e'), function () {
+  if (bytesAt(at('0x142103e8e')) === '48897d7f488b47084839070f84fb0300')
+    Interceptor.attach(at('0x142103e8e'), function () {
       if (this.threadId !== currentThread()) return;
       try {
         const l = this.context.rdi, sizes = [];
@@ -533,8 +538,8 @@ function hookGraphStages(exe, currentThread, drawCount) {
     });
   // 0x1420452e0(generator, index): one subgraph record (0x98 bytes, list at generator +0x30 → +0x10 / +0x18): graph
   // path (std::wstring +0x20), rect +0x40 x, +0x44 y, +0x48 w, +0x4c h, +0x90 flags (bit 0: .dgr), +0x92 parent.
-  const subgraphAt = at('0x1420452e0');
-  if (bytesAt(subgraphAt) !== '48895c24184889742420555741544156') send({ type: 'refused', reason: 'subgraph: 0x1420452e0 does not match 3.29.3b' });
+  const subgraphAt = at('0x14204bb30');
+  if (bytesAt(subgraphAt) !== '48895c24184889742420555741544156') send({ type: 'refused', reason: 'subgraph: 0x1420452e0 does not match 3.29.3c' });
   else Interceptor.attach(subgraphAt, {
     onEnter(a) {
       if (this.threadId !== currentThread()) return;
@@ -547,7 +552,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
       } catch (e) { send({ type: 'error', message: 'subgraph: ' + String(e) }); }
     },
   });
-  if (bytesAt(dungeonAt) !== '4c8bdc4d89431849894b085356574154') send({ type: 'refused', reason: 'dungeon: 0x1421038d0 does not match 3.29.3b' });
+  if (bytesAt(dungeonAt) !== '4c8bdc4d89431849894b085356574154') send({ type: 'refused', reason: 'dungeon: 0x1421038d0 does not match 3.29.3c' });
   else {
     Interceptor.attach(dungeonAt, {
       onEnter(a) {
@@ -600,8 +605,8 @@ function hookGraphStages(exe, currentThread, drawCount) {
       },
     });
   }
-  if (bytesAt(at('0x1420eec10')) !== '48895c24204c89442418555657415441') send({ type: 'refused', reason: 'fills: 0x1420eec10 does not match 3.29.3b' });
-  else Interceptor.attach(at('0x1420eec10'), {
+  if (bytesAt(at('0x1420f5510')) !== '48895c24204c89442418555657415441') send({ type: 'refused', reason: 'fills: 0x1420eec10 does not match 3.29.3c' });
+  else Interceptor.attach(at('0x1420f5510'), {
     onEnter(a) {
       if (this.threadId !== currentThread()) return;
       try {
@@ -610,8 +615,8 @@ function hookGraphStages(exe, currentThread, drawCount) {
       } catch (e) { send({ type: 'error', message: 'fill record: ' + String(e) }); }
     },
   });
-  if (bytesAt(at('0x1420f3de0')) !== '48895c2418574883ec304c8bd24c8bd9') send({ type: 'refused', reason: 'fills: 0x1420f3de0 does not match 3.29.3b' });
-  else Interceptor.attach(at('0x1420f3de0'), {
+  if (bytesAt(at('0x1420fa6e0')) !== '48895c2418574883ec304c8bd24c8bd9') send({ type: 'refused', reason: 'fills: 0x1420f3de0 does not match 3.29.3c' });
+  else Interceptor.attach(at('0x1420fa6e0'), {
     onEnter(a) {
       this.on = this.threadId === currentThread();
       if (!this.on) return;
@@ -647,12 +652,12 @@ function hookGraphStages(exe, currentThread, drawCount) {
     return out;
   };
   const heightHooks = [
-    ['tiler', '0x1420f3480', '40555356574154415541564157488dac'], ['outer', '0x142044f30', '48895c241048896c2418565741544156'],
-    ['scale', '0x14204cbd0', '48895c241048896c2418488974242057'], ['mission', '0x14203e1f0', '48895c24105556574154415541564157'],
-    ['postunique', '0x14203ece0', '48894c24085553565741544155415641'],
+    ['tiler', '0x1420f9d80', '40555356574154415541564157488dac'], ['outer', '0x14204b780', '48895c241048896c2418565741544156'],
+    ['scale', '0x142053420', '48895c241048896c2418488974242057'], ['mission', '0x142044a40', '48895c24105556574154415541564157'],
+    ['postunique', '0x142045530', '48894c24085553565741544155415641'],
   ];
   for (const [name, va0, expected] of heightHooks) {
-    if (bytesAt(at(va0)) !== expected) { send({ type: 'refused', reason: `heights ${name} (${va0}) does not match 3.29.3b` }); continue; }
+    if (bytesAt(at(va0)) !== expected) { send({ type: 'refused', reason: `heights ${name} (${va0}) does not match 3.29.3c` }); continue; }
     Interceptor.attach(at(va0), {
       onEnter() {
         this.on = this.threadId === currentThread() && currentGen !== null;
@@ -679,9 +684,9 @@ function hookGraphStages(exe, currentThread, drawCount) {
       },
     });
   }
-  const paintAt = at('0x142110d60');
+  const paintAt = at('0x142117660');
   const paintBytes = Array.from(new Uint8Array(paintAt.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
-  if (paintBytes !== '48895c2410488974241848897c242055') send({ type: 'refused', reason: 'paint: 0x142110d60 does not match 3.29.3b' });
+  if (paintBytes !== '48895c2410488974241848897c242055') send({ type: 'refused', reason: 'paint: 0x142110d60 does not match 3.29.3c' });
   else Interceptor.attach(paintAt, {
     onEnter(a) {
       this.on = this.threadId === currentThread() && paint === null;
@@ -701,9 +706,9 @@ function hookGraphStages(exe, currentThread, drawCount) {
       try { paint = Object.assign(this.info, { after: viewVertices(this.view) }); } catch (e) { send({ type: 'error', message: 'paint: ' + String(e) }); }
     },
   });
-  const fillAt = at('0x141fef070');
+  const fillAt = at('0x141ff5890');
   const fillBytes = Array.from(new Uint8Array(fillAt.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
-  if (fillBytes !== '48895c2418565741564883ec30488bf1') send({ type: 'refused', reason: 'fill vertices: 0x141fef070 does not match 3.29.3b' });
+  if (fillBytes !== '48895c2418565741564883ec30488bf1') send({ type: 'refused', reason: 'fill vertices: 0x141fef070 does not match 3.29.3c' });
   else Interceptor.attach(fillAt, {
     onEnter(a) {
       if (this.threadId !== currentThread() || fillVertices !== null) return;
@@ -731,7 +736,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
   for (const [name, va0, expected, graphOf, onEntry] of stages) {
     const bytes = Array.from(new Uint8Array(at(va0).readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
     if (bytes !== expected) {
-      send({ type: 'refused', reason: `graph snapshot: ${name} (${va0}) does not match 3.29.3b` });
+      send({ type: 'refused', reason: `graph snapshot: ${name} (${va0}) does not match 3.29.3c` });
       continue;
     }
     Interceptor.attach(at(va0), {

@@ -1,4 +1,4 @@
-// Generated from Path of Building src/Export/Uniques/jewel.lua for the target 3.29.3b data.
+// Generated from Path of Building src/Export/Uniques/jewel.lua for the target 3.29.3c data.
 // Do not edit by hand; regenerate with scripts/re/threshold_jewels.py.
 
 /// <summary>The 33 threshold jewels: item name, base, limits and the client mods. The mods are

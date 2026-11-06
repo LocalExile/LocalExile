@@ -168,7 +168,7 @@ Copy-Into 'Tools\ooz\node_modules\ooz-wasm\LICENSE' 'licenses\ooz-wasm-LICENSE.t
 if (-not $IsLinux) { Copy-Item (Join-Path $package 'Tools\python\LICENSE.txt') (Join-Path $package 'licenses\python-LICENSE.txt') }
 Set-Content (Join-Path $package 'licenses\SOURCE.txt') "LocalExile $Version is built from https://github.com/LocalExile/LocalExile/tree/$commit" -Encoding ascii
 Copy-Into $(if ($IsLinux) { 'scripts\release\README-player-linux.txt' } else { 'scripts\release\README-player.txt' }) 'README.txt'
-[ordered]@{ version = $Version; commit = $commit; client = '3.29.3b'; runtime = $runtime } | ConvertTo-Json |
+[ordered]@{ version = $Version; commit = $commit; client = '3.29.3c'; runtime = $runtime } | ConvertTo-Json |
     Set-Content (Join-Path $package 'release.json') -Encoding ascii
 
 # What must hold before anything goes out.

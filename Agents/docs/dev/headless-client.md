@@ -103,7 +103,7 @@ by process name: it attaches to any lone `Game.patched.exe`, a session client in
 is why extra clients may only run next to checkouts that have the session-aware scripts ([live
 testing](live-testing.md)).
 
-## 2. What the client offers (3.29.3b, image base `0x140000000`)
+## 2. What the client offers (3.29.3c, image base `0x140000000`)
 
 ### Settings file and environment
 
@@ -209,10 +209,10 @@ session client, renderer or not, `nullifier.js` replaces these `user32` calls at
 - `ClipCursor` (the window procedure `0x140e67df0` / `0x140e68220`, the `confine_mouse_to_window` setting): returns
   success and does nothing, not even `ClipCursor(NULL)` (which would free the user's own client's confinement). The
   preset also sets `confine_mouse_to_window=false`.
-- `SetCursorPos` / `SetPhysicalCursorPos` (3.29.3b imports neither): do nothing. `SetCapture` (41 call sites): does
+- `SetCursorPos` / `SetPhysicalCursorPos` (3.29.3c imports neither): do nothing. `SetCapture` (41 call sites): does
   nothing. `ShowCursor` keeps the display count the client expects without hiding anything; `SetCursor(NULL)` does
   nothing.
-- `SetWindowsHookExW/A`: global input hooks are refused (`NULL`, which the client tolerates). 3.29.3b installs a
+- `SetWindowsHookExW/A`: global input hooks are refused (`NULL`, which the client tolerates). 3.29.3c installs a
   low-level keyboard hook (`WH_KEYBOARD_LL`, procedure `0x140e68f40`, at `0x140e6905c`), which would see every key the
   user presses; `WH_MOUSE_LL` and thread-less `WH_KEYBOARD`/`WH_MOUSE` are refused too.
 - `RegisterRawInputDevices` (`0x14103b998`; the client registers usage 1/4 and 1/5 with `RIDEV_INPUTSINK |

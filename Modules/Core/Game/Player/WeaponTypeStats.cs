@@ -1,6 +1,6 @@
 
 
-// Native weapon-stat enum of main_hand_weapon_type / off_hand_weapon_type (Stats rows 2 and 3), decoded from the 3.29.3b
+// Native weapon-stat enum of main_hand_weapon_type / off_hand_weapon_type (Stats rows 2 and 3), decoded from the 3.29.3c
 // client's stat calculators (13-items.md "Client weapon-type stats"): Bow is 9, whereas its ItemClasses row + 1 is 14 and
 // its model stance is 8. An empty hand is 14. Network stats run no calculators (04-player-entity.md §4.1a), so the
 // client derives neither these nor is_dual_wielding from them: the server sends all three. Without is_dual_wielding the

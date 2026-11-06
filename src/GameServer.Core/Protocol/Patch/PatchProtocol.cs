@@ -6,7 +6,7 @@ namespace GameServer.Core.Protocol.Patch;
 /// The patching server's TCP protocol (client 0x1428e9f40 / dispatch 0x1428eade0, factory 0x1428f74d0), as far as a
 /// server needs it to let an up-to-date client through. Messages are a 1-byte id and fields, with no length prefix.
 /// <list type="bullet">
-/// <item>C→S 0x01: u8 protocol version (7 in 3.29.3b), sent on connect.</item>
+/// <item>C→S 0x01: u8 protocol version (7 in 3.29.3b and 3.29.3c), sent on connect.</item>
 /// <item>S→C 0x02 (vtable 0x14363ec40, read 0x1429a4f30): bytes[32] root hash, wstr web root, wstr backup web root.
 /// If the hash equals the hash on the client's local root directory, it logs "No patching required" and goes on to
 /// the login screen. Otherwise it requests the root contents (C→S 0x03 …) and patches against the web root.</item>

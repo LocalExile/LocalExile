@@ -62,7 +62,7 @@ World/component boundaries in nonzero mode; they are independent of the updated 
 See [World message inputs](../re/projectiles/world-message-inputs.md) for the codec, embedded intake interface,
 ownership/cursor rules and frame-admission gate. Zero values above describe the local server's use.
 
-Handler (`0x142187480` in 3.29.3b, `0x14218ddf0` in 3.29.3c; id 0x2bb, 0x2b9 in 3.29.3b): look the type up, build the object with `0x141ebe190(obj, type, id, &blob, world)`
+Handler (`0x142187480` in 3.29.3b, `0x14218ddf0` in 3.29.3c; id 0x2bb, 0x2b9 in 3.29.3b): look the type up, build the object with `0x141ec4a40` (3.29.3b `0x141ebe190`)(obj, type, id, &blob, world)
 (0x248 bytes), then if `id == world+0x980` (set by 0x22) the object becomes the **local player** (`world+0x970`,
 `0x141ec2fe0`, event `0xe794fcda`). It is only processed when the world activates, i.e. on 0x21 (see
 [03](03-area-and-world.md#4-world-messages-are-queued-until-the-world-is-active)).

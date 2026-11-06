@@ -120,4 +120,4 @@ This research does not change the production simulator or certify native/officia
 
 [Recovery timing](re/recovery-timing.md): read-only client pool tracing, native prediction inputs and ES verification limits.
 
-[Native client control](dev/client-control.md): CLI and persistent JSON RPC for local launch, login, character selection, commands and state reads through the 3.29.3b client. The bridge's native signatures are not yet updated for 3.29.3c.
+[Native client control](dev/client-control.md): CLI and persistent JSON RPC for local launch, login, character selection, commands and state reads through the 3.29.3b or 3.29.3c client; the bridge detects the build from the native function bytes and selects the matching address table.

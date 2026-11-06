@@ -1,4 +1,4 @@
-// Generated from the client's UniqueStashLayout, Words and ItemVisualIdentity for the target 3.29.3b data.
+// Generated from the client's UniqueStashLayout, Words and ItemVisualIdentity for the target 3.29.3c data.
 // Do not edit by hand; regenerate with scripts/re/unique_jewels.py.
 
 /// <summary>The unique art of every unique jewel the stash layout lists, by name: the ItemVisualIdentity
