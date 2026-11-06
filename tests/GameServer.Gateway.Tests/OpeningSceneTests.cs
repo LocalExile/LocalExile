@@ -18,6 +18,18 @@ public class OpeningSceneTests
     [InlineData(true)]
     public async Task An_untouched_character_lies_down_facing_the_room_and_gets_up_in_place_once(bool withSkills)
     {
+        if (!withSkills) await CheckSharedMessageOwnership();
+        if (!withSkills)
+        {
+            Assert.Equal(unchecked((int)0xcb7dc2d3), AreaPopulation.PopulationSeed(0xf00a, 1604777343));
+            Assert.Equal(unchecked((int)0xb32f95cf), AreaPopulation.PopulationSeed(0xf00a, 1));
+            Assert.Equal(unchecked((int)0xac1dc826), AreaPopulation.PopulationSeed(0x7ad2, 1));
+            var coast = new PackCatalog().For("1_1_2")!;
+            bool Walk(int x, int y) => x is > 5 and < 595 && y is > 5 and < 595;
+            List<AreaPopulation.Spawn> Plan() => AreaPopulation.Plan(coast, 600, 600, Walk, (50, 50), [],
+                [new("mapboss", 500, 500)], AreaPopulation.PopulationSeed(0x7ad2, 1), _ => true, []);
+            Assert.Equal(Plan(), Plan()); // Fixed vectors also reject a process-salted seed implementation.
+        }
         var tutorial = Untouched();
         Assert.True(TutorialObjects.ShouldStartWashedUp(TutorialObjects.Strand, true, () => tutorial));
         Assert.False(TutorialObjects.ShouldStartWashedUp(TutorialObjects.Strand, true, () => null));
@@ -97,6 +109,64 @@ public class OpeningSceneTests
         Assert.Equal(created, observer.Read(created.Length));
     }
 
+    static async Task CheckSharedMessageOwnership()
+    {
+        const uint id = 0x08000055;
+        using var sender = new Wire();
+        using var first = new Wire(sender.Conn.Instance);
+        using var second = new Wire(sender.Conn.Instance);
+        var pending = new List<Task>();
+        foreach (var peer in new[] { first, second })
+        {
+            peer.Conn.AwakeMonsters = [id];
+            peer.Conn.Outbox = (bytes, log) =>
+            {
+                var send = Program.Send("fanout-test", peer.Stream, peer.Ciphers, bytes, log);
+                pending.Add(send);
+                return send;
+            };
+            sender.Conn.Instance.PublishPlayer(new(peer.Conn.PeerId, 7, new("Peer", 1, 10, 10, 50, 40), 10, 10, 50, peer.Conn));
+        }
+        byte[] bytes = InstanceEntities.RemoveBuff(id, 7), expected = (byte[])bytes.Clone();
+        Game.ToOthers(sender.Conn, id, bytes);
+        await Task.WhenAll(pending);
+        Assert.Equal(2, pending.Count);
+        Assert.Equal(expected, bytes); // Neither peer's cipher may mutate the owner's plaintext.
+        Assert.Equal(expected, first.Read(expected.Length));
+        Assert.Equal(expected, second.Read(expected.Length));
+
+        // Rewritten combat packets also need a copy per peer, not one copy for the fan-out.
+        sender.Conn.Instance.World.MonsterOrigins[id] = new(123, new(10, 10, 23, []), 0, 1, MonsterRarity.Normal);
+        sender.Conn.Wire = ("fanout-test", sender.Stream, sender.Ciphers);
+        Program.InGame[sender.Conn] = 0;
+        foreach (var peer in new[] { first, second })
+            peer.Conn.SeenPlayers[sender.Conn.PeerId] = new(sender.Conn.PeerId, 7, new("Owner", 1, 10, 10, 50, 40), 10, 10, 50, sender.Conn);
+        try
+        {
+            await Check(InstanceProtocol.ActionEnded(id), InstanceProtocol.ActionEnded(id),
+                packet => Game.BroadcastMonsterMessage(sender.Conn, id, packet));
+            sender.Conn.PeerActing = true;
+            await Check(InstanceProtocol.ActionEnded(0x1000), InstanceProtocol.ActionEnded(sender.Conn.PeerId),
+                packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+            await Check(InstanceProtocol.ActionHit(0x1000, 12, id, kind: 1),
+                InstanceProtocol.ActionHit(sender.Conn.PeerId, 0xffff, id, kind: 1),
+                packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+        }
+        finally { Program.InGame.TryRemove(sender.Conn, out _); }
+
+        async Task Check(byte[] original, byte[] mirrored, Action<byte[]> broadcast)
+        {
+            pending.Clear();
+            var unchanged = (byte[])original.Clone();
+            broadcast(original);
+            await Task.WhenAll(pending);
+            Assert.Equal(2, pending.Count);
+            Assert.Equal(unchanged, original);
+            Assert.Equal(mirrored, first.Read(mirrored.Length));
+            Assert.Equal(mirrored, second.Read(mirrored.Length));
+        }
+    }
+
     [Fact]
     public void The_exile_picks_its_voice_line_and_closing_it_skips_only_the_running_scene()
     {
@@ -128,10 +198,11 @@ public class OpeningSceneTests
         readonly TcpClient reader;
         readonly ConnectionCiphers decrypt = new(new byte[64], true);
         public readonly ConnectionCiphers Ciphers = new(new byte[64], false);
-        public readonly ClientState Conn = new(new(0, TutorialObjects.Strand, 32, 32, 10, 10, null, []), 0, 1) { Instance = new(), PlayerLife = 50 };
+        public readonly ClientState Conn;
         public NetworkStream Stream => writer.GetStream();
-        public Wire()
+        public Wire(InstanceState? instance = null)
         {
+            Conn = new(new(0, TutorialObjects.Strand, 32, 32, 10, 10, null, []), 0, 1) { Instance = instance ?? new(), PlayerLife = 50 };
             listener.Start();
             var accepting = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);

@@ -814,6 +814,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public int StashForcedTab = -1;
     public double StashForcedUntil;
     // The NPC whose dialogue window is open (0x84 sent, 0x85 not yet), 0 = none.
+    HashSet<int>? automaticNpcTalkRows;
+    public HashSet<int> AutomaticNpcTalkRows =>
+        System.Threading.LazyInitializer.EnsureInitialized(ref automaticNpcTalkRows);
     public volatile uint TalkingTo;
     // Whether the open dialogue shows an NPCTalk row's talk (0x84 with its index) rather than the option list.
     public volatile bool InNpcTalk;

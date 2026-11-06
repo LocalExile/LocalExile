@@ -64,6 +64,15 @@ static partial class Game
         await QuestObjectTransition(remote, stream, ciphers, conn, type, why);
     }
 
+    internal static async Task ApplyQuestConversationStart(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk, bool applyRowRules)
+    {
+        if (TalkStartFlag(conn, talk) is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
+        if (applyRowRules && QuestsOf(conn).OnTalkRow(talk.Row) is { Count: > 0 } byRow)
+            await SetQuestFlags(remote, stream, ciphers, conn, byRow);
+        await OnQuestTalk(remote, stream, ciphers, conn, npcId, npc, talk);
+    }
+
     /// <summary>When a row's talk ends (C→S 0x85 after it, or at once for a row without text): its next page
     /// (DoNPCChat), or the end of the dialogue (FinishNPCChat) with the screen it opens or the area it moves to. True when
     /// the script decided what comes next (the option list does not come back).</summary>
@@ -75,8 +84,7 @@ static partial class Game
             conn.InNpcTalk = true;
             conn.NpcFinishFlag = page.FinishFlag;
             conn.NpcTalkScript = EndsWithScript(page) ? page : null;
-            if (TalkStartFlag(conn, page) is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
-            await OnQuestTalk(remote, stream, ciphers, conn, npcId, npc, page);
+            await ApplyQuestConversationStart(remote, stream, ciphers, conn, npcId, npc, page, applyRowRules: false);
             await Send(remote, stream, ciphers, InstanceNpcs.Talk(npcId, (byte)page.Index),
                 $"0x0084 npc 0x{npcId:x} {npc.Npc.Name} talks on: NPCTalk row {page.Row} (index {page.Index}, DoNPCChat)");
             return true;
