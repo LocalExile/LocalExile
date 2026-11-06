@@ -940,8 +940,13 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   Its busy period covers the full attack duration from the actual action send; contact still occurs halfway through:
   the hit lands if the monster lives and the player is still within reach + 2 (0x1af, then 0x1b1 on the player).
   A mortar skill (Sand Spitter: `monster_mortar_attack`, GrantedEffects SkillID 183 → MonsterMortar 183 →
-  `Metadata/Projectiles/SandspitterMortarProjectile`, 1170 units/s) releases a server projectile object instead
-  (`Program.ProjectileHostile.cs`), at the clip's contact keyframe rather than halfway: MonsterMortar's `Animation`
+  `Metadata/Projectiles/SandspitterMortarProjectile`, 1170 units/s) is drawn by the client, as from GGG, whose server
+  creates no mortar object: the mortar action's constructor (`0x141b69900`) takes its MonsterMortar row from the
+  record's `skill_behaviour_variation` (0x1921; row 0, `MortarMolten`, without it), and its release fires nothing
+  without a count ([actions and emission](../re/projectiles/actions-and-emission.md)). GGG's Spitter records carry
+  row 183 and `total_number_of_projectiles_to_fire`, `virtual_total_number_of_projectiles` and
+  `virtual_total_number_of_arrows` at 1, and so does the Gateway's. The server simulates the flight for the hit
+  (`Program.ProjectileHostile.cs`), released at the clip's contact keyframe rather than halfway: MonsterMortar's `Animation`
   (row 20, Animation.dat `SpellProjectile`) names the ACT pool (`SpellProjectile = "attack1,attack2"`), the native
   selector seeded with the action's 0xffff sequence picks `attack1` (as it picks the player's wand clip), and that
   clip's `contact` is at 374.5 of 1000 ms in the Spitter's .ao (`exclude_metadata_events = true` replaces the rig's

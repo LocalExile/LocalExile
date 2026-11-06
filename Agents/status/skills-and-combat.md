@@ -1411,18 +1411,21 @@ This is a research baseline, not new live skill acceptance or complete native/se
   releasing clip's contact keyframe (`data/animation-contacts.json` positions, `anim_contacts.py` v3): the Ranger's
   bow 5.5 cells ahead along the aim at 16 steps up, a wand's tip 7.5 cells ahead at 12 (the 5-step default, tuned on a
   fireball, had the arrow trail start at the hip, live 2026-10-29); the keyframe's lateral part is not applied.
-  Monster projectiles: a mortar skill's shot (Sand Spitter, `monster_mortar_attack` via GrantedEffects SkillID →
-  MonsterMortar → Projectiles) is a server object on the same runtime, released at the clip the client plays for the
+  Monster projectiles: a mortar skill's shot (Sand Spitter, a Cannibal's ThrowFire: `monster_mortar_attack` via
+  GrantedEffects SkillID → MonsterMortar → Projectiles) is drawn by the client, whose record carries the MonsterMortar
+  row and the count as GGG's does, with no server object (not checked live yet; [11](../docs/protocol/11-skills.md) §6);
+  the server simulates it on the same runtime, released at the clip the client plays for the
   skill (MonsterMortar.Animation → the ACT's `SpellProjectile` pool, the native selector on the action's 0xffff
   sequence: attack1, contact at 37.5 % of the attack) from that clip's keyframe (4.2 cells behind the body that faces
   away, so toward the player, 9 steps up: `projectile_uses_contact_position`; `data/monster-contacts.json`,
   `scripts/re/monster_contacts.py`), lobbed at the player's cell but no closer than the skill's
   `projectile_minimum_range` (4.6 cells), team 2, and its landing splash (`Game_MONSTER_MORTAR_RADIUS`, default 10
   cells) runs the monster contact pipeline (`HostileProjectileOffense`, `Program.ProjectileHostile.cs`). Not checked
-  live yet: that the client seeds a monster's clip choice from the sequence, and the dead zone. The object plays its rig's flight
-  clip from spawn and its impact clip where it lands (`data/projectile-clips.json`, `scripts/re/projectile_clips.py`:
-  every Projectiles row's clip indexes and lengths, and its .ao default animation), without which a mortar is
-  invisible (its .ao declares no default animation, the wand bolt's does). The data loaders turn their feature off
+  live yet: that the client seeds a monster's clip choice from the sequence, and the dead zone. Another monster's
+  projectile object plays its rig's flight clip from spawn and its impact clip where it lands
+  (`data/projectile-clips.json`: every Projectiles row's clip indexes and lengths,
+  and its .ao default animation), without which an object whose .ao declares no default animation (the mortar's; the
+  wand bolt's declares one) is invisible. The data loaders turn their feature off
   with one warning on an unreadable file instead of faulting the pump, and monster ACT pools come from the root block
   only (a nested stance's entries had replaced them for 191 varieties; review 2026-10-30). Weapon-projectile monsters
   (`monster_projectile_weapon`, SkillID 0) still hit instantly with no shot; see the roadmap.

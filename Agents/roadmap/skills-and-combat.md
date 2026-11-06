@@ -542,8 +542,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   server sends no object for a player's bow shot or a Sand Spitter's mortar, and the client draws both.
   Find what stops our client from drawing its own (try live-style skill ids, `0x4000` for the default attack, and the
   live `0x1af` fields: main-hand `0x0200`, skill index 2, the header u32/u16), then drop the server arrow objects.
-  For monsters, try real action sequences (live `0x80bc`…) instead of `0xffff` in the attack's `0x1ab` and its `0x1af`
-  (skill index 2), and see whether the client then draws the mortar.
+  For monsters, the mortar's record now carries GGG's row and count and the server sends no mortar object
+  ([status](../status/skills-and-combat.md)); check live that the client draws one `SandspitterMortarProjectile` per
+  shot, on a lockstep and a predictive client, and where it lands against the server's hit (its own spread).
   Explain the hit-timing fit (ours releases at the table's 299.9 cells/s, close to live's 308, yet hits arrive
   2.72 ms per cell against live's 3.25) and add the 300 ms stun bit on hits.
   Find why a level 1 Sand Spitter hits for 5–7 here and a constant 4 on live.
