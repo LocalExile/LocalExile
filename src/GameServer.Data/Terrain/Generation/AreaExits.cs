@@ -122,8 +122,10 @@ public static class AreaExits
     public sealed record RoomPoint(string Name, int X, int Y);
 
     /// <summary>An exit description of a room's graph node: kind, N, enabled, label; telepads are kind
-    /// <see cref="ExitKind.Unused"/> with <see cref="IsTelepad"/>.</summary>
-    public sealed record Description(ExitKind Kind, int Number, bool Enabled, string? Label, bool IsTelepad = false);
+    /// <see cref="ExitKind.Unused"/> with <see cref="IsTelepad"/>. <paramref name="Transition"/> is the room doodad's
+    /// own <c>transition="teleportN-Stairs"</c>, which binds that object to the description directly.</summary>
+    public sealed record Description(ExitKind Kind, int Number, bool Enabled, string? Label, bool IsTelepad = false,
+        string? Transition = null);
 
     /// <summary>A placed room with its named points and its node's exit descriptions, each description with its slot.</summary>
     public sealed class LayoutRoom
@@ -242,6 +244,27 @@ public static class AreaExits
             else if (TelepadDescription.Match(d) is { Success: true } p)
                 list.Add(new Description(ExitKind.Unused, int.Parse(p.Groups[1].Value), true, null, IsTelepad: true));
         }
+        // The room's own telepad points are the arrivals of in-area teleports, even when its graph node names none (the
+        // Exilecon hideouts' stair pads: the three subgraph nodes are empty).
+        foreach (var p in room.Room.Points)
+            if (TelepadDescription.Match(p.Name) is { Success: true } pad)
+            {
+                int number = int.Parse(pad.Groups[1].Value);
+                if (!list.Any(x => x.IsTelepad && x.Number == number))
+                    list.Add(new Description(ExitKind.Unused, number, true, null, IsTelepad: true));
+            }
+        // A room doodad may name its own gate (the Exilecon hideouts' stair pads): the graph node of a fixed subgraph
+        // names no exit, so without this the object has no description and is not created.
+        foreach (var d in room.Room.Doodads)
+            if (d.Transition is { Length: > 0 } transition && TeleportDescription.Match(transition) is { Success: true } m)
+            {
+                int number = int.Parse(m.Groups[1].Value);
+                // Several doodads may share one transition (the Labyrinth's four exit portals around the monolith):
+                // each is its own object, so keep one description per doodad; only a node's own description is deduped.
+                if (list.Any(x => x.Kind == ExitKind.Teleport && x.Number == number && x.Transition is null)) continue;
+                list.Add(new Description(ExitKind.Teleport, number, !m.Groups[2].Success,
+                    m.Groups[3].Success && m.Groups[3].Value.Length > 0 ? m.Groups[3].Value : null, Transition: transition));
+            }
         return list;
     }
 
@@ -265,13 +288,20 @@ public static class AreaExits
         bool Usable(PlacedTileObject o) => usable?.Invoke(o.X, o.Y) != false;
         bool Inward(Description d) => d.Kind == ExitKind.Teleport
             && rooms.Where(r => r.Descriptions.Any(t => t.IsTelepad && t.Number == d.Number)).All(r => ReferenceEquals(r, room));
+        var done = new HashSet<Description>(ReferenceEqualityComparer.Instance);
+        // A description the room doodad itself names binds to that object, not to the point it stands near.
+        foreach (var d in exitsOfNode.Where(d => d.Transition is not null))
+            if (objects.FirstOrDefault(o => !pick.ContainsKey(o) && o.Transition == d.Transition) is { } exact)
+            {
+                pick[exact] = (d, $"{room.Name}, transition=\"{d.Transition}\"");
+                done.Add(d);
+            }
         var pairs = from d in exitsOfNode
                     let slot = room.SlotOf(d)
                     where slot is not null
                     from o in objects
                     orderby Usable(o) ? 0 : 1, Distance(slot.X, slot.Y, o), Inward(d) ? 1 : 0
                     select (d, o, slot);
-        var done = new HashSet<Description>(ReferenceEqualityComparer.Instance);
         foreach (var (d, o, slot) in pairs)
         {
             if (done.Contains(d) || pick.ContainsKey(o)) continue;
@@ -314,10 +344,14 @@ public static class AreaExits
         for (int i = 0; i < exits.Count; i++)
         {
             var e = exits[i];
-            if (e.Kind != ExitKind.Teleport || !roomOf.TryGetValue(e.Object, out var from) || PadRoom(e.Number, from) is not { } to) continue;
+            if (e.Kind != ExitKind.Teleport || e.Target is not { } target
+                || !roomOf.TryGetValue(e.Object, out var from) || PadRoom(e.Number, from) is not { } to) continue;
             var back = gates.FirstOrDefault(g => g.Number != e.Number && roomOf.TryGetValue(g.Object, out var r) && ReferenceEquals(r, to)
                 && PadRoom(g.Number, to) is { } there && ReferenceEquals(there, from));
-            if (back is not null) exits[i] = e with { Target = (back.Object.X, back.Object.Y) };
+            // Only a back gate beside the pad: two stair pairs between the same rooms would otherwise make one gate land
+            // by the other pair's stairs (the Exilecon 2026 hideout's four stair pads).
+            if (back is not null && Distance(target.X, target.Y, back.Object) <= 48 * 48)
+                exits[i] = e with { Target = (back.Object.X, back.Object.Y) };
         }
     }
 

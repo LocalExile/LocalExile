@@ -219,8 +219,11 @@ match, their .tmd).
      generic points and as many names, they pair in order (noted as assumed).
    - **`entranceN` → `Connections[N − 1]`.** `…disabled` means `enabled: false`, a one-way exit (the town's Twilight
      Strand marker).
-   - `teleportN` / `telepadN` (also with `-ArenaName` suffixes) are in-area teleports (`status: internal`). `sidearea…`
-     names are side-area links; `link` / `subarea=…` are sub-area links.
+   - `teleportN` / `telepadN` (also with `-ArenaName` suffixes) are in-area teleports (`status: internal`). A room
+     doodad of an area-transition type may carry its own `transition="teleportN[-label]"` (the 3.29.3c Exilecon 2026
+     and Labyrinth fixed subgraphs, whose graph nodes name no exit): that names the gate and `AreaExits` binds the
+     description to that very object, including several objects that share one `teleportN`. `sidearea…` names are
+     side-area links; `link` / `subarea=…` are sub-area links.
    - A room point the node does not name is not used in that layout (`status: unused`).
 9. An entrance that the node names but no object belongs to becomes a `source: point` entry (`status: point-only`):
    destination and the point's cell, no model.

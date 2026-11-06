@@ -8,22 +8,65 @@
 // Each grid is sent to walkmaps.py, which names it after the area the Gateway is serving.
 
 const IMAGE_BASE = ptr('0x140000000');
-const HOOK_VA = ptr('0x1410ddcfd');
-// The instructions at the hook in the 3.29.3b client (mov rcx,[rax]; mov [rbp-0x38],rcx; lea rdx,[rax+8]; ...).
-// Nothing is hooked unless they match, so another client build is left untouched.
-const EXPECTED = '488b0848894dc8488d5008488d4dd048';
+// The builds this capture supports. The functions keep their bytes; only the addresses move. Nothing is hooked unless
+// the main grid hook matches one build, so another client is left untouched.
+const BUILDS = [
+  {
+    name: '3.29.3b',
+    main: '0x1410ddcfd',
+    mainBytes: '488b0848894dc8488d5008488d4dd048',
+    doodads: '0x142042360',
+    doodadsBytes: '4c8bdc49895310535657415441554156',
+    rooms: '0x142040770',
+    roomsBytes: '488bc44c894820488950104889480855',
+    height: '0x141d84a10',
+    roomPick: '0x142105a70',
+    graphStages: true,
+    generation: {
+      generate: ['0x14204d820', '4c8bdc49894b08535657415441554156'],
+      next: ['0x141ff9720', '48895c24084889742410574883ec3065'],
+      uniform: ['0x141f5d130', '48895c240848896c2410488974241848'],
+      raw: ['0x140a0f990', '448b1941b9700200004c8bc1453bd975'],
+      lcg: ['0x140e3b310', '4883ec084533d285c9747048891c248b'],
+    },
+  },
+  {
+    name: '3.29.3c',
+    main: '0x1410e00bd',
+    mainBytes: '488b0848894dc8488d5008488d4dd048',
+    doodads: '0x142048bb0',
+    doodadsBytes: '4c8bdc49895310535657415441554156',
+    rooms: '0x142046fc0',
+    roomsBytes: '488bc44c894820488950104889480855',
+    height: '0x141d880a0',
+    roomPick: null,
+    graphStages: false,
+    generation: {
+      generate: ['0x142054070', '4c8bdc49894b08535657415441554156'],
+      next: ['0x141ffff70', '48895c24084889742410574883ec3065'],
+      uniform: ['0x141f63a20', '48895c240848896c2410488974241848'],
+      raw: ['0x140a0ae10', '448b1941b9700200004c8bc1453bd975'],
+      lcg: ['0x140e3d630', '4883ec084533d285c9747048891c248b'],
+    },
+  },
+];
 
 // The client executable: the .exe module (Process.mainModule can report a driver DLL when attaching late).
+let BUILD = null;
 const exe = Process.enumerateModules().find(m => m.name.toLowerCase().endsWith('.exe'));
 if (!exe) {
   send({ type: 'refused', reason: 'no .exe module in the process' });
 } else {
-  const hook = exe.base.add(HOOK_VA.sub(IMAGE_BASE));
-  const inside = hook.compare(exe.base) >= 0 && hook.add(EXPECTED.length / 2).compare(exe.base.add(exe.size)) <= 0;
-  const bytes = inside ? Array.from(new Uint8Array(hook.readByteArray(EXPECTED.length / 2)))
-    .map(b => b.toString(16).padStart(2, '0')).join('') : '';
-  if (bytes !== EXPECTED) {
-    send({ type: 'refused', reason: `${exe.name} is not the 3.29.3b client (code at the hook does not match)` });
+  const bytesAt = p => Array.from(new Uint8Array(p.readByteArray(16)))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+  BUILD = BUILDS.find(b => {
+    const hook = exe.base.add(ptr(b.main).sub(IMAGE_BASE));
+    return hook.compare(exe.base) >= 0 && hook.add(16).compare(exe.base.add(exe.size)) <= 0
+      && bytesAt(hook) === b.mainBytes;
+  });
+  const hook = BUILD && exe.base.add(ptr(BUILD.main).sub(IMAGE_BASE));
+  if (!BUILD) {
+    send({ type: 'refused', reason: `${exe.name} is neither the 3.29.3b nor the 3.29.3c client (main grid hook does not match)` });
   } else {
     Interceptor.attach(hook, function () {
       try {
@@ -43,12 +86,14 @@ if (!exe) {
         send({ type: 'error', message: String(e) });
       }
     });
-    hookTileObjects(exe);
+    // 3.29.3c has no ported tile-object hook yet: the hideout's transitions are room doodads, and regions without a
+    // capture leave the gate's Objects check at -1 (not compared), as before.
+    if (BUILD.name === '3.29.3b') hookTileObjects(exe);
     hookDoodads(exe);
     hookGeneration(exe);
     hookRooms(exe);
-    hookRoomPickProbe(exe);
-    send({ type: 'ready', module: exe.name });
+    if (BUILD.roomPick) hookRoomPickProbe(exe);
+    send({ type: 'ready', module: exe.name, build: BUILD.name });
   }
 }
 
@@ -94,9 +139,9 @@ function hookRoomPickProbe(exe) {
 // loop visits every placed room even when it has no client doodads. Layout/addresses corroborated by PR #136's
 // DoodadStage and SpecialNodes, then verified against the native reader below and the captured Strand rooms.
 function hookRooms(exe) {
-  const hook=exe.base.add(ptr('0x142040770').sub(IMAGE_BASE));
+  const hook=exe.base.add(ptr(BUILD.rooms).sub(IMAGE_BASE));
   const hex=Array.from(new Uint8Array(hook.readByteArray(16))).map(b=>b.toString(16).padStart(2,'0')).join('');
-  if(hex!=='488bc44c894820488950104889480855') {send({type:'refused',reason:'room placement hook differs from 3.29.3b'});return;}
+  if(hex!==BUILD.roomsBytes) {send({type:'refused',reason:`room placement hook differs from ${BUILD.name}`});return;}
   Interceptor.attach(hook,{onEnter(args){
     try {
       const r=args[2], handle=r.readPointer(), data=handle.add(0x28).readPointer();
@@ -167,10 +212,10 @@ function hookTileObjects(exe) {
 // The Gateway matches them against data/room-points.json to find where rooms with monster points ("mapboss") were put.
 // Sent in batches; walkmaps.py writes <area>_seed<seed>.doodads.json.
 function hookDoodads(exe) {
-  const hook = exe.base.add(ptr('0x142042360').sub(IMAGE_BASE));
+  const hook = exe.base.add(ptr(BUILD.doodads).sub(IMAGE_BASE));
   const bytes = Array.from(new Uint8Array(hook.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
-  if (bytes !== '4c8bdc49895310535657415441554156') {
-    send({ type: 'refused', reason: 'doodad hook: code does not match 3.29.3b (or another script hooks it)' });
+  if (bytes !== BUILD.doodadsBytes) {
+    send({ type: 'refused', reason: `doodad hook: code does not match ${BUILD.name} (or another script hooks it)` });
     return;
   }
   const path = h => { try { return h.isNull() ? null : h.add(8).readPointer().readUtf16String(); } catch (e) { return null; } };
@@ -205,7 +250,7 @@ function hookDoodads(exe) {
 // rectangles it has, to see whether generation ever adds any.
 let heightModule = null;
 function sendCellHeights(area, seed, map, w, h) {
-  const fn = exe.base.add(ptr('0x141d84a10').sub(IMAGE_BASE));
+  const fn = exe.base.add(ptr(BUILD.height).sub(IMAGE_BASE));
   if (heightModule === null)
     heightModule = new CModule(`
       typedef int (*height_fn)(void *, int *);
@@ -229,17 +274,11 @@ function sendCellHeights(area, seed, map, w, h) {
 
 function hookGeneration(exe) {
   const at = va => exe.base.add(ptr(va).sub(IMAGE_BASE));
-  const hooks = {
-    generate: ['0x14204d820', '4c8bdc49894b08535657415441554156'],
-    next: ['0x141ff9720', '48895c24084889742410574883ec3065'],
-    uniform: ['0x141f5d130', '48895c240848896c2410488974241848'],
-    raw: ['0x140a0f990', '448b1941b9700200004c8bc1453bd975'],
-    lcg: ['0x140e3b310', '4883ec084533d285c9747048891c248b'],
-  };
+  const hooks = BUILD.generation;
   for (const [name, [va, expected]] of Object.entries(hooks)) {
     const bytes = Array.from(new Uint8Array(at(va).readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
     if (bytes !== expected) {
-      send({ type: 'refused', reason: `generation trace: ${name} (${va}) does not match 3.29.3b` });
+      send({ type: 'refused', reason: `generation trace: ${name} (${va}) does not match ${BUILD.name}` });
       return;
     }
   }
@@ -356,7 +395,8 @@ function hookGeneration(exe) {
   traced('u', hooks.uniform[0]);
   traced('r', hooks.raw[0]);
   traced('l', hooks.lcg[0]);
-  hookGraphStages(exe, () => thread, () => draws.length);
+  // The graph/dungeon stage snapshots are only ported for 3.29.3b; the capture's draws and tiles do not need them.
+  if (BUILD.graphStages) hookGraphStages(exe, () => thread, () => draws.length);
 }
 
 // Tile graph (.tgr) snapshots at the layout's stage boundaries (Agents/docs/re/011-level-generation.md §3e), added to

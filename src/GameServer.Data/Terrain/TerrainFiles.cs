@@ -156,7 +156,7 @@ public sealed record NamedPoint(float X, float Y, float Angle, string Name, int 
 /// report it), scale (The Twilight Strand's force wall has 2.7), the flip flag (runtime +0x1c) and the fixed height
 /// (+0x10, null without one).</summary>
 public sealed record RoomDoodad(float X, float Y, string Model, string Type, float Angle = 0, float Scale = 1, bool Flip = false,
-    float? FixedHeight = null);
+    float? FixedHeight = null, string? Transition = null);
 /// <summary>A link between two of a room's doodad lines (their indexes in <see cref="RoomFile.Doodads"/>), named: the
 /// Labyrinth's rooms wire their puzzles and traps so (a lever's "next" door, its "counter" for a Counter_Handler, a
 /// rail's "next" rail).</summary>
@@ -278,7 +278,20 @@ public sealed record RoomFile(int Version, IReadOnlyList<string> Dictionary, str
                 problem ??= $"doodad line {k + 1}: {q} fields before the model, expected {i}";
                 continue;
             }
-            doodads.Add(new RoomDoodad(t[0].Float, t[1].Float, t[q].Text, t[q + 1].Text, angle, scale, flip, height));
+            // A room transition may name its gate: transition="teleport2-Stairs" (the hideout's stair pads), which
+            // AreaExits uses instead of the node's own description.
+            string? transition = null;
+            for (int r = q + 2; r < t.Count; r++)
+            {
+                string raw = t[r].Text;
+                int eq = raw.IndexOf("transition=", StringComparison.OrdinalIgnoreCase);
+                if (eq < 0) continue;
+                string value = raw[(eq + "transition=".Length)..].Trim('"');
+                if (value.Length == 0 && r + 1 < t.Count && t[r + 1].Quoted) value = t[r + 1].Text;
+                if (value.Length > 0) transition = value;
+                break;
+            }
+            doodads.Add(new RoomDoodad(t[0].Float, t[1].Float, t[q].Text, t[q + 1].Text, angle, scale, flip, height, transition));
         }
         return new RoomFile(version, dict, tag, roomKey, points, slots ?? [], doodads, problem)
         {

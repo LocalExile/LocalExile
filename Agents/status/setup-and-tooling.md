@@ -42,6 +42,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `scripts/dev/live.ps1`, `Program.Completions.cs`, `ChatCommands.cs`, `GameSession.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 10, [10](../docs/protocol/10-chat-and-commands.md) §4,
   [dev-server.md](../docs/dev-server.md).
+- Walk-map recorder on 3.29.3c (2026-11-07): `scripts/walkmaps/walkmaps.js` detects 3.29.3b/3.29.3c from the main grid
+  hook and selects the build's addresses. Captures were used for the two server-generated MTX hideouts
+  (`HideoutExilecon2026`, `HideoutMaze_`). The 3.29.3c tile-object hook and the graph-stage snapshots are not ported;
+  the grid, projectile grid, heights, doodads, rooms and generation trace are.
+  Code: `scripts/walkmaps/walkmaps.js`.
 - Gateway hot reload, on by default (`live.ps1 -NoHotReload` turns it off): the Gateway runs under `dotnet watch`,
   which applies saved code edits to the running server; `HotReload.cs` logs each applied edit and tells players in
   chat when a save starts a reload, when it is applied, when it fails to compile (first three errors, from
