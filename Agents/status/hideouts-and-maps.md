@@ -77,9 +77,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Selecting a different hideout through Helena or `/hideout` in 3.29.3c (2026-11-07): the choice is saved and a direct
-  login enters it, but the in-game area change crashes the client with `Unable to deserialise packet with pid ... Last
-  PID was 0x2b2`. `/goto` to a normal area works, so the hideout-specific `0x2b2`/`0x27` path needs a 3.29.3c capture.
-  Entering the selected home directly (login) is verified for all three.
+  login enters it. The old in-game crash after `0x2b2` was the 3.29.3c change-area id shift; the server now sends
+  `0x2b4`. Waypoint travel from Exilecon 2026 to Lioneye's Watch loads the new area (live 2026-11-07), and the picker
+  uses the same transfer path; a live click through Helena is still the remaining check.
 
 - **Waypoint arrival.** Hideout entry uses the exact saved waypoint cell for spawn and movement origin,
   including login and returns from other areas.

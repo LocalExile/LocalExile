@@ -58,11 +58,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   A remembered-form regression reaches character selection through normal Auth; saved-login preservation is mocked.
   Code: `scripts/dev/client-control.js`, `scripts/dev/test-client-login-writer.cjs`.
   Docs: [client control](../docs/dev/client-control.md).
-- 3.29.3c client support: login, character list, instance connect, area generation and area entry. 3.29.3c inserted
-  two world-group messages before the old frame pair, so every id from 0x2b5 is +2: frame end/length 0x2b7/0x2b8,
-  create object 0x2bb, component update 0x2bc, remove object 0x2bd, and the leave-area ack 0x2cd. The client loads
-  Lioneye's Watch, draws the HUD and sends actions. Area entry is live-verified; the leave-area ack is from the
-  3.29.3c sender, and leaving an area was not exercised in that run.
+- 3.29.3c client support: login, character list, instance connect, area generation and area entry, including leaving
+  an area. The instance-group ids shift by +1 at 0x2a9 (gold 0x2aa) and by +2 from 0x2b1 (change area 0x2b4); the
+  world-group ids from 0x2b5 are +2: frame end/length 0x2b7/0x2b8, create object 0x2bb, component update 0x2bc,
+  remove object 0x2bd, and the leave-area ack 0x2cd. Live 2026-11-07: Exilecon 2026 loads, and waypoint travel to
+  Lioneye's Watch loads the new area.
   Code: `InstanceEntities.cs`, `InstanceProtocol.cs`, `InstanceTransfer.cs`, `Hnc.cs`, `data/schema/schema.min.json`,
   `scripts/dev/extract-data.ps1`.
   Docs: [3.29.3c client diff](../docs/re/3.29.3c-client-diff.md).

@@ -23,7 +23,7 @@ sequenceDiagram
     C->>G: 0x24 on 0x2f00 (skill 0x0266)
     G->>C: 0x7b kind 0 (open the World panel for travel)
     C->>G: 0x4d travel (area HASH16, u32, Ctrl)
-    G->>C: 0x2b2 change area … 0x27 (as an area transition, 09 §1)
+    G->>C: 0x2b4 change area (0x2b2 in 3.29.3b) … 0x27 (as an area transition, 09 §1)
     Note over C,G: new connection: the player is created next to the destination's waypoint
 ```
 

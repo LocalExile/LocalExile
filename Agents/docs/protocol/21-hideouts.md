@@ -432,10 +432,10 @@ characters without a saved choice retain last-town login. `/hideout`, world-pane
 map return portals and the player's hideout key all resolve the same saved choice.
 Entry uses the selected template's waypoint and fixed seed 1.
 
-In the 3.29.3c client (2026-11-07) the in-game transfer to a hideout crashes the client after the
-server's `0x2b2` with `Unable to deserialise packet with pid ... Last PID was 0x2b2`; the choice is
-saved, a direct login to the selected home works, and `/goto` to a normal area works. The
-hideout-specific `0x2b2`/`0x27` payload or length is not decoded yet.
+In the 3.29.3c client the in-game change-area id is `0x2b4` (0x2b2 in 3.29.3b); the client has no handler for the
+old `0x2b2`, which produced `Unable to deserialise packet with pid ... Last PID was 0x2b2`. With `0x2b4`, waypoint
+travel from Exilecon 2026 to Lioneye's Watch loads the new area (live 2026-11-07); the hideout picker uses the same
+transfer path.
 
 `HideoutScene` recreates personal/guild stashes, crafting bench, map device, Nessa, Niko,
 Helena and Kirac on the destination floor. It retains decoration appearance, translates NPC
