@@ -110,7 +110,10 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0024 use object {use} (not an area transition)");
             return;
         }
-        ushort dest = transition.DestinationHash16;
+        // A Vaal side area's way back (type 3) leads to the instance it was entered from; entered otherwise (a command), to
+        // the area the layout names.
+        var sideAreaParent = transition.Kind == 3 ? conn.SideAreaParent : null;
+        ushort dest = sideAreaParent?.Area ?? transition.DestinationHash16;
         // A quest can close an exit: The Twilight Strand's way into Lioneye's Watch needs Hillock dead (a1q1).
         if (!TransitionShown(conn, transitionId, transition))
         {
@@ -150,7 +153,12 @@ static partial class Game
         }
         // A Labyrinth run's ways (the plaza's way in, its rooms' exits): each room its own instance (LabyrinthDay.Transfer).
         var transfer = LabyrinthDay.Transfer(CharacterName(conn), conn.Layout.Id, conn.Seed, transition.SourceType, dest,
-            AreaTransitionCatalog.IdOf(dest)) ?? new PendingTransfer(dest, 0, false);
+            AreaTransitionCatalog.IdOf(dest))
+            // Into a Vaal side area (type 2): a new instance that knows where it was entered from; back out of one (type 3):
+            // the parent instance itself.
+            ?? (transition.Kind == 2 ? new PendingTransfer(dest, 0, true) { Parent = (conn.Layout.Hash, conn.InstanceNumber) }
+            : sideAreaParent is { } back ? new PendingTransfer(back.Area, back.Instance, false)
+            : new PendingTransfer(dest, 0, false));
         await ChangeArea(remote, stream, ciphers, conn, transfer, use.ToString());
     }
 
@@ -434,6 +442,7 @@ static partial class Game
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;
         else if (!t.AtSpawn) AreaLayouts.CameFrom[r.Ticket] = conn.Layout.Hash;
+        if (t.Parent is { } parent) AreaLayouts.SideAreaParents[r.Ticket] = parent;
         string host = GatewayEndpoint.Host;
         ushort port = GatewayEndpoint.Port;
         await Send(remote, stream, ciphers, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, conn.Keyring.Key(r.Ticket)),

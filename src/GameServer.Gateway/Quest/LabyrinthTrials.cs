@@ -1077,7 +1077,7 @@ static class LabyrinthTrials
         // no walker (the doors' too, Blob).
         // f0 0x04: a fixed height (a doorway roller's tile line), as Blob sends the plates'.
         w.I32(x).I32(y).F32(angle).U16(14).U8((byte)(height is null ? 0 : 0x04)).U8((byte)(pressure ? 0x0a : 0x02));
-        if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+        if (height is float z) w.I32(InstanceProtocol.HeightMarker(z)).F32(z);
         w.U8(0).U8(1);                                                  // Positioned
         if (pressure) w.U8(1);
         w.U8(0);                                                        // Animated: the .ot's
@@ -1545,7 +1545,7 @@ static class LabyrinthTrials
                     bool scaled = scale != 1, blockage = Components[Kind(type)].Contains("TriggerableBlockage") && type != SmashableWall;
                     w.I32(x).I32(y).F32(angle).U16(0).U8((byte)((scaled ? 0x20 : 0) | (height is null ? 0 : 0x04))).U8((byte)(blockage ? 0x2a : 0x02));
                     if (scaled) w.F32(scale).F32(1).F32(1);
-                    if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+                    if (height is float z) w.I32(InstanceProtocol.HeightMarker(z)).F32(z);
                     w.U8(0).U8(1);
                     if (blockage) w.U8(1);
                     break;

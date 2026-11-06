@@ -12,6 +12,10 @@ sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool AtSpaw
     /// <summary>Called with Auth's answer to the transfer (a map portal records the map's new instance).</summary>
     public Action<ControlResponse>? Done { get; init; }
 
+    /// <summary>Into a Vaal side area: the area and instance it is entered from, which the side area's connection keeps
+    /// (<see cref="ClientState.SideAreaParent"/>) for its area packet and its way back.</summary>
+    public (ushort Area, ulong Instance)? Parent { get; init; }
+
     /// <summary>With <see cref="New"/>: the new instance's seed (0 = Auth's choice; the capture tour sets it).</summary>
     public uint Seed { get; init; }
 }
@@ -338,6 +342,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public ushort LastTown { get; init; }
     /// <summary>The area the player left through an exit to come here, or null (login, Resurrect in Town).</summary>
     public ushort? CameFrom { get; init; }
+    /// <summary>In a Vaal side area: the area and instance it was entered from (the area packet's alt area and parent
+    /// record, the return transition's destination). Null elsewhere, or when the side area was entered by a command.</summary>
+    public (ushort Area, ulong Instance)? SideAreaParent { get; init; }
     // The character's class: its Characters.dat row (the Witch: 1).
     public int ClassRow { get; init; } = SkillCatalog.WitchRow;
     /// <summary>The instance's game time (InstanceWorld.Clock), shared with everyone in it.</summary>

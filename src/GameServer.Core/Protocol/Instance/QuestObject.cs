@@ -20,6 +20,9 @@ namespace GameServer.Core.Protocol.Instance;
 public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Components, float Rotation = 0, float? Height = null,
     string? Model = null, byte TransitionState = 1, bool Opened = false, bool Blocked = false, ushort Team = 0)
 {
+    /// <summary>A tile record on a mirrored tile (Positioned flags0 bit 0, <see cref="AreaTransitionObject.Mirrored"/>).</summary>
+    public bool Mirrored { get; init; }
+
     static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "Transitionable", "InteractionAction", "MinimapIcon",
         "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement"];
 
@@ -41,8 +44,8 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
             switch (c)
             {
                 case "Positioned":
-                    w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8((byte)(Height is null ? 0 : 0x04)).U8(0x02);
-                    if (Height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+                    w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8((byte)((Height is null ? 0 : 0x04) | (Mirrored ? 0x01 : 0))).U8(0x02);
+                    if (Height is float z) w.I32(InstanceProtocol.HeightMarker(z)).F32(z);
                     w.U8(0).U8(1);
                     break;
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;

@@ -44,7 +44,7 @@ Stats `0x1435dd4e8`, ObjectMagicProperties `0x1435a6ae0` (slot 17 → slot 20 `0
 | Part | Bytes | Fields |
 |---|---|---|
 | object flags, base data | `00 00` | as the player |
-| Positioned | 16 | i32 x, i32 y (grid), f32 rotation, u16, 2 flag bytes; + 8 with the fixed height (§5) |
+| Positioned | 16 | i32 x, i32 y (grid), f32 rotation, u16, 2 flag bytes; + 8 with the fixed height (§5). flags0 bit 0 = mirrored: the server sets it on every tile record of a tile placed at a mirrored orientation (codes 4–7) and on no other object, and the client then draws the model mirrored onto the tile as drawn; without it a transition's hover highlight lies across its doorway |
 | Animated | `00` | flags; bit0 + u32-counted UTF-16 `.ao` path for a model (§5) |
 | **AreaTransition** | 5 | u8 flags (low nibble = state `+0xb2`, bit4/5/6 → `+0xb5/+0xb6/+0xb7`, bit7 → extra record `0x141e62df0`); **destination variant** (`0x141e62490`): u8 index + value, index 0 → u16, 1 → u32, **2 → u16 WorldAreas.HASH16** (resolved by `0x141e5be60` through `0x1422d9920`, the same lookup as 0x14/0x1d); then a compact int `+0xa4`, read only when the state is 0 and **the current area is a town** (`0x141e5b98e`: entity +8 → world +0x78 → +0xb0, the current WorldAreas row, byte +0x14 = IsTown; the server-side writer `0x141e5b7a0` has the same test). Nothing but the debug dump `0x141e5bf20` reads it (for type 1 it prints it as the telepad index). The Gateway writes it only in towns (`AreaTransitionObject.InTown`): before, every exit outside a town had one byte left over at the blob's end, harmless because every byte after it was 0 |
 | Stats | 10 | as the player's comp1: compact-int n pairs, u32, u32, u8 |
@@ -373,11 +373,12 @@ nothing about which in-area gate leads to which arrival (the Warden's Quarters, 
 2. Each stands in a placed room whose footprint holds it: one whose node names an exit before one that names none (a
    background fill room around The Rogue Harbour's rooms), also one tile off such a room (The Cathedral Rooftop's
    Kitava ladder lies 3 cells outside bossentry.arm), the last placed of them. Its node descriptions are its exits:
-   `entranceN` (→ WorldAreas Connections[N − 1]), `entranceNdisabled` or `entranceN-disabled` (an arrival point only:
-   not created, e.g. Lioneye's Watch's Twilight Strand marker, The Submerged Passage's Depths return boat, The Sarn
-   Ramparts' spider tomb from The Temple of Decay; unless a quest gates that exit, `Quests.FlagToEnter`: then it is
-   created and shown by the quest's flag, as The Upper Sceptre of God's way to The Aqueduct after Dominus (a3q10,
-   city_tower.arm's `entrance2disabled`) and The Library's into The Archives after the loose candle (a3q12), a room
+   `entranceN` (→ WorldAreas Connections[N − 1]), `entranceNdisabled` or `entranceN-disabled` (the arrival point from
+   there, and created too: the server sends The Ashen Fields' `entrance2disabled` as a plain exit to The Den, The
+   Submerged Passage's `entrance4disabled` to The Flooded Depths, The Control Blocks' two to Overseer's Tower, The
+   Library's `entrance2disabled` to The Archives, 30 such layouts; when a quest gates that exit, `Quests.FlagToEnter`,
+   it is shown by the quest's flag, as The Upper Sceptre of God's way to The Aqueduct after Dominus (a3q10,
+   city_tower.arm's `entrance2disabled`) and The Library's after the loose candle (a3q12), a room
    point `…disabled` the game enables by script), `teleportN[disabled][-label]` (also `=label`: a gate within the
    area to `telepadN`), `telepadN[-label]` (an arrival); a space before the number occurs (`"telepad 1"` in every
    Peninsula topology). A room whose node names none places no exit (a sewer grate of a side area, an unused
@@ -386,7 +387,9 @@ nothing about which in-area gate leads to which arrival (the Warden's Quarters, 
    generic `entrance` point holds the node's k-th enabled `entranceN` (enabled first: The Control Blocks'
    "entrance2disabled" "entrance1") and the k-th generic `telepad`/`teleport` point the k-th `telepadN`. Then the
    gates: a gate stands beside the arrival from the place it leads to, so `teleportM` takes the slot of the room's
-   `telepadK` whose `teleportK` stands in the room of `telepadM` (K ≠ M). The Harvest's boss1 ("telepad7" "teleport8"
+   `telepadK` whose `teleportK` stands in the room of `telepadM` (K ≠ M), or in a room of that room's `zone=N` (The
+   Rotting Core's boss_2 gate to Doedre's domain, telepad3 in a zone-4 gauntlet room, stands at the slot of telepad6,
+   organ_1's teleport6 being in zone 4). The Harvest's boss1 ("telepad7" "teleport8"
    "teleport9" "telepad10"): the gate back to the core stands at telepad7 (the arrival from the core), the gate to
    boss2 at telepad10. The Cathedral Rooftop's bossentry ("telepad1" "telepad2" "telepad3" "teleport4"
    "teleport3-ArenaNameKitava" "teleport1-%areaname%" "teleport5-MapStairAlternativeLadder"): the arena door
@@ -405,8 +408,9 @@ nothing about which in-area gate leads to which arrival (the Warden's Quarters, 
    in the gate's room, at its object (The Hall of Grandmasters' main.arm: eight arrivals at "telepad" points that
    repeat, each beside the door back to its arena); without one, the telepad's slot. Its destination is the label:
    the description's ClientStrings key as variant 1 (HASH32 from `data/tables/ClientStrings.json`, e.g.
-   BrutusAreaName 0x169BA21A "The Warden's Quarters", MerveilArenaName "Merveil's Lair"), else (`%areaname%`, no key,
-   no table) the area itself as variant 2; no compact int (type 1). `teleportNdisabled` gates (an arena's way in or a
+   BrutusAreaName 0x169BA21A "The Warden's Quarters", MerveilArenaName "Merveil's Lair"), `%areaname%` the area itself
+   as variant 2, and no key at all "Stairs" as variant 0 (the ClientStrings row + 1, 50; the server's 110 unlabelled
+   gates all carry it: the Apex of Sacrifice's, the Bridge Encampment's); no compact int (type 1). `teleportNdisabled` gates (an arena's way in or a
    shortcut back, which the game unlocks; the Upper Prison's only door into Brutus's room is
    "teleport3disabled-BrutusArenaName") are created open: the encounters that unlock them are not modelled.
 6. An enabled `entranceN` that got no object, to an area no other exit leads to, is an exit without a model at its
@@ -418,7 +422,18 @@ nothing about which in-area gate leads to which arrival (the Warden's Quarters, 
    `foothills_DelveEntrance01` into the mine, the mine's exit back to the hub).
 8. Arrivals: next to the exit back; through a one-way entrance, at that disabled entrance's point
    (`AreaTransitionCatalog.EntrancePoint`, `AreaLayout.EntranceFrom`).
-9. Quest rules ([12](12-quests.md) §5): every exit keeps its tile object's own type (`AreaTransitionObject.SourceType`),
+9. Vaal side areas. The generator keeps one of the area's side area groups when the level rolls one (or when the
+   instance's stats carry `map_force_side_area`: the VaalSideAreas mod); the kept room's node keeps its "sidearea…"
+   description, and the transition its tiles hold (The Coast's side_cave1_entrance_2.arm; a room without one takes its
+   "entrance" point, an exit without a model) is the way in: type 2 (SideArea) to one of the area's WorldAreas VaalArea
+   rows, by the seed (the server's own pick is not known). Entering it opens a new instance of the side area that keeps
+   where it came from (`PendingTransfer.Parent`, `ClientState.SideAreaParent`): the side area's area packet names that
+   area as its alt area (+0x21 bit 0x08, a HASH16 after +0x28) and carries the parent record in its extra data (byte 1
+   bit 0x02: u64 instance, u16 area code, u16 0), as the server's does. In the side area, the transition tile of its
+   "sideentrance" room is the way back, type 3 (SideAreaReturn): the layout's object names the side area itself, and the
+   connection that sends it puts its parent area in; using it rejoins the parent instance. A side area entered any
+   other way (a command) has no parent: its way back leads to a new instance of the area the layout names.
+10. Quest rules ([12](12-quests.md) §5): every exit keeps its tile object's own type (`AreaTransitionObject.SourceType`),
    which `On.Exists` shows or hides by flag. Two exits of one tile record that swap by a flag lead to their own version
    of the area (`On.Exists` with `to`: the Chamber of Innocence's InnocenceToCourts / InnocenceToDestroyedCourts), and
    the twin the layout left out is created from its record (`QuestExitDestinations`), in the destination's act only
