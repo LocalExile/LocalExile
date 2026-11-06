@@ -28,7 +28,10 @@ sealed partial class AccountStash
         lock (_lock)
         {
             if (tab >= 0 && tab < _tabs.Count && _tabs[tab].Saved.UniqueCategory != 0)
-                return _rules.Uniques.Find(item)?.Category == _tabs[tab].Saved.UniqueCategory;
+                // The map tab's pages take maps (see AccountStash.Map); every other hidden child is a unique category.
+                return _tabs[tab].Saved.Type == StashRules.Map
+                    ? MapPageTakes(_tabs[tab].Saved.UniqueCategory, item)
+                    : _rules.Uniques.Find(item)?.Category == _tabs[tab].Saved.UniqueCategory;
             return Holds(tab, item.TypeHash);
         }
     }
