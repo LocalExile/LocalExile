@@ -8,12 +8,20 @@ public enum ExitKind
     /// <summary>The node names no exit for it (a sewer grate of a side area that did not roll, an unused transition room's
     /// arch), or the node's exits went to objects nearer their points: not created.</summary>
     Unused,
-    /// <summary>"entranceN": the exit to the area's WorldAreas Connections[N − 1]; "entranceNdisabled" is only the
-    /// arrival point from there (<see cref="PlacedExit.Enabled"/> false: not created).</summary>
+    /// <summary>"entranceN": the exit to the area's WorldAreas Connections[N − 1]; "entranceNdisabled" is the arrival
+    /// point from there and an exit the server creates all the same (<see cref="PlacedExit.Enabled"/> false; a quest may
+    /// gate it).</summary>
     Entrance,
     /// <summary>"teleportN[-label]": a gate within the area to the slot of "telepadN" (<see cref="PlacedExit.Target"/>);
     /// "teleportNdisabled-…" starts locked in the game (an arena's way in, a shortcut back).</summary>
     Teleport,
+    /// <summary>A transition in a room of the area's Vaal side area group ("sidearea", "sidearea1", "sidearea_entrance" …):
+    /// the way into the side area (transition type 2, SideArea), which the server picks among the area's WorldAreas
+    /// VaalArea rows.</summary>
+    SideArea,
+    /// <summary>A transition in a side area's "sideentrance" room: the way back to the area it was entered from (type 3,
+    /// SideAreaReturn), which only the instance knows.</summary>
+    SideAreaReturn,
 }
 
 /// <summary>An area transition object of a generated layout with its role: the object, what it is, the description's
@@ -23,14 +31,18 @@ public sealed record PlacedExit(PlacedTileObject Object, ExitKind Kind, int Numb
     (int X, int Y)? Target, string? Room, string Why);
 
 /// <summary>A layout's named entrance point: where "entranceN" (enabled or not) sits, i.e. where a player arriving from
-/// Connections[N − 1] belongs.</summary>
-public sealed record EntrancePoint(int Number, bool Enabled, int X, int Y);
+/// Connections[N − 1] belongs. With <see cref="SideArea"/>: the "entrance" point of the Vaal side area's room (Number 0),
+/// where the way in stands when the room holds no transition object (the Coast's side caves).</summary>
+public sealed record EntrancePoint(int Number, bool Enabled, int X, int Y)
+{
+    public bool SideArea { get; init; }
+}
 
 /// <summary>
 /// The area transitions of a generated layout and where each leads, decided by the layout itself
 /// (Agents/docs/protocol/08-area-transitions.md §8). Every transition object (a tile's .tmd record or a room's object line
 /// whose type has the AreaTransition component) stands in a placed room, and that room's graph node descriptions name its
-/// exits: "entranceN" leads to WorldAreas Connections[N − 1] ("…disabled": an arrival point only), "teleportN[-label]"
+/// exits: "entranceN" leads to WorldAreas Connections[N − 1] ("…disabled": the arrival point from there, created too), "teleportN[-label]"
 /// within the area to "telepadN", which may be in another room or the same one.
 /// <para>A room places them at its named points ("slots"), in order: the k-th generic "telepad"/"teleport" point holds the
 /// node's k-th "teleportN" (the gate) and its k-th "telepadN" (the arrival), the k-th "entrance" point its k-th
@@ -77,12 +89,20 @@ public static class AreaExits
     {
         var points = new List<EntrancePoint>();
         foreach (var room in rooms)
+        {
             foreach (var d in room.Descriptions.Where(d => d.Kind == ExitKind.Entrance))
             {
                 var inRoom = objects.FirstOrDefault(o => room.Contains(o.X, o.Y));
                 (int X, int Y) at = room.SlotOf(d) is { } p ? (p.X, p.Y) : inRoom is { } o ? (o.X, o.Y) : room.Centre;
                 points.Add(new EntrancePoint(d.Number, d.Enabled, at.X, at.Y));
             }
+            // The Vaal side area's room without a transition object: its "entrance" point (else its centre) is the way in.
+            if (room.Descriptions.Any(d => d.Kind == ExitKind.SideArea) && !objects.Any(o => room.Contains(o.X, o.Y)))
+            {
+                var p = room.Points.FirstOrDefault(p => EntrancePointName.IsMatch(p.Name));
+                points.Add(new EntrancePoint(0, true, p?.X ?? room.Centre.X, p?.Y ?? room.Centre.Y) { SideArea = true });
+            }
+        }
         return points;
     }
 
@@ -131,7 +151,14 @@ public static class AreaExits
         public required PlacedRoom Room { get; init; }
         public required IReadOnlyList<RoomPoint> Points { get; init; }
         public required IReadOnlyList<Description> Descriptions { get; init; }
+        /// <summary>The node's "zone=N" description, if any: rooms of one zone count as one place for a gate's arrival
+        /// (The Rotting Core's boss_2 gate to Doedre's domain stands at the slot of telepad6, organ_1's teleport6 being in
+        /// the gauntlet's zone 4 like telepad3's room).</summary>
+        public string? Zone => Room.Descriptions.FirstOrDefault(d => d.StartsWith("zone=", StringComparison.OrdinalIgnoreCase))?[5..];
         readonly Dictionary<Description, RoomPoint> _slots = new(ReferenceEqualityComparer.Instance);
+
+        internal static bool SamePlace(LayoutRoom? a, LayoutRoom? b) =>
+            a is not null && b is not null && (ReferenceEquals(a, b) || a.Zone is { } z && z == b.Zone);
 
         public string Name => Path.GetFileName(Room.Room.Path);
         public bool Contains(int x, int y, int margin = 0) =>
@@ -166,7 +193,8 @@ public static class AreaExits
         }
 
         // Phase 2, with every room's telepads: a gate stands beside the arrival from the place it leads to: "teleportM"
-        // takes the slot of this room's "telepadK" whose "teleportK" stands in the room of "telepadM" (K ≠ M). The
+        // takes the slot of this room's "telepadK" whose "teleportK" stands in the room of "telepadM" (K ≠ M), or in a
+        // room of that room's zone (SamePlace). The
         // Cathedral Rooftop's bossentry ("telepad1" "telepad2" "telepad3" "teleport4" "teleport3-ArenaNameKitava"
         // "teleport1-%areaname%" "teleport5-…Ladder"): the arena gate teleport3 is at telepad1's point, its way out
         // teleport1 at telepad3's, the way to the dock teleport4 at telepad2's (the dock's teleport2 lands there). Else a
@@ -184,7 +212,7 @@ public static class AreaExits
                 if (teleportPoints.FirstOrDefault(p => Number(p, TeleportPointName) == g.Number) is { } numbered) { _slots[g] = numbered; continue; }
                 var target = RoomOf(d => d.IsTelepad && d.Number == g.Number);
                 var arrival = Descriptions.Where(d => d.IsTelepad && d.Number != g.Number && _slots.ContainsKey(d))
-                    .FirstOrDefault(d => target is not null && ReferenceEquals(RoomOf(t => t.Kind == ExitKind.Teleport && t.Number == d.Number), target));
+                    .FirstOrDefault(d => SamePlace(RoomOf(t => t.Kind == ExitKind.Teleport && t.Number == d.Number), target));
                 if (arrival is not null) { _slots[g] = _slots[arrival]; gateTaken.Add(_slots[g]); }
             }
             var generic = teleportPoints.Where(p => Number(p, TeleportPointName) == 0).ToList();
@@ -241,6 +269,13 @@ public static class AreaExits
                     t.Groups[3].Success && t.Groups[3].Value.Length > 0 ? t.Groups[3].Value : null));
             else if (TelepadDescription.Match(d) is { Success: true } p)
                 list.Add(new Description(ExitKind.Unused, int.Parse(p.Groups[1].Value), true, null, IsTelepad: true));
+            // The Vaal side area's rooms in the parent ("sidearea", "sidearea1", "sidearea2", "sidearea_entrance", "sidearea_boss"
+            // …) and the side area's own entrance room ("sideentrance"): one exit each, for the transition the room's tiles
+            // hold (the rooms' object lines hold none).
+            else if (d.Equals("sideentrance", StringComparison.OrdinalIgnoreCase))
+                list.Add(new Description(ExitKind.SideAreaReturn, 0, true, null));
+            else if (d.StartsWith("sidearea", StringComparison.OrdinalIgnoreCase) && !list.Any(x => x.Kind == ExitKind.SideArea))
+                list.Add(new Description(ExitKind.SideArea, 0, true, null));
         }
         return list;
     }

@@ -370,7 +370,7 @@ static partial class Game
         bool done = QuestObjectTransitioned(conn, rule);
         // A tile record's virtual model; a room line's object keeps its type's own, or takes the line's without one.
         string? model = at.Z is not null ? at.Model : info.Model ?? (info.OwnModel ? null : at.Model);
-        return new QuestObject(at.X, at.Y, info.Components, at.Rotation, at.Z, model, (byte)(done ? info.States : 1), Blocked: !done).Blob();
+        return new QuestObject(at.X, at.Y, info.Components, at.Rotation, at.Z, model, (byte)(done ? info.States : 1), Blocked: !done) { Mirrored = at.Code is >= 4 and < 8 }.Blob();
     }
 
     internal static async Task CreateQuestObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, Quests.ObjectRule rule, GlyphQuest.Placement at)
@@ -562,7 +562,7 @@ static partial class Game
     // InheritsFrom), else the Rhoa Nest's.
     internal static byte[] QuestChestBlob(ClientState conn, Quests.ChestRule rule, GlyphQuest.Placement at, bool opened) =>
         QuestObjectTypes.Find(rule.ChestType) is { } info && QuestObject.CanSerialize(info.Components)
-            ? new QuestObject(at.X, at.Y, info.Components, at.Rotation, at.Z, at.Model, QuestChestState(conn, rule, info, opened), opened).Blob()
+            ? new QuestObject(at.X, at.Y, info.Components, at.Rotation, at.Z, at.Model, QuestChestState(conn, rule, info, opened), opened) { Mirrored = at.Code is >= 4 and < 8 }.Blob()
             : GlyphQuest.NestBlob(at, opened);
 
     internal static async Task CreateQuestChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, Quests.ChestRule rule, GlyphQuest.Placement at)

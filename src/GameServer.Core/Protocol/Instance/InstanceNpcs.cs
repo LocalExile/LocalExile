@@ -269,7 +269,7 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
                 // down), the live server's convention (ProjectileObject; 11-skills.md "Sign").
                 case "Positioned":
                     w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(Height is null ? 0 : 0x04)).U8(0x02);
-                    if (Height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
+                    if (Height is float z) w.I32(InstanceProtocol.HeightMarker(z)).F32(z);
                     w.U8(0).U8(1);
                     break;
                 // 0: the type supplies the model; bit0: a u32-counted UTF-16 .ao path.

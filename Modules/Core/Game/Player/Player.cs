@@ -1193,8 +1193,10 @@ static partial class Game
         foreach (var (id, transition) in layout.AreaTransitions.Where(t => TransitionShown(conn, t.Id, t.Transition)))
         {
             lock (conn.ShownTransitions) conn.ShownTransitions.Add(id);
-            messages.Add(($"0x02bb create area transition 0x{id:x} {transition}",
-                InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob())));
+            // A Vaal side area's way back (type 3) names the area it was entered from, which the connection knows.
+            var shown = transition.Kind == 3 && conn.SideAreaParent is { } parent ? transition with { DestinationHash16 = parent.Area } : transition;
+            messages.Add(($"0x02bb create area transition 0x{id:x} {shown}",
+                InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(shown.Type), shown.Blob())));
         }
         foreach (var (id, effect) in layout.Effects)
             messages.Add(($"0x02bb create transition effect 0x{id:x} {effect}",

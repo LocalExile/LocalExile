@@ -54,7 +54,7 @@ public class WaypointTests
         const string model = "Metadata/Terrain/Beach/Town_v2/beachencampment_v01_01_v2_waypoint1.ao";
         byte[] b = new WaypointObject(256, 169, model, Rotation: 0, Height: -357.52f).Blob();
         string hex = Convert.ToHexString(b);
-        Assert.StartsWith("0000" + "00010000" + "A9000000" + "00000000" + "0000" + "04" + "00" + "D2FFFFFF", hex);
+        Assert.StartsWith("0000" + "00010000" + "A9000000" + "00000000" + "0000" + "04" + "00" + "2D000000", hex); // marker −z / 7.8125 = 45.76 → 45
         int afterPositioned = 2 + 16 + 8;
         Assert.Equal(1, b[afterPositioned]);
         Assert.Equal((uint)model.Length, BitConverter.ToUInt32(b, afterPositioned + 1));

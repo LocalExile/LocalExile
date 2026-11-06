@@ -124,7 +124,7 @@ static class GlyphQuest
     public static byte[] NestBlob(Placement p, bool opened)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        Positioned(w, p.X, p.Y, p.Rotation, p.Z);
+        Positioned(w, p.X, p.Y, p.Rotation, p.Z, p.Code is >= 4 and < 8);
         w.U8(1).WStr32(p.Model);
         w.U8((byte)(opened ? 1 : 0)).U8(0).U8(0);
         w.U8(0).U32(0).U32(0).U8(0);
@@ -137,7 +137,7 @@ static class GlyphQuest
     public static byte[] WallBlob(Placement p, bool placed)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        Positioned(w, p.X, p.Y, p.Rotation, p.Z);
+        Positioned(w, p.X, p.Y, p.Rotation, p.Z, p.Code is >= 4 and < 8);
         w.U8(1).WStr32(p.Model);
         return w.U8(placed ? Transitioned : Untransitioned).U8(0).U8(0).U8(0).ToArray();
     }
@@ -151,11 +151,12 @@ static class GlyphQuest
         return w.U8(placed ? Transitioned : Untransitioned).U8(0).ToArray();
     }
 
-    // x, y, rotation, u16, flags0 (0x04: fixed height, i32 steps of 7.8125 + f32 z), flags1 0x02 (u8 hidden 0, u8 shown 1).
-    static void Positioned(BlobWriter w, int x, int y, float rotation, float? z)
+    // x, y, rotation, u16, flags0 (0x04: fixed height, i32 steps of 7.8125 + f32 z; 0x01: mirrored, a record on a mirrored
+    // tile), flags1 0x02 (u8 hidden 0, u8 shown 1).
+    static void Positioned(BlobWriter w, int x, int y, float rotation, float? z, bool mirrored = false)
     {
-        w.I32(x).I32(y).F32(rotation).U16(0).U8((byte)(z is null ? 0 : 0x04)).U8(2);
-        if (z is float h) w.I32((int)MathF.Round(h / 7.8125f)).F32(h);
+        w.I32(x).I32(y).F32(rotation).U16(0).U8((byte)((z is null ? 0 : 0x04) | (mirrored ? 0x01 : 0))).U8(2);
+        if (z is float h) w.I32(InstanceProtocol.HeightMarker(h)).F32(h);
         w.U8(0).U8(1);
     }
 

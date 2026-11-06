@@ -594,7 +594,8 @@ public class InstanceEntitiesTests
     public void Area_transition_with_a_tile_object_model_rotation_and_height()
     {
         // Live 2026-10-17: the Coast exit with the tile's arch (.tmd record beachencampment_v01_01_area_transition2):
-        // Positioned rotation float, flags0 bit2 = fixed height (u32 steps of 7.8125, float z), Animated bit0 + .ao path.
+        // Positioned rotation float, flags0 bit2 = fixed height (i32 −z / 7.8125 truncated, as the server sends it: its
+        // objects at z −193.77 carry 24, at 223.0 carry −28; float z), Animated bit0 + .ao path.
         const string model = "Metadata/Terrain/Beach/Town_v2/beachencampment_v01_01_area_transition2.ao";
         byte[] b = new AreaTransitionObject(GridX: 388, GridY: 230, DestinationHash16: 0x7ad2, Model: model,
             Rotation: MathF.PI / 2, Height: -351.04f) { InTown = true }.Blob();
@@ -602,7 +603,7 @@ public class InstanceEntitiesTests
         Assert.StartsWith(
             "00" + "00" +
             "84010000" + "E6000000" + "DB0FC93F" + "0000" + "04" + "00" +   // Positioned (388, 230), 90°, flags0 0x04
-            "D3FFFFFF" + "1F85AFC3" +                                        // height -45 steps, z -351.04
+            "2C000000" + "1F85AFC3" +                                        // height marker 44 (−z / 7.8125 = 44.93), z -351.04
             "01" + "49000000" + Convert.ToHexString(System.Text.Encoding.Unicode.GetBytes(model)) +
             "00" + "02" + "D27A" + "00", hex);                               // AreaTransition as before
         Assert.Equal(41 + 8 + 4 + model.Length * 2, b.Length);

@@ -546,6 +546,19 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     /// resolved by 0x1424fe990): a gate's "teleportN-&lt;key&gt;", e.g. BrutusAreaName "The Warden's Quarters".</summary>
     public uint? Label { get; init; }
 
+    /// <summary>A ClientStrings row number (its index + 1) to show as the label (destination variant 0): the server's gates
+    /// without a label key show "Stairs" this way (<see cref="StairsRow"/>). <see cref="Label"/> takes precedence.</summary>
+    public ushort? LabelRow { get; init; }
+
+    /// <summary>The object is mirrored (Positioned flags0 bit 0): a tile record on a tile placed at a mirrored orientation
+    /// (codes 4–7), whose model the client draws mirrored to lie on the tile as drawn. The server sets it on every such
+    /// object and on no object of an unmirrored tile; without it the hover highlight sits across the entrance.</summary>
+    public bool Mirrored { get; init; }
+
+    /// <summary>The ClientStrings row + 1 of "Stairs", the label the server gives a gate whose node names no key
+    /// (110 of its gates seen, the Apex of Sacrifice's and the Bridge Encampment's among them).</summary>
+    public const ushort StairsRow = 50;
+
     /// <summary>Components that read data, in the order the client deserializes them for this type (traced live
     /// 2026-10-16: Positioned, BaseEvents (no data), Animated, AreaTransition (live vtable 0x143479f98), Stats,
     /// ObjectMagicProperties, MinimapIcon, InteractionAction, then two components the loop does not reach).</summary>
@@ -572,19 +585,21 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
                 // world z +0x2b4, used instead of the terrain height (0x141e38b40). Tile objects need it: their .tmd
                 // record has its own z.
                 case "Positioned":
-                    w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(Height is null ? 0 : 0x04)).U8(0);
-                    if (Height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+                    w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)((Height is null ? 0 : 0x04) | (Mirrored ? 0x01 : 0))).U8(0);
+                    if (Height is float z) w.I32(InstanceProtocol.HeightMarker(z)).F32(z);
                     break;
                 // Animated (0x141e5afd0): bit0 + a u32-counted UTF-16 .ao path (anything else throws "Filename must
                 // end with .ao"): the area transition's model, the white surface highlighted on hover. For a tile object it is the
                 // client's virtual "<.tdt folder>/<.tmd record name>.ao" around the record's fixed mesh.
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
-                // the type (0 normal, 1 teleport), the destination (variant 2 = HASH16, or variant 1 = a ClientStrings
-                // HASH32 label), then for type 0 in a town (InTown) the compact int +0xa4, which nothing but the
-                // component's debug dump reads (Agents/docs/protocol/08-area-transitions.md §2, §8).
+                // the type (0 normal, 1 teleport), the destination (variant 2 = HASH16, variant 1 = a ClientStrings
+                // HASH32 label, variant 0 = a ClientStrings row + 1), then for type 0 in a town (InTown) the compact int
+                // +0xa4, which nothing but the component's debug dump reads (Agents/docs/protocol/08-area-transitions.md §2, §8).
                 case "AreaTransition":
                     w.U8((byte)(Kind & 0xf));
-                    if (Label is uint label) w.U8(1).U32(label); else w.U8(2).U16(DestinationHash16);
+                    if (Label is uint label) w.U8(1).U32(label);
+                    else if (LabelRow is ushort row) w.U8(0).U16(row);
+                    else w.U8(2).U16(DestinationHash16);
                     if (InTown && Kind == 0) w.CompactI(Index);
                     break;
                 case "Stats": w.U8(0).U32(0).U32(0).U8(0); break;
