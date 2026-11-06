@@ -26,19 +26,26 @@ sealed class LeagueRuntime(League definition, IReadOnlySet<string> modules)
 static class ServerLeagues
 {
     static ImmutableDictionary<string, Func<LeagueRules>> _rules = ImmutableDictionary.Create<string, Func<LeagueRules>>(StringComparer.OrdinalIgnoreCase);
-    static ImmutableDictionary<string, LeagueCode> _code = ImmutableDictionary.Create<string, LeagueCode>(StringComparer.OrdinalIgnoreCase);
+    sealed record CodeRules(LeagueCode? Code, LeagueRules? RetiredRules);
+    static ImmutableDictionary<string, CodeRules> _code = ImmutableDictionary.Create<string, CodeRules>(StringComparer.OrdinalIgnoreCase);
 
     public static void AddRules(string module, Func<LeagueRules> rules) => ImmutableInterlocked.AddOrUpdate(ref _rules, module, rules, (_, _) => rules);
     public static void RemoveRules(string module) => ImmutableInterlocked.TryRemove(ref _rules, module, out _);
-    public static void SetCode(string league, LeagueCode code) => ImmutableInterlocked.AddOrUpdate(ref _code, league, code, (_, _) => code);
-    public static void RemoveCode(string league) => ImmutableInterlocked.TryRemove(ref _code, league, out _);
+    public static void SetCode(string league, LeagueCode code) =>
+        ImmutableInterlocked.AddOrUpdate(ref _code, league, new CodeRules(code, null), (_, _) => new(code, null));
+    // League definitions stay loaded for the process. During a code replacement, readers must keep its last rules,
+    // not briefly acquire Standard's unlocks or balance. Retain the rules value, releasing the collectible code.
+    public static void RemoveCode(string league) => ImmutableInterlocked.Update(ref _code, codes =>
+        codes.TryGetValue(league, out var current) && current.Code is { } code
+            ? codes.SetItem(league, new(null, code.Rules)) : codes);
 
     /// <summary>The rules a module gives now.</summary>
     public static LeagueRules? Live(string module) => _rules.GetValueOrDefault(module)?.Invoke();
 
     public static LeagueRules RulesOf(League league, IReadOnlySet<string> modules)
     {
-        if (_code.GetValueOrDefault(league.Name)?.Rules is { } own) return own;
+        var provider = _code.GetValueOrDefault(league.Name);
+        if ((provider?.Code is { } code ? code.Rules : provider?.RetiredRules) is { } own) return own;
         foreach (string module in ModulesOf(league))
             if (modules.Contains(module) && _rules.GetValueOrDefault(module) is { } rules) return rules();
         foreach (var (module, rules) in _rules)
