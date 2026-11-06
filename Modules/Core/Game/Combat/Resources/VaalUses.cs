@@ -8,6 +8,7 @@ sealed record VaalUseReservation(ushort Skill, int Effect, int Action, int Epoch
     public long WorkGeneration;
     public int RecoveryGeneration;
     public bool RageConverted;
+    public double? AttackSeconds;
 }
 
 static partial class Game
@@ -80,6 +81,7 @@ static partial class Game
         double now = conn.Clock.Elapsed.TotalSeconds, duration = SupportedAttackSeconds(conn, plan.Skill);
         if (!AttackTiming.Ready(now, conn.NextAttackAt, duration)) return false;
         deadline = AttackTiming.After(now, conn.NextAttackAt, duration);
+        plan.AttackSeconds = duration;
         return true;
     }
 
@@ -136,7 +138,9 @@ static partial class Game
             if (SkillsFor(conn).VaalBudget(effect, 1) is not null
                 && (conn.VaalUse is not { } paid || paid.Skill != skillId || paid.Effect != effect
                     || !VaalAdmissionCurrent(conn, paid) || !PlayerActionCurrent(conn, paid.Action))) return false;
-            return OwnAuraAcknowledgementAllowed(conn, effect, skillId, nativeUse);
+            if (!OwnAuraAcknowledgementAllowed(conn, effect, skillId, nativeUse)) return false;
+            MomentumAcknowledged(conn, skillId, effect);
+            return true;
         }
     }
 

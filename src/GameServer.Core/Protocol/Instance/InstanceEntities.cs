@@ -387,16 +387,24 @@ public static class InstanceEntities
         return ComponentUpdate(playerId, PlayerObject.InventoriesComponentIndex, w.ToArray());
     }
 
+    /// <summary>S→C 0x1b4: the registered skill's primary (0) or additional stat-set deltas.</summary>
+    public static byte[] SkillStatsUpdate(uint entityId, ushort skill, IReadOnlyList<(uint Key, int Value)> stats, byte statSet = 0) =>
+        WriteStats(new LoginWriter().U16(0x1b4).U32(entityId).U32(0).U16(0).U16(skill).U8(statSet), stats).ToArray();
+
     public static byte[] StatsUpdate(uint entityId, IReadOnlyList<(uint Stat, int Value)> stats)
     {
-        var w = new LoginWriter().U16(StatsUpdateId).U32(entityId).U32(0).U16(0);
+        return WriteStats(new LoginWriter().U16(StatsUpdateId).U32(entityId).U32(0).U16(0), stats).ToArray();
+    }
+
+    static LoginWriter WriteStats(LoginWriter w, IReadOnlyList<(uint Key, int Value)> stats)
+    {
         InstanceProtocol.CompactUInt(w, (uint)stats.Count);
         foreach (var (stat, value) in stats)
         {
             InstanceProtocol.CompactUInt(w, stat);
             InstanceProtocol.CompactInt(w, value);
         }
-        return w.ToArray();
+        return w;
     }
 }
 

@@ -228,7 +228,9 @@ static partial class Game
         {
             var profile = WeaponProfileFor(conn);
             double factor = profile.DualWield || profile.Unarmed ? 1.1 : 1;
-            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(gem.Stats.GetValueOrDefault(raw) * factor);
+            int increased = gem.Stats.GetValueOrDefault(raw)
+                + MomentumSupport.AttackSpeed(Get, Supports.Of(gem.Effect)?.Types.Contains(47) == true);
+            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(increased * factor);
             // "Chain Hook and Shield Charge have X% increased Attack Speed per 10 Rampage Kills".
             if (SkillsFor(conn).EffectId(gem.Effect) is { } effectId
                 && (effectId.StartsWith("ChainHook", StringComparison.Ordinal)
@@ -253,10 +255,13 @@ static partial class Game
             more *= Math.Max(.01, 1 + conn.CombatRushAttackSpeed / 100.0);
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
         // already part of this factor. Do not apply the same GEPL value again.
-        double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats)
-            : DualWieldPanel.OffHandSeconds(offHand, SkillCatalog.Unarmed.OffHandAttackSpeedPct(
-                stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), WeaponProfileFor(conn, activeSet: true).LocalAttackSpeedPct));
-        double paced = seconds / more / PlayerActionFactor(conn);
+        int baseSpeed = offHand is null ? WeaponFor(conn).IncreasedAttackSpeed(stats)
+            : SkillCatalog.Unarmed.OffHandAttackSpeedPct(stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct),
+                WeaponProfileFor(conn, activeSet: true).LocalAttackSpeedPct);
+        double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats) : DualWieldPanel.OffHandSeconds(offHand, baseSpeed);
+        // Preserve the weapon timing's existing minimum, but compose MORE through the native integer final percent.
+        double paced = seconds * Math.Max(.01, 1 + baseSpeed / 100.0)
+            / (1 + SkillAttackTiming.FinalSpeedPercent(baseSpeed, more) / 100.0) / PlayerActionFactor(conn);
         return clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced);
     }
 
