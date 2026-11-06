@@ -67,20 +67,27 @@ static partial class Game
 
     internal static void CommitProjectileBossStage(ProjectileSession session, uint id, SpawnedMonster monster, long at)
     {
+        if (monster.StageActionStarted) return;
         var stage = monster.Stage!;
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
         var pos = monster.Walk.Position(now);
-        monster.Walk.Order(pos.X, pos.Y, now); monster.LastTarget = null; monster.BusyUntil = now + stage.CastSeconds;
-        session.Packet(InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, 0xffff, 0x0408));
-        session.Runtime.Schedule(at + ProjectileRuntime.Time(stage.CastSeconds), () =>
+        long recoveryAt = at + ProjectileRuntime.Time(stage.CastSeconds);
+        long effectAt = at + ProjectileRuntime.Time(stage.EffectSeconds(monster.Variety is { } variety
+            ? SkillsFor(session.Conn).MonsterContact(variety.Id, "Throw", 0xffff) : null));
+        monster.Walk.Order(pos.X, pos.Y, now); monster.LastTarget = null;
+        monster.BusyUntil = recoveryAt / (double)ProjectileRuntime.QuantaPerSecond;
+        monster.StageEffectAt = effectAt / (double)ProjectileRuntime.QuantaPerSecond;
+        monster.StageActionStarted = true;
+        session.Packet(InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, 0xffff, 0x0408),
+            $"monster 0x{id:x} starts stage t={now:0.000000}; effect={monster.StageEffectAt:0.000000}, recovery={monster.BusyUntil:0.000000}");
+        session.Runtime.Schedule(effectAt, Publish);
+        session.Runtime.Schedule(recoveryAt, Publish);
+        void Publish()
         {
-            if (!session.Conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, monster) || monster.Dead) return;
-            monster.StageRunning = false; monster.Life = monster.MaxLife;
-            if (monster.Variety?.ComponentsOrBase.ToList().IndexOf("Transitionable") is int index and >= 0)
-                session.Packet(InstanceEntities.TransitionableUpdate(id, (byte)index, stage.TransitionTo));
-            session.Packet(InstanceProtocol.LifeUpdate(id, monster.Life));
-            session.Packet(InstanceProtocol.ActionEnded(id));
-        });
+            double time = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+            if (AdvanceMonsterStage(session.Conn, id, monster, time) is { } bytes)
+                session.Packet(bytes, $"monster 0x{id:x} stage {(monster.StageRunning ? "effect" : "complete")} t={time:0.000000}; life={monster.Life}");
+        }
     }
 
     internal static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random,

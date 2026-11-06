@@ -282,6 +282,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // A boss's stage (BossFights) and whether a hit has started it.
     public BossFights.Stage? Stage { get; init; }
     public bool StageTaken, StageRunning;
+    public double StageEffectAt = double.NaN;
+    public bool StageActionStarted, StageEffectApplied;
     // A quest threshold (Quests.ThresholdRule): the monster never dies; reaching it sets the flags once (Game.QuestThreshold).
     public Quests.ThresholdRule? Threshold { get; init; }
     public bool ThresholdReached;

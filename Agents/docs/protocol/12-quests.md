@@ -237,6 +237,11 @@ The `washedup` room also has a force wall of its own (`Tutorial_Blocker_1`), the
 `BiteZombieSpawner`: the opening tutorial, not done yet (no quest manages them, so none of them is created).
 
 **Hillock's fight** (live 2026-10-21; `BossFights.cs`):
+
+Opening capture `20261105-222849` heals Hillock about 758 ms after extraction starts; the local capture waits
+3,015 ms. `ZombieBoss.act` maps Throw to `extract:attack_time=0.5`; the merged rig/AO clip is 1,833 ms long,
+with contact at 458 ms (AO slow span 440–557 ms). The contact fraction of the 3,000 ms cast is about 750 ms.
+`monster-contacts` v4 exports this Throw pool separately from ordinary attack selection.
 - **Boss life bar.** `ZombieBoss.ot` extends `Metadata/Monsters/BossLifeBar` (MonsterVarieties `BossHealthBar` set): its
   StateMachine shared states are `boss_life_bar`, `disable_life_bar`, `global_first_aggro`, then ZombieBoss's `aggro`.
   `on_state_boss_life_bar_1` calls `SetStaticLifeBarVisibilty(True)`. The StateMachine has an update reader
@@ -252,10 +257,14 @@ The `washedup` room also has a force wall of its own (`Tutorial_Blocker_1`), the
   life; he stops and uses the skill (0x1ab, skill id 0x0103 in his Actor list, with the attack's skill stats and a 3 s
   time: without `skill_is_non_pathing` the client played nothing and kept him in the action, frozen, live 2026-10-21;
   S→C 0x1ac, the object header only, ends the action after the stage), cannot drop below 1 life during the
-  cast, then 0x2ba steps his Transitionable to 2 (`on_transition`: `HideMeshSegment(…Sword…)` +
+  cast. At the extracted animation contact (458/1833 of the cast), 0x2ba steps his Transitionable to 2
+  (`on_transition`: `HideMeshSegment(…Sword…)` +
   `AddAttached(OneHandSwordZombieHeld.ao, R_Weapon)`: the sword from his back into his hand) and 0x1b1 fills his life.
   Transitionable's `num_states` must be ≥ 2 when an .ot gives it (`0x141e42a80` throws "That number of states is
   unsupported" otherwise); `Transitionable {}` takes the type's default, which the sword step treats as 2.
+  The effect and recovery use separate area-clock deadlines; recovery remains 3 seconds and never heals again.
+  A paused area keeps the remaining time. Send-gate guards and retained one-shot state reject stale effects after
+  departure, monster death/replacement or module retirement; reloaded workers resume the existing deadlines.
 - **Level 2.** QuestStates' a1q1 text "killed Hillock … and levelled up. Open the Passive Skill Screen" — his kill tops
   the character's experience up to level 2's start (`Quests.LevelAfterKill`); his own experience (about 150) does not
   reach it.
