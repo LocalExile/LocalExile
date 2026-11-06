@@ -48,11 +48,14 @@ bench.
   Small-device underfoot escape and walking across its former position are verified in the real client.
   NPCs and functional furniture now use inherited OT footprints and static-model hulls through one registry.
   Waypoints and loot remain passable. Check large MTX models and wall-adjacent layouts separately.
+  The three 3.29.3c MTX hideouts (Labyrinth, Apex of Divinity and Exilecon 2026) create their exported
+  decoration in full, including Apex of Divinity's built-in map device; the older templates still create
+  only the furniture and map device. See [21](../docs/protocol/21-hideouts.md) §2.
   Save/reentry persistence and collision escape for all supported NPC types have automated coverage.
   The dev `/statue` command creates a stone Monster Statue of any MonsterVarieties row at the player and
   saves it per character/template; C→S 0x0209 replaces a targeted hideout monster the same way. The
   statues play their idle and are recreated on entry. See [21](../docs/protocol/21-hideouts.md), Monster Statue.
-- **Start:** create the rest of the decorations (`HideoutObject`, each type's components from
+- **Start:** create the decorations of the older templates (`HideoutObject`, each type's components from
   data/object-types.json); the Edit mode's placement/removal and appearance messages;
   maps: the arrival point, a return portal, fragments and device recipes and map mods;
   `An Audience With The King` already opens the Crux (fragments otherwise remain inert).

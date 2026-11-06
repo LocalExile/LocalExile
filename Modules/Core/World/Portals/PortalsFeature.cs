@@ -270,26 +270,43 @@ static class PortalsFeature
         else Console.WriteLine($"[gateway] {remote} <= 0x00e7 Atlas node 0x{picked.Area:x4} (mode 0x{picked.Mode:x2}) is not a known layout");
     }
 
-    // A hideout's placed doodads (HideoutCatalog.IsPlaced: the map device) from its decoration, with their HideoutDoodad data.
+    // A hideout's placed doodads (HideoutCatalog.IsPlaced: the map device) from its decoration, with their HideoutDoodad
+    // data. The three 3.29.3c MTX hideouts also create the rest of their exported decoration, minus the furniture, stations
+    // and NPCs the scene already places.
     internal static async Task SpawnHideoutDoodads(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (HideoutFurniture(conn) is not { } scene) return;
-        foreach (var d in new[] { scene.Device })
+        var hideout = HideoutCatalog.ByArea(conn.Layout.Hash);
+        var doodads = new List<(HideoutCatalog.Doodad Doodad, bool Device)> { (scene.Device, true) };
+        if (hideout is { FullDecoration: true }) doodads.AddRange(hideout.Decorations.Select(d => (d, false)));
+        int decorations = 0, skipped = 0;
+        foreach (var (d, device) in doodads)
         {
-            if (HideoutCatalog.TypeOf(d.Type!) is not var (components, states) || !HideoutObject.CanSerialize(components))
+            if (d.Type is null || HideoutCatalog.TypeOf(d.Type!) is not var (components, states) || !HideoutObject.CanSerialize(components))
             {
                 Console.WriteLine($"[gateway] {remote} hideout doodad {d.Name} ({d.Type}): unknown type or unsupported components, not created");
+                skipped++;
                 continue;
             }
             uint id = conn.NextObjectId++;
             // "active" 1: the map device stands open and idle (its .ot: per-player quest flag MapDeviceActive).
+            // "active_map_device" 1 and "max_open_portals" 6: Apex of Divinity's built-in device enables its targetable
+            // state and its six portal flames only in those states. The map device keeps its type's own Animated object
+            // (and its AnimationController); decorations name the Variation_AOFiles model their HideoutDoodads row selects.
             var obj = new HideoutObject(d.X, d.Y, d.Rotation, components, new HideoutDoodad(d.Hash, (byte)d.Variation),
-                [.. states.Select(s => s == "active" ? 1 : 0)]);
+                [.. states.Select(s => s is "active" or "active_map_device" ? 1 : s == "max_open_portals" ? 6 : 0)],
+                device ? null : d.Model);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(d.Type!), obj.Blob()),
-                $"0x02b9 create hideout doodad 0x{id:x} {d.Name} ({d.Type}) at ({d.X}, {d.Y}), components {string.Join(", ", components)}");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 hideout doodad 0x{id:x} enters wake zone");
-            lock (conn.HideoutDoodads) conn.HideoutDoodads[id] = d;
-            await RegisterStationaryCollision(remote, stream, ciphers, conn, id, d.Type!, d.X, d.Y, d.Rotation, "map-device", d.Model);
+                device
+                    ? $"0x02b9 create hideout doodad 0x{id:x} {d.Name} ({d.Type}) at ({d.X}, {d.Y}), components {string.Join(", ", components)}"
+                    : null);
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            if (device) lock (conn.HideoutDoodads) conn.HideoutDoodads[id] = d;
+            await RegisterStationaryCollision(remote, stream, ciphers, conn, id, d.Type!, d.X, d.Y, d.Rotation,
+                device ? "map-device" : null, d.Model, log: device);
+            if (!device) decorations++;
         }
+        if (hideout is { FullDecoration: true })
+            Console.WriteLine($"[gateway] {remote} hideout {hideout.Name}: {decorations} decoration(s) created, {skipped} skipped");
     }
 }

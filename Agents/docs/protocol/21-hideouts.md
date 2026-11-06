@@ -1,12 +1,13 @@
 # 21. Hideouts
 
-State of 2026-10-20: every character has its hideout unlocked and owns the Lush Hideout. `/hideout` or the World
+State of 2026-11-06: every character has its hideout unlocked and owns the Lush Hideout. `/hideout` or the World
 panel's Hideout button takes the player there, next to its waypoint. The hideout has its Waypoint (travel back), its
 Stash, Nessa and a map device that opens the map device window. The HUD shows the hideout Edit button. Verified live
 (2026-10-20): travel, arrival, the stash, Nessa, the Edit button showing, the map device hovered, clicked and its window
 opened. The map device runs maps (§5, live 2026-10-20): a map goes into its slots, Activate opens the map's area and
-six portals appear around the device, each taking the player into that map once. Not done yet: the decorations,
-editing, logging in to the hideout, where the player arrives in a map.
+six portals appear around the device, each taking the player into that map once. The three 3.29.3c MTX hideouts
+(Labyrinth, Apex of Divinity, Exilecon 2026) also create their exported decoration in full (§2). Not done yet: the
+decorations of the older templates, editing, logging in to the hideout, where the player arrives in a map.
 
 ```mermaid
 sequenceDiagram
@@ -90,9 +91,22 @@ A `.hideout` file is JSON (UTF-8 with BOM) whose `doodads` object **repeats keys
 | `fv` | variation: index into `Variation_AOFiles` |
 
 `dotnet run --project scripts/re/atlas -- Client/Content.ggpk hideouts` writes every hideout's decoration to
-`data/hideouts.json` (game data, git-ignored; 103 hideouts, 14 150 doodads). The Gateway's `HideoutCatalog` resolves the
+`data/hideouts.json` (game data, git-ignored; 106 hideouts, 14 713 doodads). The Gateway's `HideoutCatalog` resolves the
 hashes. The Lush Hideout's: Stash (230, 364), Waypoint (218, 335, `waypointcore_forest.ao`), Crafting Bench (251, 351),
 Map Device (449, 460; moved to (257, 283), the user's pick), lockers, the masters' spot (218..223, 325), and decorations.
+
+**3.29.3c MTX hideouts (2026-11-06).** `HideoutMaze_` (Labyrinth, Hideouts row 103), `HideoutDivine` (Apex of
+Divinity, row 104) and `HideoutExilecon2026` (Exilecon 2026, row 105) create their exported decoration, not only their
+furniture: 39, 134 and 303 scenery doodads. `HideoutCatalog.Decorations` drops what the scene and its modules already
+place (stash, guild stash, waypoint, crafting bench, map device, Harvest, Heist, Expedition, Relic, Recombine and
+Wombgift stations, and every `Metadata/NPC/`), plus the one `Effigy` decoration whose hash has no `HideoutDoodads` row.
+Each remaining doodad is a `HideoutObject`: its type from `InheritsFrom`, its model from `Variation_AOFiles[fv]`, its
+own `HideoutDoodad` hash/variation and rotation, the type's shared states (all 0 except the device's), a wake zone and
+its stationary collision. The `Functions` component reads no bytes, so Apex of Divinity's
+`Divive_Plinth_Map_Device` and the Labyrinth's `MazeController` serialize; the controller's `enabled` state stays 0,
+so no timer or leaderboard is started. Apex of Divinity's built-in device is the map device the scene creates (its
+type ends in `Map_Device`; `IsPlaced` accepts it) with `max_open_portals` 6. The three templates keep the decoration's
+own device cell instead of moving it beside the waypoint.
 
 **The HideoutDoodad component** (`0x141e1c550`) reads `u32` MtxTypeGameSpecific HASH32, `u8` variation and `u8` flag
 (0 seen) **only when the object's data has +0x14e set**: never in town, always in a hideout. The Waypoint has the
@@ -280,8 +294,9 @@ The owned-hideouts response 0x1f5 now lists the default Lush Hideout rather than
 The owned list now includes all exported personal templates, including MTX.
 Selection is implemented as described below.
 
-- The decorations (trees, tents …): `Metadata/MiscellaneousObjects/HideoutDoodad` and other types, each with its own
-  component list; `HideoutObject` writes the supported ones.
+- The decorations of the older templates (the three 3.29.3c MTX hideouts create theirs, §2):
+  `Metadata/MiscellaneousObjects/HideoutDoodad` and other types, each with its own component list;
+  `HideoutObject` writes the supported ones.
 - Editing: the Edit button shows; moving, placing and saving doodads (the client's messages) are not served.
 - The map device: the arrival in a map without a walk map (the player can stand in the sea; `live.ps1 -Walkmaps` per
   map), the telepads' exact cells, device recipes (MapDeviceRecipes), the map's mods and area level, the map

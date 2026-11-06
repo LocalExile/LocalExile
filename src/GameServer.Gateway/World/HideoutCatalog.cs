@@ -13,6 +13,10 @@ static class HideoutCatalog
     public const string DefaultArea = "HideoutForest";
     public const string CraftingBenchType = "Metadata/Terrain/Missions/Hideouts/Objects/HideoutCraftingBench";
 
+    /// <summary>The 3.29.3c MTX hideouts whose exported decoration is created in full (21-hideouts.md §2).</summary>
+    static readonly HashSet<string> FullDecorationAreas =
+        new(StringComparer.Ordinal) { "HideoutMaze_", "HideoutDivine", "HideoutExilecon2026" };
+
     /// <summary>The standard bench, to the screen-left of the guild stash in the isometric grid.</summary>
     public static Doodad? BenchBesideGuild(Hideout hideout, int guildX, int guildY, Func<int, int, bool>? walkable)
     {
@@ -37,6 +41,12 @@ static class HideoutCatalog
     /// <summary>One hideout: Hash16 is its Hideouts.dat key (the Player component's), AreaHash16 its WorldAreas row's.</summary>
     public sealed record Hideout(int Row, ushort Hash16, string AreaId, ushort AreaHash16, string Name, IReadOnlyList<Doodad> Doodads)
     {
+        /// <summary>Whether the scene creates this hideout's exported decoration, not only its furniture.</summary>
+        public bool FullDecoration => FullDecorationAreas.Contains(AreaId);
+
+        /// <summary>The decorative doodads, without the furniture, stations and NPCs the scene or its modules create.</summary>
+        public IEnumerable<Doodad> Decorations => Doodads.Where(IsDecoration);
+
         public Doodad? First(string type) => Doodads.FirstOrDefault(d => d.Type == type);
     }
 
@@ -71,9 +81,36 @@ static class HideoutCatalog
         h.First(WaypointObject.MetadataPath) is { } d
             ? new WaypointObject(d.X, d.Y, d.Model, d.Rotation, Hideout: new HideoutDoodad(d.Hash, (byte)d.Variation)) : null;
 
-    /// <summary>The doodads the server creates in a hideout besides the waypoint and stash: the map device (21-hideouts.md
-    /// §2). Decorations are not created yet.</summary>
-    public static bool IsPlaced(Doodad d) => d.Type?.EndsWith("MappingDevice", StringComparison.Ordinal) == true;
+    /// <summary>The map device of a hideout's decoration (21-hideouts.md §2): the standard mapping device and Apex of
+    /// Divinity's built-in plinth (both end in a MappingDevice/Map_Device type).</summary>
+    public static bool IsPlaced(Doodad d) =>
+        d.Type?.EndsWith("MappingDevice", StringComparison.Ordinal) == true
+        || d.Type?.EndsWith("Map_Device", StringComparison.Ordinal) == true;
+
+    /// <summary>A decorative doodad: not furniture, a station or an NPC the scene already creates, and a type whose
+    /// deserialized components <see cref="HideoutObject"/> writes.</summary>
+    public static bool IsDecoration(Doodad d) =>
+        d.Type is { } type
+        && !IsFunctional(type)
+        && TypeOf(type) is { } known
+        && HideoutObject.CanSerialize(known.Components);
+
+    // The scene or its modules create these; a second copy would duplicate an object (or leave a station with no server
+    // behind it). The rest of the exported decoration is scenery.
+    static bool IsFunctional(string type) =>
+        type == StashObject.MetadataPath
+        || type == StashObject.GuildMetadataPath
+        || type == WaypointObject.MetadataPath
+        || type == CraftingBenchType
+        || type.EndsWith("MappingDevice", StringComparison.Ordinal)
+        || type.EndsWith("Map_Device", StringComparison.Ordinal)
+        || type.StartsWith("Metadata/NPC/", StringComparison.Ordinal)
+        || type.EndsWith("CraftingSilo_Hideout", StringComparison.Ordinal)
+        || type.EndsWith("HeistStash_Hideout", StringComparison.Ordinal)
+        || type.EndsWith("ExpeditionStash_Hideout", StringComparison.Ordinal)
+        || type.EndsWith("SanctumLocker_Hideout", StringComparison.Ordinal)
+        || type.EndsWith("RecombinatingBench", StringComparison.Ordinal)
+        || type.EndsWith("GraftLocker_Hideout", StringComparison.Ordinal);
 
     // Our own cells for some doodads, replacing the decoration's: (hideout area, doodad name) → cell. The Lush Hideout's
     // map device stands far out at (449, 460) in its decoration; the user picked (257, 283), near the waypoint (2026-10-20).

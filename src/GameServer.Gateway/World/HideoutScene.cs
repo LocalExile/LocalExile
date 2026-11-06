@@ -59,9 +59,10 @@ sealed record HideoutScene(HideoutCatalog.Doodad Stash, (int X, int Y) Guild,
         // Reserved whatever the modules are, so taking one away moves nothing else.
         var large = Place(bx - 18, by + 18, 8);
         var device = hideout.Doodads.FirstOrDefault(HideoutCatalog.IsPlaced) ?? fallback.Doodads.First(HideoutCatalog.IsPlaced);
-        // Retain the established Lush placement; every other template gets the same device beside its waypoint.
-        var (mx, my) = Place(hideout.AreaId == HideoutCatalog.DefaultArea ? device.X : waypoint.X + 20,
-            hideout.AreaId == HideoutCatalog.DefaultArea ? device.Y : waypoint.Y + 20, 4);
+        // Retain the established Lush placement. The fully decorated templates keep their designed device too, because
+        // the rest of their decoration stands around it; every other template gets the device beside its waypoint.
+        bool designed = hideout.AreaId == HideoutCatalog.DefaultArea || hideout.FullDecoration;
+        var (mx, my) = Place(designed ? device.X : waypoint.X + 20, designed ? device.Y : waypoint.Y + 20, 4);
         device = device with { X = mx, Y = my };
         var npcs = new List<NpcCatalog.Placement>();
         foreach (var npc in NpcCatalog.HideoutNpcs)

@@ -66,6 +66,16 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- 3.29.3c MTX hideout decorations (2026-11-06, live client check pending): Labyrinth (`HideoutMaze_`), Apex of
+  Divinity (`HideoutDivine`) and Exilecon 2026 (`HideoutExilecon2026`) create their exported decoration, not only the
+  scene's furniture: 39, 134 and 303 scenery doodads, each with its type, model, variation, rotation, `HideoutDoodad`
+  data, wake zone and stationary collision. Furniture, stations and NPCs the scene already places are filtered out; the
+  one `Effigy` decoration with no `HideoutDoodads` row is skipped. Apex of Divinity uses its built-in
+  `Divive_Plinth_Map_Device` (with `max_open_portals` 6); the Labyrinth's `MazeController` is created with `enabled` 0,
+  and its timer and leaderboard are not implemented.
+  Code: `HideoutCatalog.cs`, `HideoutScene.cs`, `PortalsFeature.cs`, `InstanceHideouts.cs`.
+  Docs: [21](../docs/protocol/21-hideouts.md) §2.
+
 - **Waypoint arrival.** Hideout entry uses the exact saved waypoint cell for spawn and movement origin,
   including login and returns from other areas.
   Live player and waypoint records used the same saved cell.
