@@ -51,9 +51,10 @@ sealed partial class AccountStash
 
     /// <summary>The map tab group and id an item belongs to: a legendary map by its visual identity (group 1), a guardian
     /// by the modifier that names it (groups 2 and 3, #382), the influence flags as the fallback, and the item's own base
-    /// type for an ordinary map (group 0, id 0: the caller uses the type hash).</summary>
+    /// type for an ordinary map (group 0, id 0: the caller uses the type hash). Group -1 means a non-map.</summary>
     public (int Group, int Id) MapIdentity(Item item)
     {
+        if (!item.Components.Contains("Map") && !item.Components.Contains("MapKey")) return (-1, 0);
         if (item.Rarity == ItemRarity.Unique && item.VisualIdentity != 0) return (1, item.VisualIdentity);
         if (_rules.GuardianOf(item) is { Group: > 0 } guardian) return guardian;
         if ((item.Influences & Conquerors) != 0) return (2, MapPageIdFor(item));
@@ -70,11 +71,11 @@ sealed partial class AccountStash
         lock (_lock)
         {
             int group = MapGroupOf(key);
-            if (group == 1)
-                return item.Rarity == ItemRarity.Unique && item.VisualIdentity != 0 && MapTypeHashOf(key) == item.VisualIdentity;
             var (itemGroup, id) = MapIdentity(item);
-            if (group is 2 or 3) return itemGroup == group && MapTypeHashOf(key) == (uint)id;
-            return itemGroup == 0 && _rules.MapTier(item.TypeHash) is not null && MapTypeHashOf(key) == item.TypeHash;
+            if (itemGroup != group) return false;
+            return group == 0
+                ? _rules.MapTier(item.TypeHash) is not null && MapTypeHashOf(key) == item.TypeHash
+                : MapTypeHashOf(key) == (uint)id;
         }
     }
 
@@ -136,7 +137,7 @@ sealed partial class AccountStash
             // A page addressed directly validates itself (Holds/Place use MapPageTakes).
             if (_tabs[tab].Saved.UniqueCategory != 0) return tab;
             var (group, id) = MapIdentity(item);
-            if (group == 0 && _rules.MapTier(item.TypeHash) is null) return tab;
+            if (group < 0 || (group == 0 && _rules.MapTier(item.TypeHash) is null)) return tab;
             uint keyId = group == 0 ? item.TypeHash : (uint)id;
             var pages = MapChildren(tab).ToDictionary(i => _tabs[i].Saved.UniqueCategory, i => i);
             int first = -1;

@@ -287,9 +287,10 @@ static class ItemMoves
     /// <summary>What <see cref="HeldToStash"/> did. <see cref="Merged"/>: the held stack went onto <see cref="InTab"/>
     /// (same id, larger). <see cref="One"/>: one of the held stack went into an empty cell as <see cref="InTab"/>.
     /// Otherwise the held item is <see cref="InTab"/> and <see cref="Displaced"/> (the one it was dropped on) is held now.
-    /// <see cref="Held"/> is what the cursor holds after (null: nothing).</summary>
+    /// <see cref="Held"/> is what the cursor holds after (null: nothing); <see cref="StashPlacement.Tab"/> is the
+    /// destination tab, including a map's hidden child page.</summary>
     public sealed record StashPlacement(InventoryItem InTab, InventoryItem HeldBefore, InventoryItem? Held, InventoryItem? Displaced,
-        bool Merged, bool One);
+        bool Merged, bool One, int Tab);
 
     /// <summary>
     /// The held item into a stash tab at (x, y) (C→S 0x2a): onto a stack of its type with room (with <paramref name="one"/>,
@@ -304,23 +305,30 @@ static class ItemMoves
         {
             if (items.Items(Cursor) is not [var held, ..]) { reason = "nothing held"; return null; }
             // A map held over the map tab goes to its page, the same routing the inventory path uses (#382/#605).
-            tab = stash.MapDestination(tab, held.Item, shapeOf);
+            int destination = stash.MapDestination(tab, held.Item, shapeOf);
+            if (destination != tab)
+            {
+                if (stash.CellFor(destination, held.Item, shapeOf) is not { } cell)
+                { reason = "the tab is full"; return null; }
+                (x, y) = (cell.X, cell.Y);
+            }
+            tab = destination;
             one &= held.Item.StackSize > 1;
             if (stash.Merge(tab, x, y, held, shapeOf, one ? 1 : int.MaxValue) is var (stack, moved))
-                return new StashPlacement(stack, held, items.SetStackSize(Cursor, held.Id, held.Item.StackSize - moved), null, Merged: true, One: one);
+                return new StashPlacement(stack, held, items.SetStackSize(Cursor, held.Id, held.Item.StackSize - moved), null, Merged: true, One: one, Tab: tab);
             if (one)
             {
                 // Into an empty place only (a slotted tab: its slot), so nothing is swapped out.
                 if (!stash.IsFree(tab, x, y, held.Item, shapeOf)) { reason = "something in the way, or the tab doesn't hold it"; return null; }
                 var single = new InventoryItem(items.NewItemId(), 0, 0, held.Item with { StackSize = 1 });
                 if (stash.Place(tab, x, y, single, shapeOf, out reason) is not (var put, null)) throw new InvalidOperationException($"stash tab {tab}: one item into a free place refused: {reason}");
-                return new StashPlacement(put, held, items.SetStackSize(Cursor, held.Id, held.Item.StackSize - 1), null, Merged: false, One: true);
+                return new StashPlacement(put, held, items.SetStackSize(Cursor, held.Id, held.Item.StackSize - 1), null, Merged: false, One: true, Tab: tab);
             }
             if (stash.Place(tab, x, y, held, shapeOf, out reason) is not var (placed, displaced)) return null;
             stash.SetLastTab(tab);
             items.Remove(Cursor, held.Id);
             if (displaced is not null) items.Put(Cursor, displaced);
-            return new StashPlacement(placed, held, displaced, displaced, Merged: false, One: false);
+            return new StashPlacement(placed, held, displaced, displaced, Merged: false, One: false, Tab: tab);
         });
         why = reason;
         return result;

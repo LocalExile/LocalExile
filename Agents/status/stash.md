@@ -20,7 +20,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   of the character's league (normal, premium, quad, currency, essence, fragment, map, flask, gem) from the tab list in
   S→C 0x21; each tab's contents come on the client's request (C→S 0xc7 → 0xc0 row 26 + 0xc8);
   items go into and out of tabs by click (0x28 / 0x2a) and Ctrl + click (C→S 0xe0 in, 0xe3 out, stacks onto stacks);
-  special tabs hold only their own items (the map tab nothing yet), the currency, essence and fragment tabs each item
+  special tabs hold only their own items (the map tab on the hidden page of the map's kind), the currency, essence and fragment tabs each item
   in its own slot, from the game data's stash tables (18 §7);
   currency-tab limits come from `CurrencyItems.CurrencyTab_StackSize` (generally 10 000; lifeforce 50 000).
   Earlier real-client verification and Gateway logs show yellow lifeforce merging into one 50 000 stack in slot 99.
