@@ -32,6 +32,43 @@ packs), 12% magic packs (every member magic), 6% packs with one rare member, at 
 centres keep 60 cells from the arrival point, 25 from area transitions, 28 from other packs and need 5 walkable cells
 around them; members stand within 9 cells. The roll is seeded by (area hash, seed): the same layout gets the same packs.
 
+### Captured hidden-monster initial state
+
+The Monster component's primary vtable `0x1435a6778` uses `0x1400f0f00` (`ret 0`) for both creation readers
+(slots 17 and 20); it supplies no serialized pack identity.
+The captured ordinary monsters' base-data references also do not establish pack membership:
+the observed values refer to the same monster or player, while the tutorial zombie additionally references actor 4.
+
+The initial Buffs component has a different layout from S→C 0x1c1's compact update.
+`0x141e114d0` reads u16 count, then per entry u16 instance, u8 flags and common data via `0x141e06bb0`:
+u16 BuffDefinitions row, u16 BuffVisuals row, then fixed fields of widths 4/4/2/4/2/2/2/4/1
+(destination offsets +0x28/+0x2c/+0x38/+0x34/+0x3a/+0x46/+0x44/+0x48/+0x3c).
+It then reads the definition-dependent u16 at +0xff, recovery values when IsRecovery is set,
+and a u32-counted list of u32. The later backend callback may consume more state, so the decoder only advances
+past the two backends verified in this capture, rather than assuming every buff has the same complete payload.
+
+All ten first-created captured Drowned Wake actors have instance 2, flags 2, definition 138 `hidden_monster`,
+and life 23 after that buff. The tutorial zombie instead has definition 919 `kitava_heart_damage_taken`
+and life 15. These are native table rows, not inferred from monster names.
+For actors 139 and 138, instance 2 is removed by 0x1c2 immediately before the Emerge 0x1ab and Transitionable
+update in the same observed batch (records 14544–14549 and 14649–14654).
+The local reference capture has no corresponding initial hidden buffs.
+This establishes initial-state and removal-order evidence; it does not determine spawn density or the wake radius.
+Local hostile buried monsters now serialize that initial hidden buff with an instance-wide allocated id.
+Their rise sends removal, Emerge action/start and transition together under the current-monster send guard;
+late viewers of an already-risen monster receive a creation without the old buff.
+Prepared-client capture `20261106-014037` verifies the initial buff, its matching removal before Emerge,
+23 life through reconnect, and a reconnect creation without the buff. Lurking/targetable monsters retain their
+existing creation behavior.
+The paired official Stats update at record 14545 clears six hidden-state values:
+`base_cannot_be_damaged`, `base_cannot_be_stunned`, `cannot_be_stunned`, `ignored_by_enemy_target_selection`,
+`cannot_be_damaged` and `virtual_is_hidden_monster`; each was 1 in the hidden creation.
+Local hidden creations override those values without mutating the saved/shared baseline template.
+Emergence restores their baseline values after removing the buff and before the Emerge action, preserving prior
+immunity instead of unconditionally clearing it. Late-viewer creations use the baseline.
+Prepared-client capture `20261106-014601` verifies this order and a reconnect without hidden state;
+the observed magic Drowned keeps its 85 life and rarity through both events.
+
 ## 2. Spawning
 
 `SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2b9 with the

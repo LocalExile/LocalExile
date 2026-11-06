@@ -75,7 +75,14 @@ static partial class Game
                     {
                         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || m.Dead || conn.Monsters.GetValueOrDefault(id) != m)
                             return null;
-                        var messages = MonsterEmerge.RiseMessages(id, at, skill, m.NextSequence(), (byte)index, state, m.HiddenBuffInstance);
+                        IReadOnlyList<(uint Key, int Value)>? restored = null;
+                        if (m.HiddenBuffInstance is not null)
+                        {
+                            conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin);
+                            restored = MonsterEmerge.RestoreHiddenStats(Stats, origin?.Object.Stats);
+                        }
+                        var messages = MonsterEmerge.RiseMessages(id, at, skill, m.NextSequence(), (byte)index, state,
+                            m.HiddenBuffInstance, restored);
                         byte[] bytes = [.. messages.SelectMany(p => p)];
                         ToOthers(conn, id, bytes);
                         return bytes;

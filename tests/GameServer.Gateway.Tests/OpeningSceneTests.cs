@@ -113,6 +113,20 @@ public class OpeningSceneTests
         Assert.Equal(entry, hidden[(offset + 2)..(offset + 2 + entry.Length)]);
         Assert.Equal(ordinary[(offset + 2)..], hidden[(offset + 2 + entry.Length)..]);
 
+        var stats = new StatCatalog();
+        uint baseStun = stats.Key("base_cannot_be_stunned")!.Value, stun = stats.Key("cannot_be_stunned")!.Value;
+        template = template with { Stats = [(baseStun, 1), (stun, 1), (StatKeys.MaximumLife, 23)] };
+        var hiddenState = MonsterEmerge.WithHiddenStats(template with { HiddenBuffInstance = buff }, stats);
+        var restored = MonsterEmerge.RestoreHiddenStats(stats, template.Stats);
+        Assert.Equal(6, restored.Count);
+        Assert.Equal(7, hiddenState.Stats!.Count); // One key per hidden stat plus the unrelated maximum life.
+        Assert.All(restored, s => Assert.Contains((s.Key, 1), hiddenState.Stats));
+        Assert.Contains((StatKeys.MaximumLife, 23), hiddenState.Stats);
+        Assert.Equal(1, restored.Single(s => s.Key == baseStun).Value);
+        Assert.Equal(1, restored.Single(s => s.Key == stun).Value);
+        Assert.All(restored.Where(s => s.Key != baseStun && s.Key != stun), s => Assert.Equal(0, s.Value));
+        Assert.Equal(3, template.Stats!.Count); // Hidden overrides never mutate the reconnect template.
+
         var previousLogic = Program.GameLogicOrNull;
         var previousLifetime = Game.CombatLifetime;
         var lifetime = new ModuleLifetime("Game");
@@ -126,11 +140,13 @@ public class OpeningSceneTests
             var m = new SpawnedMonster("hidden", wire.Conn.NewMonsterWalk(id, 10, 10, 1, 1, false), 24, 2, 23)
                 { Variety = variety, HiddenBuffInstance = buff };
             wire.Conn.Monsters[id] = m;
+            wire.Conn.Instance.World.MonsterOrigins[id] = new(123, template with { HiddenBuffInstance = buff }, (ushort)variety.Row, 1, MonsterRarity.Normal);
             byte index = (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable");
-            var messages = MonsterEmerge.RiseMessages(id, (10, 10), 0x101, 0x8001, index, 2, buff);
+            var messages = MonsterEmerge.RiseMessages(id, (10, 10), 0x101, 0x8001, index, 2, buff, restored);
             Assert.Equal(InstanceEntities.RemoveBuff(id, buff), messages[0]);
-            Assert.Equal(InstanceProtocol.ActionStartedNow(id, 10, 10, 10, 10, 0x101, 0x8001, 0x0800, id), messages[1]);
-            Assert.Equal(InstanceEntities.TransitionableUpdate(id, index, 2), messages[2]);
+            Assert.Equal(InstanceEntities.StatsUpdate(id, restored), messages[1]);
+            Assert.Equal(InstanceProtocol.ActionStartedNow(id, 10, 10, 10, 10, 0x101, 0x8001, 0x0800, id), messages[2]);
+            Assert.Equal(InstanceEntities.TransitionableUpdate(id, index, 2), messages[3]);
             await Game.Emerge("hidden-test", wire.Stream, wire.Ciphers, wire.Conn, id, m, (10, 10), 1);
             byte[] rise = [.. messages.SelectMany(p => p)];
             Assert.Equal(rise, wire.Read(rise.Length));
@@ -147,7 +163,6 @@ public class OpeningSceneTests
             // A new viewer after the rise gets a targetable creation without the old hidden buff.
             m.Dead = false;
             wire.Conn.PlayerSent = true;
-            wire.Conn.Instance.World.MonsterOrigins[id] = new(123, template with { HiddenBuffInstance = buff }, (ushort)variety.Row, 1, MonsterRarity.Normal);
             await Game.SyncInstanceMonsters("hidden-test", wire.Stream, wire.Ciphers, wire.Conn);
             byte[] snapshot = [.. InstanceEntities.MonsterTypes([((ushort)variety.Row, (byte)1)]),
                 .. InstanceEntities.CreateObject(id, 123, (template with { TransitionState = 2 }).Blob()),

@@ -217,7 +217,7 @@ static partial class Game
         // An owned spawn must not send a native object and then lose its roster callback across reload.
         // Commit the neutral identity with its create/wake bytes at one current send gate.
         bool admitted = false;
-        byte[] create = InstanceEntities.CreateObject(id, type, monster.Blob());
+        byte[] create = InstanceEntities.CreateObject(id, type, MonsterEmerge.WithHiddenStats(monster, Stats).Blob());
         string? createLog = !log ? null :
             $"0x02b9 create {rarity}{(friendly ? " friendly" : "")}{(waits ? $" {emerge.ToString().ToLowerInvariant()}" : "")} monster 0x{id:x} {variety}{(name is null ? "" : $" \"{name}\"")} type=0x{type:x8} at ({x}, {y}), life {life}, speed {walkSpeed:0.##}{(speedRoll == 0 ? "" : $" (roll {speedRoll:+0;-0}%)")}, components {string.Join(", ", variety.ComponentsOrBase)}";
         if (owned is not null)
