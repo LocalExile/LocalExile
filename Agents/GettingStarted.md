@@ -21,8 +21,9 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 5. **Run `live.ps1` directly** (`.\scripts\dev\live.ps1` in a PowerShell session). Do not wrap it in a pipe or
    capture its output (for example `powershell -File live.ps1 | Out-String`). The servers it starts keep the pipe
    open, so the call never returns. Read `logs\` instead.
-6. **The client must be version 3.29.3b.** The login patch and several protocol constants are specific to that build.
-   Any other version fails at step 4 or 5, with a clear error.
+6. **The fully working client is 3.29.3b.** 3.29.3c support is partial: login, character list and area generation work,
+   but area entry stops on an unidentified packet ([3.29.3c diff](docs/re/3.29.3c-client-diff.md)); keep a 3.29.3b
+   copy for play. The login patch and several protocol constants are specific to the build.
 
 ## What you need
 
@@ -31,7 +32,7 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 | Windows 10/11 x64, or Linux ([below](#linux)) | the steps below are written for Windows | |
 | [.NET 10 SDK](https://dotnet.microsoft.com/download) | builds and runs the servers | `dotnet --version` prints `10.x` |
 | PowerShell 5.1+ | runs `live.ps1` | `$PSVersionTable.PSVersion` |
-| Path of Exile **3.29.3b**, standalone install | the client you play with | a folder with `PathOfExile.exe` and `Content.ggpk` |
+| Path of Exile **3.29.3c**, standalone install | the client you play with | a folder with `PathOfExile.exe` and `Content.ggpk` |
 | [Node.js](https://nodejs.org) (Node 24) + `npm install` in `Tools\ooz` (npm package `ooz-wasm` 2.x) | decompresses the game's bundles for the data extraction (step 7) | `node --version`; `Tools\ooz\node_modules\ooz-wasm` exists |
 | Python 3.9+ | the data extraction (step 7); with `pip install frida`, walk maps (step 9, optional) | `python --version`; `python -c "import frida"` |
 | ~same free space as the client | you work on a copy of it | |
@@ -39,8 +40,9 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 **Steam installs do not work as is.** The Steam layout has no `Content.ggpk`, and its executables have other names.
 Use the standalone layout.
 
-**Getting 3.29.3b:** this repository cannot provide the client. The official launcher always updates to the newest
-version, so you need a copy that is still at 3.29.3b. Never let a newer launcher touch your copy.
+**Getting 3.29.3c:** this repository cannot provide the client. The official launcher always updates to the newest
+version, so you need a copy that is still at 3.29.3c. Never let a newer launcher touch your copy. A 3.29.3c client is
+needed to test the migration, but it is not yet a working play client; keep a 3.29.3b copy as well.
 
 ### Linux
 
@@ -171,7 +173,7 @@ it.
 | Problem | Meaning |
 |---|---|
 | `data/login-keys.json exists` | keys already made; keep them (the patched client from step 5 trusts exactly these keys) |
-| `login verify key not found in client image` | `Client\Game.exe` is not the 3.29.3b `PathOfExile.exe` |
+| `login verify key not found in client image` | `Client\Game.exe` is not the 3.29.3c `PathOfExile.exe` |
 
 ## 5. Patch the client to trust your keys
 
@@ -243,7 +245,7 @@ builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
 |---|---|
 | `setup incomplete: Node.js not found` / `Tools\ooz\node_modules missing` | install Node, then `cd Tools\ooz; npm install` |
 | `setup incomplete: Python 3.9+ ...` | install Python from python.org (see step 9 for the Store alias) |
-| `extract-data: <name> failed` | read `logs\extract-<name>.log`; the tables report `schema mismatch: 0` when the client is 3.29.3b |
+| `extract-data: <name> failed` | read `logs\extract-<name>.log`; the tables report `schema mismatch: 0` when the client is 3.29.3c |
 | `extract-data: building <project> failed` | read `logs\extract-build-<project>.log`; a build error there is a code problem in that tool, not in the game data |
 
 ### Game data in the save database
@@ -453,7 +455,7 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | `dotnet build` / `dotnet test` fails with `MSB3027` ... `locked by: ".NET Host"` | the servers `live.ps1` started are running from the same `bin\` folders | let `live.ps1` rebuild them (`-Only Gateway` …), or build and test elsewhere with a short path: `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` |
 | In town, but your character is invisible and clicks do nothing | Network Mode is lockstep ("auto" picks it on localhost); the Gateway log says `lockstep movement` | Options → Game → Network Mode → Predictive, then log out to the character screen and Play again |
 | Stuck after Play (no area) | `Game_GATEWAY_ENTER` was set to something other than `1` | unset it; `live.ps1` sets it to `1` |
-| `HNC mask not found` in `live-gateway.err` | `Client\Game.exe` is not 3.29.3b | use the right client version |
+| `HNC mask not found` in `live-gateway.err` | `Client\Game.exe` is not 3.29.3c | use the right client version |
 | Spawn in the sea or off the map | an area the server does not generate, with no walk map yet | use `-Walkmaps` (step 9) and enter the area again |
 | `walkmaps: permission denied` | client and Python run at different privilege levels | run both as the same user, not one as administrator |
 | Esc → "Exit to character selection" hangs | not implemented yet | run `.\scripts\dev\live.ps1 -NoClient` (the client drops to the login screen) |

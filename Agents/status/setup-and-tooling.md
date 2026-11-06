@@ -96,6 +96,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `ModScripts.cs`, `ServerLeagues.cs`, `Program.Mods.cs`,
   `Program.ModuleWorld.cs`, `Modules/`, `Mods/Source/`.
   Docs: [modding](../docs/dev/modding.md).
+- 3.29.3c client support is partial: login, character list, instance connect and `1_1_1` generation work; area entry
+  stops with `Unable to deserialise packet with pid 156. Last PID was 16`. The 3.29.3c `0x1b3`, compact-int/uint and
+  message-header readers are unchanged from 3.29.3b, so the rejected packet is not yet identified; the next step is a
+  Frida dump of the 3.29.3c pump/object reader. The schema deltas, HNC mask and re-extraction are ready.
+  Code: `Hnc.cs`, `data/schema/schema.min.json`, `scripts/dev/extract-data.ps1`.
+  Docs: [3.29.3c client diff](../docs/re/3.29.3c-client-diff.md).
 
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.
   Parsing and merging have automated round-trip, malformed-input and ordinary-tree preservation coverage.
@@ -173,6 +179,15 @@ Nothing yet.
 ## Tests
 
 The Gateway tests were wiped when the game moved into modules; `tests/GameServer.Gateway.Tests` holds only the shared setup until new ones land. Rules for new tests: AGENTS.md.
+`dotnet test tests/GameServer.Core.Tests` (379 tests), `tests/GameServer.Data.Tests` (34) and
+`tests/GameServer.Gateway.Tests` (2040: currency on items (from the inventory or a stash tab), the currency tab's
+crafting slot, gem levels, gem requirements (level and attributes) and the level stall, the level-up stopped between
+two levels, the gem level-up and lock messages and the saved lock flag, quality and variants, stable gem skill ids,
+the save database and its transactions, stash tab rules, Ctrl + click moves, item moves with failing saves, inventory
+moves, stacks, the start weapon on the ground, flasks, arrival points, instance ground items and monsters, quests,
+passives, spell suppression, attack speed, critical strikes, accuracy, armour/evasion, item mods, auras, damage
+conversion and the account stash) pass.
+Tests that need the real client pass quietly without `Client/`.
 
 Teleport-name controls use an unmapped synthetic destination, so real WorldAreas data cannot change their labels.
 Bow hit-recovery controls explicitly start their connection clock before checking input admission.
@@ -203,7 +218,7 @@ Code: `scripts/re/ghidra/ReadSchema.java`, `SendSites.java`, `scripts/re/schema_
 
 Optional [native client control](../docs/dev/client-control.md) provides CLI/JSON RPC for development without repeated
 UI input.
-It targets the copied standalone 3.29.3b client and local services only.
+It targets the copied standalone 3.29.3c client and local services only.
 Login keeps waiting within its existing timeout when success 0 precedes authenticated state 3.
 Mocked execute/RPC regressions cover this wait, rejection 6 and timeouts; this fix has no new native verification.
 It also creates and deletes characters, travels by waypoint (by WorldAreas Id too), waits for an area and knows the

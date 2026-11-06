@@ -1,7 +1,8 @@
 # Native client control
 
 `scripts/dev/client_control.py` provides CLI and persistent JSON-lines RPC for the copied standalone **3.29.3b**
-client. It calls existing client functions through [Frida RPC](https://frida.re/docs/javascript-api/#rpc), on the
+client. The native code signatures and addresses in `client-control.js` are pinned to 3.29.3b; update them before
+using the bridge with 3.29.3c. It calls existing client functions through [Frida RPC](https://frida.re/docs/javascript-api/#rpc), on the
 game thread. It uses the normal local authentication, character list, Play, instance connection, and Gateway command
 handlers. No screenshots, keyboard/mouse events, HTTP listener, save editing, or server authentication bypass are used.
 

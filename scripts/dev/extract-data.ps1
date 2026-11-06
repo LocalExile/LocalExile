@@ -18,7 +18,7 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 # and what reads it. Keep in step with the Gateway's GameDataFiles.cs.
 $manifest = @(
     @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\tables\UniqueMaps.json', 'data\tables\Words.json', 'data\tables\VillageUniqueDisenchantValues.json', 'data\tables\ItemVisualIdentity.json', 'data\tables\BaseItemTypes.json', 'data\tables\ItemClasses.json', 'data\tables\Stats.json', 'data\tables\Mods.json', 'data\tables\Tags.json', 'data\tables\InfluenceTags.json', 'data\tables\UniqueStashLayout.json', 'data\tables\UniqueStashTypes.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\ModType.json', 'data\tables\PassiveJewelSlots.json', 'data\tables\DelveUpgrades.json', 'data\tables\DelveFlares.json', 'data\tables\DelveDynamite.json', 'data\tables\DelveLevelScaling.json', 'data\tables\LabyrinthTrials.json', 'data\tables\GrantedEffectStatSets.json', 'data\tables\BuffDefinitions.json', 'data\tables\KiracLevels.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client/Content.ggpk'); Version = 3; Needs = @()
+       Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client/Content.ggpk'); Version = 4; Needs = @()
        UsedBy = 'every game table: stats, levels, areas, waypoints, items, mods, monsters, NPCs; all other entries' }
     @{ Name = 'vendor-stock'; Outputs = @('data\vendor-stock.json'); Runner = 'python'
        Args = @('scripts/re/vendor-stock/generate.py'); Version = 3; Needs = @('tables')
@@ -64,7 +64,7 @@ $manifest = @(
        UsedBy = 'ordinary/ascendancy server membership and connectivity; derived Phrecia client artifact remains uninstalled' }
     # The servers never open Client/ as they run: what they would read from it comes from these two.
     @{ Name = 'client-constants'; Outputs = @('data\client-constants.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'constants'); Version = 1; Needs = @()
+       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'constants'); Version = 2; Needs = @()
        UsedBy = 'the Gateway''s HNC mask and the Patch server''s root hash (live.ps1 refreshes the hash before each client start)' }
     @{ Name = 'game-pack'; Outputs = @('data\game-files.zip'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 2; Needs = @()
