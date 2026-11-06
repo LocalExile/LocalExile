@@ -196,7 +196,7 @@ static partial class Game
             {
                 if (peer.Owner is not { Outbox: { } outbox } other || other.Closed || other.LeavingArea) continue;
                 if (Array.BinarySearch(other.AwakeMonsters, id) < 0) continue;
-                _ = outbox(copy, null);
+                _ = outbox((byte[])copy.Clone(), null);
             }
         }
         finally { Mirroring.Value = false; }
@@ -245,7 +245,7 @@ static partial class Game
                 if (peer.Owner is not { Outbox: { } outbox } other || other.Closed || other.LeavingArea) continue;
                 bool knows;
                 try { knows = other.SeenPlayers.ContainsKey(conn.PeerId); } catch (InvalidOperationException) { knows = false; }
-                if (knows) _ = outbox(copy, null);
+                if (knows) _ = outbox((byte[])copy.Clone(), null);
             }
         }
         finally { Mirroring.Value = false; }
@@ -275,7 +275,7 @@ static partial class Game
             foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
                 if (peer.Owner is { Outbox: { } outbox } other && !other.Closed && !other.LeavingArea
                     && Array.BinarySearch(other.AwakeMonsters, target) >= 0)
-                    _ = outbox(copy, null);
+                    _ = outbox((byte[])copy.Clone(), null);
         }
         finally { Mirroring.Value = false; }
     }
