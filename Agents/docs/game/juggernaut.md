@@ -60,7 +60,7 @@ The value is per mille: 15 is 1.5% (the description's `deciseconds_to_seconds`).
 `BuffTemplates[27]` is `JuggernautPhysDamagePreventedAsLifeRegen`, whose `BuffDefinitions[1086]` is invisible and has no
 stats, so the client gets only the life updates.
 Prevented is the raw hit minus what it finally dealt (wiki Prevented damage).
-Armour, reduction, Fortification, avoidance, immunity and what a block keeps out count.
+Armour, reduction, Fortification, spell suppression, avoidance, immunity and what a block keeps out count.
 Evasion, ward, energy shield and damage taken as another type do not.
 PoB scales its pseudo recoup by Life regeneration and recovery increases; the server does too.
 

@@ -1408,7 +1408,7 @@ static partial class Game
             chaosDamage = (int)Math.Round((double)chaosDamage * damage / full);
             physicalDamage = Math.Min((int)Math.Round((double)physicalDamage * damage / full), Math.Max(0, damage - chaosDamage));
         }
-        // Untiring: avoidance and what a block keeps out count as prevented; damage taken as another type does not.
+        // Untiring: avoidance, suppression and what a block keeps out count as prevented; damage taken as another type does not.
         PreventedDamageOf(conn).Add(now, shifted[DamageType.Physical].Min - physicalDamage);
         if (!blocked) m.HitPlayerAt = now;
         uint manaBefore = conn.PlayerMana;
