@@ -76,7 +76,6 @@ static partial class Game
                     Presentation = (wand ? OrdinaryWandPresentation : OrdinaryArrowPresentation) with { LaunchHeight = release?.HeightSteps },
                     // The target's blood and particles on contact, matched to this shot's action (0x1af, kind 3).
                     HitPacket = true, ActionSequence = sequence, ClientPredicted = clientDrawn };
-                var profile = NativeVolley(OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get), Get);
                 var origin = ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
                 var target = ProjectileSession.Vector(aim);
                 // The shot leaves from the clip's contact keyframe, in front of the body along the aim (the Ranger's bow
@@ -84,6 +83,8 @@ static partial class Game
                 // is not behind the release. The lateral part of the keyframe is not applied (ContactPoint).
                 double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : OrdinaryRangedAttack.ReleaseAheadCells;
                 origin += (target - origin).Unit * Math.Min(ahead, (target - origin).Length / 2);
+                var profile = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get);
+                profile = clientDrawn ? ClientDrawnProfile(conn, profile, Get, sequence, target - origin) : NativeVolley(profile, Get);
                 return new(profile, new(PlayerId, epoch), new(PlayerId, epoch), 1, origin, target)
                     { Payload = shot, ReturnAnchor = new(PlayerId, epoch) };
             });

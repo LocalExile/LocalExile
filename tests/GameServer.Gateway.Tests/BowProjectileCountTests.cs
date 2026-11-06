@@ -98,6 +98,12 @@ public sealed class BowProjectileCountTests
             Assert.True(bowConn.ClientDrawsOrdinaryShots && bowConn.DefaultAttackRecordLockstep);
             Game.PlayerDefaultSkills(meleeConn, [], character);
             Assert.False(meleeConn.ClientDrawsOrdinaryShots);
+            // A drawn shot collides on the client's contact (the row's radii: DefaultArrow 1, WandProjectile 2 cells, plus
+            // the target's size), not the server's 4-cell stand-in, and flies the client's 150 cells.
+            int None(string _) => 0;
+            var drawn = Game.ClientDrawnProfile(bowConn, new(OrdinaryRangedAttack.Arrow), None, 0x8001, new(1, 0));
+            Assert.Equal((1, 150d), (drawn.ContactCells, drawn.Range));
+            Assert.Equal(2, Game.ClientDrawnProfile(wandConn, new(OrdinaryRangedAttack.Wand), None, 0x8001, new(1, 0)).ContactCells);
             bowConn.LockstepClient = false;
             Assert.Empty(Game.OrdinaryRangedCountStats(bowConn, character));
             Assert.DoesNotContain(Assert.Single(Game.PlayerDefaultSkills(bowConn, [], character)).Stats ?? [],
