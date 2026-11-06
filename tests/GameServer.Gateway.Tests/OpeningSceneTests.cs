@@ -123,6 +123,37 @@ public class OpeningSceneTests
         Assert.Equal(expected, bytes); // Neither peer's cipher may mutate the owner's plaintext.
         Assert.Equal(expected, first.Read(expected.Length));
         Assert.Equal(expected, second.Read(expected.Length));
+
+        // Rewritten combat packets also need a copy per peer, not one copy for the fan-out.
+        sender.Conn.Instance.World.MonsterOrigins[id] = new(123, new(10, 10, 23, []), 0, 1, MonsterRarity.Normal);
+        sender.Conn.Wire = ("fanout-test", sender.Stream, sender.Ciphers);
+        Program.InGame[sender.Conn] = 0;
+        foreach (var peer in new[] { first, second })
+            peer.Conn.SeenPlayers[sender.Conn.PeerId] = new(sender.Conn.PeerId, 7, new("Owner", 1, 10, 10, 50, 40), 10, 10, 50, sender.Conn);
+        try
+        {
+            await Check(InstanceProtocol.ActionEnded(id), InstanceProtocol.ActionEnded(id),
+                packet => Game.BroadcastMonsterMessage(sender.Conn, id, packet));
+            sender.Conn.PeerActing = true;
+            await Check(InstanceProtocol.ActionEnded(0x1000), InstanceProtocol.ActionEnded(sender.Conn.PeerId),
+                packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+            await Check(InstanceProtocol.ActionHit(0x1000, 12, id, kind: 1),
+                InstanceProtocol.ActionHit(sender.Conn.PeerId, 0xffff, id, kind: 1),
+                packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+        }
+        finally { Program.InGame.TryRemove(sender.Conn, out _); }
+
+        async Task Check(byte[] original, byte[] mirrored, Action<byte[]> broadcast)
+        {
+            pending.Clear();
+            var unchanged = (byte[])original.Clone();
+            broadcast(original);
+            await Task.WhenAll(pending);
+            Assert.Equal(2, pending.Count);
+            Assert.Equal(unchanged, original);
+            Assert.Equal(mirrored, first.Read(mirrored.Length));
+            Assert.Equal(mirrored, second.Read(mirrored.Length));
+        }
     }
 
     [Fact]

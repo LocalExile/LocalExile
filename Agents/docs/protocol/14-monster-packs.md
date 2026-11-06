@@ -56,7 +56,8 @@ instance expires.
 `Game_MONSTERS=0` turns it off. Only unique and rare monsters are logged one by one; a summary line lists the rest.
 Shared delivery must copy plaintext per recipient: `Program.Write` encrypts its input in place, possibly after a
 send-gate wait. Reusing one buffer across viewers corrupts another viewer's payload or the owner's later send;
-copying once for the entire fan-out is insufficient. `Game.ToOthers` owns a separate copy for each recipient.
+copying once for the entire fan-out is insufficient. `Game.ToOthers` and the combat/action mirrors own a separate
+copy for each recipient, including after rewriting player identities and action sequences.
 
 ## 3. Room points: where the camp is
 
