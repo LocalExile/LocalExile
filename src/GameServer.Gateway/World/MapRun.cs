@@ -19,6 +19,23 @@ sealed class MapMods
     public IReadOnlyDictionary<string, int> Stats { get; }
     public int Quality { get; }
 
+    /// <summary>The parts the area stats are composed from (<see cref="AreaStats"/>): the map item's explicit (prefix /
+    /// suffix) stats unscaled, its implicit, enchant and quality stats, and the fragments' MapFragmentMods stats; how
+    /// many explicit mods, fragments (with a MapFragmentMods row) and scarabs, the scarabs by kind ("divination",
+    /// "harvest", …), the map's rarity and corruption. <see cref="Stats"/> is their flat sum.</summary>
+    /// <summary>Each explicit mod's stats on its own: the area stats scale every mod's value separately, truncated toward
+    /// zero, before summing (a map's quantity 52 over four mods becomes 64 at a 24% mod effect, not int(52 × 1.24)).</summary>
+    public IReadOnlyList<IReadOnlyDictionary<string, int>> ExplicitMods { get; init; } = [];
+    public IReadOnlyDictionary<string, int> Explicit { get; init; } = new Dictionary<string, int>();
+    public IReadOnlyDictionary<string, int> Implicit { get; init; } = new Dictionary<string, int>();
+    public IReadOnlyDictionary<string, int> Fragments { get; init; } = new Dictionary<string, int>();
+    public int ExplicitCount { get; init; }
+    public int FragmentCount { get; init; }
+    public int ScarabCount { get; init; }
+    public IReadOnlyDictionary<string, int> ScarabKinds { get; init; } = new Dictionary<string, int>();
+    public ItemRarity MapRarity { get; init; }
+    public bool Corrupted { get; init; }
+
     public int Get(string id) => Stats.GetValueOrDefault(id);
 
     public int Quantity => Get("map_item_drop_quantity_+%") + Get("map_implicit_item_drop_quantity_+%")
@@ -188,19 +205,60 @@ sealed class MapRunCatalog
     public MapMods Of(IReadOnlyList<MapDevice.Slot> slots, ModCatalog mods)
     {
         var sum = new Dictionary<string, int>();
-        int quality = 0;
+        var explicitStats = new Dictionary<string, int>();
+        var explicitMods = new List<IReadOnlyDictionary<string, int>>();
+        var implicitStats = new Dictionary<string, int>();
+        var fragmentStats = new Dictionary<string, int>();
+        var scarabKinds = new Dictionary<string, int>();
+        int quality = 0, explicitCount = 0, fragmentCount = 0, scarabCount = 0;
+        var rarity = ItemRarity.Normal;
+        bool corrupted = false;
         foreach (var slot in slots)
         {
             if (slot.IsMap)
             {
                 quality = slot.Quality;
-                AddItemMods(sum, slot.Mods, mods);
-                AddQuality(sum, slot.Quality, slot.AlternateQualityType);
+                rarity = slot.Rarity;
+                corrupted = slot.Corrupted;
+                // The map's explicit (prefix / suffix) stats apart from its implicit and enchant ones: the area stats scale
+                // the former by the atlas's map mod effect and count them (AreaStats).
+                var explicitList = slot.Mods.Where(m => m.Section == ModSection.Explicit).ToList();
+                explicitCount = explicitList.Count;
+                foreach (var mod in explicitList)
+                {
+                    var own = new Dictionary<string, int>();
+                    AddItemMods(own, [mod], mods);
+                    explicitMods.Add(own);
+                    foreach (var (id, value) in own) explicitStats[id] = explicitStats.GetValueOrDefault(id) + value;
+                }
+                AddItemMods(implicitStats, slot.Mods.Where(m => m.Section != ModSection.Explicit).ToList(), mods);
+                AddQuality(implicitStats, slot.Quality, slot.AlternateQualityType);
             }
             else if (FragmentOf(slot.BaseRow) is { } fragment)
-                AddModRows(sum, fragment.ModRows, mods);
+            {
+                fragmentCount++;
+                AddModRows(fragmentStats, fragment.ModRows, mods);
+                // A scarab: its BaseItemTypes Id (Metadata/Items/MapFragments/ScarabDivination2 …) names its kind.
+                string leaf = slot.BaseId.Split('/')[^1];
+                var m = System.Text.RegularExpressions.Regex.Match(leaf, @"^Scarab([A-Za-z]+?)\d");
+                if (leaf.StartsWith("Scarab", StringComparison.Ordinal))
+                {
+                    scarabCount++;
+                    if (m.Success)
+                    {
+                        string kind = m.Groups[1].Value.ToLowerInvariant();
+                        scarabKinds[kind] = scarabKinds.GetValueOrDefault(kind) + 1;
+                    }
+                }
+            }
         }
-        return new MapMods(sum, quality);
+        foreach (var part in new[] { explicitStats, implicitStats, fragmentStats })
+            foreach (var (id, value) in part) sum[id] = sum.GetValueOrDefault(id) + value;
+        return new MapMods(sum, quality)
+        {
+            Explicit = explicitStats, ExplicitMods = explicitMods, Implicit = implicitStats, Fragments = fragmentStats, ExplicitCount = explicitCount,
+            FragmentCount = fragmentCount, ScarabCount = scarabCount, ScarabKinds = scarabKinds, MapRarity = rarity, Corrupted = corrupted,
+        };
     }
 
     /// <summary>A recipe's own Mods (uber keys: monsters take 70% less damage).</summary>

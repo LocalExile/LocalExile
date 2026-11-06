@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
 
@@ -46,6 +47,14 @@ static class ServerLevels
         public IReadOnlyList<PlacedExit> Exits { get; init; } = [];
         /// <summary>Where each "entranceN" of the layout is (an arrival point, also for one-way entrances).</summary>
         public IReadOnlyList<EntrancePoint> Entrances { get; init; } = [];
+        /// <summary>The terrain plugin states the level was generated with, for 0x1d's extra data (<see cref="AreaExtraData"/>):
+        /// the client must build the same level from them (the DeepwaterPlugin's board of a Deepwater encounter).</summary>
+        public IReadOnlyList<(ushort Hash, byte[] Blob)> Plugins { get; init; } = [];
+        /// <summary>Every object of the level the server creates (<see cref="AreaObjects.ServerObjects"/>: the transitions,
+        /// waypoints and quest objects above and the chests, spawners, markers, NPCs and league objects the level files
+        /// place), with whether the server sends it. The Gateway creates the first kinds from their own lists; the rest
+        /// are listed for what is not placed yet.</summary>
+        public IReadOnlyList<PlacedServerObject> ServerObjects { get; init; } = [];
     }
 
     /// <summary>Where the supported list comes from (the repository root is the Gateway's directory; tests replace it).</summary>
@@ -79,6 +88,10 @@ static class ServerLevels
     // WorldAreas level 71, chateau_2.dgr at a tier-16 map's 83). Lookups without a level (monster packs, heights,
     // projectiles) get that generation. Never trimmed: one entry per map instance opened.
     static readonly ConcurrentDictionary<(string Area, uint Seed), int> PlayedLevels = new();
+    // The area stats an (area, seed) is played with (0x1d's first stat list, 1-based Stats.dat ids): the generator's
+    // league rolls, side area, shrines and features read them (0x14204a570 with the server's stats, re/011 §3b), so the
+    // level must be generated with the same list the client gets. Remembered per (area, seed) like PlayedLevels.
+    static readonly ConcurrentDictionary<(string Area, uint Seed), IReadOnlyDictionary<uint, int>> PlayedStats = new();
 
     /// <summary>The exception of a failed generation of (area, seed), while it is among the last ones asked for.</summary>
     public static string? Error(string areaId, uint seed) => Errors.GetValueOrDefault((CacheArea(areaId, LabyrinthDay.NodeFor(areaId, seed)), seed, LevelOf(areaId, seed, 0)));
@@ -186,10 +199,16 @@ static class ServerLevels
     public static uint PlayableSeed(string areaId, uint seed) => PlayableSeed(areaId, seed, 0);
 
     /// <inheritdoc cref="PlayableSeed(string, uint)"/>
-    public static uint PlayableSeed(string areaId, uint seed, int areaLevel)
+    public static uint PlayableSeed(string areaId, uint seed, int areaLevel) => PlayableSeed(areaId, seed, areaLevel, null);
+
+    /// <inheritdoc cref="PlayableSeed(string, uint)"/>
+    /// <param name="stats">The area stats the instance is played with (the 0x1d list), which the generation reads.</param>
+    public static uint PlayableSeed(string areaId, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats)
     {
+        if (stats is { Count: > 0 }) PlayedStats[(areaId, seed)] = stats;
         seed = Playable(areaId, seed, areaLevel);
         if (areaLevel > 0) PlayedLevels[(areaId, seed)] = areaLevel;
+        if (stats is { Count: > 0 }) PlayedStats[(areaId, seed)] = stats;
         return seed;
     }
 
@@ -234,7 +253,22 @@ static class ServerLevels
         {
             var files = Files();
             var area = AreaInfo.Load(Read, areaId, areaLevel);
-            var result = LevelGenerator.Generate(files, area, seed, labyrinthNode: node);
+            // The stats the instance is played with (PlayedStats), and the server's topology variant (59).
+            if (PlayedStats.TryGetValue((areaId, seed), out var played) && played.Count > 0)
+                area = area with { Stats = played.ToDictionary(p => (int)p.Key, p => p.Value) };
+            // The terrain plugins the server decides: a Deepwater encounter area (its topology is a Deepwater graph: the
+            // areas a map's Deepwater encounter leads into, whose +0x1e4 is 52) is built from the DeepwaterPlugin's board,
+            // which the client needs too (without it its level fails: "No possible rooms"); the Gateway draws a 1 × 1
+            // mission board from the seed and sends it in 0x1d's extra data (Level.Plugins).
+            var plugins = new List<(ushort Hash, byte[] Blob)>();
+            DeepwaterBoard? board = null;
+            if (area.Topologies.Any(t => DeepwaterBoard.IsEncounterGraph(t.Graph)))
+            {
+                board = DeepwaterBoard.Mission(seed);
+                area = area with { Plugins = [.. area.Plugins ?? [], "DeepwaterPlugin"] };
+                plugins.Add((PluginHash("DeepwaterPlugin"), board.Encode(Read)));
+            }
+            var result = LevelGenerator.Generate(files, area, seed, topologyVariant: AreaInstance.TopologyVariant, labyrinthNode: node, deepwater: board);
             var walk = Walkability.Build(result.Grid, t => files.Walk(t.Path));
             // The doodad stage stamps the doodads' collision into the grids (re/011 §6c).
             var doodads = new DoodadStage(files, result.Random, result.Grid, walk, []);
@@ -260,6 +294,8 @@ static class ServerLevels
                     || t.StartsWith(LabyrinthTrials.StatueFolder, StringComparison.Ordinal)),
                 RoomObjects = AreaObjects.RoomObjects(result, points: true, links: roomLinks),
                 RoomLinks = roomLinks,
+                Plugins = plugins,
+                ServerObjects = AreaObjects.ServerObjects(files, result, Types()),
             };
         }
         catch (Exception ex)
@@ -283,6 +319,19 @@ static class ServerLevels
 
     // Opened on the first generation and kept.
     static TerrainCache Files() => _files ??= new TerrainCache(Read);
+
+    static ObjectTypes? _types;
+    static ObjectTypes Types() => _types ??= new ObjectTypes(Files());
+
+    /// <summary>A terrain plugin's HASH16 (TerrainPlugins.dat +8, 3.29; the table is not in the game pack), the key of its
+    /// state in 0x1d's extra data, as the server corpus decoded them.</summary>
+    static ushort PluginHash(string name) => name switch
+    {
+        "DeepwaterPlugin" => 11572, "AzmeriPlugin" => 17645, "IncursionPastPlugin" => 32669, "IncursionTemplePlugin" => 26226,
+        "MarkedMapBoss" => 57908, "HeistPlugin" => 2373, "BetrayalSafehousePlugin" => 61701, "ExpeditionPlugin" => 2154,
+        "UltimatumPlugin" => 31963, "MercenaryPlugin" => 32637, "AfflictionPlugin" => 2161,
+        _ => throw new InvalidDataException($"no TerrainPlugins hash for {name}"),
+    };
 
     static byte[]? Read(string path) => GamePack.Default.TryRead(path);
 

@@ -82,7 +82,7 @@ static class PortalsFeature
         if (device is null) { await Tell("There is no Map Device here."); return; }
         var opening = MapDevices.Value.Check([.. slots.Select(i => Items.ByHash(i.Item.TypeHash) is { } t
             ? new MapDevice.Slot(i.Item.TypeHash, t.Class, t.Name, t.Row, i.Item.Mods, i.Item.Quality)
-            { AlternateQualityType = i.Item.AlternateQualityType, Components = t.Components }
+            { AlternateQualityType = i.Item.AlternateQualityType, Components = t.Components, Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id }
             : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))], CharacterName(conn), Items.Mods, out string why);
         if (opening is null)
         {

@@ -93,6 +93,10 @@ static class AreaLayouts
     /// exit back (<see cref="AreaLayout.Arrival"/>). In memory: a Gateway restart drops the client to the login anyway.</summary>
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, ushort> CameFrom = new();
 
+    /// <summary>By the destination ticket of a transfer into a Vaal side area: the area and instance it is entered from
+    /// (<see cref="ClientState.SideAreaParent"/>).</summary>
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (ushort Area, ulong Instance)> SideAreaParents = new();
+
     // Lioneye's Watch is one room, Metadata/Terrain/Act1/Town/Rooms/beach_town_unique_normal.arm (18 x 30 tiles), placed
     // R270 by Graphs/beachtown.dgr ("default" "entrance2" "entrance1disabled"). Spawn (197, 261): the walkable cell farthest
     // from any edge (Agents/docs/protocol/03 §7).
@@ -109,7 +113,7 @@ static class AreaLayouts
 
     const string Folder = "data/walkability";
 
-    static string IdOf(ushort hash) =>
+    internal static string IdOf(ushort hash) =>
         Ids.GetValueOrDefault(hash) ?? AreaTransitionCatalog.IdOf(hash) ?? HideoutCatalog.ByArea(hash)?.AreaId ?? $"0x{hash:x4}";
 
     /// <summary>The seed the instance's layout is generated and played at (<see cref="ServerLevels.PlayableSeed"/>).</summary>
@@ -117,6 +121,10 @@ static class AreaLayouts
 
     /// <inheritdoc cref="PlayableSeed(ushort, uint)"/>
     public static uint PlayableSeed(ushort hash, uint seed, int areaLevel) => ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel);
+
+    /// <inheritdoc cref="PlayableSeed(ushort, uint)"/>
+    public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats) =>
+        ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats);
 
     public static AreaLayout For(ushort hash, uint seed)
     {

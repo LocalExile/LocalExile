@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
 
@@ -185,15 +186,10 @@ static class LabyrinthDay
 
     /// <summary>The area extra data (0x1d's terrain block) naming the node: flags 0x08, 0x00, then u32 seed, u16 node
     /// (its LabyrinthSectionLayout row), u8 difficulty, little-endian (<c>0x141ec7220</c>).</summary>
-    public static byte[] ExtraData(LabyrinthNodeKey node)
-    {
-        var bytes = new byte[9];
-        bytes[0] = 0x08;
-        BitConverter.TryWriteBytes(bytes.AsSpan(2), node.Seed);
-        BitConverter.TryWriteBytes(bytes.AsSpan(6), (ushort)node.Row);
-        bytes[8] = (byte)node.Difficulty;
-        return bytes;
-    }
+    public static byte[] ExtraData(LabyrinthNodeKey node) => AreaExtraData.Build(Section(node), null);
+
+    /// <summary>The node as the extra data's Labyrinth section (<see cref="AreaExtraData"/>).</summary>
+    public static (uint Seed, ushort Row, byte Difficulty) Section(LabyrinthNodeKey node) => (node.Seed, (ushort)node.Row, (byte)node.Difficulty);
 
     /// <summary>The day's layout as text lines for /lab_layout: each room's number, area, section and place, connections
     /// (out: the plaza or the boss) and secrets with their numbers.</summary>
