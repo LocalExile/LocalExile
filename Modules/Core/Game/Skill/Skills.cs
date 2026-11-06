@@ -400,7 +400,8 @@ static partial class Game
         foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with { Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn) })) if (seen.Add(k)) yield return (k, v);
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
-        var extra = CharacterStatSources(conn, nodes).Stats;
+        var extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);
+        AddGolemStats(conn, extra);
         int RawDefault(string name) => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0;
         foreach (var (stat, value) in PanelStatDefaults.Compute(RawDefault))
             if (Stats.Key(stat) is uint key) extra[key] = value;

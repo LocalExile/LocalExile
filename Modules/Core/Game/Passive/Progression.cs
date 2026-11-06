@@ -688,7 +688,8 @@ static partial class Game
     {
         // The stat sources first: they decide which worn items are inactive, which the weapon profile reads.
         var snapshot = CharacterStatSources(conn, level: level);
-        var sources = snapshot.Stats;
+        var sources = new Dictionary<uint, int>(snapshot.Stats);
+        AddGolemStats(conn, sources);
         // Detach forbidden self auras before any pool bonus is sampled. No restoration here: it needs completed pools.
         SuspendRestrictedOwnAuras(conn, new(sources));
         var weapons = WeaponProfileFor(conn);

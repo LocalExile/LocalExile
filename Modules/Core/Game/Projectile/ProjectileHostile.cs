@@ -17,12 +17,13 @@ static partial class Game
     /// actors) are in its way, never the other monsters. The client draws nothing of its own for a monster's action
     /// (Frida 2026-10-29), so the server's object is the projectile the player sees.</summary>
     internal static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
-        SkillCatalog.MonsterProjectileInfo projectile, int action)
+        SkillCatalog.MonsterProjectileInfo projectile, int action, uint? aimedActor = null)
     {
         var conn = session.Conn;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var from = ProjectileSession.Vector(m.Walk.Position(now));
-        var aim = ProjectileSession.Vector(conn.Walk.Position(now));
+        var aim = ProjectileSession.Vector(aimedActor is uint targetId && conn.Golems.All.TryGetValue(targetId, out var golem)
+            ? golem.Monster.Walk.Position(now) : conn.Walk.Position(now));
         double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         double distance = Math.Max(1, (aim - from).Length);
@@ -107,6 +108,13 @@ static partial class Game
     internal static ProjectileHitResult HostileHit(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
     {
         var conn = session.Conn;
+        if (conn.Golems.All.TryGetValue(contact.Target.Id, out var golem))
+        {
+            bool landed = GolemTakeHitLocked(conn, golem, shot.MonsterId, shot.Monster, shot.Attack,
+                Math.Max(AreaTime(conn), contact.At / (double)ProjectileRuntime.QuantaPerSecond), area: shot.Attack.Projectile?.Lobbed == true);
+            session.Enqueue(() => PublishMinionOutcomes(session.remote, session.stream, session.ciphers, conn));
+            return landed ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
+        }
         if (contact.Target.Id != PlayerId || conn.PlayerLife == 0 || InGracePeriod(conn)) return ProjectileHitResult.Miss;
         // The hit pipeline's timers (fortification, recent hits, ailments, evasion entropy) run on the connection clock and
         // refuse to go backwards. The contact's simulated instant lies a few milliseconds behind that clock, which other

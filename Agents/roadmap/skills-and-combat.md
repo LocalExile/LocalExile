@@ -153,7 +153,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   zero/replacement precedence, source clearing and Cyclone radius preservation. `SendPlayer` initial/transition
   creation and later skill refreshes share the snapshot path. Real support controls cover ordinary availability.
   The historical LocalExile Ruthless exclusion of Item Rarity Support is outside this port.
-  Minion combat/drop execution and native alias checks remain open.
+  Golem combat/drop execution is connected; other minion executors and native alias checks remain open.
   Selected spell penetration now includes real Fire/Cold/Lightning Penetration supports, with source/link/requirement
   lifecycle and hit-consumer agreement covered by nine new Gateway regressions.
   Attack-hand alias composition now includes attack-only sources, linked supports and each active hand's local

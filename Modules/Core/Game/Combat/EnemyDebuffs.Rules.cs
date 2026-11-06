@@ -143,7 +143,7 @@ static partial class Game
                     (m.WitherShownStacks, m.WitherShownUntil) = (stacks, until);
                     bytes.AddRange(InstanceEntities.AddBuff(id, m.WitherBuff = conn.NextBuff++, WitheredBuffRow, PlayerId,
                         values: [(uint)Math.Round(m.Withered[^1].Pct), 1], u68: BitConverter.SingleToUInt32Bits((float)(until - now)),
-                        stacks: (ushort)stacks));
+                        stacks: (ushort)stacks, u82: 0));
                     added++;
                 }
                 foreach (var (id, m) in conn.Monsters)
