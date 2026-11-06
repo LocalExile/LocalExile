@@ -17,6 +17,13 @@ public sealed class SupportHitDamageTests
     [Fact]
     public void Supports_and_keystones_multiply_hits_when_their_conditions_hold()
     {
+        // Native final-speed rounding precedes duration: Burning Arrow's -30% inherent speed.
+        foreach (var (increased, final, rate) in new[] { (15, -20, 112), (30, -9, 127), (45, 2, 143) })
+        {
+            Assert.Equal(final, SkillAttackTiming.FinalSpeedPercent(increased, .7));
+            Assert.Equal(rate, (int)Math.Round(100 / SkillAttackTiming.Seconds(714, increased, -30)));
+        }
+        Assert.Equal(-99, SkillAttackTiming.FinalSpeedPercent(0, 0));
         // Each support condition multiplies only when it holds.
         {
             var skill = With(("support_hypothermia_damage_+%_vs_chilled_enemies_final", 29),

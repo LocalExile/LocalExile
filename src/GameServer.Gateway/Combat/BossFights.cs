@@ -9,9 +9,13 @@
 static class BossFights
 {
     /// <summary>At <paramref name="AtLifePct"/> of its maximum life the monster uses its granted effect
-    /// <paramref name="SkillEffect"/> (GrantedEffects row) for <paramref name="CastSeconds"/>, then its Transitionable
-    /// goes to <paramref name="TransitionTo"/> and its life fills up.</summary>
-    public sealed record Stage(int AtLifePct, int SkillEffect, double CastSeconds, byte TransitionTo);
+    /// <paramref name="SkillEffect"/> (GrantedEffects row) for <paramref name="CastSeconds"/>. At its animation contact,
+    /// Transitionable goes to <paramref name="TransitionTo"/> and life fills; recovery ends independently.</summary>
+    public sealed record Stage(int AtLifePct, int SkillEffect, double CastSeconds, byte TransitionTo)
+    {
+        public double EffectSeconds(SkillCatalog.MonsterClipContact? clip) =>
+            CastSeconds * (clip?.ContactFraction ?? 1);
+    }
 
     static readonly Dictionary<string, Stage> Stages = new()
     {

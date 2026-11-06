@@ -185,6 +185,15 @@ boss pack stood once per area, a second one stood at `mapboss`).
 
 ## 4. Open
 
+The existing opening capture contains 39 distinct monster creation records and six additional actors inferred
+from monster-like updates. Its first 35 seconds are missing: the reconstructed 45 is an approved provisional
+calibration target, not a verified complete-area total or evidence of normal-only packs.
+For new Act 1 Twilight Strand instances, reserve one slot for the separate tutorial zombie and retain named/boss
+spawns, then cap scattered members at the remaining target (normally 43 plus Hillock). The final pack can be
+shortened, and insufficient candidate/placement space can produce fewer monsters. Existing instances keep their
+population. Other areas, rarity rolls, life and damage retain their existing behavior; official allocation and
+placement algorithms remain unknown.
+
 - Pack density and magic/rare chances are guesses (§1); so are the mod counts (§5).
 - Unique map bosses get `MonsterMapBossDifficulty` plus `MonsterMapDifficulty` life and damage percentages
   (`MonsterCatalog.MapBossScaling`; level 83 is ×20.73 life and ×1.15 damage). The area level is the map level here; a
