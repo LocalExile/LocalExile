@@ -9,7 +9,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls($"http://127.0.0.1:{(int.TryParse(Environment.GetEnvironmentVariable("MAP_VIEWER_PORT"), out var port) && port is > 0 and <= 65535 ? port : 5187)}");
 var app = builder.Build();
 var root = Directory.GetCurrentDirectory();
-var web = Path.Combine(root, "scripts", "dev", "map-viewer", "wwwroot");
 var areasPath = Path.Combine(root, "data", "tables", "WorldAreas.json");
 var areas = JsonSerializer.Deserialize<List<Area>>(File.ReadAllText(areasPath), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
 var monsters = new Lazy<List<Monster>>(() =>
@@ -95,9 +94,6 @@ app.MapGet("/api/map", (string id, uint seed, int? level) =>
         { return Results.BadRequest(new { error = e.Message }); }
     }
 });
-app.MapGet("/", () => Results.File(Path.Combine(web, "index.html"), "text/html; charset=utf-8"));
-app.MapGet("/app.js", () => Results.File(Path.Combine(web, "app.js"), "text/javascript; charset=utf-8"));
-app.MapGet("/style.css", () => Results.File(Path.Combine(web, "style.css"), "text/css; charset=utf-8"));
 app.Run();
 
 sealed record Area(string Id, string Name, int AreaLevel, int[] TopologiesKeys, int?[] Connections_WorldAreasKeys,
