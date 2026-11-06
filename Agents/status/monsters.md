@@ -229,9 +229,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Area monsters: pack counts, magic/rare chances and rare mod counts are our own numbers;
   74 monster mods need systems the server lacks (auras on allies, monster skills, ailments on the player …) and do
   not roll;
-  Drowned ignore their ground types; how near the player must come before an emerge monster rises is our choice;
-  the boss life bar and boss stages exist for Hillock only (`BossFights.cs`;
-  other bosses with `BossHealthBar` get the bar too); monsters respawn on every entry;
+  Drowned ignore their ground types; wake ranges outside the calibrated Strand Drowned remain local fallbacks.
+  The ordinary `BossFights` stage catalogue covers Hillock; other `BossHealthBar` bosses receive their bar without
+  a general stage implementation.
+  Ordinary instance monsters retain their in-memory state; the full official population rules remain unknown;
   a new (area, seed) needs a `-Walkmaps` visit for its unique boss ([14](../docs/protocol/14-monster-packs.md) §4).
   Act 2's bandit lords (Kraityn, Alira, Oak) are created hostile without their help-or-kill dialogue
   ([17](../docs/protocol/17-npcs.md)).
