@@ -42,6 +42,9 @@ static class Act6Objects
         BeaconStatue = "Metadata/QuestObjects/Act6/BlackCrest_BeaconInteract",
         BeaconFuelTank = "Metadata/QuestObjects/Act6/BeaconFuelTank", BeaconFlame = "Metadata/QuestObjects/Act6/BlackCrest_BeaconFlame";
     public const string ReefCrest = "Metadata/QuestObjects/Act6/BlackCrest_Reef";
+    public const string BeaconPayload = "Metadata/QuestObjects/Act6/BeaconPayload",
+        BeaconShip = "Metadata/QuestObjects/Act6/BlackCrest_Beacon";
+    public static readonly string BeaconIgnited = Quests.InstanceFlag("BeaconIgnited");
     public const string LillyShip = "Metadata/QuestObjects/Act6/LillyShip";
 }
 
@@ -76,9 +79,7 @@ sealed class Act6 : Act
             // a6q1 "The Brine King": Nessa is seen three times (a server script in the real game: coming near her sets
             // SeenNessa1-3 and she transitions away; no data sets them): the Mud Flats' flooded cave, Prisoner's Gate,
             // Merveil's empty cavern. The Black Flag (a quest chest on the point list of her room) is burnt at the Beacon: the
-            // real game has the player push two fuel carts to the tank (BeaconPayload, a Movement object the server cannot
-            // write yet), pull the ignition lever and throw the flag into the flames. Here the lever refuels and lights the
-            // beacon (RefueledBeacon; the carts are left out) and the beacon statue takes the flag (DeliveredFlag). That
+            // player escorts both fuel carts (Rules.Beacon), pulls the ignition lever, then burns the flag. That
             // brings Weylam ashore (WeylamBeacon is hidden until a6q1-DeliveredFlag) and his 1006 sails to the Reef (its
             // EndQuestFlags a6q1-DeliveredFlag). Tsoagoth's death sets KilledBoss (the Brine King's Pantheon unlock); Weylam
             // takes his throne (WeylamReef2 state 2) and Sin appears where the king fell (1003: the Pantheon). WeylamReef2's
@@ -93,12 +94,13 @@ sealed class Act6 : Act
                 On.Near(CavernOfAngerAct6, Act6Npcs.NessaMerveilsCaverns, "a6q1-SeenNessa3"),
                 On.Chest(CavernOfAngerAct6, Act6Objects.BlackFlagChest, Act6Items.BlackFlag),
                 On.Near(Beacon, Act6Objects.BeaconCamera, "a6q1-SeenBeacon"),
-                On.Object(Beacon, Act6Objects.BeaconLever, "a6q1-RefueledBeacon"),
-                On.Used(Beacon, Act6Objects.BeaconLever, "a6q1-RefueledBeacon"),
+                On.Object(Beacon, Act6Objects.BeaconLever, Act6Objects.BeaconIgnited),
+                On.UsedWith(Beacon, Act6Objects.BeaconLever, ["a6q1-RefueledBeacon"], Act6Objects.BeaconIgnited),
                 On.Object(Beacon, Act6Objects.BeaconFuelTank, "a6q1-RefueledBeacon"),
                 On.Object(Beacon, Act6Objects.BeaconFlame, "a6q1-DeliveredFlag"),
                 On.Object(Beacon, Act6Objects.BeaconStatue, "a6q1-DeliveredFlag"),
-                On.UsedWith(Beacon, Act6Objects.BeaconStatue, ["a6q1-HaveFlag", "a6q1-RefueledBeacon"], "a6q1-DeliveredFlag"),
+                On.UsedWith(Beacon, Act6Objects.BeaconStatue, ["a6q1-HaveFlag", "a6q1-RefueledBeacon", Act6Objects.BeaconIgnited], "a6q1-DeliveredFlag"),
+                On.Object(Beacon, Act6Objects.BeaconShip, "a6q1-DeliveredFlag"),
                 On.Npc(Beacon, Act6Npcs.WeylamBeacon, null, transitionedBy: "a6q1-DeliveredFlag"),
                 On.Npc(BrineKingsReef, Act6Npcs.WeylamReef1, null),
                 On.Npc(BrineKingsReef, Act6Npcs.WeylamReef2, null, transitionedBy: "a6q1-KilledBoss"),

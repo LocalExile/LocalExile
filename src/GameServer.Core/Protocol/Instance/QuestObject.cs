@@ -18,10 +18,10 @@ namespace GameServer.Core.Protocol.Instance;
 /// Types with any other deserialized component are not written (<see cref="CanSerialize"/>).
 /// </summary>
 public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Components, float Rotation = 0, float? Height = null,
-    string? Model = null, byte TransitionState = 1, bool Opened = false, bool Blocked = false)
+    string? Model = null, byte TransitionState = 1, bool Opened = false, bool Blocked = false, ushort Team = 0)
 {
     static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "Transitionable", "InteractionAction", "MinimapIcon",
-        "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC"];
+        "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement"];
 
     /// <summary>Whether <see cref="Blob"/> can write a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components) =>
@@ -41,7 +41,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
             switch (c)
             {
                 case "Positioned":
-                    w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(Height is null ? 0 : 0x04)).U8(0x02);
+                    w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8((byte)(Height is null ? 0 : 0x04)).U8(0x02);
                     if (Height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
                     w.U8(0).U8(1);
                     break;
@@ -49,6 +49,8 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                 case "Transitionable": w.U8((byte)(Math.Max((byte)1, TransitionState) & 0x7f)); break;
                 case "Chest": w.U8((byte)(Opened ? 1 : 0)).U8(0).U8(0); break;
                 case "Stats": w.U8(0).U32(0).U32(0).U8(0); break;
+                // Stationary initially; the server drives the rail with MoveTo (as for the Labyrinth's roombas).
+                case "Movement": w.U8(0).I32(GridX).I32(GridY).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0); break;
                 case "ObjectMagicProperties": w.U16(0).U8(0).U8(0); break;
                 case "TriggerableBlockage": if (Blocked) w.U8(1).U8(0); else w.U8(0); break;
                 case "NPC": w.U8(0).U8(0xff); break;
