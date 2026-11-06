@@ -355,11 +355,10 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     if (maps is null || (!guaranteed && (chance <= 0 || rng.NextDouble() >= chance)))
         return null;
 
-    int stones = Math.Max(0, voidstones);
-    int tier = Math.Clamp((mapTier > 0 ? mapTier : 1) + (stones > 0 ? 1 : 0), 1, 16);
+    int currentTier = Math.Clamp(mapTier > 0 ? mapTier : 1, 1, 16);
+    int maxTier = Math.Min(currentTier + 1, 16);
+    int tier = guaranteed ? currentTier : rng.Next(1, maxTier + 1);
 
-    if (!guaranteed && stones > 0 && tier < 16)
-    return Gold(monsterLevel, monster, rng);
 
     if (maps.KeyOfTier(tier) is not uint hash ||
         catalog.ByHash(hash) is not { Supported: true } type)
