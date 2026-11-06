@@ -593,7 +593,12 @@ next use follows that swing. The Gateway does the same (`LockstepAttackStart`) w
 monsters' (§5, `StepWalkUp`). The swing begins in the goal frame (46 of 46 traced). No timer of the player's own swing
 was found (Actor `+0x26c` stays 0 for him), so his is dated as a monster's, whose attack time is taken as its swing
 starts (`0x141e95e60`): the hit, a shot's release and the next attack from the goal frame's start, the Move cut-in from
-its end, all at the attack time the swing begins with. An object use (a pickup, a chest, a quest object) likewise gets its one
+its end, all at the attack time the swing begins with. The client's own wand bolt or arrow leaves on the frame tick in
+which its clip clock passes the release, counted in whole frames from the start of the frame its action began in:
+frame 12 for the wand (0.367 s on the clip model, [11](11-skills.md) §4) and 9 for the bow's 0.268 s (live
+2026-11-05, 38 of 39 and 36 of 37 orders, within about 4 ms of the tick). A server release at the frame start plus the
+delay hit 16 to 40 ms before the client fired, and a hit recovery in that gap once left the damage with no bolt drawn.
+An object use (a pickup, a chest, a quest object) likewise gets its one
 0x1ab from the frame pass, and its handler sends none of its own (`UseSkillOnObject.Started`): the handler's second
 start put the client back on its from cell and had it path again, two cells and a frame lost on every pickup (live
 2026-11-03; the client's pickup walk, max

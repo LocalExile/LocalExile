@@ -533,9 +533,11 @@ A clip longer than its attack plays linearly. When the attack outlasts the clip,
 instead, so the contact keyframe is no longer a plain fraction of the attack; the server's `AttackContactDelay` assumes it
 is for attack gems. The 1.457 s attack above did this (span 223..394 ms, speed 0.305, contact at about 785 ms, measured).
 A slower weapon or a negative player speed would still reach it. So does the default wand attack: the 0.667 s attack
-holds the 600 ms `attack1_wand` clip's span 150..235 for 152 ms, and a lockstep client's own bolt leaves 0.367 s in, not
-at 0.333 (live 2026-11-05: its release came 63 ms after the linear contact, against 30 ms for the bow's compressed clip).
-The span takes up at most 8 times its length (`0x141b0ac20` passes the clip's length, or the ACT's `attack_time`).
+holds the 600 ms `attack1_wand` clip's span 150..235 for 152 ms, so its contact plays about 0.367 s in, not at 0.333.
+A lockstep client's own bolt leaves on the frame tick after it ([07](07-latency-visibility-movement.md) §6): frame 12
+of 33 ms (live 2026-11-05, 38 of 39), which bounds the release to 0.363..0.396 s and rules out the linear 0.333 (frame
+11); 0.367 is the model's value, consistent with that. The span takes up at most 8 times its length (`0x141b0ac20`
+passes the clip's length, or the ACT's `attack_time`).
 
 The default attack's clip is the class ACT's stance `Melee` entry (`data/animation-contacts.json` "defaultAttack",
 `scripts/re/anim_contacts.py`): a rig clip (`attack1_wand`; `attack1_bow` with `item_animation`, the bow's own rig), or

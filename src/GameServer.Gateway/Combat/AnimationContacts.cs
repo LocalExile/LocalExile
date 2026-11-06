@@ -299,8 +299,9 @@ readonly record struct DefaultAttackClip(string Animation, string Source, int In
     /// without a budget that is shorter than the attack plays at its own speed outside its slow span, and the span takes
     /// up the rest, at most 8 times its length (the 600 ms wand clip's contact at 300, span 150–235, leaves 0.367 s into a
     /// 0.667 s attack). A budgeted clip, or one no shorter than the attack, leaves at <see cref="ContactSeconds"/>.
-    /// Lockstep 2026-11-05: the client's releases came 63 ms after the wand's linear contact and 30 ms after the bow's;
-    /// released here, 16 to 40 ms after for both (p50 27 and 28).
+    /// The client fires on the frame tick after this (<c>Game.LockstepShotAt</c>): live 2026-11-05, the wand on frame 12
+    /// of 33 ms (38 of 39), which bounds its release to 0.363–0.396 s and rules out the linear 0.333 s (frame 11); the
+    /// 0.367 s here is the model's, consistent with that, not a measured value.
     /// </summary>
     public double ReleaseSeconds(double attackSeconds)
     {
