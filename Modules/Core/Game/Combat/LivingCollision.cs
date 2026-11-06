@@ -240,7 +240,7 @@ static partial class Game
         conn.WalkersSteppedTo = now;
         var walks = new Dictionary<uint, GameServer.Core.World.PlayerWalk>();
         foreach (var (id, m) in conn.Monsters)
-            if (LivingCollision.Blocks(m)) walks[id] = m.Walk;
+            if (LivingCollision.StepsWithBodies(m)) walks[id] = m.Walk;
         if (conn.PlayerSent && conn.PlayerLife > 0) walks[PlayerId] = conn.Walk;
         if (frame is { } f)
         {

@@ -529,7 +529,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
             double now = Clock.Elapsed.TotalSeconds;
             List<ClientPathfinder.Blocker>? all = null;
             lock (Monsters)
-                foreach (var m in Monsters.Values)
+                foreach (var (_, m) in CollisionMonsters)
                 {
                     if (!LivingCollision.Blocks(m)) continue;
                     var (x, y) = m.Walk.Position(now);
@@ -985,6 +985,12 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // The instance's (InstanceWorld.Monsters, also the instance's lock): every connection in it sees and hits the same ones.
     public SortedDictionary<uint, SpawnedMonster> Monsters => Instance?.World.Monsters ?? ownMonsters;
     readonly SortedDictionary<uint, SpawnedMonster> ownMonsters = [];
+    /// <summary>Created, untargetable monsters shared by the instance. Their native bodies exist before emergence.
+    /// Guarded by Monsters; rising transfers the same actor to the targetable roster.</summary>
+    public SortedDictionary<uint, SpawnedMonster> DormantMonsters => Instance?.World.DormantMonsters ?? ownDormantMonsters;
+    readonly SortedDictionary<uint, SpawnedMonster> ownDormantMonsters = [];
+    IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters =>
+        Monsters.Concat(DormantMonsters).OrderBy(pair => pair.Key);
     // Items on the ground by object id (dropped with C→S 0x29).
     /// <summary>The area instance's state shared across connections: its ground items.</summary>
     public InstanceState Instance { get; init; } = null!;

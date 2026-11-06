@@ -150,11 +150,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Lockstep network mode:** the server decides every action and the client plays it back by server frames, each
   action start putting the client on the server's cell, which ends the parted copies of a crowd.
   It works locally, off by default; over a network it is not verified ([status](../status/world.md)).
-  - **Known:** measured like for like against GGG's retail lockstep, standing monsters match.
-    Fast walkers, visible snaps, the player's standing starts and responsiveness after an attack still trail.
-    Only a wand pack fight has run ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
-  - **Start:** orders the client ignores (a player Move within 2 cells), each frame's record order and action
-    sequences, ranged monsters' shot orders and the melee swing at the edge of reach; then skills and breadth.
+  - **Known:** the recorded pack sync gates pass for wand, bow and sword; held-walk crowd accuracy still trails.
+    Dormant-body membership and saved-cell restoration are corrected, with isolated live and predictive validation
+    pending ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
+  - **Start:** validate that standalone correction, then finish frame record ordering and action ownership, ranged
+    chase behavior and the remaining crowd-step differences before skills and breadth.
   - **Done when:** on a fixed bench every sync figure is within GGG's margin. The bench is pack fights per weapon,
     natural packs and a dense area. The figures are monsters standing per order kind, monsters in a pack, monsters
     walking per speed, the player standing and walking, and snap episodes.

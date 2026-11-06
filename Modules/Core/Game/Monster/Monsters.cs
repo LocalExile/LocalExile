@@ -72,12 +72,22 @@ static partial class Game
     // Creates one monster: registers its type at this level (0x20, once per connection), creates it (0x2b9) and puts it in
     // the wake zone (0x1a9), and keeps it for the AI. /spawn_mob, the area's packs (PopulateArea) and the player's minions
     // (extra stats on its Stats component; owned runs under the lock that adds it) use it. Its object id.
+    internal enum MonsterPlacement { Proposed, Established }
+
+    // SavedMonster's cell is established world state. The native Positioned reader (141e2f0b0) copies XY;
+    // it does not run a nearest-clear search. This is shared by normal re-entry and population replay.
+    internal static Task<uint> RestoreMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, MonsterCatalog.Variety variety, SavedMonster saved) =>
+        SpawnMonster(remote, stream, ciphers, conn, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
+            friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
+            unrisen: saved.Unrisen, placement: MonsterPlacement.Established);
+
     internal static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
         IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
         IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null,
-        MonsterModSet? extraMods = null, bool scripted = false)
+        MonsterModSet? extraMods = null, bool scripted = false, MonsterPlacement placement = MonsterPlacement.Proposed)
     {
         uint id;
         // Under the lock the projectile visuals and ground art take ids under: minions spawn from their own loop.
@@ -89,11 +99,11 @@ static partial class Game
             id = !friendly ? conn.Instance.World.NewMonsterId() : conn.NextObjectId++;
         }
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
-        if (bodySize >= 0)
+        if (placement == MonsterPlacement.Proposed && bodySize >= 0)
         {
             bool Floor(int cx, int cy) => conn.Layout.WalkableFor(cx, cy, bodySize) && !conn.Barrier.Contains((cx, cy));
             if (CollisionEscape.Find((x, y), conn.Layout.GridW, conn.Layout.GridH, Floor,
-                conn.MonsterBlockers(id), moverSize: bodySize) is { } clear) (x, y) = clear;
+                conn.MonsterPlacementBlockers(id), moverSize: bodySize) is { } clear) (x, y) = clear;
         }
         // A monster that rises from the ground starts waiting to rise, unless it was kept after rising (MonsterEmerge.cs).
         var emerge = Emerges.Kind(variety, rarity);
@@ -327,7 +337,7 @@ static partial class Game
             conn.MonstersPlaced = true;
             foreach (var s in saved)
                 if (Monsters.Find(s.Variety.ToString()) is { } kept)
-                    await SpawnMonster(remote, stream, ciphers, conn, kept, s.Level, s.Rarity, s.X, s.Y, friendly: !s.Hostile, log: false, damagedLife: s.Life, mods: s.Mods, unrisen: s.Unrisen);
+                    await RestoreMonster(remote, stream, ciphers, conn, kept, s);
             Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: {saved.Count} kept from the instance");
             return;
         }
@@ -788,7 +798,7 @@ static partial class Game
                     var from = PlaceMove(plan, m, to, now);
                     plan.MoveLegs.Add((id, m, NextPlannedAction(m), from, double.IsNaN(plan.FrameStart) ? CutToLeg(m, to, now, before) : to));
                 }
-                else if (LivingCollision.Blocks(m))
+                else if (LivingCollision.StepsWithBodies(m))
                     askers.Add((new(id, mx, my, LivingCollision.Size(m), m.LastTarget,
                         m.Attack?.Range ?? double.PositiveInfinity, m.Attack?.Ranged == true), m, d));
             }

@@ -22,6 +22,18 @@ sealed partial class ClientState
         }
     }
 
+    /// <summary>The existing new-spawn clearance policy, separate from native runtime body discovery.
+    /// Established saved positions never use this proposal search.</summary>
+    public IReadOnlyList<ClientPathfinder.Blocker> MonsterPlacementBlockers(uint self)
+    {
+        lock (Monsters)
+        {
+            // Do not reuse a runtime frame: it contains dormant bodies which this policy never considered.
+            using var snapshot = new MonsterBlockerFrame(this, Clock.Elapsed.TotalSeconds, monsterFrame, placement: true);
+            return snapshot.For(self);
+        }
+    }
+
     public PlayerWalk NewMonsterWalk(uint id, int x, int y, double speed, int size, bool unique) =>
         new(x, y, Math.Max(1, speed), (cx, cy) => Layout.WalkableFor(cx, cy, Math.Max(0, size)) && !Barrier.Contains((cx, cy)),
             Layout.GridW > 0 ? Layout.GridW : 4096, Layout.GridH > 0 ? Layout.GridH : 4096,

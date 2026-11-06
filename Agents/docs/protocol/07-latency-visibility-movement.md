@@ -464,6 +464,10 @@ a 0x25, so the client predicts nothing. `skill-clicks` plays the skill on the ri
 `LivingCollision` uses `MonsterVarieties.ObjectSize - 1` as the positioned footprint, including unique bosses.
 Negative footprints do not block; zero is a valid small body.
 Monsters with a negative footprint do not avoid living bodies.
+Targetability does not determine whether an existing body blocks: created, untargetable buried monsters remain
+in the native body query (`0x141e61540`). Resolved `Positioned.blocking = false` suppresses their body without
+suppressing their own movement checks. The ordinary Positioned creation reader (`0x141e2f0b0`) copies the supplied
+cell directly, so saved monsters retain their established cells, including overlaps.
 `AreaLayout.WalkableFor` retains the captured terrain clearance values instead of treating every actor as player-sized.
 Monster orders use the bounded native pathfinder with the client's budget: 1000 expansions for a
 unique, 100 for any other monster (`0x141e4d890`).
@@ -732,6 +736,7 @@ own phase. GGG's server has none of this: it is the client's own simulation.
 | Here | GGG | Why |
 |---|---|---|
 | Client and server can differ between action starts | Never: its server is the client's simulation | The server is a port |
+| New monster and totem placement searches for a nearby clear cell | The authoritative spawn-placement algorithm is not established here | Existing placement policy, separate from runtime bodies; restoring saved actors keeps their established cells |
 | Off unless `Game_LOCKSTEP` asks, and local only with `1` | Any connection, any latency | A port corrects the client at each action start, so serving a network is the server owner's choice |
 | The client's cell for a target is estimated: the lowest round trip and two frames ago | Its frames say which it was | A lockstep request carries no frame |
 | Sends 0x194 to time a lockstep client | Not seen in any session; by its handler, an idle timeout | It is the one message found that the client answers by itself, and nothing else tells a tunnel from loopback |

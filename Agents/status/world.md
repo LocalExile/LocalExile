@@ -276,8 +276,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   §5, §6).
   A monster that gives up goes on with its last order as the client's does; GGG's goes on with idle orders. A frozen
   monster walks on (not traced).
-  Like for like with GGG's retail lockstep, standing monsters match; fast walkers, visible snaps and the player's
-  standing starts still trail, and only a wand pack fight has run (roadmap: "Lockstep network mode").
+  Wand, bow and sword pack fights meet the recorded client-cell sync gates; held-walk monster accuracy and broader
+  predictive, skill and network validation remain open (roadmap: "Lockstep network mode").
+  Dormant-body membership and saved-cell restoration are corrected; their isolated milestone still needs its live comparison.
   Without it the player is drawn but cannot move or use objects, and the Gateway asks for Predictive once per
   connection.
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell
