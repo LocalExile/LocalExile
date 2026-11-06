@@ -1,7 +1,12 @@
 using LibGGPK3;
 using LibGGPK3.Records;
+using System.Security.Cryptography;
 
 namespace GameServer.Data.Ggpk;
+
+/// <summary>Optional read budgets for a quick readiness check; ordinary extraction keeps its existing budgets.</summary>
+public sealed record GgpkReadLimits(int IndexBytes = int.MaxValue, int BundleBytes = int.MaxValue,
+    int FileBytes = int.MaxValue, int ChunkBytes = int.MaxValue, int IndexRecords = int.MaxValue);
 
 /// <summary>
 /// Read-only view over a standalone <c>Content.ggpk</c>: resolves files through
@@ -17,6 +22,7 @@ public sealed class GameFileSystem : IDisposable
 
     private readonly GGPK _ggpk;
     private readonly IOodleDecoder _oodle;
+    private readonly GgpkReadLimits _limits;
     private readonly Dictionary<int, byte[]> _bundleCache = new();
     private readonly LinkedList<int> _lru = new();
     private readonly Dictionary<int, LinkedListNode<int>> _lruNodes = new();
@@ -35,32 +41,52 @@ public sealed class GameFileSystem : IDisposable
     private long _bundleReads;
 
     public GameIndex Index { get; }
+    public string IndexSha256 { get; }
 
-    private GameFileSystem(GGPK ggpk, GameIndex index, IOodleDecoder oodle, long bundleCacheBytes)
+    private GameFileSystem(GGPK ggpk, GameIndex index, IOodleDecoder oodle, long bundleCacheBytes, GgpkReadLimits limits, string indexSha256)
     {
         _bundleCacheBudgetBytes = bundleCacheBytes;
         _ggpk = ggpk;
         Index = index;
         _oodle = oodle;
+        _limits = limits;
+        IndexSha256 = indexSha256;
     }
 
     /// <param name="bundleCacheBytes">How many bytes of compressed bundles to keep (most recently used first).</param>
-    public static GameFileSystem Open(string ggpkPath, IOodleDecoder? oodle = null, long bundleCacheBytes = DefaultBundleCacheBytes)
+    public static GameFileSystem Open(string ggpkPath, IOodleDecoder? oodle = null, long bundleCacheBytes = DefaultBundleCacheBytes,
+        GgpkReadLimits? limits = null)
     {
         oodle ??= new ManagedOodleDecoder();
+        limits ??= new();
         // Read-only and shared, so the data can be read while the game client has the GGPK open.
-        var ggpk = new GGPK(new FileStream(ggpkPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), false);
+        var stream = new FileStream(ggpkPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        GGPK? ggpk = null;
         try
         {
-            byte[] indexRaw = ReadGgpkFile(ggpk, "Bundles2/_.index.bin");
-            byte[] indexContent = BundleFile.DecompressWhole(indexRaw, oodle);
-            return new GameFileSystem(ggpk, GameIndex.Parse(indexContent), oodle, bundleCacheBytes);
+            ggpk = new ReadOnlyGgpk(stream);
+            byte[] indexRaw;
+            byte[] indexContent;
+            try
+            {
+                indexRaw = ReadGgpkFile(ggpk, "Bundles2/_.index.bin", limits.IndexBytes);
+                indexContent = BundleFile.DecompressWhole(indexRaw, oodle, limits.IndexBytes);
+            }
+            catch (FileNotFoundException ex)
+            {
+                throw new GgpkFormatException("invalid-index", "Bundles2/_.index.bin is missing from the GGPK", ex);
+            }
+            catch (GgpkFormatException ex) when (ex.Reason == "invalid-archive")
+            {
+                throw new GgpkFormatException("invalid-index", $"Bundles2/_.index.bin: {ex.Message}", ex);
+            }
+            return new GameFileSystem(ggpk, GameIndex.Parse(indexContent, limits.IndexRecords), oodle, bundleCacheBytes,
+                limits, Convert.ToHexStringLower(SHA256.HashData(indexRaw)));
         }
         catch
         {
-            var stream = ggpk.UnsafeGetStream();
-            ggpk.Dispose();
-            stream.Dispose(); // LibGGPK3's Dispose returns early for a read-only stream.
+            try { ggpk?.Dispose(); }
+            finally { stream.Dispose(); } // LibGGPK3's Dispose returns early for a read-only stream.
             throw;
         }
     }
@@ -73,6 +99,8 @@ public sealed class GameFileSystem : IDisposable
             return false;
         }
         int bundle = loc.BundleIndex;
+        if (loc.Size > _limits.FileBytes)
+            throw new GgpkFormatException("validation-limit", $"{path}: {loc.Size} bytes exceeds quick-check limit {_limits.FileBytes}");
         lock (_gate)
         {
             if (_layouts.TryGetValue(bundle, out var layout) && TryCachedSlice(bundle, layout, loc.Offset, loc.Size, out data))
@@ -80,7 +108,7 @@ public sealed class GameFileSystem : IDisposable
             byte[] raw = GetBundle(bundle);
             _layouts[bundle] = BundleFile.Layout(raw);
             data = BundleFile.DecompressSlice(raw, loc.Offset, loc.Size,
-                (chunk, compressed, size) => DecompressChunk(bundle, chunk, compressed, size));
+                (chunk, compressed, size) => DecompressChunk(bundle, chunk, compressed, size), _limits.ChunkBytes);
         }
         return true;
     }
@@ -89,7 +117,7 @@ public sealed class GameFileSystem : IDisposable
     private bool TryCachedSlice(int bundle, (int DecompressedSize, int Granularity) layout, int offset, int size, out byte[] data)
     {
         data = [];
-        if (size <= 0 || layout.Granularity <= 0 || offset < 0 || offset + size > layout.DecompressedSize) return false;
+        if (size <= 0 || layout.Granularity <= 0 || offset < 0 || (long)offset + size > layout.DecompressedSize) return false;
         int first = offset / layout.Granularity, last = (offset + size - 1) / layout.Granularity;
         for (int chunk = first; chunk <= last; chunk++)
             if (!_chunks.ContainsKey((bundle, chunk))) return false;
@@ -167,7 +195,7 @@ public sealed class GameFileSystem : IDisposable
             return cached;
         }
 
-        byte[] raw = ReadGgpkFile(_ggpk, Index.BundleFiles[index]);
+        byte[] raw = ReadGgpkFile(_ggpk, Index.BundleFiles[index], _limits.BundleBytes);
         _bundleReads++;
         _bundleCache[index] = raw;
         _lruNodes[index] = _lru.AddFirst(index);
@@ -194,17 +222,22 @@ public sealed class GameFileSystem : IDisposable
         }
     }
 
-    private static byte[] ReadGgpkFile(GGPK ggpk, string path)
+    private static byte[] ReadGgpkFile(GGPK ggpk, string path, int maxBytes = int.MaxValue)
     {
         if (ggpk.Root.TryFindNode(path, out var node) && node is FileRecord fr)
+        {
+            if (fr.DataLength > maxBytes)
+                throw new GgpkFormatException("validation-limit", $"{path}: {fr.DataLength} bytes exceeds read limit {maxBytes}");
             return fr.Read();
+        }
         throw new FileNotFoundException($"file not found in GGPK: {path}", path);
     }
 
     /// <summary>Read a raw (undecoded) file straight from the GGPK container, bypassing bundles.</summary>
     public static byte[] ReadRawGgpkFile(string ggpkPath, string path)
     {
-        using var ggpk = new GGPK(ggpkPath);
+        using var stream = new FileStream(ggpkPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var ggpk = new ReadOnlyGgpk(stream);
         return ReadGgpkFile(ggpk, path);
     }
 

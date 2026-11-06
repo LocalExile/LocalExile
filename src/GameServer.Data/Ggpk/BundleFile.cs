@@ -22,37 +22,54 @@ public static class BundleFile
     private const int ChunkSizesOffset = 60;
 
     public static int DecompressedSize(ReadOnlySpan<byte> bundle)
-        => BinaryPrimitives.ReadInt32LittleEndian(bundle[DecompressedSizeOffset..]);
+        => Header(bundle).DecompressedSize;
 
     /// <summary>A bundle's decompressed size and its chunk size (every chunk but the last decompresses to it).</summary>
     public static (int DecompressedSize, int Granularity) Layout(ReadOnlySpan<byte> bundle)
-        => (DecompressedSize(bundle), BinaryPrimitives.ReadInt32LittleEndian(bundle[GranularityOffset..]));
+    {
+        var header = Header(bundle);
+        return (header.DecompressedSize, header.Granularity);
+    }
 
-    public static byte[] DecompressWhole(ReadOnlySpan<byte> bundle, IOodleDecoder decoder)
+    public static byte[] DecompressWhole(ReadOnlySpan<byte> bundle, IOodleDecoder decoder, int maxOutputBytes = int.MaxValue)
     {
         int size = DecompressedSize(bundle);
+        if (size > maxOutputBytes)
+            throw new GgpkFormatException("validation-limit", $"bundle declares {size} decoded bytes; quick-check limit is {maxOutputBytes}");
         return DecompressSlice(bundle, 0, size, decoder);
+    }
+
+    private static (int DecompressedSize, int ChunkCount, int Granularity) Header(ReadOnlySpan<byte> bundle)
+    {
+        if (bundle.Length < ChunkSizesOffset)
+            throw new GgpkFormatException($"bundle header is truncated: {bundle.Length} bytes, need {ChunkSizesOffset}");
+        int size = BinaryPrimitives.ReadInt32LittleEndian(bundle[DecompressedSizeOffset..]);
+        int chunks = BinaryPrimitives.ReadInt32LittleEndian(bundle[ChunkCountOffset..]);
+        int granularity = BinaryPrimitives.ReadInt32LittleEndian(bundle[GranularityOffset..]);
+        if (size < 0 || chunks < 0 || chunks > (bundle.Length - ChunkSizesOffset) / 4)
+            throw new GgpkFormatException($"invalid bundle sizes: decoded={size}, chunks={chunks}, available={bundle.Length}");
+        if (size == 0 ? chunks != 0 : chunks == 0 || granularity <= 0
+            || (long)(chunks - 1) * granularity >= size || (long)chunks * granularity < size)
+            throw new GgpkFormatException($"inconsistent bundle layout: decoded={size}, chunks={chunks}, granularity={granularity}");
+        return (size, chunks, granularity);
     }
 
     /// <summary>Decompresses chunk <paramref name="chunk"/> of a bundle (its compressed bytes) to
     /// <paramref name="decompressedSize"/> bytes; the result may be a cached array the caller must not change.</summary>
     public delegate byte[] ChunkDecoder(int chunk, ReadOnlySpan<byte> compressed, int decompressedSize);
 
-    public static byte[] DecompressSlice(ReadOnlySpan<byte> bundle, int sliceOffset, int sliceSize, IOodleDecoder decoder)
+    public static byte[] DecompressSlice(ReadOnlySpan<byte> bundle, int sliceOffset, int sliceSize, IOodleDecoder decoder, int maxChunkBytes = int.MaxValue)
     {
         ArgumentNullException.ThrowIfNull(decoder);
-        return DecompressSlice(bundle, sliceOffset, sliceSize, (_, compressed, size) => decoder.Decompress(compressed.ToArray(), size));
+        return DecompressSlice(bundle, sliceOffset, sliceSize, (_, compressed, size) => decoder.Decompress(compressed.ToArray(), size), maxChunkBytes);
     }
 
-    public static byte[] DecompressSlice(ReadOnlySpan<byte> bundle, int sliceOffset, int sliceSize, ChunkDecoder decoder)
+    public static byte[] DecompressSlice(ReadOnlySpan<byte> bundle, int sliceOffset, int sliceSize, ChunkDecoder decoder, int maxChunkBytes = int.MaxValue)
     {
         ArgumentNullException.ThrowIfNull(decoder);
-        if (sliceSize < 0)
-            throw new GgpkFormatException($"negative slice size {sliceSize}");
-
-        int decompressedSize = BinaryPrimitives.ReadInt32LittleEndian(bundle[DecompressedSizeOffset..]);
-        int chunkCount = BinaryPrimitives.ReadInt32LittleEndian(bundle[ChunkCountOffset..]);
-        int granularity = BinaryPrimitives.ReadInt32LittleEndian(bundle[GranularityOffset..]);
+        var (decompressedSize, chunkCount, granularity) = Header(bundle);
+        if (sliceOffset < 0 || sliceSize < 0 || sliceOffset > decompressedSize || sliceSize > decompressedSize - sliceOffset)
+            throw new GgpkFormatException($"slice ({sliceOffset}, {sliceSize}) is outside a {decompressedSize}-byte bundle");
 
         var result = new byte[sliceSize];
         int chunkBegin = ChunkSizesOffset + (chunkCount * 4);
@@ -64,6 +81,8 @@ public static class BundleFile
         for (int idx = 0; idx < chunkCount && decompOffset < sliceOffset + sliceSize; idx++)
         {
             int chunkSize = BinaryPrimitives.ReadInt32LittleEndian(bundle.Slice(ChunkSizesOffset + (idx * 4), 4));
+            if (chunkSize <= 0 || chunkSize > bundle.Length - chunkBegin)
+                throw new GgpkFormatException($"chunk {idx} is truncated or invalid: size={chunkSize}, available={bundle.Length - chunkBegin}");
 
             int decompChunkSize = (idx == chunkCount - 1)
                 ? decompressedSize - decompOffset
@@ -72,12 +91,14 @@ public static class BundleFile
             if (decompChunkSize > 0
                 && Math.Max(decompOffset, sliceOffset) < Math.Min(decompOffset + decompChunkSize, sliceOffset + sliceSize))
             {
+                if (decompChunkSize > maxChunkBytes)
+                    throw new GgpkFormatException("validation-limit", $"chunk declares {decompChunkSize} decoded bytes; quick-check limit is {maxChunkBytes}");
                 int begin = Math.Max(sliceOffset - decompOffset, 0);
                 int end = Math.Min(sliceOffset + sliceSize - decompOffset, decompChunkSize);
 
                 byte[] raw = decoder(idx, bundle.Slice(chunkBegin, chunkSize), decompChunkSize);
-                if (raw.Length < end)
-                    throw new GgpkFormatException($"chunk produced {raw.Length} bytes, need {end}");
+                if (raw.Length != decompChunkSize)
+                    throw new GgpkFormatException("decoder-error", $"chunk produced {raw.Length} bytes, expected {decompChunkSize}");
 
                 raw.AsSpan(begin, end - begin).CopyTo(result.AsSpan(destOffset));
                 destOffset += end - begin;
