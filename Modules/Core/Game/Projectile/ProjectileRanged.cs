@@ -36,14 +36,16 @@ static partial class Game
         // is only for a predictive client's server object.
         bool lockstep = conn.LockstepClient;
         double acceptedAt = swingAt ?? (lockstep ? LockstepFrameStart(conn) : conn.Clock.Elapsed.TotalSeconds);
-        // A shot the client draws itself has the count on its record.
-        bool clientDrawn = conn.ClientDrawsOrdinaryShots;
         var (delay, release) = OrdinaryRangedContact(conn, attackSeconds, projectileId, sequence, clientClock: lockstep);
         session.Schedule(ProjectileRuntime.Time(lockstep ? LockstepShotAt(acceptedAt, delay) : acceptedAt + AttackReleaseDelay(delay)),
             () => OrdinaryRangedReleaseCurrent(conn, action, epoch)
                 && OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true)) == projectileId,
             () =>
             {
+                // The client draws the shot when the record it has carries this projectile's count, as it stands at the
+                // release: a record of the other weapon (a swap whose skills have not gone yet) fires nothing there, so
+                // the server sends the object.
+                bool clientDrawn = conn.ClientDrawnShot == projectileId;
                 var character = CharacterPlayerStats(conn);
                 int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
                 int RawCritical(string name) => IsCriticalProhibition(name) ? 0 : Get(name);
@@ -121,7 +123,9 @@ static partial class Game
     }
 
     // The default attack's record, with the ordinary shot's count on a lockstep client (OrdinaryRangedCountStats), which
-    // then draws those shots itself: the server's release creates no object for them from here on (ClientPredicted).
+    // then draws those shots itself: a release of that projectile creates no object from here on (ClientPredicted). The
+    // record is built in the send gate that writes it (SendSkills, the charge and buff updates), so ClientDrawnShot is
+    // the record the client has by the frame of a release, which reads it then.
     internal static IReadOnlyList<GrantedSkill> PlayerDefaultSkills(ClientState conn, IReadOnlyList<(uint, int)> stats,
         IReadOnlyDictionary<uint, int> character)
     {
@@ -129,7 +133,8 @@ static partial class Game
         var keys = counts.Select(s => s.Item1).ToHashSet();
         var skills = SkillsFor(conn).PlayerDefaults([.. stats.Where(s => !keys.Contains(s.Item1)), .. counts]);
         conn.DefaultAttackRecordLockstep = conn.LockstepClient;
-        conn.ClientDrawsOrdinaryShots = counts.Count > 0 && skills.Count > 0;
+        conn.ClientDrawnShot = counts.Count > 0 && skills.Count > 0
+            ? OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true)) : null;
         return skills;
     }
 

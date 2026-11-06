@@ -999,8 +999,10 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // 0, so it is never probed and keeps its own messages.
     public volatile bool LockstepClient;
     // What the default attack's last skill record was built for: a lockstep client (DefaultAttackRecordLockstep), and
-    // with the wand's or bow's projectile count, so the client draws those shots itself (Game.PlayerDefaultSkills).
-    public volatile bool DefaultAttackRecordLockstep, ClientDrawsOrdinaryShots;
+    // the projectile whose count it carries (DefaultArrow or WandProjectile), which the client then draws itself
+    // (Game.PlayerDefaultSkills); null when it carries none.
+    public volatile bool DefaultAttackRecordLockstep;
+    public volatile string? ClientDrawnShot;
     // The real round trip (LockstepLatency), its probe in flight (Stopwatch timestamp, 0 for none) and the next one's time.
     public LockstepLatency LockstepLatency = null!;
     public long LockstepProbeSentAt;

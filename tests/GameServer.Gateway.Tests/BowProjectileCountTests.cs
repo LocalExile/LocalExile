@@ -95,9 +95,9 @@ public sealed class BowProjectileCountTests
             foreach (uint key in new[] { StatKeys.TotalProjectilesToFire, StatKeys.VirtualTotalProjectiles,
                 StatKeys.TotalArrowsToFire, StatKeys.VirtualTotalArrows })
                 Assert.Equal(2, Assert.Single(record.Stats!, s => s.Key == key).Value);
-            Assert.True(bowConn.ClientDrawsOrdinaryShots && bowConn.DefaultAttackRecordLockstep);
+            Assert.True(bowConn.ClientDrawnShot == OrdinaryRangedAttack.Arrow && bowConn.DefaultAttackRecordLockstep);
             Game.PlayerDefaultSkills(meleeConn, [], character);
-            Assert.False(meleeConn.ClientDrawsOrdinaryShots);
+            Assert.Null(meleeConn.ClientDrawnShot);
             // A drawn shot collides on the client's contact (the row's radii: DefaultArrow 1, WandProjectile 2 cells, plus
             // the target's size), not the server's 4-cell stand-in, and flies the client's 150 cells.
             int None(string _) => 0;
@@ -108,7 +108,7 @@ public sealed class BowProjectileCountTests
             Assert.Empty(Game.OrdinaryRangedCountStats(bowConn, character));
             Assert.DoesNotContain(Assert.Single(Game.PlayerDefaultSkills(bowConn, [], character)).Stats ?? [],
                 s => s.Key == StatKeys.VirtualTotalArrows);
-            Assert.False(bowConn.ClientDrawsOrdinaryShots || bowConn.DefaultAttackRecordLockstep);
+            Assert.False(bowConn.ClientDrawnShot is not null || bowConn.DefaultAttackRecordLockstep);
         }
         finally
         {
