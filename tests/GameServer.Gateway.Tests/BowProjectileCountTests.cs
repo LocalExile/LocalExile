@@ -1,4 +1,5 @@
 using GameServer.Core.Projectiles;
+using GameServer.Modding;
 
 namespace GameServer.Gateway.Tests;
 
@@ -59,6 +60,56 @@ public sealed class BowProjectileCountTests
         Assert.False(Game.ClientDrawsPrimaryProjectile(false, "Melee"));
         Assert.True(Game.ClientDrawsPrimaryProjectile(true, "Fireball"));
         Assert.True(Game.ClientDrawsPrimaryProjectile(true, "SpectralThrow"));
+
+        // A lockstep client draws its own wand bolt or arrow when the default attack's record has the count the server
+        // simulates (a bow's arrow totals too, as GGG's bow records); the server then sends no object for it. A
+        // predictive client's record and a melee one carry none.
+        string path = Path.Combine(Path.GetTempPath(), $"localexile-ordinary-count-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        Saves.Open(path);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        ClientState Holding(string character, string? weapon)
+        {
+            var conn = new ClientState(new(1, "ordinary-count", 1000, 1000, 100, 100, null, []), 1, 1)
+            {
+                Character = character, PlayerLife = 1000, PlayerMana = 1000, Instance = new(), LockstepClient = true,
+                Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+                LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            };
+            if (weapon is not null) Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find(weapon)!));
+            return conn;
+        }
+        var bowConn = Holding("OrdinaryBowChar", "Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1");
+        var wandConn = Holding("OrdinaryWandChar", "Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1");
+        var meleeConn = Holding("OrdinaryMeleeChar", null);
+        try
+        {
+            var character = new Dictionary<uint, int> { [Program.Stats.Key("number_of_additional_arrows")!.Value] = 1 };
+            Assert.Equal([(StatKeys.TotalProjectilesToFire, 2), (StatKeys.VirtualTotalProjectiles, 2),
+                (StatKeys.TotalArrowsToFire, 2), (StatKeys.VirtualTotalArrows, 2)], Game.OrdinaryRangedCountStats(bowConn, character));
+            Assert.Equal([(StatKeys.TotalProjectilesToFire, 1), (StatKeys.VirtualTotalProjectiles, 1)],
+                Game.OrdinaryRangedCountStats(wandConn, character));
+            Assert.Empty(Game.OrdinaryRangedCountStats(meleeConn, character));
+            // The record holds each count once, over a stale value in the stats it is built from.
+            var record = Assert.Single(Game.PlayerDefaultSkills(bowConn, [(StatKeys.TotalProjectilesToFire, 9)], character));
+            foreach (uint key in new[] { StatKeys.TotalProjectilesToFire, StatKeys.VirtualTotalProjectiles,
+                StatKeys.TotalArrowsToFire, StatKeys.VirtualTotalArrows })
+                Assert.Equal(2, Assert.Single(record.Stats!, s => s.Key == key).Value);
+            Assert.True(bowConn.ClientDrawsOrdinaryShots && bowConn.DefaultAttackRecordLockstep);
+            Game.PlayerDefaultSkills(meleeConn, [], character);
+            Assert.False(meleeConn.ClientDrawsOrdinaryShots);
+            bowConn.LockstepClient = false;
+            Assert.Empty(Game.OrdinaryRangedCountStats(bowConn, character));
+            Assert.DoesNotContain(Assert.Single(Game.PlayerDefaultSkills(bowConn, [], character)).Stats ?? [],
+                s => s.Key == StatKeys.VirtualTotalArrows);
+            Assert.False(bowConn.ClientDrawsOrdinaryShots || bowConn.DefaultAttackRecordLockstep);
+        }
+        finally
+        {
+            foreach (var conn in new[] { bowConn, wandConn, meleeConn }) PlayerInventories.Forget(conn.Character!);
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseSaves(path);
+        }
     }
 
     // Tornado Shot's primary arrow ends at the targeted location where the client releases its child group. It must

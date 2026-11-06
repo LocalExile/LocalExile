@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using GameServer.Core.Projectiles;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
@@ -30,8 +31,11 @@ static partial class Game
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
         double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
-        var (delay, release) = OrdinaryRangedContact(conn, attackSeconds, projectileId, sequence);
-        session.Schedule(ProjectileRuntime.Time(acceptedAt + AttackReleaseDelay(delay)),
+        // A shot the client draws itself (its record has the count) lands its hit on the client's own release; the lead
+        // is only for an object the server sends.
+        bool clientDrawn = conn.ClientDrawsOrdinaryShots;
+        var (delay, release) = OrdinaryRangedContact(conn, attackSeconds, projectileId, sequence, clientDrawn);
+        session.Schedule(ProjectileRuntime.Time(acceptedAt + (clientDrawn ? delay : AttackReleaseDelay(delay))),
             () => OrdinaryRangedReleaseCurrent(conn, action, epoch)
                 && OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true)) == projectileId,
             () =>
@@ -67,13 +71,8 @@ static partial class Game
                     // The object flies at the height the clip releases it (the bow's nock, the wand's tip).
                     Presentation = (wand ? OrdinaryWandPresentation : OrdinaryArrowPresentation) with { LaunchHeight = release?.HeightSteps },
                     // The target's blood and particles on contact, matched to this shot's action (0x1af, kind 3).
-                    HitPacket = true, ActionSequence = sequence };
-                var ranged = SkillsFor(conn).Projectile(projectileId);
-                double speed = ProjectileSpeed.CellsPerSecond(ranged?.Speed ?? 3260, Get, _ => 0,
-                    Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
-                var profile = GatewayProjectileDefaults.Resolve(ranged?.Id ?? projectileId, Get, speed, attack: true,
-                    arrows: weapon.Bow);
-                profile = NativeVolley(profile, Get);
+                    HitPacket = true, ActionSequence = sequence, ClientPredicted = clientDrawn };
+                var profile = NativeVolley(OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get), Get);
                 var origin = ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
                 var target = ProjectileSession.Vector(aim);
                 // The shot leaves from the clip's contact keyframe, in front of the body along the aim (the Ranger's bow
@@ -85,5 +84,58 @@ static partial class Game
                     { Payload = shot, ReturnAnchor = new(PlayerId, epoch) };
             });
         return Task.CompletedTask;
+    }
+
+    // The ordinary shot's flight as the server simulates it, and with it the count the client's record carries.
+    static ProjectileProfile OrdinaryRangedProfile(ClientState conn, string projectileId, bool bow, Func<string, int> get)
+    {
+        var ranged = SkillsFor(conn).Projectile(projectileId);
+        double speed = ProjectileSpeed.CellsPerSecond(ranged?.Speed ?? 3260, get, _ => 0,
+            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        return GatewayProjectileDefaults.Resolve(ranged?.Id ?? projectileId, get, speed, attack: true, arrows: bow);
+    }
+
+    /// <summary>
+    /// The default attack's record stats that let a lockstep client draw its own wand bolt or arrow: its release
+    /// (<c>0x141ba51a0</c>) fires nothing without a count, which <c>0x141ba6070</c> reads from
+    /// virtual_total_number_of_arrows for a bow with skill_can_fire_arrows and from virtual_total_number_of_projectiles
+    /// otherwise, and the flight resource (<c>0x141ac9e70</c>) is the bow's arrow or WandProjectile. The count is the one
+    /// the server simulates; a bow's record also carries the arrow totals, as GGG's bow records do. Empty for melee and on
+    /// a predictive client (its release is not traced: a predictive Burning Arrow with a count drew no arrow, 2026-10-31).
+    /// </summary>
+    internal static IReadOnlyList<(uint, int)> OrdinaryRangedCountStats(ClientState conn, IReadOnlyDictionary<uint, int> character)
+    {
+        var weapon = WeaponProfileFor(conn, activeSet: true);
+        if (!conn.LockstepClient || OrdinaryRangedAttack.ProjectileId(weapon) is not { } projectileId) return [];
+        int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        int n = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get).Count;
+        return weapon.Bow
+            ? [(StatKeys.TotalProjectilesToFire, n), (StatKeys.VirtualTotalProjectiles, n),
+                (StatKeys.TotalArrowsToFire, n), (StatKeys.VirtualTotalArrows, n)]
+            : [(StatKeys.TotalProjectilesToFire, n), (StatKeys.VirtualTotalProjectiles, n)];
+    }
+
+    // The default attack's record, with the ordinary shot's count on a lockstep client (OrdinaryRangedCountStats), which
+    // then draws those shots itself: the server's release creates no object for them from here on (ClientPredicted).
+    internal static IReadOnlyList<GrantedSkill> PlayerDefaultSkills(ClientState conn, IReadOnlyList<(uint, int)> stats,
+        IReadOnlyDictionary<uint, int> character)
+    {
+        var counts = OrdinaryRangedCountStats(conn, character);
+        var keys = counts.Select(s => s.Item1).ToHashSet();
+        var skills = SkillsFor(conn).PlayerDefaults([.. stats.Where(s => !keys.Contains(s.Item1)), .. counts]);
+        conn.DefaultAttackRecordLockstep = conn.LockstepClient;
+        conn.ClientDrawsOrdinaryShots = counts.Count > 0 && skills.Count > 0;
+        return skills;
+    }
+
+    // The player's record goes out before the client has shown it runs lockstep (a lag byte or a request), so it has no
+    // count; it goes again once it has, if a wand or bow is in hand.
+    internal static async Task SendLockstepDefaultAttack(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn)
+    {
+        if (!conn.LockstepClient || conn.DefaultAttackRecordLockstep || !conn.PlayerSent) return;
+        conn.DefaultAttackRecordLockstep = true;
+        if (OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true)) is null) return;
+        await SendSkills(remote, stream, ciphers, conn);
     }
 }

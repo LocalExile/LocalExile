@@ -276,7 +276,8 @@ readonly record struct DefaultAttackClip(string Animation, string Source, int In
     /// <summary>
     /// When the contact plays after the swing's start, for an attack of <paramref name="attackSeconds"/>. A clip without a
     /// budget is taken to stretch to the attack (a 600 ms wand clip's contact at 300 plays 0.333 s into a 0.667 s
-    /// attack, a 1066 ms bow clip plays at 1.49 throughout a 0.714 s attack: live 2026-11-03). A budgeted clip plays
+    /// attack, a 1066 ms bow clip plays at 1.49 throughout a 0.714 s attack: live 2026-11-03, from held Moves; the
+    /// client's own shot leaves at <see cref="ReleaseSeconds"/>). A budgeted clip plays
     /// over its budget and, when the attack is longer, the client stretches it to the attack time before the contact
     /// (the Ranger's attack_sword_01a, 365 ms with the contact at 299 and a 0.45 s budget, in a 0.645 s attack: the
     /// first 100 ms at 0.81 of the clip's speed, then 0.29 until 430 ms, then 0.81 again, the contact at 0.56 s; 01b,
@@ -292,6 +293,27 @@ readonly record struct DefaultAttackClip(string Animation, string Source, int In
     /// carry none). A keyframe after the contact plays at the clip's pace after the stretch, as the contact does.
     /// </summary>
     public double CutInSeconds(double attackSeconds) => PlayedAt(CancelMs ?? ContactMs, attackSeconds);
+
+    /// <summary>
+    /// When the client's own shot leaves, on the clip clock it sets up (<c>0x141b0ac20</c> → <c>0x141b0a9b0</c>): a clip
+    /// without a budget that is shorter than the attack plays at its own speed outside its slow span, and the span takes
+    /// up the rest, at most 8 times its length (the 600 ms wand clip's contact at 300, span 150–235, leaves 0.367 s into a
+    /// 0.667 s attack). A budgeted clip, or one no shorter than the attack, leaves at <see cref="ContactSeconds"/>.
+    /// Lockstep 2026-11-05: the client's releases came 63 ms after the wand's linear contact and 30 ms after the bow's;
+    /// released here, 16 to 40 ms after for both (p50 27 and 28).
+    /// </summary>
+    public double ReleaseSeconds(double attackSeconds)
+    {
+        double length = LengthMs / 1000.0, at = ContactMs / 1000.0;
+        if (BudgetSeconds is not null || attackSeconds <= length || SlowBeginMs is not { } b || SlowEndMs is not { } e || e <= b)
+            return ContactSeconds(attackSeconds);
+        double begin = b / 1000.0, end = e / 1000.0, span = end - begin;
+        double spanPlayed = Math.Min(8 * span, attackSeconds - length + span);
+        double pace = (length - span) / (attackSeconds - spanPlayed);
+        if (at <= begin) return at / pace;
+        if (at <= end) return begin / pace + (at - begin) * spanPlayed / span;
+        return begin / pace + spanPlayed + (at - end) / pace;
+    }
 
     double PlayedAt(int ms, double attackSeconds)
     {

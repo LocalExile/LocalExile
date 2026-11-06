@@ -37,7 +37,7 @@ static partial class Game
         try
         {
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
-            var skills = new List<GrantedSkill>([.. SkillsFor(conn).PlayerDefaults(player),
+            var skills = new List<GrantedSkill>([.. PlayerDefaultSkills(conn, player, character),
                 .. GemSkills(conn, player, character, panelSources!), .. GameEvents.ExtraSkills(conn)]);
             conn.PlayerSkillsCache = skills;
             conn.PlayerSkillsAt = now;

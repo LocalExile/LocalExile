@@ -50,6 +50,14 @@ public sealed class DefaultAttackTimingTests : IDisposable
         Assert.True(contacts.TryDefaultAttackClip(ao, wand, 7, 0.667, out var bolt));
         Assert.Equal("attack1_wand", bolt.Animation);
         Assert.Equal(0.3335, bolt.ContactSeconds(0.667), 3);
+        // The client's own bolt leaves when its clip clock reaches the contact: the clip plays at its speed outside the
+        // slow span (150-235), which takes up the attack's 67 ms over the clip, so 0.367 s; an attack no longer than the
+        // clip compresses it evenly, and a budgeted view leaves at its contact.
+        Assert.Equal(0.300 + 0.067, bolt.ReleaseSeconds(0.667), 4);
+        Assert.Equal(0.5 * 0.5, bolt.ReleaseSeconds(0.5), 4);
+        // At most 8 times its length: then the rest of the clip slows evenly over what is left.
+        Assert.Equal(0.085 * 8 + (0.150 + 0.065) * (1.6 - 0.68) / 0.515, bolt.ReleaseSeconds(1.6), 4);
+        Assert.Equal(clip.ContactSeconds(0.645), clip.ReleaseSeconds(0.645), 6);
         Assert.NotNull(bolt.Point);
         // No lock_cancelling keyframe: a Move held during the swing runs at the contact.
         Assert.Equal(bolt.ContactSeconds(0.667), bolt.CutInSeconds(0.667), 6);
