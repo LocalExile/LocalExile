@@ -7,18 +7,19 @@ using GameServer.Core.Protocol.Instance;
 /// [object id, the object type's u32 at its data +8] draws a uniform integer percent (0x1404d03d0) in the
 /// MonsterVarieties row's range (<see cref="MonsterCatalog.Variety.SpeedRollMin"/>,
 /// <see cref="MonsterCatalog.Variety.SpeedRollMax"/>), and the Pathfinding speed is multiplied by 1 + roll / 100.
-/// Most rows have an empty range (nothing is drawn, the roll is 0); the Goatmen roll in −5..5, so a base of 8 walks at
-/// 7.60–8.40, the band measured live. The server draws the same roll for its walk estimate, so arrival, swing range and
-/// contact agree with the client. The type word is taken as the 0x2b9 type hash (the type's register key), which the
-/// client stores at that offset by the research branch's reading; the range is certain, the exact value is not yet
+/// Most rows have a fixed zero range (nothing is drawn); equal bounds retain their fixed percent. Goatmen roll in
+/// −5..5, so a base of 8 walks at 7.60–8.40, the band measured live. The server draws the same roll for its walk estimate,
+/// so arrival, swing range and contact agree with the client. The type word is taken as the 0x2b9 type hash (the type's
+/// register key), which the client stores at that offset by the research branch's reading; the range is certain,
+/// the exact value is not yet
 /// confirmed live (scripts/re/frida/trace-movement.js prints each monster's seed words, range and multiplier).
 /// </summary>
 static class MonsterSpeedRoll
 {
-    /// <summary>The roll in percent for this key: 0 for an empty range (min == max), else uniform in [min, max].</summary>
+    /// <summary>The roll in percent for this key: min for equal bounds, else uniform in [min, max].</summary>
     public static int Percent(uint objectId, uint typeWord, int min, int max)
     {
-        if (min == max) return 0;
+        if (min == max) return min;
         var random = new AnimationVariantSelector.NativeRandom([objectId, typeWord]);
         return random.Uniform(min, max);
     }

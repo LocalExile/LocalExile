@@ -197,7 +197,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Monster walk speed on the server includes the client's per-monster speed roll: Actor setup draws a uniform percent
   in the MonsterVarieties row's range (the Goatmen ±5 %, the 7.60–8.40 band measured live for a base of 8; most rows
   none) from a TinyMT32 state keyed by the object id and its type, and the walk estimate, swing range and contact
-  checks use that speed.
+  checks use that speed; equal bounds retain their fixed percent rather than defaulting to zero.
   The range, the generator and the key order come from the decompile and pass the tests; whether the key's type word
   is the 0x2b9 type hash, and so whether the exact value matches the client's, is not checked live yet
   (`scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier).
