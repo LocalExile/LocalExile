@@ -517,6 +517,12 @@ static partial class Game
             int level = supported.Level;
             var own = supported.Stats;
             var stats = MergeSkillStats(playerStats, own);
+            if (SkillsFor(conn).IsAttack(effect) && Stats.Key("current_momentum") is uint momentum
+                && Stats.Key("support_momentum_attack_speed_+%_per_stack") is uint perMomentum
+                && stats.GetValueOrDefault(perMomentum) != 0)
+                stats[momentum] = MomentumSupport.Current(
+                    name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0,
+                    Supports.Of(effect)?.Types.Contains(47) == true);
             // A shield attack swings the shield in the off hand, which OffStats leaves out (not a weapon): the client then
             // read off_hand_total_base_weapon_attack_duration_ms 0, and Shield Charge's end-of-charge attack never finished
             // (Frida 2026-11-01, 11-skills.md "Shield Charge"). Its base time is the gem's own AttackTime.

@@ -228,7 +228,9 @@ static partial class Game
         {
             var profile = WeaponProfileFor(conn);
             double factor = profile.DualWield || profile.Unarmed ? 1.1 : 1;
-            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(gem.Stats.GetValueOrDefault(raw) * factor);
+            int increased = gem.Stats.GetValueOrDefault(raw)
+                + MomentumSupport.AttackSpeed(Get, Supports.Of(gem.Effect)?.Types.Contains(47) == true);
+            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(increased * factor);
             // "Chain Hook and Shield Charge have X% increased Attack Speed per 10 Rampage Kills".
             if (SkillsFor(conn).EffectId(gem.Effect) is { } effectId
                 && (effectId.StartsWith("ChainHook", StringComparison.Ordinal)

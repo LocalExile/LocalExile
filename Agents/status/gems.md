@@ -103,6 +103,10 @@ Nothing yet.
   its up-cast there, then its landing at the target, with the skill's arrow art riding `aux_projectile_attach`,
   documented in [25](../docs/protocol/25-gem-supports.md).
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
+  (`SpellRepeats`; [11](../docs/protocol/11-skills.md) "Spell repeats"); tested, not yet checked with the real client.
+  Momentum's attack-speed term and next-use count are calculated; runtime stacks and Swiftness remain missing.
+  Special execution mechanics remain incomplete;
+  see [25](../docs/protocol/25-gem-supports.md).
 
 - **Culling Strike.** Melee, area and projectile hits cull at 10% Life; Cull the Weak culls normal and magic enemies at
   its own share, and Pacifism's hits leave 1 Life ([25](../docs/protocol/25-gem-supports.md)).

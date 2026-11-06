@@ -179,6 +179,13 @@ more damage with bleeding, poison and ignite, and the count across Multistrike r
 ## Remaining execution gaps
 
 A native compatibility match and a displayed support letter do not prove that its special mechanic is implemented.
+Momentum's native count getter (`0x1428da370`) adds `base_current_momentum` and the non-channelled
+`count_as_momentum_+_if_not_channelled`; its attack-speed getter multiplies that count by the per-stack stat
+(`0x1426ff98d`–`0x1426ff99f`). The server applies the term to supported timing and publishes `current_momentum`.
+The recorded level-one Burning Arrow uses 15 attack speed per stack and count-dependent rates 112/127/143
+(attacks/s × 100); native final-speed quantization is described in [11](11-skills.md).
+Runtime gains, movement reset and Swiftness are still separate execution work.
+
 Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except Ice Nova's and the final-repeat stats.
 Triggers, totems, mines, minion behaviour, attack repeats, projectile branching, leech and many conditional effects
 still require their own execution paths.

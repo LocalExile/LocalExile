@@ -24,6 +24,18 @@ public sealed class SupportHitDamageTests
             Assert.Equal(rate, (int)Math.Round(100 / SkillAttackTiming.Seconds(714, increased, -30)));
         }
         Assert.Equal(-99, SkillAttackTiming.FinalSpeedPercent(0, 0));
+        // Native Momentum counts one upcoming use only for non-channelled attacks, without changing stored stacks.
+        foreach (int stored in new[] { 0, 1, 2 })
+        {
+            var stats = With(("base_current_momentum", stored), ("count_as_momentum_+_if_not_channelled", 1),
+                ("support_momentum_attack_speed_+%_per_stack", 15));
+            int GetMomentum(string name) => stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+            Assert.Equal(stored + 1, MomentumSupport.Current(GetMomentum, channelled: false));
+            Assert.Equal((stored + 1) * 15, MomentumSupport.AttackSpeed(GetMomentum, channelled: false));
+            Assert.Equal(stored * 15, MomentumSupport.AttackSpeed(GetMomentum, channelled: true));
+            Assert.Equal(stored, stats[Program.Stats.Key("base_current_momentum")!.Value]);
+        }
+        Assert.Equal(0, MomentumSupport.AttackSpeed(_ => 0, channelled: false));
         // Each support condition multiplies only when it holds.
         {
             var skill = With(("support_hypothermia_damage_+%_vs_chilled_enemies_final", 29),
