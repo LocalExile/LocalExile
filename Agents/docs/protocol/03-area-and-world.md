@@ -23,7 +23,7 @@ Dispatcher case 6. Class `0x1435da180` (0x168 bytes, ctor `0x14219d940`), write 
 | 9 | 3 raw bytes | +0x21..+0x23 | flag bits (see below) |
 | 10 | u8 | +0x1c | **level**. 0 = the area's own level (`0x140aa9900`), clamped to 1..100 |
 | 11 | u8 | +0x1d | |
-| 12 | u8 | +0x28 | the topology variant → `0x142142c00` → world +0xd0 (the generator's Topologies pick). The constructor's default is 0x3c (60); the 3.29 server sends 0x3b (59) in every load (`AreaInstance.TopologyVariant`) |
+| 12 | u8 | +0x28 | the topology variant → `0x142142c00` → world +0xd0 (the generator's Topologies pick). The constructor's default is 0x3c (60); every recorded load carries 0x3b (59) (`AreaInstance.TopologyVariant`) |
 | 13 | u16 | +0x16 | **only if** flag 0x21 bit 3: second area hash |
 | 14 | vec16⟨u32⟩ | +0x68 | `0x141fa3a70` |
 | 15 | vec16⟨u8⟩ | +0x80 | stored as 4-byte elements, sent as 1 byte each |

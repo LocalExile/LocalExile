@@ -1926,8 +1926,8 @@ the target open, so the recorder's write of the fourth object threw and left the
   sub-tile's whole plane as stored, border included; a composite map's layouts are compared one by one: the trace's `dungeons`, every layout of the load,
   and `subgraphs`, each record as 0x1420452e0 starts it); `LEVELGEN_DUMP=<file>` writes the port's grid as the trace's `tiles` (to line it up with the client's,
   e.g. to find where rooms land).
-- **The server corpus:** loads the official server generated (their area load packet beside a hardware-breakpoint
-  draw tracer on `0x141ff9720`, the generating thread) carry what no local trace has: the server's area stats, its
+- **The recorded corpus:** recorded loads (their area load packet beside a hardware-breakpoint draw tracer on
+  `0x141ff9720`, the generating thread) carry what no local trace has: the packet's area stats, its
   league rolls and its plugin blobs (Harvest, Incursion, Heist, Betrayal, Deepwater, …). Each such load is a
   `.gen.json` under `data/corpus-traces/` (git-ignored, produced outside this repository) with `"kinds": "n"` (only
   the bounded draws were logged; `levelgen generate` then compares the port's 'n' draws alone), and
