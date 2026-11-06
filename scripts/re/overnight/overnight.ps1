@@ -239,12 +239,12 @@ if ($Track -eq 'code') {
 
     Stage 'game-index' { Report -Index; 'ok' } { (Test-Path "$g\index.sqlite") -and (Test-Path "$g\functions.tsv") } -retries 1
 
-    # The client's own programs first, then third-party libraries smallest first; identical files once.
+    # The client's own other programs, smallest first, identical files once. The third-party libraries (graphics drivers'
+    # SDKs, shader compilers, FMOD, Bink) are left out: the server never needs what they do.
     $own = 'PathOfExile.exe', 'Client.exe', 'PathOfExile_x64.exe', 'Game_x64.exe', 'PackCheck.exe'
     $seen = @{ $GameHash = 1 }
     $seen[(Get-FileHash "$Client\Game.patched.exe" -Algorithm SHA256).Hash] = 1
-    $all = Get-ChildItem $Client -Recurse -Depth 2 -Include *.exe, *.dll -File |
-        Sort-Object @{ e = { if ($own -contains $_.Name) { 0 } else { 1 } } }, Length
+    $all = Get-ChildItem $Client -Recurse -Depth 2 -Include *.exe -File | Where-Object { $own -contains $_.Name } | Sort-Object Length
     if ($Smoke) { $all = $all | Where-Object { $_.Name -eq 'Client.exe' } }
     New-Item -ItemType Directory -Force "$Root\project-bins" | Out-Null
     foreach ($bin in $all) {

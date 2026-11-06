@@ -226,12 +226,11 @@ These passes also need Python with `capstone` and `pefile`, and Unicorn in `Tool
 | `game/decomp/` | same layout as `decomp-all`, with RTTI methods named `Class::vf<slot>` and Parameter ID prototypes |
 | `game/*.tsv`, `types.h`, `disasm/`, `index.sqlite` | call graph, data references, strings, symbols, vtables, types, every instruction, all queryable |
 | `game/undecompiled.tsv` | executable bytes in no function: what the decompile cannot show |
-| `bins/<file>/` | the same for every other `.exe` and `.dll` in `Client/` |
+| `bins/<file>/` | the same for the client's other programs (`Client.exe`, `Game_x64.exe`, `PackCheck.exe`); third-party DLLs are not decompiled |
 | `content/files/`, `content/textures/`, `content/extensions.tsv` | every GGPK file, NTFS-compressed only when free space is short (`.dds` 94 GB, 1.5:1 with LZX); the index's size per extension |
 
 Measured on Game.exe: `.pdata` adds only 71 functions to the analysis (it had the rest), and after the fragment and switch
-passes 28 KB of `.text` stays undefined, mostly multi-byte nops. `d3dcomp_47_x64.dll` has no `.rdata`: its data is in `.text`, so
-its low function coverage is not missed code. `Client/PathOfExile.exe` here is only the first 1.7 MB of `Game.exe`, so its headers
+passes 28 KB of `.text` stays undefined, mostly multi-byte nops. `Client/PathOfExile.exe` here is only the first 1.7 MB of `Game.exe`, so its headers
 describe code the file lacks; do not analyze it. A decompile's quality is capped by the binary: locals and most functions have no names.
 
 `NightRetry.java` gives failed functions a long timeout and falls back to p-code, which the earlier decompiler passes can
@@ -313,8 +312,8 @@ Other formats:
   covers code Ghidra already disassembled. `NightDump` skips tables that exist: delete them to include new functions.
 - MSVC switches with `__assume` have no bounds check, so auto-analysis misses them: `LEA RCX,[image base]`, `MOV EAX,[RCX + RDX*4
   + rva]`, `ADD RAX,RCX`, `JMP RAX`, with the table inline after the function. `NightSwitches.java` recovers them with a jump
-  table override and clears tables misread as code; functions in its `switches.tsv` need decompiling again. In 11 functions of
-  the two d3dcompiler DLLs (byte index tables) the override kills the decompiler process though the table is right, so `NightRetry`
-  drops it and the file says so; why those 11 and not the other byte index tables is not known.
-- `GFSDK_Aftermath_Lib.x64.dll` `0x1802a5630` (413 KB, 24,649 blocks) runs out of memory in every decompiler pass.
-  `NightSplit.java` writes it as 570 pieces of C instead; 4 prologue instructions hang the decompiler and stay disassembly.
+  table override and clears tables misread as code; functions in its `switches.tsv` need decompiling again. In some
+  functions with byte index tables the override kills the decompiler process though the table is right (seen in 11 functions of
+  a third-party DLL), so `NightRetry` drops it and the file says so.
+- A function too big for every decompiler pass (seen once, in a third-party DLL: 413 KB, 24,649 blocks) is written by
+  `NightSplit.java` as pieces of C; instructions in no piece that decompiles stay disassembly.
