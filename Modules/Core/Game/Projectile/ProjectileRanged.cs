@@ -139,14 +139,18 @@ static partial class Game
     }
 
     // The player's record goes out before the client has shown it runs lockstep (a lag byte or a request), so it has no
-    // count; it goes again once it has, if a wand or bow is in hand.
-    internal static async Task SendLockstepDefaultAttack(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    // count; it goes again once it has, if a wand or bow is in hand. Beside the frames, which must not wait for it.
+    internal static void SendLockstepDefaultAttack(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn)
     {
         if (!conn.LockstepClient || conn.DefaultAttackRecordLockstep || !conn.PlayerSent) return;
         conn.DefaultAttackRecordLockstep = true;
         if (OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true)) is null) return;
-        await SendSkills(remote, stream, ciphers, conn);
+        _ = Task.Run(async () =>
+        {
+            try { await SendSkills(remote, stream, ciphers, conn); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        });
     }
 
     // The start of the lockstep frame now being sent, which a player action echoed now begins in.

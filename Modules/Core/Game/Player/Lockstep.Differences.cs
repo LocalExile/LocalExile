@@ -52,7 +52,7 @@ static partial class Game
                     });
                 }
                 await ProbeLockstepLatency(remote, stream, ciphers, conn);
-                await SendLockstepDefaultAttack(remote, stream, ciphers, conn);
+                SendLockstepDefaultAttack(remote, stream, ciphers, conn);
                 await StartLockstepActions(remote, stream, ciphers, conn, first + ended * frame);
             }
         }
