@@ -43,6 +43,11 @@ static partial class Game
     internal static bool UsesProjectileRuntime(int effect) => Skills.IsProjectile(effect)
         || ProjectileDefinition(Skills.EffectId(effect) ?? "") is not null;
 
+    // Presentation only: Burning Arrow's real local input emits its own primary. Keep its existing simulation
+    // geometry separate from ClientPredicted, which also selects native range/contact/volley specialization.
+    internal static bool ClientDrawsPrimaryProjectile(bool predicted, string? effect) =>
+        predicted || effect == "BurningArrow";
+
     // Validate adopted paths before accepting an action, spending mana or reserving a cooldown.
     // Release still resolves again: equipment/stats may change during the ordinary cancellable windup.
     internal static bool ProjectilePathAvailable(string remote, ClientState conn, ushort skillId, int effect)
@@ -224,6 +229,10 @@ static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0)
     {
+        // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
+        // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
+        // equipment/requirements/support walk for every field while holding the combat lock.
+        using var snapshot = new PlayerStatScope(conn, fresh: true);
         var player = CharacterPlayerStats(conn);
         var own = SupportedSkill(conn, skillId).Stats;
         var merged = MergeSkillStats(player, own);
@@ -299,8 +308,8 @@ static partial class Game
             ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindInputs(player, own),
             // A spell's action spawns its projectiles itself, every one of a volley, from where it stands (Frida
             // 2026-10-29, 0x141ebdf30 from the action at 0x141e938c0): a server object for them was a second fireball.
-            // An attack gem's does not: Burning Arrow's action 0x415 started and created no projectile until the server's
-            // 0x2b9, as the default attack's arrow (Frida 2026-10-31).
+            // The older packet-driven Burning Arrow control missed local input prediction: real mouse input creates
+            // a client projectile too. ClientDrawsPrimaryProjectile handles its visual without changing simulation.
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
             // Arrow Nova's volley is drawn by the client (the 18 SplitArrowDefault children were client objects), but
             // its payload arrow is not, so the server still sends that one object.

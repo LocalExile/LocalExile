@@ -93,10 +93,10 @@ static partial class Game
         mods = MonsterModsFor(conn, variety, level, rarity, mods, alone);
         // Additional encounter scaling composes with rolled rarity and map effects.
         if (extraMods is not null) mods = mods with { Effects = mods.Effects.Plus(extraMods.Effects) };
-        if (MapModsOf(conn) is { } mapMods && MapMonsterEffects(mapMods) is { Count: > 0 } mapStats)
+        if (!friendly && MapModsOf(conn) is { } mapMods && MapMonsterEffects(mapMods) is { Count: > 0 } mapStats)
             mods = mods with { Effects = mods.Effects.Combine(mapStats) };
         // The party bonus (Game.PartyBonus): each player beyond the first adds to the monsters' life by their rarity.
-        if (PartyMonsterLife(conn, rarity) is int party and > 0)
+        if (!friendly && PartyMonsterLife(conn, rarity) is int party and > 0)
             mods = mods with { Effects = mods.Effects.Combine(new Dictionary<string, int> { ["maximum_life_+%"] = party }) };
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
@@ -376,7 +376,7 @@ static partial class Game
         var scale = mapMods?.Packs ?? default;
         var spawns = WithTwinBosses(AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
-            HashCode.Combine(layout.Hash, conn.Seed), Spawnable, notes, scale,
+            AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
             unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points)],
             scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y))), mapMods).ToList();
         foreach (var room in trialRooms)
@@ -519,7 +519,7 @@ static partial class Game
                 // Out of the wake zone the client's copy stands frozen (07 §3); the server's stands too (KeepWakeZone
                 // ended its walk) and gets no order until it is back, or the return's 0x128 would put the copy wherever
                 // the estimate walked meanwhile (live 2026-11-03: 162 cells, in one jump).
-                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted || m.Asleep
+                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted || m.Asleep || conn.Golems.All.ContainsKey(id)
                     || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
                 // Asleep for this client (its own wake zone, KeepWakeZone): no order and no boss bar about an object the
                 // client has put to sleep; the boss life bar for one crashed the client (live 2026-11-05).
@@ -534,6 +534,7 @@ static partial class Game
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
                 // One player at a time: the instance's monster acts for whoever it targets, on that one's connection.
                 if (m.Hostile && !MonsterTargetsLocked(conn, id, m, (mx, my), d, now)) continue;
+                if (m.Hostile && GolemEnemyOrderLocked(conn, id, m, now, d)) continue;
                 if (!m.Aggro && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
                 if (m.Aggro && !m.BossBarShown && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
                 {
@@ -958,9 +959,8 @@ static partial class Game
         CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PendingTransfer is null && !m.Dead && m.Life > 0
         && ReferenceEquals(conn.Monsters.GetValueOrDefault(id), m);
 
-    // Keep the stage's final transition, refill and ActionEnded contiguous at the actual send gate. Only then may
-    // the planner reserve another action; that action's write must follow this batch through the same gate.
-    // Completion waits through a pause, but never writes to a departed area or a replacement monster with the same id.
+    // Apply the stage effect and end recovery on the area game clock, at the actual send gate. Hot-reloaded
+    // workers resume the same deadlines and one-shot state; a pause cannot consume the remaining stage time.
     internal static async Task CompleteMonsterStage(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, SpawnedMonster m)
     {
@@ -970,25 +970,50 @@ static partial class Game
             bool completed = false;
             await Send(remote, stream, ciphers, [], null, atGate: () =>
             {
-                lock (conn.Monsters)
-                {
-                    if (!MonsterPresent(conn, id, m) || !m.StageRunning || conn.Paused) return null;
-                    var stage = m.Stage!;
-                    var bytes = new List<byte>();
-                    if (m.Variety?.ComponentsOrBase.ToList().IndexOf("Transitionable") is int t and >= 0)
-                        bytes.AddRange(InstanceEntities.TransitionableUpdate(id, (byte)t, stage.TransitionTo));
-                    bytes.AddRange(InstanceProtocol.LifeUpdate(id, m.MaxLife));
-                    bytes.AddRange(InstanceProtocol.ActionEnded(id));
-                    m.Life = m.MaxLife;
-                    m.StageRunning = false;
-                    completed = true;
-                    Console.WriteLine($"[gateway] {remote} => monster 0x{id:x} ({m.Label}) stage complete: " +
-                        $"Transitionable {stage.TransitionTo}, life {m.Life}, 0x01ac action ended");
-                    return bytes.ToArray();
-                }
+                var bytes = AdvanceMonsterStage(conn, id, m, AreaTime(conn));
+                completed = !m.StageRunning;
+                if (bytes is not null)
+                    Console.WriteLine($"[gateway] {remote} => monster 0x{id:x} ({m.Label}) stage " +
+                        $"{(completed ? "complete" : "effect")}: life {m.Life}, game time {AreaTime(conn):0.000}");
+                return bytes;
             });
             if (completed) return;
-            await AreaWait(PlayerUpdateRole.MonsterAction, 16);
+            int wait;
+            lock (conn.Monsters)
+            {
+                double next = m.StageEffectApplied ? m.BusyUntil : m.StageEffectAt;
+                wait = conn.Paused ? 100 : (int)Math.Clamp(Math.Ceiling((next - AreaTime(conn)) * 1000), 16, 1000);
+            }
+            await AreaWait(PlayerUpdateRole.MonsterAction, wait);
+        }
+    }
+
+    // Called only at the send gate; all one-shot state changes and their packets belong to the same guarded update.
+    internal static byte[]? AdvanceMonsterStage(ClientState conn, uint id, SpawnedMonster m, double now)
+    {
+        lock (conn.Monsters)
+        {
+            if (!MonsterPresent(conn, id, m) || !m.StageRunning || conn.Paused) return null;
+            var stage = m.Stage!;
+            // A stage started by an older loaded module retains its recovery deadline.
+            if (double.IsNaN(m.StageEffectAt))
+                m.StageEffectAt = m.BusyUntil - stage.CastSeconds + stage.EffectSeconds(m.Variety is { } variety
+                    ? SkillsFor(conn).MonsterContact(variety.Id, "Throw", 0xffff) : null);
+            var bytes = new List<byte>();
+            if (!m.StageEffectApplied && now >= m.StageEffectAt)
+            {
+                if (m.Variety?.ComponentsOrBase.ToList().IndexOf("Transitionable") is int t and >= 0)
+                    bytes.AddRange(InstanceEntities.TransitionableUpdate(id, (byte)t, stage.TransitionTo));
+                bytes.AddRange(InstanceProtocol.LifeUpdate(id, m.MaxLife));
+                m.Life = m.MaxLife;
+                m.StageEffectApplied = true;
+            }
+            if (now >= m.BusyUntil)
+            {
+                bytes.AddRange(InstanceProtocol.ActionEnded(id));
+                m.StageRunning = false;
+            }
+            return bytes.Count > 0 ? bytes.ToArray() : null;
         }
     }
 
@@ -1252,6 +1277,9 @@ static partial class Game
             if (InGracePeriod(conn)) return null;
             double now = conn.Clock.Elapsed.TotalSeconds;
             var here = conn.Walk.Position(now);
+            foreach (var golem in conn.Golems.All.Values.ToArray())
+                if (!golem.Monster.Dead && Dist(golem.Monster.Walk.Position(now), aim) <= radius)
+                    GolemTakeHitLocked(conn, golem, id, m, a, now, area: true);
             double dx = here.X - aim.X, dy = here.Y - aim.Y;
             if (dx * dx + dy * dy > radius * radius) return null;
             outcome = CommitMonsterHitLocked(remote, conn, id, m, a, now, here, aim, checkRange: false, sequence: sequence);
@@ -1401,6 +1429,12 @@ static partial class Game
         damage = FortificationDamageTaken(conn, damage);
         chaosDamage = FortificationDamageTaken(conn, chaosDamage);
         physicalDamage = Math.Min(FortificationDamageTaken(conn, physicalDamage), Math.Max(0, damage - chaosDamage));
+        if (!a.Spell && !a.Ranged && damage > 0)
+        {
+            int before = damage; damage = GolemSafeguardLocked(conn, damage, now);
+            chaosDamage = (int)((long)chaosDamage * damage / before);
+            physicalDamage = (int)((long)physicalDamage * damage / before);
+        }
         if (damage > 0)
         {
             int full = damage;

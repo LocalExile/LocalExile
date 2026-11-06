@@ -93,7 +93,13 @@ public static class StatConditions
     /// <summary>The plain stat a conditional id names: <c>spell_damage_+%_while_dual_wielding</c> →
     /// <c>spell_damage_+%</c>, and <c>damage_+%_if_you_have_frozen_enemy_recently</c> → <c>damage_+%</c>. Null when the
     /// id carries no condition this build can move.</summary>
-    public static string? PlainOf(string statId)
+    static System.Collections.Concurrent.ConcurrentDictionary<string, string?>? PlainNames;
+
+    public static string? PlainOf(string statId) =>
+        System.Threading.LazyInitializer.EnsureInitialized(ref PlainNames,
+            static () => new(StringComparer.Ordinal)).GetOrAdd(statId, ParsePlainName);
+
+    static string? ParsePlainName(string statId)
     {
         foreach (string suffix in WeaponSuffixes)
         {
@@ -226,53 +232,64 @@ public static class StatConditions
     /// twice.
     /// </para>
     /// </summary>
-    public static State Of(string statId, in Subject subject)
+    static System.Collections.Concurrent.ConcurrentDictionary<string, Func<Subject, State>>? ParsedConditions;
+
+    public static State Of(string statId, in Subject subject) =>
+        System.Threading.LazyInitializer.EnsureInitialized(ref ParsedConditions,
+            static () => new(StringComparer.Ordinal)).GetOrAdd(statId, ParseCondition)(subject);
+
+    // Parse the immutable stat id once; the predicate still reads the live subject on every call.
+    static Func<Subject, State> ParseCondition(string statId)
     {
         if (statId.Contains(DualWield, StringComparison.Ordinal))
-            return subject.DualWield is bool d ? (d ? State.Holds : State.Fails) : State.NotModelled;
+            return static subject => subject.DualWield is bool d ? (d ? State.Holds : State.Fails) : State.NotModelled;
         if (statId.Contains(WieldingShield, StringComparison.Ordinal) ||
             statId.Contains(UsingShield, StringComparison.Ordinal) ||
             statId.Contains(HoldingShield, StringComparison.Ordinal) ||
             statId.Contains(HoldingAShield, StringComparison.Ordinal))
-            return subject.Shield is bool s ? (s ? State.Holds : State.Fails) : State.NotModelled;
+            return static subject => subject.Shield is bool s ? (s ? State.Holds : State.Fails) : State.NotModelled;
         if (statId.Contains(TwoHanded, StringComparison.Ordinal) ||
             statId.Contains(UsingTwoHanded, StringComparison.Ordinal))
-            return subject.TwoHanded is bool t ? (t ? State.Holds : State.Fails) : State.NotModelled;
+            return static subject => subject.TwoHanded is bool t ? (t ? State.Holds : State.Fails) : State.NotModelled;
         if (statId.Contains(OneHanded, StringComparison.Ordinal) ||
             statId.Contains(UsingOneHanded, StringComparison.Ordinal))
-            return subject.OneHanded is bool o ? (o ? State.Holds : State.Fails) : State.NotModelled;
+            return static subject => subject.OneHanded is bool o ? (o ? State.Holds : State.Fails) : State.NotModelled;
 
         // "while affected by X": X is a buff the character may carry. Only an ordinary aura the server already runs can
         // be answered; a shrine, elusive or a league buff is a subject it does not model yet, so those stats keep their
         // previous behaviour rather than being treated as "the condition is false".
         if (TryAuraName(statId, out string family))
         {
-            if (subject.Auras is not { } running || !IsModelledAura(family)) return State.NotModelled;
-            return AuraHolds(family, running) ? State.Holds : State.Fails;
+            if (!IsModelledAura(family)) return static _ => State.NotModelled;
+            return subject => subject.Auras is { } running
+                ? AuraHolds(family, running) ? State.Holds : State.Fails : State.NotModelled;
         }
 
         // "recently": the event happened within the last four seconds. The subject carries the events that did.
         if (TryRecentEvent(statId, out string key, out bool negated))
         {
-            if (subject.Recent is not { } recent || subject.KnownRecent is { } known && !known.Contains(key)) return State.NotModelled;
-            bool happened = recent.Contains(key);
-            return (negated ? !happened : happened) ? State.Holds : State.Fails;
+            return subject =>
+            {
+                if (subject.Recent is not { } recent || subject.KnownRecent is { } known && !known.Contains(key)) return State.NotModelled;
+                bool happened = recent.Contains(key);
+                return (negated ? !happened : happened) ? State.Holds : State.Fails;
+            };
         }
 
         // "if you have at least N <attribute>": compare the attribute the subject reads.
         if (TryThreshold(statId, out string attribute, out int needed))
         {
-            if (subject.Value is not { } value || value(attribute) is not int actual) return State.NotModelled;
-            return actual >= needed ? State.Holds : State.Fails;
+            return subject => subject.Value is { } value && value(attribute) is int actual
+                ? actual >= needed ? State.Holds : State.Fails : State.NotModelled;
         }
 
         if (StateSuffix(statId) is { } suffix)
-            return subject.Flags is { } flags && flags.TryGetValue(suffix, out bool active)
+            return subject => subject.Flags is { } flags && flags.TryGetValue(suffix, out bool active)
                 ? active ? State.Holds : State.Fails : State.NotModelled;
 
         // Per-charge coefficients and on-kill grants are ChargeEffects' and ChargeGains' already: an id naming a charge
         // type is left to them, not folded here, so the same value is not counted twice.
-        if (NamesACharge(statId)) return State.NotModelled;
+        if (NamesACharge(statId)) return static _ => State.NotModelled;
 
         // Anything else that still looks conditional is not modelled: keep it as it was, and let a caller list it.
         if (statId.Contains(WhileAffectedBy, StringComparison.Ordinal) ||
@@ -280,9 +297,9 @@ public static class StatConditions
             statId.Contains("_while_", StringComparison.Ordinal) ||
             statId.Contains("_if_you_have_", StringComparison.Ordinal) ||
             statId.Contains("_if_", StringComparison.Ordinal))
-            return State.NotModelled;
+            return static _ => State.NotModelled;
 
-        return State.None;
+        return static _ => State.None;
     }
 
     /// <summary>Whether an id is one ChargeEffects (<c>_per_&lt;type&gt;_charge</c>) or ChargeGains

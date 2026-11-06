@@ -61,7 +61,8 @@ static partial class Game
         foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
             if (peer.Owner is { Outbox: { } outbox } other && !other.Closed && !other.LeavingArea
                 && Array.BinarySearch(other.AwakeMonsters, id) >= 0)
-                _ = outbox(bytes, null);
+                // Each send encrypts in place, potentially after waiting for its recipient's gate.
+                _ = outbox((byte[])bytes.Clone(), null);
     }
 
     // This player's frame: the shares of the host's kills.

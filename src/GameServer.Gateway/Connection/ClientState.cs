@@ -164,7 +164,7 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public byte Level { get; init; } = 1;
     public MonsterRarity Rarity { get; init; }
     // Its mods (MonsterMods.cs): the rarity's own and the rolled affixes, with what they change. Kept with the instance.
-    public MonsterModSet Mods { get; init; } = MonsterModSet.None;
+    public MonsterModSet Mods { get; set; } = MonsterModSet.None;
     // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
     public int SpeedRoll { get; init; }
     // Damage over time not yet applied (fractions of a point between ticks).
@@ -259,7 +259,7 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public PlayerWalk Walk { get; set; } = walk;
     public int AggroRange => aggroRange;
     public int StopRange => stopRange;
-    public uint MaxLife { get; } = maxLife;
+    public uint MaxLife { get; set; } = maxLife;
     public uint Life = maxLife;
     // Until when its last flinch plays (Clock seconds; HitReaction): no new action or flinch before.
     // Guarded by the Monsters lock.
@@ -284,6 +284,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // A boss's stage (BossFights) and whether a hit has started it.
     public BossFights.Stage? Stage { get; init; }
     public bool StageTaken, StageRunning;
+    public double StageEffectAt = double.NaN;
+    public bool StageActionStarted, StageEffectApplied;
     // A quest threshold (Quests.ThresholdRule): the monster never dies; reaching it sets the flags once (Game.QuestThreshold).
     public Quests.ThresholdRule? Threshold { get; init; }
     public bool ThresholdReached;
@@ -816,6 +818,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public int StashForcedTab = -1;
     public double StashForcedUntil;
     // The NPC whose dialogue window is open (0x84 sent, 0x85 not yet), 0 = none.
+    HashSet<int>? automaticNpcTalkRows;
+    public HashSet<int> AutomaticNpcTalkRows =>
+        System.Threading.LazyInitializer.EnsureInitialized(ref automaticNpcTalkRows);
     public volatile uint TalkingTo;
     // Whether the open dialogue shows an NPCTalk row's talk (0x84 with its index) rather than the option list.
     public volatile bool InNpcTalk;

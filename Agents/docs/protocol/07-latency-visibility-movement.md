@@ -265,6 +265,11 @@ and walks its estimate at that speed (the Gateway's create log prints the speed 
 2026-11-03 (the lockstep tick trace, each walker's step times): four Drowned walked at 8.16, 7.92, 7.60 and 7.84
 cells/s, the Gateway's rolls of +2, −1, −5 and −2 % for them; Hungry Corpses at 8.000, Sand Spitters at 20.000, the
 player at 37.000. `scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier.
+Equal bounds skip the random draw but retain that percent (`0x141e9ccb2` → `0x141e9ccc2`–`0x141e9ccd9`).
+The extracted nonzero cases are AbyssCurseBot/AbyssDebuffBot (30/30, factor 1.30) and SareshFleshPillar
+(−20/−20, factor 0.80). `MonsterSpeedRoll.Percent` preserves these fixed values; zero/zero remains zero.
+Prepared-client Actor setup readback confirms all three factors (float 1.29999995/1.29999995/0.80000001);
+the server's corresponding unmodified-variety speeds are 68.9/68.9/0.8 cells/s.
 Decompiled in the research branch's `re/server-gaps-3.29.3b.md` §3.
 
 **A melee monster's chase.** GGG repeats the monster's attack aimed at the player object about every 200 ms, near or

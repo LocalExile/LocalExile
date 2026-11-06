@@ -324,8 +324,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([11-skills](../docs/protocol/11-skills.md) "The client's volley"; static RE, the fan fitted to live Spark volleys)
   and its seeded random directions (static RE, checked live 2026-10-31: damage only where a projectile was drawn).
   Parallel volleys still use the server's own fan.
-  An attack gem's projectiles are not predicted: they get a server object like the default attack's arrow (Burning
-  Arrow showed no arrow before; live 2026-10-31, the arrows fly and ignite).
+  Ordinary Burning Arrow uses the client's primary arrow visual; real mouse-input tracing exposed the duplicate
+  server arrow missed by the old packet-driven control. Its server collision/damage simulation remains active.
+  Other attack gems retain their existing presentation until verified individually.
   Spark's action fires through the same client method, so its sparks are the client's too; they live the skill's
   `skill_effect_duration`, which gem skills now carry (without it no spark was drawn; static RE 2026-10-30, not yet
   checked live).
@@ -674,11 +675,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §9.
 - Pride on enemies: its buff (row 1331) reaches every monster in the aura without breaking the client's stream.
   Code: `EnemyDebuffs.Rules.cs`. Docs: [11](../docs/protocol/11-skills.md) (The player's debuffs on monsters).
-- Combat load: one stat snapshot per client message and at most one rebuild per 60 Hz frame (`PlayerStatsCache.cs`), the
-  skill list rebuilt only when its inputs change, the tick's state publications batched at the send gate, idle polls
-  skip it; a pack fight's input queue stays under ~400 ms (was 4-16 s). F1 NETWORK shows that wait.
 
 ## Partly working
+
+- Combat load: message/frame and fresh projectile-release snapshots; input-checked skill/equipment caches ignore
+  within-level gem XP and extended active recent windows; immutable item-local stats, condition parsers and projectile
+  recipes are reused. F1 NETWORK retains real input-queue latency; large load spikes remain under investigation.
+  Code: `PlayerStatsCache.cs`, `StatConditions.cs`.
 
 - Survivors league and three optional modules, including the seven stage gate bosses; the catalogue keeps only skills the flight/pulse presentation can play (every projectile gets a visible fallback), ground area spells land on their target, the support pool is every normal support gem whose numbers the cast pipeline reads, and enemies are 5x tougher and 4x harder-hitting (ranged shots at 30%) with a DPS threat on life, nearby experience orbs, a first window that pauses before any spawn, 25%-of-life death zones and corpse cleanup; uniques persist between runs and bosses are 5x their ladder: [client presentation and limits](../docs/game/survivors-mode.md).
 
@@ -686,7 +689,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   GrantedEffectsPerLevel multiplier) for both the admission gate and the swing interval, instead of mixing it with
   `SkillAttackSeconds`. Tornado Shot's -20% and player/bow attack speed apply. Projectile speed adds the player's
   `projectile_speed_+%` to the skill's `base_projectile_speed_+%`. Automated pace and projectile-speed checks pass;
-  no native check yet. Code: `GemSupports.Rules.cs`, `Combat.cs`, `ProjectileSpeed.cs`.
+  native Burning Arrow numeric controls confirm integer final-speed rounding before duration, while broader native
+  admission checks remain pending. Code: `GemSupports.Rules.cs`, `Combat.cs`, `ProjectileSpeed.cs`.
 - Lifetap Support: supported skills pay their whole Mana cost as Life, including the 300% cost multiplier; the paid
   Life is accumulated against `support_lifetap_spent_life_threshold`. Reaching it grants the 4 s (plus quality) Lifetap
   buff, whose more damage applies to supported hits and whose 20% increased Life recovery applies to flasks.
@@ -957,7 +961,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   the nearest hostile monster near both, swings its first skill with his minion modifiers (its base hit from
   DefaultMonsterStats `MinionDamage`, the ally table), and its kills give him
   experience and loot; the instance save, his area hits and his on-kill charges leave it out.
-  The Spirit chieftains are the only ones; no monster attacks a minion.
+  This first-skill controller serves Spirit chieftains; golems use their own controller below.
   Gateway coverage; not yet checked with the real client.
   Code: `PlayerMinions.cs`, `MinionAttacks.cs`, `RunMonsterAi`.
   Docs: [11](../docs/protocol/11-skills.md) section 10h.
@@ -1015,17 +1019,12 @@ This is a research baseline, not new live skill acceptance or complete native/se
   on hits against rares and uniques, behind its cooldown, in Ruthless too.
   Used by the Paladin Aura options (Determination, Grace, Discipline); automated coverage only, not checked with the
   real client. See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
-- Owned minions: the player's minions are friendly monsters marked by `is_player_minion` and `is_semantic_minion`.
-  They follow him (teleporting back from beyond their aggro range when they have a teleport), end by their duration,
-  can cast an aura on him and explode when they end; his increased minion life and duration raise their life and
-  duration, and the flasks that Field Medicine puts on a linked minion change its walk speed.
-  Their kills give experience and items. They go with death, the granting passive, an area change and logout, and
-  are never saved.
-  Only Summon Elemental Relic's relics exist (Elemental Valiance and Unwavering Crusade); no gem makes minions yet.
-  Not modelled: monsters attacking minions, minion attacks and damaging skills, the player's other minion modifiers
-  (damage, resistances, energy shield), and party allies.
-  Automated coverage only, not checked with the real client.
-  See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
+- Owned minions: relics and chieftains remain timed; all 17 playable golem gems summon, fight and take generic hostile
+  hits/projectiles. Golems follow, scale with gem level/quality and supports, grant their distinct owner buffs and save
+  activation across areas. Local rule: each activated golem returns two game seconds after death while its source is
+  usable. All variants summoned in the real client; ordinary combat, buffs and repeated returns checked live.
+  Partial: exact official AI priorities, some support interactions, party buff sharing and bespoke boss damage.
+  See [11](../docs/protocol/11-skills.md) section 10h; relics remain in section 13 and [Paladin](../docs/game/paladin.md).
 - Link skills: Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link link one of the player's minions when
   he has `link_skills_can_target_minions` (Deep Connections); with no party play there is nothing else to link.
   A link lasts its duration, costs mana every second, breaks after 4 s out of range or when its cost is not paid, and

@@ -178,6 +178,23 @@ static partial class Game
         }
     }
 
+    /// <summary>The client's set of inventories: a tab switch unloads the other tabs (0xc1), and the panel can still show
+    /// one of them for a moment while the player clicks it. A 0xbf for an inventory the client no longer has aborts the
+    /// game ("Got an inventory set change for an inventory that isn't in the set", #605), and the panel had the tab marked
+    /// not loaded, so it drops that tab's 0xbfs until it is told the tab is loaded again. Both go out here, before the
+    /// 0xbf for the click.</summary>
+    static async Task EnsureTabLoaded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int tab)
+    {
+        var sent = TabsSentOf(conn, stash);
+        if (!sent.Add(tab)) return;
+        var (slot, items) = stash.Inventory(tab);
+        byte manager = stash.IsGuild ? InstanceStash.GuildManager : (byte)0;
+        await Send(remote, stream, ciphers, InstanceInventories.AddInventory(stash.InventoryOf(tab), slot, manager, items),
+            $"0x00c0 stash tab {tab} inventory {stash.InventoryOf(tab)} (again: the panel still shows it)");
+        await Send(remote, stream, ciphers, InstanceStash.TabLoaded((ushort)tab, stash.InventoryOf(tab),
+            stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), $"0x00c8 stash tab {tab} loaded again");
+    }
+
     // C→S 0x28 on a stash tab: the item leaves the tab for the (empty) cursor, keeping its id; both saves in one transaction
     // (ItemMoves).
     internal static async Task PickUpFromStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, InstanceItems.PickUpItem pick)
@@ -189,7 +206,9 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick} from stash tab {tab}: refused");
             return;
         }
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(pick.InventoryId, stash.NextRevision(tab), [held.Id], [], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
+        // The tab the click names, not the id the client sent: that id can be one it just unloaded (live 2026-11-06, #605).
+        await EnsureTabLoaded(remote, stream, ciphers, conn, stash, tab);
+        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [held.Id], [], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
             $"0x00bf stash tab {tab}: remove item {held.Id}");
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: add item {held.Id} (from the stash)");
@@ -207,6 +226,7 @@ static partial class Game
             return;
         }
         tab = done.Tab;
+        await EnsureTabLoaded(remote, stream, ciphers, conn, stash, tab);
         var (inTab, before) = (done.InTab, done.HeldBefore);
         if (done.Merged)
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [inTab.Id], [inTab], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
@@ -294,7 +314,10 @@ static partial class Game
         }
         async Task Tab()
         {
-            if (tabGone.Count + tabNow.Count == 0 || !TabsSentOf(conn, stash).Contains(t.Tab)) return;
+            if (tabGone.Count + tabNow.Count == 0) return;
+            // The tab may have been unloaded by a tab switch while the panel still shows it: load it again instead of
+            // skipping the update, which left the moved item's icon in place until the panel asked again (#605).
+            await EnsureTabLoaded(remote, stream, ciphers, conn, stash, t.Tab);
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(t.Tab), stash.NextRevision(t.Tab), tabGone, tabNow, stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
                 $"0x00bf stash tab {t.Tab}: remove [{string.Join(", ", tabGone)}], add [{string.Join(", ", tabNow.Select(i => $"{i.Id} at ({i.X}, {i.Y}) x{i.Item.StackSize}"))}]");
         }

@@ -740,6 +740,8 @@ static partial class Game
                     () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } accepted) return accepted;
         if (gem.Name is not null && GameEvents.RunSkillCast(conn, SkillsFor(conn).EffectId(gem.Effect), skillId, from,
                 () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } taken) return taken;
+        if (gem.Name is not null && GolemData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } golem)
+            return await CastGolem(remote, stream, ciphers, conn, skillId, golem, to, recoveryGeneration, Current);
         if (gem.Name is not null && TotemVariety(conn, gem.Effect) is { } totem)
         {
             _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, to, Current);
@@ -1671,18 +1673,29 @@ static partial class Game
     internal static async Task RunBossStage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
     {
         var stage = m.Stage!;
-        (int X, int Y) at;
-        lock (conn.Monsters)
+        while (!m.StageActionStarted)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            at = m.Walk.Position(now);
-            m.Walk.Order(at.X, at.Y, now);
-            m.LastTarget = null;
-            m.BusyUntil = now + stage.CastSeconds;
+            lock (conn.Monsters) if (!MonsterPresent(conn, id, m) || !m.StageRunning) return;
+            await Send(remote, stream, ciphers, [], null, atGate: () =>
+            {
+                lock (conn.Monsters)
+                {
+                    if (!MonsterPresent(conn, id, m) || !m.StageRunning || m.StageActionStarted || conn.Paused) return null;
+                    double now = AreaTime(conn);
+                    var at = m.Walk.Position(now);
+                    m.Walk.Order(at.X, at.Y, now);
+                    m.LastTarget = null;
+                    m.BusyUntil = now + stage.CastSeconds;
+                    m.StageEffectAt = now + stage.EffectSeconds(m.Variety is { } variety
+                        ? SkillsFor(conn).MonsterContact(variety.Id, "Throw", 0xffff) : null);
+                    m.StageActionStarted = true;
+                    Console.WriteLine($"[gateway] {remote} => monster 0x{id:x} ({m.Label}) starts its stage at " +
+                        $"{m.Life}/{m.MaxLife} life, game time {now:0.000}; effect at {m.StageEffectAt:0.000}, recovery at {m.BusyUntil:0.000}");
+                    return InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, StageSkillId, 0xffff, 0x0408);
+                }
+            });
+            if (!m.StageActionStarted) await AreaWait(PlayerUpdateRole.MonsterAction, 16);
         }
-        await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, StageSkillId, 0xffff, 0x0408),
-            $"0x01ab monster 0x{id:x} ({m.Label}) starts its stage at {m.Life}/{m.MaxLife} life: skill 0x{StageSkillId:x4} (GrantedEffects {stage.SkillEffect}), {stage.CastSeconds:0.#} s");
-        await Task.Delay(TimeSpan.FromSeconds(stage.CastSeconds));
         await CompleteMonsterStage(remote, stream, ciphers, conn, id, m);
     }
 

@@ -9,6 +9,9 @@
 /// </summary>
 sealed class GemSkillIds
 {
+    // Neutral identity state must outlive a Game module replacement: a live actor holds these skill ids.
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>A socketed gem: the item it is in, its socket, its GrantedEffects row.</summary>
     public readonly record struct Gem(uint Host, int Socket, int Effect);
 

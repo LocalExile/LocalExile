@@ -212,7 +212,12 @@ public sealed class BehemothRuntimeTests
         Assert.Null(execute.Invoke(null, [c, skill.Id, skill.Effect]));
         Assert.Equal(deadline, c.NextAttackAt); // Execution cannot reserve the paid swing a second time.
         int action = c.ActionCount;
+        // Keep the busy-cadence branch deterministic while assertions run with the send gate held.
+        // Stopping Clock would pause the connection and test a different rejection path.
+        c.NextAttackAt = double.PositiveInfinity;
         await Dispatch(c, skill.Id, true, 1, ciphers);
+        Assert.True(double.IsPositiveInfinity(c.NextAttackAt));
+        c.NextAttackAt = deadline;
         Assert.Equal(action, c.ActionCount); Assert.Equal(15, c.Rage.Read(0, rage).Current);
         var movement = Dispatch(c, 0x2909, true, 1, ciphers);
         Assert.Equal(action + 1, c.ActionCount); Assert.False(Game.PlayerActionCurrent(c, action));

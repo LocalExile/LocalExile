@@ -33,6 +33,15 @@ static class CommandsFeature
             System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float degrees)
             ? (x, y, degrees) : throw new ArgumentException($"{usage} <x> <y> <degrees>");
 
+    /// <summary>The item specs of an /item_give line: one JSON object, or every element of a JSON array in order.</summary>
+    internal static List<string> GiftSpecs(string json)
+    {
+        var text = json.TrimStart();
+        if (!text.StartsWith('[')) return [json];
+        using var document = System.Text.Json.JsonDocument.Parse(text);
+        return [.. document.RootElement.EnumerateArray().Select(element => element.GetRawText())];
+    }
+
     // A stationary object moved and turned in place (S→C 0x1b7 and the Positioned rotation update, as the hideout editor
     // does), with its path blocker; until the player leaves the area.
     internal static async Task MoveStationary(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
@@ -314,19 +323,29 @@ static class CommandsFeature
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                 items.NextRevision(PlayerInventories.MainInventory), [], added), $"0x00bf inventory 1: /item {type} × {added.Count}");
         }, "item")
-        .Add("item_give", "/item_give <item as JSON> (dev: an item the launcher's item crafter composed, with its mods, into the inventory; Agents/docs/dev/item-crafter.md)", async args =>
+        .Add("item_give", "/item_give <item as JSON> (dev: an item the launcher's item crafter composed, with its mods, into the inventory; a JSON array gives each item in it; Agents/docs/dev/item-crafter.md)", async args =>
         {
             if (args.Length == 0) throw new ArgumentException("which item?");
             if (ItemsFor(conn).Error is { } error) { await conn.Commands!.Reply(error); return; }
-            if (ItemCrafter.Build(ItemsFor(conn), RollsFor(conn), string.Join(' ', args), conn.Pools.Level, Random.Shared, out string? why) is not { } created
-                || ItemsFor(conn).ByHash(created.TypeHash) is not { } type)
-            { await conn.Commands!.Reply(why ?? "Unknown item type"); return; }
             var items = ItemsOf(conn);
-            if (items.FreeCell(PlayerInventories.MainInventory, type.Width, type.Height, ShapeOf) is not { } cell) { await conn.Commands!.Reply("No room in the inventory"); return; }
-            var added = items.Put(PlayerInventories.MainInventory, new InventoryItem(items.NewItemId(), cell.X, cell.Y, created));
+            var added = new List<InventoryItem>();
+            string? failure = null, singleName = null;
+            foreach (string spec in GiftSpecs(string.Join(' ', args)))
+            {
+                if (ItemCrafter.Build(ItemsFor(conn), RollsFor(conn), spec, conn.Pools.Level, Random.Shared, out string? why) is not { } created
+                    || ItemsFor(conn).ByHash(created.TypeHash) is not { } type)
+                { failure = why ?? "Unknown item type"; break; }
+                if (items.FreeCell(PlayerInventories.MainInventory, type.Width, type.Height, ShapeOf) is not { } cell)
+                { failure = "No room in the inventory"; break; }
+                added.Add(items.Put(PlayerInventories.MainInventory, new InventoryItem(items.NewItemId(), cell.X, cell.Y, created)));
+                singleName = $"{(created.NameWords.Count > 0 ? RollsFor(conn).NameOf(created.NameWords) + " " : "")}{type.Name}";
+            }
+            if (added.Count == 0) { await conn.Commands!.Reply(failure ?? "No room in the inventory"); return; }
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
-                items.NextRevision(PlayerInventories.MainInventory), [], [added]), $"0x00bf inventory 1: /item_give {type}, {created.Rarity}, {created.Mods.Count} mod(s)");
-            await conn.Commands!.Reply($"Added {(created.NameWords.Count > 0 ? RollsFor(conn).NameOf(created.NameWords) + " " : "")}{type.Name}");
+                items.NextRevision(PlayerInventories.MainInventory), [], added), $"0x00bf inventory 1: /item_give × {added.Count}");
+            await conn.Commands!.Reply(failure is null
+                ? added.Count == 1 && singleName is not null ? $"Added {singleName}" : $"Added {added.Count} item(s)"
+                : $"Added {added.Count} item(s), then stopped: {failure}");
         })
         .Add("stash_place", "/stash_place <x> <y> <degrees> (dev: move and turn the stash of this area until you leave it; it opens from its new cell)", async args =>
         {

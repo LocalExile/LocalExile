@@ -23,9 +23,10 @@ static partial class Game
         // drops it at once. The stats carry Rage, charges, Onslaught and the auras, whose attack and cast times the
         // client's actions follow, so those rebuild it too.
         double now = conn.Clock.Elapsed.TotalSeconds;
-        var inputs = SkillSnapshotInputs.Capture(conn, CharacterPlayerStats(conn));
+        var currentStats = CharacterPlayerStats(conn);
         if (conn.PlayerSkillsCache is { } cached && PlayerSkillsInputs.TryGetValue(conn, out var was) && ReferenceEquals(was.Skills, cached)
-            && was.Inputs.Matches(conn, inputs.Stats)) return cached;
+            && was.Inputs.Matches(conn, currentStats)) return cached;
+        var inputs = SkillSnapshotInputs.Capture(conn, currentStats);
         // One build reads one snapshot of the character's stats, final stats and supported gems: every gem's cast time,
         // hit, crit and panel rows used to recompute them (CharacterPlayerStats, FinalPlayerStats, SupportedSkill) five or
         // six times per gem, 180-270 ms per build in the Debug server, inside the send gate. The snapshot also captures
@@ -66,10 +67,10 @@ static partial class Game
     internal readonly struct PlayerStatScope : IDisposable
     {
         readonly SkillBuildScope? outer;
-        public PlayerStatScope(ClientState conn)
+        public PlayerStatScope(ClientState conn, bool fresh = false)
         {
             outer = StatsScope.Value;
-            if (outer is null || !ReferenceEquals(outer.Conn, conn)) StatsScope.Value = new(conn);
+            if (fresh || outer is null || !ReferenceEquals(outer.Conn, conn)) StatsScope.Value = new(conn);
         }
         public void Dispose() => StatsScope.Value = outer;
     }
@@ -399,7 +400,8 @@ static partial class Game
         foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with { Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn) })) if (seen.Add(k)) yield return (k, v);
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
-        var extra = CharacterStatSources(conn, nodes).Stats;
+        var extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);
+        AddGolemStats(conn, extra);
         int RawDefault(string name) => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0;
         foreach (var (stat, value) in PanelStatDefaults.Compute(RawDefault))
             if (Stats.Key(stat) is uint key) extra[key] = value;

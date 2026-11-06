@@ -98,20 +98,6 @@ static partial class Game
         GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState state)
     {
         foreach (var (id, monster) in state.PendingStages)
-        {
-            while (true)
-            {
-                int wait;
-                lock (conn.Monsters)
-                {
-                    if (!PlayerUpdatesCurrent(conn, state)) return;
-                    if (!MonsterPresent(conn, id, monster) || !monster.StageRunning) break;
-                    double left = monster.BusyUntil - state.Schedule.Now(conn);
-                    wait = !conn.Paused && left <= 0 ? 0 : (int)Math.Clamp(Math.Ceiling(left * 1000), 16, 1000);
-                }
-                if (wait == 0) { await CompleteMonsterStage(remote, stream, ciphers, conn, id, monster); break; }
-                await state.Schedule.Wait(PlayerUpdateRole.MonsterAction, wait, state.Stop.Token);
-            }
-        }
+            await RunBossStage(remote, stream, ciphers, conn, id, monster);
     }
 }
