@@ -29,7 +29,7 @@ public sealed class VendorsModule : IModule, IDisposable
         module.OnMonsterKilled(kill =>
         {
             var conn = ConnOf(kill.Player);
-            if (kill.Monster.Rarity == GameServer.Modding.MonsterRarity.Unique
+            if (kill.Monster.MapBoss
                 && MapDevice.OpenOf(CharacterName(conn)) is { } map && map.Area.Hash16 == conn.Layout.Hash)
                 KiracProgress.Complete(PersonalStashOf(conn),map.Area.Id,map.Area.Tier);
             return Task.CompletedTask;

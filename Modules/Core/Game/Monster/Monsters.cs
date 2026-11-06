@@ -60,7 +60,86 @@ static partial class Game
         return new(clip.Animation, clip.ContactFraction ?? 0.5, point, Has("action_should_face_away_from_target"));
     }
 
-    // Creates one monster: registers its type at this level (0x20, once per connection), creates it (0x2b9) and puts it in
+        internal static async Task AdvanceUnravellingHorror(
+        string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, SpawnedMonster dead, (int X, int Y) at)
+    {
+        if (conn.Layout.Id != "MapWorldsPort") return;
+
+        string? deadId = dead.Variety?.Id;
+        int currentPhase;
+        int nextPhase;
+        string nextId;
+
+        switch (deadId)
+        {
+            case "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss":
+                currentPhase = 1;
+                nextPhase = 2;
+                nextId = "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss2";
+                break;
+            case "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss2":
+                currentPhase = 2;
+                nextPhase = 3;
+                nextId = "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss3";
+                break;
+            case "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss3":
+                currentPhase = 3;
+                nextPhase = 4;
+                nextId = "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss4";
+                break;
+            case "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss4":
+                currentPhase = 4;
+                nextPhase = 5;
+                nextId = "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss5";
+                break;
+            default:
+                return;
+        }
+
+        (int X, int Y) where;
+
+        lock (conn.Monsters)
+        {
+            if (conn.Instance.UnravellingHorrorPhase != currentPhase ||
+                conn.Instance.UnravellingHorrorTransitionPending)
+                return;
+
+            conn.Instance.UnravellingHorrorTransitionPending = true;
+            where = conn.LaterFormPoints.TryGetValue(nextId, out var saved)
+                ? saved
+                : at;
+        }
+
+        bool spawned = false;
+
+        try
+        {
+            var boss = Monsters.Find(nextId);
+            if (boss is not { Supported: true } || boss.Id != nextId)
+                return;
+
+            uint id = await SpawnMonster(
+                remote, stream, ciphers, conn, boss,
+                dead.Level, MonsterRarity.Unique,
+                where.X, where.Y,
+                log: true, alone: false,
+                isMapBoss: nextPhase == 5);
+
+            spawned = id != 0;
+        }
+        finally
+        {
+            lock (conn.Monsters)
+            {
+                if (spawned)
+                    conn.Instance.UnravellingHorrorPhase = nextPhase;
+
+                conn.Instance.UnravellingHorrorTransitionPending = false;
+            }
+        }
+    }
+	// Creates one monster: registers its type at this level (0x20, once per connection), creates it (0x2b9) and puts it in
     // the wake zone (0x1a9), and keeps it for the AI. /spawn_mob, the area's packs (PopulateArea) and the player's minions
     // (extra stats on its Stats component; owned runs under the lock that adds it) use it. Its object id.
     internal static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
@@ -68,7 +147,7 @@ static partial class Game
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
         IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
         IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null,
-        MonsterModSet? extraMods = null, bool scripted = false)
+        MonsterModSet? extraMods = null, bool scripted = false, bool isMapBoss = false)
     {
         uint id;
         // Under the lock the projectile visuals and ground art take ids under: minions spawn from their own loop.
@@ -261,19 +340,20 @@ static partial class Game
             }
         void AddMonsterLocked()
         {
-            MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique),
-                variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
-            {
-                Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
-                Scripted = !friendly && scripted,
-                Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = states,
-                HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
-                Threshold = QuestsOf(conn).ThresholdOf(conn.Layout.Id, variety.Id),
-                CannotBeStunned = !friendly && (KingInMists.IsBoss(variety) || scripted),
-                KingPhaseLocked = !friendly && KingInMists.IsBoss2(variety),
-                KingGrace = !friendly && KingInMists.IsBoss(variety),
-                FetishGrace = !friendly && KingInMists.IsFetish(variety),
-            }, emerge, waits);
+           MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique),
+    variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
+{
+    Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
+    Scripted = !friendly && scripted,
+    Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = states,
+    MapBoss = isMapBoss,
+    HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
+    Threshold = QuestsOf(conn).ThresholdOf(conn.Layout.Id, variety.Id),
+    CannotBeStunned = !friendly && (KingInMists.IsBoss(variety) || scripted),
+    KingPhaseLocked = !friendly && KingInMists.IsBoss2(variety),
+    KingGrace = !friendly && KingInMists.IsBoss(variety),
+    FetishGrace = !friendly && KingInMists.IsFetish(variety),
+}, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
             if (friendly) conn.MinionOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
             else
@@ -392,11 +472,25 @@ static partial class Game
         if (MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == layout.Hash && openMap.Area.Level > 0)
             areaLevel = openMap.Area.Level;
         byte level = (byte)Math.Clamp(areaLevel, 1, 100);
-        foreach (var s in spawns)
+                foreach (var s in spawns)
         {
             var variety = Monsters.Find(s.Variety.ToString())!;
             bool notable = s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare;
-            await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y, log: notable, alone: false);
+
+            bool portHorror = layout.Id == "MapWorldsPort" &&
+                variety.Id.StartsWith("Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss", StringComparison.Ordinal);
+
+            if (portHorror && variety.Id == "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss")
+            {
+                lock (conn.Monsters)
+                    conn.Instance.UnravellingHorrorPhase = 1;
+            }
+
+            bool isMapBoss = s.MapBoss && (!portHorror ||
+                variety.Id == "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss5");
+
+            await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity,
+                s.X, s.Y, log: notable, alone: false, isMapBoss: isMapBoss);
         }
         int extra = 0;
         if (MapDevice.Current(CharacterName(conn), layout.Hash) is { ItemRow: > 0 } opening)

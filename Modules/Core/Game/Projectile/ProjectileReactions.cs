@@ -153,6 +153,7 @@ static partial class Game
         var conn = session.Conn;
         if (!session.Active || Environment.GetEnvironmentVariable("Game_DROPS") == "0" || monster.NoRewards
             || !GameEvents.AllowsLoot(conn)) return;
+			        int horrorPhase = UnravellingHorrorPhaseOf(conn, monster);
         var random = Random.Shared;
         var balance = LeagueFor(conn).Rules;
         var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(monster, position));
@@ -161,13 +162,50 @@ static partial class Game
         {
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
-            if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
+                                    if (horrorPhase is 0 or 5)
+            {
+                string mapCharacter = CharacterName(conn);
+
+                var openMap = MapDevice.OpenOf(mapCharacter) is { } candidate &&
+                              candidate.Area.Hash16 == conn.Layout.Hash
+                    ? candidate
+                    : null;
+
+                int mapTier = openMap?.Area.Tier ?? 0;
+
+                bool mapBoss = monster.MapBoss &&
+                               openMap is not null &&
+                               MapDevices.Value.IsMapArea(conn.Layout.Hash);
+
+                int previousMapDrops = openMap?.MapDrops ?? 0;
+
+                double mapChanceMultiplier = previousMapDrops switch
+                {
+                    0 => 1.0,
+                    1 => 0.5,
+                    2 => 0.2,
+                    _ => 0.05
+                };
+
+                var mapDrop = DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, random,
+                    chanceMultiplier: mapChanceMultiplier, guaranteed: mapBoss);
+
+                if (mapDrop is not null)
+                {
+                    drops.Add(mapDrop);
+
+                    if (!mapBoss && openMap is not null)
+                        MapDevice.RecordMapDrop(mapCharacter, conn.Layout.Hash);
+                }
+            }
+              if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
             drops.AddRange(ExtraDropsFromMap(conn, monster.Rarity, random));
         }
         foreach (string query in modded?.Items ?? [])
             if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
-        foreach (var drop in ItemDrops.Stacked(drops))
+                if (!FinishUnravellingHorrorLoot(conn, monster, drops)) return;
+		foreach (var drop in ItemDrops.Stacked(drops))
         {
             double angle = random.NextDouble() * Math.Tau, radius = 3 + random.NextDouble() * 3;
             int x = position.X + (int)Math.Round(Math.Cos(angle) * radius), y = position.Y + (int)Math.Round(Math.Sin(angle) * radius);

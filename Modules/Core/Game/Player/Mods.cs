@@ -6,8 +6,11 @@ static partial class Game
 {
 
     internal static Mod.MonsterInfo ModMonster(SpawnedMonster m, (int X, int Y) at) =>
-        new(m.Variety?.Id ?? "", m.Variety?.Name ?? m.Label, m.Level,
-            Enum.TryParse<Mod.MonsterRarity>(m.Rarity.ToString(), out var rarity) ? rarity : Mod.MonsterRarity.Normal, at.X, at.Y);
+    new(m.Variety?.Id ?? "", m.Variety?.Name ?? m.Label, m.Level,
+        Enum.TryParse<Mod.MonsterRarity>(m.Rarity.ToString(), out var rarity) ? rarity : Mod.MonsterRarity.Normal, at.X, at.Y)
+    {
+        MapBoss = m.MapBoss
+    };
 
     // A mod's extra drop (DropRoll.Items), named as /item takes it: a unique's name, else a BaseItemTypes id or name.
     internal static ItemDrops.Drop? ModDrop(ClientState conn, string query, int itemLevel)
