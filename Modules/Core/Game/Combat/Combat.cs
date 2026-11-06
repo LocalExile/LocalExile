@@ -1640,6 +1640,7 @@ static partial class Game
         // phase 2 trigger), while the treant's emergence grace refuses all damage. A Mystic Fetish is immune until the
         // King's ritual reaches it.
         if (m.Invulnerable) return (m.Life, false);
+        if (m.LifePhases is { } phases) return (phases.Damage(m.Life, m.MaxLife, damage), false);
         if (m.StageRunning || m.KingPhaseLocked)
             return ((uint)Math.Max(m.KingPhaseLocked ? (long)m.MaxLife * 50 / 100 : 1,
                 (long)m.Life - damage), false);
