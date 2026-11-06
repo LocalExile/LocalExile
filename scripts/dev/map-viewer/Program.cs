@@ -62,7 +62,7 @@ app.MapGet("/api/map", (string id, uint seed, int? level) =>
                 .Concat(AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/QuestObjects/", StringComparison.OrdinalIgnoreCase) || t.StartsWith("Metadata/Chests/Quest", StringComparison.OrdinalIgnoreCase) || t.Equals("Metadata/MiscellaneousObjects/CraftRecipeUnlockMarker", StringComparison.OrdinalIgnoreCase)))
                 .DistinctBy(o => (o.Type, o.X, o.Y)).Select(o => new { o.Type, o.Model, o.X, o.Y }).ToArray();
             var points = result.Records.SelectMany(r => r.Rooms).SelectMany(room => room.Room.Points
-                .Where(p => p.Name.StartsWith("mapboss", StringComparison.OrdinalIgnoreCase) || p.Name.StartsWith("force:mapboss", StringComparison.OrdinalIgnoreCase))
+                .Where(p => BossNames.IsBossPoint(p.Name))
                 .Select(p => { var (x, y) = Orientation.Map(room.Orientation, (int)p.X, (int)p.Y, room.Room.Width * 23, room.Room.Height * 23);
                     var (bosses, candidates) = BossNames.Resolve(p.Name, area.Bosses_MonsterVarietiesKeys ?? [], monsters.Value);
                     return new { name = p.Name, x = room.X * 23 + x, y = room.Y * 23 + y, room = room.Room.Path, bosses, bossesAreCandidates = candidates }; }))
@@ -103,6 +103,7 @@ sealed record Monster(string Id, string Name);
 static class BossNames
 {
     static readonly Regex Point = new(@"^(?:force:)?mapboss(?:([1-9][0-9]*(?:&[1-9][0-9]*)*)|pack)?(?:WG)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    public static bool IsBossPoint(string name) => Point.IsMatch(name);
     public static (Monster[] Bosses, bool Candidates) Resolve(string point, IReadOnlyList<int> areaBosses, IReadOnlyList<Monster> monsters)
     {
         var match = Point.Match(point);
