@@ -72,6 +72,8 @@ static class ItemMoves
             { reason = "the item is not in the inventories"; return null; }
             if (shapeOf(item.Item) is not { } shape) { reason = "unknown item type"; return null; }
             tab = stash.UniqueDestination(tab, item.Item);
+            // The client drops a map on the map tab itself, and the map tab holds nothing directly: its page does (#477).
+            tab = stash.MapDestination(tab, item.Item, shapeOf);
             if (!stash.Holds(tab, item.Item)) { reason = $"the {stash.TypeOf(tab)} tab doesn't hold that item"; return null; }
             if (shape.MaxStack > 1)
             {
@@ -301,6 +303,8 @@ static class ItemMoves
         var result = Saves.Atomically(() =>
         {
             if (items.Items(Cursor) is not [var held, ..]) { reason = "nothing held"; return null; }
+            // A map held over the map tab goes to its page, the same routing the inventory path uses (#382/#605).
+            tab = stash.MapDestination(tab, held.Item, shapeOf);
             one &= held.Item.StackSize > 1;
             if (stash.Merge(tab, x, y, held, shapeOf, one ? 1 : int.MaxValue) is var (stack, moved))
                 return new StashPlacement(stack, held, items.SetStackSize(Cursor, held.Id, held.Item.StackSize - moved), null, Merged: true, One: one);

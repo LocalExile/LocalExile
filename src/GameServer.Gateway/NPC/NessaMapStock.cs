@@ -57,8 +57,11 @@ static class NessaMapStock
                 .FirstOrDefault(p => p.Type is { Supported: true, Class: "Map" }
                     && p.Type.Id.StartsWith("Metadata/Items/Maps/MapWorlds", StringComparison.Ordinal));
             string name = unique.GetProperty("Name").GetString()!;
+            // 3.29's maps are the generic MapKeyTierN bases (MapStashUniqueMapInfo's BaseItem is the tier-1 one), so a
+            // unique map with no MapWorlds base of its own still gets one and can be created (`/item Mao Kun`).
             var type = match.Type ?? (name == "Infused Beachhead" ? items.Find("MapWorldsHarbingerUber")
-                : name == "The Tower of Ordeals" ? items.Find("MapWorldsTrialmaster") : null);
+                : name == "The Tower of Ordeals" ? items.Find("MapWorldsTrialmaster")
+                : items.Find("Metadata/Items/Maps/MapKeyTier1"));
             if (type is not { Supported: true }) continue;
             uint word = words.RootElement[unique.GetProperty("WordsKey").GetInt32()].GetProperty("HASH32").GetUInt32();
             var item = ItemCatalog.Create(type) with

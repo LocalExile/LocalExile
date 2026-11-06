@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// What each stash tab type holds (Agents/docs/protocol/18-stash.md §7). An item's affinities (StashTabAffinityId rows)
@@ -26,6 +27,35 @@ sealed class StashRules
     readonly Dictionary<byte, Dictionary<uint, int>> _slots = [];     // StashType row → item type → slot
     readonly Dictionary<uint, ushort> _currencyTabStack = [];  // CurrencyItems.CurrencyTab_StackSize; else SlotStack
     readonly Dictionary<byte, HashSet<int>> _anySlots = [];          // StashType row → slots that take any item
+    readonly Dictionary<uint, int> _mapTiers = [];                   // map item HASH32 → MapKeys.MapTier (1..16)
+    readonly List<uint> _mapBases = [];                              // the map tab's bases: MapKeys rows + the four special maps
+    readonly List<uint> _legendaryMaps = [];                         // MapStashUniqueMapInfo HASH16: the legendary maps' pages
+    readonly Dictionary<ushort, (int Group, int Id)> _guardianMods = [];   // Mods HASH16 → map tab group and guardian id
+
+    /// <summary>The map tab group and guardian of an item from its map modifiers, or (0, 0) when it carries none:
+    /// `MapConquerorContainsBossN` (map_contains_citadel 1..4) for a conqueror, `MapElderContainsBossN`
+    /// (map_elder_boss_variation 1..4) for an elder guardian (#382).</summary>
+    public (int Group, int Id) GuardianOf(Item item)
+    {
+        foreach (var mod in item.Mods)
+            if (_guardianMods.TryGetValue(mod.Hash, out var guardian) && guardian.Group > 0) return guardian;
+        return (0, 0);
+    }
+
+    /// <summary>The modifier hash of a guardian's identity, for tests and tools; 0 when there is none.</summary>
+    public ushort GuardianModHash(int group, int id) =>
+        _guardianMods.FirstOrDefault(kv => kv.Value == (group, id)) is { Key: not 0 } hit ? hit.Key : (ushort)0;
+
+    /// <summary>The tier of a map item (MapKeys), or null when the type is not a map. The map tab's pages are one per
+    /// map base (#477).</summary>
+    public int? MapTier(uint hash) => _mapTiers.TryGetValue(hash, out int tier) ? tier : null;
+
+    /// <summary>The base types the map tab gives pages to, in tier order: the MapKeys rows and the four special maps. The
+    /// client's expected page keys are per base type, not per tier number (#477).</summary>
+    public IReadOnlyList<uint> MapBases => _mapBases;
+
+    /// <summary>The legendary maps the map tab gives a page each, keyed by MapStashUniqueMapInfo.HASH16 (#477).</summary>
+    public IReadOnlyList<uint> LegendaryMaps => _legendaryMaps;
 
     /// <summary>
     /// Whether cell (x, y) of a tab type is a slot that takes any item: the currency tab's crafting slot
@@ -86,7 +116,7 @@ sealed class StashRules
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
         string[] needed = ["StashTabAffinities", "StashTabAffinityByBaseItemType", "StashtabAffinityByItemClassCategory", "ItemClasses",
             "CurrencyStashTabLayout", "EssenceStashTabLayout", "FragmentStashTabLayout", "DelveStashTabLayout", "BlightStashTabLayout",
-            "DeliriumStashTabLayout", "DivinationCardStashTabLayout"];
+            "DeliriumStashTabLayout", "DivinationCardStashTabLayout", "Mods"];
         if (rows.Count == 0 || needed.Any(n => !File.Exists(Table(n)))) return rules;
         var byId = rows.GroupBy(r => r.Id).ToDictionary(g => g.Key, g => g.First().Hash);
         uint? HashOfRow(int row) => row >= 0 && row < rows.Count ? rows[row].Hash : null;
@@ -101,6 +131,74 @@ sealed class StashRules
                     && r.TryGetProperty("CurrencyTab_StackSize", out var stack) && stack.ValueKind == JsonValueKind.Number
                     && stack.TryGetInt32(out int size) && size is > 0 and <= ushort.MaxValue)
                     rules._currencyTabStack[hash] = (ushort)size;
+        }
+
+        if (File.Exists(Table("MapKeys")))
+        {
+            using var d = GameTables.Open(Table("MapKeys"));
+            foreach (var r in d.RootElement.EnumerateArray())
+                if (r.GetProperty("BaseItemType") is { ValueKind: JsonValueKind.Number } b
+                    && HashOfRow(b.GetInt32()) is uint hash
+                    && r.GetProperty("MapTier") is { ValueKind: JsonValueKind.Number } tier)
+                {
+                    rules._mapTiers.TryAdd(hash, tier.GetInt32());
+                    // A base the client gives the map tab pages to, in tier order (its page keys use its HASH32).
+                    if (!rules._mapBases.Contains(hash)) rules._mapBases.Add(hash);
+                }
+            rules._mapBases.Sort((a, b) => rules._mapTiers[a].CompareTo(rules._mapTiers[b]));
+        }
+
+        // The map tab's other group 0 bases: the four special maps of MapStashSpecialSubStashGroup (a "Key" row each).
+        if (File.Exists(Table("MapStashSpecialSubStashGroup")))
+        {
+            using var d = GameTables.Open(Table("MapStashSpecialSubStashGroup"));
+            foreach (var r in d.RootElement.EnumerateArray())
+                if (r.GetProperty("BaseItemTypes") is { ValueKind: JsonValueKind.Number } b
+                    && HashOfRow(b.GetInt32()) is uint hash && !rules._mapBases.Contains(hash))
+                    rules._mapBases.Add(hash);
+        }
+
+        // A guardian map names its guardian in a modifier, not in its base type: MapConquerorContainsBossN (a conqueror,
+        // group 2) and MapElderContainsBossN (an elder guardian, group 3), both numbered 1 to 4 (#382).
+        {
+            using var d = GameTables.Open(Table("Mods"));
+            foreach (var r in d.RootElement.EnumerateArray())
+            {
+                if (!r.TryGetProperty("Id", out var idValue) || idValue.ValueKind != JsonValueKind.String) continue;
+                var match = System.Text.RegularExpressions.Regex.Match(idValue.GetString() ?? "",
+                    "^Map(Conqueror|Elder)ContainsBoss([1-9])");
+                if (!match.Success || !int.TryParse(match.Groups[2].Value, out int guardian)
+                    || guardian > AccountStash.SpecialGroups) continue;
+                int group = match.Groups[1].Value == "Conqueror" ? 2 : 3;
+                if (r.TryGetProperty("HASH16", out var hash16) && hash16.ValueKind == JsonValueKind.Number)
+                    rules._guardianMods[(ushort)hash16.GetInt32()] = (group, guardian);
+            }
+        }
+
+        // The legendary maps: one page each, keyed by MapStashUniqueMapInfo.HASH16. Rows for a drop-disabled unique, and
+        // repeats of a unique already listed, are not among the keys the client expects (23 of the 33 rows).
+        if (File.Exists(Table("MapStashUniqueMapInfo")) && File.Exists(Table("UniqueMaps")))
+        {
+            var names = new List<string?>();
+            var disabled = new HashSet<string?>();
+            using (var u = GameTables.Open(Table("UniqueMaps")))
+                foreach (var r in u.RootElement.EnumerateArray())
+                {
+                    string? name = r.TryGetProperty("Name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+                    names.Add(name);
+                    if (r.TryGetProperty("IsDropDisabled", out var f) && f.ValueKind == JsonValueKind.True) disabled.Add(name);
+                }
+            var seen = new HashSet<string?>();
+            using var mi = GameTables.Open(Table("MapStashUniqueMapInfo"));
+            foreach (var r in mi.RootElement.EnumerateArray())
+            {
+                int row = r.GetProperty("UniqueMap").GetInt32();
+                string? name = row >= 0 && row < names.Count ? names[row] : null;
+                if (name is not null && disabled.Contains(name)) continue;
+                if (!seen.Add(name)) continue;
+                if (r.TryGetProperty("HASH16", out var h) && h.ValueKind == JsonValueKind.Number && h.GetInt32() is int hash16 && hash16 > 0)
+                    rules._legendaryMaps.Add((uint)hash16);
+            }
         }
 
         using (var d = GameTables.Open(Table("StashTabAffinities")))

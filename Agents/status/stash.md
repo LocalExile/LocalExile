@@ -54,7 +54,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   oils draw over the blight tab.
   Verified in the real client (2026-10-28): blight oils, all divination cards in both rows of the tab, and the gem tab's
   colour sub-tabs. Automated tests cover caps, in-place growth, reloads, refused tabs, tab lookup, cell fill and every
-  real layout against its published size. The regular map tab remains open (roadmap).
+  real layout against its published size. The map tab (#477) gives every `MapKeys` base its six pages: the client's page
+  keys are `(page << 37) | (base HASH32 << 5)` with the group in the low bits (read from the client, 2026-11-06), so a
+  tier button shows its page strip, its badge counts the maps, and a map dropped on the tab (from the inventory or the
+  cursor) is routed to the first page of its own kind with room (`AccountStash.MapPageKey`/`MapDestination`). A legendary
+  map has one page of its own (group 1, keyed by its visual identity) and a conqueror's or elder guardian's map goes to
+  its guardian's page (groups 2 and 3), found from the `MapConquerorContainsBossN`/`MapElderContainsBossN` modifiers first
+  and the influence flags as the fallback; a page only takes maps that belong to it.
   Unique collections use 22 hidden category inventories and the native collection cells; `/item_tab Уники 1` fills
   each available collection cell once, preserving existing items. Verified in the real client: 1309 items, including
   unique maps and inactive tinctures. Repeat filling does not duplicate occupied cells. Seven old catalogue names
