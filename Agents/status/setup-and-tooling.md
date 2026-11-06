@@ -103,6 +103,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `Hnc.cs`, `data/schema/schema.min.json`, `scripts/dev/extract-data.ps1`.
   Docs: [3.29.3c client diff](../docs/re/3.29.3c-client-diff.md).
 
+- 3.29.3c client support: login, character list, instance connect, area generation and area entry. 3.29.3c inserted
+  two world-group messages before the old frame pair, so every id from 0x2b5 is +2: frame end/length 0x2b7/0x2b8,
+  create object 0x2bb, component update 0x2bc, remove object 0x2bd, and the leave-area ack 0x2cd. The client loads
+  Lioneye's Watch, draws the HUD and sends actions.
+  Code: `InstanceEntities.cs`, `InstanceProtocol.cs`, `InstanceTransfer.cs`, `Hnc.cs`, `data/schema/schema.min.json`,
+  `scripts/dev/extract-data.ps1`.
+  Docs: [3.29.3c client diff](../docs/re/3.29.3c-client-diff.md).
+
+## Partly working
+
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.
   Parsing and merging have automated round-trip, malformed-input and ordinary-tree preservation coverage.
   The exporter refuses modified source graphs and never installs its output into the client archive.

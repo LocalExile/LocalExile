@@ -61,7 +61,7 @@ public class InstanceEntitiesTests
     public void Create_object_has_entity_header_type_and_blob16()
     {
         byte[] m = InstanceEntities.CreateObject(0x1000, 0x9c41993e, [0xaa, 0xbb]);
-        Assert.Equal("02B9" + "00001000" + "00000000" + "0000" + "9C41993E" + "0002" + "AABB", Convert.ToHexString(m));
+        Assert.Equal("02BB" + "00001000" + "00000000" + "0000" + "9C41993E" + "0002" + "AABB", Convert.ToHexString(m));
     }
 
     [Fact]
@@ -180,7 +180,7 @@ public class InstanceEntitiesTests
     [Fact]
     public void Remove_object_is_a_header_only_message()
     {
-        Assert.Equal("02BB" + "00003001" + "00000000" + "0000", Convert.ToHexString(InstanceProtocol.RemoveObject(0x3001)));
+        Assert.Equal("02BD" + "00003001" + "00000000" + "0000", Convert.ToHexString(InstanceProtocol.RemoveObject(0x3001)));
     }
 
     [Fact]
@@ -267,7 +267,7 @@ public class InstanceEntitiesTests
         Assert.Equal([1, 0, 0, 1], shown.SharedStates);
         Assert.Equal([0, 0, 0, 0], states.SharedStates);
         // 0x2ba, object 0x3000, u32 0, u16 0, blob16 (length 11): component 11, counts 04 00, states value + flags.
-        Assert.Equal("02BA" + "00003000" + "00000000" + "0000" + "000B" + "0B" + "0400" + "0102" + "0000" + "0000" + "0102",
+        Assert.Equal("02BC" + "00003000" + "00000000" + "0000" + "000B" + "0B" + "0400" + "0102" + "0000" + "0000" + "0102",
             Convert.ToHexString(InstanceEntities.StateMachineUpdate(0x3000, 11, shown)));
     }
 
@@ -280,7 +280,7 @@ public class InstanceEntitiesTests
     [Fact]
     public void Transitionable_update_is_the_target_state()
     {
-        Assert.Equal("02BA" + "00003000" + "00000000" + "0000" + "0002" + "0C" + "02",
+        Assert.Equal("02BC" + "00003000" + "00000000" + "0000" + "0002" + "0C" + "02",
             Convert.ToHexString(InstanceEntities.TransitionableUpdate(0x3000, 12, 2)));
     }
 
@@ -651,7 +651,7 @@ public class InstanceEntitiesTests
         byte[] m = InstanceEntities.PlayerSkillsChange(0x1000, [], [0x0103, 0x0104]);
         // index 9 = Actor, flags 0x20, no records, two ids (u16 LE), no 0x188 entries, no triples
         string body = "09" + "2000" + "00" + "02" + "0301" + "0401" + "00" + "00";
-        Assert.Equal("02BA" + "00001000" + "00000000" + "0000" + (body.Length / 2).ToString("X4") + body, Convert.ToHexString(m));
+        Assert.Equal("02BC" + "00001000" + "00000000" + "0000" + (body.Length / 2).ToString("X4") + body, Convert.ToHexString(m));
     }
 
     [Fact]
@@ -661,7 +661,7 @@ public class InstanceEntitiesTests
         // flags 0x20, one record (the 0x40 list's record layout), one id to remove, then the two empty lists
         string body = "09" + "2000" + "01" + "01" + "0201" + "00" + "7A110000" + "00" + "4E110000" + "00" + "00" +
             "00000000" + "00000000" + "00000000" + "00" + "00" + "0401" + "00" + "00";
-        Assert.Equal("02BA" + "00001000" + "00000000" + "0000" + (body.Length / 2).ToString("X4") + body, Convert.ToHexString(m));
+        Assert.Equal("02BC" + "00001000" + "00000000" + "0000" + (body.Length / 2).ToString("X4") + body, Convert.ToHexString(m));
     }
 
     [Fact]

@@ -329,8 +329,8 @@ partial class Program
     // Monster AI, one decision every MonsterAiCadence.StepMilliseconds of game time per connection (RunMonsterAi). A monster within its aggro range (MonsterVarieties MaxAgroRange, in
     // cells) of the player starts chasing: it walks (Move action 0x1ab, skill 0x2909; the client paths it) to its own cell
     // around the player (MonsterSurround), re-ordered when that cell has moved by 3+ cells. Beyond twice the range it gives up and stops.
-    // Positions are the server's estimates (PlayerWalk at MonsterVarieties MovementSpeed cells/s).
-    // The server frame clock (Agents/docs/protocol/07 §6): S→C 0x2b6 sets the frame length, then 0x2b5 ends a frame every
+    // Positions are the server's estimates (WalkEstimator at MonsterVarieties MovementSpeed cells/s).
+    // The server frame clock (Agents/docs/protocol/07 §6): S→C 0x2b8 sets the frame length, then 0x2b7 ends a frame every
     // FrameMs. A lockstep client advances its world by exactly these frames, running the messages of each at its start (it
     // is drawn and its world runs, and its moves get a message box); a predictive client ignores them. A connection that
     // serves lockstep runs Game.RunLockstepFrames instead.
@@ -338,7 +338,7 @@ partial class Program
     {
         try
         {
-            await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b6 server frame length {FrameMs} ms");
+            await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b8 server frame length {FrameMs} ms");
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(FrameMs));
             while (!conn.Closed && await timer.WaitForNextTickAsync())
             {

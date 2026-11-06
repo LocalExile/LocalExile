@@ -996,7 +996,7 @@ static partial class Game
     // reaction. Paused work keeps its original generation and resumes only while that generation still exists.
     // A lockstep client applies an order at the start of the frame its 0x1ab goes out in, so a lockstep order's walk is
     // placed here, in the send gate under conn.Monsters: at the start of the frame being sent (the frame advances in
-    // the frame end's own gate, so an order written after a 0x2b5 sees the new frame), after the steps the walk the
+    // the frame end's own gate, so an order written after a 0x2b7 sees the new frame), after the steps the walk the
     // client is still running takes in the frames before it (StepWalkers), from the cell they leave the walker on,
     // which the order reports.
     // Placed by the plan instead, a walk whose 0x1ab a frame end overtook (the AI pass and the frame loop are separate

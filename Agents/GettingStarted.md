@@ -21,9 +21,9 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 5. **Run `live.ps1` directly** (`.\scripts\dev\live.ps1` in a PowerShell session). Do not wrap it in a pipe or
    capture its output (for example `powershell -File live.ps1 | Out-String`). The servers it starts keep the pipe
    open, so the call never returns. Read `logs\` instead.
-6. **The fully working client is 3.29.3b.** 3.29.3c support is partial: login, character list and area generation work,
-   but area entry stops on an unidentified packet ([3.29.3c diff](docs/re/3.29.3c-client-diff.md)); keep a 3.29.3b
-   copy for play. The login patch and several protocol constants are specific to the build.
+6. **3.29.3c is the supported play client.** Login, character list, instance connect, area generation and area entry
+   all work ([3.29.3c diff](docs/re/3.29.3c-client-diff.md)). 3.29.3b remains usable for comparison; the login patch
+   and several protocol constants are build-specific, and 3.29.3c shifted every world message id from `0x2b5` by +2.
 
 ## What you need
 
@@ -42,7 +42,7 @@ Use the standalone layout.
 
 **Getting 3.29.3c:** this repository cannot provide the client. The official launcher always updates to the newest
 version, so you need a copy that is still at 3.29.3c. Never let a newer launcher touch your copy. A 3.29.3c client is
-needed to test the migration, but it is not yet a working play client; keep a 3.29.3b copy as well.
+the supported play client; keep a 3.29.3b copy only for comparison.
 
 ### Linux
 

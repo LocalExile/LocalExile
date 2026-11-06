@@ -138,4 +138,5 @@ static partial class Game
 
     internal static readonly double ExperienceRange =
         double.TryParse(Environment.GetEnvironmentVariable("Game_XP_RANGE"), System.Globalization.CultureInfo.InvariantCulture, out var xr) ? xr : 150;
+
 }

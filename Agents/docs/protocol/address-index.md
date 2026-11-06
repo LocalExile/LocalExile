@@ -1,7 +1,8 @@
 # Address index (3.29.3b `Game.exe`, image base 0x140000000)
 
 Every address used in the protocol docs, grouped by subsystem. Fn = function, Vt = vtable, Cls = message class vtable,
-G = global / static data.
+G = global / static data. These are 3.29.3b references; 3.29.3c shifted the code and every world message id from
+`0x2b5` by +2 ([3.29.3c diff](../re/3.29.3c-client-diff.md)).
 
 ## Network core
 | Address | Kind | What |
