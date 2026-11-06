@@ -1767,9 +1767,10 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
 - **Object.** A 0x2b9 of the Projectiles.dat type named after the effect (`Metadata/Projectiles/Fireball`, hash of the
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
   Animated, BaseEvents and Projectile, so the blob is Positioned, one Animated byte and the tasks byte
-  (`ProjectileObject`; the Animated component is index 1), then 0x1a9 (wake zone). The real link between a skill and
-  its projectile is unknown; the Gateway matches the Id, then the Id with a `Royale`, `AltX`, `AltY` or `AltZ` suffix
-  removed: 3.29 files the Royale and transfigured duplicates of a skill under its own name plus a suffix, and those
+  (`ProjectileObject`; the Animated component is index 1). Its byte 0 has 0x02, so the create wakes the object itself and
+  no 0x1a9 follows ([07](07-latency-visibility-movement.md) §3). The real link between a skill and its projectile is
+  unknown; the Gateway matches the Id, then the Id with a `Royale`, `AltX`, `AltY` or `AltZ` suffix removed: 3.29
+  files the Royale and transfigured duplicates of a skill under its own name plus a suffix, and those
   duplicates fire the base skill's row (the Lightning Arrow gem grants `LightningArrowRoyale`, whose row is
   `Metadata/Projectiles/LightningArrow`). `ProjectileFallbacks` covers the effects no suffix rule reaches, because their
   row is named otherwise (Elemental Hit's `ElementalHitArrowCombined`). Multiple projectiles are one object each, spread around the
