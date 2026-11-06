@@ -2463,6 +2463,8 @@ The Spirit chieftains are the first (section 10f).
 
 The timed chieftain controller still uses only its first skill. Golems have a separate controller and saved source
 intent (`GolemState`), rather than persisting their area objects. Minion commands and party buff sharing remain partial.
+Gem skill-id assignments live in the host too: a module-local allocator reset renumbered unchanged gems after reload,
+making the golem controller retire their still-equipped sources.
 
 Golem native skill ids follow the variety's full GrantedEffects order (`0x4000 + index`), including conditional skills.
 Monster spell stat rows are selected by `PlayerLevelReq` at the minion's actor level, not by treating that level as
