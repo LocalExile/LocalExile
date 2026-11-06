@@ -532,7 +532,10 @@ A clip longer than its attack plays linearly. When the attack outlasts the clip,
 `0x141b0a620`) plays the outside of the clip's `slow_begin`..`slow_end` span at normal speed and stretches the span
 instead, so the contact keyframe is no longer a plain fraction of the attack; the server's `AttackContactDelay` assumes it
 is for attack gems. The 1.457 s attack above did this (span 223..394 ms, speed 0.305, contact at about 785 ms, measured).
-A slower weapon or a negative player speed would still reach it.
+A slower weapon or a negative player speed would still reach it. So does the default wand attack: the 0.667 s attack
+holds the 600 ms `attack1_wand` clip's span 150..235 for 152 ms, and a lockstep client's own bolt leaves 0.367 s in, not
+at 0.333 (live 2026-11-05: its release came 63 ms after the linear contact, against 30 ms for the bow's compressed clip).
+The span takes up at most 8 times its length (`0x141b0ac20` passes the clip's length, or the ACT's `attack_time`).
 
 The default attack's clip is the class ACT's stance `Melee` entry (`data/animation-contacts.json` "defaultAttack",
 `scripts/re/anim_contacts.py`): a rig clip (`attack1_wand`; `attack1_bow` with `item_animation`, the bow's own rig), or
@@ -1688,10 +1691,14 @@ respectively; both reach Projectile component construction `0x141e37850`. Suppre
 visual for ordinary Burning Arrow (`ClientDrawsPrimaryProjectile`), preserving its existing server simulation and
 continuation-child presentation. This visual correction does not generalize to unverified attack variants.
 Repeating the mouse-input control after the correction creates one client Burning Arrow and no server arrow object.
-Ordinary bow arrows and wand bolts (`ScheduleOrdinaryRanged`) keep their server object,
-and rightly so: across 40 default-attack arrows on 2026-10-29 the same trace saw no client-created projectile at all
-(only the 36 server `DefaultArrow` objects), and none for a monster's action either (27 Sand Spitter attacks). These observations describe those supplied ordinary-attack inputs. Trace: `scripts/re/frida/trace-projectile-create.js`
-(load `common.js` and the trace in one script: `run.py` gives each file its own scope).
+Ordinary bow arrows and wand bolts (`ScheduleOrdinaryRanged`) are drawn by a lockstep client when the default attack's
+record carries the count the server simulates (`OrdinaryRangedCountStats`; a bow's arrow totals too, as GGG's records).
+Without that count, the 2026-10-29 ordinary-attack inputs produced only server objects. With it, a lockstep client drew
+one `WandProjectile` or `DefaultArrow` per shot (live 2026-11-05, 39 and 36), so the server keeps their simulation but
+sends no duplicate primary object. The record is sent again once the client shows it runs lockstep, since the player's
+create goes out before it does. A predictive client's ordinary arrows and bolts retain their server objects.
+These observations describe those supplied ordinary-attack inputs.
+
 
 **Which actions predict (static, 2026-10-30).** The action class comes from ActiveSkills `ActionType` →
 ActionTypes `HASH16` (Fireball 0xaa4e, factory `0x1412817b0`, vtable `0x1434462c8`; Spark 0x7859, constructor

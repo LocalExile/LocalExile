@@ -1401,10 +1401,12 @@ This is a research baseline, not new live skill acceptance or complete native/se
   action sequence, flags 0x4201 plus the critical bit, code by damage type) on contact for the target's blood and
   particles; the main-hand bit follows the live capture, the skill index and header words it also fills stay zero. Projectile objects are created at their release point and their first move runs from there: the lazy
   snapshot used to create them where the simulation already had them, one to ten cells past the bow in a live log
-  (2026-10-29). A Frida trace the same day saw the client create no projectile of its own for the default attack
-  (40 arrows) nor for a monster's action, so these server objects are the only visible shots on our server.
-  On GGG's server the same shots have no objects and the client draws them; what in our answer stops it is open
-  (skill ids `0x102`/`0x103` against live `0x4000`/`0x8002`, and the `0x1af` fields, are the candidates).
+  (2026-10-29). On a lockstep client the default attack's record carries the shot's count, as GGG's do, and the
+  client draws the bolt or arrow itself with no server object; the server simulates it and lands its hit at the
+  client's own release, with no lead (checked live 2026-11-05: one client `WandProjectile` per shot of 39 and one
+  `DefaultArrow` of 36, no projectile `0x2b9`, the client's release 16–40 ms after the server's, p50 27–28; it was
+  66–99 ms before) ([11](../docs/protocol/11-skills.md) §4, §10). A predictive client keeps the server's objects: its record
+  has no count, without which the release fires nothing (a native trace on 2026-10-29 saw no client arrow in 40).
   The live hit-timing fit put our arrows at 367 cells/s against live's 308, but the Gateway releases DefaultArrow at
   the table's 3260 units/s = 299.9 cells/s (logged on every release), so the fit's slope measures something else
   (the roadmap). They leave from the
