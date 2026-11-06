@@ -9,6 +9,15 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
     /// <summary>A fill choice: a tile or a room, its orientation (8 = any) and weight (0x18 / 0x20-byte entries).</summary>
     sealed record Choice(TileDef? Tile, RoomDef? Room, int Orientation, int Weight);
 
+    /// <summary>The map rectangle of <c>0x141d84ed0</c>'s test (the map view's +0x80): for a dungeon record the record's
+    /// rectangle, buffer strips included, not the level's (the server corpus: the Sarn Ramparts 1906049691, two stacked
+    /// 96 × 96 records with no buffer, refused a 3 × 3 ledge at (69, 94) reaching into the second and drew the retry).
+    /// Absolute map coordinates; null = the map itself.</summary>
+    public (int X0, int Y0, int X1, int Y1)? Bound;
+
+    bool InBound(int x, int y, int w, int h) =>
+        Bound is not { } b || (x >= b.X0 && y >= b.Y0 && x + w <= b.X1 && y + h <= b.Y1);
+
     int Flags(string? g) => files.Ground(g)?.Flags ?? 0;
 
     /// <summary>The listeners <c>0x141ff2190</c> / <c>0x141fef200</c> call after each tile (tile, orientation, view
@@ -18,6 +27,9 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
     /// <summary>Whether the extra room pool's tile store (the second store of a fill room's slot) holds tiles; null when
     /// this fill has no pool.</summary>
     public Func<bool>? PoolHasTiles { get; init; }
+
+    /// <summary>The extra room pool's own tile store (+0x90, the rows' tiles), the second store a tagged slot falls back to.</summary>
+    public Func<TileStore?>? PoolStore { get; init; }
 
     TileEntry? Entry(int x, int y) => grid[x + offsetX, y + offsetY];
 
@@ -240,7 +252,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         var (w, h) = Orientation.Size(o, tile.Width, tile.Height);
         (x, y) = Anchor(x, y, w, h, side);
         if (x < -1 || y < -1 || x + w > width + 1 || y + h > height + 1) return false;
-        return AreaFree(x + offsetX, y + offsetY, w, h);
+        return AreaFree(x + offsetX, y + offsetY, w, h) && InBound(x + offsetX, y + offsetY, w, h);
     }
 
     /// <summary><c>0x141d884a0</c>: inside the map and every entry empty.</summary>
@@ -269,7 +281,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
     {
         var (w, h) = Orientation.Size(o, room.Width, room.Height);
         (x, y) = Anchor(x, y, w, h, side);
-        return x >= 0 && y >= 0 && x + w <= width && y + h <= height && AreaFree(x + offsetX, y + offsetY, w, h);
+        return x >= 0 && y >= 0 && x + w <= width && y + h <= height && AreaFree(x + offsetX, y + offsetY, w, h) && InBound(x + offsetX, y + offsetY, w, h);
     }
 
     // 0x141ff0cf0's per-orientation shift of a tile in a slot by (1 − w, 1 − h).
@@ -316,9 +328,12 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
                     }
                 }
                 var list = store.Candidates(slot.Tag, key.Rotate(o));
-                // 0x141fef200: no tile in the tile set; a "missiontile" slot takes a mission tile (not ported), any
-                // other the second store (param_1[2] + 0x90: the extra room pool's tiles, not ported), and a tagged
-                // slot with neither fails (BetrayalMastermindFight seed 1's churchruin_4 'round west').
+                // 0x141fe89e0: no tile in the tile set; a "missiontile" slot takes a mission tile (not ported), any
+                // other the second store (param_1[2] + 0x90: the extra room pool's tiles, the rows' own .tdt / .tst:
+                // the Betrayal forts' towers, the Ultimatum altar), and a tagged slot with neither fails
+                // (BetrayalMastermindFight seed 1's churchruin_4 'round west').
+                if (list.Count == 0 && slot.Tag is { Length: > 0 } and not "missiontile" && PoolStore?.Invoke() is { } poolStore)
+                    list = poolStore.Candidates(slot.Tag, key.Rotate(o));
                 if (list.Count == 0 && slot.Tag is { Length: > 0 } and not "missiontile" && PoolHasTiles?.Invoke() == false)
                     throw new InvalidOperationException($"Could not find matching feature tile at ({bx + offsetX}, {by + offsetY}) with feature name '{slot.Tag}', " +
                         $"While placing fill room {room.Path} @ ({x + offsetX}, {y + offsetY})");

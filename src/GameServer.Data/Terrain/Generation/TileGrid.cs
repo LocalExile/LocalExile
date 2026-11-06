@@ -160,7 +160,11 @@ public sealed class TileGrid(int width, int height)
             if (!free)
                 throw new InvalidOperationException($"Mismatching ground types at ({x}, {y}): Cannot place {ground ?? "null"} over {old ?? "null"}");
         }
-        if (ground is null) c.Flags |= 1;
+        if (ground is null)
+        {
+            if (DebugCorner is { } d && d.X == x && d.Y == y) DebugWrite(x, y, c.Ground, c.Ground is null ? "null (set)" : c.Ground + " (kept, null want)");
+            c.Flags |= 1;
+        }
         else ForceGround(x, y, ground);
     }
 
@@ -168,8 +172,21 @@ public sealed class TileGrid(int width, int height)
     public void ForceGround(int x, int y, string? ground)
     {
         ref var c = ref Corner(x, y);
+        if (DebugCorner is { } d && d.X == x && d.Y == y && c.Ground != ground) DebugWrite(x, y, c.Ground, ground);
         c.Flags |= 1;
         c.Ground = ground;
+    }
+
+    /// <summary>LEVELGEN_CORNER_AT=x,y: every ground change of that vertex goes to stderr with the callers (a trace
+    /// comparison's aid).</summary>
+    static readonly (int X, int Y)? DebugCorner = Environment.GetEnvironmentVariable("LEVELGEN_CORNER_AT") is { Length: > 0 } s
+        && s.Split(',') is [var sx, var sy] && int.TryParse(sx, out int dx) && int.TryParse(sy, out int dy) ? (dx, dy) : null;
+
+    static void DebugWrite(int x, int y, string? from, string? to)
+    {
+        var frames = new System.Diagnostics.StackTrace(2, false).GetFrames().Take(5)
+            .Select(f => f.GetMethod() is { } m ? $"{m.DeclaringType?.Name}.{m.Name}" : "?");
+        Console.Error.WriteLine($"corner ({x}, {y}): {from?.Split('/')[^1] ?? "null"} -> {to?.Split('/')[^1] ?? "null"} [{string.Join(" < ", frames)}]");
     }
 
     /// <summary>The client's tile hash of this grid (<see cref="TileHash"/>).</summary>

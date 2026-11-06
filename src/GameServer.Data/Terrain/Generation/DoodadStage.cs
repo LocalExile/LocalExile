@@ -16,6 +16,14 @@ public sealed class DdtGroup
     public List<DdtEntry> Weighted { get; } = [];
     public int Total { get; private set; }
 
+    /// <summary>The group's density × 1000 (the header's for the default list).</summary>
+    public int Density { get; set; }
+
+    /// <summary>The bound of the pick draw: the weight total. An EMPTY list's pick is logged by the client as Next(0) in
+    /// some loads and Next(1) in others of the same table (no property of the .ddt decides which); neither consumes a
+    /// generator word, so the port draws Next(0) and the trace comparison takes 0 and 1 alike.</summary>
+    public uint PickBound => (uint)Total;
+
     public void Add(DdtEntry e)
     {
         if (e.Weight == 0) return;
@@ -77,6 +85,7 @@ public sealed class DoodadTable
         if (r.Word() != "Default") throw new InvalidDataException("Expected: \"Default\"");
         var (weighted, fixedLines) = ReadLines(r, version, radius);
         t.MaxDensity = Math.Max(t.MaxDensity, density);
+        t.Default.Density = density;
         foreach (var e in weighted) t.Default.Add(e);
         t.DefaultFixed.AddRange(fixedLines);
         var groupDensities = new List<(string Ground, int Density)>();
@@ -106,6 +115,7 @@ public sealed class DoodadTable
                 t.MaxDensity = Math.Max(t.MaxDensity, groupDensity);
                 foreach (var g in grounds) groupDensities.Add((g, groupDensity));
                 t.Store(t.Grounds, grounds, w, f);
+                foreach (var g in grounds) t.Grounds[g].Density = groupDensity;
             }
         }
         // 0x141ff8f80 after the parse: the thresholds out of 1024 against the highest density.
@@ -493,7 +503,10 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
             }
     }
 
-    /// <summary><c>0x141d7b2f0</c>: the tile is in record <paramref name="index"/> and in no later one.</summary>
+    /// <summary><c>0x141d77c60</c>: the tile is in record <paramref name="index"/> and in no later one.</summary>
+    static readonly (int X, int Y)? DebugAt = Environment.GetEnvironmentVariable("LEVELGEN_DOODAD_AT") is { Length: > 0 } s
+        && s.Split(',') is [var sx, var sy] && int.TryParse(sx, out int dx) && int.TryParse(sy, out int dy) ? (dx, dy) : null;
+
     static bool Owns(IReadOnlyList<DoodadRecord> records, int index, int tx, int ty)
     {
         static bool In(DoodadRecord r, int x, int y) => x >= r.X && x < r.X + r.W && y >= r.Y && y < r.Y + r.H;
@@ -516,6 +529,17 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
             int x = rec.X * 23 + (int)rng.Next((uint)(rec.W * 23));
             int y = rec.Y * 23 + (int)rng.Next((uint)(rec.H * 23));
             int tx = x / 23, ty = y / 23;
+            // LEVELGEN_DOODAD_AT=x,y: why an attempt at that sub-cell is kept or dropped (a trace comparison's aid).
+            if (DebugAt is { } at && at.X == x && at.Y == y)
+            {
+                var ge = grid[tx, ty];
+                string? gp = ge is null ? null : grid.Corner(tx + (x - tx * 23 > 11 ? 1 : 0), ty + (y - ty * 23 > 11 ? 1 : 0)).Ground;
+                notes.Add($"doodad attempt at ({x}, {y}) cell ({tx}, {ty}): owns {Owns(records, index, tx, ty)}, tile {(ge is { } g1 ? g1.Tile.Path : "-")} o{(ge is { } g2 ? g2.Orientation : -1)}" +
+                    $" walkflags {(ge is { } g3 ? files.WalkFlags(g3.Tile.Path) : 0)}, ground {gp ?? "-"} ({GroundName(gp) ?? "-"}, flags {GroundFlags(gp)})," +
+                    $" walk {walk.Walk[y * walk.Width + x]}, blocked {Blocked(x, y)}, record {index} ({rec.X}, {rec.Y}) {rec.W}x{rec.H} {rec.MasterPath}; blockers near: " +
+                    string.Join(", ", _blockers.Where(b => Math.Max(Math.Abs(b.X - x), Math.Abs(b.Y - y)) < 60).Select(b => $"({b.X}, {b.Y}) size {b.Size}")) +
+                    $"; doodads near: " + string.Join(", ", Placed.Where(p => Math.Max(Math.Abs(p.X - x), Math.Abs(p.Y - y)) < 40).Select(p => $"{p.Model.Split('/')[^1]} ({p.X}, {p.Y})")));
+            }
             if (!Owns(records, index, tx, ty)) continue;
             if (grid[tx, ty] is not { } e) continue;
             if ((files.WalkFlags(e.Tile.Path) & 4) == 0) continue;
@@ -531,18 +555,19 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
             {
                 if (ddt.Default.Weighted.Count == 0) continue;
                 if (rng.Next(0x400) < ddt.DefaultThreshold) continue;
-                pick = ddt.Default.Pick(rng.Next((uint)ddt.Default.Total));
+                pick = ddt.Default.Pick(rng.Next(ddt.Default.PickBound));
             }
             else if (ddt.Grounds.GetValueOrDefault(ground) is { } group)
             {
                 if (rng.Next(0x400) < ddt.Thresholds.GetValueOrDefault(ground)) continue;
-                pick = group.Pick(rng.Next((uint)group.Total));
+                pick = group.Pick(rng.Next(group.PickBound));
             }
             else
             {
-                // A flag-4 ground without a group takes the default list.
+                // A flag-4 ground without a group takes the default list (an empty one still draws its threshold and
+                // its pick, DdtGroup.PickBound).
                 if (!loose || rng.Next(0x400) < ddt.DefaultThreshold) continue;
-                pick = ddt.Default.Pick(rng.Next((uint)ddt.Default.Total));
+                pick = ddt.Default.Pick(rng.Next(ddt.Default.PickBound));
             }
             if (pick is null) continue;
             if (Near(sameModel.GetValueOrDefault(pick.Model), x, y)) continue;

@@ -74,7 +74,12 @@ sealed class ExtraRoomPool
             if (count == 0) return;
         }
         for (int i = 0; i < count; i++) Rows.Add(row);
-        if (row.Tiles.Count != 0) HasTiles = true;
+        if (row.Tiles.Count != 0)
+        {
+            HasTiles = true;
+            _tiles.AddRange(row.Tiles);
+            _store = null;
+        }
         if (row.Link >= 0) Add(Row(row.Link), count);
     }
 
@@ -82,7 +87,24 @@ sealed class ExtraRoomPool
     /// back to (<c>0x141fef200</c>). The tiles stay when their row leaves.</summary>
     public bool HasTiles { get; private set; }
 
-    /// <summary><c>0x141d8f230</c>: the subgraph's share of the rows by its weight (its master's +0x152): all of them
+    readonly List<string> _tiles = [];
+    TileStore? _store;
+
+    /// <summary>The pool's own tile store (+0x90, <c>0x141d8d1a0</c>): the rows' tiles filed as a TileSet's are, a .tst
+    /// by its list, a .tdt at weight 1 in every orientation (the Betrayal forts' towers, the Ultimatum altar).</summary>
+    public TileStore Store(TerrainCache files)
+    {
+        if (_store is not null) return _store;
+        var entries = new List<(int Weight, string Path, int Mask)>();
+        foreach (string path in _tiles)
+        {
+            if (path.EndsWith(".tst", StringComparison.OrdinalIgnoreCase)) entries.AddRange(files.TileList(path));
+            else entries.Add((1, path, 0xff));
+        }
+        return _store = new TileStore(files, entries);
+    }
+
+    /// <summary><c>0x141d8bba0</c>: the subgraph's share of the rows by its weight (its master's +0x152): all of them
     /// when no weight is left to share by; else rows × weight / left, plus one when <c>Next(left)</c> falls below the
     /// remainder; the weight is then taken from what is left.</summary>
     public void Spread(int weight, LevelRandom rng)

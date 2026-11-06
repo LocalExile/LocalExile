@@ -172,7 +172,7 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
     /// <summary>The edge tile continuing a crossing: the type on side s and its opposite, size × size, the point moved
     /// to the entry (point − 3 × offset) and mirrored on the far side, grounds and heights (above the lower one, which
     /// the tile goes in at) from the border vertices v0 and v1.</summary>
-    (TileDef Tile, int Orientation, int Height) EdgeTile(TileEntry e, int s, EdgeType type, (int X, int Y) v0, (int X, int Y) v1, string what)
+    (TileDef Tile, int Orientation, int Height)? EdgeTile(TileEntry e, int s, EdgeType type, (int X, int Y) v0, (int X, int Y) v1, string what)
     {
         var (x, y) = v0;
         string? g0 = Ground(v0.X, v0.Y), g1 = Ground(v1.X, v1.Y);
@@ -195,8 +195,20 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
         var list = store.Candidates("", key);
         if (list.Count == 0)
         {
-            if (type.N0 != 0) throw new NotSupportedException("outer buffer edge tiles with heights (edge +0x4c) are not ported");
-            throw new InvalidOperationException($"Could not find edge tile to expand outer buffer {what} at ({x}, {y}): {key}");
+            // The fallback: the key with its heights dropped (the server corpus: the Descent 2_9_2's ramp edges,
+            // whose type has a height step, n0 ≠ 0); with nothing still, the column / row is skipped, not an error.
+            var flat = key.Clone();
+            Array.Clear(flat.Heights);
+            list = store.Candidates("", flat);
+            if (list.Count == 0)
+            {
+                notes.Add($"outer buffer {what} at ({x}, {y}): no edge tile for {key}");
+                // LEVELGEN_BUFFER_DEBUG=1: the store's tiles with these edges and this size, with their turned keys.
+                if (Environment.GetEnvironmentVariable("LEVELGEN_BUFFER_DEBUG") == "1")
+                    foreach (var (tile, orientation, weight) in store.ByEdgesAndSize(key.Edges, size, size) ?? [])
+                        notes.Add($"    candidate {Path.GetFileName(tile.Path)} o{orientation} w{weight}: {tile.Key.Rotate(orientation)} raw grounds [{string.Join(",", tile.KeyGrounds.Select(g => g is null ? "-" : Path.GetFileNameWithoutExtension(g)))}]");
+                return null;
+            }
         }
         int r = (int)rng.Next((uint)list.Sum(c => c.Weight));
         foreach (var c in list)
@@ -236,7 +248,7 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
                 continue;
             }
             notes.Add($"outer buffer up at ({x}, {y}): {type.Name}");
-            var (t, o, h) = EdgeTile(e, 0, type, (x, y), (x + type.Size, y), "up");
+            if (EdgeTile(e, 0, type, (x, y), (x + type.Size, y), "up") is not var (t, o, h)) { x++; continue; }
             for (int yy = 0; yy < y; yy += type.Size) Place(t, o, x, yy, h);
             x += type.Size;
         }
@@ -265,7 +277,7 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
                 continue;
             }
             notes.Add($"outer buffer down at ({x}, {y}): {type.Name}");
-            var (t, o, h) = EdgeTile(e, 2, type, (x, y), (x + type.Size, y), "down");
+            if (EdgeTile(e, 2, type, (x, y), (x + type.Size, y), "down") is not var (t, o, h)) { x++; continue; }
             for (int yy = y; yy + type.Size <= H; yy += type.Size) Place(t, o, x, yy, h);
             x += type.Size;
         }
@@ -292,7 +304,7 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
                 continue;
             }
             notes.Add($"outer buffer left at ({x}, {y}): {type.Name}");
-            var (t, o, h) = EdgeTile(e, 3, type, (x, y), (x, y + type.Size), "left");
+            if (EdgeTile(e, 3, type, (x, y), (x, y + type.Size), "left") is not var (t, o, h)) { y++; continue; }
             for (int xx = 0; xx < x; xx += type.Size) Place(t, o, xx, y, h);
             y += type.Size;
         }
@@ -319,7 +331,7 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
                 continue;
             }
             notes.Add($"outer buffer right at ({x}, {y}): {type.Name}");
-            var (t, o, h) = EdgeTile(e, 1, type, (x, y), (x, y + type.Size), "right");
+            if (EdgeTile(e, 1, type, (x, y), (x, y + type.Size), "right") is not var (t, o, h)) { y++; continue; }
             for (int xx = x; xx + type.Size <= W; xx += type.Size) Place(t, o, xx, y, h);
             y += type.Size;
         }

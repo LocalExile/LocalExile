@@ -32,10 +32,20 @@ sealed class DungeonRoomSet
     public readonly List<DungeonRoom> All = [];
     readonly Dictionary<string, List<(int W, int H, int Weight)>> _sizes = new(StringComparer.OrdinalIgnoreCase);
 
-    public DungeonRoomSet(TerrainCache files, string? path)
+    /// <param name="pastRoom">An Incursion past room (<see cref="IncursionPast"/>): it replaces the set's
+    /// <c>room_blank_past.arm</c> entry at weight 1 before the rooms are filed.</param>
+    /// <param name="extraRooms">Rooms a plugin pushes on the generator's extra-room list (<see cref="IncursionTemple"/>):
+    /// each the set lacks is added at weight 1, any orientation, after the set's own rooms.</param>
+    public DungeonRoomSet(TerrainCache files, string? path, string? pastRoom = null, IReadOnlyList<string>? extraRooms = null)
     {
         foreach (var (weight, roomPath, mask) in path is null ? [] : files.TileList(path))
-            if (Parse(files, roomPath, weight, mask) is { } room) All.Add(room);
+        {
+            var (w, p) = pastRoom is not null && roomPath.EndsWith("room_blank_past.arm", StringComparison.OrdinalIgnoreCase) ? (1, pastRoom) : (weight, roomPath);
+            if (Parse(files, p, w, mask) is { } room) All.Add(room);
+        }
+        foreach (var extra in extraRooms ?? [])
+            if (!All.Any(r => r.Path.Equals(extra, StringComparison.OrdinalIgnoreCase)) && Parse(files, extra, 1, 0xff) is { } room)
+                All.Add(room);
 
         // 0x141ffd1b0: rooms with these tags go to lists of their own; every other room is filed under each door type
         // of its exits other than rooms.et, or under rooms.et (room data +0x180) when it has no other.

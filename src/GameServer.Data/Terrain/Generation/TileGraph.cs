@@ -29,6 +29,9 @@ public sealed class GraphNode
     /// <summary>Indexes of the node's logical links in <see cref="TileGraph.Links"/> (+0x90 / +0x94, −1 = none).</summary>
     public int Link1 = -1, Link2 = -1;
     public readonly GraphEdge?[] Slots = new GraphEdge?[4];
+    /// <summary>What a plugin tied to a "graph" node it added (the Heist intro entry or wing layout); carried to the
+    /// node's placement and its subgraph record.</summary>
+    public object? Plugin;
 
     public int Degree => Slots.Count(s => s is not null);
 
