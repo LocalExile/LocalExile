@@ -110,7 +110,6 @@ public class OpeningSceneTests
         Assert.Equal(created, observer.Read(created.Length));
     }
 
-<<<<<<< HEAD
     static async Task CheckSharedMessageOwnership()
     {
         const uint id = 0x08000055;
@@ -166,7 +165,9 @@ public class OpeningSceneTests
             Assert.Equal(unchanged, original);
             Assert.Equal(mirrored, first.Read(mirrored.Length));
             Assert.Equal(mirrored, second.Read(mirrored.Length));
-=======
+        }
+    }
+
     static void CheckOpeningPopulationBudget()
     {
         var strand = new PackCatalog().For(TutorialObjects.Strand)!;
@@ -183,7 +184,6 @@ public class OpeningSceneTests
             var ordinary = Plan(strand with { AreaId = "population-regression" }, seed);
             Assert.True(ordinary.Count > spawns.Count);
             Assert.True(ordinary.Count(s => s.Rarity == MonsterRarity.Rare) >= AreaPopulation.MinRares);
->>>>>>> 47bc7cd475386e574330d1bc03ccbb0e9a64dfc5
         }
     }
 
