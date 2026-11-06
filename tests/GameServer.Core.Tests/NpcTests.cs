@@ -14,4 +14,18 @@ public class NpcTests
             Convert.ToHexString(blob));
     }
 
+    [Fact]
+    public void A_hideout_mtx_npc_writes_its_hideout_doodad()
+    {
+        // The Puppet of Corruption (NPCs 819, 3.29.3c): ControlZone reads nothing, HideoutDoodad is the
+        // MtxTypeGameSpecific HASH32 0x721E8B26 and variation 0, StateMachine has its two shared states.
+        string[] components = ["Positioned", "Animated", "BaseEvents", "InteractionAction", "NPC", "MinimapIcon",
+            "ControlZone", "HideoutDoodad", "StateMachine"];
+        var state = new StateMachineData([0, 0], 0);
+        Assert.True(NpcObject.CanSerialize(components, state is not null));
+        byte[] blob = new NpcObject(416, 679, components, 0, state, 1, null, null, new HideoutDoodad(0x721E8B26, 0)).Blob();
+        Assert.Equal(38, blob.Length);
+        Assert.Contains("268B1E720000", Convert.ToHexString(blob));
+    }
+
 }

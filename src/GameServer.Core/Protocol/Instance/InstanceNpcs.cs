@@ -6,8 +6,11 @@ namespace GameServer.Core.Protocol.Instance;
 public static class InstanceNpcs
 {
     public const ushort TalkId = 0x84;
-    // HideoutSelectionWindow in the native screen-name table at 0x142fc5920.
+    // HideoutSelectionWindow in the native screen-name table at 0x142fc5920 (3.29.3c 0x142fd8810).
     public const byte HideoutSelectionUi = 0x22;
+    // CurrencyExchangeWindow / AsyncTradeStashWindow in the same table (3.29.3c addresses 0x142fd8a50 / 0x142fd8828).
+    public const byte CurrencyExchangeUi = 0x5e;
+    public const byte AsyncTradeStashUi = 0x63;
 
     /// <summary>C→S 0x85 (id only): the dialogue window was closed (Goodbye, Esc or walking away). Live 2026-10-19: sent
     /// after every 0x84, alone in its chunk.</summary>
@@ -232,12 +235,13 @@ public static class InstanceNpcs
 /// room's record gives it.</para>
 /// </summary>
 public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Components, float Rotation = 0,
-    StateMachineData? StateMachine = null, byte TransitionState = 1, string? Model = null, float? Height = null)
+    StateMachineData? StateMachine = null, byte TransitionState = 1, string? Model = null, float? Height = null,
+    HideoutDoodad? Hideout = null)
 {
     /// <summary>Deserialized components of <c>Metadata/NPC/NPC</c> in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents = ["Positioned", "Animated", "BaseEvents", "InteractionAction", "NPC", "MinimapIcon"];
 
-    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine"];
+    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine", "ControlZone", "HideoutDoodad"];
 
     /// <summary>Whether <see cref="Blob"/> can serialize a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>
@@ -268,6 +272,10 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
                 // must be alive (its +0x1a8 > 0) for the NPC to talk, 0xff = none.
                 case "NPC": w.U8(1).U8(0xff); break;
                 case "MinimapIcon": w.U8(0); break;
+                // ControlZone's reader is a bare ret (re/components.md): no data.
+                case "ControlZone": break;
+                // Only read in a hideout (object data +0x14e), as the Waypoint's: MtxTypeGameSpecific HASH32, variation, flag.
+                case "HideoutDoodad": (Hideout ?? new HideoutDoodad(0, 0)).Write(w); break;
                 case "Transitionable": w.U8((byte)(TransitionState & 0x7f)); break;
                 case "StateMachine":
                     var sm = StateMachine!;

@@ -29,6 +29,16 @@ public sealed class NpcDialogueModule : IModule
                 world.NpcEndTalk();
                 await talk.Player.Send(InstanceWaypoints.OpenUi(InstanceNpcs.PassiveTreeUi, 1), "0x007b open the passive tree (respec)");
                 return true;
+            // The Puppet of Corruption's scripts: SendOpenScreen( CurrencyExchangeWindow / AsyncTradeStashWindow ) and
+            // FinishNPCChat(). The windows' data is not implemented yet; the client opens its empty frame.
+            case "CurrencyExchange":
+                await world.NpcClose("0x0084 close NPC dialogue for currency exchange");
+                await talk.Player.Send(InstanceWaypoints.OpenUi(InstanceNpcs.CurrencyExchangeUi), "0x007b open currency exchange");
+                return true;
+            case "ManageAsyncTrade":
+                await world.NpcClose("0x0084 close NPC dialogue for the async trade stash");
+                await talk.Player.Send(InstanceWaypoints.OpenUi(InstanceNpcs.AsyncTradeStashUi), "0x007b open the async trade stash");
+                return true;
             // Nessa's Identify Items (script: triggerer.IdentifyItems(), then the IdentifyAll sound): every unidentified item
             // in the main inventory, free. The sound effect is not sent (its message is not mapped).
             case "IdentifyItems":

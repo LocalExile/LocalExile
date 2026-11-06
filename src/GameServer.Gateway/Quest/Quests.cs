@@ -600,7 +600,11 @@ static partial class Quests
     /// epilogue flag the client requires before an Atlas map can be activated: until earned it is one of
     /// <see cref="EndgameOnly"/>.</summary>
     public static readonly string[] EveryCharacter = ["HideoutUnlocked", "HideoutJukeboxEnabled", "CanEditHideout", "MapDeviceActive",
-        CompletedAllTutorials, ThisIsMyHideout, EndGameAvailable];
+        CompletedAllTutorials, ThisIsMyHideout, EndGameAvailable,
+        // The 3.29.3c Puppet of Corruption (NPCs 819): its Manage Shop row requires HideoutAsyncTradeEnabled (3332);
+        // Purchase Items also requires CanSeeFaustusInHideout (3509) and is hidden by ThisIsMyHideout. The male
+        // variant (3644) matches the HideoutDoodad variation 0 and its male greeting/intro audio.
+        "HideoutAsyncTradeEnabled", "CanSeeFaustusInHideout", "CorruptionTraderIsMale"];
 
     /// <summary>
     /// Of <see cref="EveryCharacter"/>, the flags given for the endgame only, until the character earns them (Kitava's

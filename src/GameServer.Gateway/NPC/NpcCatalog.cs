@@ -17,6 +17,9 @@ sealed class NpcCatalog
         public string? Model { get; init; }
         /// <summary>A fixed world z (a town room's line, <see cref="Placement.Height"/>).</summary>
         public float? Height { get; init; }
+        /// <summary>The HideoutDoodads row of a hideout-only MTX NPC (the Puppet of Corruption): its
+        /// MtxTypeGameSpecific HASH32 and model variation (0 male, 1 female).</summary>
+        public HideoutDoodad? Hideout { get; init; }
         public int HardModeShopRow { get; init; } = -1;
         /// <summary>The type's Transitionable num_states (object-types.json; 1 when it has none): the last state.</summary>
         public byte TransitionStates { get; init; } = 1;
@@ -110,6 +113,8 @@ sealed class NpcCatalog
     {
         /// <summary>A town room's own line (TownNpcs): it may stand on a cell the walk map blocks (a stall, a pier).</summary>
         public bool FromRoom { get; init; }
+        /// <summary>The HideoutDoodad component of a hideout-only MTX NPC (its hash and variation).</summary>
+        public HideoutDoodad? Hideout { get; init; }
     }
 
     // The campaign towns are TownNpcs (their rooms' NPC lines); other towns here. Facing in radians (Positioned +0x29c).
@@ -219,6 +224,9 @@ sealed class NpcCatalog
         new("Metadata/NPC/Epilogue/KiracHideout", 249, 358, 4.0f),
         new("Metadata/NPC/Epilogue/LillyHideout", 235, 372, 4.0f),
         new("Metadata/NPC/League/Bestiary/EinharHideout", 242, 365, 4.0f),
+        // The 3.29.3c MTX hideout NPC (Puppet of Corruption): its HideoutDoodad hash and male/female model come from
+        // the HideoutDoodads and MtxTypeGameSpecific tables (NpcCatalog.Read).
+        new("Metadata/Terrain/HideoutDecorations/Microtransactions/EdictCorruptionTrader/EdictCorruptionTrader_", 228, 373, 4.0f),
     ];
 
     public static IReadOnlyList<Placement> HideoutNpcs => Hideout;
@@ -231,7 +239,8 @@ sealed class NpcCatalog
 
     /// <summary>The NPC a placement stands for, with the placement's model, height and state.</summary>
     public Npc? Place(Placement p) => Find(p.Id) is { } npc
-        ? npc with { Model = p.Model ?? npc.Model, Height = p.Height, TransitionState = p.TransitionState ?? npc.TransitionState }
+        ? npc with { Model = p.Model ?? npc.Model, Height = p.Height, TransitionState = p.TransitionState ?? npc.TransitionState,
+            Hideout = p.Hideout ?? npc.Hideout }
         : null;
 
     /// <summary>An NPC by row, Id or name (exact name first, then the first Id or name containing the text).</summary>
@@ -257,7 +266,10 @@ sealed class NpcCatalog
             foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
             {
                 string type = t.GetProperty("type").GetString()!;
-                if (!type.StartsWith("Metadata/NPC/", StringComparison.OrdinalIgnoreCase)) continue;
+                // A hideout MTX NPC (the Puppet of Corruption) lives under Metadata/Terrain, not Metadata/NPC: take
+                // any type with an NPC component, not only the NPC folder.
+                bool npc = t.GetProperty("components").EnumerateArray().Any(c => c.GetString() == "NPC");
+                if (!type.StartsWith("Metadata/NPC/", StringComparison.OrdinalIgnoreCase) && !npc) continue;
                 components[type] = [.. t.GetProperty("components").EnumerateArray().Take(t.GetProperty("read").GetInt32()).Select(c => c.GetString()!)];
                 if (t.TryGetProperty("shared_states", out var ss) && t.TryGetProperty("shared_timers", out var st))
                     stateMachines[type] = new([.. ss.EnumerateArray().Select(e => e[1].GetInt32())], st.GetArrayLength(),
@@ -266,6 +278,7 @@ sealed class NpcCatalog
                     transitionStates[type] = (byte)Math.Clamp(ns.GetInt32(), 1, 127);
             }
         }
+        var hideoutDoodads = ReadHideoutDoodads(folder);
         var shopOfSet = new List<int>();
         var hardModeShopOfSet = new List<int>();
         string sets = Path.Combine(folder, "tables", "NPCShopSets.json");
@@ -289,16 +302,48 @@ sealed class NpcCatalog
                 // Without object-types.json, assume the base NPC list.
                 IReadOnlyList<string>? list = components.Count == 0 ? NpcObject.BaseComponents : components.GetValueOrDefault(type);
                 int set = r.GetProperty("ShopSet").ValueKind == JsonValueKind.Number ? r.GetProperty("ShopSet").GetInt32() : -1;
+                var hideout = hideoutDoodads.GetValueOrDefault(type);
                 rows.Add(new Npc(rows.Count, id, r.GetProperty("Name").GetString() ?? "", list,
                     stateMachines.GetValueOrDefault(type), transitionStates.GetValueOrDefault(type, (byte)1),
                     set >= 0 && set < shopOfSet.Count ? shopOfSet[set] : -1)
                 {
-                    Model = TownNpcs.ModelOf(id),
+                    Model = TownNpcs.ModelOf(id) ?? hideout.Models?.FirstOrDefault(),
+                    Hideout = hideout.Doodad,
                     TransitionStates = transitionStates.GetValueOrDefault(type, (byte)1),
                     HardModeShopRow = set >= 0 && set < hardModeShopOfSet.Count ? hardModeShopOfSet[set] : -1,
                 });
             }
         return new(rows, null, ReadTalk(folder));
+    }
+
+    /// <summary>HideoutDoodads rows by their InheritsFrom type: the MtxTypeGameSpecific HASH32 and variation models of
+    /// hideout-only MTX NPCs (the Puppet of Corruption). Empty when the tables are missing or unreadable.</summary>
+    static Dictionary<string, (HideoutDoodad? Doodad, string[]? Models)> ReadHideoutDoodads(string folder)
+    {
+        var result = new Dictionary<string, (HideoutDoodad?, string[]?)>(StringComparer.OrdinalIgnoreCase);
+        string mtxFile = Path.Combine(folder, "tables", "MtxTypeGameSpecific.json");
+        string doodadFile = Path.Combine(folder, "tables", "HideoutDoodads.json");
+        if (!File.Exists(mtxFile) || !File.Exists(doodadFile)) return result;
+        try
+        {
+            using var mtx = JsonDocument.Parse(File.ReadAllBytes(mtxFile));
+            var hashes = mtx.RootElement.EnumerateArray().Select(r => r.GetProperty("HASH32").GetUInt32()).ToList();
+            using var doodads = JsonDocument.Parse(File.ReadAllBytes(doodadFile));
+            foreach (var r in doodads.RootElement.EnumerateArray())
+            {
+                if (r.GetProperty("MtxTypeGameSpecific") is not { ValueKind: JsonValueKind.Number } key
+                    || key.GetInt32() is not (>= 0 and var row) || row >= hashes.Count) continue;
+                if (r.GetProperty("InheritsFrom").GetString() is not { Length: > 0 } type) continue;
+                var models = r.GetProperty("Variation_AOFiles").EnumerateArray()
+                    .Select(a => a.GetString() ?? "").Where(s => s.Length > 0).ToArray();
+                result.TryAdd(type, (new HideoutDoodad(hashes[row], 0), models));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            return new Dictionary<string, (HideoutDoodad?, string[]?)>(StringComparer.OrdinalIgnoreCase);
+        }
+        return result;
     }
 
     static List<Talk> ReadTalk(string folder)
@@ -323,7 +368,7 @@ sealed class NpcCatalog
                 int OptionalInt(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
                 string[] FlagList(string name) => r.TryGetProperty(name, out var v)
                     ? [.. v.EnumerateArray().Select(e => e.GetInt32()).Where(i => i >= 0 && i < flags.Count).Select(i => flags[i])] : [];
-                talk.Add(new Talk(talk.Count, Int("NPCKey"), Int("__col1"), r.GetProperty("DialogueOption").GetString() ?? "",
+                var row = new Talk(talk.Count, Int("NPCKey"), Int("__col1"), r.GetProperty("DialogueOption").GetString() ?? "",
                     category >= 0 && category < names.Count ? names[category] : "", r.GetProperty("Script").GetString() ?? "",
                     [.. r.GetProperty("NPCTextAudioKeys").EnumerateArray().Select(e => e.GetInt32())])
                 {
@@ -331,7 +376,12 @@ sealed class NpcCatalog
                     StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
                     RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,
                     Script2 = r.TryGetProperty("Script2", out var script2) ? script2.GetString() ?? "" : "",
-                });
+                };
+                // The Puppet of Corruption's Purchase Items is its async-trade browse option, not a "not my hideout"
+                // variant: the client shows it in the owner's hideout, so the server must accept it too.
+                if (row.Npc == 819 && row.Option == "Purchase Items")
+                    row = row with { ExcludedFlags = [.. row.ExcludedFlags.Where(f => f != "ThisIsMyHideout")] };
+                talk.Add(row);
             }
         return talk;
     }

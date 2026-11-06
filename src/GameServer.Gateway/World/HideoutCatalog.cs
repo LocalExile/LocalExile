@@ -105,6 +105,7 @@ static class HideoutCatalog
         || type.EndsWith("MappingDevice", StringComparison.Ordinal)
         || type.EndsWith("Map_Device", StringComparison.Ordinal)
         || type.StartsWith("Metadata/NPC/", StringComparison.Ordinal)
+        || NpcCatalog.HideoutNpcs.Any(p => p.Id == type)
         || type.EndsWith("CraftingSilo_Hideout", StringComparison.Ordinal)
         || type.EndsWith("HeistStash_Hideout", StringComparison.Ordinal)
         || type.EndsWith("ExpeditionStash_Hideout", StringComparison.Ordinal)

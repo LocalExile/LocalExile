@@ -9,7 +9,10 @@ static partial class Game
         int x, int y, float rotation)
     {
         uint id = conn.NextObjectId++;
-        var obj = new NpcObject(x, y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState, npc.Model, npc.Height);
+        // A HideoutDoodad NPC's component is read only in a hideout (object data +0x14e); the Puppet is placed there.
+        // Outside a hideout its data is zeroed.
+        var hideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null ? npc.Hideout : null;
+        var obj = new NpcObject(x, y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState, npc.Model, npc.Height, hideout);
         uint type = InstanceEntities.ObjectTypeHash(npc.Id);
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, type, obj.Blob()),
             $"0x02b9 create npc 0x{id:x} {npc} type=0x{type:x8} at ({x}, {y}) rotation {rotation:0.##}, components {string.Join(", ", npc.Components!)}");

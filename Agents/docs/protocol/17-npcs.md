@@ -173,9 +173,19 @@ u8 = the chosen NPCTalk row's index among the NPC's rows (column 1). The client 
 |---|---|
 | Gossip, Quests, QuestReward | S→C 0x84 with the index: the window plays the row's text and audio (verified) |
 | BuyItems | shop tab (S→C 0xc0, manager 1) + S→C 0x8c (verified: the buy window shows the stock) |
+| BuyAsyncTrade | the ordinary 0x8c buy window (Puppet of Corruption's Purchase Items). Its async-trade listings are not implemented yet, so the window has no tabs |
+| CurrencyExchange | S→C 0x7b kind 0x5e (`CurrencyExchangeWindow`; Puppet of Corruption). The window's data is not implemented yet |
+| ManageAsyncTrade | S→C 0x7b kind 0x63 (`AsyncTradeStashWindow`; Puppet of Corruption). The window's data is not implemented yet |
 | SellItems | two offer inventories (0xc0, manager 1) + S→C 0xb8 (verified: drops, Ctrl + click, Accept, Cancel; §5) |
 | RespecPassivePointsForGold | S→C 0x7b kind 0x5f with 1: the character's passive tree (UI +0x650, listener 0x140dc8750; a non-zero u32 shows it in mode 2, `0x1409de680`), the script's `SendOpenScreen( CharacterPassiveTreeScreen, 1 )`. Not kind 0x11 (Atlas tree, UI +0x668) or 0x45 (UI +0x678). "Apply refunds" (C→S 0x36 per node) and "Refund All" (0x37) are paid in gold ([15](15-progression.md) §2) |
 | IdentifyItems | script `triggerer.IdentifyItems()`: every unidentified item with mods in the main inventory becomes identified, free (0xbf removes and re-adds the same ids), then a chat line "{0} Items identified" / "{0} Item identified" (ClientStrings `IdentifyItemsChatMessage(Single)`, S→C 0x17, [10](10-chat-and-commands.md) §2) and 0x84 0xff to list the options again (verified 2026-10-20). The client grays the option itself (`0x141e754b0` case 0x3b: no unidentified item in the inventory → ClientStrings id 0x1f07 "No items in your inventory can be identified", drawn gray by `0x14071e8d0`), but only when the options are listed. The real game probably charges Scrolls of Wisdom (ClientStrings `IdentifyItemsNotEnoughScrollsOfWisdom`); ours is free. The IdentifyAll sound effect is not sent |
+
+The Puppet of Corruption (NPCs row 819, 3.29.3c) is the first hideout-only MTX NPC: its type lies under
+`Metadata/Terrain/HideoutDecorations/…` and adds `ControlZone` and `HideoutDoodad` (hash `0x721E8B26`, variation 0
+male / 1 female) to the base NPC components. `HideoutAsyncTradeEnabled` (3332), `CanSeeFaustusInHideout` (3509) and
+`CorruptionTraderIsMale` (3644) are every-character flags. Its Purchase Items row excludes `ThisIsMyHideout`, but the
+client shows it in the owner's hideout, so `NpcCatalog` accepts it there too. The eight `NPCVendorDialogue` scripts and
+299 `NPCTextAudio` lines are audio for the async-trade events, which are not implemented yet.
 
 C→S 0x85 during a talk = Continue → 0x84 0xff (back to the options); otherwise the Gateway answers 0x84 with object 0,
 which ends the dialogue (without an answer the client stays in its dialogue state and the player cannot move).
