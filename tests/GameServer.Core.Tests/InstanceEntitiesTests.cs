@@ -54,7 +54,7 @@ public class InstanceEntitiesTests
     [Fact]
     public void Gold_is_a_big_endian_u32_message()
     {
-        Assert.Equal("02A90001E240", Convert.ToHexString(InstanceEntities.Gold(123456)));
+        Assert.Equal("02AA0001E240", Convert.ToHexString(InstanceEntities.Gold(123456)));
     }
 
     [Fact]

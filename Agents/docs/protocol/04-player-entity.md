@@ -383,8 +383,9 @@ stay down on their screens. Peer creation clears the flag and the rotation, and 
 
 ## 6. Gold
 
-S→C **0x2a9** (class `0x14316c420`, read `0x140913050`): u32 BE, the gold shown for the character. The instance dispatcher
-(case 0xe2, `0x14214dbe1`) keeps it at session +0xc40c (0 in the session constructor `0x142144b50`), where the gold
+S→C **0x2aa** in 3.29.3c (0x2a9 in 3.29.3b; the 3.29.3c client inserted a new message at 0x2a9, see
+[3.29.3c diff](../re/3.29.3c-client-diff.md)): u32 BE, the gold shown for the character. The instance dispatcher
+(case 0xe2 in 3.29.3b, `0x14214dbe1`) keeps it at session +0xc40c (0 in the session constructor `0x142144b50`), where the gold
 respec cost check (`0x140997b10`) and the village gold label (`0x1404ff5d0`) read it, and plays Gold_Spend.ogg when it
 drops. Found with a hardware watchpoint on the field and the dispatcher's disassembly (its decompile fails). The
 Gateway keeps gold per account, as in the real game where every character of an account (and league) shares it:

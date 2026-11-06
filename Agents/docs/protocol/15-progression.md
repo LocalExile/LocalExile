@@ -107,7 +107,7 @@ yet confirmed on screen).
   node, an `IsExpansion` node's own value (unnamed i32 at +0xb2). The full cost (`GetFullGoldRespecCost`, lambda
   `0x141f1b500`) skips ascendancy nodes. The Gateway (`PassiveTree.GoldRespecCost`, `ChangePassives` with
   `goldRespec`) refunds only allocated nodes, refuses when the gold is short, removes the nodes' mastery effects,
-  saves the passives, takes the gold from the account (`AccountStash.TrySpendGold`, nothing when refused), and answers with the gold (0x2a9), the stats and the tree (0x33). Refund All
+  saves the passives, takes the gold from the account (`AccountStash.TrySpendGold`, nothing when refused), and answers with the gold (0x2aa in 3.29.3c, 0x2a9 in 3.29.3b), the stats and the tree (0x33). Refund All
   refunds every non-ascendancy node.
 - **Refund points** (0x36 flag 0): the Gateway refunds one allocated, non-ascendancy node per message, spends one
   point from 0x33's first u16, removes the node's mastery effect, saves the tree and the points, and answers with the

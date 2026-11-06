@@ -372,11 +372,12 @@ public static class InstanceEntities
     public static byte[] PlayerPortraitUpdate(uint playerId, ushort portrait) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x40).U16(portrait).ToArray());
 
-    public const ushort GoldId = 0x2a9;
+    public const ushort GoldId = 0x2aa;
 
-    /// <summary>S→C 0x2a9 (class 0x14316c420, read 0x140913050): u32 BE, the character's gold. The instance dispatcher (case
-    /// 0xe2, 0x14214dbe1) stores it at session +0xc40c (the inventory's and the gold respec's amount) and plays
-    /// Gold_Spend.ogg when it drops.</summary>
+    /// <summary>S→C 0x2aa in 3.29.3c (0x2a9 in 3.29.3b; the 3.29.3c client inserted a new message at 0x2a9): u32 BE, the
+    /// character's gold. The instance dispatcher (case 0xe2) stores it at session +0xc40c (the inventory's and the gold
+    /// respec's amount) and plays Gold_Spend.ogg when it drops. Sending the old id makes the client parse the next
+    /// packet as the new 0x2a9 message and stop with "Unable to deserialise packet" (live 2026-11-07).</summary>
     public static byte[] Gold(uint amount) => new LoginWriter().U16(GoldId).U32(amount).ToArray();
 
     /// <summary>The player's Inventories component again (0x2bc): what its model wears after an equipment change.</summary>
