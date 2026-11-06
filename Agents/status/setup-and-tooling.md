@@ -61,6 +61,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Version-pinned instance capture and bounded opening decoders retain private recordings and explicit coverage limits;
+  completeness and exact spawn reproduction remain unproven ([guide](../../scripts/re/gameplay-capture/README.md)).
+
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64
