@@ -82,6 +82,11 @@ if (-not $IsLinux) {
     Check-Exit 'src\LocalExileGui\build.ps1'
 }
 
+# The optional POB converter runs separately; release users do not need an installed .NET runtime.
+Step 'publishing the POB converter ...'
+dotnet publish 'Modules/POB/Converter/PobImport.csproj' @properties -r $runtime --self-contained true -o 'Modules/POB/bin/converter'
+Check-Exit 'dotnet publish POB converter'
+
 # The modules as the Gateway loads them: each one's manifest and other files, and its bin\ without the build's leftovers.
 Step 'copying modules, mods and leagues ...'
 Get-ChildItem Modules -Recurse -File | Where-Object {

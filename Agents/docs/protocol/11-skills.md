@@ -24,6 +24,11 @@ ActiveSkillInstance (base vtable `0x1435b9728`, 400-byte `make_shared` block, vt
 | +0x42 | u16 **action id**: an ActionTypes `HASH16` |
 | +0x48 | the GrantedEffectsPerLevel reference (row handle, then the effect, its `Id` string) |
 
+Hybrid gems must classify each `GrantedEffects` row, not only `SkillGems.IsSupport`.
+Automation's second effect is `SupportAutomation`, with `IsSupport=true` and null `ActiveSkill`.
+Sending it as an Actor skill crashes at `0x141ee795a` in `0x141ee73d0`, which dereferences that foreign row.
+Keep the physical gem and its support data, but publish only effects with an actual `ActiveSkill` row.
+
 ## 2. Basic actions: from the object type
 
 The `ClientActor` constructor (`0x142192860`) walks a u16 list on the Actor type (`type+0xf8..+0x100`) and calls

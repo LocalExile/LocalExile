@@ -17,6 +17,7 @@ sealed class ItemCatalog
 
     private StashRules? _stash;
     private readonly string _folder;
+    private readonly Lazy<HashSet<int>> _activeGemEffects;
 
     public ItemCatalog(string folder, bool hardMode = false, LimitSettings? limits = null)
     {
@@ -26,6 +27,7 @@ sealed class ItemCatalog
         _rows = new(() => Load(folder, Mods));
         _byHash = new(() => _rows.Value.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First()));
         _gems = new(() => LoadGems(folder, hardMode));
+        _activeGemEffects = new(() => LoadActiveGemEffects(folder));
         _requirements = new(() => LoadRequirements(folder));
         _shieldBlocks = new(() => LoadShieldBlocks(folder));
         _weaponCrits = new(() => LoadWeaponCrits(folder));
@@ -296,8 +298,20 @@ sealed class ItemCatalog
     {
         if (ByHash(gem.TypeHash) is not { } t || Gem(t) is not { IsSupport: false } g || g.Variants.Count == 0) yield break;
         var v = g.Variant(gem.GemVariant);
-        if (v.Effect >= 0) yield return v.Effect;
-        if (v.Effect2 >= 0) yield return v.Effect2;
+        if (_activeGemEffects.Value.Contains(v.Effect)) yield return v.Effect;
+        if (_activeGemEffects.Value.Contains(v.Effect2)) yield return v.Effect2;
+    }
+
+    // Hybrid gems such as Automation carry an active effect and a support effect.
+    // The Actor skill constructor dereferences ActiveSkill (+0x63) even for a secondary effect.
+    static HashSet<int> LoadActiveGemEffects(string folder)
+    {
+        string path = Path.Combine(folder, "tables", "GrantedEffects.json");
+        if (!File.Exists(path)) return [];
+        using var doc = GameTables.Open(path);
+        return doc.RootElement.EnumerateArray().Select((row, i) => (Row: row, Index: i))
+            .Where(r => !r.Row.GetProperty("IsSupport").GetBoolean() && r.Row.GetProperty("ActiveSkill").ValueKind == JsonValueKind.Number)
+            .Select(r => r.Index).ToHashSet();
     }
 
     /// <summary>A gem item's level from its experience (<see cref="GemType.Level"/>), 1 for an unknown gem type.</summary>
