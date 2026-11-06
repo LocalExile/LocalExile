@@ -679,9 +679,9 @@ the order's frame and the Sand Spitter walks on to its Move's target (377 shots 
 median, 4.2 at the 90th percentile, 7.6 at most), so the estimate keeps its walk; where its path is longer than the
 client's, it walks on alone (one 18-cell case in eight pack fights). The shot's order starts at the start of the frame
 its 0x1ab goes out in, as a walk's does, and the Gateway dates and places it there (`LockstepOrderStart`): one sent
-from a cell other than the client's ends the client's walk on that cell (the forced set below; 0 of 49 walked on), and
-in 24 pack fights 70 of 2 700 shot orders, dated by the clock before the frames behind them were replayed, went out with
-the estimate a step or more ahead along the walk.
+from a cell other than the client's ends the client's walk on that cell (the forced set below; 0 of 49 walked on). In 24
+pack fights 70 of 2 700 shot orders went out with the estimate one to eight cells ahead along the walk, by a cause not
+yet traced (the forced set below may account for those a cell ahead).
 
 A monster in a 0x1d1 TakeHit's recovery starts no action (Actor `+0x219` & 2, tested by the action gate
 `0x141e8d900`). An order that comes meanwhile waits (`0x141e8cf10`), and the monster's own tick starts it in the frame
