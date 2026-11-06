@@ -58,8 +58,9 @@ function sends 0x2cb once (flag +0xcd4a) and flushes. An unknown hash is fatal.
 
 ### C→S 0x2cb — leaving (870 bytes)
 
-Sent once after 0x2b2. Our framer does not know its layout yet, so it arrives "unframed". The Gateway takes the id as
-the signal to transfer. If no 0x2cb arrives, the Gateway transfers anyway after 2 s.
+Sent once after 0x2b2 (writer `0x141f9fa50`): u16 id, u16 BE byte count, then that many bytes (u16 6 and 0x360 bytes, so
+870 in all). Their content is not decoded. The Gateway frames it by that count and takes it as the signal to transfer.
+If no 0x2cb arrives, the Gateway transfers anyway after 2 s.
 
 ### S→C 0x27 — connect to instance
 

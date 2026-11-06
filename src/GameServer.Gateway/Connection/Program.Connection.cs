@@ -270,7 +270,10 @@ partial class Program
             // Only a lockstep client's world counts frames behind (0x142183930), so only it reports any.
             if (conn.LockstepServed && bytes[2] != 0) conn.LockstepClient = true;
             if (conn.Ticks++ % 50 == 0 && ServerTrace.Ticks) Console.WriteLine($"[gateway] {remote} <= 0x001b tick #{conn.Ticks}: {Convert.ToHexString(bytes)} (answered with 0x001c)");
-            await SendPong(stream, ciphers, InstanceProtocol.Pong(serverDelayMs: ClientInbox.ServerDelayMs, ackIndex: inbox.NextAckIndex(), sideChannel: conn.Hnc!.NextIdleU32()));
+            // Answered after the input read before it (ClientInbox.DeferTick); the ack index and the side channel are taken
+            // when it goes out, so the answers keep the ticks' order.
+            inbox.DeferTick(() => SendPong(stream, ciphers, InstanceProtocol.Pong(serverDelayMs: ClientInbox.ServerDelayMs,
+                ackIndex: inbox.NextAckIndex(), sideChannel: conn.Hnc!.NextIdleU32())));
             var waited = Stopwatch.GetElapsedTime(readAt);
             if (waited > ClientInbox.SlowAfter)
                 Console.WriteLine($"[gateway] {remote} slow tick #{conn.Ticks}: 0x001c sent {waited.TotalMilliseconds:0} ms after the 0x001b was read");
@@ -291,7 +294,8 @@ partial class Program
                 if (conn.Closed) break;
                 handling = batch;
                 long start = Stopwatch.GetTimestamp();
-                await Logic.OnClientMessages(remote, stream, ciphers, batch.Messages, batch.Unknown, conn, batch.ReadAt);
+                try { await Logic.OnClientMessages(remote, stream, ciphers, batch.Messages, batch.Unknown, conn, batch.ReadAt); }
+                finally { inbox.Handled(); }
                 handling = null;
                 conn.Performance.Elapsed(LatencyPhase.Handler, start);
                 conn.Performance.MaybeLog(remote, inbox.PendingBatches);
@@ -358,15 +362,33 @@ partial class Program
     // before another task's packets were sent can check that it still applies (SendFlinch).
     // Projectile impacts commit their short locked damage mutation inside this gate before relocation.
     // A factory samples clock-sensitive state and constructs its packet after earlier sends; null sends nothing.
+    /// <summary>Sees every message before it is encrypted and written (the module's mirror of shared monsters to the other
+    /// clients); it must copy what it keeps.</summary>
+    internal static Action<ConnectionCiphers, byte[]>? Outgoing;
+
+    // How often a state sync that an update loop offers every 16-32 ms may take the send gate. The packets are
+    // idempotent snapshots, so a skipped step publishes nothing lost, and the input handlers stop queueing behind them.
+    internal const double SyncPublishMilliseconds = 100;
+
     internal static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
-        Func<bool>? still = null, Func<byte[]?>? atGate = null)
+        Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
     {
         var gate = SendGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
         var performance = MetricsFor(ciphers);
+        // A state sync the loops offer many times a second: unless its window is up, do not take the gate or the lock at
+        // all. See ConnectionPerformance.SyncDue: the queue behind these is what the input handlers waited in.
+        if (sync is not null && !performance.SyncDue(sync, SyncPublishMilliseconds)) return;
+        // Inside a batch (SendBatched) the send waits for the batch's one turn at the gate.
+        if (CurrentSendBatch.Value is { } batch && ReferenceEquals(batch.Ciphers, ciphers))
+        {
+            batch.Items.Add(new(bytes, log, still, atGate, ProjectileOutputGuard.Value));
+            return;
+        }
         long waitingAt = Stopwatch.GetTimestamp();
         await gate.WaitAsync();
         performance.Elapsed(LatencyPhase.SendWait, waitingAt);
         long heldAt = Stopwatch.GetTimestamp();
+        ushort? sentId = null;
         try
         {
             if (ProjectileOutputGuard.Value is { } projectileGuard && !projectileGuard()) return;
@@ -376,6 +398,8 @@ partial class Program
                 if (atGate() is not { } current) return;
                 bytes = current;
             }
+            // Nothing to send (a sync with no change): nothing written, nothing in the history.
+            if (bytes.Length == 0) return;
             if (log is not null)
             {
                 string line = $"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}";
@@ -386,12 +410,114 @@ partial class Program
             if (ServerTrace.Packets && PacketHistory.Kept(sent: true, PacketHistory.IdOf(bytes)))
                 Console.WriteLine($"[packets] {remote} => 0x{PacketHistory.IdOf(bytes):x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
             HistoryFor(ciphers).Sent(bytes);   // before Write, which encrypts the bytes in place
+            sentId = (ushort)(bytes[0] << 8 | bytes[1]);   // Temporary lag instrumentation: the id, read before Write encrypts it
+            // What this client is sent may concern others too (the instance's shared monsters: SharedMonsters.cs).
+            if (Outgoing is { } outgoing) outgoing(ciphers, bytes);
             string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
                 ? Convert.ToHexString(bytes) : null;
             await Write(stream, ciphers, bytes);
             if (trace is not null) Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
         }
-        finally { gate.Release(); performance.Elapsed(LatencyPhase.SendHold, heldAt); }
+        finally
+        {
+            long held = Stopwatch.GetTimestamp();
+            var hold = Stopwatch.GetElapsedTime(heldAt, held);
+            gate.Release();
+            performance.Elapsed(LatencyPhase.SendHold, heldAt);
+            if (sentId is ushort id) performance.Send(id, held - heldAt);
+            else if (ConnectionPerformance.LagProbe) performance.EmptySend(SendCaller(), held - heldAt);
+            // Temporary: which send holds the gate while input waits behind it.
+            if (ConnectionPerformance.LagProbe && hold > TimeSpan.FromMilliseconds(50))
+                Console.WriteLine($"[slow-send] {remote} {log ?? "?"} wait={Stopwatch.GetElapsedTime(waitingAt, heldAt).TotalMilliseconds:0} "
+                    + $"hold={hold.TotalMilliseconds:0} bytes={bytes.Length}"
+                    + (log is null ? " at=" + string.Join(" <- ", new StackTrace(1, false).GetFrames()
+                        .Take(4).Select(frame => frame.GetMethod()?.Name ?? "?")) : ""));
+        }
+    }
+
+    // A run of sends that each would take the send gate on their own (the player tick's eleven state publications: Antiquarian,
+    // Onslaught, totems, Spirit Chieftain, recent hits, attacker slows, Lifetap, leech, Petrified Blood, enemy auras,
+    // blind) queue in a batch and take the gate once, in their order, each still evaluated at the gate as on its own; the
+    // packets go out in one write. The input handlers then wait behind one hold instead of eleven.
+    sealed record BatchedSend(byte[] Bytes, string? Log, Func<bool>? Still, Func<byte[]?>? AtGate, Func<bool>? Guard);
+    sealed class SendBatch(ConnectionCiphers ciphers)
+    {
+        public readonly ConnectionCiphers Ciphers = ciphers;
+        public readonly List<BatchedSend> Items = [];
+    }
+    static readonly AsyncLocal<SendBatch?> CurrentSendBatch = new();
+
+    /// <summary>Runs <paramref name="body"/>, whose sends to this connection take the send gate together at its end.
+    /// Its result is the body's. A send inside returns before it is published, so the body must not rely on one having
+    /// gone out.</summary>
+    internal static async Task<bool> SendBatched(string remote, NetworkStream stream, ConnectionCiphers ciphers, Func<Task<bool>> body)
+    {
+        if (CurrentSendBatch.Value is not null) return await body();
+        var batch = new SendBatch(ciphers);
+        bool result;
+        CurrentSendBatch.Value = batch;
+        try { result = await body(); }
+        finally { CurrentSendBatch.Value = null; }
+        if (batch.Items.Count == 0) return result;
+        var gate = SendGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
+        var performance = MetricsFor(ciphers);
+        long waitingAt = Stopwatch.GetTimestamp();
+        await gate.WaitAsync();
+        performance.Elapsed(LatencyPhase.SendWait, waitingAt);
+        long heldAt = Stopwatch.GetTimestamp();
+        try
+        {
+            var all = new List<byte>();
+            foreach (var item in batch.Items)
+            {
+                if (item.Guard is { } guard && !guard()) continue;
+                if (item.Still is not null && !item.Still()) continue;
+                var bytes = item.Bytes;
+                if (item.AtGate is not null)
+                {
+                    if (item.AtGate() is not { } current) continue;
+                    bytes = current;
+                }
+                if (bytes.Length == 0) continue;
+                if (item.Log is not null)
+                {
+                    string line = $"[gateway] {remote} => {item.Log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}";
+                    if (ServerTrace.Packets) Console.WriteLine(line);
+                    else PacketSummaries.Value.Write(line);
+                }
+                HistoryFor(ciphers).Sent(bytes);
+                if (Outgoing is { } outgoing) outgoing(ciphers, bytes);
+                all.AddRange(bytes);
+            }
+            if (all.Count > 0) await Write(stream, ciphers, [.. all]);
+        }
+        finally
+        {
+            gate.Release();
+            performance.Elapsed(LatencyPhase.SendHold, heldAt);
+        }
+        return result;
+    }
+
+    // Temporary lag instrumentation: the async method whose builder published nothing, from its state machine type.
+    static string SendCaller()
+    {
+        foreach (var frame in new StackTrace(1, false).GetFrames())
+        {
+            var method = frame.GetMethod();
+            string name = method?.Name ?? "?";
+            if (name is not ("Start" or "MoveNext"))
+            {
+                if (name is not "Send") return name;
+                continue;
+            }
+            string type = method?.DeclaringType?.Name ?? "";
+            int end = type.IndexOf('>');
+            if (!type.StartsWith('<') || end <= 1) continue;
+            string owner = type[1..end];
+            if (owner is not "Send") return owner;
+        }
+        return "?";
     }
 
     // The wire itself: the keystream must be applied and written in one order, so encryption and the write share this

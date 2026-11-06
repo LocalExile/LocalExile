@@ -154,7 +154,7 @@ static partial class Game
         var character = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
         bool precision;
-        lock (conn.Monsters) precision = conn.Auras.Values.Any(a => a.EffectId == "Precision");
+        lock (conn.Monsters) precision = conn.Auras.Values.Any(a => a.EffectId == "Precision" && a.AffectsSelf);
         var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, now, Random.Shared.Next);
         if (gains.Count > 0)
             await GainFlaskCharges(remote, stream, ciphers, conn, (f, _) => gains.GetValueOrDefault(f.Id), "critical strike");

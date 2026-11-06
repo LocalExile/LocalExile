@@ -492,6 +492,14 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>The native Brand skill type, independently of display name or gem tags.</summary>
     public bool IsBrand(int effectRow) => _brandEffects.Value.Contains(effectRow);
 
+    /// <summary>Whether a GrantedEffects row's ActiveSkill has an ActiveSkillType by its data Id (Trap, Mine, Totem,
+    /// Channel, ...): the named helpers cover the common ones, this reads any type a caller names.</summary>
+    public bool HasType(int effectRow, string typeId) => _skillTypes.HasType(effectRow, typeId);
+
+    /// <summary>The ActiveSkillType Ids a support adds to the skill it supports (Trap Support adds Trap, Ballista Totem
+    /// Support adds Totem): the run uses these to keep mechanics it cannot place out of the support pool.</summary>
+    public IReadOnlyList<string> AddedTypes(int effectRow) => _skillTypes.AddedTypes(effectRow);
+
     // The effects of one ActiveSkillType each: ActiveSkillType, ActiveSkills and GrantedEffects are parsed once for all
     // of them (each set used to parse the three tables again: ~100 MB of JSON per catalogue at the first spawn).
     private readonly SkillTypeSets _skillTypes = new(folder);
@@ -556,6 +564,27 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public Lazy<HashSet<int>> SelfTargeted { get; }
 
         Lazy<HashSet<int>> Of(string typeId, bool added = false) => new(() => Effects(_rows.Value, typeId, added));
+
+        // Any named type a caller asks for (Trap, Mine, Totem, ...): resolved once and reused, like the fixed sets.
+        readonly Dictionary<string, Lazy<HashSet<int>>> _byId = new(StringComparer.Ordinal);
+
+        public bool HasType(int effectRow, string typeId)
+        {
+            lock (_byId)
+            {
+                if (!_byId.TryGetValue(typeId, out var effects)) _byId[typeId] = effects = Of(typeId);
+                return effects.Value.Contains(effectRow);
+            }
+        }
+
+        public IReadOnlyList<string> AddedTypes(int effectRow)
+        {
+            var rows = _rows.Value;
+            if (rows is null || effectRow < 0 || effectRow >= rows.AddedTypes.Length) return [];
+            return [.. rows.AddedTypes[effectRow]
+                .Select(i => i >= 0 && i < rows.TypeIds.Length ? rows.TypeIds[i] ?? "" : "")
+                .Where(id => id.Length > 0)];
+        }
 
         static HashSet<int> Effects(Rows? rows, string typeId, bool added)
         {
@@ -718,6 +747,25 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         foreach (var r in d.RootElement.EnumerateArray())
             if (r.GetProperty("Id").GetString() is { } id)
                 result.TryAdd(id, r.GetProperty("ProjectileSpeed") is { ValueKind: JsonValueKind.Number } v ? v.GetInt32() : 0);
+        return result;
+    });
+
+    /// <summary>A Projectiles.dat row's first AOFiles entry: the art the client plays for that projectile object
+    /// (SplitArrowDefault's split_arrow.ao, which Arrow Nova attaches to its rain rig).</summary>
+    public string? ProjectileAo(string id) =>
+        _projectileAos.Value.TryGetValue(id, out var ao) ? ao : null;
+
+    private readonly Lazy<Dictionary<string, string>> _projectileAos = new(() =>
+    {
+        string path = Path.Combine(folder, "tables", "Projectiles.json");
+        var result = new Dictionary<string, string>();
+        if (!File.Exists(path)) return result;
+        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        foreach (var r in d.RootElement.EnumerateArray())
+            if (r.GetProperty("Id").GetString() is { } id
+                && r.TryGetProperty("AOFiles", out var files) && files.ValueKind == JsonValueKind.Array)
+                foreach (var f in files.EnumerateArray())
+                    if (f.GetString() is { } ao) { result.TryAdd(id, ao); break; }
         return result;
     });
 

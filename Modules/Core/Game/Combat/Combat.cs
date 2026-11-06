@@ -370,7 +370,7 @@ static partial class Game
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
                     gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
-                LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell: false), damage,
+                LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
                     HitLeechSources(player, true, ownPenetration, weapon.LocalSources));
                 (damage, stored, impaled) = WithImpaleHitLocked(conn, m, damage, ownRolled, critical, sourceCriticalMultiplier,
                     ImpaleStats.From(player, Stats, attack: true, ownPenetration, weapon.LocalSources, critical));
@@ -388,6 +388,9 @@ static partial class Game
                 }
                 life = m.Life;
                 conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
+                // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
+                conn.RecentEvents.Record(StatConditions.HitEnemy, conn.Clock.Elapsed.TotalSeconds);
+                if (critical) conn.RecentEvents.Record(StatConditions.Crit, conn.Clock.Elapsed.TotalSeconds);
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
                     at, Random.Shared, poison: DefaultAttackPoison(conn, player));
@@ -874,8 +877,15 @@ static partial class Game
             }
             else
             {
+                // Generosity: the supported aura's own increased effect, and "Supported Auras do not affect you".
+                var (supportEffect, affectsSelf) = AuraSupport(conn, skillId);
+                // Flesh and Stone alternates its stance on every activation (the skill's own description); other auras
+                // have none.
+                string? stance = AuraCatalog.Family(effectId) == "FleshAndStone" ? conn.NextFleshAndStoneStance : null;
                 var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
-                    AuraCatalog.BuffRow(effectId), reservation.Flat, reservation.Percent, level, quality, SourceBuff: conn.NextBuff++);
+                    AuraCatalog.BuffRow(effectId, stance), reservation.Flat, reservation.Percent, level, quality,
+                    SourceBuff: conn.NextBuff++, SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance);
+                if (stance is not null) conn.NextFleshAndStoneStance = AuraCatalog.OtherStance(stance);
                 conn.Auras[skillId] = aura;
                 int reserved = RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent);
                 if (reserved > conn.Pools.Mana)
@@ -922,11 +932,89 @@ static partial class Game
         // A channelled skill (Cyclone, ActiveSkillType 47) hits as it starts: its spin is already in motion, and the later
         // sweeps follow on the attack timer (RunChannel).
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;
-        // A spell's repeats (SpellRepeats) land again a cast time apart, with the use's critical roll.
-        return Task.WhenAll(Enumerable.Range(0, SpellRepeats(conn, skillId, gem.Effect) + 1).Select(repeat =>
-            AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from, to, immediate: channelled, sequence: sequence,
-                actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
-                targetId: targetId, repeat: repeat)));
+        // A spell's repeats (SpellRepeats) land again a cast time apart, with the use's critical roll; a melee attack's
+        // Multistrike repeats are hits of the same use, spread over its attack time with their own more damage.
+        int spellRepeats = SpellRepeats(conn, skillId, gem.Effect);
+        int meleeRepeats = channelled || spellRepeats > 0 ? 0 : MeleeAttackRepeats(conn, skillId);
+        double repeatInterval = meleeRepeats > 0 ? SupportedAttackSeconds(conn, skillId) / (meleeRepeats + 1) : 0;
+        // Fist of War: every ancestral_slam_interval_duration the next slam use is the big hit (more damage and area).
+        double fistMore = 1, fistRadius = 1;
+        bool spell = SkillsFor(conn).IsSpell(gem.Effect);
+        if (!spell && !channelled)
+        {
+            var fistStats = SupportedSkill(conn, skillId).Stats;
+            int Fist(string name) => Stats.Key(name) is uint key ? fistStats.GetValueOrDefault(key) : 0;
+            if (Fist("support_ancestral_slam_big_hit_max_count") > 0)
+            {
+                double interval = Math.Max(0, Fist("ancestral_slam_interval_duration")) / 1000.0;
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                bool ready;
+                lock (conn.Monsters)
+                {
+                    ready = now >= conn.FistOfWarAt.GetValueOrDefault(skillId, double.NegativeInfinity);
+                    if (ready) conn.FistOfWarAt[skillId] = now + interval;
+                }
+                if (ready)
+                {
+                    fistMore = 1 + Fist("support_ancestral_slam_big_hit_damage_with_hits_and_ailments_+%_final") / 100.0;
+                    fistRadius = 1 + Fist("support_ancestral_slam_big_hit_area_+%") / 100.0;
+                }
+            }
+        }
+        // Sacrifice: the use pays its share of current life and gains the listed share of it as added chaos damage.
+        int addedChaos = 0;
+        {
+            var sacStats = SupportedSkill(conn, skillId).Stats;
+            int Sac(string name) => Stats.Key(name) is uint key ? sacStats.GetValueOrDefault(key) : 0;
+            int percent = Sac("support_sacrifice_sacrifice_%_of_current_life");
+            if (percent > 0 && conn.PlayerLife > 1)
+            {
+                int sacrificed = (int)Math.Min((long)conn.PlayerLife - 1, (long)conn.PlayerLife * percent / 100);
+                conn.PlayerLife -= (uint)sacrificed;
+                addedChaos = (int)((long)sacrificed * Sac("support_sacrifice_gain_%_of_sacrificed_life_as_added_chaos_damage") / 100);
+            }
+        }
+        // Spell Cascade: the spell also lands in the areas beside the target, one per side along the aim and, with
+        // support_spell_cascade_sideways, one per side across it. Each centre is one effective radius from the aim
+        // (live 2026-11-04: Reap at the character's area of effect had radius 28.5 and repeats 28-29 cells apart; the
+        // client draws each effect half a radius toward the caster, so the hit centre is the aim +- one radius).
+        var cascadeAreas = new List<(int X, int Y)>();
+        {
+            var cascadeStats = SupportedSkill(conn, skillId).Stats;
+            int Cascade(string name) => Stats.Key(name) is uint key ? cascadeStats.GetValueOrDefault(key) : 0;
+            int sides = spell ? Cascade("support_spell_cascade_number_of_cascades_per_side") : 0;
+            double dx = to.X - from.X, dy = to.Y - from.Y;
+            double length = Math.Sqrt(dx * dx + dy * dy);
+            if (sides > 0 && length > 0)
+            {
+                int radius = SkillRadius(conn, cascadeStats, spell, gem.Effect);
+                bool sideways = Cascade("support_spell_cascade_sideways") != 0;
+                double ax = dx / length, ay = dy / length;
+                for (int side = 1; side <= sides && radius > 0; side++)
+                {
+                    int alongX = (int)Math.Round(ax * radius * side), alongY = (int)Math.Round(ay * radius * side);
+                    cascadeAreas.Add((to.X + alongX, to.Y + alongY));
+                    cascadeAreas.Add((to.X - alongX, to.Y - alongY));
+                    if (sideways)
+                    {
+                        cascadeAreas.Add((to.X - alongY, to.Y + alongX));
+                        cascadeAreas.Add((to.X + alongY, to.Y - alongX));
+                    }
+                }
+            }
+        }
+        var jobs = new List<Task>();
+        for (int repeat = 0; repeat <= Math.Max(spellRepeats, meleeRepeats); repeat++)
+        {
+            void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
+                centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
+                criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat,
+                repeatDelay: repeat * repeatInterval, radiusMore: fistRadius, addedChaos: addedChaos,
+                damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1)));
+            Hit(to);
+            foreach (var area in cascadeAreas) Hit(area);
+        }
+        return Task.WhenAll(jobs);
     }
 
     // A channelled skill's hits (Cyclone): one sweep around the player every attack time (SupportedAttackSeconds: the
@@ -1036,7 +1124,8 @@ static partial class Game
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
-        uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null)
+        uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
+        double radiusMore = 1, int addedChaos = 0)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         bool Current() => (cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken))
@@ -1063,9 +1152,9 @@ static partial class Game
         // swing's; the player swings where it stands, so without the walk-in offset.
         lock (conn.Monsters) delay = spell
             ? castDuration.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject))
-            : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false);
+            : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false) + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
-        int radius = radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect);
+        int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect)) * radiusMore);
         // A melee skill aimed far away still lands in front of the player; a self-targeted spell goes off around the caster.
         var centre = VaalExecutor(conn, gem.Effect) || !spell && Dist(from, to) > radius + weapon.Range ? from
             : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
@@ -1091,6 +1180,8 @@ static partial class Game
         }
         List<(uint Id, SpawnedMonster M)> targets;
         int sweep;
+        // Melee Splash victims and their damage multiplier (see MeleeSplash).
+        var splashMore = new Dictionary<uint, double>();
         // Ice Nova's ring reaches each victim in turn (IceNovaRing); a channel's sweep lands at once.
         bool ring = !immediate && SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action;
         int artVariation = ring ? SkillArtVariation(conn, gem.Gem) : 0;
@@ -1128,6 +1219,25 @@ static partial class Game
             if (echo is { } at)
                 targets.AddRange(conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), at) <= radius && struck.Add(e.Key)).Select(e => (e.Key, e.Value)));
+            // Melee Splash: each struck enemy splashes onto the enemies around it, for the support's less damage.
+            if (!spell)
+            {
+                var merged = SupportedStats(conn, skillId);
+                int SplashStat(string name) => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
+                if (MeleeSplash.Settings(SplashStat) is { } splash)
+                    foreach (var (_, m) in targets.ToArray())
+                    {
+                        var splashAt = m.Walk.Position(now);
+                        foreach (var (sid, sm) in conn.Monsters)
+                            if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null && struck.Add(sid)
+                                && Dist(sm.Walk.Position(now), splashAt) <= splash.Radius)
+                            {
+                                targets.Add((sid, sm));
+                                splashMore[sid] = splash.More;
+                                once?.Add(sid);
+                            }
+                    }
+            }
         }
         bool fortificationGranted = false; // One simultaneous sweep, independent of notification latency.
         bool rageGranted = false; // Only a positive gain takes this sweep's latch.
@@ -1180,6 +1290,7 @@ static partial class Game
                     mods = HitResistMods(player, skillStats);
                     sweepHit = shield is null ? SupportedHit(conn, skillId) : SupportedHitFor(conn, skillId, suppress: true, weapon: shield);
                     if (ruthless != 1) sweepHit = sweepHit.Scale(ruthless);
+                    if (addedChaos > 0) sweepHit = sweepHit.Add(DamageType.Chaos, new(addedChaos, addedChaos));
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                     if (!spell) accuracy = SupportedAccuracy(conn, skillId);
                     leech = HitLeechSources(player, !spell, skillStats, local);
@@ -1200,16 +1311,25 @@ static partial class Game
                     contactHit = WithMeleeProximityLocked(conn, player, skillStats, m, contactHit, ProjectileWorldTime(conn));
                 int hitChance = spell ? 100 : AttackHitChanceAt(conn, id, m, ProjectileWorldTime(conn), accuracy, player);
                 if (!spell && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, ProjectileWorldTime(conn), conn.AttackAccuracyRandom)) continue;
-                if (MonsterBlocks(m, Random.Shared, spell))
+                if (MonsterBlocks(m, Random.Shared, spell, ProjectileWorldTime(conn), skillStats))
                 {
                     Console.WriteLine($"[gateway] {remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
                     continue;
                 }
                 var gambler = GamblerFor(player);
                 var rolled = WithConditionalSupportDamageLocked(conn, skillStats, !spell, m,
-                    GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).ForSkill(Stat, spell)
+                    GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 })
+                        .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(conn, skillId, gem.Effect))
                         .RollOutgoingHit(contactHit, Random.Shared)),
                     ProjectileWorldTime(conn));
+                // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
+                // extra fire, and removes the flame.
+                if (!spell && m.HallowingFlameUntil > ProjectileWorldTime(conn) && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
+                {
+                    double flameFire = flamePhys * m.HallowingFlamePct / 100.0;
+                    rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
+                    m.HallowingFlameUntil = 0;
+                }
                 // The shared roll meets each target's current chance: a source can change between targets.
                 int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
                     SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
@@ -1221,9 +1341,10 @@ static partial class Game
                 double at = ProjectileWorldTime(conn);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
                     gambler.InvertsResistance(Random.Shared));
-                var taken = MonsterTakenComponents(m, mitigated, spell);
+                var taken = MonsterTakenComponents(m, mitigated, spell, at);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = damageMore * bloodMore;
+                if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
                 if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
                 LeechOnHitLocked(conn, m, taken, damage, leech!);
                 damage = WithImpaleHitLocked(conn, m, damage, rolled, critical, sweepMultiplier,
@@ -1236,7 +1357,13 @@ static partial class Game
                     cull: Cull.Of(player, skillStats, critical, spell));
                 if (applied is not null)
                 {
+                    if (critical) conn.RecentEvents.Record(StatConditions.Crit, at);
                     landed++;
+                    // Item Quantity Support: the kill's loot rolls read the supported skill's share.
+                    if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
+                        m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
+                    // Devour: a killing blow recovers the support's life/mana.
+                    if (applied.Value.Life == 0) DevourOnKill(conn, skillStats);
                     AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
                         reflected, poison);
                     // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
@@ -1262,6 +1389,12 @@ static partial class Game
                     if (!rageGranted) rageGranted = RageOnHitLocked(conn, attack: !spell,
                         melee: !spell && SkillsFor(conn).IsMelee(gem.Effect), critical, skillStats, player: player);
                     InflictMonsterBlind(conn, id, m, ResourceEffectsTime(conn), BlindInputs(player, skillStats));
+                    if (!spell && SkillsFor(conn).IsMelee(gem.Effect))
+                    {
+                        CombatRushOnHit(conn, skillStats, at);
+                        HallowOnMeleeHit(conn, m, skillStats, at);
+                        ExcommunicateOnMeleeHit(conn, m, skillStats, at);
+                    }
                 }
             }
             if (applied is not { } hit) continue;
@@ -1383,7 +1516,11 @@ static partial class Game
     {
         if (m.Dead || m.Life == 0) return null;
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
-        if (allyAt is null) conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
+        if (allyAt is null)
+        {
+            conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
+            conn.RecentEvents.Record(StatConditions.HitEnemy, m.PlayerHitAt);
+        }
         if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
         TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: m.Life == 0, allyAt);
         return new(m.Life, starts);
@@ -1464,6 +1601,7 @@ static partial class Game
             || conn.Closed || conn.PlayerLife == 0 || !conn.HitRecovery.Begin(now, seconds))
         { Trace($"not accepted (chance {chance:0.###}%, duration {seconds:0.###} s)"); return null; }
         Trace($"accepted ({seconds:0.###} s, {Get(AntiquarianEffects.StunRecoverySource)}% Life over one second)");
+        conn.RecentEvents.Record(StatConditions.BeenStunned, now);
         conn.Antiquarian.Stunned(now, conn.PlayerMaxLife, Get(AntiquarianEffects.StunRecoverySource));
         int action = Interlocked.Increment(ref conn.ActionCount);
         conn.ChannelSkill = 0; conn.NextAttackAt = now;
@@ -1598,8 +1736,17 @@ static partial class Game
             if (OnslaughtOnKill(conn)) await SendKillOnslaught(remote, stream, ciphers, conn);
             ChargesOnKill(conn, m);
             RecoverOnKill(conn, m);
+            // "Killed an enemy recently" (issue #504). The variant stats (a cursed enemy, a shattered one, a frozen one)
+            // need a fact about the victim the server does not track yet, so only the plain event is recorded and those
+            // ids stay NotModelled rather than being answered wrongly.
+            lock (conn.Monsters)
+                conn.RecentEvents.Record(StatConditions.KilledEnemy, conn.Clock.Elapsed.TotalSeconds);
+            await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
         }
+        // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
+        SoulEaterSoul(conn, at);
         await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
+        ShareKill(conn, id, m, variety, at);
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });
         // A summoned monster whose skill says so gives neither experience nor items.
         if (!m.NoRewards && alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
@@ -1639,7 +1786,8 @@ static partial class Game
         if (modded is not { Cancel: true })
         {
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+            drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign.
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
                 ? openMap.Area.Tier : 0;
@@ -1654,14 +1802,14 @@ static partial class Game
             if (ModDrop(conn, query, m.Level) is { } extra) drops.Add(extra);
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         }
-        foreach (var drop in drops)
+        foreach (var drop in ItemDrops.Stacked(drops))
         {
             // A ring around the corpse, 3 to 6 cells out.
             double angle = Random.Shared.NextDouble() * Math.Tau, r = 3 + Random.Shared.NextDouble() * 3;
             int x = at.X + (int)Math.Round(Math.Cos(angle) * r), y = at.Y + (int)Math.Round(Math.Sin(angle) * r);
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
-            uint id = conn.Instance.Ground.Add(ground);
+            uint id = conn.Instance.Ground.Add(ground, conn);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
                 $"0x02b9 create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);

@@ -21,12 +21,24 @@ static class ItemModStats
 
     /// <summary>The summed values of the stats on these items' mods, by Stats.dat Id: global ones, or with
     /// <paramref name="local"/> the item's own. An explicit modifier counts with the item's increased effect applied
-    /// (<see cref="Effect"/>).</summary>
-    public static Dictionary<string, int> Sum(IEnumerable<Item> items, ModCatalog mods, bool local = false)
+    /// (<see cref="Effect"/>).
+    /// <para>
+    /// <paramref name="subject"/> is the character the stats are for, so a stat whose id carries a condition
+    /// (<c>attack_speed_while_dual_wielding_+%</c>) only counts when that condition holds (issue #504). Without one
+    /// every condition is unmodelled and every stat counts, exactly as before.
+    /// </para>
+    /// <para>
+    /// <paramref name="statExists"/> says whether a stat id is one this build has. When it is given, a conditional stat
+    /// that holds and has no consumer of its own is summed onto its plain name (<c>spell_damage_+%</c>), which the
+    /// pools, panels and damage pipeline already read — otherwise the condition would be decided but nothing would read
+    /// the value. A caller that does not give it (or gives none) keeps every id as it is.
+    /// </para></summary>
+    public static Dictionary<string, int> Sum(IEnumerable<Item> items, ModCatalog mods, bool local = false,
+        StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
     {
         var sum = new Dictionary<string, int>();
         var attributes = new Dictionary<string, long>();
-        foreach (var (id, value) in Values(items, mods, local))
+        foreach (var (id, value) in Values(items, mods, local, subject, statExists))
             if (AttributeModifiers.IsInput(id)) attributes[id] = attributes.GetValueOrDefault(id) + value;
             else sum[id] = ArcaneMight.Combine(id, sum.GetValueOrDefault(id), value);
         // This int API is a bounded view for existing stat consumers, not an attribute calculation source.
@@ -34,17 +46,21 @@ static class ItemModStats
         return sum;
     }
 
-    static IEnumerable<(string Id, int Value)> Values(IEnumerable<Item> items, ModCatalog mods, bool local = false)
+    static IEnumerable<(string Id, int Value)> Values(IEnumerable<Item> items, ModCatalog mods, bool local = false,
+        StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
     {
         foreach (var item in items)
-            foreach (var value in Values(item, mods, local))
+            foreach (var value in Values(item, mods, local, subject, statExists))
                 yield return value;
     }
 
     /// <summary>One item's stats by Stats.dat Id, local or global. An explicit modifier's values include the
     /// item's own increased effect for its list (all, prefix or suffix); the effect stats themselves stay raw, so
-    /// they never scale each other. Implicits, enchants and the other lists are unchanged.</summary>
-    public static IEnumerable<(string Id, int Value)> Values(Item item, ModCatalog mods, bool local = false)
+    /// they never scale each other. Implicits, enchants and the other lists are unchanged.
+    /// <para>A stat whose id carries a condition only counts while that condition holds (issue #504); with no
+    /// <paramref name="subject"/> every condition is unmodelled and no stat changes.</para></summary>
+    public static IEnumerable<(string Id, int Value)> Values(Item item, ModCatalog mods, bool local = false,
+        StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
     {
         var effect = Effect(item, mods);
         foreach (var mod in item.Mods)
@@ -53,8 +69,17 @@ static class ItemModStats
                 int percent = EffectPercent(mod, row, effect);
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
                     if (row.Stats[s].Local == local)
-                        yield return (row.Stats[s].Id,
-                            IsEffectStat(row.Stats[s].Id) ? mod.Values[s] : Scale(mod.Values[s], percent));
+                    {
+                        string id = row.Stats[s].Id;
+                        var state = StatConditions.Of(id, subject);
+                        if (!StatConditions.Counts(state)) continue;
+                        // The condition holds: a conditional stat with no consumer of its own moves onto its plain
+                        // name, which is what the pools read (issue #504).
+                        if (state is StatConditions.State.Holds && statExists is not null
+                            && StatConditions.Fold(id, statExists) is { } plain)
+                            id = plain;
+                        yield return (id, IsEffectStat(row.Stats[s].Id) ? mod.Values[s] : Scale(mod.Values[s], percent));
+                    }
             }
     }
 
@@ -98,12 +123,15 @@ static class ItemModStats
         return raw;
     }
 
-    /// <summary>The character's stats from these equipped items, by client stat key (Stats.dat row + 1).</summary>
-    public static Dictionary<uint, int> Global(IEnumerable<Item> equipped, ModCatalog mods, StatCatalog stats)
+    /// <summary>The character's stats from these equipped items, by client stat key (Stats.dat row + 1).
+    /// <paramref name="subject"/> gates the condition-carrying stats (issue #504); without one nothing changes. A
+    /// conditional stat that holds moves onto its plain name (the catalog answers which names exist).</summary>
+    public static Dictionary<uint, int> Global(IEnumerable<Item> equipped, ModCatalog mods, StatCatalog stats,
+        StatConditions.Subject subject = default)
     {
         var items = equipped.ToArray();
         var result = new Dictionary<uint, int>();
-        foreach (var (id, value) in Sum(items, mods))
+        foreach (var (id, value) in Sum(items, mods, subject: subject, statExists: stats.Has))
             if (stats.Key(id) is uint key) result[key] = result.GetValueOrDefault(key) + value;
         // PoB Item.lua leaves ItemCondition-tagged increases in the character mod list, outside calcLocal.
         // This stat is marked IsLocal in Stats.dat, but affects global ES only while its source item is corrupted.

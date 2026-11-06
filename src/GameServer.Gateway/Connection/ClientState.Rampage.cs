@@ -1,6 +1,11 @@
 sealed partial class ClientState
 {
     internal RampageSession Rampage { get; } = new();
+    internal SoulEaterState SoulEater { get; } = new();
+    // "Gain Physical Damage Immunity for X seconds on Rampage" and "Phasing for X seconds on Rampage" thresholds.
+    internal double PhysicalImmunityUntil;
+    internal double PhasingUntil;
+    internal bool IsPhasing => Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds;
     internal ITransientCombatState? OwnedCombatState;
     internal ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
     internal HashSet<uint> RetiredCombatObjects { get; } = [];
@@ -11,6 +16,11 @@ sealed partial class ClientState
     internal double VaalPreventionUntil;
     internal bool SentVaalPrevention;
     internal object? VaalUseState;
+    // Close Combat's Combat Rush: more Attack Speed for a travel skill (GemSupports.Rules.CombatRushOnHit).
+    internal double CombatRushUntil;
+    internal int CombatRushAttackSpeed;
+    // Fist of War: per skill, when its next use counts as the big hit (ClientState.cs).
+    internal readonly Dictionary<ushort, double> FistOfWarAt = [];
 
     internal void RetireOwnedCombat()
     {

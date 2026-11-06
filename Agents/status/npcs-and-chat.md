@@ -45,9 +45,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   and the other player's notification, Accept opens the window on both, offered items appear on both sides, Accept
   greys the accepting side's offer for both players, and both accepting swaps the items in one transaction for both saves.
   Cancel, decline, a disconnect or leaving the area return every offered item. See [28](../docs/protocol/28-player-trade.md).
-- **Party** between players in one instance (two clients, 2026-10-29): "Invite to Party" shows the other player the
-  invite notice, and Accept puts both into the party, shown on both clients. "Leave Party" removes the player, and a
-  party left with one member is disbanded on both clients. Decline, kicks and disconnects are open.
+- **Party** between players (two clients, 2026-11-05): "Invite to Party", also from the Friends panel, reaches the
+  player in any area; Accept puts both into the party, shown on both clients, and it survives area changes.
+  A member who follows another into an area joins their instance.
+  The party bonus follows the client's rules (monster life by rarity, currency items) and its icons (S→C 0x231).
+  "Leave Party" removes the player, and a party left with one member is disbanded on both clients.
+  Decline, kicks and disconnects are open.
   See [28](../docs/protocol/28-player-trade.md) §5.
   Mode integration refuses SSF, different leagues and terminal/departing owners at admission and settlement.
   Composed automated checks cover eligibility, item ownership and rollback when the second inventory save fails.
@@ -55,6 +58,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The other account receives an invitation with Accept/Decline; Unfriend removes the relation from both lists.
   Account GUIDs and invitations are saved transactionally, independently of character and league.
   Native two-client checks confirmed add, invitation display, Accept, Unfriend, offline display and restoration on login.
+  Presence updates both ways when an entry finishes (a hideout's too) and at logout; an area change sends none.
   Persistence/reopen, rollback and native packet framing have automated coverage.
   Notes, ignore lists and status editing remain open.
   See [28](../docs/protocol/28-player-trade.md) §6.
@@ -91,6 +95,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Player bots** (PlayerBots module, off by default): bots are created over time and visit the towns between quests.
   Players see them walk with their class model and gear.
   Quests are simulated out of sight; bots do not fight, trade or chat yet.
+  A bot accepts a party invite and follows its leader through towns and areas; kicked or disbanded, it walks out.
   See [player bots](../docs/dev/player-bots.md).
 
 ## Not working yet

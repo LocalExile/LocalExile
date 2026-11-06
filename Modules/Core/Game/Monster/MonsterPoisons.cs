@@ -59,8 +59,12 @@ static partial class Game
         if (avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return;
 
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
-        target.Poisons.Add(now, min + (Math.Max(min, max) - min) * random.NextDouble(),
-            settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]));
+        // Lethal Dose: a hit that finds the enemy unpoisoned applies additional poisons on top of its own.
+        int stacks = 1 + (target.Poisons.Stacks(now) == 0
+            ? Math.Max(0, Get("additional_poisons_+_to_apply_vs_non_poisoned_enemies")) : 0);
+        double perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
+        double seconds = settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]);
+        for (int i = 0; i < stacks; i++) target.Poisons.Add(now, perSecond, seconds);
     }
 
     internal static async Task TickPoisons(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -110,7 +114,11 @@ static partial class Game
             }
         }
         foreach (var (id, buff) in ended)
+        {
             await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, buff), null);
+            // The buff may be another player's (who applied the ailment): theirs goes too (instances are the instance's).
+            ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
+        }
         foreach (var (id, buff, stacks, remaining) in updated)
             await Send(remote, stream, ciphers,
                 InstanceEntities.AddBuff(id, buff, PoisonBuffRow, PlayerId, stacks: (ushort)Math.Clamp(stacks, 1, ushort.MaxValue),
@@ -121,7 +129,7 @@ static partial class Game
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of poison" : null);
-            if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
+            if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m);
         }
     }
 }

@@ -514,6 +514,7 @@ static partial class Game
         if (!GameEvents.AllowsLoot(conn)) return;
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
+            conn.SeenGround.Add(id);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
                 $"0x02b9 create world item 0x{id:x} left at ({ground.GridX}, {ground.GridY})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
@@ -634,7 +635,7 @@ static partial class Game
         }
         var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         var ground = new WorldItemObject(x, y, held.Item);
-        uint id = conn.Instance.Ground.Add(ground);
+        uint id = conn.Instance.Ground.Add(ground, conn);
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
             $"0x02b9 create world item 0x{id:x} at ({x}, {y})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 world item 0x{id:x} enters wake zone");
@@ -702,7 +703,7 @@ static partial class Game
                 {
                     // Fits said yes, so this is not expected; the rest goes back on the ground rather than vanish.
                     rest = new WorldItemObject(ground.GridX, ground.GridY, ground.Item with { StackSize = (ushort)stacked.Left });
-                    restId = conn.Instance.Ground.Add(rest);
+                    restId = conn.Instance.Ground.Add(rest, conn);
                 }
             }
             if (rest is not null)
@@ -781,7 +782,7 @@ static partial class Game
         catch
         {
             if (originalId is uint id) conn.Instance.Ground.Restore(id, ground);
-            else conn.Instance.Ground.Add(ground);
+            else conn.Instance.Ground.Add(ground, conn);
             throw;
         }
     }
@@ -857,6 +858,11 @@ static partial class Game
             await UseSkillBook(remote, stream, ciphers, conn, items, r, item, type);
             return;
         }
+        if (type.Id == CurrencyEffects.OrbOfUnmaking)
+        {
+            await UseOrbOfUnmaking(remote, stream, ciphers, conn, items, r, item, type);
+            return;
+        }
         if (type.Id != Regret && type.Name != RegretBook)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0058 use item {use}: {type.Name} is not handled: {hex}");
@@ -892,6 +898,36 @@ static partial class Game
             $"0x00bf inventory {inventoryId}: {type.Name} used" + (taken.Left is { } now ? $", {now.Item.StackSize} left" : ", stack empty"));
         await SendPassives(remote, stream, ciphers, conn);
         Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({use.ItemId}): {refunds} refund point(s)");
+    }
+
+    // Orb of Unmaking (C→S 0x58, right-click; CurrencyItems Action atlas_skill_point_respec), the documented LocalExile
+    // rule: it refunds every allocated Atlas passive point of all three presets and is consumed. With nothing allocated
+    // it stays in the bag.
+    internal static async Task UseOrbOfUnmaking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
+    {
+        int cleared = conn.AtlasPassives.Sum(preset => preset.Count);
+        if (cleared == 0)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({item.Id}): no Atlas passive allocated");
+            return;
+        }
+        PlayerInventories.Consumption? taken;
+        lock (conn.Monsters)
+        {
+            if (items.ConsumeOne(row, item.Id) is not { } consumed) return;
+            taken = consumed;
+            foreach (var preset in conn.AtlasPassives) preset.Clear();
+            if (CharacterName(conn) is { } character)
+                CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
+        }
+        uint inventoryId = PlayerInventories.InventoryId(row);
+        await Send(remote, stream, ciphers,
+            InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id],
+                taken.Left is { } left ? [left] : []),
+            $"0x00bf inventory {inventoryId}: {type.Name} used");
+        await SendAtlasSlots(remote, stream, ciphers, conn, "Orb of Unmaking refunded");
+        Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({item.Id}): refunded {cleared} Atlas passive point(s)");
     }
 
     // A Book of Skill used (C→S 0x58, right-click; any of the quest books named so, Metadata/Items/QuestItems/SkillBooks/…):
@@ -958,21 +994,34 @@ static partial class Game
                 CurrencyEffects.EldritchEmberTier(type!.Id) is int emberTier
                     ? CurrencyEffects.EldritchEmber(target, emberType, emberTier, RollsFor(conn), random)
                     : null,
-            CurrencyEffects.ArmourersScrap => CurrencyEffects.ArmourerScrap(target),
+            CurrencyEffects.ArmourersScrap => CurrencyEffects.ArmourerScrap(target, random),
             CurrencyEffects.SacredOrb => ItemsFor(conn).ByHash(target.TypeHash) is { } defenceType
                 ? CurrencyEffects.Sacred(target, ItemsFor(conn).Defences(defenceType), random) : null,
-            CurrencyEffects.BlacksmithsWhetstone => CurrencyEffects.Whetstone(target),
+            CurrencyEffects.BlacksmithsWhetstone => CurrencyEffects.Whetstone(target, random),
             CurrencyEffects.OrbOfChance => CurrencyEffects.Chance(target, RollsFor(conn), random),
             CurrencyEffects.AncientOrb => UniquesFor(conn).Reforge(target, DropsFor(conn).UniqueWeight, random),
             FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling => ItemsFor(conn).ByHash(target.TypeHash) is { } flaskType
                 ? FlaskEnchantments.Apply(target, flaskType, ItemsFor(conn).Mods, type.Id == FlaskEnchantments.Instilling, random) : null,
-            CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target),
+            CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target, random),
             CurrencyEffects.GemcuttersPrism => CurrencyEffects.Gemcutter(target),
             CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target, RollsFor(conn), random),
             CurrencyEffects.VaalOrb => ItemsFor(conn).ByHash(target.TypeHash) is { } vaalType
                 ? CurrencyEffects.Vaal(target, vaalType, ItemsFor(conn).Requirements(vaalType), RollsFor(conn), random) : null,
+            CurrencyEffects.EldritchChaosOrb => CurrencyEffects.EldritchChaos(target, RollsFor(conn), random),
+            CurrencyEffects.EldritchExaltedOrb => CurrencyEffects.EldritchExalted(target, RollsFor(conn), random),
+            CurrencyEffects.EldritchAnnulmentOrb => CurrencyEffects.EldritchAnnulment(target, RollsFor(conn), random),
+            CurrencyEffects.OrbOfBinding => ItemsFor(conn).ByHash(target.TypeHash) is { } bindingType
+                ? CurrencyEffects.Binding(target, bindingType, RollsFor(conn), ItemsFor(conn).Requirements(bindingType), random)
+                : null,
+            _ when CurrencyEffects.TaintedIds.Contains(type!.Id) => ItemsFor(conn).ByHash(target.TypeHash) is { } taintedType
+                ? CurrencyEffects.Tainted(type.Id, target, taintedType, RollsFor(conn),
+                    ItemsFor(conn).Requirements(taintedType), random)
+                : null,
             _ when isEssence => EssencesFor(conn).Apply(type!.Hash, target, random),
-            _ => null,
+            // Rows the Id list above does not name, by their CurrencyItems.Action (CurrencyEffects.TryAction): the map
+            // chisels (add_map_alt_quality, Cartographer's and the Maven's ones) and any future row with that action.
+            _ => type is not null && CurrencyEffects.TryAction(ItemsFor(conn), RollsFor(conn), target, type, random,
+                    out var byAction, UniquesFor(conn).RollsOf(target)) ? byAction : null,
         };
     }
 

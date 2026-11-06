@@ -71,8 +71,29 @@ static partial class Game
     {
         var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
         string hand = spell ? "spell" : "main_hand";
-        return MonsterIgnites.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon), hand,
+        var settings = MonsterIgnites.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon), hand,
             name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0);
+        // Controlled Blaze: "(10-18)% more Damage with Ignite per Enemy Ignited Recently", capped by the support.
+        int per = Stats.Key("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final") is uint perKey
+            ? merged.GetValueOrDefault(perKey) : 0;
+        if (per > 0)
+        {
+            int cap = Stats.Key("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final_maximum") is uint capKey
+                ? merged.GetValueOrDefault(capKey) : 0;
+            int recent = RecentlyIgnitedCount(conn, ProjectileWorldTime(conn));
+            long added = Math.Min((long)per * recent, cap > 0 ? cap : long.MaxValue);
+            double more = Math.Max(0, 1 + added / 100.0);
+            settings = settings with { Min = settings.Min * more, Max = settings.Max * more,
+                CriticalMin = settings.CriticalMin * more, CriticalMax = settings.CriticalMax * more };
+        }
+        return settings;
+    }
+
+    /// <summary>How many enemies were ignited in the last four seconds (Controlled Blaze).</summary>
+    internal static int RecentlyIgnitedCount(ClientState conn, double now)
+    {
+        lock (conn.Monsters)
+            return conn.Monsters.Values.Count(m => m.Ignites.LastApplied > 0 && m.Ignites.LastApplied >= now - 4);
     }
 
     /// <summary>The default melee attack's ignite, as the ordinary bow or wand shot's (<c>ProjectileRanged</c>): the panel's
@@ -96,6 +117,15 @@ static partial class Game
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
                 e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom)) return null;
+        // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
+        if (settings.FireExposure < 0)
+        {
+            double until = target.Ignites.Until;
+            var key = (DamageType.Fire, settings.FireExposure);
+            target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
+            target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until);
+        }
+        conn.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
         return ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now);
     }
 
@@ -166,7 +196,11 @@ static partial class Game
             }
         }
         foreach (var (id, buff) in ended)
+        {
             await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, buff), null);
+            // The buff may be another player's (who applied the ailment): theirs goes too (instances are the instance's).
+            ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
+        }
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)
@@ -180,7 +214,7 @@ static partial class Game
             }
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);
-            if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
+            if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m);
         }
     }
 }

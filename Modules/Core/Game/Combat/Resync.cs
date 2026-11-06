@@ -28,46 +28,58 @@ static partial class Game
                 var player = conn.Walk.Position(now);
                 var packets = new List<byte>();
                 List<(uint Id, int X, int Y)> back = [];
+                // Each client's own wake zone (ClientState.AsleepMonsters), of the instance's monsters it was shown.
+                var others = InGame.Keys.Where(c => !ReferenceEquals(c, conn) && ReferenceEquals(c.Instance, conn.Instance)
+                    && !c.Closed && !c.LeavingArea && c.PlayerSent).ToArray();
                 foreach (var (id, m) in conn.Monsters)
                 {
-                    if (m.Dead || m.Life <= 0 || m.OwnerId is not null) continue;
+                    if (m.Dead || m.Life <= 0 || m.OwnerId is not null || !conn.MonsterViews.ContainsKey(id)) continue;
                     var at = m.Walk.Position(now);
                     double d = Dist(at, player);
-                    if (!m.Asleep && d > WakeZoneRadius)
+                    bool sleeping = conn.AsleepMonsters.Contains(id);
+                    if (!sleeping && d > WakeZoneRadius)
                     {
-                        m.Asleep = true;
-                        // The client's copy stops ticking out there; the estimate stands where it is too, and the AI
-                        // leaves it until it is back (Game.PlanMonsterAi), as GGG's does.
-                        m.Walk.StopAt(now);
-                        m.Leg = null;
+                        conn.AsleepMonsters.Add(id);
                         packets.AddRange(InstanceProtocol.LeaveWakeZone(id));
+                        // Out of every client's: the estimate stands where it is too, and the AI leaves it until it is
+                        // back (Game.PlanMonsterAi), as GGG's does.
+                        if (!m.Asleep && others.All(c => c.AsleepMonsters.Contains(id) || !c.MonsterViews.ContainsKey(id)))
+                        {
+                            m.Asleep = true;
+                            m.Walk.StopAt(now);
+                            m.Leg = null;
+                        }
                     }
-                    else if (m.Asleep && d <= WakeZoneReturn)
+                    else if (sleeping && d <= WakeZoneReturn)
                     {
+                        conn.AsleepMonsters.Remove(id);
                         m.Asleep = false;
                         packets.AddRange(InstanceProtocol.EnterWakeZone(id));
                         back.Add((id, at.X, at.Y));
                     }
                 }
                 if (conn.LockstepClient) packets.AddRange(LockstepPlace(back));
-                else if (back.Count > 0) packets.AddRange(InstanceProtocol.Resync([(PlayerId, player.X, player.Y), .. back]));
+                else foreach (var (id, x, y) in back) packets.AddRange(InstanceProtocol.Teleport(id, x, y, 0x7fffffff));
                 return packets.Count == 0 ? null : [.. packets];
             }
         });
     }
 
-    // S→C 0x128 with the player first, then the monsters around it, where the server has them. Called under conn.Monsters.
+    // The monsters around the player where the server has them, each by its own teleport (S→C 0x1b7, terrain height).
+    // The player is not among them: the client's position is the truth and the server's walk only estimates it, so S→C
+    // 0x128 (whose first record the client puts the player on) snapped the player back to the estimate at every stun,
+    // freeze, movement skill and resync request. Called under conn.Monsters.
     internal static byte[] ResyncPacketLocked(ClientState conn, double now)
     {
         var player = conn.Walk.Position(now);
-        List<(uint Id, int X, int Y)> objects = [(PlayerId, player.X, player.Y)];
+        var bytes = new List<byte>();
         foreach (var (id, m) in conn.Monsters)
         {
-            if (m.Dead || m.Life <= 0) continue;
+            if (m.Dead || m.Life <= 0 || conn.AsleepMonsters.Contains(id) || conn.Instance is not null && !conn.MonsterViews.ContainsKey(id)) continue;
             var at = m.Walk.Position(now);
-            if (Dist(at, player) <= ResyncRadius) objects.Add((id, at.X, at.Y));
+            if (Dist(at, player) <= ResyncRadius) bytes.AddRange(InstanceProtocol.Teleport(id, at.X, at.Y, 0x7fffffff));
         }
-        return InstanceProtocol.Resync(objects);
+        return [.. bytes];
     }
 
     /// <summary>How far a skill that travels a set distance along the aimed line goes, whatever the target's distance

@@ -36,7 +36,12 @@ static partial class Game
                 using (ProjectileMutation(conn))
                 {
                     now = ProjectileWorldTime(conn);
+                    // Near any player in the instance: whoever comes near wakes them.
                     risen = Emerges.RiseLocked(conn, conn.Walk.Position(now), now, out watching);
+                    foreach (var other in InGame.Keys)
+                        if (!ReferenceEquals(other, conn) && ReferenceEquals(other.Instance, conn.Instance) && !other.Closed
+                            && !other.LeavingArea && other.PlayerLife > 0 && watching)
+                            risen.AddRange(Emerges.RiseLocked(conn, other.Walk.Position(now), now, out watching));
                 }
                 foreach (var (id, m, at, seconds) in risen)
                     _ = Emerge(remote, stream, ciphers, conn, id, m, at, seconds);
@@ -46,6 +51,11 @@ static partial class Game
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {
             // The connection closed while sending.
+        }
+        finally
+        {
+            // Whoever runs the instance next watches the rest (SyncInstanceMonsters).
+            lock (conn.Monsters) MonsterEmerge.StopWatch(conn);
         }
     }
 
@@ -59,6 +69,8 @@ static partial class Game
             byte state = MonsterEmerge.RisenState(v);
             var messages = MonsterEmerge.RiseMessages(id, at, skill, m.NextSequence(), (byte)index, state);
             await Send(remote, stream, ciphers, messages[0], $"0x02ba monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
+            // The others in the instance see it rise too (it is theirs to hit as well).
+            ToOthers(conn, id, [.. messages[0], .. messages[1]]);
             // A server action waits in the Actor's pending slot (+0x1b8) until 0x1ac sets its go flag (0x141e94720, looked at
             // again every 0.25 s); only then does it move to +0x1b0 and play.
             bool Still() { lock (conn.Monsters) return !conn.Closed && !m.Dead && conn.Monsters.GetValueOrDefault(id) == m; }

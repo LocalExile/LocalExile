@@ -87,13 +87,13 @@ sealed class MonsterEmerge(string folder = "data")
 
     /// <summary>The buried monsters of a connection by object id: not in <see cref="ClientState.Monsters"/> until they
     /// rise. Guarded by the Monsters lock.</summary>
-    public static SortedDictionary<uint, SpawnedMonster> Buried(ClientState conn) => Grounds.GetValue(conn, _ => new()).Monsters;
+    public static SortedDictionary<uint, SpawnedMonster> Buried(ClientState conn) => Grounds.GetValue(GroundKey(conn), _ => new()).Monsters;
 
     /// <summary>Every monster that has not risen yet, buried or lurking (for the instance's saved state). Under the
     /// Monsters lock.</summary>
     public static List<SpawnedMonster> Unrisen(ClientState conn)
     {
-        var g = Grounds.GetValue(conn, _ => new());
+        var g = Grounds.GetValue(GroundKey(conn), _ => new());
         return [.. g.Monsters.Values, .. g.Lurking.Select(id => conn.Monsters.GetValueOrDefault(id)).OfType<SpawnedMonster>()];
     }
 
@@ -102,7 +102,7 @@ sealed class MonsterEmerge(string folder = "data")
     /// whether it waits to rise (the caller then starts the watch). Under the Monsters lock.</summary>
     public static bool AddLocked(ClientState conn, uint id, SpawnedMonster m, EmergeKind kind, bool unrisen)
     {
-        var g = Grounds.GetValue(conn, _ => new());
+        var g = Grounds.GetValue(GroundKey(conn), _ => new());
         bool waits = unrisen && kind != EmergeKind.None;
         if (waits && kind == EmergeKind.Buried) { g.Monsters[id] = m; return true; }
         conn.Monsters[id] = m;
@@ -117,7 +117,7 @@ sealed class MonsterEmerge(string folder = "data")
     /// <summary>Marks the connection's watch as running; false when it already was. Under the Monsters lock.</summary>
     public static bool StartWatch(ClientState conn)
     {
-        var g = Grounds.GetValue(conn, _ => new());
+        var g = Grounds.GetValue(GroundKey(conn), _ => new());
         if (g.Watching) return false;
         return g.Watching = true;
     }
@@ -129,7 +129,7 @@ sealed class MonsterEmerge(string folder = "data")
     public List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> RiseLocked(ClientState conn,
         (int X, int Y) player, double now, out bool watching)
     {
-        var g = Grounds.GetValue(conn, _ => new());
+        var g = Grounds.GetValue(GroundKey(conn), _ => new());
         var risen = new List<(uint, SpawnedMonster, (int, int), double)>();
         bool Near(SpawnedMonster m, out (int X, int Y) at)
         {
@@ -172,7 +172,22 @@ sealed class MonsterEmerge(string folder = "data")
         public bool Watching;
     }
 
-    static readonly ConditionalWeakTable<ClientState, Ground> Grounds = new();
+    // The instance's (InstanceWorld): its buried and lurking monsters wait for whichever player comes near, and stay when
+    // the one who placed them leaves. A connection outside an instance (a test's) keeps its own.
+    static readonly ConditionalWeakTable<object, Ground> Grounds = new();
+    static object GroundKey(ClientState conn) => (object?)conn.Instance?.World ?? conn;
+
+    /// <summary>Whether any monster still waits to rise, and none watches for it (its watcher's connection left).
+    /// Under the Monsters lock.</summary>
+    public static bool Unwatched(ClientState conn) =>
+        Grounds.GetValue(GroundKey(conn), _ => new()) is { Watching: false } g && g.Monsters.Count + g.Lurking.Count > 0;
+
+    /// <summary>The watch ended with its connection. Under the Monsters lock.</summary>
+    public static void StopWatch(ClientState conn) => Grounds.GetValue(GroundKey(conn), _ => new()).Watching = false;
+
+    /// <summary>Whether this monster still lies in wait (buried ones are not in the instance's monsters until they rise).
+    /// Under the Monsters lock.</summary>
+    public static bool Waiting(ClientState conn, uint id) => Grounds.GetValue(GroundKey(conn), _ => new()).Lurking.Contains(id);
 
     /// <summary>The kind of one object-types.json entry (see <see cref="EmergeKind"/>); used by the loader and tests.</summary>
     public static EmergeKind KindOf(JsonElement t)

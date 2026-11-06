@@ -17,7 +17,7 @@ static partial class Game
             {
                 if (!conn.Paused)
                 {
-                    await CorrectMonsterCollisions(remote, stream, ciphers, conn);
+                    if (IsMonsterRunner(conn)) await CorrectMonsterCollisions(remote, stream, ciphers, conn);
                     if (!PlayerUpdatesCurrent(conn, updates)) return;
                     await PushOutOfCollision(remote, stream, ciphers, conn, living: true);
                     if (!PlayerUpdatesCurrent(conn, updates)) return;
@@ -30,7 +30,15 @@ static partial class Game
                 }
                 PublishPlayerPose(conn);
                 if (ServerTrace.Sync) TraceSync(conn);
-                if ((frames++ & 1) == 0) await SyncInstancePlayers(remote, stream, ciphers, conn);
+                PublishAwakeMonsters(conn);
+                await ApplyKillShares(remote, stream, ciphers, conn);
+                if ((frames++ & 1) == 0)
+                {
+                    await SyncInstancePlayers(remote, stream, ciphers, conn);
+                    await SyncInstanceMonsters(remote, stream, ciphers, conn);
+                    await SyncSharedGround(remote, stream, ciphers, conn);
+                    await SyncPeerMinions(remote, stream, ciphers, conn);
+                }
                 await updates.Schedule.Wait(PlayerUpdateRole.LivingCollisions, 50, updates.Stop.Token);
             }
         }
@@ -154,8 +162,11 @@ static partial class Game
                 {
                     if (exists) packets.Add(InstanceProtocol.RemoveObject(peer.Id));
                     // The beach wake-up is the owner's alone: observers get no action to end that stance with.
+                    // Its skills, for the actions the owner's uses play on it (SharedMonsters.cs MirrorPlayerAction), all
+                    // but the wake-up's.
                     var player = peer.Template with { GridX = peer.X, GridY = peer.Y, Life = peer.Life,
-                        Skills = [], QuestFlags = [], LeagueQuestFlags = [], WashedUp = false, Rotation = 0 };
+                        Skills = peer.Template.Skills?.Where(s => s.Id != TutorialObjects.WashedUpSkillId).ToList(),
+                        QuestFlags = [], LeagueQuestFlags = [], WashedUp = false, Rotation = 0 };
                     // In a town another player stands and walks in the town stance (Stats.dat use_town_stance): without it
                     // the client drew every other player in its combat stance there.
                     if (InTown(conn))
