@@ -232,6 +232,9 @@ static class AreaPopulation
     public const int MagicChance = 12, RareChance = 6;
     // At least this many packs with a rare in an area that has scattered packs.
     public const int MinRares = 2;
+    // Provisional reconstructed opening capture: 43 scattered monsters, Hillock and the tutorial zombie.
+    // The first 35 seconds were not recorded; this is a calibration target, not a recovered server constant.
+    public const int StrandMonsterTarget = 45;
     // Cells kept free around the player's arrival point, between pack centres, and around area transitions.
     const int SpawnClearance = 60, PackSpacing = 28, TransitionClearance = 25;
     // A pack centre needs this many walkable cells to the nearest blocked cell; members stand within MemberRadius of it.
@@ -367,9 +370,16 @@ static class AreaPopulation
             rarities[rng.Next(plans.Count)] = MonsterRarity.Rare;
         Promote(rarities, MonsterRarity.Rare, scale.ExtraRare + (int)Math.Round(plans.Count * scale.RareIncrease / 100.0));
         Promote(rarities, MonsterRarity.Magic, scale.ExtraMagic + (int)Math.Round(plans.Count * scale.MagicIncrease / 100.0));
-        for (int i = 0; i < plans.Count; i++)
-            AddPack(spawns, taken, walkable, plans[i].At, plans[i].Pack, rarities[i], true, rng, spawnable, packSize: size);
-        notes.Add($"{plans.Count} scattered packs ({rarities.Count(r => r == MonsterRarity.Magic)} magic, {rarities.Count(r => r == MonsterRarity.Rare)} with a rare) " +
+        int scatteredStart = spawns.Count;
+        int memberBudget = area.AreaId == TutorialObjects.Strand ? Math.Max(0, StrandMonsterTarget - 1 - scatteredStart) : int.MaxValue;
+        int placedPacks = 0;
+        for (int i = 0; i < plans.Count && spawns.Count - scatteredStart < memberBudget; i++)
+        {
+            AddPack(spawns, taken, walkable, plans[i].At, plans[i].Pack, rarities[i], true, rng, spawnable, packSize: size,
+                memberLimit: memberBudget - (spawns.Count - scatteredStart));
+            placedPacks++;
+        }
+        notes.Add($"{placedPacks} scattered packs ({rarities.Take(placedPacks).Count(r => r == MonsterRarity.Magic)} magic, {rarities.Take(placedPacks).Count(r => r == MonsterRarity.Rare)} with a rare) " +
             $"for {walkableCells} walkable cells, {points.Count} room point(s), {spawns.Count} monsters");
         return spawns;
     }
@@ -388,7 +398,8 @@ static class AreaPopulation
     }
 
     static List<int> AddPack(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, PackCatalog.Pack pack,
-        MonsterRarity rarity, bool withBoss, Random rng, Func<int, bool> spawnable, Func<int, bool?>? uniqueBoss = null, double packSize = 1)
+        MonsterRarity rarity, bool withBoss, Random rng, Func<int, bool> spawnable, Func<int, bool?>? uniqueBoss = null, double packSize = 1,
+        int memberLimit = int.MaxValue)
     {
         int rolled = rng.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1);
         int count = Math.Max(1, (int)Math.Round(rolled * SystemSettings.Default.MonsterPackSizeMultiplier * (packSize > 0 ? packSize : 1)));
@@ -406,7 +417,8 @@ static class AreaPopulation
                     && (uniqueBoss is null ? false : uniqueBoss(b)) is bool unique && !members.Contains((b, true)))
                     members.Insert(0, (b, unique));
         var uniques = new List<int>();
-        for (int i = 0; i < members.Count; i++)
+        int before = spawns.Count;
+        for (int i = 0; i < members.Count && spawns.Count - before < memberLimit; i++)
         {
             // Magic packs are magic throughout; a rare pack has one rare (the first member) among normal ones.
             var r = members[i].Unique ? MonsterRarity.Unique : rarity == MonsterRarity.Rare ? (i == 0 ? MonsterRarity.Rare : MonsterRarity.Normal) : rarity;
