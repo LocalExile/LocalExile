@@ -69,11 +69,13 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Cyclone with Increased Area of Effect was checked with the real client.
   Item-granted support references and local socketed-gem level/quality bonuses now share the resolver and calculations.
   Item-support records, duplicate resolution, rolled levels and Delve more damage have automated coverage.
-- **Next:** implement special execution mechanics separately: triggers, attack repeats (Multistrike), Ice Nova's
+  Ordinary Momentum has paid-use stacks, walk resets and Swiftness; channelled gains remain separate.
+- **Next:** implement special execution mechanics separately: triggers, remaining Multistrike panel/repeat gaps, Ice Nova's
   repeated rings and Spell Echo's final-repeat stats (Greater and Awakened Spell Echo), projectile branching,
   totems that use their skill (only Rejuvenation Totem's aura has an executor, and monsters do not attack totems;
   [11](../docs/protocol/11-skills.md) §10g), mines, minions, leech and conditional effects; verify each against
   native data and live behaviour.
+  Momentum still needs channelled generation and movement-skill/teleport reset parity; track support gaps in #614.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.
 - **Done when:** Fireball linked with Arcane Surge shows the support's letter and pays the multiplied cost, a modelled
