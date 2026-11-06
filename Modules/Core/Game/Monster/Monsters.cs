@@ -1352,9 +1352,9 @@ static partial class Game
         // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
         // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.
         // Then each type taken may be avoided, and ignite reads only the damage dealt that lands.
-        if (a.Spell && Suppression(conn) is var suppression && suppression.Chance > 0
-            && DamageModel.Suppresses(suppression.Chance, conn.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky))
-            rolled = rolled.Scale(Math.Max(0, 1 - suppression.Effect / 100d));
+        var suppression = a.Spell ? Suppression(conn) : default;
+        bool suppressed = a.Spell && suppression.Chance > 0
+            && DamageModel.Suppresses(suppression.Chance, conn.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
         var taken = PlayerDamageTaken.Avoid(PlayerDamageTaken.Shift(rolled, StatOf), StatOf, conn.IncomingHitRandom,
             out var avoided);
         baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
@@ -1388,6 +1388,9 @@ static partial class Game
             value = (int)Math.Round(value * conn.ElementalAilments.DamageTakenFactor(now,
                     blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && !a.Spell, StatOf))
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
+            // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
+            // belongs to that hit too (as in the synthetic spell-hit path).
+            if (suppressed) value = DamageModel.Suppress(value, suppression.Effect);
             // Excommunicate Support: an excommunicated enemy cannot deal chaos damage.
             if (type == DamageType.Chaos && m.ExcommunicatedUntil > now) value = 0;
             ailmentTaken = ailmentTaken.Add(type, new(value, value));

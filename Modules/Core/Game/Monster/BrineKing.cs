@@ -154,12 +154,12 @@ static class BrineKing
         try
         {
             await fight.Bind(conn);
-            if (IsMonsterRunner(conn)) await fight.Step(conn);
+            if (IsMonsterRunner(conn)) await fight.Step(conn, conn.Clock.Elapsed.TotalSeconds);
         }
         finally { fight.Gate.Release(); }
     }
 
-    sealed class Fight
+    internal sealed class Fight
     {
         internal readonly SemaphoreSlim Gate = new(1);
         readonly uint id;
@@ -213,7 +213,9 @@ static class BrineKing
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
             if (!players.Contains(conn)) players.Add(conn);
-            if (bound.Add(conn) && !boss.Dead && boss.Life > 0)
+            // A joining client's first tick precedes SyncInstanceMonsters. Never update an Actor it has not
+            // received yet, or one outside its wake zone; defer the rebind until that client can read it.
+            if (!boss.Dead && boss.Life > 0 && Awake(conn) && bound.Add(conn))
             {
                 var skills = SkillsFor(conn, boss.Variety!, boss.Level, boss.Attack!)!;
                 var (remote, stream, ciphers) = conn.Wire;
@@ -237,10 +239,9 @@ static class BrineKing
             }
         }
 
-        public async Task Step(ClientState conn)
+        public async Task Step(ClientState runner, double now)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            if (stopped) return;
+            if (stopped || !CurrentGameWork || runner.Paused) return;
             if (boss.Dead || boss.Life == 0)
             {
                 if (!cleaned)
@@ -253,15 +254,31 @@ static class BrineKing
                 await Expire(now);
                 return;
             }
-            if (conn.Paused || conn.PlayerLife == 0 || InGracePeriod(conn)) return;
             await Expire(now);
-            await LandHits(conn, now);
             var pos = boss.Walk.Position(now);
+            ClientState? conn;
+            lock (runner.Monsters)
+            {
+                // The runner owns the update loop, not the fight's target. A party can keep fighting while its
+                // first entrant waits at the entrance or lies dead; only a client with the boss awake gets actions.
+                conn = players.Where(p => !p.Closed && !p.LeavingArea && p.PlayerSent && p.PlayerLife > 0
+                        && !p.Paused && !InGracePeriod(p) && Awake(p))
+                    .MinBy(p => Distance(pos, p.Walk.Position(now)));
+                if (conn is null) return;
+                boss.Target = conn;
+            }
+            await LandHits(conn, now);
             var player = conn.Walk.Position(now);
             if (!boss.Aggro)
             {
                 if (Distance(pos, player) > boss.AggroRange) return;
                 boss.Aggro = true;
+            }
+            if (!boss.BossBarShown && boss.Variety is { BossHealthBar: true } && boss.States?.IndexOf("boss_life_bar") >= 0)
+            {
+                lock (runner.Monsters) { boss.BossBarShown = true; conn.BossBarsSeen.Add(id); }
+                var wire = conn.Wire;
+                await ShowBossLifeBar(wire.Remote, wire.Stream, wire.Ciphers, id, boss, conn);
             }
             bool begin;
             lock (conn.Monsters) begin = Phases.Begin(boss.Life, boss.MaxLife);
@@ -273,7 +290,7 @@ static class BrineKing
                 var (remote, stream, ciphers) = conn.Wire;
                 immunity = conn.NextBuff++;
                 await All(InstanceEntities.AddBuff(id, immunity.Value, 350, id,
-                    u68: BitConverter.SingleToUInt32Bits((float)(16 + Distance(pos, center) / Math.Max(1, speed)))));
+                    u68: BitConverter.SingleToUInt32Bits((float)(16 + Distance(pos, center) / Math.Max(1, speed)))), monster: true);
                 await State(conn, "tide_rush", 0);
                 double travel = Distance(pos, center) / Math.Max(1, speed);
                 await Move(conn, center, now);
@@ -301,7 +318,7 @@ static class BrineKing
                         await WaveState((byte)(4 + 4 * Phases.Completed));
                         expandUntil = now + 3;
                     }
-                    if (immunity is { } buff) await All(InstanceEntities.RemoveBuff(id, buff));
+                    if (immunity is { } buff) await All(InstanceEntities.RemoveBuff(id, buff), monster: true);
                     immunity = null;
                     lock (conn.Monsters) Phases.Finish();
                     floodAt = double.NaN;
@@ -401,7 +418,7 @@ static class BrineKing
             if (conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                 conn.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = boss.States } };
             int component = boss.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine");
-            if (component >= 0) await All(InstanceEntities.StateMachineUpdate(id, (byte)component, boss.States));
+            if (component >= 0) await All(InstanceEntities.StateMachineUpdate(id, (byte)component, boss.States), monster: true);
         }
 
         async Task WaveState(byte state)
@@ -563,11 +580,20 @@ static class BrineKing
                 await All(InstanceProtocol.RemoveObject(effect.Id));
             }
         }
-        async Task All(byte[] bytes)
+        bool Awake(ClientState conn)
+        {
+            lock (conn.Monsters) return conn.MonsterViews.ContainsKey(id) && !conn.AsleepMonsters.Contains(id);
+        }
+        async Task All(byte[] bytes, bool monster = false)
         {
             if (stopped) return;
-            foreach (var conn in players.Where(p => !p.Closed && !p.LeavingArea).ToArray())
-            { var (remote, stream, ciphers) = conn.Wire; await Send(remote, stream, ciphers, bytes, null); }
+            foreach (var conn in players.Where(p => !p.Closed && !p.LeavingArea && (!monster || Awake(p))).ToArray())
+            {
+                // Send encrypts in place: every recipient needs its own plaintext, including wave/effect broadcasts.
+                var (remote, stream, ciphers) = conn.Wire;
+                await Send(remote, stream, ciphers, [.. bytes], null,
+                    still: () => !stopped && !conn.Closed && !conn.LeavingArea && (!monster || Awake(conn)));
+            }
         }
         internal void Stop()
         {
