@@ -56,7 +56,7 @@ static class GameDataFiles
         ("data/phrecia-passive-skillgraph.psg", "merged passive graph analysis artifact (not installed)"),
         ("data/game-files.zip", "levels the Gateway generates itself, the Phrecia classes' passive graph check"),
         ("data/client-constants.json", "the Gateway does not start without its HNC mask"),
-        ("data/stat-descriptions.txt", "mod wording for tools' item crafter (the crafter mode)"),
+        ("data/stat-descriptions.txt", "mod wording for the POB converter and tools' item crafter"),
     ];
 
     public static IEnumerable<(string File, string Feature)> Missing(string root = ".") =>

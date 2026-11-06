@@ -306,6 +306,8 @@ sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint
 
 sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
+    internal readonly CharacterBuildImports.Session BuildImport = new();
+    internal bool BuildFinalized;
     public AreaLayout Layout { get; private set; } = layout;
     public uint Ticket => ticket;
     public uint Seed => seed;

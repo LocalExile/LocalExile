@@ -89,6 +89,7 @@ partial class Program
                 HardcoreDeathPersistence.RetryPendingCharacter(Saves.Db, resolved.CharacterId);
                 var canonicalCharacter = new SqliteAccountStore(Saves.Db).FindCharacter(resolved.Character);
                 if (canonicalCharacter is null ||
+                    CharacterBuildImports.IsApplying(canonicalCharacter.Id) ||
                     !HardcoreDeathRules.TicketMatches(canonicalCharacter, resolved.CharacterId, resolved.League))
                 {
                     Console.WriteLine($"[gateway] {remote} character is dead or its league changed; connection refused");
@@ -198,6 +199,30 @@ partial class Program
                     // An open trade ends with its owner: the other side gets its items back in view and the window closes.
                     try { await ServerHooks.PlayerLeaving(PlayerOf(conn), "disconnected"); }
                     catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+                    if (conn.BuildImport.Confirmed is { } build)
+                    {
+                        bool imported = false;
+                        try
+                        {
+                            Logic.Save(conn, prepared);
+                            Logic.Left(conn);
+                            conn.BuildFinalized = true;
+                            CharacterBuildImports.Apply(build);
+                            imported = true;
+                            Console.WriteLine($"[pob] {CharacterName(conn)}: committed {build.Class} level {build.Level}");
+                        }
+                        catch (Exception e)
+                        {
+                            Console.WriteLine($"[pob] {CharacterName(conn)}: import failed: {e.Message}");
+                            try { await conn.Commands!.Reply("PoB не применён: " + e.Message); }
+                            catch (Exception send) when (send is IOException or ObjectDisposedException) { }
+                        }
+                        if (imported)
+                        {
+                            try { await conn.Commands!.Reply("Билд применён. Войдите персонажем снова."); }
+                            catch (Exception send) when (send is IOException or ObjectDisposedException) { }
+                        }
+                    }
                 }
             }
         }
@@ -221,18 +246,19 @@ partial class Program
             // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
             try
             {
-                Logic.Save(left, prepared);
+                if (!left.BuildFinalized) Logic.Save(left, prepared);
             }
             catch (Exception e)
             {
                 Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
             }
             // What follows must run whatever the rules do, or the player stays in the instance.
-            try { Logic.Left(left); }
+            try { if (!left.BuildFinalized) Logic.Left(left); }
             catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
             left.Instance.RemovePlayer(left.PeerId);
             InGame.TryRemove(left, out _);
             Instances.Leave(left.Instance);
+            CharacterBuildImports.Release(left);
         }
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });
         string? dump = left is not null && PacketHistory.DumpFolder is { } folder

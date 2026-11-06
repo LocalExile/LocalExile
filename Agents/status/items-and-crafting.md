@@ -216,6 +216,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Optional POB module imports builds after confirmation; transformed weapons and hybrid gems retain native data.
+  See [module documentation](../../Modules/POB/README.md).
+
 - **On-kill explosions and attribute damage reduction (implemented 2026-11-04; native behavior checked with the
   official client 2026-11-05, server live check pending):** "Enemies you Kill Explode, dealing X% of their Life as
   Physical Damage" (the Crusader body-armour prefix and the synthesis implicit) deals X% of the killed monster's

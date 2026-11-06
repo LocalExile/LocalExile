@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Remove="Converter/**/*.cs" />
+    <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+    <ProjectReference Include="Converter/PobImport.csproj" ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+</Project>

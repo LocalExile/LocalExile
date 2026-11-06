@@ -29,6 +29,11 @@ Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name
 with the name red and `$OfflineWitch: hello trade` with the name orange (the chat timestamps option was on).
 Party, guild and whisper lines are not echoed (there is nobody to send them to).
 
+The unmodified 3.29.3b chat submitter `0x14017ca30` clamps input to 512 UTF-16 units, even when the editor holds a
+longer paste. Its final truncation is at `0x14017db95`; the packet writer `0x141f91120` also clamps at `0x141f9117e`.
+Longer PoB share codes therefore cannot be supplied as one typed command; the POB module accepts a server-side
+inbox filename instead. Raising only the server's packet limit does not change these client limits.
+
 ## 2. Server → client text
 
 Candidates that read a wide string were found by mapping every S→C factory case to its class and read function (slot

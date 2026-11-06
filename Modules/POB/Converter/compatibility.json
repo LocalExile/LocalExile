@@ -1,0 +1,35 @@
+{
+  "revision": 1,
+  "upstreamCommit": "b2737133477b23f27a98b27196189bcad5881bc6",
+  "clientRevision": "3.29.3b",
+  "stats": {
+    "additional_strength": "implemented",
+    "additional_dexterity": "implemented",
+    "additional_intelligence": "implemented",
+    "additional_all_attributes": "implemented",
+    "base_maximum_life": "implemented",
+    "maximum_life_+%": "implemented",
+    "base_maximum_mana": "implemented",
+    "maximum_mana_+%": "implemented",
+    "keystone_iron_reflexes": "implemented",
+    "local_unique_tabula_rasa_no_requirement_or_energy_shield": {
+      "status": "partial",
+      "reason": "Native item flag is retained; the reference server does not apply its ES/attribute-requirement exemption."
+    },
+    "local_no_attribute_requirements": {
+      "status": "partial",
+      "reason": "Native modifier is retained; the reference server's equipment activation does not consume this exemption."
+    }
+  },
+  "skills": {
+    "Frostblink": { "status": "partial", "reason": "Movement is implemented; damage and chilled ground are not implemented." },
+    "FrostblinkHardMode": { "status": "partial", "reason": "Movement is implemented; damage and chilled ground are not implemented." },
+    "RaiseZombie": { "status": "not implemented", "reason": "The reference player-skill executor has no zombie-summoning/minion behaviour. The gem is retained." },
+    "SummonSkeletons": { "status": "not implemented", "reason": "The reference player-skill executor has no skeleton-summoning/minion behaviour. The gem is retained." }
+  },
+  "evidence": [
+    "LocalExile b2737133: AttributeModifiers.cs, CharacterStats.cs and Program.Progression.cs",
+    "LocalExile b2737133: InstantLocationSkill.cs and Program.Combat.cs",
+    "Unlisted effects are unknown, never assumed unimplemented or complete."
+  ]
+}
