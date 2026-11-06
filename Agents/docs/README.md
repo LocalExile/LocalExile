@@ -4,6 +4,9 @@ Protocol reference and reverse-engineering notes for the Path of Exile 3.29.3c c
 [../Status.md](../Status.md), what to build next in [../Roadmap.md](../Roadmap.md). Start with
 **[protocol/00-overview.md](protocol/00-overview.md)**.
 
+> **3.29.3c id shift.** Most protocol docs keep 3.29.3b message ids as their reference; pages updated for 3.29.3c
+> say so. 3.29.3c shifts every id from `0x2b5` by +2. See the [3.29.3c diff](re/3.29.3c-client-diff.md) for the table.
+
 ## Protocol (consolidated, current)
 | Doc | Content |
 |---|---|
