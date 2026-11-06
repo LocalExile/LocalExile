@@ -58,6 +58,12 @@ public sealed class DefaultAttackTimingTests : IDisposable
         // At most 8 times its length: then the rest of the clip slows evenly over what is left.
         Assert.Equal(0.085 * 8 + (0.150 + 0.065) * (1.6 - 0.68) / 0.515, bolt.ReleaseSeconds(1.6), 4);
         Assert.Equal(clip.ContactSeconds(0.645), clip.ReleaseSeconds(0.645), 6);
+        // A lockstep client fires on the frame tick its clip clock passes the release, counted from the start of the
+        // frame its action began in: the wand's 0.367 s on frame 12, the bow's 0.268 s on 9 (33 ms frames), at least 1.
+        Assert.Equal(10 + 12 * 0.033, Game.LockstepShotAt(10, bolt.ReleaseSeconds(0.667)), 6);
+        Assert.Equal(10 + 9 * 0.033, Game.LockstepShotAt(10, 0.268), 6);
+        Assert.Equal(10 + 11 * 0.033, Game.LockstepShotAt(10, 11 * 0.033), 6);
+        Assert.Equal(10 + 0.033, Game.LockstepShotAt(10, 0), 6);
         Assert.NotNull(bolt.Point);
         // No lock_cancelling keyframe: a Move held during the swing runs at the contact.
         Assert.Equal(bolt.ContactSeconds(0.667), bolt.CutInSeconds(0.667), 6);

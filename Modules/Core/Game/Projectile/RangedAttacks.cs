@@ -49,16 +49,17 @@ static partial class Game
 
     /// <summary>When and from where an ordinary bow or wand shot leaves: the delay to the releasing clip's contact
     /// keyframe, and that keyframe's position in the model's space (the Ranger's attack1_bow: 59.8 units in front at
-    /// 127.5 up; the ACT-selected wand clip's tip), or null without rig data for the class or weapon. A shot the client
-    /// draws itself leaves when its clip clock reaches the contact (<see cref="DefaultAttackClip.ReleaseSeconds"/>).</summary>
+    /// 127.5 up; the ACT-selected wand clip's tip), or null without rig data for the class or weapon. With
+    /// <paramref name="clientClock"/> (a lockstep client), the delay is the client's clip clock's
+    /// (<see cref="DefaultAttackClip.ReleaseSeconds"/>), which <c>LockstepShotAt</c> puts on its frame tick.</summary>
     internal static (double Delay, ContactPoint? Point) OrdinaryRangedContact(ClientState conn, double attackSeconds,
-        string projectileId, ushort sequence, bool clientDrawn = false)
+        string projectileId, ushort sequence, bool clientClock = false)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? Skills.ClassFor(conn.ClassRow).AnimatedObject;
         var profile = WeaponProfileFor(conn, activeSet: true);
         if (Animations.TryDefaultAttackClip(ao, profile, sequence, attackSeconds, out var selected))
         {
-            double delay = Math.Max(0, clientDrawn ? selected.ReleaseSeconds(attackSeconds) : selected.ContactSeconds(attackSeconds));
+            double delay = Math.Max(0, clientClock ? selected.ReleaseSeconds(attackSeconds) : selected.ContactSeconds(attackSeconds));
             if (projectileId == OrdinaryRangedAttack.Wand)
                 Console.WriteLine($"[gateway] wand release sequence 0x{sequence:x4}: {selected.Stance}/{selected.Animation} " +
                     $"(clip {selected.Index}, contact {selected.ContactMs}/{selected.LengthMs} ms), " +

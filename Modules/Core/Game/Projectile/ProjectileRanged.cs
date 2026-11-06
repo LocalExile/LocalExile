@@ -30,12 +30,16 @@ static partial class Game
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
-        double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
-        // A shot the client draws itself (its record has the count) lands its hit on the client's own release; the lead
-        // is only for an object the server sends.
+        // A lockstep client's shot leaves on its own frame tick (LockstepShotAt), counted from the start of the frame its
+        // action began in: a walk-up's swing frame, else the frame now being sent, which the echo after this goes in. The
+        // hit then lands with the client's release, and a hit recovery, freeze or death before it cancels both; the lead
+        // is only for a predictive client's server object.
+        bool lockstep = conn.LockstepClient;
+        double acceptedAt = swingAt ?? (lockstep ? LockstepFrameStart(conn) : conn.Clock.Elapsed.TotalSeconds);
+        // A shot the client draws itself has the count on its record.
         bool clientDrawn = conn.ClientDrawsOrdinaryShots;
-        var (delay, release) = OrdinaryRangedContact(conn, attackSeconds, projectileId, sequence, clientDrawn);
-        session.Schedule(ProjectileRuntime.Time(acceptedAt + (clientDrawn ? delay : AttackReleaseDelay(delay))),
+        var (delay, release) = OrdinaryRangedContact(conn, attackSeconds, projectileId, sequence, clientClock: lockstep);
+        session.Schedule(ProjectileRuntime.Time(lockstep ? LockstepShotAt(acceptedAt, delay) : acceptedAt + AttackReleaseDelay(delay)),
             () => OrdinaryRangedReleaseCurrent(conn, action, epoch)
                 && OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true)) == projectileId,
             () =>
@@ -137,5 +141,23 @@ static partial class Game
         conn.DefaultAttackRecordLockstep = true;
         if (OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true)) is null) return;
         await SendSkills(remote, stream, ciphers, conn);
+    }
+
+    // The start of the lockstep frame now being sent, which a player action echoed now begins in.
+    static double LockstepFrameStart(ClientState conn)
+    {
+        lock (conn.Monsters) return conn.LockstepFrame?.Start ?? conn.Clock.Elapsed.TotalSeconds;
+    }
+
+    /// <summary>
+    /// When a lockstep client's own shot leaves: on the frame tick in which its clip clock passes the release, the
+    /// first whole number of frames (at least one) after the start of the frame its action began in. Live 2026-11-05,
+    /// from the order's frame start: the wand's 0.367 s release on frame 12 (38 of 39), the bow's 0.268 s on frame 9
+    /// (36 of 37), each within about 4 ms of the tick.
+    /// </summary>
+    internal static double LockstepShotAt(double frameStart, double delay)
+    {
+        double frame = FrameMs / 1000d;
+        return frameStart + Math.Max(1, Math.Ceiling(delay / frame - 1e-6)) * frame;
     }
 }
