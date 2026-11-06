@@ -96,6 +96,12 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   - The tabs with shop currency stay (below).
   - During the first open, the panel's old tab is asked for after the forced one; unloading the shown tab then crashed
     the client on the next open, so nothing is unloaded in that window.
+  - A click can still name a tab that was just unloaded: the panel keeps showing it for a moment, and the client sends
+    0x28/0x2a (or the 0xe0/0xe3 path) for the tab it displays. A 0xbf for an inventory the client no longer has is fatal
+    ("Got an inventory set change for an inventory that isn't in the set", [#605](https://github.com/LocalExile/LocalExile/issues/605)),
+    and the panel has the tab marked not loaded, so it drops that tab's 0xbfs until a 0xc8 tells it the tab is loaded
+    again. The Gateway therefore re-sends 0xc0 and 0xc8 for that tab before the 0xbf, and answers with its own
+    inventory id rather than the one the client sent (`EnsureTabLoaded`).
   - Live 2026-10-29: the stash opened much faster after the heavy tabs were visited, with no crash.
 - **Area entry preloads only shop currency.** Vendors price items against the currency the client knows of, so the
   tabs that can hold it (a currency tab or a grid tab) go out on area entry when they hold class `StackableCurrency`
