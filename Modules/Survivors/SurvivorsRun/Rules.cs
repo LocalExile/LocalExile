@@ -96,6 +96,7 @@ static partial class SurvivorsRunRules
         if (StateOf(conn).SurvivorsPausedByWindow && StateOf(conn).SurvivorsOffer is null)
         {
             StateOf(conn).SurvivorsPausedByWindow = false;
+            conn.PauseHeld = false;
             if (!conn.Clock.IsRunning) conn.Clock.Start();
             await Send(remote, stream, ciphers, InstancePause.State(false),
                 "0x01d3 resumed (a previous window was closed)");
@@ -157,6 +158,10 @@ static partial class SurvivorsRunRules
         if (!ownership.Current) return;
         await SurvivorsPublishHeralds(remote, stream, ciphers, conn, run, catalog);
         if (!ownership.Current) return;
+        // Deal the opening window before the runner starts: the clock stops here, so the first spawn waits for the
+        // pick and monsters are already frozen at the very start (the runner would otherwise spawn a wave first).
+        await SurvivorsOfferIfDue(remote, stream, ciphers, conn, run, catalog);
+        if (!ownership.Current) return;
         StartRunner(conn, token => RunSurvivors(remote, stream, ciphers, conn, run, roster, catalog, stage: 0, token));
     }
 
@@ -210,6 +215,8 @@ static partial class SurvivorsRunRules
     internal static async Task EndSurvivors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         if (StateOf(conn).Survivors is not { } run) return;
+        await SurvivorsClearOrbs(remote, stream, ciphers, conn);
+        await SurvivorsClearGroundZones(remote, stream, ciphers, conn);
         Release(conn, run);
         SurvivorsCarried.TryRemove(conn.Ticket, out _);
         await SurvivorsClearHeralds(remote, stream, ciphers, conn);
@@ -264,7 +271,7 @@ static partial class SurvivorsRunRules
             var roster = SurvivorsRosterFor(conn);
             var lines = new List<string>
             {
-                "--- Survivors curve (14 -> 500 horde, +75% life, +180% damage, a boss a minute) ---:",
+                "--- Survivors curve (14 -> 220 horde, x6 life, x3 damage, DPS threat, a boss a minute) ---:",
                 " time   horde  monster life  monster damage  boss life  boss xp  rank damage",
             };
             for (int step = 0; step <= 7; step++)
@@ -276,7 +283,8 @@ static partial class SurvivorsRunRules
                     0 => "1 x1.00", <= 2 => "4 x1.90", <= 4 => "6 x2.50", _ => "8 x3.10",
                 };
                 lines.Add($"{SurvivorsClock(t)}  {SurvivorsRules.TargetAlive(t),5}  " +
-                    $"x{SurvivorsRules.MonsterLifeScale(t):0.00}          x{SurvivorsRules.MonsterDamageScale(t):0.00}          " +
+                    $"x{SurvivorsRules.MonsterLifeScale(t) * SurvivorsRules.EnemyLifeMultiplier:0.00}          " +
+                    $"x{SurvivorsRules.MonsterDamageScale(t) * SurvivorsRules.EnemyDamageMultiplier:0.00}          " +
                     $"x{SurvivorsRules.BossLifeRatio(stage),5:0.00}  +{SurvivorsRules.BossExperience(stage),4}  {rank}");
             }
             if (roster is { } area)
@@ -307,7 +315,11 @@ static partial class SurvivorsRunRules
         {
             if (StateOf(conn).Survivors is not { } levelling) { await conn.Commands!.Reply("No survivors run is active."); return; }
             int before = levelling.Level;
-            for (int i = 0; i < 4; i++) levelling.RecordKill(MonsterRarity.Unique);
+            for (int i = 0; i < 4; i++)
+            {
+                levelling.RecordKill(MonsterRarity.Unique);
+                levelling.RecordExperience(SurvivorsRules.LevelRequirement(levelling.Level));
+            }
             await conn.Commands!.Reply($"Run level {before} -> {levelling.Level} (dev).");
             return;
         }
@@ -492,7 +504,7 @@ static partial class SurvivorsRunRules
             nextBoss = Math.Max(stageStart + SurvivorsBossDelaySeconds, run.Elapsed + 5),
             nextRing = Math.Max(stageStart + SurvivorsRingIntervalSeconds / 2, run.Elapsed + 10),
             nextRanged = Math.Max(stageStart + SurvivorsRules.RangedWaveIntervalSeconds, run.Elapsed + 5),
-            nextReport = 10, nextSweep = 0;
+            nextReport = 10, nextSweep = 0, nextCorpseSweep = 0;
         string bossName = roster.Bosses.Count > 0 ? roster.Bosses[0].Name : "";
         uint stageBoss = 0;
         bool bossSpawned = false, gateSpawned = false, gateDefeated = false;
@@ -518,15 +530,29 @@ static partial class SurvivorsRunRules
                 run.Advance(step);
                 if (InGracePeriod(conn)) await EndGracePeriod(remote, stream, ciphers, conn, action: true);
                 if (conn.PlayerLife == 0) { await EndSurvivors(remote, stream, ciphers, conn, "defeat"); break; }
-                // The stage's own champions pay their ladder experience when they fall.
+                await SurvivorsCollectOrbs(remote, stream, ciphers, conn, run);
+                // Death ground zones: expire the old ones and drain life while the player stands inside one.
+                await SurvivorsAdvanceDeathZones(remote, stream, ciphers, conn, step);
+                // Dead monsters are removed after a short linger: a long run's corpses otherwise pile up and glitch.
+                if (now >= nextCorpseSweep)
+                {
+                    nextCorpseSweep = now + 0.5;
+                    await SurvivorsSweepCorpses(remote, stream, ciphers, conn, horde);
+                }
+                // The stage's own champions pay their ladder experience as an orb when they fall.
                 foreach (var (id, total) in bossBonuses.ToList())
                 {
                     bool dead;
-                    lock (conn.Monsters) dead = !conn.Monsters.TryGetValue(id, out var boss) || boss.Dead || boss.Life == 0;
+                    (int X, int Y) at;
+                    lock (conn.Monsters)
+                    {
+                        dead = !conn.Monsters.TryGetValue(id, out var boss) || boss.Dead || boss.Life == 0;
+                        at = conn.Monsters.TryGetValue(id, out var fallen) ? fallen.Walk.Position(now) : conn.Walk.Position(now);
+                    }
                     if (!dead) continue;
                     bossBonuses.Remove(id);
                     int bonus = total - SurvivorsRules.ExperienceForKill(MonsterRarity.Unique);
-                    if (bonus > 0) run.RecordExperience(bonus);
+                    if (bonus > 0) await SurvivorsDropOrb(remote, stream, ciphers, conn, at, bonus);
                     await conn.Commands!.Reply(id == stageBoss
                         ? $"{bossName} falls. +{total} run experience."
                         : id == gateFight?.BossId
@@ -671,12 +697,13 @@ static partial class SurvivorsRunRules
         for (int i = 0; i < spawn; i++)
         {
             // Every third body is a ranged variety when the area has one: the player has to keep moving.
-            var variety = ranged.Count > 0 && i % 3 == 2
+            bool isRanged = ranged.Count > 0 && i % 3 == 2;
+            var variety = isRanged
                 ? ranged[Random.Shared.Next(ranged.Count)]
                 : roster.Varieties[pool[Random.Shared.Next(pool.Length)]];
-            if (SurvivorsSpawnCell(conn, 30) is not { } cell) continue;
+            if (SurvivorsSpawnCell(conn, 60) is not { } cell) continue;
             horde.Add(await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, SurvivorsRarity(run), cell.X, cell.Y,
-                log: false, extraMods: SurvivorsMonsterMods(run.Elapsed)));
+                log: false, extraMods: SurvivorsMonsterMods(run, isRanged)));
         }
     }
 
@@ -696,11 +723,11 @@ static partial class SurvivorsRunRules
         {
             var variety = ranged[Random.Shared.Next(ranged.Count)];
             double angle = i * Math.Tau / count;
-            int x = (int)Math.Round(px + Math.Cos(angle) * 22), y = (int)Math.Round(py + Math.Sin(angle) * 22);
+            int x = (int)Math.Round(px + Math.Cos(angle) * 44), y = (int)Math.Round(py + Math.Sin(angle) * 44);
             if (conn.Layout.GridW > 0 && (x < 0 || y < 0 || x >= conn.Layout.GridW || y >= conn.Layout.GridH)) continue;
             if (!conn.Layout.WalkableFor(x, y, 0) || conn.Barrier.Contains((x, y))) continue;
             horde.Add(await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, SurvivorsRarity(run), x, y,
-                log: false, extraMods: SurvivorsMonsterMods(run.Elapsed)));
+                log: false, extraMods: SurvivorsMonsterMods(run, ranged: true)));
             spawned++;
         }
         Console.WriteLine($"[gateway] {remote} survivors ranged ring at {SurvivorsClock(run.Elapsed)}: {spawned} of {count} spawned");
@@ -723,11 +750,11 @@ static partial class SurvivorsRunRules
         for (int i = 0; i < count; i++)
         {
             double angle = i * Math.Tau / count;
-            int x = (int)Math.Round(px + Math.Cos(angle) * 26), y = (int)Math.Round(py + Math.Sin(angle) * 26);
+            int x = (int)Math.Round(px + Math.Cos(angle) * 52), y = (int)Math.Round(py + Math.Sin(angle) * 52);
             if (conn.Layout.GridW > 0 && (x < 0 || y < 0 || x >= conn.Layout.GridW || y >= conn.Layout.GridH)) continue;
             if (!conn.Layout.WalkableFor(x, y, 0) || conn.Barrier.Contains((x, y))) continue;
             horde.Add(await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, MonsterRarity.Normal, x, y,
-                log: false, extraMods: SurvivorsMonsterMods(run.Elapsed)));
+                log: false, extraMods: SurvivorsMonsterMods(run)));
             spawned++;
         }
         Console.WriteLine($"[gateway] {remote} survivors ring wave at {SurvivorsClock(run.Elapsed)}: {spawned} of {count} spawned");
@@ -776,7 +803,7 @@ static partial class SurvivorsRunRules
         var rolled = MonsterModRolls.Value.Roll(boss, roster.Level, MonsterRarity.Unique, Random.Shared, alone: true);
         int baseLife = Math.Max(1, Monsters.BaseLife(boss, roster.Level) ?? 100);
         double target = SurvivorsPoolTop(roster, stage) * SurvivorsRules.BossLifeRatio(stage)
-            * SurvivorsRules.MonsterLifeScale(run.Elapsed);
+            * SurvivorsRules.MonsterLifeScale(run.Elapsed) * SurvivorsRules.BossLifeMultiplier;
         // MaxLife applies the rarity's own factor after maximum_life_+%, so solve the percentage for the target.
         double factor = (1 + rolled.Effects["monster_life_+%_final_from_rarity"] / 100.0)
             * (1 + rolled.Effects["monster_life_+%_final_from_rarity_table"] / 100.0);
@@ -793,12 +820,18 @@ static partial class SurvivorsRunRules
     internal static string SurvivorsAreaName(string id) =>
         AreaTransitionCatalog.HashOf(id) is { } hash ? AreaTransitionCatalog.NameOf(hash) ?? id : id;
 
-    /// <summary>A spawned monster's mods for the run's clock: +75% life and +90% damage at 15:00, as the monster mods'
-    /// own stats (MonsterModEffects).</summary>
-    internal static MonsterModSet SurvivorsMonsterMods(double elapsed)
+    /// <summary>A spawned monster's mods for the run's clock: the reference's life/damage curves scaled by the
+    /// playtest enemy-life (8x) and enemy-damage (4x) multipliers, then the DPS threat from the player's sustained
+    /// kill rate on top of the life, so a steamrolling build faces a horde that outlives its damage. A ranged monster's
+    /// damage is further cut by <see cref="SurvivorsRules.RangedDamageMultiplier"/>: a volley from 22 cells otherwise
+    /// kills on its own.</summary>
+    internal static MonsterModSet SurvivorsMonsterMods(SurvivorsRun run, bool ranged = false)
     {
-        int life = (int)Math.Round((SurvivorsRules.MonsterLifeScale(elapsed) - 1) * 100);
-        int damage = (int)Math.Round((SurvivorsRules.MonsterDamageScale(elapsed) - 1) * 100);
+        double threat = SurvivorsRules.ThreatMultiplier(run.ThreatKillsPerSecond);
+        double damageMultiplier = SurvivorsRules.EnemyDamageMultiplier
+            * (ranged ? SurvivorsRules.RangedDamageMultiplier : 1);
+        int life = (int)Math.Round((SurvivorsRules.MonsterLifeScale(run.Elapsed) * SurvivorsRules.EnemyLifeMultiplier * threat - 1) * 100);
+        int damage = (int)Math.Round((SurvivorsRules.MonsterDamageScale(run.Elapsed) * damageMultiplier - 1) * 100);
         if (life <= 0 && damage <= 0) return MonsterModSet.None;
         return MonsterModSet.None with
         {
@@ -821,7 +854,8 @@ static partial class SurvivorsRunRules
     internal static (int X, int Y)? SurvivorsSpawnCell(ClientState conn, double radius)
     {
         var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        for (int attempt = 0; attempt < 12; attempt++)
+        // The wave rings are far from the player, so a cramped area needs more attempts to find a walkable cell.
+        for (int attempt = 0; attempt < 24; attempt++)
         {
             double angle = Random.Shared.NextDouble() * Math.Tau;
             double distance = radius + Random.Shared.NextDouble() * 8;

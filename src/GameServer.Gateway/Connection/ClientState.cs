@@ -185,6 +185,11 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public readonly MonsterIgnites Bleeds = new();
     // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
     public readonly MonsterPoisons Poisons = new();
+    // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), under the Monsters lock.
+    public readonly MonsterRuptures Ruptures = new();
+    // Overpowered (Block Chance Reduction): the block chance its blocked supported hits take away until the deadline.
+    public int OverpoweredPercent;
+    public double OverpoweredUntil;
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
     public readonly MonsterElementalAilments Ailments = new();
     // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.
@@ -209,6 +214,21 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public double IntimidatedUntil = double.NegativeInfinity, IntimidateShownUntil, UnnervedUntil = double.NegativeInfinity,
         UnnerveShownUntil;
     public ushort IntimidateBuff, UnnerveBuff;
+    // Crushed by his hits (Awakened Brutality) until when, shown with its own crushed buff; Crush lowers its physical
+    // damage reduction (Game.CrushReduction).
+    public double CrushedUntil = double.NegativeInfinity, CrushShownUntil;
+    public ushort CrushBuff;
+    // Maimed by his hits until when and the physical damage increase its source gave, shown with its own maimed buff.
+    public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
+    public ushort MaimBuff;
+    public int MaimedPhysicalTakenPct;
+    // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.
+    public double HallowingFlameUntil = double.NegativeInfinity;
+    public double HallowingFlamePct;
+    // Excommunicate Support: until when its chaos damage is suppressed.
+    public double ExcommunicatedUntil = double.NegativeInfinity;
+    // "Killed Enemies drop X% increased Items" from the skill of the last player hit (Item Quantity Support).
+    public int KilledWithItemQuantityPct;
     // Blinded by his hits until when, one more source of his Blind (Game.Blinded), shown with its own blinded buff.
     public double BlindedUntil = double.NegativeInfinity, BlindShownUntil;
     public ushort BlindBuff;
@@ -223,8 +243,9 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public int WitherShownStacks;
     public double WitherShownUntil;
     public ushort WitherBuff;
-    public readonly Dictionary<ushort, ushort> PlayerAuras = [];
-    public (int All, int Elemental) TakenFromPlayer;
+    // By (the player's PeerId, the aura's BuffDefinitions row): each client's buff instance of each player's enemy aura.
+    public readonly Dictionary<(uint Peer, ushort Definition), ushort> PlayerAuras = [];
+    public (int All, int Elemental, int Physical) TakenFromPlayer;
     // Pride's more Physical Damage taken, ramped by the time this monster has stayed in the aura (EnemyDebuffsTick).
     public double PrideSince = double.NaN;
     public double PridePhysicalMore;
@@ -244,6 +265,11 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // A boss cannot be stunned again until then (HitReaction). Guarded by the Monsters lock.
     public double StunImmuneUntil = double.NegativeInfinity;
     public bool Aggro, Dead;
+    /// <summary>The player the instance's monster acts for now (its chase, swings and damage run on that player's
+    /// connection: SharedMonsters.cs MonsterTargetsLocked); null while it has none.</summary>
+    public ClientState? Target;
+    /// <summary>The player whose hit landed on it last: an ignite, bleed or poison that kills it is theirs (SharedKills.cs).</summary>
+    public ClientState? LastHitBy;
     // Its corpse was consumed (Deathrattle's explosion) and its object removed. Guarded by the Monsters lock.
     public bool CorpseConsumed;
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
@@ -310,19 +336,26 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public ushort? CameFrom { get; init; }
     // The character's class: its Characters.dat row (the Witch: 1).
     public int ClassRow { get; init; } = SkillCatalog.WitchRow;
-    public readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
+    /// <summary>The instance's game time (InstanceWorld.Clock), shared with everyone in it.</summary>
+    public System.Diagnostics.Stopwatch Clock => Instance?.World.Clock ?? ownClock;
+    readonly System.Diagnostics.Stopwatch ownClock = System.Diagnostics.Stopwatch.StartNew();
     public readonly ConnectionPerformance Performance = new();
     // The connection's last messages, both directions (PacketHistory), and why the server closed it (the DISCONNECT line).
     public readonly PacketHistory Packets = new();
     public volatile string? CloseReason;
     // The Escape menu's pause (C→S 0x1d4) stops the Clock: walks, cooldowns and flask effects stand still meanwhile.
     public bool Paused => !Clock.IsRunning;
+    // A module-owned pause (the Survivors reward window) that must survive the client's own C→S 0x1d4 unpause: while
+    // this is set, SetPaused(false) leaves the clock stopped and keeps the client's world paused.
+    public bool PauseHeld;
     // A transfer invalidates flights even during the gap after PendingTransfer is consumed by Transfer.
     // Guarded by Monsters, like projectile impact commits and pause changes.
     public bool LeavingArea;
     // Auth accepted the destination; PendingTransfer is already consumed before this handoff.
     public bool TransferAccepted;
     public readonly RecentEnemyHits RecentEnemyHits = new();
+    // The other "recently" events (issue #504): what happened in the last four seconds, for the stats that ask.
+    public readonly RecentEvents RecentEvents = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
     // The King in the Mists' Portent Vapors: stacks taken from his Mystic Fetishes and when they expire. The server
     // applies the increased damage taken to his hits; the buff icon and count are presentation.
@@ -361,7 +394,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                 monster.ActionGeneration++;
                 monster.SwingGeneration = null;
             }
-            if (clear) { RecentEnemyHits.Clear(); ElementalAilments.Clear(); }
+            if (clear) { RecentEnemyHits.Clear(); RecentEvents.Clear(); ElementalAilments.Clear(); }
         }
     }
     public int ProjectileEpoch;
@@ -384,6 +417,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                 ? runtime.NowTicks / 120000d : Clock.Elapsed.TotalSeconds;
             ResourceEffectsState?.Freeze(RampageTransferAt.Value);
             LeavingArea = true;
+            PlayerSkillsCache = null;
             RetireOwnedCombat();
             InvalidateIncomingHits(clear: false);
             ProjectileEpoch++;
@@ -437,7 +471,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         get
         {
             var fixedOnes = _blockerList;
-            if (Phasing) return fixedOnes;   // phasing (Quartz Flask): monsters do not block (UtilityFlasks.Phasing)
+            if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
             List<ClientPathfinder.Blocker>? all = null;
             lock (Monsters)
@@ -524,7 +558,12 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public HncSender? Hnc;
     public InstanceKeyring Keyring = null!;
     // Server objects created after entering (monsters); the player is 0x1000 and area transitions start at 0x2000.
-    public uint NextObjectId = 0x3000;
+    public uint NextObjectId
+    {
+        get => Instance is { } i ? i.World.NextObjectId : ownNextObjectId;
+        set { if (Instance is { } i) i.World.NextObjectId = value; else ownNextObjectId = value; }
+    }
+    uint ownNextObjectId = 0x3000;
     // Every 0x1ab action on this connection gets a fresh sequence. The official server increments it per action (the
     // King's first actions are 0x8011, 0x8012, …); reusing 0xffff for several actors left the client's channel object
     // without a current action and crashed StartChannelling (0xc0000005 at 0x19e0daf, live 2026-10-31).
@@ -561,6 +600,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly PetrifiedBloodState PetrifiedBlood = new();
     /// <summary>Lifetap Support's life-paid costs, spent-Life counter and buff (Combat/Lifetap.cs).</summary>
     public readonly LifetapState Lifetap = new();
+    /// <summary>Arcane Surge's buff and Inspiration's charges (Skill/SupportGemBuffs.cs).</summary>
+    public readonly SupportGemState SupportGems = new();
     /// <summary>The invisible leech recovery buffs shown on the resource orbs (Combat/Leech.cs).</summary>
     public readonly LeechDisplayState LeechDisplay = new();
     // Life Recoup of the hits the player took (Game.RecoupHitLocked), paid by the resource recovery loop.
@@ -595,6 +636,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // Only self-owned aura instances actually sent on this connection's current player object.
     public readonly Dictionary<ushort, AuraCatalog.Aura> PresentedAuras = [];
     public bool AuraStatsDirty;
+    /// <summary>The stance the next Flesh and Stone activation starts in ("Blood" or "Sand"): the skill alternates on each
+    /// use, and the stance flips when the aura starts (Game.ToggleAura), not when it ends.</summary>
+    public string NextFleshAndStoneStance = "Blood";
     public bool PlayerObjectCreated;
     // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Guarded by the Monsters lock.
     public readonly Dictionary<int, double> SkillReadyAt = [];
@@ -603,6 +647,11 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // The skill ids the client has on this connection's player (SendPlayer, SendSkills): the 0x40 skill list only adds,
     // so the ones that leave are removed by id.
     public HashSet<ushort> ClientSkillIds = [];
+    // The PlayerSkills build reused for a few frames: Headhunter, Rage, Fortification and charge stat changes call it
+    // many times a second, and rebuilding the whole list each time inside the send gate stalled input handlers
+    // (2026-11-05). A short lifetime keeps the client's skill records close while coalescing the builds.
+    public IReadOnlyList<GrantedSkill>? PlayerSkillsCache;
+    public double PlayerSkillsAt;
     // The character's level and the pools that follow from it and the class (CharacterStats).
     public EnergyShield EnergyShield { get; } = new();
     CharacterStats.Pools pools = new(1, 50, 40, 2, 0);
@@ -687,10 +736,16 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public volatile bool Phasing;
     /// <summary>The next buff instance (S→C 0x1c1). It wraps back to 1 below the monster ailments' fixed instances
     /// (MonsterElementalAilments.Instance) and never hands out 0.</summary>
+    /// The instance's (InstanceWorld.NextBuff): one player's buff on a monster never shares an instance with another's, so a
+    /// client's removal of its own never takes off one another client put there.
     public ushort NextBuff
     {
-        get => nextBuff;
-        set => nextBuff = value is 0 or >= MonsterElementalAilments.FirstInstance ? (ushort)1 : value;
+        get => Instance is { } i ? i.World.NextBuff : nextBuff;
+        set
+        {
+            ushort v = value is 0 or >= MonsterElementalAilments.FirstInstance ? (ushort)1 : value;
+            if (Instance is { } i) i.World.NextBuff = v; else nextBuff = v;
+        }
     }
     ushort nextBuff = 1;
     public uint PlayerMaxLife => Pools.Life;
@@ -864,7 +919,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// <summary>The 0x8f entries' model byte (/map_portal sets it for experiments).</summary>
     public byte MapPortalStyle;
     // Spawned monsters by object id, in spawn order (for /mobs and /despawn).
-    public readonly SortedDictionary<uint, SpawnedMonster> Monsters = [];
+    // The instance's (InstanceWorld.Monsters, also the instance's lock): every connection in it sees and hits the same ones.
+    public SortedDictionary<uint, SpawnedMonster> Monsters => Instance?.World.Monsters ?? ownMonsters;
+    readonly SortedDictionary<uint, SpawnedMonster> ownMonsters = [];
     // Items on the ground by object id (dropped with C→S 0x29).
     /// <summary>The area instance's state shared across connections: its ground items.</summary>
     public InstanceState Instance { get; init; } = null!;

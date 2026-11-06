@@ -891,6 +891,10 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   `GrantedEffectsKeys[0]` (Hungry Corpse: 406 `Melee`). Monster effects have per-level rows only for some levels, so
   `SkillCatalog.FindByRow` takes the highest GEPL / GESSPL level at or below the monster's (Melee: level 1, GEPL 4394).
   Id 0x0102, like the player's (no ActionType masks to it).
+  A bond, mark or souls effect is not an attack: the client links its action to a second entity the server never
+  names. Dominus' first effect, `DominusChillingBond`, used as his swing crashed the client at `0x14012946a` a frame
+  after his first action: `0x141a291a0` looked up entity 0 and `0x141a29710` linked the effect to the null result
+  (live 2026-11-05). `MavenNucleus.CombatEffect` skips them; Dominus swings `DominusLightningSlam`.
 - **Stats.** The final attack stats (`MonsterAttack.Stats`): attack time = MonsterVarieties `AttackSpeed` (2400 ms),
   reach = `MaximumAttackDistance` (8), damage = DefaultMonsterStats `Damage` (`MinionDamage` for an IsPlayerMinion
   type) at the level × `DamageMultiplier` / 100
@@ -2869,6 +2873,11 @@ failed I/O, allocation limits, actual official values and every skill's successf
   hostile living monster within its radius of the living player (0x1c1, the player as source) and comes off (0x1c2)
   when it leaves, dies, the node goes or the player dies; the blind aura shows the `blinded` buff instead (§12,
   Passive blind aura).
+- **Pride's enemy buff** (BuffDefinitions 1331 `player_physical_damage_aura`) carries fifteen u32 values before its
+  counted list: the reader (`0x141fdf870`) takes them whatever the message holds (a probe on its stream reads, live
+  2026-11-05), although the vendored schema shows `IsRecovery` unset (`__col25` set) and three GrantedStats.
+  With fewer, the client read the next message's bytes as values and its count, and showed "Unable to deserialise
+  packet with pid … Last PID was 449" (0x1c1) when a monster walked into the aura. Ours sends the ramp, then zeros.
 - **Taunt** (`TauntLocked`). Every warcry taunts the hostile monsters within its radius when its cast ends (wiki
   Warcry: base radius 6 m, 60 cells, grown by area of effect), the Basalt Flask within its 30 cells. 3 s (wiki
   Taunt), raised by `taunt_duration_+%`; a new taunt replaces the player's older one; a death of the monster or the

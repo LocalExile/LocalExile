@@ -148,7 +148,12 @@ static partial class Quests
     /// seal, a lever, a door, an altar. Its Transitionable shows <see cref="TransitionedBy"/>: state 1 without the flag, its
     /// last state with it (the client plays the transition when the flag comes), and its TriggerableBlockage blocks until
     /// then. Using it is a <see cref="UsedRule"/>.</summary>
-    public sealed record ObjectRule(string Area, string ObjectType, string? TransitionedBy) : Rule;
+    public sealed record ObjectRule(string Area, string ObjectType, string? TransitionedBy) : Rule
+    {
+        /// <summary>Removed once transitioned instead of shown open: the client's step check (0x141e61540) stops at
+        /// every Positioned body with a size, open or not (the Apex door, object_size 6, live 2026-11-04).</summary>
+        public bool GoneWhenTransitioned { get; init; }
+    }
     /// <summary>Using the quest object (its <see cref="UsedRule"/> taking effect) brings the monster where the object stands
     /// (the Apex on the Dark Altar: the Vaal Oversoul). The area's population leaves it out.</summary>
     public sealed record SpawnRule(string Area, string ObjectType, string Variety) : Rule;
@@ -192,6 +197,8 @@ static partial class Quests
         public static Rule Used(string area, string objectType, params string[] flags) => new UsedRule(area, objectType, flags);
         public static Rule UsedWith(string area, string objectType, string[] needs, params string[] flags) => new UsedRule(area, objectType, flags, needs);
         public static Rule Object(string area, string objectType, string? transitionedBy = null) => new ObjectRule(area, objectType, transitionedBy);
+        public static Rule Door(string area, string objectType, string openedBy) =>
+            new ObjectRule(area, objectType, openedBy) { GoneWhenTransitioned = true };
         public static Rule Spawns(string area, string objectType, string variety) => new SpawnRule(area, objectType, variety);
         public static Rule Cleared(string area, string? after, params string[] flags) => new ClearedRule(area, flags, after);
         public static Rule Exit(string from, string to, string flag) => new ExitRule(from, to, flag);

@@ -84,13 +84,16 @@ static partial class Game
         return player + (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods.Rarity ?? 0);
     }
 
-    // The player's increased quantity of items found (gear, passives) as a multiplier of the kill's item rolls (ItemDrops.Roll).
-    internal static double ItemQuantityFactor(ClientState conn)
+    // The player's increased quantity of items found (gear, passives) as a multiplier of the kill's item rolls
+    // (ItemDrops.Roll). A kill made with a supported skill adds the skill's own
+    // base_killed_monster_dropped_item_quantity_+% (Item Quantity Support).
+    internal static double ItemQuantityFactor(ClientState conn, SpawnedMonster? monster = null)
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         double player = Math.Max(0, 100 + Get("base_item_found_quantity_+%") + Get("item_found_quantity_+%")) / 100.0;
-        return player * (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods.QuantityFactor ?? 1);
+        return player * (1 + Math.Max(0, monster?.KilledWithItemQuantityPct ?? 0) / 100.0)
+            * (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods.QuantityFactor ?? 1);
     }
 
     // The pools and the walk speed again (under the Monsters lock): after a utility flask effect started or ended, or the

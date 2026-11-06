@@ -217,6 +217,12 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     public Item? EldritchEmber(Item item, ItemCatalog.BaseType type, int tier, Random random) =>
         EldritchImplicit(item, type, tier, ExarchImplicit, EaterImplicit, random);
 
+    /// <summary>True when the item carries an Eater of Worlds or Searing Exarch implicit, i.e. an Eldritch Ichor or Ember
+    /// was used on it. The two Eldritch orbs check it: an item without one is refused.</summary>
+    public bool HasEldritchImplicit(Item item) =>
+        item.Mods.Any(m => m.Section == ModSection.Implicit && catalog.Mods.ByHash(m.Hash) is { } mod
+            && mod.GenerationType is EaterImplicit or ExarchImplicit);
+
     Item? EldritchImplicit(Item item, ItemCatalog.BaseType type, int tier, int influence, int keptInfluence, Random random)
     {
         if (tier is < 1 or > 4 || item.Rarity is not (ItemRarity.Normal or ItemRarity.Magic or ItemRarity.Rare) ||

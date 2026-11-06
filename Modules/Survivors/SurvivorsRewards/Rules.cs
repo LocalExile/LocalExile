@@ -155,14 +155,15 @@ static partial class SurvivorsRewards
             "0x00bf survivors life flask", still: () => ownership.Current);
     }
 
-    /// <summary>A new run starts from an empty character: every carried, worn and flask item is removed and the client
-    /// is told row by row (0xbf), so nothing from an earlier run carries in.</summary>
+    /// <summary>A run keeps the uniques it has collected: the equipment and bag rows carry over from run to run, so a
+    /// unique picked in one run is still worn in the next. Only the flask is replaced with a fresh full one (and the
+    /// cursor cleared). Every kept item's requirement is waived again, because the emptied character's own level and
+    /// attributes never met a unique's.</summary>
     internal static async Task SurvivorsResetInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         var items = ItemsOf(conn);
-        var rows = Enumerable.Range(0, 16).Select(i => (byte)i).Append((byte)102).Append(PlayerInventories.Cursor).Distinct();
-        foreach (byte row in rows)
+        foreach (byte row in new byte[] { PlayerInventories.Flask, PlayerInventories.Cursor }.Distinct())
         {
             if (!ownership.Current) return;
             var ids = items.Items(row).Select(i => i.Id).ToList();
@@ -172,7 +173,13 @@ static partial class SurvivorsRewards
                 InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), ids, []),
                 $"0x00bf survivors reset row {row}: {ids.Count} item(s) removed", still: () => ownership.Current);
         }
-        ownership.Commit(() => StateOf(conn).SurvivorsItemIds.Clear());
+        ownership.Commit(() =>
+        {
+            StateOf(conn).SurvivorsItemIds.Clear();
+            foreach (byte row in Enumerable.Range(0, 16).Select(i => (byte)i).Append((byte)102))
+                foreach (var item in items.Items(row))
+                    StateOf(conn).SurvivorsItemIds.Add(item.Id);
+        });
     }
 
     /// <summary>Removes every item on the ground of the area for this run: the client forgets the object and the
@@ -196,7 +203,8 @@ static partial class SurvivorsRewards
         var catalog = ItemsFor(conn);
         var taken = run.Items;
         var worn = new HashSet<uint>();
-        foreach (byte row in ItemModStats.EquipmentRows)
+        // Both worn and bagged uniques are excluded: a run keeps them, so a duplicate must not be offered again.
+        foreach (byte row in ItemModStats.EquipmentRows.Append(PlayerInventories.MainInventory))
             foreach (var item in ItemsOf(conn).Items(row))
                 if (item.Item.NameWords is [var word, ..]) worn.Add(word);
         var pool = new List<int>();
@@ -292,6 +300,7 @@ static partial class SurvivorsRewards
             StateOf(conn).SurvivorsOfferItems = offeredItems.Count > 0 ? offeredItems : null;
         // The choice pauses the run: the clock stops, so monsters, spawns, casts and recovery wait for the pick.
             if (conn.Clock.IsRunning) { conn.Clock.Stop(); StateOf(conn).SurvivorsPausedByWindow = true; }
+            conn.PauseHeld = true;
         })) return;
         // Freeze the client's world too: the clock stops the server, but the client keeps walking every monster to its
         // last ordered cell until 0x1d3 pauses the world (the Escape menu's own pause does the same).
@@ -398,7 +407,10 @@ static partial class SurvivorsRewards
         bool resumed = false;
         ownership.Commit(() =>
         {
-            if (StateOf(conn).SurvivorsPausedByWindow && !run.NeedsOffer)
+            // Stay paused while another window is still waiting: a multi-level kill deals them one at a time.
+            if (run.PendingChoices > 0) return;
+            conn.PauseHeld = false;
+            if (StateOf(conn).SurvivorsPausedByWindow)
             {
                 StateOf(conn).SurvivorsPausedByWindow = false;
                 conn.Clock.Start();

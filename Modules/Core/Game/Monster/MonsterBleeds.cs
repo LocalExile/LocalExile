@@ -46,14 +46,18 @@ static partial class Game
             + 50L * Local("local_chance_to_bleed_on_crit_50%")
             + (melee ? get("bleed_on_melee_critical_strike") != 0 ? 100 : get("bleed_on_melee_crit_chance_%") : 0);
         double seconds = Ailments.BleedDurationSeconds * Math.Max(0, 1 + ((double)get("bleed_duration_+%")
-            + get("base_bleed_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster;
+            + get("base_bleed_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
+            * MonsterIgnites.DurationMultiplier(get);
         bool dance = get("keystone_crimson_dance") != 0;
         int aggravate = dance ? 0 : get("base_aggravate_bleeding_on_attack_hit_chance_%");
+        // Rupture Support: a critical strike of the supported skill that inflicts bleeding also ruptures the target.
+        int rupture = get("critical_strikes_that_inflict_bleeding_also_rupture") != 0
+            ? Math.Max(0, get("support_rupture_bleeding_damage_taken_+%_final")) : 0;
         return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
             Row("minimum", "critical"), Row("maximum", "critical"), seconds, (int)Math.Clamp(critical, 0, 100),
             dance ? CrimsonDanceStacks : 1, Math.Clamp(aggravate, 0, 100),
             dance ? 0 : (int)Math.Clamp((long)aggravate + get("aggravate_bleeding_on_attack_crit_chance_%"), 0, 100),
-            !dance && get("aggravate_inflicted_bleeding") != 0);
+            !dance && get("aggravate_inflicted_bleeding") != 0, rupture);
     }
 
     /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield
@@ -98,6 +102,8 @@ static partial class Game
         if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e["avoid_bleed_%"] + e["base_avoid_bleed_%"],
                 e["immune_to_bleeding"] != 0 || e["cannot_gain_bleeding"] != 0 || e["base_cannot_gain_bleeding"] != 0,
                 conn.IgniteRandom)) return null;
+        // Rupture Support: the critical strike that inflicted this bleeding also ruptures the target.
+        if (critical && settings.RupturePercent > 0) target.Ruptures.Add(now, settings.RupturePercent);
         return ShowDotBuffLocked(conn, id, target.Bleeds, row, now);
     }
 
@@ -113,7 +119,8 @@ static partial class Game
     /// armour stops hits only), times <see cref="BleedMovingMore"/> while it moves, but not for Crimson Dance's
     /// stacks.</summary>
     internal static double BleedTaken(SpawnedMonster m, double now) =>
-        MonsterDotTaken(m, DamageType.Physical, now) * (m.Bleeds.Stacks == 1 && m.Walk.Moving(now) ? BleedMovingMore : 1);
+        MonsterDotTaken(m, DamageType.Physical, now) * m.Ruptures.More(now)
+        * (m.Bleeds.Stacks == 1 && m.Walk.Moving(now) ? BleedMovingMore : 1);
 
     /// <summary>A standing monster's strongest aggravated bleed deals its moving bonus on top of the strongest bleed's
     /// damage; moving, the strongest already deals it, and the two do not stack (wiki Bleeding, Aggravate).</summary>

@@ -40,10 +40,10 @@ static partial class Game
     // Outside this bounded transaction, use the ordinary guarded cipher gate. Inside, evaluate projections
     // under the mutation lock and retain bytes. None of these awaits can yield to a retired Game callback.
     static Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes,
-        string? log, Func<bool>? still = null, Func<byte[]?>? atGate = null)
+        string? log, Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
     {
         if (QuestKillCommitOutput is not { } output)
-            return Program.Send(remote, stream, ciphers, bytes, log, still, atGate);
+            return Program.Send(remote, stream, ciphers, bytes, log, still, atGate, sync);
         if (still is not null && !still()) return Task.CompletedTask;
         if (atGate is not null)
         {

@@ -84,6 +84,14 @@ public static class InstanceSocial
 
     public const ushort KnownPlayerId = 0xa7, ForgetPlayerId = 0xa8, PartyInfoId = 0xa9;
 
+    /// <summary>S→C 0x231 (class 0x1435bf6b0, read 0x141f96ae0): u16 monster life percent, u8 players in the area, u8
+    /// player scaling. The session handler (0x142153038) sets them at +0xd110 (players), +0xd10c (life) and +0xd108
+    /// (scaling) and fires the event the party panel's bonus icons listen to (0x14023d0d0 → 0x14023d280 → 0x14023b830: the
+    /// loot icon with 2 players or more, the monster life icon above 100). Being checked live (2026-11-04).</summary>
+    public const ushort PartyModifiersId = 0x231;
+    public static byte[] PartyModifiers(ushort monsterLife, byte players, byte scaling) =>
+        new LoginWriter().U16(PartyModifiersId).U16(monsterLife).U8(players).U8(scaling).ToArray();
+
     /// <summary>S→C 0xa9 (class 0x1435dc860, write 0x1421a1620, read 0x1421a18b0; dispatcher case 0x2a): u32 +0x68, wstr
     /// +0x28, wstr +0x48, u32 +0x68 again, u8 +0x6e, u8 +0x6c, u8 +0x6d, u8 +0x6f, u8 member count, then per member a
     /// wstr name (an account name: looked up in the known players, 0xa7) and a u8 status. +0x68 is the party id; +0x6e the

@@ -287,7 +287,11 @@ public class InstanceItemsTests
         byte[] m = Convert.FromHexString("0016090000");
         Assert.Equal(5, InstanceItems.CommandLength(m));
         Assert.Equal(new InstanceItems.Command(9, ""), InstanceItems.ReadCommand(m));
-        Assert.Equal(8, InstanceItems.CommandLength(Convert.FromHexString("001601000361")));
+        // The argument is a compact wide string (u16 code points, 1 byte each below 0x80, 3 for 0x80 + u16): its length is
+        // known once all of it is there; "ё" (U+0451) takes 3 bytes, as the Russian client's AFK answer sent it.
+        Assert.Null(InstanceItems.CommandLength(Convert.FromHexString("001601000361")));
+        Assert.Equal(8, InstanceItems.CommandLength(Convert.FromHexString("0016010003616263")));
+        Assert.Equal(new InstanceItems.Command(1, "aё"), InstanceItems.ReadCommand(Convert.FromHexString("001601000261805104")));
         var split = InstanceProtocol.SplitClientMessages(Convert.FromHexString("00160900000029"), out _, out var unknown);
         Assert.Equal([(ushort)0x16, (ushort)0x29], split.Select(s => s.Id));
         Assert.Empty(unknown);

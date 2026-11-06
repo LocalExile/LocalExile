@@ -5,9 +5,10 @@ using League = GameServer.Core.Accounts.League;
 
 namespace GameServer.Gateway.Tests;
 
-// The survivors run offers eight real support gems. This walks every run skill x every support through the same
-// SurvivorsComputeCast the live cast uses: the game's ActiveSkillType rules decide the link, and a linked support must
-// move the number its own gem stats name (PoB's calcDamage / calcCastTime / calcRadius / crit / projectile inputs).
+// The survivors run offers every normal support gem whose numbers the cast pipeline reads. This walks every run skill
+// x every support through the same SurvivorsComputeCast the live cast uses: the game's ActiveSkillType rules decide
+// the link, and a linked support must move the number its own gem stats name (PoB's calcDamage / calcCastTime /
+// calcRadius / crit / projectile inputs).
 public sealed class SurvivorsSupportMatrixTests
 {
     static ClientState Connection(string name) =>
@@ -27,6 +28,26 @@ public sealed class SurvivorsSupportMatrixTests
         return run;
     }
 
+    // A support is applicable when it moves at least one number of at least one cast it can link to.
+    static bool Moved(SurvivorsSkills.SurvivorsComputedCast bare, SurvivorsSkills.SurvivorsComputedCast with) =>
+        with.Interval != bare.Interval || with.Count != bare.Count || with.HeraldDamage != bare.HeraldDamage
+        || with.HeraldRadius != bare.HeraldRadius || with.Profile?.Count != bare.Profile?.Count
+        || with.Profile?.Radius != bare.Profile?.Radius || with.Profile?.Speed != bare.Profile?.Speed
+        || with.Profile?.Range != bare.Profile?.Range || with.Profile?.Pierce != bare.Profile?.Pierce
+        || with.Profile?.Fork != bare.Profile?.Fork || with.Profile?.Chain != bare.Profile?.Chain
+        || with.Profile?.Split != bare.Profile?.Split || with.Profile?.Returns != bare.Profile?.Returns
+        || with.Profile?.ReturnChancePercent != bare.Profile?.ReturnChancePercent
+        || with.Shot?.Hit.MaxTotal != bare.Shot?.Hit.MaxTotal || with.Shot?.CriticalChance != bare.Shot?.CriticalChance
+        || with.Shot?.CriticalMultiplier != bare.Shot?.CriticalMultiplier || with.Shot?.Accuracy != bare.Shot?.Accuracy
+        || with.Shot?.ImpaleChance != bare.Shot?.ImpaleChance || with.Shot?.ReturnMultiplier != bare.Shot?.ReturnMultiplier
+        || with.Shot?.Blind != bare.Shot?.Blind || with.Shot?.PointBlank != bare.Shot?.PointBlank
+        || with.Shot?.FarShot != bare.Shot?.FarShot
+        || with.Shot?.Penetration.ToString() != bare.Shot?.Penetration.ToString()
+        || with.Shot?.Ignite.ToString() != bare.Shot?.Ignite.ToString()
+        || with.Shot?.Bleed.ToString() != bare.Shot?.Bleed.ToString()
+        || with.Shot?.Poison.ToString() != bare.Shot?.Poison.ToString()
+        || with.Shot?.Leech.Life.MinTotal != bare.Shot?.Leech.Life.MinTotal;
+
     public void Every_support_moves_its_own_number_on_every_skill_it_can_support()    {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-matrix-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
@@ -39,21 +60,16 @@ public sealed class SurvivorsSupportMatrixTests
             var supports = SurvivorsSkills.SurvivorsSupportsFor(conn);
             SurvivorsSkills.StateOf(conn).SurvivorsCatalog = catalog;
             SurvivorsSkills.StateOf(conn).SurvivorsSupports = supports;
-            Assert.Equal(8, supports.Count);
+            Assert.True(supports.Count > 8, $"only {supports.Count} supports");
             var roster = new SurvivorsSkills.SurvivorsRoster([], [], 1, 20, 40);
             int pairs = 0, unimplemented = 0;
             var tooFew = new List<string>();
+            var movedAny = new HashSet<int>();
+            var unmoved = new HashSet<int>();
             foreach (int skillIndex in Enumerable.Range(0, catalog.Count))
             {
                 var skill = catalog[skillIndex];
-                if (skill.Kind == SurvivorsSkillKind.Herald)
-                {
-                    // The real gem is a buff: these damage supports have no pulse hit to modify, so the offer never
-                    // pairs one with a herald.
-                    Assert.All(Enumerable.Range(0, supports.Count),
-                        support => Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, skillIndex, support)));
-                    continue;
-                }
+                if (skill.Kind == SurvivorsSkillKind.Herald) continue; // the pulse support set has its own check below
                 // An area gem's cast is a pulse with no projectile Shot; its supports are checked in the area helper.
                 if (skill.Kind == SurvivorsSkillKind.Area) continue;
                 // Rank 1 and the max rank 8: the support's per-level stats scale with the gem level it supports.
@@ -66,16 +82,27 @@ public sealed class SurvivorsSupportMatrixTests
                     {
                         bool legal = SurvivorsSkills.SurvivorsCanSupport(conn, skillIndex, supportIndex);
                         var with = SurvivorsSkills.SurvivorsComputeCast(conn, RunFor(skillIndex, supportIndex), skill, rank, skillIndex, roster);
+                        var name = supports[supportIndex].Support;
                         if (!legal)
                         {
                             // The offer never pairs these; the matrix must not accidentally claim they work.
-                            Assert.NotNull(with);
                             continue;
                         }
                         known++;
                         pairs++;
-                        var name = supports[supportIndex].Support;
-                        Assert.NotNull(with);
+                        if (with is null)
+                        {
+                            // A legal link can still leave no executable cast (a support that zeroes the hit); such a
+                            // support is not applicable to this skill, but another skill may still use it.
+                            if (name == SurvivorsSupport.Other) { unmoved.Add(supportIndex); continue; }
+                            Assert.Fail($"{supports[supportIndex].Name} -> {skill.Name} rank {rank}: legal link has no cast");
+                        }
+                        if (name == SurvivorsSupport.Other)
+                        {
+                            if (Moved(bare!, with!)) movedAny.Add(supportIndex);
+                            else unmoved.Add(supportIndex);
+                            continue;
+                        }
                         bool moved = name switch
                         {
                             SurvivorsSupport.AddedFire => bare!.Raw![DamageType.Physical].Max > 0
@@ -109,6 +136,9 @@ public sealed class SurvivorsSupportMatrixTests
             Assert.Empty(tooFew);
             Assert.True(pairs > 150, $"only {pairs} legal skill/support pairs");
             Assert.Equal(0, unimplemented);
+            unmoved.ExceptWith(movedAny);
+            Assert.True(unmoved.Count == 0, "supports that move no projectile cast: " +
+                string.Join(", ", unmoved.Select(index => supports[index].Name)));
 
             // Every herald's pulse has its own hit effect: the five gems map to the game's .ao for that hit.
             var heraldEffects = catalog.Where(s => s.Kind == SurvivorsSkillKind.Herald)
@@ -247,6 +277,90 @@ public sealed class SurvivorsSupportMatrixTests
             int areaSupport = supports.ToList().FindIndex(s => s.Support == SurvivorsSupport.Area);
             Assert.True(areaSupport >= 0);
             Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, index, areaSupport));
+        }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!);
+            Program.SetGameLogic(previousLogic!);
+            GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
+        }
+    }
+
+    public void Heralds_take_only_the_supports_that_move_the_pulse()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-herald-supports-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        Saves.Open(path);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = Connection("SurvivorsHeraldSupports");
+        try
+        {
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
+            var supports = SurvivorsSkills.SurvivorsSupportsFor(conn);
+            SurvivorsSkills.StateOf(conn).SurvivorsCatalog = catalog;
+            SurvivorsSkills.StateOf(conn).SurvivorsSupports = supports;
+            int heraldIndex = catalog.ToList().FindIndex(s => s.Name == "Herald of Ash");
+            Assert.True(heraldIndex >= 0);
+            var herald = catalog[heraldIndex];
+            int Find(string name) => supports.ToList().FindIndex(s => s.Name == name);
+            int area = Find("Increased Area of Effect Support"), concentrated = Find("Concentrated Effect Support");
+            int fire = Find("Added Fire Damage Support"), brutality = Find("Brutality Support"), voidManip = Find("Void Manipulation Support");
+            int projectiles = Find("Faster Projectiles Support"), minions = Find("Minion Damage Support");
+            int rarity = Find("Item Rarity Support");
+            Assert.True(area >= 0 && concentrated >= 0 && fire >= 0 && projectiles >= 0 && minions >= 0
+                && brutality >= 0 && voidManip >= 0);
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, area));
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, concentrated));
+            // The real gem is a buff: no hit, no flight, no minion, no drops.
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, fire));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, projectiles));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, minions));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, rarity));
+            var roster = new SurvivorsSkills.SurvivorsRoster([], [], 1, 20, 40);
+            var bare = SurvivorsSkills.SurvivorsComputeCast(conn, RunFor(heraldIndex), herald, 1, heraldIndex, roster);
+            var withArea = SurvivorsSkills.SurvivorsComputeCast(conn, RunFor(heraldIndex, area), herald, 1, heraldIndex, roster);
+            var withConcentrated = SurvivorsSkills.SurvivorsComputeCast(conn, RunFor(heraldIndex, concentrated), herald, 1, heraldIndex, roster);
+            Assert.NotNull(bare);
+            Assert.NotNull(withArea);
+            Assert.NotNull(withConcentrated);
+            Assert.True(withArea!.HeraldRadius > bare!.HeraldRadius);
+            Assert.True(withConcentrated!.HeraldDamage > bare.HeraldDamage || withConcentrated.HeraldRadius < bare.HeraldRadius);            int purity = catalog.ToList().FindIndex(s => s.Name == "Herald of Purity");
+            int agony = catalog.ToList().FindIndex(s => s.Name == "Herald of Agony");
+            Assert.True(purity >= 0 && agony >= 0);
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, purity, brutality)); // physical Herald
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, brutality)); // fire Herald
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, agony, voidManip)); // chaos Herald
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, voidManip)); // fire Herald
+        }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!);
+            Program.SetGameLogic(previousLogic!);
+            GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
+        }
+    }
+
+    public void The_catalogue_keeps_only_skills_the_run_can_present()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-catalogue-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        Saves.Open(path);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = Connection("SurvivorsCatalogue");
+        try
+        {
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
+            // A ground-targeted area spell lands on the monster it was aimed at; a nova stays on the player.
+            Assert.False(catalog.Single(s => s.Name == "Firestorm").SelfTargeted);
+            var iceNova = catalog.Single(s => s.Name == "Ice Nova");
+            Assert.True(iceNova.SelfTargeted);
+            Assert.True(iceNova.Nova);
+            // The run has no trap, mine, totem, brand, channel, travel, minion or orb presentation: those gems stay out.
+            Assert.DoesNotContain(catalog, s => s.Name is "Incinerate" or "Fire Trap" or "Storm Brand" or "Lightning Warp"
+                or "Shockwave Totem" or "Winter Orb");
+            // A projectile gem with no Projectiles row cannot fly, and must not be offered as a nova pulse instead.
+            Assert.DoesNotContain(catalog, s => s.Name is "Forbidden Rite" or "Creeping Frost" or "Essence Drain");
+            Assert.Contains(catalog, s => s.Name == "Firestorm");
         }
         finally
         {
