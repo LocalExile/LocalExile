@@ -561,8 +561,8 @@ public static class InstanceProtocol
 /// the area's own level. LeagueStats enables flag 0x21.6 and the first compact pair list (+0x100), copied to world
 /// stats at +0x120 by 0x142183130. Other optional parts remain off. Defaults follow the constructor (0x14219d940),
 /// except B28 (+0x28 → world +0xd0, the topology variant the generator picks its Topologies rows by): the constructor's
-/// default is 60, but the 3.29 server sends 59 in every area load (the server corpus, 1142 loads; the Deepwater league's
-/// Topologies rows), and the Gateway generates with 59 too (<c>ServerLevels</c>).
+/// default is 60, but every recorded area load carries 59 (1142 loads; the Deepwater league's Topologies rows), and
+/// the Gateway generates with 59 too (<c>ServerLevels</c>).
 /// </summary>
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = AreaInstance.TopologyVariant,

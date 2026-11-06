@@ -181,7 +181,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   doodads, rooms and quest tile objects the monster points and a1 quests are fitted to, need no capture.
   Entering any other area tells the player it is generated on the client and not supported by the server yet.
   The client's stages after the doodads (mesh variation, ground clutter, critters) are client-only and not ported.
-  Against a corpus of 1142 loads the 3.29 server generated (its seeds, area stats and plugin blobs), the port
+  Against a corpus of 1142 recorded loads (their seeds, area stats and plugin blobs), the port
   reproduces every one by tile hash and draw for draw through the doodad stage as well
   (`scripts/re/levelgen/corpus_check.py`, `--doodads`, re/011 §8): the stat-driven
   league rolls, the Labyrinth, Incursion past rooms and temples, Deepwater boards, Azmeri woods, Betrayal jobs,

@@ -22,8 +22,8 @@ public class ServerLevelsTests
         Assert.Equal(3728131682u, ServerLevels.For(chateau, seed)?.TileHash);
     }
 
-    // Two loads the 3.29 server sent (the server corpus, Agents/docs/re/011 §8): generated with the area stats of
-    // their 0x1d and the server's topology variant (59), the Gateway's tile hash is the client's. The Coast at level 2 with
+    // Two recorded loads (Agents/docs/re/011 §8): generated with the area stats of their 0x1d and the recorded
+    // topology variant (59), the Gateway's tile hash is the client's. The Coast at level 2 with
     // the Deepwater league flag and map_area_underlevelled; a tier-1 Chateau (level 68) with its map's whole stat list.
     // The level objects the server spawned in that Coast (every one its stream reached: the three exits, the waypoint,
     // the Karui stone, the Deepwater boat, bathysphere and sockets) are in the level's server-object list at their type
