@@ -547,8 +547,9 @@ public class LockstepMonsterTests : IDisposable
 
     // A mortar attack is the client's own in both modes: its action fires only with a count on its skill record
     // (0x141ba51a0) and draws the MonsterMortar row skill_behaviour_variation names (0x141b69900; none is row 0,
-    // MortarMolten), as on GGG's Spitter records. The server simulates the flight and lands the hit but creates no object;
-    // a straight shot (the King's BugSoulrend) has no row, no count on its record and keeps its object.
+    // MortarMolten), as on GGG's Spitter records. The count is the skill's, the same on the record and in the server's
+    // flight, which lands the hit but creates no object; a straight shot (the King's BugSoulrend) has no row, no count on
+    // its record and keeps its object.
     [Fact]
     public void A_mortar_skill_record_carries_the_client_s_count_and_row_and_the_server_draws_no_mortar()
     {
@@ -557,7 +558,7 @@ public class LockstepMonsterTests : IDisposable
         {
             var conn = Connection(lockstep);
             foreach (var (effectId, row, count) in new[] { ("MMASandSpitterProjectile", 183, 1), ("MMASandSpitterProjectileLightning", 186, 1),
-                ("ScavengerThrowFire", 55, 1) })
+                ("ScavengerThrowFire", 55, 1), ("MMASandSpitterProjectileSideArea", 183, 3) })
             {
                 int effect = skills.EffectRow(effectId);
                 var mortar = skills.MonsterProjectile(effect);
@@ -579,7 +580,7 @@ public class LockstepMonsterTests : IDisposable
             int spellEffect = skills.EffectRow("LegionVaalViperSummonSnakeProjectile");
             var spell = skills.MonsterProjectile(spellEffect);
             Assert.NotNull(spell);
-            Assert.Equal(0, spell!.Variation);
+            Assert.Equal((0, 5), (spell!.Variation, spell.Count));
             Assert.DoesNotContain(Game.MonsterProjectileSkillStats(conn, spellEffect, 70,
                     new MonsterAttack(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true, Projectile = spell }),
                 s => s.Item1 is StatKeys.SkillBehaviourVariation or StatKeys.VirtualTotalProjectiles);

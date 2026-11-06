@@ -825,7 +825,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// aimed and damage an area there.</summary>
     public sealed record MonsterProjectileInfo(string Metadata, int Speed, bool Lobbed, double CollisionRadius)
     {
-        /// <summary>How many projectiles one release creates (VoodooKingBugRend's six BugSoulrends; one otherwise).</summary>
+        /// <summary>How many projectiles one release creates (VoodooKingBugRend's six BugSoulrends; a mortar's from its
+        /// skill, MonsterProjectile; one otherwise).</summary>
         public int Count { get; init; } = 1;
         /// <summary>The Animation.dat Id of the clips the client plays for the skill (MonsterMortar.Animation: the Sand
         /// Spitter mortar's <c>SpellProjectile</c>, row 20), the key of the variety's ACT pool; null when the row names none.</summary>
@@ -906,10 +907,19 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// the GrantedEffects row's SkillID is the MonsterMortar row that names it (every Sand Spitter variant: SkillID 183 →
     /// MonsterMortar 183 → <c>Metadata/Projectiles/SandspitterMortarProjectile</c>, 1170). Weapon projectile attacks
     /// (<c>monster_projectile_weapon</c>, <c>monster_snipe</c>: SkillID 0 for all) take their projectile from the monster's
-    /// weapon art, which is not resolved here: null, and such a monster keeps its instant contact.</summary>
-    public MonsterProjectileInfo? MonsterProjectile(int effectRow) =>
-        _monsterProjectiles.Value.TryGetValue(effectRow, out var projectile)
-            ? projectile with { MinimumRange = MonsterProjectileMinimumRange(effectRow) } : null;
+    /// weapon art, which is not resolved here: null, and such a monster keeps its instant contact. The count is the skill's:
+    /// <c>number_of_projectiles_override</c> when set, else <c>base_number_of_projectiles</c> (1 without) plus
+    /// <c>number_of_additional_projectiles</c> (the side-area Spitter's 3, the Elder Guardian's strafe 5).</summary>
+    public MonsterProjectileInfo? MonsterProjectile(int effectRow)
+    {
+        if (!_monsterProjectiles.Value.TryGetValue(effectRow, out var projectile)) return null;
+        // Constants of the skill's stat set, so level 1 reads them.
+        var stats = EffectStats(effectRow, 1);
+        int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
+            : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
+        return projectile with { MinimumRange = Get("projectile_minimum_range"), Count = Math.Max(1, count) };
+    }
 
     /// <summary>What a monster's summoning skill brings: its stat set's <c>alternate_minion</c> (a SummonedSpecificMonsters
     /// Id, whose MonsterVarietiesKey is the monster), <c>number_of_monsters_to_summon</c>, <c>summon_specific_monsters_in_front_offset</c>
@@ -940,14 +950,6 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 result.TryAdd(id.GetInt32(), v.GetInt32());
         return result;
     });
-
-    /// <summary>The skill's <c>projectile_minimum_range</c> (a constant of its stat set, so level 1 reads it), 0 without.</summary>
-    private int MonsterProjectileMinimumRange(int effectRow)
-    {
-        if (_stats.Key("projectile_minimum_range") is not uint key) return 0;
-        foreach (var (statKey, value) in EffectStats(effectRow, 1)) if (statKey == key) return value;
-        return 0;
-    }
 
     private readonly Lazy<Dictionary<int, MonsterProjectileInfo>> _monsterProjectiles = new(() =>
     {

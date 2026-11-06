@@ -24,9 +24,11 @@ static partial class Game
     internal static IReadOnlyList<(uint, int)> MonsterProjectileSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
     {
         var own = attack.InPlaceSkillStats();
-        // A mortar is the client's own: its action fires only with a count on the record and draws the MonsterMortar row
-        // skill_behaviour_variation names (StatKeys). GGG's Spitter records carry all four at 1 and row 183, on lockstep
-        // and predictive, and its server creates no projectile object; the Gateway's then sends none (MonsterProjectileProfile).
+        // A mortar attack is the client's own: its action fires only with a count on the record and draws the MonsterMortar
+        // row skill_behaviour_variation names (StatKeys). GGG's base Spitter records carry row 183 and the three counts at
+        // its skill's 1, on lockstep and predictive, and its server creates no projectile object; the Gateway's then sends
+        // none (MonsterProjectileProfile). The count is the skill's (SkillCatalog.MonsterProjectile), so the client draws as
+        // many as the server lands.
         if (attack.Projectile is { Variation: > 0 } mortar)
             own = [.. own, (StatKeys.SkillBehaviourVariation, mortar.Variation), (StatKeys.TotalProjectilesToFire, mortar.Count),
                 (StatKeys.VirtualTotalProjectiles, mortar.Count), (StatKeys.VirtualTotalArrows, mortar.Count)];
