@@ -24,7 +24,7 @@ enum EmergeKind
 /// says <c>targetable = false</c> (or whose create_untransitioned runs DisableTargetable) is <see cref="EmergeKind.Buried"/>,
 /// the others <see cref="EmergeKind.Lurking"/>. Unique monsters keep their own state: a boss's entrance is its fight's
 /// script (BossFights), not a proximity rise.
-/// They are created in state 1; when the player comes within <see cref="Range"/> cells (or their aggro range, if
+/// They are created in state 1; when the player comes within their wake range (or their aggro range, if
 /// shorter), or a lurking one is hit, they rise: the Emerge action (S→C 0x1ab, the .act's Emerge clip),
 /// Transitionable → 2 (0x2ba; on_transition runs EnableTargetable) and 0x1ac, which lets the clip play; until it has
 /// played they are busy, so the AI neither moves them nor attacks with them. Data: object-types.json (<c>basic_actions</c>,
@@ -34,9 +34,17 @@ enum EmergeKind
 sealed class MonsterEmerge(string folder = "data")
 {
     /// <summary>How near (grid cells) the player comes before a monster rises; its aggro range when that is shorter. The
-    /// official server decides it in the monster's .ais file, which the client does not have: 24 cells keeps the emerge
-    /// on screen.</summary>
+    /// official server decides it in the monster's .ais file, which the client does not have. This is the local fallback;
+    /// the captured opening Drowned use <see cref="StrandDrownedRange"/>.</summary>
     public const int Range = 24;
+
+    /// <summary>Opening Drowned Wake actors begin rising near 60 cells in eight captured official events.</summary>
+    internal const int StrandDrownedRange = 60;
+
+    static int WakeRange(string areaId, MonsterCatalog.Variety? variety) =>
+        areaId == TutorialObjects.Strand && variety?.Id.StartsWith(
+            "Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake", StringComparison.Ordinal) == true
+            ? StrandDrownedRange : Range;
 
     /// <summary>How long a monster without a known Emerge clip takes to rise.</summary>
     public const double DefaultSeconds = 1.5;
@@ -141,7 +149,7 @@ sealed class MonsterEmerge(string folder = "data")
         return g.Watching = true;
     }
 
-    /// <summary>The monsters that rise now: within reach of the player (<see cref="Range"/>, or the aggro range if
+    /// <summary>The monsters that rise now: within their wake range, or the aggro range if
     /// shorter), or a lurking one that has been hit. A buried one leaves <see cref="Buried"/> for the connection's
     /// monsters; each is aggroed and busy for its clip. Returns them with where they stand; the caller sends the rise.
     /// When none is left waiting the watch ends (<paramref name="watching"/> false). Under the Monsters lock.</summary>
@@ -154,7 +162,8 @@ sealed class MonsterEmerge(string folder = "data")
         {
             at = m.Walk.Position(now);
             double d = Math.Sqrt((double)(at.X - player.X) * (at.X - player.X) + (double)(at.Y - player.Y) * (at.Y - player.Y));
-            return d <= (m.AggroRange > 0 ? Math.Min(Range, m.AggroRange) : Range);
+            int range = WakeRange(conn.Layout.Id, m.Variety);
+            return d <= (m.AggroRange > 0 ? Math.Min(range, m.AggroRange) : range);
         }
         double SecondsOf(SpawnedMonster m) => m.Variety is { } v ? Seconds(v) : DefaultSeconds;
         foreach (var (id, m) in g.Monsters)

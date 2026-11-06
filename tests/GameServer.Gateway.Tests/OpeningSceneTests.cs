@@ -137,6 +137,7 @@ public class OpeningSceneTests
             using var wire = new Wire();
             var variety = new MonsterCatalog().Find("Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake1");
             Assert.NotNull(variety);
+            CheckOpeningWakeRange(variety);
             var m = new SpawnedMonster("hidden", wire.Conn.NewMonsterWalk(id, 10, 10, 1, 1, false), 24, 2, 23)
                 { Variety = variety, HiddenBuffInstance = buff };
             wire.Conn.Monsters[id] = m;
@@ -237,6 +238,31 @@ public class OpeningSceneTests
             .. InstanceEntities.CreateObject(id, 123, (template with { HiddenBuffInstance = null, TransitionState = 2 }).Blob()),
             .. InstanceProtocol.EnterWakeZone(id)];
         Assert.Equal(risenCreation, unseen.Read(risenCreation.Length));
+    }
+
+    static void CheckOpeningWakeRange(MonsterCatalog.Variety variety)
+    {
+        var emerges = new MonsterEmerge();
+        foreach (var (area, type, aggro, range) in new[]
+        {
+            (TutorialObjects.Strand, variety, 60, 60),
+            (TutorialObjects.Strand, variety, 35, 35), // Shorter aggro caps still apply.
+            (TutorialObjects.Strand, variety, 0, 60),
+            ("1_1_2", variety, 60, 24),
+            (TutorialObjects.Strand, variety with { Id = "Metadata/Monsters/Other" }, 60, 24),
+        })
+        {
+            var conn = new ClientState(new(0, area, 256, 256, 10, 10, null, []), 0, 1) { Instance = new() };
+            var m = new SpawnedMonster("wake-boundary", new(100, 100, 1), aggro, 2, 23) { Variety = type };
+            Assert.True(MonsterEmerge.AddLocked(conn, 7, m, EmergeKind.Buried, true));
+            Assert.Empty(emerges.RiseLocked(conn, (100 - range - 1, 100), 10, out bool watching));
+            Assert.True(watching);
+            Assert.Single(emerges.RiseLocked(conn, (100 - range, 100), 10, out watching));
+            Assert.False(watching);
+            Assert.Same(m, conn.Monsters[7]);
+            Assert.True(m.BusyUntil > 10);
+            Assert.Empty(emerges.RiseLocked(conn, (100, 100), 11, out _)); // Exactly once, without advancing real time.
+        }
     }
 
     static async Task CheckSharedMessageOwnership()

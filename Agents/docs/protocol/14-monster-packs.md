@@ -69,6 +69,25 @@ immunity instead of unconditionally clearing it. Late-viewer creations use the b
 Prepared-client capture `20261106-014601` verifies this order and a reconnect without hidden state;
 the observed magic Drowned keeps its 85 life and rarity through both events.
 
+### Strand Drowned wake distance
+
+Eight captured hidden Drowned (139/138/143/154/160/161/165/166, covering all three Wake varieties) have matching
+hidden-buff removals and Emerge actions. Each Emerge origin equals its first-created position, consistent with
+remaining stationary while hidden. The nearest preceding local-player action origins put them at distances
+59.55, 59.14, 60.67, 59.51, 59.55, 60.42, 60.21 and 60.11 cells respectively.
+Those samples precede removal by 0–116 ms; the next player-action origins give distances 44.64–59.46,
+0–375 ms later. Player actions identify the actor independently of monster names (self order headers 0x9001/0x5001).
+These are discrete server action origins observed by client hooks, not an exact continuous trajectory or RTT.
+The results support a 60-cell calibration and contradict waiting until 24 cells for these observed actors;
+they do not establish the exact native comparator or a universal wake range.
+
+`MonsterEmerge` uses 60 cells for ZombieDrownedStrandWake1/2/3 in Act 1 Strand only, retaining a shorter positive
+aggro cap. Other varieties/areas keep the 24-cell fallback. The correction changes when these existing monsters
+begin emerging, not their count, life, rarity, or positions.
+Fresh prepared-client capture `20261106-100517` at seed 1604777343
+contains the hidden creation, continued waiting at the actual 97.25-cell outside position, and one Emerge action
+after an approach to 45 cells. Actual positions matter: `/tp` can snap a requested point off blocked terrain.
+
 ## 2. Spawning
 
 `SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2b9 with the
@@ -230,9 +249,10 @@ boss pack stood once per area, a second one stood at `mapboss`).
   (`MonsterCatalog.MapBossScaling`; level 83 is ×20.73 life and ×1.15 damage). The area level is the map level here; a
   future map-affix system may add more.
 - `Grounds` (Drowned on wet beach) is not checked; we have no ground-type grid.
-- Emerge packs (Gravel Eaters, Dripping Dead, the Strand's Drowned, Tide Striders …) are placed waiting and rise within
-  24 cells of the player ([10](10-chat-and-commands.md) §5); the distance is ours (the official one is in the server's
-  AI files). The pack rule for the 161 varieties whose Id contains "Emerge": the 85 without a Transitionable are
+- Emerge packs (Gravel Eaters, Dripping Dead, the Strand's Drowned, Tide Striders …) are placed waiting;
+  Strand Drowned use the captured 60-cell wake calibration above, others the local 24-cell fallback
+  ([10](10-chat-and-commands.md) §5). Native AI files are absent. The pack rule for the 161 varieties whose Id contains
+  "Emerge": the 85 without a Transitionable are
   ordinary monsters and are placed now (before, every "Emerge" Id was skipped; e.g. PusElementalEmerge in 1_4_6_3
   stands as usual); the 63 whose type waits to rise are placed waiting; the 13 whose Transitionable is something else
   (it sets `num_states`, or pauses no clip) are still skipped.
