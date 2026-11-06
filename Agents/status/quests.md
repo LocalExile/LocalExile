@@ -118,8 +118,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   (Shavronne), a6q7 (Abberath, both phases), a6q6 (Ryslatha) and a6q1 (the three Nessas, the Beacon lit, the Black
   Flag, the Brine King; Weylam sails to The Bridge Encampment). It ended in 2_7_town with every flag of `Act4Complete`
   and the act 5/6 completion flags; every area change through an exit, a waypoint or an NPC-script transport. The god
-  Sins appear where the gods die. `a4q1-KillGuardians` is not set; the Beacon's fuel carts are left out (the lever
-  lights it). Driver step files `scripts/dev/campaign/quests/a4q*.py`, `a5q*.py`, `a6q*.py`.
+  Sins appear where the gods die. `a4q1-KillGuardians` is not set. The Beacon now has both proximity-escorted fuel
+  carts, route encounters, staged refuelling and separate ignition/flag use (live 2026-11-06); its escort radius and
+  encounter counts still need comparison with the original server. The Brine King now has a separate staged controller
+   (75/50/25% life gates, flood, tide, storm, defensive stance, minions and boss life bar): all three floods,
+   tide buff entry/exit, combat and the post-kill Act 7 transition were verified live 2026-11-06.
+   A party member can finish while the instance host stays at the entrance or dies; late joins retain valid packets.
+   Original-server timing and damage comparison remain pending. Driver: `scripts/dev/campaign/quests/a[456]q*.py`.
   Code: `Acts/Act4.cs`, `Acts/Act5.cs`, `Acts/Act6.cs` (QuestObjects module), Highgate's two Diallas in `NPC/TownNpcs.cs`.
   Docs: [12](../docs/protocol/12-quests.md) §13–15; [act 4](../docs/game/campaign/act4.md),
   [act 5](../docs/game/campaign/act5.md), [act 6](../docs/game/campaign/act6.md).

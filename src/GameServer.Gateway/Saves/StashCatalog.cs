@@ -16,6 +16,8 @@ static class StashCatalog
         [DelveHub] = new(355, 295, MathF.PI),
         // The Sarn Encampment (1_3_town): placed live with /stash_place 295 423 28 (2026-11-04).
         [SarnEncampment] = new(295, 423, 28 * MathF.PI / 180),
+        // Act 6 Lioneye's Watch: positions confirmed in game by the user.
+        [LioneyesWatchAct6] = new(329, 408, 0),
         // The Menagerie (Menagerie_Hub): placed live with /stash_place 455 480 0 (2026-10-30).
         [MenagerieHub] = new(455, 480, 0),
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): by the waypoint (126, 149), to be placed live with /stash_place.
@@ -41,8 +43,12 @@ static class StashCatalog
         ChayulaHub => new(-6, 8, 0),
         AreaLayouts.LioneyesWatch => new(317, 270, 0),
         SarnEncampment => new(285, 418, 28 * MathF.PI / 180),
+        LioneyesWatchAct6 => new(318, 408, 0),
         _ => null,
     };
+
+    /// <summary>HASH16 of Act 6 Lioneye's Watch (WorldAreas 2_6_town).</summary>
+    public const ushort LioneyesWatchAct6 = 0xb0fb;
 
     /// <summary>HASH16 of the Sarn Encampment (WorldAreas 1_3_town).</summary>
     public const ushort SarnEncampment = 0x0431;

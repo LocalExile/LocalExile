@@ -435,7 +435,8 @@ def tp(ctx, step):
 
 def kill(ctx, step):
     """tp next to the (first living) target, `/kill <target>`, wait until no matched monster is alive. Targets as
-    /kill: id, name/variety substring, `boss`, `near [radius]`, `all`. Done at once when the targets are dead."""
+    /kill: id, name/variety substring, `boss`, `near [radius]`, `all`. Done at once when the targets are dead.
+    A repeat step retries the original targets while a staged encounter unlocks its next damage interval."""
     target = step["target"]
     timeout = float(step.get("timeout", 20))
     try:
@@ -459,6 +460,9 @@ def kill(ctx, step):
 
     def dead(s):
         living = {m["id"] for m in s.get("monsters") or [] if m.get("alive", True)}
+        if step.get("repeat"):
+            for ident in sorted(ids & living):
+                ctx.bridge.cmd(f"/kill 0x{ident:x}", wait=0.1)
         return not (ids & living)
     ctx.bridge.wait_until(dead, timeout=timeout, brief=False, what=f"{target} to die")
 
@@ -834,6 +838,27 @@ def wait_flag(ctx, step):
                           what=f"flag {flag}")
 
 
+def escort(ctx, step):
+    """Follow each unfinished moving object, using its current server position rather than its starting cell."""
+    target = step["target"]
+
+    def arrived(state):
+        objects = [o for o in state.get("objects") or [] if matches(o, target, "type")]
+        if not objects:
+            raise StepFailed(f"escort: no object matches {target!r}")
+        pending = [o for o in objects if not o.get("used")]
+        if not pending:
+            return True
+        chosen = min(pending, key=lambda o: o["id"])
+        x, y = chosen["pos"]
+        ctx.bridge.execute({"command": "tp", "x": int(x), "y": int(y), "wait": 0.1})
+        ctx.bridge.cmd("/kill near 25", wait=0.1)
+        return False
+
+    ctx.bridge.wait_until(arrived, timeout=float(step.get("timeout", 180)), poll=0.5, brief=False,
+                          what=f"{target} escorts to arrive")
+
+
 def command(ctx, step):
     for line in ctx.bridge.cmd(step["text"], wait=float(step.get("wait", 1.5))):
         log.info("  %s: %s", step["text"].split()[0], line)
@@ -948,17 +973,17 @@ EQUIP_SLOTS = {"weapon": 3, "offhand": 4}  # InventoryId: Weapon1 (row 2) + 1, O
 VERBS = {
     "goto": goto, "tp": tp, "kill": kill, "pickup": pickup, "interact": interact, "talk": talk,
     "reward": reward, "wait_flag": wait_flag, "command": command, "pantheon": pantheon, "passives": passives,
-    "equip": equip, "use_item": use_item, "stash": stash,
+    "equip": equip, "use_item": use_item, "stash": stash, "escort": escort,
 }
 # Other names of verbs: the act 1 step files say "use" for a book.
 ALIASES = {"use": "use_item"}
 REQUIRED = {"goto": ["area"], "kill": ["target"], "pickup": ["item"], "interact": ["target"], "talk": ["npc"],
             "reward": ["npc"], "wait_flag": ["flag"], "command": ["text"], "pantheon": [],
-            "equip": ["item"], "use_item": ["item"]}
+            "equip": ["item"], "use_item": ["item"], "escort": ["target"]}
 # The compact form's value: {"kill": "Hillock"} == {"verb": "kill", "target": "Hillock"}.
 MAIN_ARGUMENT = {"goto": "area", "tp": "target", "kill": "target", "pickup": "item", "interact": "target",
                  "talk": "npc", "reward": "npc", "wait_flag": "flag", "command": "text", "equip": "item",
-                 "use_item": "item"}
+                 "use_item": "item", "escort": "target"}
 VERB_KEYS = ("verb", "do", "action")
 
 
