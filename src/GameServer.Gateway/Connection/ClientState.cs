@@ -152,8 +152,10 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // A Mystic Fetish waits for the King's ritual before it can be damaged (the client-side buff and hidden mini bar
     // are the same pair the humanoid's intro uses).
     public bool FetishGrace;
+    /// <summary>Pending life thresholds and immunity owned by an encounter controller.</summary>
+    public LifePhaseGate? LifePhases;
     // No damage, ailments, impale or hit reaction while a scripted grace runs.
-    public bool Invulnerable => KingGrace || RitualGrace || FetishGrace;
+    public bool Invulnerable => KingGrace || RitualGrace || FetishGrace || LifePhases?.Active == true;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
 	/// <summary>Whether this monster is the actual map boss for the current map.</summary>
