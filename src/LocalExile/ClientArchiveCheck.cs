@@ -50,7 +50,10 @@ sealed record ClientArchiveCheck(string IndexSha256, int Files, int Bundles)
                 or "client-unreadable" or "missing-client-file";
             if (reason is "invalid-index" or "invalid-archive" or "required-data-unreadable")
                 message += $" Keep this copy for now. LocalExile requires standalone PoE {ClientInstall.RequiredVersion}. Opening the official PoE launcher to repair it may update it to an unsupported version.";
-            throw new LauncherException(client ? ExitCode.Client : ExitCode.Unexpected, message, reason, Text("details"));
+            string? details = Text("details");
+            if (!string.IsNullOrWhiteSpace(error))
+                details = string.IsNullOrWhiteSpace(details) ? error.Trim() : $"{details}\n{error.Trim()}";
+            throw new LauncherException(client ? ExitCode.Client : ExitCode.Unexpected, message, reason, details);
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or FormatException or OverflowException)
         {

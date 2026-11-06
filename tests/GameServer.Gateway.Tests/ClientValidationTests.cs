@@ -3,6 +3,7 @@ extern alias LocalExileLauncher;
 using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -60,8 +61,10 @@ public class ClientValidationTests
 
             var worker = ClientDataValidation.Check(archive, () => throw new Win32Exception("worker unavailable"));
             Assert.Equal("validation-unavailable", worker.Reason);
-            Assert.Equal(ExitCode.Unexpected, Assert.Throws<LauncherException>(() =>
-                ClientArchiveCheck.Parse(1, JsonSerializer.Serialize(worker, options), "")).Code);
+            var unavailable = Assert.Throws<LauncherException>(() =>
+                ClientArchiveCheck.Parse(1, JsonSerializer.Serialize(worker, options), "specific decoder diagnostic"));
+            Assert.Equal(ExitCode.Unexpected, unavailable.Code);
+            Assert.Contains("specific decoder diagnostic", unavailable.Details);
             foreach (string output in new[] { "", "usage: old tool", "{}", "{\"protocol\":2,\"ok\":true}",
                 "{\"protocol\":1,\"ok\":true,\"indexSha256\":\"x\",\"fileCount\":3,\"bundleCount\":1}" })
                 Assert.Equal("validation-unavailable", Assert.Throws<LauncherException>(() => ClientArchiveCheck.Parse(0, output, "")).Reason);
@@ -71,6 +74,14 @@ public class ClientValidationTests
                 await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
                     ClientArchiveCheck.CaptureAsync(new ProcessStartInfo("must-not-start"), cancelled.Token));
             }
+
+            string oversized = Path.Combine(folder, "PathOfExile.exe");
+            using (var file = File.Create(oversized)) file.SetLength((128L << 20) + 1);
+            var budget = await Assert.ThrowsAsync<LauncherException>(() => ClientInstall.CheckAsync(folder, new Output(false)));
+            Assert.Equal("validation-limit", budget.Reason);
+            Assert.Equal(ExitCode.Unexpected, budget.Code);
+            File.Delete(oversized);
+            CheckCopyPaths(Path.Combine(folder, "copy-paths"));
 
             WriteArchive(archive, emptyIndex: true);
             byte[] badBefore = File.ReadAllBytes(archive);
@@ -116,6 +127,49 @@ public class ClientValidationTests
         }
         finally { Directory.Delete(folder, recursive: true); }
     }
+
+    static void CheckCopyPaths(string folder)
+    {
+        string source = Directory.CreateDirectory(Path.Combine(folder, "source")).FullName;
+        string staging = Directory.CreateDirectory(Path.Combine(folder, "Client.partial")).FullName;
+        ClientCopyPaths.CheckRoots(source, staging);
+        foreach (var roots in new[] { (source, source), (source, Path.Combine(source, "nested")), (folder, source) })
+            Assert.Equal("staging-path-invalid", Assert.Throws<LauncherException>(() =>
+                ClientCopyPaths.CheckRoots(roots.Item1, roots.Item2)).Reason);
+
+        string original = Path.Combine(source, "marker.bin"), target = Path.Combine(staging, "marker.bin");
+        byte[] before = [1, 2, 3];
+        File.WriteAllBytes(original, before);
+        bool linked = OperatingSystem.IsWindows() ? CreateHardLink(target, original, IntPtr.Zero) : Link(original, target) == 0;
+        Assert.True(linked, new Win32Exception(Marshal.GetLastPInvokeError()).Message);
+        Assert.False(ClientCopyPaths.NeedsCopy(new FileInfo(original), new FileInfo(target)));
+        Assert.Equal("staging-path-invalid", Assert.Throws<LauncherException>(() => ClientCopyPaths.CheckTree(staging)).Reason);
+        Assert.Equal("staging-path-invalid", Assert.Throws<LauncherException>(() => ClientCopyPaths.CheckTarget(staging, target)).Reason);
+        Assert.Equal(before, File.ReadAllBytes(original));
+        File.Delete(target);
+        File.Copy(original, target);
+        File.SetLastWriteTimeUtc(target, File.GetLastWriteTimeUtc(original));
+        ClientCopyPaths.CheckTree(staging);
+        Assert.False(ClientCopyPaths.NeedsCopy(new FileInfo(original), new FileInfo(target)));
+        File.WriteAllBytes(target, [4, 5, 6, 7]);
+        Assert.True(ClientCopyPaths.NeedsCopy(new FileInfo(original), new FileInfo(target)));
+        Assert.Equal(before, File.ReadAllBytes(original));
+        if (!OperatingSystem.IsWindows())
+        {
+            string alias = Path.Combine(folder, "alias");
+            Directory.CreateSymbolicLink(alias, source);
+            Assert.Equal("staging-path-invalid", Assert.Throws<LauncherException>(() =>
+                ClientCopyPaths.CheckRoots(source, Path.Combine(alias, "nested"))).Reason);
+            Directory.Delete(alias);
+        }
+    }
+
+    [DllImport("kernel32", EntryPoint = "CreateHardLinkW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool CreateHardLink(string name, string existing, IntPtr attributes);
+
+    [DllImport("libc", EntryPoint = "link", SetLastError = true)]
+    static extern int Link([MarshalAs(UnmanagedType.LPUTF8Str)] string existing, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
 
     static void WriteArchive(string path, bool emptyIndex)
     {
