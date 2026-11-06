@@ -18,6 +18,7 @@ public class OpeningSceneTests
     [InlineData(true)]
     public async Task An_untouched_character_lies_down_facing_the_room_and_gets_up_in_place_once(bool withSkills)
     {
+        if (!withSkills) CheckOpeningPopulationBudget();
         var tutorial = Untouched();
         Assert.True(TutorialObjects.ShouldStartWashedUp(TutorialObjects.Strand, true, () => tutorial));
         Assert.False(TutorialObjects.ShouldStartWashedUp(TutorialObjects.Strand, true, () => null));
@@ -95,6 +96,25 @@ public class OpeningSceneTests
         byte[] created = InstanceEntities.CreateObject(0x20001234, 7, (player with { Skills = player.Skills?.Where(s => s.Id != TutorialObjects.WashedUpSkillId).ToList(),
             QuestFlags = [], LeagueQuestFlags = [] }).Blob());
         Assert.Equal(created, observer.Read(created.Length));
+    }
+
+    static void CheckOpeningPopulationBudget()
+    {
+        var strand = new PackCatalog().For(TutorialObjects.Strand)!;
+        bool Walk(int x, int y) => x is > 5 and < 595 && y is > 5 and < 595;
+        List<AreaPopulation.Spawn> Plan(PackCatalog.AreaPacks area, int seed) => AreaPopulation.Plan(area,
+            600, 600, Walk, (50, 50), [], [new("mapboss", 500, 500)], seed, _ => true, []);
+        foreach (int seed in new[] { 1, 2, 3, 4 })
+        {
+            var spawns = Plan(strand, seed);
+            Assert.Equal(AreaPopulation.StrandMonsterTarget - 1, spawns.Count); // Tutorial zombie is spawned separately.
+            Assert.Single(spawns, s => s.Rarity == MonsterRarity.Unique && strand.Bosses.Contains(s.Variety));
+            Assert.Equal(spawns, Plan(strand, seed));
+            // Identical pack data outside the opening area retains the ordinary density and rarity floor.
+            var ordinary = Plan(strand with { AreaId = "population-regression" }, seed);
+            Assert.True(ordinary.Count > spawns.Count);
+            Assert.True(ordinary.Count(s => s.Rarity == MonsterRarity.Rare) >= AreaPopulation.MinRares);
+        }
     }
 
     [Fact]

@@ -226,6 +226,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Not working yet
 
 - Area monsters: pack counts, magic/rare chances and rare mod counts are our own numbers;
+  Act 1 Twilight Strand caps new populations at a provisional 45 including Hillock and the tutorial zombie.
+  The reference capture misses its opening, so this is calibration rather than a verified official total;
   74 monster mods need systems the server lacks (auras on allies, monster skills, ailments on the player …) and do
   not roll;
   Drowned ignore their ground types; how near the player must come before an emerge monster rises is our choice;
