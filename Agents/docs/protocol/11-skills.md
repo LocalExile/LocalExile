@@ -516,11 +516,13 @@ rate separately from the player's increased/more speed: Burning Arrow -30%, Heav
 The level-aware catalog accessor follows the same selected-level rule as other GEPL values.
 [PoB CalcOffence](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/1afbc4cdcc4fe83273ce8e06a51c5cf986999250/src/Modules/CalcOffence.lua#L2299)
 multiplies `source.AttackRate` by `1 + attackSpeedMultiplier / 100` before ordinary speed modifiers.
-For the supported ordinary weapon-based path, the server's own attack time (`SkillAttackTiming.Seconds`) uses
-`round(weapon base ms / (1 + inherent percent / 100))`, midpoint away from zero, with a minimum of one ms, then player
-speed, then its existing 30 Hz attack-duration floor.
-The client applies the inherent speed itself, so the total base fields (0x221a/0x221b) stay the weapon's base ms and only
-selected APS (`100 / seconds`) carries the multiplier. Frida 2026-10-31 at the clip's speed setup (`0x141b0a9b0`), Witch
+Native `main_hand_attack_speed_+%` registration (`0x1400b3b5d`) selects getter `0x1427032a0`.
+`0x14270347b`–`0x1427034f3` combines increased speed (0x211d) with MORE speed (0x531d) in single precision,
+subtracts 100, adds signed 0.5 and truncates to an integer, flooring the result at −99. This is midpoint rounding away
+from zero before converting speed to time. The server uses that final percent for supported main/off-hand timing;
+it no longer retains fractional percent until after division or first rounds an inherent-adjusted base duration.
+The total base fields (0x221a/0x221b) stay the weapon's base ms; the final speed and APS carry the multiplier.
+Frida 2026-10-31 at the clip's speed setup (`0x141b0a9b0`), Witch
 with a 714 ms bow: Burning Arrow with 0x221a 1020 played for 1.457 s; with 714 it plays for 1.02 s, and Tornado Shot for
 0.892 s. The ordinary attack stays 0.714 s. Dual wield and melee attack gems were not traced.
 Gem pacing, attack contact/projectile release and channel intervals share the server's duration.
