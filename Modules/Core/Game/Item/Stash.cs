@@ -36,10 +36,10 @@ static partial class Game
         conn.StashAt = (at.X, at.Y);
         await RegisterStationaryCollision(remote, stream, ciphers, conn, id, StashObject.MetadataPath, at.X, at.Y, at.Rotation,
             scene is not null ? "stash" : null);
-        // Hideouts, Lioneye's Watch, the Sarn Encampment and the Mine Encampment also get a guild stash.
+        // Hideouts, Lioneye's Watch (Acts 1 and 6), the Sarn Encampment and the Mine Encampment also get a guild stash.
         if (HideoutCatalog.ByArea(conn.Layout.Hash) is null
             && conn.Layout.Hash is not (StashCatalog.DelveHub or StashCatalog.MenagerieHub or StashCatalog.SanctumHub or StashCatalog.Kingsmarch or StashCatalog.HeistHub or StashCatalog.ChayulaHub or AreaLayouts.LioneyesWatch
-                or StashCatalog.SarnEncampment)) return;
+                or StashCatalog.SarnEncampment or StashCatalog.LioneyesWatchAct6)) return;
         var townGuild = scene is null ? StashCatalog.GuildIn(conn.Layout.Hash) : null;
         if (townGuild is { } offset && StashCatalog.FromArrival(conn.Layout.Hash))
             townGuild = offset with { X = conn.Layout.SpawnX + offset.X, Y = conn.Layout.SpawnY + offset.Y };
@@ -206,12 +206,13 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x002a place {place} in stash tab {tab}: refused ({why})");
             return;
         }
+        tab = done.Tab;
         var (inTab, before) = (done.InTab, done.HeldBefore);
         if (done.Merged)
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(place.InventoryId, stash.NextRevision(tab), [inTab.Id], [inTab], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
+            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [inTab.Id], [inTab], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
                 $"0x00bf stash tab {tab}: stack {inTab.Id} now {inTab.Item.StackSize}");
         else
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(place.InventoryId, stash.NextRevision(tab), done.Displaced is null ? [] : [done.Displaced.Id], [inTab], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
+            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), done.Displaced is null ? [] : [done.Displaced.Id], [inTab], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
                 $"0x00bf stash tab {tab}: add item {inTab.Id} at ({inTab.X}, {inTab.Y})" + (done.Displaced is null ? "" : $", remove item {done.Displaced.Id}"));
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], done.Held is null ? [] : [done.Held]),
