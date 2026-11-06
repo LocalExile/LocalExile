@@ -830,6 +830,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>The Animation.dat Id of the clips the client plays for the skill (MonsterMortar.Animation: the Sand
         /// Spitter mortar's <c>SpellProjectile</c>, row 20), the key of the variety's ACT pool; null when the row names none.</summary>
         public string? AnimationKey { get; init; }
+        /// <summary>The MonsterMortar row the client draws for a mortar skill (its GrantedEffects SkillID: 183 for the Sand
+        /// Spitter's, 55 for a Cannibal's ThrowFire); 0 for any other projectile, and for the skills whose SkillID is row 0.</summary>
+        public int Variation { get; init; }
         /// <summary>The skill's <c>projectile_minimum_range</c> in world units (the Spitter's 50): a lob lands no closer
         /// to the monster than this. 0 without the stat.</summary>
         public int MinimumRange { get; init; }
@@ -990,7 +993,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 || !mortarRows.TryGetValue(k.GetInt32(), out var mortar) || mortar.Projectile < 0 || mortar.Projectile >= rows.Count) continue;
             var p = rows[mortar.Projectile];
             if (p.Id.Length == 0 || p.Speed <= 0) continue;
-            result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius)) { AnimationKey = mortar.AnimationKey };
+            result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius)) { AnimationKey = mortar.AnimationKey, Variation = k.GetInt32() };
         }
         return result;
     });

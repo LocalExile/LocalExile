@@ -33,6 +33,12 @@ static class StatKeys
     public const uint HideMiniLifeBar = 0x2a8b;
     /// <summary>skill_is_non_pathing: the action starts where the actor stands instead of walking into range first.</summary>
     public const uint SkillIsNonPathing = 0x4f32;
+    // A projectile action's release count and art. The release (0x141ba51a0) fires nothing without
+    // number_of_projectiles_override or a count from 0x141ba6070, which reads virtual_total_number_of_projectiles, or
+    // virtual_total_number_of_arrows for an action that says it fires arrows; a mortar action's constructor (0x141b69900)
+    // takes its MonsterMortar row from skill_behaviour_variation, row 0 (MortarMolten) without it.
+    public const uint TotalProjectilesToFire = 0x2d5, VirtualTotalProjectiles = 0x4b4b, VirtualTotalArrows = 0x4b4c,
+        SkillBehaviourVariation = 0x1921;
     // A spell action's own timing: the client's cast-duration function reads the virtual base milliseconds, and a draft
     // spell skill without it dereferenced a missing value (0xc0000005 at 0x19e0daf, live 2026-10-31).
     public const uint BaseSpellCastTimeMs = 0x2a9, VirtualBaseSpellCastTimeMs = 0x24b9,

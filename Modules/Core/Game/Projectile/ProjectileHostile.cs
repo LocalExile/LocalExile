@@ -14,8 +14,9 @@ static partial class Game
 
     /// <summary>The use for a monster's ranged attack released now: from the monster toward the player's current cell. A
     /// mortar lands there and damages the area; a straight shot flies on past it. Team 2, so only the player (and friendly
-    /// actors) are in its way, never the other monsters. The client draws nothing of its own for a monster's action
-    /// (Frida 2026-10-29), so the server's object is the projectile the player sees.</summary>
+    /// actors) are in its way, never the other monsters. A monster's action releases a projectile of the client's own only
+    /// with a count on its skill record (0x141ba51a0): a mortar's record carries one and the client draws it
+    /// (MonsterProjectileProfile); any other shot's carries none, and the server's object is the projectile the player sees.</summary>
     internal static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
         SkillCatalog.MonsterProjectileInfo projectile, int action, uint? aimedActor = null)
     {
@@ -42,17 +43,7 @@ static partial class Game
         // at its aim, so the aim itself moves out to the landing point.
         double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange / WorldUnits.PerCell - ahead));
         var target = projectile.Lobbed ? origin + toward * landing : aim;
-        var profile = new ProjectileProfile(projectile.Metadata)
-        {
-            Speed = speed, Radius = projectile.CollisionRadius, Count = Math.Max(1, projectile.Count), Lobbed = projectile.Lobbed,
-            SpreadRadians = projectile.SpreadRadians,
-            // A lobbed shot's range is its landing distance; a straight one flies on past the aim.
-            Range = projectile.Lobbed ? landing : Math.Max(distance, a.Range) * 1.5 + 5,
-            DirectDamage = !projectile.Lobbed,
-            EndArea = projectile.Lobbed ? new ProjectileAreaRecipe("monster mortar", projectile.AreaRadius > 0 ? projectile.AreaRadius : MonsterMortarRadius()) : null,
-            EndAreaReasons = projectile.Lobbed
-                ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
-        };
+        var profile = MonsterProjectileProfile(projectile, speed, landing, Math.Max(distance, a.Range) * 1.5 + 5);
         var owner = session.ActorKey(id, m);
         double flightCells = projectile.Lobbed ? landing : (aim - origin).Length;
         var presentation = MonsterProjectilePresentation(SkillsFor(conn).Clips(projectile.Metadata), flightCells / speed);
@@ -64,6 +55,23 @@ static partial class Game
         return new ProjectileUse(profile, owner, owner, 2, origin, target)
             { Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}") { Presentation = presentation } };
     }
+
+    /// <summary>The flight the server simulates for a monster's shot. A lobbed shot's range is its landing distance; a
+    /// straight one flies <paramref name="straightRange"/> cells. A mortar the client draws (its record carries the row
+    /// and count, MonsterProjectileSkillStats) gets no object, so the player sees one mortar, as from GGG, which creates
+    /// none; the flight still lands its hit.</summary>
+    internal static ProjectileProfile MonsterProjectileProfile(SkillCatalog.MonsterProjectileInfo projectile, double speed,
+        double landing, double straightRange) => new(projectile.Metadata)
+    {
+        Speed = speed, Radius = projectile.CollisionRadius, Count = Math.Max(1, projectile.Count), Lobbed = projectile.Lobbed,
+        SpreadRadians = projectile.SpreadRadians,
+        Range = projectile.Lobbed ? landing : straightRange,
+        DirectDamage = !projectile.Lobbed,
+        EndArea = projectile.Lobbed ? new ProjectileAreaRecipe("monster mortar", projectile.AreaRadius > 0 ? projectile.AreaRadius : MonsterMortarRadius()) : null,
+        EndAreaReasons = projectile.Lobbed
+            ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
+        HideVisual = projectile.Variation > 0,
+    };
 
     /// <summary>A server-created projectile object plays nothing by itself. Start the rig's flight clip at spawn even
     /// when the .ao declares the same default animation: the explicit 0x1b2 is what guarantees the server object is
