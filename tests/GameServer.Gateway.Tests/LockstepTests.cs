@@ -265,19 +265,18 @@ public class LockstepTests
 
     // A create whose blob's first byte has 0x02 (a projectile's) wakes the object itself; a 0x1a9 after it only logs on the
     // client. An object created asleep (an effect's blob starts with 0) still gets its 0x1a9 right behind the create.
+    // These are the whole sends the projectile session makes for a flight object's and an effect's create.
     [Fact]
     public void An_object_its_create_wakes_gets_no_wake_zone_message()
     {
         const uint id = 0x4000;
-        uint type = InstanceEntities.ObjectTypeHash("Metadata/Projectiles/Fireball");
-        byte[] projectile = new ProjectileObject("Metadata/Projectiles/Fireball", 40, 30).Blob();
-        Assert.Equal(InstanceEntities.CreateObject(id, type, projectile, headerU32: 0xffffffff),
-            InstanceEntities.CreateInWakeZone(id, type, projectile, headerU32: 0xffffffff));
+        var projectile = new ProjectileObject("Metadata/Projectiles/Fireball", 40, 30);
+        Assert.Equal(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(projectile.TypePath), projectile.Blob(),
+            headerU32: 0xffffffff), Game.CreateProjectileObject(id, projectile));
 
-        uint effectType = InstanceEntities.ObjectTypeHash(EffectObject.TypePath);
-        byte[] effect = new EffectObject(40, 30, "a.ao").Blob();
-        Assert.Equal([.. InstanceEntities.CreateObject(id, effectType, effect), .. InstanceProtocol.EnterWakeZone(id)],
-            InstanceEntities.CreateInWakeZone(id, effectType, effect));
+        var effect = new EffectObject(40, 30, "a.ao");
+        Assert.Equal([.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()),
+            .. InstanceProtocol.EnterWakeZone(id)], Game.CreateEffectObject(id, effect));
     }
 
     [Fact]

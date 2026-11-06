@@ -8,6 +8,14 @@ using GameServer.Core.World;
 
 static partial class Game
 {
+    // Everything a flight object's or an area effect's create sends. A projectile's blob wakes it during the create, so it
+    // gets no 0x1a9; an effect is created asleep and gets its 0x1a9 in the same send (07 section 3).
+    internal static byte[] CreateProjectileObject(uint id, ProjectileObject obj) =>
+        InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: 0xffffffff);
+
+    internal static byte[] CreateEffectObject(uint id, EffectObject effect) =>
+        InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
+
     /// <summary>One gameplay pump and one presentation consumer per connection, regardless of projectile count.</summary>
     internal sealed class ProjectileSession : IProjectileWorld, IProjectileRuntime
     {
@@ -398,7 +406,7 @@ static partial class Game
                         Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
-                    return InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(p.Profile.Id), obj.Blob(), headerU32: 0xffffffff);
+                    return CreateProjectileObject(id, obj);
                 });
                 // No 0x1a9: an object created with the header's u32 at 0xffffffff is in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of
@@ -477,7 +485,7 @@ static partial class Game
             {
                 if (visual.Ended) return null;
                 visual.Created = true;
-                return InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
+                return CreateEffectObject(id, effect);
             });
             Runtime.Schedule(Runtime.Now + lifetime, () =>
             {
