@@ -28,12 +28,16 @@ Every quest of the act runs on the engine (`Modules/Core/World/QuestObjects/Acts
 Ryslatha unlocked in the [Pantheon](pantheon.md), arrival in the Bridge Encampment. What differs from the sections below:
 - The Twilight Strand, The Karui Fortress and The Southern Forest fail at seed 1 in the client as in the port: they are
   played at a seed the client built (`ServerLevels.PlayableSeed`, `ServerLevelAreas.SeedsInPlaceOfOne`).
-- The Beacon is simplified: the fuel carts (`BeaconPayload`, a Movement object) are not created; the ignition lever
-  sets `a6q1-RefueledBeacon` and the beacon statue takes the Black Flag (`a6q1-DeliveredFlag`), which brings Weylam
-  ashore. The Black Flag chest is a point line of Merveil's room, placed from the server's own rooms.
+- The Beacon's carts use the room's rail placements (live 2026-11-06). Both routes form one rail chain; each delivery
+  stops at its first `spinner_rail_straight_v01_01` beside the tank ramp, before the central gap. Speed 13 comes from
+  `BeaconPayload.ot`; the 22-cell escort radius and one monster per nearby spawner are server choices, not recovered
+  original server scripts. The ignition is instance-local; the Black Flag chest is a point line of Merveil's room.
 - The three Nessas set their Seen flags when the player comes near and transition away; Weylam's two sailing rows run
   their `AreaTransitionTo`. The god Sins appear where the gods die; their row sets `CanChangePantheon` and opens the
   Pantheon panel, and the runner chooses the gods (`pantheon` verb).
+- Brine King's tidal debuff is BuffDefinitions row 856 (`brine_king_tide`), with `IsRecovery = false` and
+  `__col44 = false`: its `0x1c1` has no recovery values, despite the row's GrantedStats. Appending damage/slow values
+  makes the client read them as the trailing list count and desynchronizes subsequent packets.
 - `a6q2-KilledBoss` is Shavronne's death (the data does not say whose); Abberath's second phase appears where the first
   dies and sets `a6q7-KilledBoss`.
 
@@ -102,13 +106,13 @@ Not created by any room data: `Metadata/NPC/Act6/NessaBrineKing`, `SinTukohama`,
 | Nessa (Cavern of Anger) | `NessaMerveilsCaverns` | `Act6/Area13/Rooms/merveil_empty_nessa.arm` (281, 214) | not created | same, `a6q1-SeenNessa3` |
 | Flag Chest | `Metadata/Chests/QuestChests/BlackFlagChest` (Chests 208, no own `.ot`: inherits `Chests/QuestChests/QuestChest` = the Rhoa nest components) | a named point line of `merveil_empty_nessa.arm` (255, 217) (point-list form, not a server-object line: `lg.ps1 questobjects` misses it) | not created | create; drop BIT 1578 once while the character lacks `a6q1-HaveFlag`/`a6q1-DeliveredFlag` |
 | The Black Flag | `Metadata/Items/QuestItems/Act6/BlackFlag` (BIT 1578) | chest | pickup works like ground items | sync `a6q1-HaveFlag`; take it at the beacon |
-| Fuel carts | `Metadata/QuestObjects/Act6/BeaconPayload` x2 (team 4, Stats, **Movement** FollowPath `pushed_by_player`, Transitionable, MinimapIcon; `set_disable_during_hellscape`) | `lighthouse.arm` (471, 448), (540, 586) | not created | **new serialisation (Movement) + rail path following**; or a simplified server move along the rail when the player stands next to it |
-| Fuel tank | `BeaconFuelTank` (Transitionable `num_states = 3`) | tile `Beach/Beacon/beacon_stairs_v01_01.tdt` record `beacon_stairs_v01_01_FuelTankLiquid` | not created | state 2 after cart 1, 3 after cart 2 |
-| Ignition switch | `BlackCrest_BeaconLever` (InteractionAction, Transitionable 3 states, MinimapIcon) | `lighthouse.arm` (482, 782), scale 0.85 | not created | state 2 when refuelled, interact → 3 |
-| Brazier | `BlackCrest_BeaconFlame` (Transitionable 3 states, MinimapIcon) | tile record `beacon_stairs_v01_01_BeaconBrazier` | not created | 2 on lever, 3 on flag |
-| Beacon statue | `BlackCrest_BeaconInteract` (InteractionAction, Transitionable 3 states; "Beacon") | tile record `beacon_stairs_v01_01_BeaconStatue_Scaled` | not created | 2 on lever; interact with the flag → `a6q1-DeliveredFlag`, 3 |
-| The Black Crest (beacon) | `BlackCrest_Beacon` (Transitionable) | `lighthouse.arm` (479, 867) | not created | transition on `DeliveredFlag` |
-| Weylam (beacon) | `WeylamBeacon` (NPC, Transitionable: hidden/untargetable until transitioned) | `lighthouse.arm` (421, 890) | not created | create; transitioned when `a6q1-DeliveredFlag`; NPCTalk 1005/1006 (1006 needs the transport script) |
+| Fuel carts | `Metadata/QuestObjects/Act6/BeaconPayload` x2 (team 4, Stats, **Movement** FollowPath `pushed_by_player`, Transitionable, MinimapIcon; `set_disable_during_hellscape`) | `lighthouse.arm` (471, 448), (540, 586) | implemented | Movement blob as the Labyrinth roomba; server MoveTo, pause outside escort radius |
+| Fuel tank | `BeaconFuelTank` (Transitionable `num_states = 3`) | tile `Beach/Beacon/beacon_stairs_v01_01.tdt` record `beacon_stairs_v01_01_FuelTankLiquid` | implemented | state 2 after cart 1, 3 after cart 2 |
+| Ignition switch | `BlackCrest_BeaconLever` (InteractionAction, Transitionable 3 states, MinimapIcon) | `lighthouse.arm` (482, 782), scale 0.85 | implemented | state 2 when refuelled, interact → 3 |
+| Brazier | `BlackCrest_BeaconFlame` (Transitionable 3 states, MinimapIcon) | tile record `beacon_stairs_v01_01_BeaconBrazier` | implemented | 2 on lever, 3 on flag |
+| Beacon statue | `BlackCrest_BeaconInteract` (InteractionAction, Transitionable 3 states; "Beacon") | tile record `beacon_stairs_v01_01_BeaconStatue_Scaled` | implemented | 2 on lever; interact with the flag → `a6q1-DeliveredFlag`, 3 |
+| The Black Crest (beacon) | `BlackCrest_Beacon` (Transitionable) | `lighthouse.arm` (479, 867) | implemented | transition on `DeliveredFlag` |
+| Weylam (beacon) | `WeylamBeacon` (NPC, Transitionable: hidden/untargetable until transitioned) | `lighthouse.arm` (421, 890) | implemented | transitioned when `a6q1-DeliveredFlag`; NPCTalk 1005/1006 transport |
 | Weylam (landing) | `WeylamReef1` (NPC) | `Act6/Area15/Rooms/entrance_1.arm` (106, 164) | not created | create (gossip only) |
 | Weylam (throne) | `WeylamReef2` (NPC, Transitionable states 1/2) | `boss_1.arm` (305, 210) | not created | create; state 2 when `a6q1-KilledBoss`; NPCTalk 1010 transport |
 | The Black Crest (reef) | `BlackCrest_Reef` (Transitionable) | `boss_1.arm` (380, 254) | not created | transition on the kill |
@@ -189,12 +193,17 @@ STEPS = [
   (like `OnMonsterSeen`) plus a Transitionable state change.
 - `BlackFlagChest` is a named point (`x y angle "type"`) of the room's point list, not a server-object line: the room
   point reader must keep chest types (the generic room-points fitter only keeps `mapboss`/packs).
-- The Beacon is the biggest act 6 blocker: two pushable carts (`Movement` component, rail path) + three 3-state objects
-  + script order; nothing exists. A driver needs a simplified mechanism (e.g. interact a cart = it slides to the tank).
+- Beacon escort and encounters are implemented; compare the escort circle's radius and encounter density against the original.
 - NPC script transport `AreaTransitionTo(area, index, 0.5)` + `FadeToBlack` (NPCTalk 1006, 1010; also act 5's 893):
   the target index (0/1) picks the arrival spot; not implemented today.
-- Brine King fight: phases at 75/50/25 % flood the arena and make him untargetable, `BrineKingMinionSpawner` x11,
-  `ArenaMiddle`. `/kill` skips it all; only placement at `boss_1.arm` mapboss is needed.
+- Brine King's staged controller passed a native three-flood run on 2026-11-06, including tide entry/exit and continued
+  combat; the player then defeated him and sailed to Act 7. `BrineKingFloodArena` (GE 6361) casts
+  for 13000 ms. The original `…/Brine_King/tidal_wave/tidal_wave` object is centred on `ArenaMiddle`, with Positioned,
+  BaseEvents, Animated, Transitionable (index 3). Its states are 2→3→4→5 (100→25→75), 6→7→8→9 (75→25→50),
+  10→11 (50→25), then 12 on death (25→100, delete). Every transition clip is 3000 ms. `rock_mode=1` enables targeting;
+  the default 0 leaves the actor in `rock_form`. The tide buff is row 856 (`base_cold_damage_taken_per_minute`, then
+  `action_speed_-%`); cleave's maim is row 513. Cadence, hazard radius and tide damage remain server tuning, not an
+  original-server capture. `/kill` now stops at pending life gates.
 - `MerveilExitTransition` (Cavern of Anger → Beacon) and `BlockedPassageTransition` (Prisoner's Gate ↔ Western
   Forest) must be sent transitioned in act 6, otherwise the main path is blocked on foot (`/goto` still works).
 - `a6q1-RefueledBeacon` appears in no preset (E3StartOfAct7 has `SeenBeacon`, `DeliveredFlag`): possibly cleared
