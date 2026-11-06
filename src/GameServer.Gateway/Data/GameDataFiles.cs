@@ -32,6 +32,7 @@ static class GameDataFiles
         ("data/tables/UniqueMaps.json", "unique map shop identities"),
         ("data/tables/LabyrinthTrials.json", "the Trials of Ascendancy (their areas and completion flags)"),
         ("data/tables/GrantedEffectStatSets.json", "the Labyrinth spike traps' damage (LbRetractableTrap)"),
+        ("data/tables/GameConstants.json", "golem actor-level spell damage scaling"),
         ("data/tables/BuffDefinitions.json", "the Labyrinth spike traps' bleeding buff"),
         ("data/tables/MapFragmentMods.json", "map scarabs and fragments"),
         ("data/tables/MapDeviceRecipes.json", "map device recipes (Maven, Atziri)"),
