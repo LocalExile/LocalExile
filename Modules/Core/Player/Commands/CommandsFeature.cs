@@ -266,6 +266,20 @@ static class CommandsFeature
                 await conn.Commands!.Reply($"Added {unique.Name}");
                 return;
             }
+            if (UniquesFor(conn).NamedMap(query) is { } legendary)
+            {
+                var mapItems = ItemsOf(conn);
+                if (ItemsFor(conn).ByHash(legendary.TypeHash) is not { } mapType
+                    || mapItems.FreeCell(PlayerInventories.MainInventory, mapType.Width, mapType.Height, ShapeOf) is not { } mapCell)
+                { await conn.Commands!.Reply("No room in the inventory"); return; }
+                var placedMap = mapItems.Put(PlayerInventories.MainInventory,
+                    new InventoryItem(mapItems.NewItemId(), mapCell.X, mapCell.Y, legendary));
+                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+                    mapItems.NextRevision(PlayerInventories.MainInventory), [], [placedMap]),
+                    "0x00bf inventory 1: /item legendary map");
+                await conn.Commands!.Reply("Added a legendary map");
+                return;
+            }
             if (ItemsFor(conn).Find(query) is not { } type) { await conn.Commands!.Reply($"No item type \"{query}\""); return; }
             if (!type.Supported)
             {
