@@ -24,7 +24,7 @@ enum EmergeKind
 /// says <c>targetable = false</c> (or whose create_untransitioned runs DisableTargetable) is <see cref="EmergeKind.Buried"/>,
 /// the others <see cref="EmergeKind.Lurking"/>. Unique monsters keep their own state: a boss's entrance is its fight's
 /// script (BossFights), not a proximity rise.
-/// They are created in state 1; when the player comes within <see cref="Range"/> cells (or their aggro range, if
+/// They are created in state 1; when the player comes within their wake range (or their aggro range, if
 /// shorter), or a lurking one is hit, they rise: the Emerge action (S→C 0x1ab, the .act's Emerge clip),
 /// Transitionable → 2 (0x2ba; on_transition runs EnableTargetable) and 0x1ac, which lets the clip play; until it has
 /// played they are busy, so the AI neither moves them nor attacks with them. Data: object-types.json (<c>basic_actions</c>,
@@ -34,15 +34,40 @@ enum EmergeKind
 sealed class MonsterEmerge(string folder = "data")
 {
     /// <summary>How near (grid cells) the player comes before a monster rises; its aggro range when that is shorter. The
-    /// official server decides it in the monster's .ais file, which the client does not have: 24 cells keeps the emerge
-    /// on screen.</summary>
+    /// official server decides it in the monster's .ais file, which the client does not have. This is the local fallback;
+    /// the captured opening Drowned use <see cref="StrandDrownedRange"/>.</summary>
     public const int Range = 24;
+
+    /// <summary>Opening Drowned Wake actors begin rising near 60 cells in eight captured official events.</summary>
+    internal const int StrandDrownedRange = 60;
+
+    static int WakeRange(string areaId, MonsterCatalog.Variety? variety) =>
+        areaId == TutorialObjects.Strand && variety?.Id.StartsWith(
+            "Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake", StringComparison.Ordinal) == true
+            ? StrandDrownedRange : Range;
 
     /// <summary>How long a monster without a known Emerge clip takes to rise.</summary>
     public const double DefaultSeconds = 1.5;
 
     /// <summary>The Transitionable state a monster waiting to rise is created in (untransitioned).</summary>
     public const byte UnrisenState = 1;
+
+    // Creation and removal values paired in the official Drowned Wake capture (0x2b9 / 0x1b3).
+    static readonly string[] HiddenStatNames = ["base_cannot_be_damaged", "base_cannot_be_stunned", "cannot_be_stunned",
+        "ignored_by_enemy_target_selection", "cannot_be_damaged", "virtual_is_hidden_monster"];
+
+    internal static List<(uint Key, int Value)> RestoreHiddenStats(StatCatalog stats, IReadOnlyList<(uint Key, int Value)>? baseline) =>
+        [.. HiddenStatNames.Select(stats.Key).OfType<uint>().Select(key =>
+            (key, baseline?.LastOrDefault(s => s.Key == key).Value ?? 0))];
+
+    // Keep the saved/shared template's original stats: only the initial hidden creation receives these overrides.
+    internal static MonsterObject WithHiddenStats(MonsterObject monster, StatCatalog stats)
+    {
+        if (monster.HiddenBuffInstance is null) return monster;
+        var hidden = RestoreHiddenStats(stats, null).Select(s => (s.Key, Value: 1)).ToArray();
+        var keys = hidden.Select(s => s.Key).ToHashSet();
+        return monster with { Stats = [.. (monster.Stats ?? []).Where(s => !keys.Contains(s.Key)), .. hidden] };
+    }
 
     private readonly Lazy<Dictionary<string, EmergeKind>> _types = new(() => LoadTypes(folder));
     private readonly Lazy<Dictionary<string, (double Seconds, int Index)>> _clips = new(() => LoadClips(folder));
@@ -77,12 +102,14 @@ sealed class MonsterEmerge(string folder = "data")
     public uint? ClipIndex(MonsterCatalog.Variety v) =>
         _clips.Value.TryGetValue(v.Id, out var clip) && clip.Index >= 0 ? (uint)clip.Index : null;
 
-    /// <summary>The rise, in GGG's order and tick: the Transitionable step (0x2ba), then the Emerge action in place aimed
-    /// at the monster itself, with the 0x1ac that starts its clip.</summary>
-    public static byte[][] RiseMessages(uint id, (int X, int Y) at, ushort skill, ushort sequence, byte transitionableIndex, byte state) =>
+    /// <summary>The captured rise order: remove hidden buff/stats, start Emerge (0x1ab/0x1ac), then transition.</summary>
+    public static byte[][] RiseMessages(uint id, (int X, int Y) at, ushort skill, ushort sequence, byte transitionableIndex, byte state,
+        ushort? hiddenBuff = null, IReadOnlyList<(uint Key, int Value)>? restoredStats = null) =>
     [
-        InstanceEntities.TransitionableUpdate(id, transitionableIndex, state),
+        .. hiddenBuff is ushort buff ? new[] { InstanceEntities.RemoveBuff(id, buff) } : [],
+        .. restoredStats is { Count: > 0 } ? new[] { InstanceEntities.StatsUpdate(id, restoredStats) } : [],
         InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, skill, sequence, 0x0800, id),
+        InstanceEntities.TransitionableUpdate(id, transitionableIndex, state),
     ];
 
     /// <summary>The buried monsters of a connection by object id: not in <see cref="ClientState.Monsters"/> until they
@@ -122,7 +149,7 @@ sealed class MonsterEmerge(string folder = "data")
         return g.Watching = true;
     }
 
-    /// <summary>The monsters that rise now: within reach of the player (<see cref="Range"/>, or the aggro range if
+    /// <summary>The monsters that rise now: within their wake range, or the aggro range if
     /// shorter), or a lurking one that has been hit. A buried one leaves <see cref="Buried"/> for the connection's
     /// monsters; each is aggroed and busy for its clip. Returns them with where they stand; the caller sends the rise.
     /// When none is left waiting the watch ends (<paramref name="watching"/> false). Under the Monsters lock.</summary>
@@ -135,7 +162,8 @@ sealed class MonsterEmerge(string folder = "data")
         {
             at = m.Walk.Position(now);
             double d = Math.Sqrt((double)(at.X - player.X) * (at.X - player.X) + (double)(at.Y - player.Y) * (at.Y - player.Y));
-            return d <= (m.AggroRange > 0 ? Math.Min(Range, m.AggroRange) : Range);
+            int range = WakeRange(conn.Layout.Id, m.Variety);
+            return d <= (m.AggroRange > 0 ? Math.Min(range, m.AggroRange) : range);
         }
         double SecondsOf(SpawnedMonster m) => m.Variety is { } v ? Seconds(v) : DefaultSeconds;
         foreach (var (id, m) in g.Monsters)

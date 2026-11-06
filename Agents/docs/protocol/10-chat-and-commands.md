@@ -323,17 +323,18 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
     - **Unique monsters** keep their own state (no rise): a boss's entrance (Kitava's 7 s `phase1_transition_in`, the
       Daughters of Merveil, the Conqueror Wurm) belongs to its fight's script.
 
-    The server raises one:
-    In one tick, in GGG's order:
-    1. S→C **0x2ba** to its Transitionable with state 2: `on_transition` makes it targetable.
+    The captured opening rise sequence is sent locally as one guarded batch:
+    1. For a hostile buried monster, **0x1c2** removes its initial hidden buff and **0x1b3** restores its prior stats.
     2. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, aimed at itself (flags 0x0880),
        a rising sequence: the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead:
        `grasp_emerge`, 3.7 s).
     3. S→C **0x1ac**: the action waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
-       (`0x141e94720`, looked at again every 0.25 s), and only then plays (`+0x1b0`). After the clip the monster chases
-       and attacks like any other.
-    Which monster rises when is the official server's (its `.ais` AI files are not in the client); the Gateway raises
-    one when the player comes within 24 cells, or its aggro range if shorter, or when a lurking one is hit. The clip's
+       (`0x141e94720`, looked at again every 0.25 s), and only then plays (`+0x1b0`).
+    4. S→C **0x2ba** to its Transitionable with state 2: `on_transition` makes it targetable.
+       After the clip the monster chases and attacks like any other.
+    Which monster rises when is the official server's (its `.ais` AI files are not in the client).
+    Strand Drowned Wake varieties use the captured 60-cell calibration ([14](14-monster-packs.md), wake distance).
+    Other varieties keep 24 cells; a shorter positive aggro range caps either, and a hit can wake a lurking one. The clip's
     time is game time (a pause stops it). Rising does not depend on `/ai`: a `/spawn_mob` emerge monster rises next to
     the player at once. Types that list `num_states` (SpiderBoss, Tukohama's totem: 3) are created transitioned as
     before.

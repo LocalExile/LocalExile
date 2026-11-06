@@ -129,6 +129,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public double RecipientDebuffRate = 1;
     /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
     public bool Asleep;
+    /// <summary>The creation buff to remove when this buried monster rises; instance-wide allocation.</summary>
+    public ushort? HiddenBuffInstance { get; init; }
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>

@@ -56,12 +56,17 @@ static partial class Game
     // client without it cannot read a message about it: an object's component update (0x2ba) is read by the object's
     // components, and a buried Gravel Eater's rise (0x2ba Transitionable) sent to a client it was never created on broke
     // its stream ("Unable to deserialise packet", live 2026-11-05 01:15:27). SyncInstanceMonsters creates it there.
-    internal static void ToOthers(ClientState conn, uint id, byte[] bytes)
+    // Emerge includes known, non-sleeping waiting views before the active-monster snapshot catches up.
+    // That path holds the shared Monsters lock, as do the snapshot's MonsterViews writes.
+    internal static void ToOthers(ClientState conn, uint id, byte[] bytes, bool includeWaiting = false)
     {
         foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
             if (peer.Owner is { Outbox: { } outbox } other && !other.Closed && !other.LeavingArea
-                && Array.BinarySearch(other.AwakeMonsters, id) >= 0)
-                _ = outbox(bytes, null);
+                && (includeWaiting
+                    ? other.MonsterViews.ContainsKey(id) && !other.AsleepMonsters.Contains(id)
+                    : Array.BinarySearch(other.AwakeMonsters, id) >= 0))
+                // Each send encrypts in place, potentially after waiting for its recipient's gate.
+                _ = outbox((byte[])bytes.Clone(), null);
     }
 
     // This player's frame: the shares of the host's kills.

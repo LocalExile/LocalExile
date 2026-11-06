@@ -28,8 +28,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   schema.md; NPC, InteractionAction and Timer are written), the bandit lords' help-or-kill dialogue, bosses' later
   forms (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) created by their fight, tile spawner bosses
   (Marceus).
-  Emerge monsters: the official emerge distance and whether a pack rises together are unknown (the server's `.ais`
-  files); types whose Transitionable lists more states (SpiderBoss: 3) are still created risen.
+  Emerge monsters: Strand Drowned wake distance is calibrated from eight recorded events; other wake distances
+  and whether a pack rises together remain unknown (the server's `.ais` files).
+  Types whose Transitionable lists more states (SpiderBoss: 3) are still created risen.
   Corpse consumers still need authoritative final-death registration and identity; one-use consumption exists only as
   Deathrattle's `SpawnedMonster.CorpseConsumed` flag, with no reservation shared between consumers.
   Preserve zero-Life, type, spectre and owned restrictions; dead snapshots also need Actor's conditional death bytes.
