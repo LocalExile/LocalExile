@@ -10,7 +10,7 @@ public class HideoutTests
     {
         // Lush Hideout: Hideouts.dat HASH16 0xff63 (21-hideouts.md §1).
         string hex = Convert.ToHexString(InstanceEntities.PlayerHideoutsUpdate(0x1000, 0xff63, 0));
-        Assert.Equal("02BA" + "00001000" + "00000000" + "0000" + "0007" + "06" + "1000" + "63FF" + "0000", hex);
+        Assert.Equal("02BC" + "00001000" + "00000000" + "0000" + "0007" + "06" + "1000" + "63FF" + "0000", hex);
     }
 
     static string? FindUp(string relative)
@@ -56,6 +56,31 @@ public class HideoutWaypointTests
 
 public class HideoutObjectTests
 {
+    [Fact]
+    public void Decorations_and_the_built_in_device_write_their_components_with_Functions_empty()
+    {
+        string[] decoration = ["Positioned", "BaseEvents", "InteractionAction", "Animated", "HideoutDoodad", "StateMachine"];
+        var doodad = new HideoutDoodad(0x7f001234, 3);
+        const string model = "Metadata/Terrain/HideoutDecorations/Test/model.ao";
+        byte[] plain = new HideoutObject(10, 20, 0.5f, decoration, doodad, [0, 0], model).Blob();
+        byte[] withFunctions = new HideoutObject(10, 20, 0.5f, [.. decoration, "Functions"], doodad, [0, 0], model).Blob();
+
+        Assert.True(HideoutObject.CanSerialize([.. decoration, "Functions"]));
+        Assert.Equal(plain, withFunctions);
+
+        // Apex of Divinity's built-in map device: MinimapIcon before the no-op Functions component.
+        string[] device =
+        [
+            "Positioned", "BaseEvents", "Animated", "InteractionAction", "HideoutDoodad", "StateMachine", "MinimapIcon",
+            "Functions",
+        ];
+        Assert.True(HideoutObject.CanSerialize(device));
+        byte[] blob = new HideoutObject(1045, 1044, 0, device, doodad, [0, 1, 0, 6],
+            "Metadata/Terrain/Hideouts/Divine/Tiles/DivineMapDevice/Divive_Plinth_Map_Device.ao").Blob();
+        Assert.NotEmpty(blob);
+        Assert.Equal(0x00000415u, BitConverter.ToUInt32(blob, 2));   // grid x 1045
+        Assert.Equal(0x00000414u, BitConverter.ToUInt32(blob, 6));   // grid y 1044
+    }
 }
 
 public class LeagueQuestFlagTests

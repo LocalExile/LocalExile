@@ -31,7 +31,7 @@ public static class LockstepLink
     /// <summary>Both socket ends are loopback, and the gateway address the client was given (the opening's u32, 0x14's)
     /// is too: a tunnel on the server's side delivers a remote client from 127.0.0.1, but that client was told another
     /// address. The client's own mode is not known here: it shows only in what the client sends, and a predictive
-    /// client ignores 0x2b5. A tunnel on both ends passes this: <see cref="LockstepLatency"/> measures that one.</summary>
+    /// client ignores 0x2b7. A tunnel on both ends passes this: <see cref="LockstepLatency"/> measures that one.</summary>
     public static bool Confirmed(LockstepMode mode, EndPoint? remote, EndPoint? local, uint openingAddress) =>
         mode == LockstepMode.Network
         || mode == LockstepMode.Local && Loopback(remote) && Loopback(local) && openingAddress >> 24 == 127;

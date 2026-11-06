@@ -8,14 +8,14 @@ namespace GameServer.Core.Protocol.Instance;
 /// are fed, LSB first, into a byte accumulator, and every completed byte is decrypted with a second Salsa20 pair and
 /// run through a small state machine (0x14299de50): idle while bytes decrypt to 0; otherwise a type byte (0xDA–0xDD),
 /// a length byte (not 0) and that many payload bytes form a packet. Any other byte throws "HNC Protocol Violated".
-/// The pair is keyed like the main stream, from km' = the 0x14 key XOR a 64-byte table in the client (0x142fe0da0) with
+/// The pair is keyed like the main stream, from km' = the 0x14 key XOR a 64-byte table in the client (0x142feaed0) with
 /// six byte swaps (0x14299db60), built when 0x11 arrives.
 /// </summary>
 public sealed class HncSender
 {
-    /// <summary>VA of the 64-byte mask in the 3.29.3b client, and the SHA-256 of its contents (the mask itself is
+    /// <summary>VA of the 64-byte mask in the 3.29.3c client, and the SHA-256 of its contents (the mask itself is
     /// extracted from the local client, not shipped).</summary>
-    public const long MaskVa = 0x142fe0da0;
+    public const long MaskVa = 0x142feaed0;
     private const string MaskSha256 = "0e88f29acc9cab88ee400ca78bbfeeeaebc333afb11f1ea9be3fd37aeb7cbc31";
 
     private static byte[]? _mask;
@@ -31,7 +31,7 @@ public sealed class HncSender
     {
         string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(mask)).ToLowerInvariant();
         if (hash != MaskSha256)
-            throw new InvalidDataException("HNC mask not found: the client is not the expected 3.29.3b build.");
+            throw new InvalidDataException("HNC mask not found: the client is not the expected 3.29.3c build.");
         _mask = mask;
     }
 

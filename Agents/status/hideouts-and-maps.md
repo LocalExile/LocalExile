@@ -68,7 +68,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md).
 
+- 3.29.3c MTX hideout decorations (2026-11-07, live): Labyrinth (`HideoutMaze_`), Apex of Divinity (`HideoutDivine`) and
+  Exilecon 2026 (`HideoutExilecon2026`) create their exported decoration, not only the scene's furniture: 39, 134 and
+  303 scenery doodads, each with its type, model, variation, rotation, `HideoutDoodad` data, wake zone and stationary
+  collision. The client loaded all three; Apex of Divinity's built-in `Divive_Plinth_Map_Device` opened its map device
+  window and activated a Tier 1 map with six portals. Furniture, stations and NPCs the scene already places are filtered
+  out; the one `Effigy` decoration with no `HideoutDoodads` row is skipped. The Labyrinth's `MazeController` is created
+  with `enabled` 0; its timer and leaderboard are not implemented.
+  Code: `HideoutCatalog.cs`, `HideoutScene.cs`, `PortalsFeature.cs`, `InstanceHideouts.cs`.
+  Docs: [21](../docs/protocol/21-hideouts.md) §2.
+
 ## Partly working
+
+- Selecting a different hideout through Helena or `/hideout` in 3.29.3c (2026-11-07): the choice is saved and a direct
+  login enters it. The old in-game crash after `0x2b2` was the 3.29.3c change-area id shift; the server now sends
+  `0x2b4`. Waypoint travel from Exilecon 2026 to Lioneye's Watch loads the new area (live 2026-11-07), and the picker
+  uses the same transfer path; a live click through Helena is still the remaining check.
 
 - **Waypoint arrival.** Hideout entry uses the exact saved waypoint cell for spawn and movement origin,
   including login and returns from other areas.

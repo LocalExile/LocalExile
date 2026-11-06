@@ -1,9 +1,14 @@
 # 00 — End-to-end overview: from launch to the in-game HUD
 
-Client: Path of Exile **3.29.3b**, `Client/Game.exe` (image base `0x140000000`), run as the patched copy
+Client: Path of Exile **3.29.3c**, `Client/Game.exe` (image base `0x140000000`), run as the patched copy
 `Client/Game.patched.exe`. Every address in these documents is a Ghidra VA in that image. State of 2026-10-16: the
 patched client logs in to our servers, lists characters, connects to our instance server, generates Lioneye's Watch,
 creates the local player and shows the in-game HUD.
+
+> **3.29.3c id shift.** Most protocol documents use 3.29.3b message ids as their reference; pages updated for
+> 3.29.3c say so. 3.29.3c inserted two world messages before the old frame pair, so every id from `0x2b5` is +2:
+> frame end/length `0x2b7`/`0x2b8`, create object `0x2bb`, component update `0x2bc`, remove object `0x2bd`,
+> leave-area ack `0x2cd`. The [3.29.3c diff](../re/3.29.3c-client-diff.md) has the full table.
 
 ![first in-game frame](../re/evidence/2026-10-16-first-in-game.jpg)
 

@@ -12,13 +12,13 @@ static partial class Game
     // out at once instead of being lost, which keeps every frame start on the conn.Clock timeline the walks use (a free
     // 33 ms timer drifted 28 to 47 ms apart, with gaps to 390 ms). GGG's spacing is 30 to 36 ms. The Clock stops in the
     // Escape menu's pause, and so do the frames.
-    // Differs from GGG: it never sends 0x2b6 (14 236 frames) and relies on the client's default, which is not traced; ours
+    // Differs from GGG: it never sends 0x2b8 (14 236 frames) and relies on the client's default, which is not traced; ours
     // says the length it paces by, as every connection's frames do (RunServerFrames).
     internal static async Task RunLockstepFrames(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         try
         {
-            await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b6 server frame length {FrameMs} ms");
+            await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b8 server frame length {FrameMs} ms");
             double frame = FrameMs / 1000d, first = conn.Clock.Elapsed.TotalSeconds;
             long ended = 0;
             // Well under a frame: a timer tick landing just before a boundary must not hold the frame for a whole period.
@@ -30,7 +30,7 @@ static partial class Game
                 for (; ended < due; ended++)
                 {
                     // The frame advances in the frame end's send gate, under the combat lock: an order written after the
-                    // 0x2b5 finds the new frame (LockstepOrderFrom), one written before it the old, and a pass that holds
+                    // 0x2b7 finds the new frame (LockstepOrderFrom), one written before it the old, and a pass that holds
                     // the lock sees one frame throughout.
                     long ending = ended;
                     await Send(remote, stream, ciphers, [], null, atGate: () =>

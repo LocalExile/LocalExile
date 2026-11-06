@@ -12,7 +12,7 @@ sequenceDiagram
     participant G as Gateway (instance A)
     participant A as Auth (registry, tickets)
     C->>G: 0x24 use skill 0x0266 on exit object (flags 0x0408)
-    G->>C: 0x2b2 change area (dest HASH16, loading screen)
+    G->>C: 0x2b4 change area (0x2b2 in 3.29.3b; dest HASH16, loading screen)
     Note over C: "Entering The Coast", loading screen
     C->>G: 0x2cb (870 bytes, once)
     G->>A: control "transfer" (ticket, area, instance/new)
@@ -50,9 +50,10 @@ So the old instance server tells the client where to go next.
 `u32 target object id, u16 skill (0x0266 = interact), u16 sequence, u16 flags`. Flags are 0x0408, or 0x040c with Ctrl
 (bit 0x0004). The client repeats it while nothing happens, so the Gateway ignores repeats while a transfer is pending.
 
-### S→C 0x2b2 — change area
+### S→C 0x2b4 — change area (0x2b2 in 3.29.3b)
 
-Class `0x1435bfee0`, write `0x141f92980`, dispatcher case 0xe8. Fields: `u16 destination WorldAreas.HASH16, u16
+Class `0x1435bfee0`, write `0x141f92980`, dispatcher case 0xe8 (3.29.3c class vtable `0x1435e9918`, write
+`0x141f99270`, read `0x141f99300`). Fields: `u16 destination WorldAreas.HASH16, u16
 LoadingScreenOverrides row` (0 = the area's default). The handler shows the loading screen and calls `0x142148690`. That
 function sends 0x2cb once (flag +0xcd4a) and flushes. An unknown hash is fatal.
 
@@ -127,7 +128,7 @@ keeps the ids of the last list it sent (`ChooserList`).
   so a Gateway that stopped without sending `leave` (a restart, a crash) does not keep its players' instances alive.
 - **Gateway**:
   - Ctrl+click → `list` → 0xae.
-  - 0xaf or a plain click → 0x2b2.
+  - 0xaf or a plain click → 0x2b4 (0x2b2 in 3.29.3b).
   - 0x2cb → `transfer` → 0x27 with the key for the new ticket.
   - On the new connection, `resolve` gives the area and seed. Layout: `data/walkability/<id>_seed<seed>.bin` + `.json`.
     The player arrives next to the exit leading back to the area they left (`AreaLayout.Arrival`, `SpawnNear`'s

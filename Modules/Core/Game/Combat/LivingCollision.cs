@@ -232,7 +232,7 @@ static partial class Game
     {
         double from = conn.WalkersSteppedTo;
         // A lockstep client's walkers move only in its frames, so whole frames are replayed, up to the start of the frame
-        // being sent (its 0x2b5 is on the wire: the frame advances in that send's gate under this lock); the frame's own
+        // being sent (its 0x2b7 is on the wire: the frame advances in that send's gate under this lock); the frame's own
         // steps wait for its end (PlayerWalk.Position reads the frame's start as well).
         (double Start, double End)? frame = conn.LockstepClient ? conn.LockstepFrame : null;
         if (frame is { } lockstep) now = lockstep.Start;

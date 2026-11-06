@@ -1,8 +1,11 @@
 # Documentation index
 
-Protocol reference and reverse-engineering notes for the Path of Exile 3.29.3b client. What works now is in
+Protocol reference and reverse-engineering notes for the Path of Exile 3.29.3c client. What works now is in
 [../Status.md](../Status.md), what to build next in [../Roadmap.md](../Roadmap.md). Start with
 **[protocol/00-overview.md](protocol/00-overview.md)**.
+
+> **3.29.3c id shift.** Most protocol docs keep 3.29.3b message ids as their reference; pages updated for 3.29.3c
+> say so. 3.29.3c shifts every id from `0x2b5` by +2. See the [3.29.3c diff](re/3.29.3c-client-diff.md) for the table.
 
 ## Protocol (consolidated, current)
 | Doc | Content |
@@ -109,10 +112,12 @@ This research does not change the production simulator or certify native/officia
 | [game/survivors-mode.md](game/survivors-mode.md) | Survivors league and modules: run, rewards, native window/animations, limits |
 
 ## Working notes (history)
+- [3.29.3c client diff](re/3.29.3c-client-diff.md): what changed from 3.29.3b, the schema deltas and the client-exe
+  compatibility notes.
 - `re/007`–`010`: the notes these documents were consolidated from (login TCP, handshake, message tables, live instance
   notes). `re/009` still has the most complete login message tables.
 - `re/003`–`004`: early notes with known errors (for example "login is HTTPS"). Verify before use.
 
 [Recovery timing](re/recovery-timing.md): read-only client pool tracing, native prediction inputs and ES verification limits.
 
-[Native client control](dev/client-control.md): CLI and persistent JSON RPC for local launch, login, character selection, commands and state reads through the 3.29.3b client.
+[Native client control](dev/client-control.md): CLI and persistent JSON RPC for local launch, login, character selection, commands and state reads through the 3.29.3b client. The bridge's native signatures are not yet updated for 3.29.3c.

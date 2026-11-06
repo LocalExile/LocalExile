@@ -58,6 +58,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   A remembered-form regression reaches character selection through normal Auth; saved-login preservation is mocked.
   Code: `scripts/dev/client-control.js`, `scripts/dev/test-client-login-writer.cjs`.
   Docs: [client control](../docs/dev/client-control.md).
+- 3.29.3c client support: login, character list, instance connect, area generation and area entry, including leaving
+  an area. The instance-group ids shift by +1 at 0x2a9 (gold 0x2aa) and by +2 from 0x2b1 (change area 0x2b4); the
+  world-group ids from 0x2b5 are +2: frame end/length 0x2b7/0x2b8, create object 0x2bb, component update 0x2bc,
+  remove object 0x2bd, and the leave-area ack 0x2cd. Live 2026-11-07: Exilecon 2026 loads, and waypoint travel to
+  Lioneye's Watch loads the new area.
+  Code: `InstanceEntities.cs`, `InstanceProtocol.cs`, `InstanceTransfer.cs`, `Hnc.cs`, `data/schema/schema.min.json`,
+  `scripts/dev/extract-data.ps1`.
+  Docs: [3.29.3c client diff](../docs/re/3.29.3c-client-diff.md).
 
 ## Partly working
 
@@ -96,7 +104,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `ModScripts.cs`, `ServerLeagues.cs`, `Program.Mods.cs`,
   `Program.ModuleWorld.cs`, `Modules/`, `Mods/Source/`.
   Docs: [modding](../docs/dev/modding.md).
-
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.
   Parsing and merging have automated round-trip, malformed-input and ordinary-tree preservation coverage.
   The exporter refuses modified source graphs and never installs its output into the client archive.
@@ -203,7 +210,7 @@ Code: `scripts/re/ghidra/ReadSchema.java`, `SendSites.java`, `scripts/re/schema_
 
 Optional [native client control](../docs/dev/client-control.md) provides CLI/JSON RPC for development without repeated
 UI input.
-It targets the copied standalone 3.29.3b client and local services only.
+It targets the copied standalone 3.29.3b client and local services only; its native signatures are not yet updated for 3.29.3c.
 Login keeps waiting within its existing timeout when success 0 precedes authenticated state 3.
 Mocked execute/RPC regressions cover this wait, rejection 6 and timeouts; this fix has no new native verification.
 It also creates and deletes characters, travels by waypoint (by WorldAreas Id too), waits for an area and knows the

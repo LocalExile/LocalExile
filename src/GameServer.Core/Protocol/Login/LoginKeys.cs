@@ -49,7 +49,8 @@ public sealed record LoginServerKeys(DsaKey Signing, BigInteger ServerStaticPriv
 
 /// <summary>
 /// The login key blobs inside the client executable. They sit together in .rdata and are only referenced from
-/// 0x14213e610 (3.29.3b: VA 0x142fc0150 / 0x142fc04a0 / 0x142fc0620). Located by the DER header, not by fixed offsets.
+/// the client's login code (3.29.3b reference VAs 0x142fc0150 / 0x142fc04a0 / 0x142fc0620; 3.29.3c shifts
+/// them). Located by the DER header, not by fixed offsets.
 /// </summary>
 public sealed class ClientImage(byte[] bytes)
 {

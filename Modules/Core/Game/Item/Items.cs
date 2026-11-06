@@ -759,7 +759,7 @@ static partial class Game
 
     internal static bool IsGold(WorldItemObject ground) => Items.ByHash(ground.Item.TypeHash)?.Class == ItemDrops.GoldClass;
 
-    // Gold goes to the stash's gold of the character's league (S→C 0x2a9), not into the inventory.
+    // Gold goes to the stash's gold of the character's league (S→C 0x2aa in 3.29.3c), not into the inventory.
     internal static async Task PickUpGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground, string how)
     {
         uint total;

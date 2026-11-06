@@ -19,7 +19,7 @@ Licensed under [AGPL-3.0](LICENSE); bundled components are in [THIRD-PARTY-NOTIC
 - Tell them to read all the Agents/ folder and all the MD files.
 
 # LocalExile
-A local, from-scratch server for the Path of Exile **3.29.3b** client. It is written in C# (.NET 10) from scratch to serve 
+A local, from-scratch server for the Path of Exile **3.29.3c** client. It is written in C# (.NET 10) from scratch to serve 
 the client's network protocol. You play on your own machine against servers running on 127.0.0.1.
 
 This project is not affiliated with or endorsed by Grinding Gear Games. It contains **no game files, keys or game data**.
@@ -81,11 +81,11 @@ how to pick up an item). The protocol reference and the notes are in
 **Full guide: [Agents/GettingStarted.md](Agents/GettingStarted.md).** It covers every step with its expected output, the edge cases
 and a troubleshooting table. It is written for people and for AI agents setting this up.
 
-In short (Windows, .NET 10 SDK, a standalone Path of Exile **3.29.3b** client):
+In short (Windows, .NET 10 SDK, a standalone Path of Exile **3.29.3c** client):
 
 ```powershell
 dotnet build GameServer.slnx
-robocopy "<your PoE 3.29.3b folder>" Client /E; Copy-Item Client\PathOfExile.exe Client\Game.exe
+robocopy "<your PoE 3.29.3c folder>" Client /E; Copy-Item Client\PathOfExile.exe Client\Game.exe
 dotnet run --project src/GameServer.Auth -- keygen Client/Game.exe
 dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.patched.exe
 dotnet run --project src/GameServer.Patch -- gateway --login 127.0.0.1:20493

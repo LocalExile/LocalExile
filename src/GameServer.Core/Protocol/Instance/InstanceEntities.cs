@@ -6,12 +6,12 @@ namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// Entity messages on the instance connection (Agents/docs/re/010, "Entering the area"). Message fields are big-endian like
-/// every other message. The component blob inside 0x2b9 is read with plain memcpy (0x140e28cf0 and friends), so its
+/// every other message. The component blob inside 0x2bb is read with plain memcpy (0x140e28cf0 and friends), so its
 /// multi-byte fields are <b>little-endian</b>.
 /// </summary>
 public static class InstanceEntities
 {
-    public const ushort LocalPlayerId = 0x22, CreateObjectId = 0x2b9, AddInventoryId = 0xc0, PassiveSlotsId = 0x3d;
+    public const ushort LocalPlayerId = 0x22, CreateObjectId = 0x2bb, AddInventoryId = 0xc0, PassiveSlotsId = 0x3d;
 
     /// <summary>
     /// The u32 an object type is known by: MurmurHash2 (seed 0) over the metadata path with each UTF-16 unit narrowed to
@@ -198,7 +198,7 @@ public static class InstanceEntities
     public static byte[] SetLocalPlayer(uint entityId) => new LoginWriter().U16(LocalPlayerId).U32(entityId).ToArray();
 
     /// <summary>
-    /// S→C 0x2b9 (world group, class 0x1435dd8f8, write 0x141fe04d0): entity header (u32 id, u32, u16; 0x141f91f60),
+    /// S→C 0x2bb (world group, class 0x1435dd8f8, write 0x141fe04d0): entity header (u32 id, u32, u16; 0x141f91f60),
     /// u32 object type hash, blob16 component data. An object whose id equals the local player id becomes the player.
     /// </summary>
     public static byte[] CreateObject(uint entityId, uint objectType, byte[] blob, uint headerU32 = 0, ushort headerU16 = 0) =>
@@ -211,7 +211,7 @@ public static class InstanceEntities
     /// u16 count, u16 preload (+0x10, the first n new types are loaded at once), then count × raw u16 (little-endian)
     /// MonsterVarieties row and count × u8 level. Per pair the client registers "&lt;variety Id&gt;@&lt;level&gt;"
     /// (0x141ec2540; level 0 registers the plain Id, 0x141ec28e0). The Monster component takes its level from that
-    /// suffix (1..100) and throws "Creating monster with no level" without one, so a monster's 0x2b9 type is
+    /// suffix (1..100) and throws "Creating monster with no level" without one, so a monster's 0x2bb type is
     /// <see cref="MonsterObject.TypePath"/>.
     /// </summary>
     public static byte[] MonsterTypes(IReadOnlyList<(ushort Row, byte Level)> types, ushort preload = ushort.MaxValue)
@@ -229,16 +229,16 @@ public static class InstanceEntities
     /// an unsigned compact key (Stats.dat row) and a signed compact value. The world handler (0x142187480) sets each on the
     /// object's Stats component (0x1424cfaf0).
     /// </summary>
-    public const ushort ComponentUpdateId = 0x2ba;
+    public const ushort ComponentUpdateId = 0x2bc;
 
     /// <summary>
-    /// S→C 0x2ba (world group, read 0x141fe05b0): world header, then blob16 = u8 component index (in the object's
+    /// S→C 0x2bc (world group, read 0x141fe05b0): world header, then blob16 = u8 component index (in the object's
     /// component order, 04 §3) + that component's vtable+0xa0 reader data (world handler 0x142187480).
     /// </summary>
     public static byte[] ComponentUpdate(uint entityId, byte componentIndex, byte[] data) =>
         new LoginWriter().U16(ComponentUpdateId).U32(entityId).U32(0).U16(0).Blob([componentIndex, .. data]).ToArray();
 
-    /// <summary>S→C 0x2ba to an object's StateMachine (reader 0x141e3f4a0): all its shared states and timers again
+    /// <summary>S→C 0x2bc to an object's StateMachine (reader 0x141e3f4a0): all its shared states and timers again
     /// (<see cref="StateMachineData.Write"/>); the client runs the events of every state whose value changed.</summary>
     public static byte[] StateMachineUpdate(uint entityId, byte componentIndex, StateMachineData states)
     {
@@ -247,7 +247,7 @@ public static class InstanceEntities
         return ComponentUpdate(entityId, componentIndex, w.ToArray());
     }
 
-    /// <summary>S→C 0x2ba to an object's Transitionable (reader 0x1421c2310): u8 target state; the client steps toward
+    /// <summary>S→C 0x2bc to an object's Transitionable (reader 0x1421c2310): u8 target state; the client steps toward
     /// it one state at a time and runs each step's on_transition events (12-quests.md §6).</summary>
     public static byte[] TransitionableUpdate(uint entityId, byte componentIndex, byte state) =>
         ComponentUpdate(entityId, componentIndex, [state]);
@@ -267,7 +267,7 @@ public static class InstanceEntities
     }
 
     /// <summary>
-    /// S→C 0x2ba to an object's Animated component (reader <c>0x141e57490</c>): flags bit0 + a u32-counted UTF-16 .ao path
+    /// S→C 0x2bc to an object's Animated component (reader <c>0x141e57490</c>): flags bit0 + a u32-counted UTF-16 .ao path
     /// swaps its animated object, which then plays the new one's default animation (a projectile's impact: Fireball →
     /// Metadata/Effects/Spells/fireball/explode_new2.ao, "animate": the splode particles and the End sound).
     /// </summary>
@@ -276,7 +276,7 @@ public static class InstanceEntities
 
 
     /// <summary>
-    /// Changes the player's skills (0x2ba to the Actor, flags 0x20 → <c>0x142198800</c>): u8 records, u8 ids, the skill
+    /// Changes the player's skills (0x2bc to the Actor, flags 0x20 → <c>0x142198800</c>): u8 records, u8 ids, the skill
     /// records (as in the 0x40 list: added, or replacing the one with the same id), the u16 ids to remove
     /// (<c>0x142198560</c>: found by id in the skill manager, its remove handler runs), then u8-counted soul seeds
     /// (ActiveSkills row, capacity) and updates (row, current, new capacity). Empty lists preserve existing budgets.
@@ -319,7 +319,7 @@ public static class InstanceEntities
     }
 
     /// <summary>
-    /// The player's experience (0x2ba to the Player component, reader <c>0x141e7ee30</c>): u16 flags, bit0 = u32 experience,
+    /// The player's experience (0x2bc to the Player component, reader <c>0x141e7ee30</c>): u16 flags, bit0 = u32 experience,
     /// which goes through the same setter as creation (<c>0x141e7f6b0</c>): the level is derived again from it and, when
     /// it changed, the component's level-change handler (vtable +0x108) runs. The other flags stay off.
     /// </summary>
@@ -327,7 +327,7 @@ public static class InstanceEntities
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(1).U32(experience).ToArray());
 
     /// <summary>
-    /// The player's quest flags (0x2ba to the Player component, reader 0x141e7ee30): u16 flags, bit1 (0x02) = the whole
+    /// The player's quest flags (0x2bc to the Player component, reader 0x141e7ee30): u16 flags, bit1 (0x02) = the whole
     /// quest-flag set again (<see cref="PlayerObject.WriteFlagSet"/>, QuestFlags.dat rows). The World panel shows an area's
     /// pin only when the area's access flags (WorldAreas +0x54) are all set (0x140797750). Bit3 (0x08) would replace the
     /// second set (+0x1d0), bit9 (0x200) the 9 raw bytes (+0x1e8).
@@ -340,21 +340,21 @@ public static class InstanceEntities
     }
 
     /// <summary>
-    /// The player's two Hideouts.dat keys (0x2ba to the Player component, reader 0x141e7ee30): u16 flags, bit4 (0x10) =
+    /// The player's two Hideouts.dat keys (0x2bc to the Player component, reader 0x141e7ee30): u16 flags, bit4 (0x10) =
     /// u16 + u16, looked up by HASH16 like the creation blob's, then the component's vtable +0x130 (hideout changed).
     /// </summary>
     public static byte[] PlayerHideoutsUpdate(uint playerId, ushort hideout, ushort hideout2) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x10).U16(hideout).U16(hideout2).ToArray());
 
     /// <summary>
-    /// The player's Pantheon gods (0x2ba to the Player component, reader 0x141e7ee30): u16 flags, bit7 (0x80) = u8 → +0x1ae
+    /// The player's Pantheon gods (0x2bc to the Player component, reader 0x141e7ee30): u16 flags, bit7 (0x80) = u8 → +0x1ae
     /// (major), u8 → +0x1ad (minor), each a PantheonPanelLayout row + 1 (0 = none), as C→S 0x1ee chooses them; then the
     /// component's vtable +0x138 (refresh). campaign/pantheon.md §5.
     /// </summary>
     public static byte[] PlayerPantheonUpdate(uint playerId, byte major, byte minor) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x80).U8(major).U8(minor).ToArray());
 
-    /// <summary>The player's league quest flags (0x2ba to the Player component): u16 flags, bit3 (0x08) = the whole
+    /// <summary>The player's league quest flags (0x2bc to the Player component): u16 flags, bit3 (0x08) = the whole
     /// second flag set (+0x1d0) again, as <see cref="PlayerObject.WriteFlagSet"/>.</summary>
     public static byte[] PlayerLeagueQuestFlagsUpdate(uint playerId, IEnumerable<int> flags)
     {
@@ -364,7 +364,7 @@ public static class InstanceEntities
     }
 
     /// <summary>
-    /// The player's portrait (0x2ba to the Player component, reader 0x141e7ee30): u16 flags, bit6 (0x40) = u16 → +0x1aa,
+    /// The player's portrait (0x2bc to the Player component, reader 0x141e7ee30): u16 flags, bit6 (0x40) = u16 → +0x1aa,
     /// the <c>MicrotransactionCharacterPortraitVariations</c> variation (its <c>__col1</c>; 0 = the class's own). The
     /// character panel and the other in-game portraits build their art from it (0x14081e730 → 0x142426b00:
     /// Art/2DArt/UIImages/Common/PortraitVariations/…).
@@ -372,14 +372,15 @@ public static class InstanceEntities
     public static byte[] PlayerPortraitUpdate(uint playerId, ushort portrait) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x40).U16(portrait).ToArray());
 
-    public const ushort GoldId = 0x2a9;
+    public const ushort GoldId = 0x2aa;
 
-    /// <summary>S→C 0x2a9 (class 0x14316c420, read 0x140913050): u32 BE, the character's gold. The instance dispatcher (case
-    /// 0xe2, 0x14214dbe1) stores it at session +0xc40c (the inventory's and the gold respec's amount) and plays
-    /// Gold_Spend.ogg when it drops.</summary>
+    /// <summary>S→C 0x2aa in 3.29.3c (0x2a9 in 3.29.3b; the 3.29.3c client inserted a new message at 0x2a9): u32 BE, the
+    /// character's gold. The instance dispatcher (case 0xe2) stores it at session +0xc40c (the inventory's and the gold
+    /// respec's amount) and plays Gold_Spend.ogg when it drops. Sending the old id makes the client parse the next
+    /// packet as the new 0x2a9 message and stop with "Unable to deserialise packet" (live 2026-11-07).</summary>
     public static byte[] Gold(uint amount) => new LoginWriter().U16(GoldId).U32(amount).ToArray();
 
-    /// <summary>The player's Inventories component again (0x2ba): what its model wears after an equipment change.</summary>
+    /// <summary>The player's Inventories component again (0x2bc): what its model wears after an equipment change.</summary>
     public static byte[] PlayerEquipmentUpdate(uint playerId, IReadOnlyList<VisibleItem> equipped)
     {
         var w = new BlobWriter();
@@ -583,11 +584,11 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
 }
 
 /// <summary>
-/// A monster: a 0x2b9 object whose type is a MonsterVarieties row. The client's object-type register files every
+/// A monster: a 0x2bb object whose type is a MonsterVarieties row. The client's object-type register files every
 /// MonsterVarieties row (0x31a bytes) under its Id with the row's BaseMonsterTypeIndex (+0x48) as the .ot (an .ot file
 /// under the Id itself wins: KitavaFinal is built from kitavafinal.ot, not its base Kitava1; Gateway MonsterCatalog), but a monster
 /// also needs a level: the server registers "&lt;Id&gt;@&lt;level&gt;" with S→C 0x20 (<see cref="InstanceEntities.MonsterTypes"/>)
-/// and the 0x2b9 type is <c>ObjectTypeHash(TypePath(Id, level))</c>. The components come from the .ot chain
+/// and the 0x2bb type is <c>ObjectTypeHash(TypePath(Id, level))</c>. The components come from the .ot chain
 /// (`Metadata/Monsters/Monster`: Positioned, Stats, ObjectMagicProperties, BaseEvents, Pathfinding, Buffs, Life,
 /// Animated, Inventories, Actor, Monster, then whatever the type adds).
 /// <para>Every component that reads is one the player or the area transition already uses; Monster itself (vtable 0x1435a6778),
@@ -760,7 +761,7 @@ public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<s
 /// hideout's player at z = -78.37 gets the torso at z = -117.1875, i.e. i32 +15 / f32 -117.1875.
 /// Height takes z / 7.8125; the 0x1ba endpoint instead takes the encoded i32 marker (+15 in that example),
 /// and the native move negates it to recover world z. 0x1b7 copies the encoded marker and float pair directly.
-/// <see cref="AnimatedComponentIndex"/> is the index the impact's animation update (0x2ba) must use.
+/// <see cref="AnimatedComponentIndex"/> is the index the impact's animation update (0x2bc) must use.
 /// </summary>
 public sealed record ProjectileObject(string TypePath, int GridX, int GridY, float Rotation = 0, ushort Team = 0,
     int? Height = null)
@@ -788,7 +789,7 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
 /// <summary>
 /// A visual effect as its own object: <c>Metadata/Effects/PermanentServerEffect</c> (Positioned, BaseEvents, Animated;
 /// Render is client-only) with the given animated object, which plays its default animation where the object stands
-/// until it is removed (0x2bb). The client's effect script (0x142087910) makes the same objects for MiscAnimated rows,
+/// until it is removed (0x2bd). The client's effect script (0x142087910) makes the same objects for MiscAnimated rows,
 /// e.g. RighteousFireRing = Metadata/Effects/Spells/ri_fire/rifire.ao.
 /// </summary>
 public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
@@ -899,7 +900,7 @@ public sealed record RitualPillarObject(int GridX, int GridY, float Rotation, st
 /// client blocks the cells of the model's own footprint where the object stands (0x141d876e0), so the room's scale
 /// matters: Positioned flags0 0x20's uniform scale (the room gives the Strand's wall 2.7; the x / y stretches stay 1, see
 /// <see cref="EffectObject.Scale"/>: 2.7 in all three drew it 7.3 times as wide). TriggerableBlockage
-/// has no update reader: the wall goes with the object (0x2bb).
+/// has no update reader: the wall goes with the object (0x2bd).
 /// </summary>
 public sealed record BlockerObject(int GridX, int GridY, float Rotation, float Scale = 1)
 {
@@ -940,7 +941,7 @@ public sealed record StateMachineData(IReadOnlyList<int> SharedStates, int Share
         return this with { SharedStates = states, Overridden = new HashSet<int>(Overridden) { i } };
     }
 
-    /// <summary>The component's data, the same in the creation blob and in an update (0x2ba, reader 0x141e3f4a0):
+    /// <summary>The component's data, the same in the creation blob and in an update (0x2bc, reader 0x141e3f4a0):
     /// u8 state count, u8 timer count, per state a compact int value (big-endian groups as the blob reader 0x141e490e0
     /// reads them, InstanceProtocol.CompactInt) + u8 flags, per timer u32 + u8. A changed value
     /// runs the type's on_state_&lt;name&gt;_&lt;value&gt; events.</summary>
@@ -987,7 +988,7 @@ public readonly record struct SingleUseCooldownUpdate(ushort SkillId, float Rema
 /// <summary>ObjectMagicProperties rarity (flags bits 0-2 → +0x7c).</summary>
 public enum MonsterRarity : byte { Normal = 0, Magic = 1, Rare = 2, Unique = 3 }
 
-/// <summary>Little-endian writer for 0x2b9 component blobs.</summary>
+/// <summary>Little-endian writer for 0x2bb component blobs.</summary>
 public sealed class BlobWriter
 {
     private readonly List<byte> _b = [];
@@ -1044,7 +1045,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public const byte InventoriesComponentIndex = 8;
 
     /// <summary>Inventories (0x141e1ee30): u8 n × (u8 slot, visible item 0x1424f44e0), then u8 m × u16 (skill ids the
-    /// client re-binds). The same bytes update it later (0x2ba, slot 17 forwards to slot 20).</summary>
+    /// client re-binds). The same bytes update it later (0x2bc, slot 17 forwards to slot 20).</summary>
     internal static void WriteInventories(BlobWriter w, IReadOnlyList<VisibleItem>? equipped)
     {
         w.U8((byte)(equipped?.Count ?? 0));

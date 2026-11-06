@@ -1,7 +1,8 @@
 # Address index (3.29.3b `Game.exe`, image base 0x140000000)
 
 Every address used in the protocol docs, grouped by subsystem. Fn = function, Vt = vtable, Cls = message class vtable,
-G = global / static data.
+G = global / static data. These are 3.29.3b references; 3.29.3c shifted the code and every world message id from
+`0x2b5` by +2 ([3.29.3c diff](../re/3.29.3c-client-diff.md)).
 
 ## Network core
 | Address | Kind | What |
@@ -590,7 +591,7 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x141e3495b` to `0x141e3496b` | Code | Move endpoint world z = -marker * 7.8125 before render interpolation |
 | `0x141e4d510` | Fn | Render interpolation setup: stores endpoint world z minus current world z |
 | `0x142042360` | Fn | create one client-side doodad from a placed record (grid x, y +0, +4; angle +0x14; type +0x30; .ao +0x38): rooms' doodads too ([14](14-monster-packs.md) §3) |
-| `0x14214dbe1` | Fn | instance dispatcher case 0xe2 (S→C 0x2a9 gold, read `0x140913050`, u32 BE): stores it at session +0xc40c, plays Gold_Spend.ogg when it drops |
+| `0x14214dbe1` | Fn | instance dispatcher case 0xe2 (S→C 0x2a9 gold in 3.29.3b, 0x2aa in 3.29.3c; read `0x140913050` / 3.29.3c `0x140911270`, u32 BE): stores it at session +0xc40c, plays Gold_Spend.ogg when it drops |
 | `0x140d62ec0` | Fn | 0xb8 listener on the UI state: flags bit 0 → +0x984 = other party, +0x988 = 1 (the active trade) |
 | `0x14030e3e0` | Fn | Ctrl + click on an inventory item: with +0x988 set sends 0xb2 x = y = 0xff (`0x142166660`), else the other panels' checks |
 | `0x140dc8750` | Fn | S→C 0x7b kind 0x5f: the character's passive tree (UI +0x650); u32 ≠ 0 → mode 2 (`0x1409de680`) |

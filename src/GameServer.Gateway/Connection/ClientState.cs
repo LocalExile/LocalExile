@@ -524,7 +524,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
             () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
     }
     public bool PlayerSent;
-    // Server frames ended so far (0x2b5).
+    // Server frames ended so far (0x2b7).
     public long ServerFrame;
     public byte[] Carry = [];
     /// <summary>Reads in a row that framed nothing (ClientInbox.UnframedRun).</summary>

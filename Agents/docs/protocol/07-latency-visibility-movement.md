@@ -476,8 +476,8 @@ own: under 70 ms, over 90 ms. Requests wait for the first verdict. A character k
 30 s. A connection that slows turns off within about 30 s, and back on when it recovers.
 
 **Server frames.** In lockstep the client's world does not run on its own clock: it runs **server frames**. S→C
-**0x2b6** (u8) sets the frame length in ms (`0x141645fa0` stores the zero-extended byte as u32 at world `+0x11c`);
-S→C **0x2b5** (id only) ends a frame. In nonzero mode, after activation sets world `+0xa00`, the embedded message
+**0x2b8** (u8) sets the frame length in ms (`0x141645fa0` stores the zero-extended byte as u32 at world `+0x11c`);
+S→C **0x2b7** (id only) ends a frame. In nonzero mode, after activation sets world `+0xa00`, the embedded message
 intake (`0x1421872b0`, this=world `+0x1c8`) appends a null delimiter to the record vector (`+0x9e0`) and queues
 the current frame length (deque map at world `+0x9c0`, count `+0x9d8`). Before activation it adds neither.
 Each client update adds its time to world `+0x988` and runs every queued frame it covers
@@ -488,8 +488,8 @@ target. See [World message inputs](../re/projectiles/world-message-inputs.md) an
 [component checkpoints](../re/projectiles/world-scheduling.md#10-component-checkpoints-can-consume-ordered-incoming-records).
 Behind by 1, 2, 30 or 60 frames, it speeds up × 1.01, 1.5, 2 or 5;
 the most frames it was behind since the last tick goes out as the u8 of C→S 0x1b (world `+0xb98`,
-"lockstep_lag_frames"). Without 0x2b5 nothing runs: the player is created but never drawn. A predictive client ignores
-0x2b5, and 0x2b6 only stores its byte, so the Gateway always sends them (`RunServerFrames`, 33 ms, `Game_FRAME_MS`):
+"lockstep_lag_frames"). Without 0x2b7 nothing runs: the player is created but never drawn. A predictive client ignores
+0x2b7, and 0x2b8 only stores its byte, so the Gateway always sends them (`RunServerFrames`, 33 ms, `Game_FRAME_MS`):
 a lockstep client is then drawn and its world runs. Found with hardware watchpoints on those fields
 (`scripts/re/frida/watch-lockstep-world.js`).
 

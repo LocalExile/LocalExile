@@ -13,7 +13,7 @@ namespace GameServer.Core.Protocol.Instance;
 public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOnlyList<string> Components, HideoutDoodad Doodad,
     IReadOnlyList<int>? States = null, string? Model = null)
 {
-    static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "InteractionAction", "HideoutDoodad", "StateMachine", "MinimapIcon"];
+    static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "InteractionAction", "HideoutDoodad", "StateMachine", "MinimapIcon", "Functions"];
 
     public static bool CanSerialize(IReadOnlyList<string> components) => components.All(Supported.Contains);
 
@@ -35,7 +35,7 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
                     foreach (int v in States ?? []) w.CompactI(v).U8(0);   // value, flags
                     break;
                 case "MinimapIcon": w.U8(0); break;
-                // BaseEvents is server-only: nothing on the wire.
+                // BaseEvents and Functions are server-only: nothing on the wire.
             }
         w.U8(0);                                                                    // tasks
         return w.ToArray();
