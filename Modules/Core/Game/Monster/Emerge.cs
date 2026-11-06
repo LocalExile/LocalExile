@@ -84,8 +84,10 @@ static partial class Game
                         var messages = MonsterEmerge.RiseMessages(id, at, skill, m.NextSequence(), (byte)index, state,
                             m.HiddenBuffInstance, restored);
                         byte[] bytes = [.. messages.SelectMany(p => p)];
-                        ToOthers(conn, id, bytes);
-                        return bytes;
+                        // Waiting monsters are not in the active AI snapshot yet. Use actual client views for this event.
+                        ToOthers(conn, id, bytes, includeWaiting: true);
+                        return id < SharedMonsterIds || conn.MonsterViews.ContainsKey(id) && !conn.AsleepMonsters.Contains(id)
+                            ? bytes : null;
                     }
                 });
         }

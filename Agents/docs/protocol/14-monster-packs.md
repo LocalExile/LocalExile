@@ -90,6 +90,12 @@ comes within aggro range, and a damaged one gets its life with 0x1b1 right after
 is kept buried; one that has risen comes back risen (Transitionable state 2). Only a new instance plans
 fresh packs. The saved state goes with the instance's ground items: kept in the Gateway's memory and wiped when the
 instance expires.
+Shared snapshots include both active and buried rosters. A buried actor has its hidden buff and stats at creation,
+but stays outside the active AI roster. Emergence reaches known, non-sleeping views even before their active-roster
+snapshot catches up; an unseen client receives a risen creation instead of component updates before creation.
+The prepared-client reconnect capture `20261106-102120` confirms hidden creation before the removal/stats/action/
+transition sequence, then a creation without hidden state on the next reconnect. The earlier capture
+`20261106-100030` exposed the inverse order when buried actors were omitted from shared snapshots.
 `Game_MONSTERS=0` turns it off. Only unique and rare monsters are logged one by one; a summary line lists the rest.
 Shared delivery must copy plaintext per recipient: `Program.Write` encrypts its input in place, possibly after a
 send-gate wait. Reusing one buffer across viewers corrupts another viewer's payload or the owner's later send;
