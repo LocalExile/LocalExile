@@ -148,7 +148,10 @@ sealed class PackCatalog(string folder = "data")
 /// </summary>
 static class AreaPopulation
 {
-    public sealed record Spawn(int Variety, int X, int Y, MonsterRarity Rarity, string Pack);
+    public sealed record Spawn(int Variety, int X, int Y, MonsterRarity Rarity, string Pack)
+{
+    public bool MapBoss { get; init; }
+}
 
     /// <summary>A named point of a room the client placed (found by <see cref="LoadPoints"/>).</summary>
     public sealed record RoomPoint(string Name, int X, int Y, float Angle = 0);
@@ -185,7 +188,14 @@ static class AreaPopulation
 
     /// <summary>Later forms under a name of their own: The Rotting Core's Depraved Trinity forms in the Black Heart once
     /// Doedre, Darksoul, Maligaro, The Broken and Shavronne, Unbound (its mapboss2-4 rooms) are dead.</summary>
-    static readonly HashSet<string> FormedLater = new(StringComparer.Ordinal) { "Metadata/Monsters/UnholyTrio/UnholyTrio" };
+    static readonly HashSet<string> FormedLater = new(StringComparer.Ordinal)
+{
+    "Metadata/Monsters/UnholyTrio/UnholyTrio",
+    "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss2",
+    "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss3",
+    "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss4",
+    "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss5"
+};
 
     /// <summary>A unique boss point and the WorldAreas Bosses_MonsterVarietiesKeys places (1-based) it takes; empty for a
     /// point that takes the area's bosses no other point took; null for any other name. The room files write
@@ -266,13 +276,13 @@ static class AreaPopulation
             {
                 int variety = area.Bosses[rows[i]];
                 if (!spawnable(variety)) { notes.Add($"room point {point} at {at}: boss {variety} cannot be created"); continue; }
-                if (AddMember(spawns, taken, walkable, at, variety, MonsterRarity.Unique, point, rng, i == 0 ? 0 : 3)) continue;
+                if (AddMember(spawns, taken, walkable, at, variety, MonsterRarity.Unique, point, rng, i == 0 ? 0 : 3, mapBoss: true)) continue;
                 // Some bosses' points are off the walk map (Kitava in his pit, Arakaali in her web, Doedre the Vile at her
                 // cauldron): the nearest free walkable cell, so the server's walk and AI have a cell to start from.
                 if (Nearest(at, walkable, taken, BossSearchRadius) is { } cell)
                 {
                     taken.Add(cell);
-                    spawns.Add(new Spawn(variety, cell.X, cell.Y, MonsterRarity.Unique, point));
+                    spawns.Add(new Spawn(variety, cell.X, cell.Y, MonsterRarity.Unique, point) { MapBoss = true });
                     notes.Add($"room point {point} at {at} is not walkable: boss {variety} at {cell}");
                 }
                 else notes.Add($"room point {point} at {at}: no free walkable cell within {BossSearchRadius} for boss {variety}");
@@ -308,7 +318,7 @@ static class AreaPopulation
                 placedRows.Add(Row(b));
             centres.Add((p.X, p.Y));
         }
-        var rest = Enumerable.Range(0, area.Bosses.Count).Where(i => !placedRows.Contains(i)).ToList();
+        var rest = Enumerable.Range(0, area.Bosses.Count).Where(i => !placedRows.Contains(i) && !area.Absent.Contains(i)).ToList();
         var any = bossPoints.Where(b => b.Rows!.Count == 0).Select(b => b.Point).ToList();
         if (any.Count > 0 && rest.Count > 0)
         {
@@ -406,13 +416,13 @@ static class AreaPopulation
         {
             // Magic packs are magic throughout; a rare pack has one rare (the first member) among normal ones.
             var r = members[i].Unique ? MonsterRarity.Unique : rarity == MonsterRarity.Rare ? (i == 0 ? MonsterRarity.Rare : MonsterRarity.Normal) : rarity;
-            if (AddMember(spawns, taken, walkable, at, members[i].Variety, r, pack.Id, rng, i == 0 ? 0 : 2) && members[i].Unique) uniques.Add(members[i].Variety);
+            if (AddMember(spawns, taken, walkable, at, members[i].Variety, r, pack.Id, rng, i == 0 ? 0 : 2, mapBoss: members[i].Unique) && members[i].Unique) uniques.Add(members[i].Variety);
         }
         return uniques;
     }
 
     static bool AddMember(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, int variety,
-        MonsterRarity rarity, string pack, Random rng, int minRadius)
+    MonsterRarity rarity, string pack, Random rng, int minRadius, bool mapBoss = false)
     {
         for (int attempt = 0; attempt < 60; attempt++)
         {
@@ -420,7 +430,7 @@ static class AreaPopulation
             int x = at.X + rng.Next(-radius, radius + 1), y = at.Y + rng.Next(-radius, radius + 1);
             if (!walkable(x, y) || taken.Any(t => Math.Abs(t.Item1 - x) < MemberSpacing && Math.Abs(t.Item2 - y) < MemberSpacing)) continue;
             taken.Add((x, y));
-            spawns.Add(new Spawn(variety, x, y, rarity, pack));
+            spawns.Add(new Spawn(variety, x, y, rarity, pack) { MapBoss = mapBoss });
             return true;
         }
         return false;

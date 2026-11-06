@@ -85,6 +85,7 @@ static partial class Game
         }
         state.FlaskRewards.Add(new(monster.Rarity));
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
+		int horrorPhase = UnravellingHorrorPhaseOf(conn, monster);
         var balance = LeagueFor(conn).Rules;
         var modded = Program.ServerHooks.Drops(killer, modMonster);
         var drops = new List<ItemDrops.Drop>();
@@ -94,15 +95,48 @@ static partial class Game
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash ? openMap.Area.Tier : 0;
-            if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared) is { } map) drops.Add(map);
+                        if (horrorPhase is 0 or 5)
+            {
+                string mapCharacter = CharacterName(conn);
+
+                var openMap = MapDevice.OpenOf(mapCharacter) is { } candidate &&
+                              candidate.Area.Hash16 == conn.Layout.Hash
+                    ? candidate
+                    : null;
+
+                int mapTier = openMap?.Area.Tier ?? 0;
+
+                bool mapBoss = monster.MapBoss &&
+                               openMap is not null &&
+                               MapDevices.Value.IsMapArea(conn.Layout.Hash);
+
+                int previousMapDrops = openMap?.MapDrops ?? 0;
+
+                double mapChanceMultiplier = previousMapDrops switch
+                {
+                    0 => 1.0,
+                    1 => 0.5,
+                    2 => 0.2,
+                    _ => 0.05
+                };
+
+                if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared,
+                        chanceMultiplier: mapChanceMultiplier, guaranteed: mapBoss) is { } map)
+                {
+                    drops.Add(map);
+
+                    if (!mapBoss && openMap is not null)
+                        MapDevice.RecordMapDrop(mapCharacter, conn.Layout.Hash);
+                }
+            }
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
         }
         foreach (string query in modded?.Items ?? [])
             if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
-        foreach (var drop in ItemDrops.Stacked(drops))
+        if (!FinishUnravellingHorrorLoot(conn, monster, drops)) return;
+		foreach (var drop in ItemDrops.Stacked(drops))
         {
             double angle = Random.Shared.NextDouble() * Math.Tau, radius = 3 + Random.Shared.NextDouble() * 3;
             int x = at.X + (int)Math.Round(Math.Cos(angle) * radius), y = at.Y + (int)Math.Round(Math.Sin(angle) * radius);
@@ -164,7 +198,25 @@ static partial class Game
                 await notification;
                 continue;
             }
-            await Send(remote, stream, ciphers, [], output.Log, atGate: () =>
+                        if (output.Kind == PlayerMinions.OutputKind.UnravellingHorror)
+            {
+                lock (conn.Monsters)
+                {
+                    if (!Current() || conn.Closed || conn.LeavingArea ||
+                        state.OutputQueue.Count == 0 ||
+                        !ReferenceEquals(state.OutputQueue[0], output))
+                        break;
+
+                    state.OutputQueue.RemoveAt(0);
+                }
+
+                if (output.Target is { } horror && output.At is { } horrorAt)
+                    await AdvanceUnravellingHorror(
+                        remote, stream, ciphers, conn, horror, horrorAt);
+
+                continue;
+            }
+			await Send(remote, stream, ciphers, [], output.Log, atGate: () =>
             {
                 lock (conn.Monsters)
                 {

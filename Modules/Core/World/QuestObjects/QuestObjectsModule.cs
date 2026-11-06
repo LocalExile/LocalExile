@@ -57,6 +57,30 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             if (kill.CommittedOutput is not null) { CommitAcceptedQuestKill(kill); return; }
             kill.Later(() => QuestKillEffects(remote, stream, ciphers, kill.Conn, kill.Monster, variety, kill.At));
         });
+		        On(GameEvents.Kill, kill =>
+        {
+            if (kill.Conn.Layout.Id != "MapWorldsPort") return;
+
+            if (kill.Monster.Variety?.Id is not (
+                "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss" or
+                "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss2" or
+                "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss3" or
+                "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss4"))
+                return;
+
+            if (kill.CommittedOutput is not null)
+            {
+                kill.Conn.Minions.OutputQueue.Add(new([], "Unravelling Horror next form",
+                    Target: kill.Monster,
+                    Kind: PlayerMinions.OutputKind.UnravellingHorror,
+                    At: kill.At));
+                return;
+            }
+
+            var (remote, stream, ciphers) = kill.Conn.Wire;
+            kill.Later(() => AdvanceUnravellingHorror(
+                remote, stream, ciphers, kill.Conn, kill.Monster, kill.At));
+        });
         // After a read that moved items, the quest items' flags (and the removal of those done with: the Medicine Chest once
         // Nessa has one), on the message path so the inventory revisions stay in order.
         On(GameEvents.MessagesHandled, async (conn, ids) =>

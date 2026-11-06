@@ -210,14 +210,26 @@ sealed class MapDevice
     /// <summary>A character's opened map: its area, its instance (0 until the first portal is taken) and the places around
     /// the device (0 to <see cref="PortalCount"/> - 1, <see cref="PortalCell"/>) whose portal is still there.</summary>
     public sealed record OpenMap(MapArea Area, ulong Instance, IReadOnlyList<int> Left, MapMods Mods, int ItemRow = 0)
-    {
-        public int PortalsLeft => Left.Count;
-    }
+{
+    public int PortalsLeft => Left.Count;
+    public int MapDrops { get; init; }
+}
 
     private static readonly ConcurrentDictionary<string, OpenMap> Open = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The character's open map, or null.</summary>
     public static OpenMap? OpenOf(string character) => Open.GetValueOrDefault(character);
+	/// <summary>Records a map drop in the character's current map run.</summary>
+public static void RecordMapDrop(string character, ushort areaHash)
+{
+    while (Open.TryGetValue(character, out var map))
+    {
+        if (map.Area.Hash16 != areaHash) return;
+
+        var after = map with { MapDrops = map.MapDrops + 1 };
+        if (Open.TryUpdate(character, after, map)) return;
+    }
+}
 
     /// <summary>Opens a map for the character with a portal at every place, replacing the one open before.</summary>
     public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0) =>

@@ -54,19 +54,42 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     // Exalted and Divine Orbs and the Mirror of Kalandra.
     static readonly (string Id, double Weight)[] Currency =
     [
-        ("Metadata/Items/Currency/CurrencyIdentification", 1000), ("Metadata/Items/Currency/CurrencyPortal", 300),
-        ("Metadata/Items/Currency/CurrencyUpgradeToMagic", 500), ("Metadata/Items/Currency/CurrencyArmourQuality", 450),
-        ("Metadata/Items/Currency/CurrencyWeaponQuality", 300), ("Metadata/Items/Currency/CurrencyAddModToMagic", 400),
-        ("Metadata/Items/Currency/CurrencyRerollMagic", 250), ("Metadata/Items/Currency/CurrencyRerollSocketColours", 200),
-        ("Metadata/Items/Currency/CurrencyRerollSocketNumbers", 150), ("Metadata/Items/Currency/CurrencyUpgradeRandomly", 120),
-        ("Metadata/Items/Currency/CurrencyUpgradeToRare", 90), ("Metadata/Items/Currency/CurrencyFlaskQuality", 60),
-        ("Metadata/Items/Currency/CurrencyRerollSocketLinks", 50), ("Metadata/Items/Currency/CurrencyRerollRare", 40),
-        ("Metadata/Items/Currency/CurrencyConvertToNormal", 30), ("Metadata/Items/Currency/CurrencyPassiveRefund", 25),
-        ("Metadata/Items/Currency/CurrencyCorrupt", 25), ("Metadata/Items/Currency/CurrencyUpgradeMagicToRare", 20),
-        ("Metadata/Items/Currency/CurrencyGemQuality", 20), ("Metadata/Items/Currency/CurrencyRerollImplicit", 15),
-        ("Metadata/Items/Currency/CurrencyAddModToRare", 2), ("Metadata/Items/Currency/CurrencyRemoveMod", 1.5),
-        ("Metadata/Items/Currency/CurrencyModValues", 1), ("Metadata/Items/Currency/CurrencyDuplicate", 0.01),
-    ];
+    // Very common currency
+    ("Metadata/Items/Currency/CurrencyIdentification", 1000),
+    ("Metadata/Items/Currency/CurrencyPortal", 250),
+    ("Metadata/Items/Currency/CurrencyUpgradeToMagic", 350),
+    ("Metadata/Items/Currency/CurrencyAddModToMagic", 300),
+    ("Metadata/Items/Currency/CurrencyRerollMagic", 250),
+
+    // Common crafting currency
+    ("Metadata/Items/Currency/CurrencyArmourQuality", 150),
+    ("Metadata/Items/Currency/CurrencyWeaponQuality", 120),
+    ("Metadata/Items/Currency/CurrencyRerollSocketColours", 120),
+    ("Metadata/Items/Currency/CurrencyRerollSocketNumbers", 60),
+    ("Metadata/Items/Currency/CurrencyUpgradeRandomly", 80),
+    ("Metadata/Items/Currency/CurrencyFlaskQuality", 15),
+    ("Metadata/Items/Currency/CurrencyGemQuality", 15),
+
+    // Uncommon currency
+    ("Metadata/Items/Currency/CurrencyUpgradeToRare", 40),
+    ("Metadata/Items/Currency/CurrencyRerollSocketLinks", 15),
+    ("Metadata/Items/Currency/CurrencyRerollRare", 10),
+    ("Metadata/Items/Currency/CurrencyConvertToNormal", 8),
+    ("Metadata/Items/Currency/CurrencyPassiveRefund", 8),
+    ("Metadata/Items/Currency/CurrencyCorrupt", 6),
+    ("Metadata/Items/Currency/CurrencyUpgradeMagicToRare", 5),
+    ("Metadata/Items/Currency/CurrencyRerollImplicit", 3),
+
+    // Rare currency
+    ("Metadata/Items/Currency/CurrencyAddModToRare", 0.5),
+    ("Metadata/Items/Currency/CurrencyRemoveMod", 0.3),
+
+    // Extremely rare currency
+    ("Metadata/Items/Currency/CurrencyModValues", 0.05),
+
+    // Ultra-rare currency
+    ("Metadata/Items/Currency/CurrencyDuplicate", 0.000001),
+];
 
     // Equipment slots (ItemClasses Id) and how often each is picked: armour pieces most, then weapons, jewellery seldom.
     static readonly (string Class, double Weight)[] Slots =
@@ -308,20 +331,49 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
 
     /// <summary>An approximate generic-map drop: a map of the current map tier (or tier 1 in the campaign). Our own
     /// rates until the game pools are known.</summary>
-    public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones = 0)
+    public Drop? Map(
+    int monsterLevel,
+    MonsterRarity monster,
+    int mapTier,
+    Random rng,
+    int voidstones = 0,
+    double chanceMultiplier = 1,
+    bool guaranteed = false)
+{
+    double chance = monster switch
     {
-        double chance = monster switch { MonsterRarity.Normal => 0.004, MonsterRarity.Magic => 0.012, MonsterRarity.Rare => 0.05, _ => 0.20 };
-        chance = Math.Min(1, chance * SystemSettings.Default.DropMultiplier("maps"));
-        if (maps is null || chance <= 0 || rng.NextDouble() >= chance) return null;
-        int stones = Math.Max(0, voidstones);
-        int tier = Math.Clamp((mapTier > 0 ? mapTier : 1) + (stones > 0 ? 1 : 0), 1, 16);
-        // Socketed Voidstones convert found maps below tier 16 to gold (maps.md).
-        if (stones > 0 && tier < 16) return Gold(monsterLevel, monster, rng);
-        if (maps.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type) return null;
-        var item = ItemCatalog.Create(type) with { ItemLevel = (byte)Math.Clamp(monsterLevel + ItemLevelBonus(monster), 1, 100) };
-        if (rolls is not null && rng.NextDouble() < 0.10) item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = true };
-        return new(item, type);
-    }
+        MonsterRarity.Normal => 0.002,
+        MonsterRarity.Magic => 0.005,
+        MonsterRarity.Rare => 0.01,
+        _ => 0.02
+    };
+
+    chance = Math.Min(1,
+        chance * SystemSettings.Default.DropMultiplier("maps") *
+        Math.Max(0, chanceMultiplier));
+
+    if (maps is null || (!guaranteed && (chance <= 0 || rng.NextDouble() >= chance)))
+        return null;
+
+    int currentTier = Math.Clamp(mapTier > 0 ? mapTier : 1, 1, 16);
+    int maxTier = Math.Min(currentTier + 1, 16);
+    int tier = guaranteed ? currentTier : rng.Next(1, maxTier + 1);
+
+
+    if (maps.KeyOfTier(tier) is not uint hash ||
+        catalog.ByHash(hash) is not { Supported: true } type)
+        return null;
+
+    var item = ItemCatalog.Create(type) with
+    {
+        ItemLevel = (byte)Math.Clamp(monsterLevel + ItemLevelBonus(monster), 1, 100)
+    };
+
+    if (rolls is not null && rng.NextDouble() < 0.10)
+        item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = true };
+
+    return new(item, type);
+}
 
     // One item: its kind, for equipment its slot and base, then its rarity (the class summary's stages 2 to 4).
     Drop? RollOne(int level, int itemLevel, Chances chances, Random rng)

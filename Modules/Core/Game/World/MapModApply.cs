@@ -26,7 +26,7 @@ static partial class Game
         if ((mods?.Get("map_spawn_two_bosses") ?? 0) == 0) return spawns;
         var list = spawns.ToList();
         foreach (var boss in list.Where(s => s.Rarity == MonsterRarity.Unique).ToList())
-            list.Add(boss with { X = boss.X + 6, Pack = boss.Pack + "-twin" });
+            list.Add(boss with { X = boss.X + 6, Pack = boss.Pack + "-twin", MapBoss = false });
         return list;
     }
 
@@ -51,3 +51,4 @@ static partial class Game
         return cooldown with { RecoveryPercent = (int)Math.Round((rate - 1) * 100) };
     }
 }
+

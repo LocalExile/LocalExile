@@ -89,3 +89,10 @@ desktop.ini
 /scripts/re/levelgen/loads-latest.json
 
 *.iml
+
+# Local backup copies
+*.bak
+*.bak-*
+
+# Local map backup folder
+/MapDrops-backup/

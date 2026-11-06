@@ -61,6 +61,13 @@ partial class Program
 
 sealed partial class InstanceState
 {
+	    /// <summary>Loot accumulated by earlier forms of a phased map boss.</summary>
+    public readonly List<ItemDrops.Drop> PendingMapBossLoot = [];
+
+    /// <summary>Current Unravelling Horror phase (0 = not started, 1–5 = active/completed).</summary>
+    public int UnravellingHorrorPhase;
+
+    public bool UnravellingHorrorTransitionPending;
     public InstanceState() : this(null) { }
     internal InstanceState(InstancePresence? presence) => Presence = presence ?? new();
 

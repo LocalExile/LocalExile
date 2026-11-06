@@ -7,7 +7,11 @@ public sealed record ChatCommand(IPlayer Player, string Name, IReadOnlyList<stri
 public sealed record Packet(IPlayer Player, ushort Opcode, ReadOnlyMemory<byte> Bytes);
 
 /// <summary>A monster: its <c>MonsterVarieties.dat</c> id, name, level, rarity and where it is (cells).</summary>
-public sealed record MonsterInfo(string VarietyId, string Name, int Level, MonsterRarity Rarity, int X, int Y);
+public sealed record MonsterInfo(string VarietyId, string Name, int Level, MonsterRarity Rarity, int X, int Y)
+{
+   /// <summary>Whether this monster is the actual map boss.</summary>
+public bool MapBoss { get; init; }
+}
 
 /// <summary>A monster the player killed.</summary>
 public sealed record MonsterKill(IPlayer Player, MonsterInfo Monster);

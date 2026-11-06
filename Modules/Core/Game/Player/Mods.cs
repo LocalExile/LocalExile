@@ -6,8 +6,11 @@ static partial class Game
 {
 
     internal static Mod.MonsterInfo ModMonster(SpawnedMonster m, (int X, int Y) at) =>
-        new(m.Variety?.Id ?? "", m.Variety?.Name ?? m.Label, m.Level,
-            Enum.TryParse<Mod.MonsterRarity>(m.Rarity.ToString(), out var rarity) ? rarity : Mod.MonsterRarity.Normal, at.X, at.Y);
+    new(m.Variety?.Id ?? "", m.Variety?.Name ?? m.Label, m.Level,
+        Enum.TryParse<Mod.MonsterRarity>(m.Rarity.ToString(), out var rarity) ? rarity : Mod.MonsterRarity.Normal, at.X, at.Y)
+    {
+        MapBoss = m.MapBoss
+    };
 
     // A mod's extra drop (DropRoll.Items), named as /item takes it: a unique's name, else a BaseItemTypes id or name.
     internal static ItemDrops.Drop? ModDrop(ClientState conn, string query, int itemLevel)
@@ -15,8 +18,20 @@ static partial class Game
         if (UniquesFor(conn).Find(query) is { } unique
             && UniquesFor(conn).Create(unique, Random.Shared) is { } created && ItemsFor(conn).ByHash(created.TypeHash) is { } uniqueType)
             return new(created, uniqueType);
-        if (ItemsFor(conn).Find(query) is not { Supported: true } type) return null;
-        if (type.Stackable) return new(ItemCatalog.Create(type), type);
+        int stackSize = 1;
+int separator = query.LastIndexOf('*');
+
+if (separator > 0 &&
+    int.TryParse(query[(separator + 1)..], out int amount))
+{
+    stackSize = Math.Clamp(amount, 1, ushort.MaxValue);
+    query = query[..separator].Trim();
+}
+
+if (ItemsFor(conn).Find(query) is not { Supported: true } type) return null;
+
+if (type.Stackable)
+    return new(ItemCatalog.Create(type) with { StackSize = (ushort)stackSize }, type);
         var (sockets, links) = ItemsFor(conn).DefaultSockets(type, itemLevel);
         return new(ItemCatalog.Create(type, sockets, links) with { ItemLevel = (byte)Math.Clamp(itemLevel, 1, 100) }, type);
     }

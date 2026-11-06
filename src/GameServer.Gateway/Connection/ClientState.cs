@@ -158,6 +158,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public bool Invulnerable => KingGrace || RitualGrace || FetishGrace || LifePhases?.Active == true;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
+	/// <summary>Whether this monster is the actual map boss for the current map.</summary>
+public bool MapBoss { get; init; }
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
     // clip through its current ACT; rig indexes are retained as extraction/profile diagnostics.
     public IReadOnlyList<HitAnimation> HitAnimations { get; init; } = [];

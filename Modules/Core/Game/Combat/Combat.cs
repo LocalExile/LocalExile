@@ -1766,16 +1766,57 @@ static partial class Game
             if (have < needed) await GainExperience(remote, stream, ciphers, conn, needed - have, $"quest: {m.Label} killed, level {level}");
         }
         await GainKillCharges(remote, stream, ciphers, conn, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed");
+        Console.WriteLine($"[kill-reward-debug] monster={m.Label} rarity={m.Rarity} mapBoss={m.MapBoss} noRewards={m.NoRewards} playerKill={playerKill} layout=0x{conn.Layout.Hash:x4}");
         if (!m.NoRewards) await DropLoot(remote, stream, ciphers, conn, m, at);
     }
 
-    // The monster's items (ItemDrops.Roll) as WorldItem objects scattered around where it died, on walkable cells when the
+        static int UnravellingHorrorPhaseOf(ClientState conn, SpawnedMonster monster)
+    {
+        if (conn.Layout.Id != "MapWorldsPort") return 0;
+
+        return monster.Variety?.Id switch
+        {
+            "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss" => 1,
+            "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss2" => 2,
+            "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss3" => 3,
+            "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss4" => 4,
+            "Metadata/Monsters/MassSkeleton/MassSkeletonMapBoss5" => 5,
+            _ => 0
+        };
+    }
+
+    static bool FinishUnravellingHorrorLoot(
+        ClientState conn, SpawnedMonster monster, List<ItemDrops.Drop> drops)
+    {
+        int phase = UnravellingHorrorPhaseOf(conn, monster);
+
+        if (phase is >= 1 and < 5)
+        {
+            lock (conn.Monsters)
+                conn.Instance.PendingMapBossLoot.AddRange(drops);
+
+            return false;
+        }
+
+        if (phase == 5)
+        {
+            lock (conn.Monsters)
+            {
+                drops.InsertRange(0, conn.Instance.PendingMapBossLoot);
+                conn.Instance.PendingMapBossLoot.Clear();
+            }
+        }
+
+        return true;
+    }
+	// The monster's items (ItemDrops.Roll) as WorldItem objects scattered around where it died, on walkable cells when the
     // area's walk map is known. Like dropped items they lie in the instance (InstanceStore).
     internal static async Task DropLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m, (int X, int Y) at)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
         // A survivors run keeps the ground clear: no loot, no gold, nothing reaches the client.
         if (!GameEvents.AllowsLoot(conn)) return;
+		int horrorPhase = UnravellingHorrorPhaseOf(conn, m);
         var balance = LeagueFor(conn).Rules;
         // The mods' changes (Program.Mods.cs): their multipliers on top of the league's, their own items besides.
         var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(m, at));
@@ -1789,10 +1830,48 @@ static partial class Game
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign.
-            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
-                ? openMap.Area.Tier : 0;
-            if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared) is { } mapDrop) drops.Add(mapDrop);
+                        // Only the final Unravelling Horror form can roll a map drop.
+            if (horrorPhase is 0 or 5)
+            {
+                string mapCharacter = CharacterName(conn);
+
+                var openMap = MapDevice.OpenOf(mapCharacter) is { } candidate &&
+                              candidate.Area.Hash16 == conn.Layout.Hash
+                    ? candidate
+                    : null;
+
+                int mapTier = openMap?.Area.Tier ?? 0;
+
+                bool mapBoss = m.MapBoss &&
+                               openMap is not null &&
+                               MapDevices.Value.IsMapArea(conn.Layout.Hash);
+
+                Console.WriteLine($"[map-drop-debug] monster={m.Label} rarity={m.Rarity} marker={m.MapBoss} openMap={openMap is not null} mapArea={MapDevices.Value.IsMapArea(conn.Layout.Hash)} layout=0x{conn.Layout.Hash:x4} openHash=0x{openMap?.Area.Hash16 ?? 0:x4} tier={mapTier} mapBoss={mapBoss} cancelled={modded?.Cancel}");
+
+                int previousMapDrops = openMap?.MapDrops ?? 0;
+
+                double mapChanceMultiplier = previousMapDrops switch
+                {
+                    0 => 1.0,
+                    1 => 0.5,
+                    2 => 0.2,
+                    _ => 0.05
+                };
+
+                if (DropsFor(conn).Map(
+                        m.Level,
+                        m.Rarity,
+                        mapTier,
+                        Random.Shared,
+                        chanceMultiplier: mapChanceMultiplier,
+                        guaranteed: mapBoss) is { } mapDrop)
+                {
+                    drops.Add(mapDrop);
+
+                    if (!mapBoss && openMap is not null)
+                        MapDevice.RecordMapDrop(mapCharacter, conn.Layout.Hash);
+                }
+            }
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
@@ -1803,6 +1882,7 @@ static partial class Game
             if (ModDrop(conn, query, m.Level) is { } extra) drops.Add(extra);
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         }
+		        if (!FinishUnravellingHorrorLoot(conn, m, drops)) return;
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             // A ring around the corpse, 3 to 6 cells out.
