@@ -24,6 +24,8 @@ public class LeagueQuestFlagSaveTests
         Assert.Empty(AccountStash.For(league, catalog).LeagueQuestFlags);
 
         Assert.True(LeagueRules.Standard.DevelopmentUnlocks);
+        var calibration = GameServer.Core.Accounts.LeagueCatalog.FromEnvironment().Find("Campaign Calibration")!;
+        Assert.DoesNotContain("PlayerBots", calibration.Modules);
         var conn = new ClientState(new(1, "calibration", 100, 100, 10, 10, null, []), 1, 1);
         conn.RestoreQuestFlags([], [], developmentUnlocks: true);
         Assert.Contains("HideoutUnlocked", conn.QuestFlags);

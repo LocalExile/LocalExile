@@ -7,7 +7,7 @@ Ruthless and Allflame are leagues in `Leagues/` ([modules](../dev/modules.md)); 
 The same rules apply to the existing Standard/Allflame families and any base leagues configured by the server.
 All eight combinations remain separate personal-stash and gold namespaces.
 
-`Campaign Calibration` is an opt-in league with the ordinary gameplay modules and
+`Campaign Calibration` is an opt-in league with the ordinary gameplay modules, without PlayerBots, and
 `LeagueRules.DevelopmentUnlocks = false`. Login restores earned quest/league flags without granting hideout,
 tutorial or crafting unlocks; Atlas initialization restores saved completion without completing maps or granting
 development flags. Explicit developer commands remain available. Standard and existing leagues default to `true`;
