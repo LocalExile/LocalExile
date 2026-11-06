@@ -1668,9 +1668,15 @@ client built three before the server's three, so it predicts every primary proje
 position. The server therefore sends no object for a spell gem use's primary projectiles (`ProjectileOffense.ClientPredicted`,
 `ProjectileSession.Publish`) and still simulates them; continuation children and area effects still go out. The
 client made no explosion object of its own.
-In these local inputs an attack gem was not predicted: on 2026-10-31 four Burning Arrow uses started the client's action (`0x415`, accepted
-by `0x141e8cf10`) and created no projectile at all until the server's `0x2b9`, as the default attack's arrow; with
-no server object nothing was drawn. `ClientPredicted` is therefore set for spells only (`CaptureGemProjectile`). Ordinary bow arrows and wand bolts (`ScheduleOrdinaryRanged`) keep their server object,
+The older packet-driven Burning Arrow control on 2026-10-31 started action `0x415` but observed only the server
+projectile. It did not establish the real local-input behavior: a mouse-triggered level-one Burning Arrow with a
+Crude Bow on 2026-11-06 creates both the server object and a native client object 118 ms later, both
+`Metadata/Projectiles/BurningArrow`. The native constructors come through `0x141ebe190` and `0x141ebdf30`
+respectively; both reach Projectile component construction `0x141e37850`. Suppress the duplicate primary server
+visual for ordinary Burning Arrow (`ClientDrawsPrimaryProjectile`), preserving its existing server simulation and
+continuation-child presentation. This visual correction does not generalize to unverified attack variants.
+Repeating the mouse-input control after the correction creates one client Burning Arrow and no server arrow object.
+Ordinary bow arrows and wand bolts (`ScheduleOrdinaryRanged`) keep their server object,
 and rightly so: across 40 default-attack arrows on 2026-10-29 the same trace saw no client-created projectile at all
 (only the 36 server `DefaultArrow` objects), and none for a monster's action either (27 Sand Spitter attacks). These observations describe those supplied ordinary-attack inputs. Trace: `scripts/re/frida/trace-projectile-create.js`
 (load `common.js` and the trace in one script: `run.py` gives each file its own scope).
