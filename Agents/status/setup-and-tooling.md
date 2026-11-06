@@ -106,7 +106,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - 3.29.3c client support: login, character list, instance connect, area generation and area entry. 3.29.3c inserted
   two world-group messages before the old frame pair, so every id from 0x2b5 is +2: frame end/length 0x2b7/0x2b8,
   create object 0x2bb, component update 0x2bc, remove object 0x2bd, and the leave-area ack 0x2cd. The client loads
-  Lioneye's Watch, draws the HUD and sends actions.
+  Lioneye's Watch, draws the HUD and sends actions. Area entry is live-verified; the leave-area ack is from the
+  3.29.3c sender, and leaving an area was not exercised in that run.
   Code: `InstanceEntities.cs`, `InstanceProtocol.cs`, `InstanceTransfer.cs`, `Hnc.cs`, `data/schema/schema.min.json`,
   `scripts/dev/extract-data.ps1`.
   Docs: [3.29.3c client diff](../docs/re/3.29.3c-client-diff.md).
