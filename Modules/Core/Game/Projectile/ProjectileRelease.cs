@@ -229,6 +229,10 @@ static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0)
     {
+        // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
+        // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
+        // equipment/requirements/support walk for every field while holding the combat lock.
+        using var snapshot = new PlayerStatScope(conn, fresh: true);
         var player = CharacterPlayerStats(conn);
         var own = SupportedSkill(conn, skillId).Stats;
         var merged = MergeSkillStats(player, own);

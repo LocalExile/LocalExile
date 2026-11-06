@@ -219,7 +219,8 @@ static partial class Game
         // it many times a second (every monster hit): reuse the last result while none of them changed.
         var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level,
             before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. exemptions.Order()],
-            auraEffects, recentEvents, recentExpiry, strength, dexterity, intelligence, life, mana, energyShield, conditionFlags);
+            auraEffects, recentEvents, recentExpiry, strength, dexterity, intelligence, life, mana, energyShield, conditionFlags,
+            ItemsFor(conn));
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
         // A timeless jewel replaces (or augments) the stats of allocated ordinary nodes in its radius. The item is a
@@ -607,16 +608,27 @@ static partial class Game
     internal static int AttributeRequirementsPct(ClientState conn)
     {
         if (Stats.Key(AttributeRequirementsStat) is not uint key) return 0;
-        ushort[] nodes;
-        IReadOnlyDictionary<ushort, ushort> masteries;
         lock (conn.Monsters)
         {
             if (conn.PlayerStats.TryGetValue(key, out int set)) return set;
-            nodes = [.. conn.Passives.Concat(conn.MainAscendancy.Allocated)];
-            masteries = conn.MasteryEffects;
+            var tree = PassivesFor(conn);
+            if (AttributeRequirementSources.TryGetValue(conn, out var last)
+                && ReferenceEquals(tree, last.Tree)
+                && conn.Passives.SequenceEqual(last.Ordinary) && conn.MainAscendancy.Allocated.SequenceEqual(last.Ascendancy)
+                && conn.MasteryEffects.Count == last.Masteries.Count
+                && conn.MasteryEffects.All(kv => last.Masteries.TryGetValue(kv.Key, out ushort value) && value == kv.Value))
+                return last.Value;
+            ushort[] ordinary = [.. conn.Passives], ascendancy = [.. conn.MainAscendancy.Allocated];
+            var masteries = new Dictionary<ushort, ushort>(conn.MasteryEffects);
+            int value = tree.Stats([.. ordinary, .. ascendancy], masteries).GetValueOrDefault(key);
+            AttributeRequirementSources.AddOrUpdate(conn, new(tree, ordinary, ascendancy, masteries, value));
+            return value;
         }
-        return PassivesFor(conn).Stats(nodes, masteries).GetValueOrDefault(key);
     }
+
+    sealed record AttributeRequirementSource(PassiveTree Tree, ushort[] Ordinary, ushort[] Ascendancy,
+        Dictionary<ushort, ushort> Masteries, int Value);
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, AttributeRequirementSource> AttributeRequirementSources = new();
 
     /// <summary>The inputs of CharacterStatSources' passive and equipment sum, compared by value (items by reference).</summary>
     internal sealed record StatSourcesKey(ushort[] Nodes, IReadOnlyDictionary<ushort, ushort> Masteries,
@@ -624,18 +636,22 @@ static partial class Game
         IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems,
         IReadOnlySet<string> Auras, IReadOnlySet<string> Recent, double? RecentExpiry,
         int Strength, int Dexterity, int Intelligence, int Life, int Mana, int EnergyShield = 0,
-        IReadOnlyDictionary<string, bool>? Flags = null)
+        IReadOnlyDictionary<string, bool>? Flags = null, ItemCatalog? Catalog = null)
     {
         public bool Matches(StatSourcesKey o) =>
             ClassRow == o.ClassRow && God == o.God && Level == o.Level && TattooRevision == o.TattooRevision
+            && ReferenceEquals(Catalog, o.Catalog)
             && ReferenceEquals(Masteries, o.Masteries)
             && Nodes.AsSpan().SequenceEqual(o.Nodes) && ClusterPassives.AsSpan().SequenceEqual(o.ClusterPassives)
             && Worn.Length == o.Worn.Length && Worn.Zip(o.Worn).All(p => p.First.Id == p.Second.Id
-                && p.First.X == p.Second.X && ReferenceEquals(p.First.Item, p.Second.Item))
+                && p.First.X == p.Second.X && (ReferenceEquals(p.First.Item, p.Second.Item)
+                    || Catalog is not null && SameSkillItem(p.First.Item, p.Second.Item, Catalog)))
             && Dev.Count == o.Dev.Count && Dev.All(kv => o.Dev.TryGetValue(kv.Key, out int v) && v == kv.Value)
             && (Before ?? new HashSet<uint>()).SetEquals(o.Before ?? new HashSet<uint>())
             && RunItems.AsSpan().SequenceEqual(o.RunItems)
-            && Auras.SetEquals(o.Auras) && Recent.SetEquals(o.Recent) && RecentExpiry == o.RecentExpiry
+            // A refreshed deadline does not change the resolver's boolean "recently" inputs. Snapshot(now) above
+            // drops an expired event, which invalidates this cache at the actual boundary.
+            && Auras.SetEquals(o.Auras) && Recent.SetEquals(o.Recent)
             && Strength == o.Strength && Dexterity == o.Dexterity && Intelligence == o.Intelligence
             && Life == o.Life && Mana == o.Mana && EnergyShield == o.EnergyShield
             && (Flags?.Count ?? 0) == (o.Flags?.Count ?? 0)

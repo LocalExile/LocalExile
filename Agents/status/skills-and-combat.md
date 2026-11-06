@@ -675,11 +675,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §9.
 - Pride on enemies: its buff (row 1331) reaches every monster in the aura without breaking the client's stream.
   Code: `EnemyDebuffs.Rules.cs`. Docs: [11](../docs/protocol/11-skills.md) (The player's debuffs on monsters).
-- Combat load: one stat snapshot per client message and at most one rebuild per 60 Hz frame (`PlayerStatsCache.cs`), the
-  skill list rebuilt only when its inputs change, the tick's state publications batched at the send gate, idle polls
-  skip it; a pack fight's input queue stays under ~400 ms (was 4-16 s). F1 NETWORK shows that wait.
 
 ## Partly working
+
+- Combat load: message/frame and fresh projectile-release snapshots; input-checked skill/equipment caches ignore
+  within-level gem XP and extended active recent windows; immutable item-local stats, condition parsers and projectile
+  recipes are reused. F1 NETWORK retains real input-queue latency; large load spikes remain under investigation.
+  Code: `PlayerStatsCache.cs`, `StatConditions.cs`.
 
 - Survivors league and three optional modules, including the seven stage gate bosses; the catalogue keeps only skills the flight/pulse presentation can play (every projectile gets a visible fallback), ground area spells land on their target, the support pool is every normal support gem whose numbers the cast pipeline reads, and enemies are 5x tougher and 4x harder-hitting (ranged shots at 30%) with a DPS threat on life, nearby experience orbs, a first window that pauses before any spawn, 25%-of-life death zones and corpse cleanup; uniques persist between runs and bosses are 5x their ladder: [client presentation and limits](../docs/game/survivors-mode.md).
 
