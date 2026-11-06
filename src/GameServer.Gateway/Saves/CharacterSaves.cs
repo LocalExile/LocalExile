@@ -384,6 +384,9 @@ static class CharacterSaves
     public static void SetAtlasLayout(string character, string layout) =>
         Update(character, s => s with { SelectedAtlasLayout = layout });
 
+    /// <summary>The Atlas layout the character selected (an AtlasNode Id), or null before it picked one (382).</summary>
+    public static string? AtlasLayout(string character) => Load(character)?.SelectedAtlasLayout;
+
     /// <summary>Records the three Atlas passive presets (PassiveSkillGraphId lists) and the points the character has.</summary>
     public static void SetAtlasPassives(string character, IReadOnlyList<IReadOnlyList<ushort>> presets, ushort points) =>
         Update(character, s => s with

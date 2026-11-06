@@ -10,15 +10,17 @@ sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
     public sealed record Layout(string Id, ushort Hash16, string Name, int Tier, bool Starting);
 
     readonly Lazy<IReadOnlyList<Layout>> _layouts = new(() => LoadLayouts(folder));
-    readonly System.Collections.Concurrent.ConcurrentDictionary<string, Layout> _selected = new(StringComparer.OrdinalIgnoreCase);
     readonly Lazy<IReadOnlyDictionary<uint, int>> _keyTiers = new(() => LoadKeyTiers(catalog, folder));
 
     public IReadOnlyList<Layout> Layouts => _layouts.Value;
 
-    /// <summary>The current layout for a character. The Atlas panel will replace this with saved progress.</summary>
-    public Layout? Selected(string? character) => character is not null && _selected.TryGetValue(character, out var chosen) ? chosen : Default;
+    /// <summary>The layout the character selected, read from its saved character data so it survives a Gateway restart
+    /// (382). The first starting node when the character has none (or the save names a layout the data no longer has).</summary>
+    public Layout? Selected(string? character) =>
+        character is not null && CharacterSaves.AtlasLayout(character) is { } id ? Find(id) ?? Default : Default;
 
-    public void Select(string character, Layout layout) => _selected[character] = layout;
+    /// <summary>Records the character's choice (its AtlasNode Id) in its character save.</summary>
+    public void Select(string character, Layout layout) => CharacterSaves.SetAtlasLayout(character, layout.Id);
 
     public Layout? Default => Layouts.FirstOrDefault(l => l.Starting) ?? Layouts.FirstOrDefault();
 

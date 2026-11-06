@@ -33,7 +33,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/atlas_points <n>` sets the dev budget. Live: with 30 points, three "Map Drop Chance" nodes allocated and the
   client updated the tree; the presets are saved. The Atlas graph and point awards from map completion are not
   implemented, so connectivity is left to the client and the budget has no in-game source yet.
-  The selected layout is saved per character, and generic maps now use their tier as the area level (tier + 67).
+  The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
+  `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
+  maps use their tier as the area level (tier + 67).
   Atlas progress (2026-11-01): killing a map's WorldAreas boss (or any unique) in it completes its AtlasNode, saved per
   character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one filled 0x1a3 with the 0x3d
   presets, before 0x21, so login does not announce every saved map. `/atlas_complete <map | all>` and `/atlas_reset` (dev).
