@@ -35,7 +35,7 @@ static class StatKeys
     public const uint SkillIsNonPathing = 0x4f32;
     // A projectile action's release count and art. The release (0x141ba51a0) fires nothing without
     // number_of_projectiles_override or a count from 0x141ba6070, which reads virtual_total_number_of_projectiles, or
-    // virtual_total_number_of_arrows for an action that says it fires arrows; a mortar action's constructor (0x141b69900)
+    // virtual_total_number_of_arrows for an action that says it fires arrows; the mortar attack's constructor (0x141b69900)
     // takes its MonsterMortar row from skill_behaviour_variation, row 0 (MortarMolten) without it.
     public const uint TotalProjectilesToFire = 0x2d5, VirtualTotalProjectiles = 0x4b4b, VirtualTotalArrows = 0x4b4c,
         SkillBehaviourVariation = 0x1921;

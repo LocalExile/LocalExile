@@ -830,8 +830,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>The Animation.dat Id of the clips the client plays for the skill (MonsterMortar.Animation: the Sand
         /// Spitter mortar's <c>SpellProjectile</c>, row 20), the key of the variety's ACT pool; null when the row names none.</summary>
         public string? AnimationKey { get; init; }
-        /// <summary>The MonsterMortar row the client draws for a mortar skill (its GrantedEffects SkillID: 183 for the Sand
-        /// Spitter's, 55 for a Cannibal's ThrowFire); 0 for any other projectile, and for the skills whose SkillID is row 0.</summary>
+        /// <summary>The MonsterMortar row the client draws for a <c>monster_mortar_attack</c> skill (its GrantedEffects
+        /// SkillID: 183 for the Sand Spitter's, 55 for a Cannibal's ThrowFire); 0 for any other projectile, for the spell
+        /// forms (<c>monster_mortar</c>, not traced) and for the skills whose SkillID is row 0.</summary>
         public int Variation { get; init; }
         /// <summary>The skill's <c>projectile_minimum_range</c> in world units (the Spitter's 50): a lob lands no closer
         /// to the monster than this. 0 without the stat.</summary>
@@ -982,18 +983,22 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         var mortarSkills = active.RootElement.EnumerateArray().Select((r, i) => (r, i))
             .Where(a => a.r.TryGetProperty("Id", out var id) && id.GetString() is { } name
                 && name.StartsWith("monster_mortar", StringComparison.Ordinal))
-            .Select(a => a.i).ToHashSet();
+            .ToDictionary(a => a.i, a => a.r.GetProperty("Id").GetString() == "monster_mortar_attack");
         using var effects = GameTables.Open(TablePath("GrantedEffects"));
         int row = -1;
         foreach (var e in effects.RootElement.EnumerateArray())
         {
             row++;
-            if (!e.TryGetProperty("ActiveSkill", out var a) || a.ValueKind != JsonValueKind.Number || !mortarSkills.Contains(a.GetInt32())) continue;
+            if (!e.TryGetProperty("ActiveSkill", out var a) || a.ValueKind != JsonValueKind.Number
+                || !mortarSkills.TryGetValue(a.GetInt32(), out bool attackForm)) continue;
             if (!e.TryGetProperty("SkillID", out var k) || k.ValueKind != JsonValueKind.Number
                 || !mortarRows.TryGetValue(k.GetInt32(), out var mortar) || mortar.Projectile < 0 || mortar.Projectile >= rows.Count) continue;
             var p = rows[mortar.Projectile];
             if (p.Id.Length == 0 || p.Speed <= 0) continue;
-            result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius)) { AnimationKey = mortar.AnimationKey, Variation = k.GetInt32() };
+            // Only the attack form's action (0x141b69900) is traced and checked live drawing its own; the spell forms
+            // (monster_mortar, monster_mortar_around_caster) keep the server's object.
+            result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius))
+                { AnimationKey = mortar.AnimationKey, Variation = attackForm ? k.GetInt32() : 0 };
         }
         return result;
     });

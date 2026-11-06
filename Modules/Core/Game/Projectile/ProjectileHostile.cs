@@ -15,8 +15,9 @@ static partial class Game
     /// <summary>The use for a monster's ranged attack released now: from the monster toward the player's current cell. A
     /// mortar lands there and damages the area; a straight shot flies on past it. Team 2, so only the player (and friendly
     /// actors) are in its way, never the other monsters. A monster's action releases a projectile of the client's own only
-    /// with a count on its skill record (0x141ba51a0): a mortar's record carries one and the client draws it
-    /// (MonsterProjectileProfile); any other shot's carries none, and the server's object is the projectile the player sees.</summary>
+    /// with a count on its skill record (the mortar attack's release, 0x141ba51a0): a <c>monster_mortar_attack</c>
+    /// record carries one and the client draws it (MonsterProjectileProfile); any other shot's, a spell mortar's included,
+    /// carries none, and the server's object is the projectile the player sees.</summary>
     internal static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
         SkillCatalog.MonsterProjectileInfo projectile, int action, uint? aimedActor = null)
     {
@@ -57,8 +58,8 @@ static partial class Game
     }
 
     /// <summary>The flight the server simulates for a monster's shot. A lobbed shot's range is its landing distance; a
-    /// straight one flies <paramref name="straightRange"/> cells. A mortar the client draws (its record carries the row
-    /// and count, MonsterProjectileSkillStats) gets no object, so the player sees one mortar, as from GGG, which creates
+    /// straight one flies <paramref name="straightRange"/> cells. A mortar attack the client draws (its record carries the
+    /// row and count, MonsterProjectileSkillStats) gets no object, so the player sees one mortar, as from GGG, which creates
     /// none; the flight still lands its hit.</summary>
     internal static ProjectileProfile MonsterProjectileProfile(SkillCatalog.MonsterProjectileInfo projectile, double speed,
         double landing, double straightRange) => new(projectile.Metadata)

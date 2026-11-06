@@ -545,10 +545,10 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal((player.X + 3, player.Y), conn.Walk.Destination);
     }
 
-    // A mortar is the client's own in both modes: its action fires only with a count on its skill record (0x141ba51a0)
-    // and draws the MonsterMortar row skill_behaviour_variation names (0x141b69900; none is row 0, MortarMolten), as on
-    // GGG's Spitter records. The server simulates the flight and lands the hit but creates no object; a straight shot
-    // (the King's BugSoulrend) has no row, no count on its record and keeps its object.
+    // A mortar attack is the client's own in both modes: its action fires only with a count on its skill record
+    // (0x141ba51a0) and draws the MonsterMortar row skill_behaviour_variation names (0x141b69900; none is row 0,
+    // MortarMolten), as on GGG's Spitter records. The server simulates the flight and lands the hit but creates no object;
+    // a straight shot (the King's BugSoulrend) has no row, no count on its record and keeps its object.
     [Fact]
     public void A_mortar_skill_record_carries_the_client_s_count_and_row_and_the_server_draws_no_mortar()
     {
@@ -556,21 +556,34 @@ public class LockstepMonsterTests : IDisposable
         foreach (bool lockstep in new[] { true, false })
         {
             var conn = Connection(lockstep);
-            foreach (var (effectId, row) in new[] { ("MMASandSpitterProjectile", 183), ("MMASandSpitterProjectileLightning", 186), ("ScavengerThrowFire", 55) })
+            foreach (var (effectId, row, count) in new[] { ("MMASandSpitterProjectile", 183, 1), ("MMASandSpitterProjectileLightning", 186, 1),
+                ("ScavengerThrowFire", 55, 1) })
             {
                 int effect = skills.EffectRow(effectId);
                 var mortar = skills.MonsterProjectile(effect);
                 Assert.NotNull(mortar);
                 Assert.Equal(row, mortar!.Variation);
+                Assert.Equal(count, mortar.Count);
                 var stats = Game.MonsterProjectileSkillStats(conn, effect, 70,
                     new MonsterAttack(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true, Projectile = mortar });
                 int Stat(uint key) => Assert.Single(stats, s => s.Item1 == key).Item2;
                 Assert.Equal(row, Stat(StatKeys.SkillBehaviourVariation));
-                Assert.Equal(1, Stat(StatKeys.TotalProjectilesToFire));
-                Assert.Equal(1, Stat(StatKeys.VirtualTotalProjectiles));
-                Assert.Equal(1, Stat(StatKeys.VirtualTotalArrows));
-                Assert.True(Game.MonsterProjectileProfile(mortar, 5, 10, 30).HideVisual, effectId);
+                Assert.Equal(count, Stat(StatKeys.TotalProjectilesToFire));
+                Assert.Equal(count, Stat(StatKeys.VirtualTotalProjectiles));
+                Assert.Equal(count, Stat(StatKeys.VirtualTotalArrows));
+                var profile = Game.MonsterProjectileProfile(mortar, 5, 10, 30);
+                Assert.True(profile.HideVisual, effectId);
+                Assert.Equal(count, profile.Count);
             }
+            // A spell mortar (monster_mortar, a different client action, not traced) keeps the server's object.
+            int spellEffect = skills.EffectRow("LegionVaalViperSummonSnakeProjectile");
+            var spell = skills.MonsterProjectile(spellEffect);
+            Assert.NotNull(spell);
+            Assert.Equal(0, spell!.Variation);
+            Assert.DoesNotContain(Game.MonsterProjectileSkillStats(conn, spellEffect, 70,
+                    new MonsterAttack(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true, Projectile = spell }),
+                s => s.Item1 is StatKeys.SkillBehaviourVariation or StatKeys.VirtualTotalProjectiles);
+            Assert.False(Game.MonsterProjectileProfile(spell, 5, 10, 30).HideVisual);
             var bugs = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/BugSoulrend", 200, Lobbed: false, 3) { Count = 6 };
             var straight = Game.MonsterProjectileSkillStats(conn, skills.EffectRow("MMASandSpitterProjectile"), 70,
                 new MonsterAttack(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true, Projectile = bugs });
