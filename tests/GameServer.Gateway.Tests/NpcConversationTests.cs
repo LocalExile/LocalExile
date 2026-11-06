@@ -5,6 +5,11 @@ public sealed class NpcConversationTests
     [Fact]
     public void Automatic_conversations_use_catalog_priority_flags_and_visited_rows()
     {
+        // Hot reload adds state to existing connections without rerunning their constructors.
+        var existing = (ClientState)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(ClientState));
+        Assert.Empty(existing.AutomaticNpcTalkRows);
+        existing.AutomaticNpcTalkRows.Add(7);
+        Assert.Contains(7, existing.AutomaticNpcTalkRows);
         var catalog = NpcCatalog.Load();
         Assert.Null(catalog.Error);
         foreach (string name in new[] { "Nessa", "Bestel", "Tarkleigh" })
