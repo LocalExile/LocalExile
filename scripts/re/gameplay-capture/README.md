@@ -46,6 +46,9 @@ Capture timing is client hook timing: it cannot measure server CPU time or netwo
 
 Start the prepared client only through `scripts/dev/live.ps1` (or root `Start-Local.ps1`).
 Use `python scripts/re/gameplay-capture/capture.py --local` before entering the reference character.
+For an isolated named client, add `--session NAME` (the same name passed to `live.ps1 -Session`).
+Selection checks the launch record's PID/start time and this checkout's executable path before attaching;
+its client log comes from that session's working folder. An official reference capture does not accept `--session`.
 The local recorder requires the default launcher's matching PID/start-time record and a pinned patched executable.
 It uses identical instance hooks, records the source commit and working-tree fingerprint, and keeps the same format.
 Login/menu state naturally has no instance messages; both directions should appear once a character enters an area.

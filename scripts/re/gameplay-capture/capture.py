@@ -24,7 +24,15 @@ def main():
     client_source.add_argument("--client", type=Path, help="Exact reference executable to observe; never launched")
     ap.add_argument("--check", action="store_true")
     client_source.add_argument("--local", action="store_true", help="Observe this checkout's prepared client")
+    ap.add_argument("--session", help="Named prepared-client session; requires --local")
     args = ap.parse_args()
+    if args.session and not args.local:
+        ap.error("--session requires --local")
+    selected_session = None
+    if args.local:
+        sys.path.insert(0, str(Path("scripts/dev").resolve()))
+        from client_control import find_client, read_records, session_name
+        selected_session = session_name(args.session)
     client = (Path("Client/Game.patched.exe") if args.local else args.client).resolve()
     expected = "3375B36162D29A4B5842340A28B79A3D102AD05BA1F0B2DC40E19D8564D9C1A4" if args.local else EXPECTED
     digest = digest_of(client)
@@ -40,14 +48,12 @@ def main():
     while True:
         found = [p for p in device.enumerate_processes(scope="full")
                  if p.name.lower() == client.name.lower() and Path(p.parameters.get("path", "")).resolve() == client]
-        if len(found) > 1:
-            raise SystemExit("Multiple matching clients; keep one running.")
         if found and args.local:
-            sys.path.insert(0, str(Path("scripts/dev").resolve()))
-            from client_control import find_client, read_records
             records = read_records()
-            selected = find_client("default", [p.pid for p in found], records=records) if "default" in records else None
+            selected = find_client(selected_session, [p.pid for p in found], records=records)
             found = [p for p in found if p.pid == selected]
+        if len(found) > 1:
+            raise SystemExit("Multiple matching clients; select a local session or keep one reference client running.")
         if found:
             break
         time.sleep(0.5)
@@ -55,12 +61,15 @@ def main():
         raise SystemExit("Executable changed during launch; capture stopped.")
     start = time.time()
     source_log = client.parent / "logs/Client.txt"
+    if args.local and selected_session != "default":
+        source_log = Path("data/clients") / selected_session / "logs/Client.txt"
     log_offset = source_log.stat().st_size if source_log.exists() else 0
     manifest = dict(mode="local" if args.local else "official", client=str(client), sha256=digest, pid=found[0].pid, started=start,
                     route="Ranger: Twilight Strand -> Hillock -> Lioneye's Watch",
                     scope="Instance gameplay only; no login capture, video, side-channel or completeness guarantee.")
     manifest.update(client_log_offset=log_offset, stop_file=str((out / "STOP").resolve()))
     if args.local:
+        manifest["client_session"] = selected_session
         manifest["source_commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         diff = subprocess.check_output(["git", "diff", "HEAD", "--", "src", "Modules", "Mods"])
         manifest["tracked_gameplay_diff_sha256"] = hashlib.sha256(diff).hexdigest()
