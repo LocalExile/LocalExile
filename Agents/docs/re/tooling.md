@@ -214,8 +214,12 @@ assume the value from the client panel or from memory. Examples already in `Dama
 ## 9. Overnight full decompile
 
 `scripts/re/overnight/overnight.ps1` decompiles the whole client unattended into `Tools/re/out/full/` (git-ignored); start
-at `REPORT.md` there. `-Status` and `-Stop` control it, and rerunning resumes it. It works on its own copy of the Ghidra
-project, so `g.sh`, `decomp-all` and `Client/` are untouched, and it never starts the client.
+at `REPORT.md` there. It is optional: the servers, `live.ps1` and the tests never read its output, and nothing it needs
+is needed to run or build LocalExile. `-Status` and `-Stop` control it, and rerunning resumes it. It works on its own copy of the Ghidra
+project, so `g.sh`, `decomp-all` and `Client/` are untouched, and it never starts the client. After each program's first
+decompile it runs the passes of section 10 that auto-analysis needs (fragments, switches, code in no function, then
+decompile and dump again, and `NightSplit` for a function still failing); the content track ends with `decode_all.py`.
+These passes also need Python with `capstone` and `pefile`, and Unicorn in `Tools/re/py` for the 9 `.ast` blocks.
 
 | Output | Contents |
 |---|---|

@@ -134,6 +134,68 @@ function Ghidra-Game([string]$log, [int]$timeoutMin, [int]$stallMin, [string]$he
     Invoke-Watched "`"$Headless`" `"$Root\project`" poe3293 -process PathOfExile.exe -noanalysis $flags -scriptPath `"$Scripts`" $post" "$Logs\$log.log" $timeoutMin $stallMin
 }
 
+function Ghidra-Run([string]$proj, [string]$name, [string]$bin, [string]$log, [int]$timeoutMin, [int]$stallMin, [string]$heap, [string]$flags, [string]$post) {
+    Clear-Locks $proj $name
+    $env:GHIDRA_HEADLESS_MAXMEM = $heap
+    Invoke-Watched "`"$Headless`" `"$proj`" $name -process `"$bin`" -noanalysis $flags -scriptPath `"$Scripts`" $post" "$Logs\$log.log" $timeoutMin $stallMin
+}
+
+function Log-Has([string]$log, [string]$pattern) { (Test-Path "$Logs\$log.log") -and (Select-String -Path "$Logs\$log.log" -Pattern $pattern -Quiet) }
+
+# What auto-analysis leaves out, after a program's first decompile (tooling.md section 10): functions at the entries of
+# the bytes in no function, switches with no bounds check, code disassembled but in no function; then everything they
+# touched decompiled and dumped again, and a function no decompiler pass can take written in pieces.
+function Later-Passes([string]$proj, [string]$project, [string]$bin, [string]$file, [string]$d, [string]$tag, [string]$heap) {
+    Stage "$tag-fragments" {
+        Remove-Item "$Logs\$tag-fragments.log" -ErrorAction SilentlyContinue
+        & python -I -X utf8 "$PSScriptRoot\fragments.py" $file $d *>> "$Logs\$tag-fragments.log"
+        if ((Get-Item "$d\fragment-entries.txt").Length -eq 0) { return 'no entries' }
+        Ghidra-Run $proj $project $bin "$tag-fragments" 180 60 $heap '' "-postScript NightFragments.java `"$d\fragment-entries.txt`" `"$d`""
+    } { (Test-Path "$d\fragment-entries.txt") -and ((Get-Item "$d\fragment-entries.txt").Length -eq 0 -or (Log-Has "$tag-fragments" 'listed, .* created')) } -retries 1
+
+    Stage "$tag-switches" {
+        Remove-Item "$d\switches.tsv", "$Logs\$tag-switches.log" -ErrorAction SilentlyContinue
+        $r = Ghidra-Run $proj $project $bin "$tag-switches" 360 60 $heap '' "-postScript NightSwitches.java `"$d`""
+        # A function with a recovered switch, or one that lost cases, was decompiled without them: drop its file.
+        if (Test-Path "$d\switches.tsv") {
+            foreach ($l in Get-Content "$d\switches.tsv") {
+                $f = $l.Split("`t")
+                if ($f[0] -ne 'ok' -and $f[0] -ne 'table') { continue }
+                foreach ($a in @($f[2]) + $(if ($f.Count -gt 6) { $f[6].Split(' ', [StringSplitOptions]::RemoveEmptyEntries) })) {
+                    $a = $a.Split(':')[-1]
+                    Remove-Item "$d\decomp\$($a.Substring(2, 3))\FUN_$a.c" -ErrorAction SilentlyContinue
+                }
+            }
+        }
+        $r
+    } { Log-Has "$tag-switches" 'switches recovered' } -retries 1
+
+    Stage "$tag-instructions" {
+        Remove-Item "$Logs\$tag-instructions.log" -ErrorAction SilentlyContinue
+        Ghidra-Run $proj $project $bin "$tag-instructions" 120 60 $heap '' "-postScript NightFragments.java instructions `"$d`""
+    } { Log-Has "$tag-instructions" 'listed, .* created' } -retries 1
+
+    # DecompAll takes only the functions with no file; NightDump rebuilds only the tables that are gone.
+    Stage "$tag-redecompile" {
+        $r = Ghidra-Run $proj $project $bin "$tag-redecompile" 600 60 $heap '-readOnly' "-postScript DecompAll.java `"$d\decomp`" 2 $Limit"
+        foreach ($t in 'functions.tsv', 'calls.tsv', 'datarefs.tsv', 'strings.tsv', 'symbols.tsv', 'vtables.tsv', 'vtables-unnamed.tsv', 'undecompiled.tsv', 'coverage.tsv', 'dump.done') {
+            Remove-Item "$d\$t" -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Item "$d\disasm" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item "$d\decomp\retry.done" -ErrorAction SilentlyContinue
+        Ghidra-Run $proj $project $bin "$tag-redump" 1440 120 $heap '-readOnly' "-postScript NightRetry.java `"$d\decomp`" 1800 -postScript NightDump.java `"$d`" $Limit -postScript DecompAll.java `"$d\decomp`" 1 $Limit indexonly"
+    } { (Test-Path "$d\dump.done") -and (Test-Path "$d\decomp\retry.done") } -retries 1
+
+    $index = "$d\decomp\index.tsv"
+    Stage "$tag-split" {
+        $failed = @(Import-Csv $index -Delimiter "`t" | Where-Object { $_.status -eq 'failed' } | ForEach-Object { $_.addr })
+        foreach ($a in $failed) {
+            [void](Ghidra-Run $proj $project $bin "$tag-split" 1440 120 $heap '-readOnly' "-postScript NightSplit.java `"$d\decomp`" $a")
+        }
+        if ($failed) { Ghidra-Run $proj $project $bin "$tag-split" 60 30 $heap '-readOnly' "-postScript DecompAll.java `"$d\decomp`" 1 $Limit indexonly" } else { 'ok' }
+    } { -not (Import-Csv $index -Delimiter "`t" | Where-Object { $_.status -eq 'failed' }) } -retries 1
+}
+
 if ($Track -eq 'code') {
     $g = "$Root\game"
     New-Item -ItemType Directory -Force $g | Out-Null
@@ -173,6 +235,8 @@ if ($Track -eq 'code') {
         Ghidra-Game 'game-reindex' 30 20 '5G' '-readOnly' "-postScript DecompAll.java `"$g\decomp`" 1 $Limit indexonly"
     } { Test-Path "$g\decomp\retry.done" } -retries 1
 
+    Later-Passes "$Root\project" 'poe3293' 'PathOfExile.exe' "$Client\Game.exe" $g 'game' '6G'
+
     Stage 'game-index' { Report -Index; 'ok' } { (Test-Path "$g\index.sqlite") -and (Test-Path "$g\functions.tsv") } -retries 1
 
     # The client's own programs first, then third-party libraries smallest first; identical files once.
@@ -209,6 +273,9 @@ if ($Track -eq 'code') {
             # anything the first pass missed, and refreshes the index.
             Invoke-Watched "`"$Headless`" `"$Root\project-bins`" clientbins -process `"$($bin.Name)`" -noanalysis -readOnly -scriptPath `"$Scripts`" -postScript NightRetry.java `"$d\decomp`" 3600 -postScript DecompAll.java `"$d\decomp`" 2 $Limit" "$Logs\bin-$($bin.Name)-retry.log" 1440 120
         } { (Test-Path "$d\recover.done") -and (Test-Path "$d\dump.done") -and (Test-Path "$d\decomp\retry.done") } -retries 1
+        if (Test-Path "$State\bin-$($bin.Name).done") {
+            Later-Passes "$Root\project-bins" 'clientbins' $bin.Name $bin.FullName $d "bin-$($bin.Name)" '5G'
+        }
     }
 }
 
@@ -250,6 +317,15 @@ if ($Track -eq 'content') {
         } else { Say "compress: $(Free-GB) GB free, not needed" }
         New-Item -ItemType File -Force "$State\compress.checked" | Out-Null
     } { Test-Path "$State\compress.checked" } -retries 1
+
+    # Every custom format and script to JSON in decoded/ (tooling.md section 10). It reads Tools/re/out/full only, so not in
+    # a smoke run. .ast blocks ooz rejects need Unicorn in Tools/re/py.
+    if (-not $Smoke) {
+        Stage 'content-decode' {
+            Remove-Item "$Root\decoded\REPORT.md" -ErrorAction SilentlyContinue
+            Invoke-Watched "python -I -X utf8 scripts\re\formats\decode_all.py --jobs 6 --fails 5" "$Logs\content-decode.log" 360 60 2500
+        } { Test-Path "$Root\decoded\REPORT.md" } -retries 1
+    }
 
     # Each batch is written raw, and compressed when free space is short. The floor stays high until the code track is done writing, then
     # drops to $FinalFloorGB. Ends in textures.complete, or textures.partial when the disk really is full.
