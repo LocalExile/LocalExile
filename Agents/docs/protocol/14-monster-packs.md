@@ -32,6 +32,67 @@ packs), 12% magic packs (every member magic), 6% packs with one rare member, at 
 centres keep 60 cells from the arrival point, 25 from area transitions, 28 from other packs and need 5 walkable cells
 around them; members stand within 9 cells. The roll is seeded by (area hash, seed): the same layout gets the same packs.
 
+### Native population research: confirmed readers and unresolved allocation
+
+These findings are pinned to 3.29.3b and do not supply the official server's population RNG.
+`preload_monster_pack` (`0x141e36450`, dispatch `0x141e36a8e`) reads MonsterPacks/MonsterPackEntries to preload
+assets. Script bindings named `SpawnMonster` (`0x1400759f6`, `0x141ed66fa`) and the `MonsterSpawner` string-pointer
+table at `0x142fdd0d0` do not establish density, member selection or placement code.
+
+MonsterPackEntries' unused `Flag` separates 5,345 true rows, commonly weighted 20/50/100, from 759 false rows,
+commonly weighted 1/2/3. Strand Drowned entries are Drowned1/2/3 (20 each), then Wake1/2/3 (15 each), all true;
+its Spitter is true/100. Fixed-count versus proportional allocation remains a hypothesis. Nearby ordered groups
+in an incomplete capture do not prove pack membership: adjacent packs can merge and first positions can include
+movement. `pack_order.py` uses position-bounded groups; `pack_models.py` enumerates competing predictions without
+changing gameplay. No allocation or creation-order algorithm follows from those reports.
+
+#### Room points
+
+Reader `0x142a0ef50` sends 0x30-byte records (signed x/y +0/+4, wide string +8, angle +0x28) through virtual
+slot +0x28 at `0x142a0f11b`. Receiver `0x141ff3ad0` retains them in vectors relative to its room at receiver +8:
+
+| Native type | Room vector | Observed Strand contents |
+|---|---|---|
+| 0 | +0x188 | mapboss; one unnamed point per cliff_nests room |
+| 1 | +0x1a0 | TutorialSupportGemChest; two unnamed points per cliff_nests room |
+| 2 / 3 | +0x1e8 / +0x1b8 | empty in the observed rooms |
+| 8 | +0x1d0 | default in washed_up3; entrance in town_entrance_exclude |
+| 10 | +0x200 | empty in the observed rooms |
+| 4–7, 9 | ignored | no retained vector in this callback |
+
+Types 0/1/8 are monster-bearing, chest-bearing and entry points in these controls. RoomFile.NamedPoint.Section
+is the sequential file-list index, not this native enum: for room version 26, section 4 means native type 8.
+The enum alone does not establish the server's allocation of unnamed points.
+Type-0/3 callbacks separately cache a case-sensitive WG name suffix at room +0xb (`0x141ff3b22`–`0x141ff3c24`).
+Before zone/doodad generation, `0x14204df29`–`0x14204dfda` allocates initially empty per-room state for that flag.
+A read-only prepared-client control at seed 638028951 has 25 room records, one type-0 point, and no WG state.
+These are authored points, not the ordinary monsters later announced by the server.
+
+The room-point vector has a confirmed terrain consumer: fill-room check `0x141fed2d0` rejects a room containing
+points when open-ground is false (`0x141fed417`–`0x141fed440`), already represented by Fill.FillEntry's PointCount check.
+Apparent +0x188 reads in `0x141ff7077` instead belong to a 0x10-byte telepad_injector list; `0x142048b1b` is an
+environment pass. Offset similarity is insufficient without object provenance.
+World vtable `0x14346e0c8` slot +0x28 resolves to `0x14164dc80`, after doodads. It conditionally creates a
+tile-grid-related object at world +0x1a8 when +0x985 is set, with no room-point/member loop; this callback does not
+provide an ordinary population roll. `trace-room-point-state.js` records the prepared client's room state read-only.
+
+#### Overlay and ground inputs
+
+Overlay parser `0x141ffca30` retains doodad/spawn-point suppression booleans; placement copies them to bits
+0x02/0x04 at placed-room +0x1c (`0x1420005d1`–`0x1420005f9`). Doodad generator `0x1420425d0` checks only later
+suppressing rooms: accepted doodad types inside their half-open rectangles are skipped (`0x142040c18`–`0x142040c82`).
+The local generator lacks those placed-room flags/filtering. This is a missing doodad rule, not proof of the
+spawn-point bit's consumer or a cause of Strand density. A terrain port would need the level-generation gate;
+these notes and read-only traces make no generator change.
+
+Strand master.tsi lists four BeachOcean restricted ground types. Loader `0x142a06390` retains the string at
+temporary master +0x58; receiver `0x141ff0900` copies it to loaded master +0xa0 (`0x141ff0a90`–`0x141ff0aaa`).
+Its downstream consumer remains unresolved. The Strand overlay file has no explicit suppression override.
+The 34 MonsterPackCounts rows resolve to Synthesis areas; MonsterSpawnerGroups describe encounter groups.
+Those tables, the three Strand macro graphs, and the server-only BiteZombieSpawner OT provide no ordinary
+campaign density constant. Matching the terrain seed therefore does not establish identical monster placements.
+
+
 ## 2. Spawning
 
 `SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2b9 with the

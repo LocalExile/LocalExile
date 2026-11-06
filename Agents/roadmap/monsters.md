@@ -12,6 +12,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   melee attacks all work ([10](../docs/protocol/10-chat-and-commands.md) §5, [11](../docs/protocol/11-skills.md) §6);
   areas are populated with their MonsterPacks and unique boss ([14](../docs/protocol/14-monster-packs.md));
   emerge monsters rise near the player ([10](../docs/protocol/10-chat-and-commands.md) §5).
+  Native pack preloading, authored room-point types and overlay doodad suppression have bounded research notes
+  in [14](../docs/protocol/14-monster-packs.md). Ordinary member allocation, spawn-point suppression and RestrictedGTs
+  consumers remain unresolved; those findings do not establish an official population RNG or placement port.
   Hits can make monsters flee ([11](../docs/protocol/11-skills.md) §6); a live check should settle the flee distance
   and whether the real server walks a fleeing monster with Monster.ot's `Flee` action instead of Move.
   Inherited Life corpse/sinking flags and the source eligibility predicate are implemented for ordinary creation

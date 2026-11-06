@@ -519,6 +519,11 @@ newest starts when the swing ends. A skill held down repeats from the player's t
 0x192, until 0x195; an attack on an object that dies goes on at the ground. A channelled skill gets a 0x1ad for a new aim
 and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0x191, answered with 0x1ce as in Predictive.
 
+A bounded 3.29.3b opening capture has 1,644 action starts consuming the existing compact-coordinate layout;
+the inferred player actor uses headers 0x9001 for 797 Move starts and 0x5001 for ten held attack/skill starts.
+The opening entry is missing. Its hook gaps (median 31 ms, p95 43 ms) are packet arrival batches, not measurements
+of simulation-step duration. Capture identities and input modes need normalization before timing comparisons.
+
 A skill asked on a monster (0x18f) gets its 0x1ab at once, from the player's cell and aimed at the monster, as an object
 use does: the client's own action walks up and swings when it gets there, as a monster's chase does, and the held skill's
 next use follows that swing. The Gateway does the same (`LockstepAttackStart`) and runs its walk-up and swing without a
