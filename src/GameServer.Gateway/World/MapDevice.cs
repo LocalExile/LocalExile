@@ -137,6 +137,12 @@ sealed class MapDevice
         /// <summary>The item's .it components when known; Map / MapKey admit a slot even if ItemClasses later rename it.</summary>
         public IReadOnlyList<string>? Components { get; init; }
 
+        /// <summary>The item's rarity and corruption, and its BaseItemTypes Id: the area stats a map load carries name them
+        /// (map_rarity, map_is_corrupted, the scarab counts by kind; <see cref="AreaStats"/>).</summary>
+        public ItemRarity Rarity { get; init; }
+        public bool Corrupted { get; init; }
+        public string BaseId { get; init; } = "";
+
         public bool IsMap =>
             Class is MapClass or MapKeyClass
             || Components is { } c && (c.Contains("Map") || c.Contains("MapKey"));

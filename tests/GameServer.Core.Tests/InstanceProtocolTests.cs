@@ -38,7 +38,8 @@ public class InstanceProtocolTests
     public void Area_instance_encodes_in_write_order()
     {
         var bytes = new AreaInstance(InstanceId: 0x01020304, AreaHash: 0x235c, Seed: 7, Level: 2).Encode();
-        Assert.Equal("001D" + "01020304" + "235C" + "0000" + "00000007" + "03" + "00" + "02" + "23" + "000000" + "02" + "00" + "3C"
+        // +0x28 is the topology variant: 59 (0x3B), as the server sends it (AreaInstance.TopologyVariant).
+        Assert.Equal("001D" + "01020304" + "235C" + "0000" + "00000007" + "03" + "00" + "02" + "23" + "000000" + "02" + "00" + "3B"
                      + "0000" + "0000" + "00" + "0000", Convert.ToHexString(bytes));
     }
 
