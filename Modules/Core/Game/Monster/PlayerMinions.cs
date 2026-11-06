@@ -62,6 +62,7 @@ static partial class Game
             if (!Current()) return;
             await tick(remote, stream, ciphers, conn, now);
         }
+        await GolemsTick(remote, stream, ciphers, conn, now);
         var ended = new List<PlayerMinions.Minion>();
         var bytes = new List<byte>();
         int summons;

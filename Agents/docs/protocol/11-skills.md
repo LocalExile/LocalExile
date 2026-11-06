@@ -2461,9 +2461,14 @@ The Spirit chieftains are the first (section 10f).
 - End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
   removed a second later (0x2bb).
 
-Not modelled: a minion's other skills (it uses its first granted effect, as every server monster), monsters
-attacking minions (only immortal minions exist so far), the minion's stats following the player's after the summon,
-minions crossing an area change, and minion commands.
+The timed chieftain controller still uses only its first skill. Golems have a separate controller and saved source
+intent (`GolemState`), rather than persisting their area objects. Minion commands and party buff sharing remain partial.
+
+Golem native skill ids follow the variety's full GrantedEffects order (`0x4000 + index`), including conditional skills.
+Monster spell stat rows are selected by `PlayerLevelReq` at the minion's actor level, not by treating that level as
+`GemLevel`; float interpolation 3 uses the effectiveness constants in `GameConstants`.
+Recovery buffs have extra packet fields: Safeguarding's `rock_golem_alt_buff` (592) needs `u82` and one recovery value;
+Withered (506) needs `u82` and two. Omitting these misaligns the next packet and crashes the native parser.
 
 ## 10i. Warcry release: timing and release effects
 

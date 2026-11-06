@@ -79,6 +79,7 @@ sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic
             CharacterSaves.SaveExperience(Program.CharacterName(conn));
             Rules.ItemsOf(conn).SaveUnsaved();
             Rules.PersistVitals(conn);
+            Rules.SaveGolems(conn);
         }
         Rules.CommitHardcoreDeath(conn);
     }

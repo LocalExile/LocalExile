@@ -93,10 +93,10 @@ static partial class Game
         mods = MonsterModsFor(conn, variety, level, rarity, mods, alone);
         // Additional encounter scaling composes with rolled rarity and map effects.
         if (extraMods is not null) mods = mods with { Effects = mods.Effects.Plus(extraMods.Effects) };
-        if (MapModsOf(conn) is { } mapMods && MapMonsterEffects(mapMods) is { Count: > 0 } mapStats)
+        if (!friendly && MapModsOf(conn) is { } mapMods && MapMonsterEffects(mapMods) is { Count: > 0 } mapStats)
             mods = mods with { Effects = mods.Effects.Combine(mapStats) };
         // The party bonus (Game.PartyBonus): each player beyond the first adds to the monsters' life by their rarity.
-        if (PartyMonsterLife(conn, rarity) is int party and > 0)
+        if (!friendly && PartyMonsterLife(conn, rarity) is int party and > 0)
             mods = mods with { Effects = mods.Effects.Combine(new Dictionary<string, int> { ["maximum_life_+%"] = party }) };
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
@@ -519,7 +519,7 @@ static partial class Game
                 // Out of the wake zone the client's copy stands frozen (07 §3); the server's stands too (KeepWakeZone
                 // ended its walk) and gets no order until it is back, or the return's 0x128 would put the copy wherever
                 // the estimate walked meanwhile (live 2026-11-03: 162 cells, in one jump).
-                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted || m.Asleep
+                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted || m.Asleep || conn.Golems.All.ContainsKey(id)
                     || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
                 // Asleep for this client (its own wake zone, KeepWakeZone): no order and no boss bar about an object the
                 // client has put to sleep; the boss life bar for one crashed the client (live 2026-11-05).
@@ -534,6 +534,7 @@ static partial class Game
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
                 // One player at a time: the instance's monster acts for whoever it targets, on that one's connection.
                 if (m.Hostile && !MonsterTargetsLocked(conn, id, m, (mx, my), d, now)) continue;
+                if (m.Hostile && GolemEnemyOrderLocked(conn, id, m, now, d)) continue;
                 if (!m.Aggro && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
                 if (m.Aggro && !m.BossBarShown && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
                 {
@@ -1276,6 +1277,9 @@ static partial class Game
             if (InGracePeriod(conn)) return null;
             double now = conn.Clock.Elapsed.TotalSeconds;
             var here = conn.Walk.Position(now);
+            foreach (var golem in conn.Golems.All.Values.ToArray())
+                if (!golem.Monster.Dead && Dist(golem.Monster.Walk.Position(now), aim) <= radius)
+                    GolemTakeHitLocked(conn, golem, id, m, a, now, area: true);
             double dx = here.X - aim.X, dy = here.Y - aim.Y;
             if (dx * dx + dy * dy > radius * radius) return null;
             outcome = CommitMonsterHitLocked(remote, conn, id, m, a, now, here, aim, checkRange: false, sequence: sequence);
@@ -1425,6 +1429,12 @@ static partial class Game
         damage = FortificationDamageTaken(conn, damage);
         chaosDamage = FortificationDamageTaken(conn, chaosDamage);
         physicalDamage = Math.Min(FortificationDamageTaken(conn, physicalDamage), Math.Max(0, damage - chaosDamage));
+        if (!a.Spell && !a.Ranged && damage > 0)
+        {
+            int before = damage; damage = GolemSafeguardLocked(conn, damage, now);
+            chaosDamage = (int)((long)chaosDamage * damage / before);
+            physicalDamage = (int)((long)physicalDamage * damage / before);
+        }
         if (damage > 0)
         {
             int full = damage;

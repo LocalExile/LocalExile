@@ -961,7 +961,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   the nearest hostile monster near both, swings its first skill with his minion modifiers (its base hit from
   DefaultMonsterStats `MinionDamage`, the ally table), and its kills give him
   experience and loot; the instance save, his area hits and his on-kill charges leave it out.
-  The Spirit chieftains are the only ones; no monster attacks a minion.
+  This first-skill controller serves Spirit chieftains; golems use their own controller below.
   Gateway coverage; not yet checked with the real client.
   Code: `PlayerMinions.cs`, `MinionAttacks.cs`, `RunMonsterAi`.
   Docs: [11](../docs/protocol/11-skills.md) section 10h.
@@ -1019,17 +1019,12 @@ This is a research baseline, not new live skill acceptance or complete native/se
   on hits against rares and uniques, behind its cooldown, in Ruthless too.
   Used by the Paladin Aura options (Determination, Grace, Discipline); automated coverage only, not checked with the
   real client. See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
-- Owned minions: the player's minions are friendly monsters marked by `is_player_minion` and `is_semantic_minion`.
-  They follow him (teleporting back from beyond their aggro range when they have a teleport), end by their duration,
-  can cast an aura on him and explode when they end; his increased minion life and duration raise their life and
-  duration, and the flasks that Field Medicine puts on a linked minion change its walk speed.
-  Their kills give experience and items. They go with death, the granting passive, an area change and logout, and
-  are never saved.
-  Only Summon Elemental Relic's relics exist (Elemental Valiance and Unwavering Crusade); no gem makes minions yet.
-  Not modelled: monsters attacking minions, minion attacks and damaging skills, the player's other minion modifiers
-  (damage, resistances, energy shield), and party allies.
-  Automated coverage only, not checked with the real client.
-  See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
+- Owned minions: relics and chieftains remain timed; all 17 playable golem gems summon, fight and take generic hostile
+  hits/projectiles. Golems follow, scale with gem level/quality and supports, grant their distinct owner buffs and save
+  activation across areas. Local rule: each activated golem returns two game seconds after death while its source is
+  usable. All variants summoned in the real client; ordinary combat, buffs and repeated returns checked live.
+  Partial: exact official AI priorities, some support interactions, party buff sharing and bespoke boss damage.
+  See [11](../docs/protocol/11-skills.md) section 10h; relics remain in section 13 and [Paladin](../docs/game/paladin.md).
 - Link skills: Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link link one of the player's minions when
   he has `link_skills_can_target_minions` (Deep Connections); with no party play there is nothing else to link.
   A link lasts its duration, costs mana every second, breaks after 4 s out of range or when its cost is not paid, and

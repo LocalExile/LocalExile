@@ -738,6 +738,8 @@ static partial class Game
                     () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } accepted) return accepted;
         if (gem.Name is not null && GameEvents.RunSkillCast(conn, SkillsFor(conn).EffectId(gem.Effect), skillId, from,
                 () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } taken) return taken;
+        if (gem.Name is not null && GolemData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } golem)
+            return await CastGolem(remote, stream, ciphers, conn, skillId, golem, to, recoveryGeneration, Current);
         if (gem.Name is not null && TotemVariety(conn, gem.Effect) is { } totem)
         {
             _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, to, Current);
