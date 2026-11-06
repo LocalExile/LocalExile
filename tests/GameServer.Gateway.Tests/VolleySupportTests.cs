@@ -27,9 +27,11 @@ public sealed class VolleySupportTests
             var wand = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1") ?? Program.Items.Find("Driftwood Wand")!);
             var fireball = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemFireball")!);
             var volley = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SupportGemParallelProjectiles")!);
+            var spark = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemSpark")!);
             Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wand with
             {
-                Sockets = [new ItemSocket(SocketColour.White, fireball), new ItemSocket(SocketColour.White, volley)], Links = [2],
+                Sockets = [new ItemSocket(SocketColour.White, fireball), new ItemSocket(SocketColour.White, volley),
+                    new ItemSocket(SocketColour.White, spark)], Links = [2, 1],
             });
             foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
                 "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
@@ -38,6 +40,24 @@ public sealed class VolleySupportTests
             uint xDistKey = Program.Stats.Key("virtual_additional_projectiles_fire_parallel_x_dist")!.Value;
             Assert.NotNull(fb.Stats);
             Assert.Contains((xDistKey, 80), fb.Stats!);
+            // A targeted skill delta must retain the full build's rows, while omitting unrelated gem panels.
+            var selected = Game.PlayerSkills(conn, (id, _) => id == fb.Id);
+            Assert.Contains(skills, s => Game.SkillEffectId(conn, s.Id) == "Spark");
+            Assert.DoesNotContain(selected, s => Game.SkillEffectId(conn, s.Id) == "Spark");
+            Assert.Equal(fb.Stats, selected.Single(s => s.Id == fb.Id).Stats);
+            Assert.DoesNotContain(Game.PlayerSkills(conn, (_, _) => false), s => s.Id == fb.Id);
+            Assert.Same(skills, conn.PlayerSkillsCache); // A partial build cannot poison the complete-list cache.
+            uint momentum = Program.Stats.Key("base_current_momentum")!.Value;
+            conn.PlayerStats[momentum] = 0;
+            using (new Game.PlayerStatScope(conn))
+            {
+                Assert.Equal(0, Game.CharacterPlayerStats(conn)[momentum]);
+                conn.PlayerStats[momentum] = 2; // Post-admission state, while the action retains its old snapshot.
+                var updated = Game.PlayerSkills(conn, (id, _) => id == fb.Id).Single(s => s.Id == fb.Id);
+                Assert.Contains((momentum, 2), updated.Stats!);
+                Assert.Equal(0, Game.CharacterPlayerStats(conn)[momentum]);
+            }
+            Assert.Same(skills, conn.PlayerSkillsCache);
         }
         finally
         {

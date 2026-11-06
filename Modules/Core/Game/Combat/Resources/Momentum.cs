@@ -28,7 +28,7 @@ static partial class Game
         var player = CharacterPlayerStats(conn);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         double seconds = SkillDurationModifiers.Seconds(Get("support_momentum_base_buff_duration_ms"), Player, Get);
-        owner.Momentum.Paid(new(action, skill, effect, new(Get("support_momentum_max_stacks"), seconds,
+        owner.Momentum.Paid(new(action, skill, new(Get("support_momentum_max_stacks"), seconds,
             Get("support_momentum_movement_speed_+%_per_stack_removed"))), conn.Clock.Elapsed.TotalSeconds);
     }
 
@@ -117,11 +117,15 @@ static partial class Game
                 }
                 if (Stats.Key("base_current_momentum") is uint count)
                     packets.AddRange(InstanceEntities.StatsUpdate(PlayerId, [(count, state.Count)]));
-                if (state.Count != state.SentCount || retired)
-                    foreach (var skill in PlayerSkills(conn))
+                // A later full refresh must not resend the pre-use count from an admission-scope cache hit.
+                if (state.Count != state.SentCount || retired) conn.PlayerSkillsCache = null;
+                if ((state.Count != state.SentCount || retired)
+                    && Stats.Key("support_momentum_attack_speed_+%_per_stack") is uint perStack)
+                    foreach (var skill in PlayerSkills(conn, (id, gem) => conn.ClientSkillIds.Contains(id)
+                        && gem.Stats.GetValueOrDefault(perStack) != 0))
                     {
                         if (!conn.ClientSkillIds.Contains(skill.Id) || skill.Stats is not { } current
-                            || !current.Any(v => Stats.Name(v.Key) == "support_momentum_attack_speed_+%_per_stack" && v.Value != 0)) continue;
+                            || !current.Any(v => v.Key == perStack && v.Value != 0)) continue;
                         var changed = current.Where(v => Stats.Name(v.Key) is string name
                             && (name is "current_momentum" or "main_hand_attack_speed_+%" or "off_hand_attack_speed_+%"
                                 || name.Contains("per_second", StringComparison.Ordinal))).ToArray();

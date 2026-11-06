@@ -2,7 +2,7 @@
 sealed class MomentumState
 {
     internal readonly record struct Settings(int Maximum, double SwiftSeconds, int MovementPerStack);
-    internal sealed record PaidUse(int Action, ushort Skill, int Effect, Settings Settings);
+    internal readonly record struct PaidUse(int Action, ushort Skill, Settings Settings);
     internal int Count { get; private set; }
     internal double SwiftUntil { get; private set; }
     internal int SwiftMovement { get; private set; }
@@ -30,7 +30,7 @@ sealed class MomentumState
 
     void Commit(double now)
     {
-        var use = Pending!;
+        var use = Pending!.Value;
         Pending = null;
         consumedAction = use.Action; consumedSkill = use.Skill;
         if (use.Settings.Maximum <= 0) return;

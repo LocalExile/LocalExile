@@ -39,7 +39,7 @@ public sealed class SupportHitDamageTests
         {
             var momentum = new MomentumState();
             var settings = new MomentumState.Settings(3, 1.5, 15);
-            MomentumState.PaidUse Use(int action) => new(action, 0x8002, 2037, settings);
+            MomentumState.PaidUse Use(int action) => new(action, 0x8002, settings);
             momentum.Paid(Use(1), 0);
             Assert.Equal(0, momentum.Count); // Payment alone cannot grant a native use that was never acknowledged.
             momentum.Acknowledge(1, 0x8002, .1);

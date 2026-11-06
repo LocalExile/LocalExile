@@ -13,7 +13,8 @@ static partial class Game
     // character does not meet makes its item inactive (EquipmentStatSources) like a worn item the character is too low for,
     // so GemSkillEffects leaves its skill out: the client has nothing to cast. A use that arrives anyway (a stale client) is
     // refused (GemDisabled).
-    internal static IReadOnlyList<GrantedSkill> PlayerSkills(ClientState conn)
+    internal static IReadOnlyList<GrantedSkill> PlayerSkills(ClientState conn,
+        Func<ushort, SupportedGem, bool>? gemFilter = null)
     {
         // Headhunter, Rage, Fortification and charge changes call this many times a second. A short cache keeps the
         // client's skill records at most a frame or two stale while preventing a full build inside the send gate per
@@ -23,9 +24,15 @@ static partial class Game
         // drops it at once. The stats carry Rage, charges, Onslaught and the auras, whose attack and cast times the
         // client's actions follow, so those rebuild it too.
         double now = conn.Clock.Elapsed.TotalSeconds;
-        var inputs = SkillSnapshotInputs.Capture(conn, CharacterPlayerStats(conn));
-        if (conn.PlayerSkillsCache is { } cached && PlayerSkillsInputs.TryGetValue(conn, out var was) && ReferenceEquals(was.Skills, cached)
-            && was.Inputs.Matches(conn, inputs.Stats)) return cached;
+        SkillSnapshotInputs? inputs = null;
+        // A targeted post-use delta needs fresh state, even inside the admitted action's stat scope.
+        // It must neither read nor replace the complete skill-list cache.
+        if (gemFilter is null)
+        {
+            inputs = SkillSnapshotInputs.Capture(conn, CharacterPlayerStats(conn));
+            if (conn.PlayerSkillsCache is { } cached && PlayerSkillsInputs.TryGetValue(conn, out var was) && ReferenceEquals(was.Skills, cached)
+                && was.Inputs.Matches(conn, inputs.Stats)) return cached;
+        }
         // One build reads one snapshot of the character's stats, final stats and supported gems: every gem's cast time,
         // hit, crit and panel rows used to recompute them (CharacterPlayerStats, FinalPlayerStats, SupportedSkill) five or
         // six times per gem, 180-270 ms per build in the Debug server, inside the send gate. The snapshot also captures
@@ -37,10 +44,13 @@ static partial class Game
         {
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
             var skills = new List<GrantedSkill>([.. SkillsFor(conn).PlayerDefaults(player),
-                .. GemSkills(conn, player, character, panelSources!), .. GameEvents.ExtraSkills(conn)]);
-            conn.PlayerSkillsCache = skills;
-            conn.PlayerSkillsAt = now;
-            PlayerSkillsInputs.AddOrUpdate(conn, new(inputs, skills));
+                .. GemSkills(conn, player, character, panelSources!, gemFilter), .. GameEvents.ExtraSkills(conn)]);
+            if (gemFilter is null)
+            {
+                conn.PlayerSkillsCache = skills;
+                conn.PlayerSkillsAt = now;
+                PlayerSkillsInputs.AddOrUpdate(conn, new(inputs!, skills));
+            }
             return skills;
         }
         finally { StatsScope.Value = outer; }
@@ -504,7 +514,8 @@ static partial class Game
     // (SkillCatalog.EffectStats: damage, cast time, mana cost) after the player's, with ids after the default attack's that
     // no basic action uses (SkillCatalog.SkillIds).
     internal static IEnumerable<GrantedSkill> GemSkills(ClientState conn, IEnumerable<(uint, int)> player,
-        IReadOnlyDictionary<uint, int> characterInputs, PanelSourceSnapshot panelSources)
+        IReadOnlyDictionary<uint, int> characterInputs, PanelSourceSnapshot panelSources,
+        Func<ushort, SupportedGem, bool>? gemFilter = null)
     {
         string? character = conn.Character;
         var playerStats = new Dictionary<uint, int>();
@@ -515,6 +526,8 @@ static partial class Game
         foreach (var (id, effect, name, _, quality, gem) in gems)
         {
             var supported = SupportedSkill(conn, id);
+            // Filter before hit/panel calculations; source multiplicity still uses the complete granted set.
+            if (gemFilter is not null && !gemFilter(id, supported)) continue;
             int level = supported.Level;
             var own = supported.Stats;
             var stats = MergeSkillStats(playerStats, own);
