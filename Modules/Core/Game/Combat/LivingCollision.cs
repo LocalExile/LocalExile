@@ -25,6 +25,8 @@ static partial class Game
                     if (!PlayerUpdatesCurrent(conn, updates)) return;
                     await ReleaseHeldMove(remote, stream, ciphers, conn);
                     if (!PlayerUpdatesCurrent(conn, updates)) return;
+                    await SendMomentum(remote, stream, ciphers, conn);
+                    if (!PlayerUpdatesCurrent(conn, updates)) return;
                     await KeepWakeZone(remote, stream, ciphers, conn);
                     if (!PlayerUpdatesCurrent(conn, updates)) return;
                 }
@@ -262,7 +264,7 @@ static partial class Game
             foreach (var (at, id, cell) in steps)
             {
                 if (stopped.Contains(id)) continue;
-                if (!Step(bodies, id, walks[id], at, cell)) stopped.Add(id);
+                if (!Step(conn, bodies, id, walks[id], at, cell)) stopped.Add(id);
             }
             pending.Clear();
             foreach (var (id, walk) in walks)
@@ -304,7 +306,7 @@ static partial class Game
                 {
                     bool stopped = false;
                     foreach (var (at, cell) in walk.Steps(start, end))
-                        if (!Step(bodies, id, walk, at, cell)) { stopped = true; break; }
+                        if (!Step(conn, bodies, id, walk, at, cell)) { stopped = true; break; }
                     if (stopped || walk.Reached || walk.ArrivesAt > end) break;
                     walk.Repath(walk.ArrivesAt);
                 }
@@ -327,7 +329,7 @@ static partial class Game
     }
 
     // One step of a walk, as the client checks it: false when it was blocked and ended the walk.
-    static bool Step(ClientState.MonsterBlockerFrame bodies, uint id, GameServer.Core.World.PlayerWalk walk, double at, (int X, int Y) cell)
+    static bool Step(ClientState conn, ClientState.MonsterBlockerFrame bodies, uint id, GameServer.Core.World.PlayerWalk walk, double at, (int X, int Y) cell)
     {
         bool floor = walk.Floor(cell.X, cell.Y);
         bool body = floor && ClientPathfinder.ObjectBlocks(id == PlayerId ? bodies.ForPlayer : bodies.For(id),
@@ -338,7 +340,7 @@ static partial class Game
             return false;
         }
         if (!body) walk.WalksThrough = false;
-        if (id == PlayerId) bodies.MovePlayer(cell.X, cell.Y);
+        if (id == PlayerId) { bodies.MovePlayer(cell.X, cell.Y); MomentumMoved(conn); }
         else bodies.Move(id, cell.X, cell.Y);
         return true;
     }

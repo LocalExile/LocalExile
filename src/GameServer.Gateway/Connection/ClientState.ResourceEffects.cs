@@ -10,6 +10,7 @@ sealed partial class ClientState
     internal ITransferCombatState? ResourceEffectsState;
     internal ConnectionWorker ResourceEffectsLease { get; } = new("resource-effects");
     internal HashSet<(uint Actor, ushort Buff)> RetiredResourceBuffs { get; } = [];
+    internal HashSet<ushort> RetiredSkillBuffs { get; } = [];
 
     internal void RetireResourceEffects()
     {

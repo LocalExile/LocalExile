@@ -104,7 +104,9 @@ Nothing yet.
   documented in [25](../docs/protocol/25-gem-supports.md).
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
   (`SpellRepeats`; [11](../docs/protocol/11-skills.md) "Spell repeats"); tested, not yet checked with the real client.
-  Momentum's attack-speed term and next-use count are calculated; runtime stacks and Swiftness remain missing.
+  Ordinary Momentum attacks gain stacks on paid, acknowledged uses; walking clears them and the maximum grants
+  Swiftness. Native-client checks confirm next-use speed, movement reset and rejected-cost behavior;
+  channelled gains and movement-skill/teleport reset parity remain missing ([25](../docs/protocol/25-gem-supports.md)).
   Special execution mechanics remain incomplete;
   see [25](../docs/protocol/25-gem-supports.md).
 

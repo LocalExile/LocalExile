@@ -184,13 +184,20 @@ Momentum's native count getter (`0x1428da370`) adds `base_current_momentum` and 
 (`0x1426ff98d`–`0x1426ff99f`). The server applies the term to supported timing and publishes `current_momentum`.
 The recorded level-one Burning Arrow uses 15 attack speed per stack and count-dependent rates 112/127/143
 (attacks/s × 100); native final-speed quantization is described in [11](11-skills.md).
-Runtime gains, movement reset and Swiftness are still separate execution work.
+Ordinary non-channelled attacks gain a stored stack after payment and the accepted action echo.
+Successful walk steps clear stacks; blocked/no-op Move requests do not. At the supported maximum, all stacks
+become Swiftness with the data-driven duration and movement benefit. The admitted attack retains its timing;
+compact `0x1b4` deltas update the next-use skill view. State follows the existing resource-effect lifetime and
+resets on death, area transfer or source replacement. Channelled generation and movement-skill/teleport reset
+parity remain unresolved. The pinned support gives 3 maximum stacks, 1500 ms Swiftness and 15 movement speed
+per removed stack; the official opening supplies no threshold/channelled observation, while local controls
+verify the ordinary threshold, movement reset and failed-cost behavior.
 
 Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except Ice Nova's and the final-repeat stats.
 Triggers, totems, mines, minion behaviour, attack repeats, projectile branching, leech and many conditional effects
 still require their own execution paths.
-Second Wind's extra cooldown use needs multi-use cooldown state (one stored use is all that is tracked); Momentum's
-stacks need a skill-use and movement signal; Barrage needs its own release pattern, not a stat.
+Second Wind's extra cooldown use needs multi-use cooldown state (one stored use is all that is tracked);
+Barrage needs its own release pattern, not a stat.
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
 their own mechanics or client-side geometry. Arrogance and the blessing supports need life reservation and a temporary
 aura lifecycle; Overheat needs Fortification consumption and Overexertion needs warcry exertion. Cruelty's buff adds

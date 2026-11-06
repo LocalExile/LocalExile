@@ -8,6 +8,7 @@ sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime? sourc
     internal IModuleLifetime? Source { get; } = source;
     internal long Generation;
     internal readonly ManaRecoupState Mana = new();
+    internal readonly MomentumState Momentum = new();
     internal readonly TimedBlind PlayerBlind = new();
     internal readonly Dictionary<uint, (SpawnedMonster Target, TimedBlind Blind)> Targets = [];
     readonly HashSet<(uint Actor, ushort Buff)> retired = [];
@@ -43,6 +44,12 @@ sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime? sourc
     { Mana.Restore(value.Mana, at); PlayerBlind.Restore(value.Blind, at); }
     public void Clear()
     {
+        if (connection is not null)
+        {
+            if (Momentum.Buff != 0) connection.RetiredSkillBuffs.Add(Momentum.Buff);
+            if (Momentum.SwiftBuff != 0) connection.RetiredSkillBuffs.Add(Momentum.SwiftBuff);
+        }
+        Momentum.Clear();
         if (PlayerBlind.Buff != 0) retired.Add((Program.PlayerId, PlayerBlind.Buff));
         foreach (var (id, value) in Targets)
             if (value.Blind.Buff != 0) retired.Add((id, value.Blind.Buff));

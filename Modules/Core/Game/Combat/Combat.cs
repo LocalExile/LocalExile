@@ -571,6 +571,7 @@ static partial class Game
     {
         int action = actionToken ?? conn.ActionCount;
         int recoveryGeneration = 0;
+        double? momentumAttackSeconds = null;
         int? channelGeneration = null;
         VaalUseReservation? vaalUse = null;
         lock (conn.Monsters)
@@ -637,6 +638,8 @@ static partial class Game
                 return false;
             }
         }
+        bool momentumUse = gem.Name is not null && OrdinaryMomentumUse(conn, SupportedSkill(conn, skillId));
+        if (momentumUse && vaalUse is not null) momentumAttackSeconds = vaalUse.AttackSeconds;
         // An attack gem swings with the weapon's attack time, like the default attack (see Attack): while the button is held
         // the client keeps aiming it, and every use used to pay its cost and start a swing (live 2026-10-25: Holy Strike on
         // the right mouse button, twelve swings a second at 6 mana each). The timer is shared with the default attack, so
@@ -645,6 +648,7 @@ static partial class Game
         if (vaalUse is null && gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect))
         {
             double duration = SupportedAttackSeconds(conn, skillId);
+            if (momentumUse) momentumAttackSeconds = duration;
             double now = conn.Clock.Elapsed.TotalSeconds, next;
             bool ready;
             lock (conn.Monsters)
@@ -713,6 +717,15 @@ static partial class Game
             await PublishVaalUse(remote, stream, ciphers, conn, vaalUse);
         }
         if (!Current()) return false;
+        if (momentumUse)
+        {
+            lock (conn.Monsters)
+            {
+                if (!Current()) return false;
+                MomentumPaid(conn, skillId, gem.Effect, action);
+            }
+            await SendMomentum(remote, stream, ciphers, conn);
+        }
         if (channelGeneration is not null)
         {
             lock (conn.Monsters)
@@ -748,7 +761,8 @@ static partial class Game
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
             await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
-                actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration);
+                actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
+                attackSeconds: momentumAttackSeconds);
         return true;
     }
 
@@ -918,7 +932,7 @@ static partial class Game
     internal static Task LaunchProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
-        int? channelGeneration = null)
+        int? channelGeneration = null, double? attackSeconds = null)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
@@ -928,7 +942,7 @@ static partial class Game
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
-                sequence);
+                sequence, attackSeconds);
         // A channelled skill (Cyclone, ActiveSkillType 47) hits as it starts: its spin is already in motion, and the later
         // sweeps follow on the attack timer (RunChannel).
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;
@@ -936,7 +950,7 @@ static partial class Game
         // Multistrike repeats are hits of the same use, spread over its attack time with their own more damage.
         int spellRepeats = SpellRepeats(conn, skillId, gem.Effect);
         int meleeRepeats = channelled || spellRepeats > 0 ? 0 : MeleeAttackRepeats(conn, skillId);
-        double repeatInterval = meleeRepeats > 0 ? SupportedAttackSeconds(conn, skillId) / (meleeRepeats + 1) : 0;
+        double repeatInterval = meleeRepeats > 0 ? (attackSeconds ?? SupportedAttackSeconds(conn, skillId)) / (meleeRepeats + 1) : 0;
         // Fist of War: every ancestral_slam_interval_duration the next slam use is the big hit (more damage and area).
         double fistMore = 1, fistRadius = 1;
         bool spell = SkillsFor(conn).IsSpell(gem.Effect);
@@ -1009,7 +1023,7 @@ static partial class Game
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat,
-                repeatDelay: repeat * repeatInterval, radiusMore: fistRadius, addedChaos: addedChaos,
+                repeatDelay: repeat * repeatInterval, radiusMore: fistRadius, addedChaos: addedChaos, attackSeconds: attackSeconds,
                 damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1)));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
@@ -1125,7 +1139,7 @@ static partial class Game
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
-        double radiusMore = 1, int addedChaos = 0)
+        double radiusMore = 1, int addedChaos = 0, double? attackSeconds = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         bool Current() => (cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken))
@@ -1152,7 +1166,7 @@ static partial class Game
         // swing's; the player swings where it stands, so without the walk-in offset.
         lock (conn.Monsters) delay = spell
             ? castDuration.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject))
-            : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false) + repeatDelay;
+            : AttackContactDelay(conn, attackSeconds ?? SupportedAttackSeconds(conn, skillId), approach: false) + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
         int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect)) * radiusMore);
         // A melee skill aimed far away still lands in front of the player; a self-targeted spell goes off around the caster.

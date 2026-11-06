@@ -269,6 +269,7 @@ static partial class Game
         AddSpiritLeadershipStats(conn, stats);
         AddTotemAuraStats(conn, stats);
         WithRage(conn, stats);
+        WithMomentum(conn, stats);
         WithBlind(conn, stats);
         WithSoulEater(conn, stats);
         // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.

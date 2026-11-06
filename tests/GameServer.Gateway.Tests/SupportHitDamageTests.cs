@@ -36,6 +36,49 @@ public sealed class SupportHitDamageTests
             Assert.Equal(stored, stats[Program.Stats.Key("base_current_momentum")!.Value]);
         }
         Assert.Equal(0, MomentumSupport.AttackSpeed(_ => 0, channelled: false));
+        {
+            var momentum = new MomentumState();
+            var settings = new MomentumState.Settings(3, 1.5, 15);
+            MomentumState.PaidUse Use(int action) => new(action, 0x8002, 2037, settings);
+            momentum.Paid(Use(1), 0);
+            Assert.Equal(0, momentum.Count); // Payment alone cannot grant a native use that was never acknowledged.
+            momentum.Acknowledge(1, 0x8002, .1);
+            Assert.Equal(1, momentum.Count);
+            momentum.Acknowledge(1, 0x8002, .2);
+            momentum.Paid(Use(1), .3);
+            Assert.Equal(1, momentum.Count); // Duplicate admission/echo is exactly once.
+            momentum.Acknowledge(2, 0x8002, 1);
+            momentum.Paid(Use(2), 1);
+            Assert.Equal(2, momentum.Count); // The area path acknowledges before it pays; projectiles do the reverse.
+            momentum.Acknowledge(3, 0x4000, 2);
+            Assert.Equal(2, momentum.Count); // An ordinary attack does not consume Momentum.
+            momentum.MovementAt(4);
+            Assert.Equal(2, momentum.Count); // No blanket 1.5 s stack expiry.
+            momentum.Moved();
+            Assert.Equal(0, momentum.Count);
+            Assert.Equal(0, momentum.MovementAt(4)); // A movement reset never grants Swiftness.
+            for (int action = 4; action <= 6; action++)
+            {
+                momentum.Paid(Use(action), action);
+                momentum.Acknowledge(action, 0x8002, action);
+            }
+            Assert.Equal(0, momentum.Count);
+            Assert.Equal(45, momentum.MovementAt(7.499));
+            Assert.Equal(0, momentum.MovementAt(7.5));
+            momentum.Paid(Use(7), 8);
+            momentum.Moved();
+            momentum.Acknowledge(7, 0x8002, 8);
+            Assert.Equal(0, momentum.Count); // A canceled pending use cannot reappear after movement.
+            var connection = new ClientState(new(0, "momentum", 32, 32, 10, 10, null, []), 0, 1);
+            var owned = new ResourceEffectsState(null, null, connection);
+            owned.Momentum.Buff = 44; owned.Momentum.SwiftBuff = 45;
+            owned.Clear(); owned.Clear();
+            Assert.Equal(new ushort[] { 44, 45 }, connection.RetiredSkillBuffs.Order());
+            Assert.Empty(connection.RetiredResourceBuffs); // Skill retirement cannot clear unrelated Blind stats.
+            Assert.Equal(0, owned.Momentum.Count);
+            byte[] delta = GameServer.Core.Protocol.Instance.InstanceEntities.SkillStatsUpdate(177, 0x8002, [(294u, -9)]);
+            Assert.Equal("01B4000000B100000000000080020001812677", Convert.ToHexString(delta));
+        }
         // Each support condition multiplies only when it holds.
         {
             var skill = With(("support_hypothermia_damage_+%_vs_chilled_enemies_final", 29),
