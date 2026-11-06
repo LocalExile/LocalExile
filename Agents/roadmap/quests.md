@@ -11,6 +11,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** the quest engine with declarative tables per quest, Acts 1–10 and the Epilogue
   ([12](../docs/protocol/12-quests.md) §5–19), the oracle (`QuestSimulator`, `QuestEngineTests`); adding an act is a
   file of tables ([campaign quests](../docs/game/campaign-quests.md) "Adding an act").
+  Eligible ordinary NPC introductions, quest continuations and rewards share that engine and its saved flags;
+  native checks cover Nessa, Bestel and Tarkleigh, while contextual later-act dialogue still needs coverage.
 - **Start:** a run of the whole campaign on the modules with the client: Acts 2 to 10, the Epilogue and the Pantheon
   have not had one yet (check that the Pantheon panel highlights the chosen gods); the bandit vote (a2q7's help path)
   and the Pantheon's souls (Divine Vessels, Sin's "Unlock Power": [pantheon](../docs/game/campaign/pantheon.md) §1) are

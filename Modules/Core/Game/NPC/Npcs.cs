@@ -65,11 +65,13 @@ static partial class Game
         }
         uint id;
         lock (conn.Npcs) id = conn.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
+        conn.AutomaticNpcTalkRows.Clear();
         conn.TalkingTo = id;
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
         conn.NpcRewardOffer = null;
         if (await GameEvents.AnyNpcTalk(conn, id, npc)) return;
+        if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 talk to npc 0x{id:x} {npc.Npc.Name}",
             still: () => PlayerActionCurrent(conn, action));
     }
@@ -98,6 +100,7 @@ static partial class Game
                 lock (conn.Npcs) speaker = conn.Npcs.GetValueOrDefault(id);
                 if (speaker is not null && await EndTalkScript(remote, stream, ciphers, conn, id, speaker, script)) return;
             }
+            if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
             await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 npc 0x{id:x}: back to the options (0x85 after a talk)");
             return;
         }
@@ -114,6 +117,19 @@ static partial class Game
         }
     }
 
+    internal static async Task<bool> ContinueQuestConversation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint id)
+    {
+        SpawnedNpc? npc;
+        lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(id);
+        if (npc is null || conn.TalkingTo != id) return false;
+        var next = Npcs.Value.NextConversationOf(npc.Npc, Quests.Names(PlayerQuestFlags(conn)), conn.AutomaticNpcTalkRows);
+        if (next is null) return false;
+        conn.AutomaticNpcTalkRows.Add(next.Row);
+        await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, next);
+        return conn.InNpcTalk || conn.NpcRewardOffer is not null || conn.TalkingTo != id;
+    }
+
     // C→S 0x82: an option picked in the NPC dialogue window (an NPCTalk row of the NPC talked to).
     internal static async Task ChooseNpcOption(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte index)
     {
@@ -126,13 +142,17 @@ static partial class Game
         Console.WriteLine($"[gateway] {remote} <= 0x0082 npc {npc.Npc.Name} option {index}: " +
             (talk is null ? "no NPCTalk row" : $"NPCTalk row {talk.Row} \"{talk.Option}\" ({talk.Category}), text audio [{string.Join(", ", talk.TextAudio)}]"));
         if (talk is null) return;
+        await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, talk);
+    }
+
+    internal static async Task ExecuteQuestConversation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk)
+    {
         if (!talk.Available(Quests.Names(PlayerQuestFlags(conn)))) return;
         if (!await GameEvents.AllowNpcOption(conn, talk)) return;
         // A row that sets a quest item's remove_flag takes the item (Nessa's Medicine Chest, Fairgraves' Allflame).
         if (!await HandInQuestItems(remote, stream, ciphers, conn, talk, npc.Npc.Id)) return;
-        if (TalkStartFlag(conn, talk) is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
-        if (QuestsOf(conn).OnTalkRow(talk.Row) is { Count: > 0 } byRow) await SetQuestFlags(remote, stream, ciphers, conn, byRow);
-        await OnQuestTalk(remote, stream, ciphers, conn, id, npc, talk);
+        await ApplyQuestConversationStart(remote, stream, ciphers, conn, id, npc, talk, applyRowRules: true);
         conn.NpcFinishFlag = talk.FinishFlag;
         conn.NpcTalkScript = null;
         // A scripted row's end (FinishNPCChat, DoNPCChat, a screen, a move): after its talk, or now when it has none.

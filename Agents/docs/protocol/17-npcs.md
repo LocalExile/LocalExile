@@ -177,8 +177,26 @@ u8 = the chosen NPCTalk row's index among the NPC's rows (column 1). The client 
 | RespecPassivePointsForGold | S→C 0x7b kind 0x5f with 1: the character's passive tree (UI +0x650, listener 0x140dc8750; a non-zero u32 shows it in mode 2, `0x1409de680`), the script's `SendOpenScreen( CharacterPassiveTreeScreen, 1 )`. Not kind 0x11 (Atlas tree, UI +0x668) or 0x45 (UI +0x678). "Apply refunds" (C→S 0x36 per node) and "Refund All" (0x37) are paid in gold ([15](15-progression.md) §2) |
 | IdentifyItems | script `triggerer.IdentifyItems()`: every unidentified item with mods in the main inventory becomes identified, free (0xbf removes and re-adds the same ids), then a chat line "{0} Items identified" / "{0} Item identified" (ClientStrings `IdentifyItemsChatMessage(Single)`, S→C 0x17, [10](10-chat-and-commands.md) §2) and 0x84 0xff to list the options again (verified 2026-10-20). The client grays the option itself (`0x141e754b0` case 0x3b: no unidentified item in the inventory → ClientStrings id 0x1f07 "No items in your inventory can be identified", drawn gray by `0x14071e8d0`), but only when the options are listed. The real game probably charges Scrolls of Wisdom (ClientStrings `IdentifyItemsNotEnoughScrollsOfWisdom`); ours is free. The IdentifyAll sound effect is not sent |
 
-C→S 0x85 during a talk = Continue → 0x84 0xff (back to the options); otherwise the Gateway answers 0x84 with object 0,
+C→S 0x85 during a talk = Continue → next eligible automatic quest talk, or 0x84 0xff (options);
+otherwise the Gateway answers 0x84 with object 0,
 which ends the dialogue (without an answer the client stays in its dialogue state and the player cannot move).
+
+Official opening capture `20261105-222849` starts Nessa's introduction (NPCTalk 0), then row 5;
+Bestel's introduction (58), then row 62; Tarkleigh's introduction (23), then reward offer 0 (`0xc0`, `0x87`).
+No `0x82` option request precedes these chains. Local capture `20261105-224157` sends only `0x84/0xff`
+on those clicks. Ordinary clicks and Continue now execute eligible unstarted introductions/quest talks through
+the shared quest path, after explicit script continuation/termination. Per-interaction visited rows prevent loops;
+saved start flags prevent replay after reconnect. Eligible reward rows use the existing reward handler at the
+same selection point, preserving its class-filtered inventory, prerequisite checks and atomic claim handling.
+Native selector `0x141e76d40` checks availability, start flag `+0x54`, automatic eligibility `+0x160`
+(NPCTalk `__col33`) and greatest priority `+0x161` (`__col34`), keeping the first row on ties.
+The introduction marker is `__col13`; heard introductions are skipped using their start flag.
+Initial clicks and Continue share this selector: introductions have no separate priority override.
+Availability `0x141e754b0` also checks context selectors `+0x124/+0x138`, class list `+0x128`,
+minimum level `+0x14c`, league lists `+0xbe/+0xd2` and item/special predicates.
+Automatic quest selection conservatively accepts only rows with empty extra lists, null item/flag conditions,
+zero minimum level and native neutral context/league selectors (60 / `0x777`). Other rows retain manual selection.
+The raw evidence and decoded `semantics.json`/`equipment.json` stay under ignored `Tools/re/out/gameplay-captures/`.
 
 ### NPCTalk scripts
 

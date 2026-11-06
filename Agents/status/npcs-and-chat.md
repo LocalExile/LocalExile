@@ -74,6 +74,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [league modes](../docs/game/league-modes.md).
 - Quest rewards open the native reward inventory for every `QuestRewardOffers` row whose items the server can build,
   and grant the class-filtered choices (level-one gems, normal flasks; unbuildable magic armour rows are skipped).
+  Eligible ordinary quest talks/rewards follow introductions automatically; Nessa, Bestel and Tarkleigh checked live.
   The item and claimed flag are saved together, with duplicate, prerequisite, full-inventory and save-failure guards.
   Tarkleigh's Freezing Pulse and Nessa's Combustion Support claims were checked live on a disposable character, and
   Tarkleigh's a1q4 Glyph Reward on 2026-10-26.
