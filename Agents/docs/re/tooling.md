@@ -210,3 +210,107 @@ Our `DamageModel` cites those files; keep the clone local and pin the commit whe
 **Caps and floors:** always verify a cap/floor in the pinned PoB clone and cite the exact file and commit; never
 assume the value from the client panel or from memory. Examples already in `DamageModel`: `ResistFloor = -200`,
 `MaxResistCap = 90`, default maximum resistance 75, `SuppressionChanceCap = 100`, `SuppressionEffect = 40`.
+
+## 9. Overnight full decompile
+
+`scripts/re/overnight/overnight.ps1` decompiles the whole client unattended into `Tools/re/out/full/` (git-ignored); start
+at `REPORT.md` there. `-Status` and `-Stop` control it, and rerunning resumes it. It works on its own copy of the Ghidra
+project, so `g.sh`, `decomp-all` and `Client/` are untouched, and it never starts the client.
+
+| Output | Contents |
+|---|---|
+| `game/decomp/` | same layout as `decomp-all`, with RTTI methods named `Class::vf<slot>` and Parameter ID prototypes |
+| `game/*.tsv`, `types.h`, `disasm/`, `index.sqlite` | call graph, data references, strings, symbols, vtables, types, every instruction, all queryable |
+| `game/undecompiled.tsv` | executable bytes in no function: what the decompile cannot show |
+| `bins/<file>/` | the same for every other `.exe` and `.dll` in `Client/` |
+| `content/files/`, `content/textures/`, `content/extensions.tsv` | every GGPK file, NTFS-compressed only when free space is short (`.dds` 94 GB, 1.5:1 with LZX); the index's size per extension |
+
+Measured on Game.exe: `.pdata` adds only 71 functions to the analysis (it had the rest), and after the fragment and switch
+passes 28 KB of `.text` stays undefined, mostly multi-byte nops. `d3dcomp_47_x64.dll` has no `.rdata`: its data is in `.text`, so
+its low function coverage is not missed code. `Client/PathOfExile.exe` here is only the first 1.7 MB of `Game.exe`, so its headers
+describe code the file lacks; do not analyze it. A decompile's quality is capped by the binary: locals and most functions have no names.
+
+`NightRetry.java` gives failed functions a long timeout and falls back to p-code, which the earlier decompiler passes can
+still return (they print no C); such a file says so on its second line. Measured on this laptop:
+
+| Game.exe function | What happened |
+|---|---|
+| `0x141249120`, `0x141947e70` | One huge function, 16k and 18k instructions: 69 and 88 minutes, about 6 GB of memory each, so they spill into the page file. The first registers about 1,025 skill behaviours by name through `FUN_141941bb0` |
+| `0x1413696c0` | Two adjacent jump tables of 6 entries (at `0x141369880` and `0x141369898`), indexed by a signed byte: the decompiler reads past them into code and flow runs away. Decompiles with `JumpTable.writeOverride` and the gap `0x1413697fc`-`0x14136983b` added to the body; a rerun needs that by hand |
+| `0x140f61a30` | The decompiler process dies; p-code from the `register` pass only |
+| `0x141030480` | "Symbol offset is incompatible with VariableGroup", even with the stored prototype dropped; p-code from the `normalize` pass only |
+
+## 10. Game data formats (`scripts/re/formats`)
+
+`python scripts/re/formats/decode_all.py [--no-write] [--ext .ot,.pet] [--fails N]` decodes the files of section 9's
+`content/files` into `Tools/re/out/full/decoded`, with a `REPORT.md` of decoded, partial and failed per format. Object files
+also get a readable `.geal` of their scripts, and `geal-functions.json` lists the client's built-ins with their script
+call counts.
+
+GEAL, the script language of `on_xxx = { ... }` in `.ot`/`.ao`/`.it`, is compiled by the client to bytecode. Compiler:
+statements `0x141df4bb0`, assignment `0x141df5120`, `local` `0x141df5b40`, `if` `0x141df6020`, expressions `0x141df69f0`,
+binary operators `0x141df7260` (precedence table `0x142fbf1d0`), lambdas `0x141de6e20`, interpreter `0x141ded710`. Surprises:
+
+- Built-ins receive their arguments as token ranges (`Range<ScriptToken>`) and read them themselves, so `<root>`, `= 0`,
+  `> -1`, `a | b` and `name : value` are legal arguments, not expressions. A comma before `)` is legal too.
+- Control flow is mostly built-ins with code blocks (`If(...)`, `IfState(x, = 0, { ... })`); the `if` keyword is rare.
+- A `//` comment ends at a lone `\r`, and some files have one: reading to `\n` swallows the next line's event.
+
+Other formats:
+
+- `.mtd` is a stream of tokens, not lines (`0x1429efee0`): group name, mix count, sprinkle count, materials, each with an
+  optional `.dlp` after it. One file has `0"Art/...` with no space.
+- `.pet` from version 4 holds its GPU emitters as JSON after the old emitter blocks, and one file has a whole second `.pet`
+  after that JSON. `.mat` and `.env` allow trailing commas in their JSON.
+- `.act` statements span lines and `then` continues the previous action.
+- `.gm` is a character snapshot for the Hall of Grandmasters, with no reader in the client. Its layout rests on every file
+  ending on its last byte and on the hashes: stats are `Stats.HASH32`, gems `GrantedEffects.HASH32`. The header has the stat,
+  item, skill-section and last-list counts. A gem's last byte counts the (stat, value) pairs after it. Item and last-list
+  fields have no names.
+- `.ui` is a text language too (`template X based on Y`, `begin Type`, `key = value;`), in UTF-16.
+- Meshes: `.fmt` `0x1429e8fd0`, `.tgm` `0x1429e2160`, `.smd` `0x1429e6ec0`, `DOLm` chunk `0x1429eb550`, vertex layout from the
+  flags `0x14105b090`. Before `DOLm` (`.fmt` < 9, `.tgm` < 9, `.smd` < 3) there is one LOD inline. Old `.tgm` store vertices
+  before indices and its ground stride depends on a header byte (1: 20, 2: 24, 3: 28, measured). Indices are 32-bit above
+  65535 vertices. The bounding box is xmin xmax ymin ymax zmin zmax; some meshes have vertices outside it. The JSON says where
+  the geometry is, it does not copy it.
+- `.ast`: the clip count is a u32 (the player classes have hundreds of clips), and clips with a second name exist. All clips
+  of a file are one Oodle block in the bundle layout, and a clip's offset and size are in the unpacked data. A clip has a
+  track per bone: a byte, the bone, six key counts (a u32 more from version 11) and plain float keys. The first three counts
+  are scale, rotation and translation (time and values); the other three use the same key sizes and their meaning is unknown.
+  ooz-wasm rejects nine small blocks at their real size. Eight unpack with a larger output buffer, and their tracks parse from
+  the first `size` bytes; `art/models/cinematic/facecrack/effects/rig.ast` (Leviathan) does not.
+- `<file>.header` repeats what the client needs before streaming the file (`0x1411cc630`, `0x1411ccb30`, `0x141146e60`, u64
+  counts, padded with zeros): `.dds.header` holds the DDS header and smallest mips.
+- `.tdt` (`0x1429f31a0`): a file with a parent has a mask byte saying which groups it overrides. Grids are LZ4 blocks that
+  unpack to 1, 2, 4 or 8 bits per cell plus a palette (`0x1429f5ca0`). Names of its later fields are not known.
+- `.mtp` (`0x141176370`) is a texture atlas keyed by `.tdt` path, `.pjd` (`0x141efd480`) three record lists with ranges into
+  the last, `.slg` (`0x1424da230`) 16 raw bytes.
+- `.itemblob` is an item saved when its league shipped, so older ones differ from the current reader in
+  [13](../protocol/13-items.md): 1-byte item flags, u8 Mods flags, and 0 to 2 bytes after Mods and SkillGem. The layout is
+  chosen by using every byte. An item component's reader is slot 5 of its instance vtable, which ends right before the
+  component's descriptor vtable (the one its registrar stores next to the name), so that table gives the reader.
+- `cachedhlslshaders/<api>/<hash>`: first byte 0x0f DX11, 0x0a DX12, 0x12 Vulkan, then reflection, u32 size, the DXBC or SPIR-V,
+  a trailing u32 hash (Vulkan: 5 bytes before it). The first three u32 look like the compute thread group. Vulkan names its
+  entry, inputs, outputs, constant buffers with fields, and resources; DX has only hashes.
+- `data/mat_table.dat` (`0x1410f5dd0`, version 2) and `data/languages.dat` are not schema tables. The 100 `.datc64`/`.datcl64`
+  files with no table in `data/schema` have no rows.
+- A few `.itemblob` are older than that: mods no longer in the tables, known mods with a value more or fewer than the tables
+  give now (`table_values`; uber map mods gained a last stat after Necropolis, `LoseSoulEater` keeps a second range with no
+  stat key), bytes in components that read none now, no byte for Mods bit 0x10, a Map without the u32 or with 2 bytes. Value
+  counts come from what parses the whole file; misaligned readings still hit real mod keys, so readings are ranked by mod domain
+  and values within the table's ranges (`readings` > 1: not unique). The save is the only evidence: no client compares them.
+- ooz-wasm rejects 9 `.ast` blocks. `scripts/re/formats/oodle_client.py` runs the client's own `OodleLZ_Decompress`
+  (`0x142c93fa0`) in Unicorn (`pip install --target Tools/re/py unicorn`), so it also settles what a block really unpacks to.
+- `.tgm` record: u16 index, value, bbox (min, max per axis; up to version 8 bbox first, then first triangle and count). Light
+  (`0x1429e2160`): kind, colour, position, direction, radius; size by version. `.smd` sections are collision ellipsoids and
+  spheres with a bone, by their names. Other field names are neutral.
+- At-exit stubs and similar code nothing calls directly are outside auto-analysis and `.pdata`: `NightFragments.java` makes
+  functions at entries from a linear disassembly of `undecompiled.tsv`, so a few may be misread data. Its `instructions` mode
+  covers code Ghidra already disassembled. `NightDump` skips tables that exist: delete them to include new functions.
+- MSVC switches with `__assume` have no bounds check, so auto-analysis misses them: `LEA RCX,[image base]`, `MOV EAX,[RCX + RDX*4
+  + rva]`, `ADD RAX,RCX`, `JMP RAX`, with the table inline after the function. `NightSwitches.java` recovers them with a jump
+  table override and clears tables misread as code; functions in its `switches.tsv` need decompiling again. In 11 functions of
+  the two d3dcompiler DLLs (byte index tables) the override kills the decompiler process though the table is right, so `NightRetry`
+  drops it and the file says so; why those 11 and not the other byte index tables is not known.
+- `GFSDK_Aftermath_Lib.x64.dll` `0x1802a5630` (413 KB, 24,649 blocks) runs out of memory in every decompiler pass.
+  `NightSplit.java` writes it as 570 pieces of C instead; 4 prologue instructions hang the decompiler and stay disassembly.
