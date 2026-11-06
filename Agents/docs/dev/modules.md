@@ -56,6 +56,9 @@ A league with no `modules.json`, or a module listed twice, does not load. Every 
 - **An ended league's** characters cannot be entered until they migrate (not built: see the roadmap).
 - **A Hardcore death:** the death screen appears, and the character stays where it is until the player leaves by its Exit (or any other way). The connection closes first; then the character alone, with what it carries, moves to the parent league. Stashes and gold stay. A saved mark covers a crash in between.
 - **A league's code** is a public class deriving `League` in its `Source/`, with the hooks of a module for its own players, and `Rules`. Saving it hot-reloads.
+  Between code retirement and replacement, the last rules value stays active without retaining the retired code.
+  Falling back to Standard in that gap can permanently grant development progress from an Atlas tick.
+  A replacement returning null deliberately restores module/default rules.
 
 ## What stays in the Gateway
 
