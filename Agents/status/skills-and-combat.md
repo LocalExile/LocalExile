@@ -1411,10 +1411,13 @@ This is a research baseline, not new live skill acceptance or complete native/se
   releasing clip's contact keyframe (`data/animation-contacts.json` positions, `anim_contacts.py` v3): the Ranger's
   bow 5.5 cells ahead along the aim at 16 steps up, a wand's tip 7.5 cells ahead at 12 (the 5-step default, tuned on a
   fireball, had the arrow trail start at the hip, live 2026-10-29); the keyframe's lateral part is not applied.
-  Monster projectiles: a mortar skill's shot (Sand Spitter, a Cannibal's ThrowFire: `monster_mortar_attack` via
+  Monster projectiles: a mortar attack's shot (Sand Spitter, a Cannibal's ThrowFire: `monster_mortar_attack` via
   GrantedEffects SkillID → MonsterMortar → Projectiles) is drawn by the client, whose record carries the MonsterMortar
-  row and the count as GGG's does, with no server object (not checked live yet; [11](../docs/protocol/11-skills.md) §6);
-  the server simulates it on the same runtime, released at the clip the client plays for the
+  row and the skill's count as GGG's does, with no server object (checked live 2026-11-05 on a lockstep and a
+  predictive client: one client `SandspitterMortarProjectile` per order, no server object;
+  [11](../docs/protocol/11-skills.md) §6); a spell mortar (`monster_mortar`) keeps its server object. Not measured yet:
+  where the client's mortar lands against the server's hit.
+  The server simulates it on the same runtime, released at the clip the client plays for the
   skill (MonsterMortar.Animation → the ACT's `SpellProjectile` pool, the native selector on the action's 0xffff
   sequence: attack1, contact at 37.5 % of the attack) from that clip's keyframe (4.2 cells behind the body that faces
   away, so toward the player, 9 steps up: `projectile_uses_contact_position`; `data/monster-contacts.json`,

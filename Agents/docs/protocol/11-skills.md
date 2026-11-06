@@ -945,7 +945,11 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   record's `skill_behaviour_variation` (0x1921; row 0, `MortarMolten`, without it), and its release fires nothing
   without a count ([actions and emission](../re/projectiles/actions-and-emission.md)). GGG's Spitter records carry
   row 183 and `total_number_of_projectiles_to_fire`, `virtual_total_number_of_projectiles` and
-  `virtual_total_number_of_arrows` at 1, and so does the Gateway's. The server simulates the flight for the hit
+  `virtual_total_number_of_arrows` at 1. The Gateway's carry the skill's count there (`number_of_projectiles_override`,
+  else `base_number_of_projectiles` plus `number_of_additional_projectiles`: 3 for the side-area Spitter), the count
+  the server simulates. Only `monster_mortar_attack` is traced: the spell forms (`monster_mortar`,
+  `monster_mortar_around_caster`) are another client action, and the server still creates their objects, with no row
+  or total count on the record. The server simulates the flight for the hit
   (`Program.ProjectileHostile.cs`), released at the clip's contact keyframe rather than halfway: MonsterMortar's `Animation`
   (row 20, Animation.dat `SpellProjectile`) names the ACT pool (`SpellProjectile = "attack1,attack2"`), the native
   selector seeded with the action's 0xffff sequence picks `attack1` (as it picks the player's wand clip), and that
