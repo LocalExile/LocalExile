@@ -20,9 +20,6 @@ GEMINI.md @Wrathen
 /.gitattributes @Wrathen
 /.gitignore @Wrathen
 
-# Scripts and tools people and agents run
-/src/LocalExileGui/build.ps1 @Wrathen
-
 # What runs during a build, or adds a dependency
 Directory.Build.props @Wrathen
 Directory.Build.targets @Wrathen
@@ -36,7 +33,6 @@ global.json @Wrathen
 
 # What ships to players, starts processes, or could make the client contact the official servers
 /src/LocalExile/ @Wrathen
-/src/LocalExileGui/ @Wrathen
 /src/GameServer.Patch/ @Wrathen
 
 # What loads and runs compiled code
