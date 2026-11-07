@@ -426,6 +426,7 @@ public class LockstepMonsterTests : IDisposable
         {
             PlayerWalk At(int x) => frames ? new(x, 100, 8) { FrameOf = at => (Math.Min(at, 1.0), 1.033) } : new(x, 100, 8);
             var leaving = Drowned(At(230));
+            leaving.Target = on;   // An existing pursuit belongs to this live player before it crosses the give-up distance.
             leaving.Walk.Order(218, 100, now: 0.5);   // at (226, 100) at 1.0: 126 cells from the player, past twice its aggro range
             var frozen = Drowned(At(160));
             frozen.Walk.Order(140, 100, now: 0.5);   // at (156, 100) at 1.0, in its aggro range
