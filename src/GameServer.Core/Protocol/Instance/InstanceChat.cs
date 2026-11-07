@@ -41,8 +41,13 @@ public static class InstanceChat
     /// panel 0x140179f20 / 0x14017a300): one line in the chat panel. wstr sender (its first character picks the channel),
     /// wstr text, wstr guild tag, u16 flags (bit 8 sends it to +0xd78 instead, bit 3 adds a field), u8, u8, 8 bytes, u8,
     /// u8 n + n linked items. An empty sender and zeros print the text alone. Live 2026-10-20.</summary>
-    public static byte[] ChatLine(string text, string sender = "") =>
-        new LoginWriter().U16(ChatLineId).WStr(sender).WStr(text).WStr("").U16(0).U8(0).U8(0).RawU64(0).U8(0).U8(0).ToArray();
+    public static byte[] ChatLine(string text, string sender = "", ushort flags = 0) =>
+        new LoginWriter().U16(ChatLineId).WStr(sender).WStr(text).WStr("").U16(flags).U8(0).U8(0).RawU64(0).U8(0).U8(0).ToArray();
+
+    /// <summary>The 0x17 flag of the sender's own copy of a whisper: bit 2 of the flags' first byte (0x14017a300; 4 in the second
+    /// byte reddens the text). An '@' line then reads "@To Name" for "@From Name",
+    /// without the whisper sound and the window flash (0x14017a300).</summary>
+    public const ushort WhisperSentFlag = 0x0400;
 
     public static ChatInput ReadChat(ReadOnlySpan<byte> m)
     {

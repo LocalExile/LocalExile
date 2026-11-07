@@ -840,6 +840,12 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         public IDisposable ModifyExperience(Action<ExperienceGain> modify) => Add(host._experience, modify);
         public IDisposable ModifyStats(Action<StatSheet> modify) => Add(host._stats, modify);
 
+        public IDisposable UseChatServer(string host, int port)
+        {
+            if (mod.Unloaded) throw new InvalidOperationException($"mod {mod.Manifest.Id} is unloaded");
+            return mod.Lifetime.Own(ChatRoutes.Use(host, port));
+        }
+
         string ValuesPath => Path.Combine(host.SettingsFolder, mod.Manifest.Id + ".json");
 
         ModSettings.Schema Schema()

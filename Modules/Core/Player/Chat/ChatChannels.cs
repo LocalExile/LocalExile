@@ -1,12 +1,11 @@
 using System.Collections.Concurrent;
 using GameServer.Core.Protocol.Instance;
 
+namespace GameServer.Modules.Chat;
 
 /// <summary>
-/// The global and trade chat channels of each character, and the echo of what a player types
-/// (Agents/docs/protocol/10-chat-and-commands.md §1, §2). There is one player per server, so a channel only holds its own
-/// lines: the server answers each join (C→S 0x134) with S→C 0x135 and sends every typed line back as an S→C 0x17 line
-/// from the character, on the channel it was typed in.
+/// The global and trade chat channels of each character (Agents/docs/protocol/10-chat-and-commands.md §2). The server answers
+/// each join (C→S 0x134) with S→C 0x135; who else is on a channel is the chat server's.
 /// </summary>
 sealed class ChatChannels
 {
@@ -18,7 +17,7 @@ sealed class ChatChannels
     /// <summary>
     /// The channel a join request gets: the number asked for (/global N, /trade N, or the one the client remembers), else
     /// the character's last channel of that kind, else <see cref="DefaultChannel"/>. The channel is kept for the next areas
-    /// (<see cref="Current"/>) and logins while the Gateway runs. <c>Changed</c> is false when the character was already on it.
+    /// (<see cref="Current"/>) and logins while the Gateway runs. <c>Changed</c> is false when the character was already on it, in that language.
     /// </summary>
     public (ushort Channel, bool Changed) Join(string character, ChatChannelKind kind, ushort requested, byte language = 0)
     {
@@ -26,7 +25,7 @@ sealed class ChatChannels
         bool had = _chosen.TryGetValue(key, out var previous);
         ushort channel = requested is 0 or InstanceChat.AnyChannel ? (had ? previous.Channel : DefaultChannel) : requested;
         _chosen[key] = (channel, language);
-        return (channel, !had || previous.Channel != channel);
+        return (channel, !had || previous.Channel != channel || previous.Language != language);
     }
 
     /// <summary>
@@ -42,20 +41,10 @@ sealed class ChatChannels
         return current;
     }
 
-    /// <summary>The line the chat panel prints after a join (BackendErrors JoinedGlobalChannel / JoinedTradeChannel,
-    /// without the language name).</summary>
-    public static string JoinedText(ChatChannelKind kind, ushort channel) =>
-        $"You have joined {(kind == ChatChannelKind.Global ? "global" : "trade")} chat channel {channel}.";
+    /// <summary>The names of 0x134's language byte (the client's names to numbers: 0x1422ed4f0).</summary>
+    static readonly string[] Languages = ["English", "French", "German", "Portuguese", "Russian", "Thai", "Traditional Chinese", "Simplified Chinese", "Spanish", "Korean", "Japanese"];
 
-    /// <summary>
-    /// The S→C 0x17 line that shows the player's own typed line (C→S 0x15 without a slash), or null when there is nothing
-    /// to show: an empty line, or a party, guild or whisper line (there are no other players to send it to).
-    /// </summary>
-    public static byte[]? Echo(string character, string typed)
-    {
-        var (channel, text) = InstanceChat.SplitChannel(typed);
-        if (string.IsNullOrWhiteSpace(text) || channel is not (TypedChannel.Local or TypedChannel.Global or TypedChannel.Trade))
-            return null;
-        return InstanceChat.ChatLine(text, InstanceChat.Sender(channel, character));
-    }
+    /// <summary>The line the chat panel prints after a join (BackendErrors JoinedGlobalChannel / JoinedTradeChannel).</summary>
+    public static string JoinedText(ChatChannelKind kind, ushort channel, byte language) =>
+        $"You have joined {(kind == ChatChannelKind.Global ? "global" : "trade")} chat channel {channel}{(language < Languages.Length ? " " + Languages[language] : "")}.";
 }
