@@ -865,6 +865,37 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 }
 
 /// <summary>
+/// A soul line: <c>Metadata/Effects/ServerBeamEffect</c>, as the official server's Soul Eater sends it (captured from
+/// 3.29.3c). The Beam component (0x14166e9c0) reads the MiscBeams row + 1, a 16-bit flag word and a third flag byte,
+/// then the endpoints. The official packet: row 0 (SoulEaterBeam) + 1, flags 0x0C97, start world x/y, start object id,
+/// 0, end world x/y, end object id, 0. The client follows the two objects; the positions are their snapshot.
+/// World coordinates are grid cells times ten.
+/// </summary>
+public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint StartObject, float EndWorldX, float EndWorldY,
+    uint EndObject, ushort BeamRow = 0)
+{
+    public const string TypePath = "Metadata/Effects/ServerBeamEffect";
+    /// <summary>Positioned x/y are cells; the Beam's endpoints are world units (ten per cell).</summary>
+    public const float WorldPerCell = 10;
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        w.U8(0).U8(0);                                                  // object flags, base data entries
+        // Positioned: the corpse's cell, no rotation, team 0, no extra flags or visibility bytes (19 bytes before Beam).
+        w.I32(StartGridX).I32(StartGridY).F32(0).U16(0).U8(0).U8(0);
+        w.U8(0);                                                        // Animated: the Beam row's art
+        // Beam, exactly as the official server's (3.29.3c capture): row + 1, flags A0|A1|A2|A4|A7|B2|B3, then each end's
+        // world position and object id (the client follows the objects; the positions are their snapshot).
+        w.U16((ushort)(BeamRow + 1)).U8(0x97).U8(0x0C).U8(0x00)
+            .F32(StartGridX * WorldPerCell).F32(StartGridY * WorldPerCell).U32(StartObject).U32(0)
+            .F32(EndWorldX).F32(EndWorldY).U32(EndObject).U32(0);
+        w.U8(0);                                                        // tasks
+        return w.ToArray();
+    }
+}
+
+/// <summary>
 /// The Crux of Nothingness's central shrine (<c>Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/RitualPillar2</c>):
 /// Positioned, BaseEvents, Animated, StateMachine, Stats, the type's read order (Positioned first, then the .ot's
 /// sections). The arena's <c>HugeRitualShrine01_01.ao</c> is explicit art because the type itself names no model.

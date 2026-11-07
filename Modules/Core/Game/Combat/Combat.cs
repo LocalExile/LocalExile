@@ -1762,7 +1762,7 @@ static partial class Game
             await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
-        SoulEaterSoul(conn, at);
+        SoulEaterSoul(conn, id, at);
         await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
         ShareKill(conn, id, m, variety, at);
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });

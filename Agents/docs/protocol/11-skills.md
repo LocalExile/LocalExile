@@ -2705,6 +2705,19 @@ failed I/O, allocation limits, actual official values and every skill's successf
   cache. Existing-instance partial updates copy decoded `+70/+60/+64` into those fields; omitted bit2 count
   supplies 1, not preservation. See [the exact repeat state/input contract](../re/projectiles/repeat-source-state.md).
   This identifies a supported input route, not official server values or timing for those definitions.
+- **Soul Eater** (`SoulEater.cs`): `gain_soul_eater_during_flask_effect` with any flask effect (a utility flask's
+  running effect, Mageblood's permanent one, or a life/mana flask still recovering) puts `soul_eater_aura` (277,
+  invisible; BuffVisuals 288's `soul_eater/epk.epk` attaches `souleater.ao`) and `soul_eater_player` (279, the icon and
+  its count, `virtual_soul_eater_maximum_stacks` = 45 + `soul_eater_maximum_stacks_+`) on the player and sends
+  `using_flask` = 1: the client computes `soul_eater_from_stat` only when that flag is set (0x142826e20 in 3.29.3b,
+  reading keys 0xea5, 0xf4e and 0xf52), so without it its native flask/Soul Eater visuals stay off. Each kill within 60
+  cells is one soul; the player tick presents the changed count and, per soul, a **ServerBeamEffect** from the corpse to
+  the player. The official 3.29.3c capture of that object's Beam component (`0x1416710c0`; 3.29.3b `0x14166e9c0`):
+  19 bytes of object header + Positioned + Animated, then u16 MiscBeams row + 1 (1 = SoulEaterBeam, row 0), a 16-bit
+  flag word `0x0C97` (A0|A1|A2|A4|A7|B2|B3) and a zero third byte, then start world x/y, start object id, 0, end world
+  x/y, end object id, 0. The endpoints are **world units (ten per grid cell)**; the client follows the two object ids
+  and stretches the row's art by the distance over its `MiscBeams.__col2` (200). The object type's own Beam row is 673,
+  which the update (`0x14166d0c0`) skips, so the reader's row value must differ (1).
 - **Passive self buffs** (`PassiveBuffAuras.SelfBuffsFor`, §10e). A row without `IsRecovery` carries no values in
   0x1c1, so the client cannot apply them: the server adds the values to the allocated passives' stat sum and sends the
   buff for its icon and visual only. The buff goes out with 0x1c1 at area entry (each area's connection starts without

@@ -520,6 +520,7 @@ static partial class Game
             {
                 await SendAntiquarian(remote, stream, ciphers, conn);
                 await SendKillOnslaught(remote, stream, ciphers, conn);
+                await SendSoulEater(remote, stream, ciphers, conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return false;
                 await SendTotems(remote, stream, ciphers, conn);
                 await SendRecentEnemyHits(remote, stream, ciphers, conn);
