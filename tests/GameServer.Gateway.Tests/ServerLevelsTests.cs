@@ -28,7 +28,7 @@ public class ServerLevelsTests
     // The level objects the server spawned in that Coast (every one its stream reached: the three exits, the waypoint,
     // the Karui stone, the Deepwater boat, bathysphere and sockets) are in the level's server-object list at their type
     // and sub-cell, with the server's rotation, world z and height marker (−z / 7.8125 truncated). And with
-    // map_force_side_area in the stats (the VaalSideAreas mod) the generator places the Coast's Vaal side area instead
+    // map_force_side_area in the stats the generator places the Coast's Vaal side area instead
     // of rolling for it: its side cave room (node "cave1", "sidearea1") holds the transition tile that is the way in
     // (ExitKind.SideArea), which the catalog sends as a type-2 transition to one of the Coast's WorldAreas VaalArea rows.
     [Fact]

@@ -201,8 +201,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   is created as the server does; a gate without a label key shows "Stairs" (destination variant 0); the Positioned
   height marker is −z / 7.8125 truncated. A level's Vaal side area is playable: its room's transition tile leads
   into a new instance of one of the area's VaalArea side areas, whose area packet names the parent area and
-  instance, and whose "sideentrance" transition leads back into that parent instance (08 §8 step 9; the
-  VaalSideAreas mod forces one into every area that can hold it).
+  instance, and whose "sideentrance" transition leads back into that parent instance (08 §8 step 9).
   Code: `GameServer.Data/Terrain/Generation`, `scripts/re/levelgen`, `World/AreaStats.cs`.
   Docs: [re/011](../docs/re/011-level-generation.md).
 - **The Labyrinth's day layout.** The Gateway builds the day's layout as the client does (sections, rooms,

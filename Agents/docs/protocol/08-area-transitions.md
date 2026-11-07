@@ -423,7 +423,7 @@ nothing about which in-area gate leads to which arrival (the Warden's Quarters, 
 8. Arrivals: next to the exit back; through a one-way entrance, at that disabled entrance's point
    (`AreaTransitionCatalog.EntrancePoint`, `AreaLayout.EntranceFrom`).
 9. Vaal side areas. The generator keeps one of the area's side area groups when the level rolls one (or when the
-   instance's stats carry `map_force_side_area`: the VaalSideAreas mod); the kept room's node keeps its "sidearea…"
+   instance's stats carry `map_force_side_area`); the kept room's node keeps its "sidearea…"
    description, and the transition its tiles hold (The Coast's side_cave1_entrance_2.arm; a room without one takes its
    "entrance" point, an exit without a model) is the way in: type 2 (SideArea) to one of the area's WorldAreas VaalArea
    rows, by the seed (the server's own pick is not known). Entering it opens a new instance of the side area that keeps
