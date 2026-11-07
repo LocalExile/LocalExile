@@ -189,7 +189,7 @@ own tiles (live 2026-11-01, the original: a diagonal line of four rises from its
 The Normal trials' rooms have none, so their pattern is fitted by eye against the original (live 2026-10-31):
 - a ring (every trap side by side with two others) cascades from its trap nearest the trial's lever, straight towards
   its trap nearest the trial's doors and on round, 450 ms a trap, starting again at once;
-- any other chain fires as a checkerboard: the tiles of the start's colour, then the others 2 s later, every 4 s.
+- any other chain fires as a checkerboard: the tiles of the start's colour, then the others 2.5 s later, every 5 s.
 
 **What it does.** The cascade traps do not answer a step (the spikes that do are another trap, in Izaro's rooms).
 - A player on the tile while the spikes are up is hit once: `LbRetractableTrap`'s stat set (GrantedEffectStatSets

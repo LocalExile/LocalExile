@@ -70,6 +70,16 @@ public sealed class LabyrinthTrialTests
     }
 
     [Fact]
+    public void CheckerboardSpikeGroupsAlternateEveryTwoAndAHalfSeconds()
+    {
+        double step = LabyrinthTrials.SpikeStep(checker: true);
+        Assert.Equal(2.5, step);
+        Assert.Equal(5.0, LabyrinthTrials.SpikeWaveSeconds(2, step));
+        Assert.Equal(new LabyrinthTrials.SpikeTrigger(5, 0, 0), LabyrinthTrials.Trigger("Trigger_Delay_4_0WG"));
+        Assert.Equal(new LabyrinthTrials.SpikeTrigger(5, 0, 2.5), LabyrinthTrials.Trigger("Trigger_Delay_4_2WG"));
+    }
+
+    [Fact]
     public void DartTrapFiresFourDartsAQuarterTurnApartFromItsFacing()
     {
         const string model = "Metadata/Terrain/Labyrinth/Traps/statueturret_circleclean.ao";
