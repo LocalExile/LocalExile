@@ -59,3 +59,8 @@ does not know is deleted, and no other account ever is, whatever its name.
 Party combat uses the ordinary player pipeline; offscreen quests, loot and crafting remain simulated.
 Trading, chat and advanced tactical/ascendancy builds remain open. Current implementation status is in
 [NPCs and chat](../../status/npcs-and-chat.md).
+
+## External party control
+
+The optional authenticated MCP endpoint exposes per-bot observations and leased tactical orders.
+See [connection, tools and fallback rules](../../../Modules/PlayerBots/MCP.md).

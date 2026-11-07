@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "localexile-playerbots": {
+      "command": "python",
+      "args": ["<repo>/Modules/PlayerBots/mcp.py", "--root", "<repo>", "--port", "6194"]
+    }
+  }
+}

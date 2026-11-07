@@ -7,6 +7,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Ground items belong to the area instance: dropped items and loot stay where they lay across logouts, disconnects and
   client crashes until the instance expires; ids from 0x100000; one pickup per item.
+  Fresh drops play native item/filter audio; existing-ground replay stays quiet (Divine, Mirror and quest alerts traced with NeverSink).
   Code: `InstanceStore.cs`, Gateway.
   Docs: [13](../docs/protocol/13-items.md) §5.
 - Life and mana flasks: a flask key (C→S 0x70) spends the flask's charges and recovers Flasks.dat's life or mana over

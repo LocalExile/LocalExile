@@ -290,13 +290,15 @@ public sealed record WorldItemObject(int GridX, int GridY, Item Item)
 {
     public const string MetadataPath = "Metadata/MiscellaneousObjects/WorldItem";
 
-    public byte[] Blob()
+    public byte[] Blob() => Blob(justDropped: false);
+
+    public byte[] Blob(bool justDropped)
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                   // object flags, base data entry count
         w.I32(GridX).I32(GridY).F32(0).U16(0).U8(0).U8(0); // Positioned
         w.U8(0);                                         // Animated: none
-        w.U32(0).U8(0).U32(0).Bytes(Item.Payload());     // WorldItem
+        w.U32(0).U8(justDropped ? (byte)1 : (byte)0).U32(0).Bytes(Item.Payload()); // WorldItem
         w.U8(0);                                         // InteractionAction
         w.U8(0);                                         // tasks
         return w.ToArray();

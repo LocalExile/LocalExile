@@ -125,11 +125,20 @@ static partial class Game
         }
     }
 
-    // Called under the owner's lock. Replace only final scale in an immutable template, retaining creation stats,
+    // Called under the owner's lock. Publish experience and final scale in an immutable template, retaining other creation stats,
     // equipment and skills. Observers read published snapshots and never lock another connection's simulation.
     internal static void RefreshPeerScale(ClientState conn, int scale)
     {
         if (conn.PeerTemplate is not { } template) return;
+        if (template.Experience != conn.Experience)
+            conn.PeerTemplate = template = template with { Experience = conn.Experience };
+        if (Stats.Key("level") is uint levelKey)
+        {
+            int level = Progression.LevelFor(conn.Experience, CharacterStats.LevelStarts);
+            if ((template.Stats ?? []).SingleOrDefault(s => s.Key == levelKey).Value != level)
+                conn.PeerTemplate = template = template with
+                { Stats = [.. (template.Stats ?? []).Where(s => s.Key != levelKey), (levelKey, level)] };
+        }
         if ((template.Stats ?? []).SingleOrDefault(s => s.Key == ActorScale.Final).Value != scale)
             conn.PeerTemplate = template = template with
             { Stats = [.. (template.Stats ?? []).Where(s => s.Key != ActorScale.Final), (ActorScale.Final, scale)] };
@@ -202,6 +211,24 @@ static partial class Game
                     }
                     if (previous.Life != peer.Life)
                         packets.Add(InstanceProtocol.LifeUpdate(peer.Id, peer.Life));
+                    if (previous.Template.Experience != peer.Template.Experience)
+                        packets.Add(InstanceEntities.PlayerExperienceUpdate(peer.Id, peer.Template.Experience));
+                    if (Stats.Key("level") is uint levelKey)
+                    {
+                        int level = (peer.Template.Stats ?? []).SingleOrDefault(s => s.Key == levelKey).Value;
+                        int oldLevel = (previous.Template.Stats ?? []).SingleOrDefault(s => s.Key == levelKey).Value;
+                        if (level != oldLevel) packets.Add(InstanceEntities.StatsUpdate(peer.Id, [(levelKey, level)]));
+                    }
+                    if (Progression.LevelFor(peer.Template.Experience, CharacterStats.LevelStarts)
+                        > Progression.LevelFor(previous.Template.Experience, CharacterStats.LevelStarts))
+                    {
+                        uint effect = conn.NextObjectId++;
+                        conn.TemporarySkillEffects[effect] = AreaTime(conn) + 3;
+                        packets.Add(InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                            new EffectObject(peer.X, peer.Y, "Metadata/Effects/misc/levelup_new/rig.ao")
+                            { Parent = peer.Id }.Blob()));
+                        packets.Add(InstanceProtocol.EnterWakeZone(effect));
+                    }
                     int scale = (peer.Template.Stats ?? []).SingleOrDefault(s => s.Key == ActorScale.Final).Value;
                     int before = (previous.Template.Stats ?? []).SingleOrDefault(s => s.Key == ActorScale.Final).Value;
                     if (scale != before)

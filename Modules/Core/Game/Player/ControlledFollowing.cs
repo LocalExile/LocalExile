@@ -47,7 +47,7 @@ static partial class Game
         return origin;
     }
 
-    internal static bool KeepControlledFollowerNear(ClientState conn, ClientState leader, double now)
+    internal static bool KeepControlledFollowerNear(ClientState conn, ClientState leader, double now, bool externalMovement = false)
     {
         var plan = FollowerPlans.GetOrCreateValue(conn);
         var here = conn.Walk.Position(now);
@@ -93,6 +93,7 @@ static partial class Game
             ScheduleControlledIdle(conn, plan, now);
         }
         if (moving || distance > ControlledFollowerLeash) plan.Following = true;
+        if (externalMovement && distance <= ControlledFollowerLeash) return plan.Following;
         if (!plan.Following) return false;
         if (now < plan.AttackUntil) return true;
         if (now >= plan.RepathAt && (!conn.Walk.Moving(now) || Dist(plan.LeaderAt, follow) >= 12
