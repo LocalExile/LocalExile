@@ -82,10 +82,12 @@ static class LabyrinthDay
     static int IndexOf(Day day, int row) => day.Layout.Nodes.ToList().FindIndex(n => n.Row == row);
 
     /// <summary>The way to a room of a run from a transition: the plaza's way in starts a new run of today's Normal
-    /// Labyrinth at its first room; an exit of a run's room goes to the neighbour in the layout played in the exit's area
-    /// (its instance when the run has been there, else a new one at a seed the run picks, so the server knows its room).
+    /// Labyrinth at its first room; an exit of a run's room goes to its neighbour in the layout (the exit's
+    /// <paramref name="entrance"/> N: the N-th connection, else the neighbour played in the exit's area), its instance
+    /// when the run has been there, else a new one at a seed the run picks, so the server knows its room.
     /// Null: not a run's way (an ordinary transfer).</summary>
-    public static PendingTransfer? Transfer(string character, string fromArea, uint fromSeed, string? sourceType, ushort destination, string? destinationArea)
+    public static PendingTransfer? Transfer(string character, string fromArea, uint fromSeed, string? sourceType, ushort destination, string? destinationArea,
+        int? entrance = null)
     {
         Run? run;
         int to;
@@ -101,7 +103,7 @@ static class LabyrinthDay
             var day = For(run.Seed, run.Difficulty);
             int index = IndexOf(day, from.Row);
             if (index < 0) return null;
-            to = day.Layout.Nodes[index].Links.Where(l => l >= 0).FirstOrDefault(l => day.Areas[l] == destinationArea, -1);
+            to = Neighbour(day, index, destinationArea, entrance);
             if (to < 0) return null;
         }
         lock (run)
@@ -122,6 +124,17 @@ static class LabyrinthDay
                 },
             };
         }
+    }
+
+    /// <summary>The layout index of the room an exit of room <paramref name="index"/> leads to, or -1. Two exits can lead
+    /// to rooms played in the same area, so the exit's entranceN names its neighbour (the N-th connection); without one (a
+    /// passage secret's way, counted after the connections) it is the neighbour played in the exit's area.</summary>
+    internal static int Neighbour(Day day, int index, string? area, int? entrance)
+    {
+        var links = day.Layout.Nodes[index].Links;
+        return entrance is int n && n >= 1 && n <= links.Count && links[n - 1] >= 0 && day.Areas[links[n - 1]] == area
+            ? links[n - 1]
+            : links.Where(l => l >= 0).FirstOrDefault(l => day.Areas[l] == area, -1);
     }
 
     /// <summary>A character enters an area: in a room of their run it is remembered (the map's progress to send,

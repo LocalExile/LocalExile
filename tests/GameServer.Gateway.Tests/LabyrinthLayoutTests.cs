@@ -34,6 +34,22 @@ public sealed class LabyrinthLayoutTests
         Assert.Equal(new byte[] { 0x08, 0, 0, 0, 0, 0, 0x34, 0x12, 1 }, LabyrinthDay.ExtraData(new(0, 0x1234, 1)));
     }
 
+    // Two exits of a room can lead to rooms played in the same area (seed 0's room 7 → 6 and 8 here): the exit's entranceN
+    // picks the neighbour; a way without one (a passage secret's) takes the first played in its area.
+    [Fact]
+    public void AnExitLeadsToItsOwnNeighbour()
+    {
+        var layout = LabyrinthLayout.Build(path => GamePack.Default.TryRead(path), 0, 1);
+        string?[] areas = ["a", "b", "c", "d", "e", "f", "same", "g", "same", "h"];
+        var day = new LabyrinthDay.Day(layout, areas);
+        Assert.Equal([5, 6, 9, 8], layout.Nodes[7].Links);
+        Assert.Equal(8, LabyrinthDay.Neighbour(day, 7, "same", 4));
+        Assert.Equal(6, LabyrinthDay.Neighbour(day, 7, "same", 2));
+        Assert.Equal(6, LabyrinthDay.Neighbour(day, 7, "same", null));
+        Assert.Equal(9, LabyrinthDay.Neighbour(day, 7, "h", 3));
+        Assert.Equal(-1, LabyrinthDay.Neighbour(day, 7, "a", null));
+    }
+
     // C→S 0x39 is taken only in the Ascendancy Chamber's room: every tier's FinalBoss areas, some with a "_#", and no other.
     [Theory]
     [InlineData("1_Labyrinth_boss_2_end", true)]
