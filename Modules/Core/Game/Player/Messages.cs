@@ -297,6 +297,8 @@ static partial class Game
                 await SetPaused(remote, stream, ciphers, conn, InstancePause.ReadRequest(bytes));
             else if (id == InstanceWaypoints.LabyrinthChosenId && bytes.Length >= InstanceWaypoints.LabyrinthChosenLength)
                 await ChooseLabyrinth(remote, stream, ciphers, conn, bytes[2]);
+            else if (id == InstanceWaypoints.AscendancyChosenId && bytes.Length >= InstanceWaypoints.AscendancyChosenLength)
+                await ChooseAscendancyClass(remote, stream, ciphers, conn, bytes[2]);
             else if (id == InstanceProtocol.UseInstantSkillAtLocationId)
             {
                 var (x, y, skill) = InstanceProtocol.ReadUseInstantSkillAtLocation(bytes);

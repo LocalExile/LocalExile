@@ -1235,6 +1235,71 @@ static partial class Game
         }
     }
 
+    // Chooses the main ascendancy (/ascendancy, the Ascendancy Chamber's class selector) and saves it; the caller reloads
+    // the area to show its tree. An AscendancyRuleException leaves everything as it was.
+    internal static void SelectMainAscendancy(ClientState conn, AscendancyCatalog.Definition chosen)
+    {
+        byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
+        AscendancyClientCompatibility.RequirePlayable(conn, chosen.Identity);
+        lock (conn.Monsters)
+        {
+            using var availability = AscendancyPolicies.Enter(conn, chosen.Identity);
+            var next = Saves.Atomically(() =>
+            {
+                var saved = CharacterSaves.Load(CharacterName(conn));
+                return CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
+                {
+                    var candidate = AscendancyRules.Select(baseClass, latest, chosen.Identity);
+                    ValidateOrdinaryPassives(conn, saved?.Passives ?? [], candidate);
+                    return candidate;
+                });
+            });
+            conn.MainAscendancy = next;
+            AscendancyPolicies.SelectionChanged(conn);
+            conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
+        }
+    }
+
+    // Earns the Labyrinth tiers' ascendancy points (two each, once: AscendancyRules.AwardKeys), saved, and sends the tree.
+    internal static async Task<int> AwardAscendancyPoints(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        IEnumerable<string> awards)
+    {
+        byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
+        AscendancyProgress next;
+        lock (conn.Monsters)
+        {
+            using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
+            next = CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
+            {
+                AscendancyPolicies.RequireCurrentSelection(conn.MainAscendancy.Selection, latest.Selection);
+                foreach (string award in awards) latest = AscendancyRules.Award(baseClass, latest, award);
+                return latest;
+            });
+            conn.MainAscendancy = next;
+            AscendancyPolicies.SelectionChanged(conn);
+            conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
+        }
+        await SendPassives(remote, stream, ciphers, conn);
+        return next.EarnedPoints;
+    }
+
+    // C→S 0x39: the Ascendancy Chamber's class selector (opened by its font, InstanceWaypoints.AscendancySelectUi) chose an
+    // Ascendancy.dat row. Only in a Labyrinth's last room, for an unascended character; the area reloads with the new class.
+    internal static async Task ChooseAscendancyClass(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
+    {
+        byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
+        var chosen = Ascendancies.Choices(baseClass).FirstOrDefault(d => d.Identity.Family == AscendancyFamily.Normal && d.TableRow == row);
+        Console.WriteLine($"[gateway] {remote} <= 0x0039 ascendancy row {row} chosen: {chosen?.Name ?? "not one of this class's"}");
+        if (chosen is null || !LabyrinthDay.IsChamber(conn.Layout.Id) || conn.MainAscendancy.Selection is not null) return;
+        try { SelectMainAscendancy(conn, chosen); }
+        catch (Exception ex) when (ex is AscendancyRuleException or PassiveProgressConflictException)
+        {
+            Console.WriteLine($"[gateway] {remote} {chosen.Name} refused: {ex.Message}");
+            return;
+        }
+        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"ascendancy {chosen.Name} chosen at the font");
+    }
+
     // The character's passive skill tree (0x33): its level (from which the client counts the points), its class (the
     // tree's start) and the allocated nodes.
     internal static async Task SendPassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)

@@ -111,8 +111,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   The day's layout is sent with each room in it, and a Normal run works ([status](../status/world.md), "A Labyrinth run").
   The Aspirants' Plaza (`Labyrinth_Airlock`, `WaypointCatalog.LabyrinthPlaza`) is a waypoint the World panel's
   Labyrinth pin always shows.
-  Ascendancy points come only from the `/ascendancy_points` dev command (`AscendancyProgress`: two per tier, once);
-  choosing the ascendancy through the native Altar is #151.
+  The Ascendancy Chamber's font chooses the ascendancy and gives the tier's two points without Izaro's fight
+  ([status](../status/world.md), "A Labyrinth run").
   The tables are extracted (`data/tables/Labyrinth*.json`): 4 tiers with their required trials, quest flag and area
   level, 18 trials, 47 sections, 223 section layout rows, 58 secrets and the Izaro chests.
   AreaTransition type 5 is Labyrinth ([08](../docs/protocol/08-area-transitions.md) §7), and
@@ -128,9 +128,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Start**, one pull request per step, in this order:
   1. Izaro: three Aspirant's Trials, each ending when he loses a third of his life (the boss stages of
      `BossFights.cs`); the third opens the Ascendancy Chamber and its Izaro chests (LabyrinthIzaroChests).
-  2. The Ascendancy Chamber: the Altar (`LabyrinthAscendancyDevice`) chooses the ascendancy on the first Normal run,
-     awards the tier's two points through `AscendancyProgress` and sets the tier's quest flag (Labyrinths
-     `QuestFlag`); agree the shared code with #151.
+  2. The Ascendancy Chamber: the font (`QuestobjectsRules.UseAscendancyFont`) waits for Izaro's third trial and sets the
+     tier's quest flag (Labyrinths `QuestFlag`, `LabyrinthComplete1` …: it also moves the quest tracker on and unlocks
+     the next tier's row).
   3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
      Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type

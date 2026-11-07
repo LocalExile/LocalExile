@@ -30,6 +30,11 @@ static class LabyrinthDay
         : areaId.StartsWith("3_Labyrinth", StringComparison.Ordinal) ? 3
         : areaId.StartsWith("EndGame_Labyrinth", StringComparison.Ordinal) ? 4 : null;
 
+    /// <summary>The last room of a Labyrinth (LabyrinthAreas FinalBoss1-3: <c>N_Labyrinth_boss_K_end</c>, some with a
+    /// <c>_#</c>): Izaro's last arena and behind it the Ascendancy Chamber (boss_ascendancy.arm: the font, the portal out).</summary>
+    public static bool IsChamber(string areaId) => DifficultyOf(areaId) is not null
+        && areaId.Contains("_Labyrinth_boss_", StringComparison.Ordinal) && areaId.Contains("_end", StringComparison.Ordinal);
+
     /// <summary>The day's layout for a difficulty, with its rooms' areas.</summary>
     public static Day For(uint seed, int difficulty) => Days.GetOrAdd((seed, difficulty), key => Build(key.Seed, key.Difficulty));
 

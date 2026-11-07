@@ -15,7 +15,26 @@ static partial class QuestobjectsRules
     internal static async Task UseLabyrinthSelect(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthSelectUi), "0x007b open the Labyrinth select window");
 
-    // The plaza's portal (Act3Objects.ReturnPortal, "Return To Town"): to the character's last town, else Act 3's.
+    // The Ascendancy Chamber's font (Act3Objects.AscendancyFont): the Labyrinth's two ascendancy points (once per tier; Izaro
+    // is not fought yet, so reaching the font is enough), then 0x7b kind 0x0a: the client opens its class selector for an
+    // unascended character (its choice comes back as C→S 0x39, ChooseAscendancyClass), else the passive tree.
+    internal static async Task UseAscendancyFont(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (LabyrinthDay.DifficultyOf(conn.Layout.Id) is not int tier) return;
+        try
+        {
+            int earned = await AwardAscendancyPoints(remote, stream, ciphers, conn, [global::AscendancyRules.AwardKeys[tier - 1]]);
+            Console.WriteLine($"[gateway] {remote} the font: Labyrinth {tier}'s points, {earned} earned");
+        }
+        catch (Exception ex) when (ex is AscendancyRuleException or PassiveProgressConflictException)
+        {
+            Console.WriteLine($"[gateway] {remote} the font's points refused: {ex.Message}");
+        }
+        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.AscendancySelectUi), "0x007b open the ascendancy class selector");
+    }
+
+    // The plaza's portal (Act3Objects.ReturnPortal, "Return To Town") and the Ascendancy Chamber's
+    // (Act3Objects.ChamberPortal): to the character's last town, else Act 3's.
     internal static async Task UsePlazaReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         ushort town = conn.LastTown != 0 ? conn.LastTown : AreaTransitionCatalog.HashOf(Act3Areas.SarnEncampment) ?? 0;
