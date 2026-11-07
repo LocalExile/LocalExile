@@ -269,8 +269,9 @@ Evidence: `artifacts/issue75-completion/weapon-native/`, including the preserved
 
 ## 2b. Added damage from stats
 
-Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges and the
-stats below are read.
+Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges, the
+bow-conditional `attack_minimum/maximum_added_<type>_damage_with_bow(s)` ranges (an item's quiver or body armour bonus,
+added only while a bow is the weapon) and the stats below are read.
 `DamageStats.RawAdded` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.
 The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`
