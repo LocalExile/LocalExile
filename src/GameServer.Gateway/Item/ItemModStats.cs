@@ -158,6 +158,15 @@ static class ItemModStats
         return new(cache.GetValue(item, current => new(Sum([current], mods, local: true))).Stats);
     }
 
+    /// <summary>A shield's block chance: the base type's from ShieldTypes.dat plus the shield's own local added block
+    /// ("+X% Chance to Block" is a local modifier). A local no-block modifier (Kongming's Stratagem) removes it.</summary>
+    public static int ShieldBlock(ItemCatalog items, Item item, ItemCatalog.BaseType type)
+    {
+        var local = Local(item, items.Mods);
+        return local.GetValueOrDefault("local_no_block_chance") != 0 ? 0
+            : items.ShieldBlock(type) + local.GetValueOrDefault("local_additional_block_chance_%");
+    }
+
     /// <summary>A worn item with what it needs: strength, dexterity, intelligence and character level.</summary>
     public sealed record Worn(uint Id, Item Item, int Strength, int Dexterity, int Intelligence, int Level);
 
