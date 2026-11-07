@@ -34,14 +34,33 @@ sealed class ItemCatalog
         _utilityFlasks = new(() => UtilityFlasks.Load(folder, _rows.Value.Rows, hardMode));
         _onslaught = new(() => _utilityFlasks.Value.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null));
         _visualsById = new(() => LoadVisualsById(folder));
+        _words = new(() => LoadWords(folder));
         _currencyUses = new(() => LoadCurrencyUses(folder));
     }
 
     private readonly Lazy<Dictionary<string, ushort>> _visualsById;
+    readonly Lazy<HashSet<uint>> _words;
 
     /// <summary>An ItemVisualIdentity row's HASH16 by its Id (DefaultArrow, DefaultQuiver …): the hashes the client
     /// looks an art up by. Null when the table is missing or has no such row.</summary>
     public ushort? Visual(string id) => _visualsById.Value.TryGetValue(id, out ushort hash) && hash != 0 ? hash : null;
+
+    /// <summary>Whether a HASH16 is an ItemVisualIdentity row: the client stops at an item with any other.</summary>
+    public bool IsVisual(ushort hash) => hash != 0 && _visualsById.Value.ContainsValue(hash);
+
+    /// <summary>Whether a HASH32 is a Words row, what an item's name is made of.</summary>
+    public bool IsWord(uint hash) => _words.Value.Contains(hash);
+
+    /// <summary>Whether a byte is an AlternateQualityTypes row.</summary>
+    public bool IsAlternateQuality(byte row) => row < _currencyUses.Value.QualityRows;
+
+    static HashSet<uint> LoadWords(string folder)
+    {
+        string path = Path.Combine(folder, "tables", "Words.json");
+        if (!File.Exists(path)) return [];
+        using var doc = GameTables.Open(path);
+        return [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("HASH32").GetUInt32())];
+    }
 
     static Dictionary<string, ushort> LoadVisualsById(string folder)
     {
@@ -115,7 +134,7 @@ sealed class ItemCatalog
 
     public ItemCatalog() : this("data") { }
 
-    readonly Lazy<(Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem)> _currencyUses;
+    readonly Lazy<(Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows)> _currencyUses;
 
     /// <summary>CurrencyItems.Action for this base, or null when the row is not a currency / has no action. New chisels
     /// and Vaal variants are picked up from the table instead of an Id list.</summary>
@@ -126,7 +145,7 @@ sealed class ItemCatalog
     public byte? AlternateQualityOf(BaseType currency) =>
         _currencyUses.Value.QualityByItem.TryGetValue(currency.Row, out byte row) ? row : null;
 
-    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem) LoadCurrencyUses(string folder)
+    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows) LoadCurrencyUses(string folder)
     {
         var actions = new Dictionary<int, string>();
         string currency = Path.Combine(folder, "tables", "CurrencyItems.json");
@@ -139,6 +158,7 @@ sealed class ItemCatalog
                     actions.TryAdd(b.GetInt32(), action);
         }
         var quality = new Dictionary<int, byte>();
+        int rows = 0;
         string alt = Path.Combine(folder, "tables", "AlternateQualityTypes.json");
         if (File.Exists(alt))
         {
@@ -149,9 +169,10 @@ sealed class ItemCatalog
                 if (r.TryGetProperty("Item", out var item) && item.ValueKind == JsonValueKind.Number)
                     quality.TryAdd(item.GetInt32(), row);
                 row++;
+                rows++;
             }
         }
-        return (actions, quality);
+        return (actions, quality, rows);
     }
 
     public BaseType? Row(int row) => row >= 0 && row < _rows.Value.Rows.Count ? _rows.Value.Rows[row] : null;

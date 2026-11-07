@@ -87,7 +87,7 @@ public sealed class ChatHub(TimeProvider? time = null)
     {
         if (frame.Kind is not { } kind || !member.Channels.TryGetValue(kind, out var room)) return;
         if (ChatWire.Clean(frame.Text) is not { Length: > 0 } text || !Spend(member)) return;
-        var line = new ChatFrame(ChatFrame.Line, member.Name, kind, Text: text);
+        var line = ChatWire.Fitted(new ChatFrame(ChatFrame.Line, member.Name, kind, Text: text, Items: ChatWire.Items(text, frame.Items)));
         foreach (var listener in _channels[(kind, room.Channel, room.Language)]) listener.Send(line);
     }
 
@@ -99,8 +99,9 @@ public sealed class ChatHub(TimeProvider? time = null)
             member.Send(new ChatFrame(ChatFrame.Offline, frame.Name));
             return;
         }
-        target.Send(new ChatFrame(ChatFrame.Whisper, member.Name, Text: text));
-        member.Send(new ChatFrame(ChatFrame.Whispered, target.Name, Text: text));
+        var items = ChatWire.Items(text, frame.Items);
+        target.Send(ChatWire.Fitted(new ChatFrame(ChatFrame.Whisper, member.Name, Text: text, Items: items)));
+        member.Send(ChatWire.Fitted(new ChatFrame(ChatFrame.Whispered, target.Name, Text: text, Items: items)));
     }
 
     bool Spend(ChatMember member)

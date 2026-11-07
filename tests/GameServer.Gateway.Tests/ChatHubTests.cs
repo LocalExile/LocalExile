@@ -1,5 +1,6 @@
 using GameServer.Core.Chat;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Gateway.Tests;
 
@@ -85,5 +86,49 @@ public class ChatHubTests
         Assert.Null(await ChatWire.ReadAsync(wire, default));
         using var tooLong = new MemoryStream([0xff, 0xff]);
         await Assert.ThrowsAsync<InvalidDataException>(() => ChatWire.ReadAsync(tooLong, default));
+    }
+
+    [Fact]
+    public void A_linked_item_is_framed_and_reaches_the_line()
+    {
+        // As captured live 2026-11-07: the link, then "#_" with the mark's place, then a tick.
+        byte[] link = Convert.FromHexString("001200000000070000001700");
+        byte[] typed = new LoginWriter().U16(InstanceChat.ChatId).WStr("#_").U8(1).U32(1).ToArray();
+        var messages = InstanceProtocol.SplitClientMessages([.. link, .. typed, .. Convert.FromHexString("020A01")], out _, out byte[] unknown);
+        Assert.Empty(unknown);
+        Assert.Equal(new ushort[] { InstanceChat.LinkItemId, InstanceChat.ChatId, 0x020a }, messages.Select(m => m.Id));
+        Assert.Equal(new InstanceChat.LinkItem(0, 7, 0x17), InstanceChat.ReadLinkItem(messages[0].Bytes));
+        Assert.Equal([1u], InstanceChat.ReadChat(messages[1].Bytes).Links);
+
+        Assert.EndsWith("00" + "01" + "00000002" + "AABB", Convert.ToHexString(InstanceChat.ChatLine("a _", items: [new ChatLineItem(2, [0xaa, 0xbb])])));
+
+        // A chat server passes on the items that stand on a mark, in the text's order, and gives up on those too long for a frame.
+        var hub = new ChatHub();
+        var (ann, heard) = Enter(hub, "Ann");
+        hub.Handle(ann, new ChatFrame(ChatFrame.Join, Kind: ChatChannelKind.Global, Channel: 1));
+        hub.Handle(ann, new ChatFrame(ChatFrame.Say, Kind: ChatChannelKind.Global, Text: "_ a _",
+            Items: [new ChatFrameItem(4, "second"), new ChatFrameItem(2, "off the mark"), new ChatFrameItem(0, "first"), new ChatFrameItem(9, "past the end")]));
+        Assert.Equal(["first", "second"], heard[^1].Items!.Select(i => i.Item));
+        hub.Handle(ann, new ChatFrame(ChatFrame.Say, Kind: ChatChannelKind.Global, Text: "_", Items: [new ChatFrameItem(0, new string('x', ChatWire.MaxFrame))]));
+        Assert.Equal("_", heard[^1].Text);
+        Assert.Null(heard[^1].Items);
+    }
+
+    [Fact]
+    public void A_linked_item_from_a_chat_server_is_built_from_the_game_data()
+    {
+        var catalog = new ItemCatalog("data");
+        var item = ItemCatalog.Create(catalog.Find("Metadata/Items/Armours/BodyArmours/BodyDexInt1")!);
+        string written = ChatItems.Write(item, catalog);
+        Assert.Equal(item.Wire(), ChatItems.Wire(written, catalog));
+
+        var saved = CharacterSaves.ToSaved(item, catalog.Mods);
+        string Forged(CharacterSaves.SavedItem forged) => System.Text.Json.JsonSerializer.Serialize(forged, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.Null(ChatItems.Wire("not an item", catalog));
+        Assert.Null(ChatItems.Wire(Forged(saved with { Type = 0xdeadbeef }), catalog));
+        Assert.Null(ChatItems.Wire(Forged(saved with { Mods = [new("NoSuchMod", ModSection.Explicit, [1])] }), catalog));
+        Assert.Null(ChatItems.Wire(Forged(saved with { Sockets = [.. Enumerable.Repeat(new CharacterSaves.SavedSocket(SocketColour.Red), 7)] }), catalog));
+        Assert.Null(ChatItems.Wire(Forged(saved with { Sockets = [new(SocketColour.Red)], Links = [2] }), catalog));
+        Assert.Equal(item.Wire(), ChatItems.Wire(Forged(saved with { Visual = 0xffff, Name = [0xdeadbeef], AlternateQualityType = 200, GemVariant = 99 }), catalog));
     }
 }
