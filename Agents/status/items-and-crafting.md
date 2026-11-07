@@ -228,6 +228,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   death. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
 - Conditional item gates feed live pools and stat publication; Kintsugi incoming hits, expiry and lifecycle verified.
   Weapon/aura, tracked-event, numeric-threshold and supported runtime-state gates have automated coverage.
+  The item mods' "when on low/full life or mana" spelling shares the "while" state flags and folds onto the plain stat.
   Untracked, counted-recent and compound operators remain partial ([13](../docs/protocol/13-items.md)).
 
 - **On-kill explosions and attribute damage reduction (implemented 2026-11-04, automated verification; live client

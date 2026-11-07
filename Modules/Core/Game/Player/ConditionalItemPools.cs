@@ -30,6 +30,9 @@ static partial class Game
             ["_while_leeching"] = alive && (leech.Life || leech.Mana || leech.EnergyShield),
         };
         flags["_while_you_have_fortify"] = flags["_while_fortified"];
+        // The uniques spell the life/mana states with "when"; the same state answers both keys.
+        foreach (string state in new[] { "_on_full_life", "_on_low_life", "_on_full_mana", "_on_low_mana" })
+            flags["_when" + state] = flags["_while" + state];
         var weapons = WeaponProfileFor(conn);
         flags["_while_unarmed"] = weapons.Unarmed;
         flags["_while_wielding_staff"] = weapons.Staff;
