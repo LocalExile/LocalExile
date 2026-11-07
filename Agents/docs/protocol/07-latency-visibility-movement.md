@@ -465,9 +465,12 @@ a 0x25, so the client predicts nothing. `skill-clicks` plays the skill on the ri
 Negative footprints do not block; zero is a valid small body.
 Monsters with a negative footprint do not avoid living bodies.
 Targetability does not determine whether an existing body blocks: created, untargetable buried monsters remain
-in the native body query (`0x141e61540`). Resolved `Positioned.blocking = false` suppresses their body without
-suppressing their own movement checks. The ordinary Positioned creation reader (`0x141e2f0b0`) copies the supplied
-cell directly, so saved monsters retain their established cells, including overlaps.
+in the native body query (`0x141e61540`) in both network modes. Predictive mode zero directly blocks ordinary
+monster searches on still-buried bodies, subject to the same layer, priority and phasing filters. Predictive local
+input (`0x14215f700`) reaches the shared MoveTo search (`0x141e4d890`), including its player-specific exemptions.
+Resolved `Positioned.blocking = false` suppresses the body without suppressing its own movement checks.
+The ordinary Positioned creation reader (`0x141e2f0b0`) copies the supplied cell directly, so saved monsters retain
+their established cells, including overlaps.
 `AreaLayout.WalkableFor` retains the captured terrain clearance values instead of treating every actor as player-sized.
 Monster orders use the bounded native pathfinder with the client's budget: 1000 expansions for a
 unique, 100 for any other monster (`0x141e4d890`).
