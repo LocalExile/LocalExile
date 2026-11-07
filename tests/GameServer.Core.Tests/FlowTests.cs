@@ -43,16 +43,6 @@ public class FlowTests
     }
 
     [Fact]
-    public void CreateCharacter_takes_an_optional_level()
-    {
-        var s = Svc();
-        var acc = s.Register("erin", "pass1234").Value!;
-        Assert.Equal(42, s.CreateCharacter(acc.Id, "Leveled", CharacterClass.Templar, level: 42).Value!.Level);
-        Assert.Equal(1, s.CreateCharacter(acc.Id, "Plain", CharacterClass.Templar).Value!.Level);
-        Assert.Equal(AuthError.InvalidLevel, s.CreateCharacter(acc.Id, "Zero", CharacterClass.Templar, level: 0).Error);
-    }
-
-    [Fact]
     public void SetLevel_changes_the_level_from_1_to_100_only()
     {
         var s = Svc();

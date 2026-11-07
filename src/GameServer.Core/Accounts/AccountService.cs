@@ -133,7 +133,7 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
 
     public Character? FindCharacter(string name) => store.FindCharacter(name);
 
-    /// <summary>Creates a level 1 character in <paramref name="inLeague"/> (default: the service's league).</summary>
+    /// <summary>Creates a character at <paramref name="level"/> (1 by default) in <paramref name="inLeague"/> (default: the service's league).</summary>
     public Result<Character> CreateCharacter(Guid accountId, string name, CharacterClass cls, string? inLeague = null, int level = 1)
     {
         if (!ValidName(name, 3, 23)) return Result<Character>.Fail(AuthError.InvalidCharacterName);
