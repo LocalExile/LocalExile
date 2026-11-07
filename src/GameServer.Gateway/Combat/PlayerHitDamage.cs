@@ -42,7 +42,8 @@ static class PlayerHitDamage
             + (fullShield ? get("damage_+%_on_full_energy_shield") : 0);
         var typed = DamageTypes.ConversionOrder.Select(type =>
             (History: DamageTypes.HistoryOf(type), Increased: get($"{type.ToString().ToLowerInvariant()}_damage_+%"))).ToArray();
-        int elemental = get("elemental_damage_+%"), meleePhysical = melee ? get("melee_physical_damage_+%") : 0;
+        int elemental = get("elemental_damage_+%")
+            + (!spell && !secondary ? get("elemental_damage_with_attack_skills_+%") : 0), meleePhysical = melee ? get("melee_physical_damage_+%") : 0;
         double charges = ChargeEffects.DamageMore(get, spell);
         var result = DamagePacket.Empty;
         foreach (var path in conversion.Trace(raw))

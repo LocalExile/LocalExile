@@ -290,6 +290,8 @@ This stack does not introduce the separate derived-damage engine from archival P
 Automated production-path cases cover ranged and melee gems, effectiveness and a spell isolation control.
 Native evidence here belongs to original head `378ffde`; supported-skill composition needs a new native check.
 `attack_damage_+%` scales the added range for every attack.
+`elemental_damage_with_attack_skills_+%` joins `elemental_damage_+%` for attacks only (Roth's Reach, Ewar's Mirage,
+Aegis Aurora, Sibyl's Lament, Wilma's Requital); a spell's elemental damage ignores it.
 `melee_damage_+%` applies only in explicit melee context: the default attack uses its active weapon profile,
 and attack gems use `ActiveSkillType Melee` through `SkillCatalog.IsMelee`.
 An inactive weapon set cannot change that context.
