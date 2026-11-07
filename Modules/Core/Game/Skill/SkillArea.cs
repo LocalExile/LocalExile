@@ -90,21 +90,29 @@ static class GroundSlamWave
     /// its radial hit.</summary>
     public const ushort Action = 0x2390;
 
-    /// <summary>The wave's reach in cells as a multiple of the skill's area radius, so the gem's per-level
-    /// active_skill_base_radius_+ and the player's area-of-effect stats still scale it. ESTIMATE: no table carries a
-    /// length.</summary>
-    public const double LengthScale = 2.0;
+    /// <summary>The wave's reach in cells at the generic area radius (12 cells). The exported tables carry no length;
+    /// the community describes Ground Slam's wave as about 60 units and the client draws it well past melee reach, so
+    /// this is an ESTIMATE calibrated against the live client (stand at a known distance in front of a monster).</summary>
+    public const double BaseLength = 60;
 
-    /// <summary>The wave's half angle in degrees before <c>ground_slam_angle_+%</c>. ESTIMATE: no table carries a base
-    /// angle.</summary>
-    public const double HalfAngleDegrees = 60;
+    /// <summary>The area radius the base length above is quoted at (<see cref="BaseRadius"/>'s generic value): the
+    /// gem's own per-level active_skill_base_radius_+ is added to the length, so a higher-level gem reaches further.</summary>
+    public const int GenericAreaRadius = 12;
+
+    /// <summary>The wave's half angle in degrees before <c>ground_slam_angle_+%</c>: half of the cone
+    /// <c>ground_slam_cone_angle_override</c> names (60 degrees across, not on each side), which no player stat set
+    /// carries, so it is a constant here.</summary>
+    public const double HalfAngleDegrees = 30;
 
     /// <summary>How fast the wave's front travels, in cells a second (10 cells = 1 m). ESTIMATE: no table carries a
     /// speed; the live measurement is the delay before a monster at a known distance takes its hit.</summary>
     public const double CellsPerSecond = 60;
 
-    /// <summary>The reach in cells of the wave a skill of <paramref name="areaRadius"/> cells sends.</summary>
-    public static double Length(int areaRadius) => Math.Max(0, areaRadius * LengthScale);
+    /// <summary>The reach in cells of the wave a skill of <paramref name="areaRadius"/> cells sends: the base length,
+    /// moved by however far the skill's own radius sits from the generic one (so the gem's per-level radius, a
+    /// support's more area and the player's area stats all lengthen it without the level×base runaway a plain
+    /// multiple of the radius gives).</summary>
+    public static double Length(int areaRadius) => Math.Max(0, BaseLength + (areaRadius - GenericAreaRadius));
 
     /// <summary>The half angle in degrees this use sends: the estimate above, grown by the skill's own
     /// <c>ground_slam_angle_+%</c> (Ground Slam's alternate-quality form holds a flat 100), capped at a right angle so an
