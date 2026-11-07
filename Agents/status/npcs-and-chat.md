@@ -95,8 +95,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [17](../docs/protocol/17-npcs.md#vendor-evidence-and-local-policy).
 - **Player bots** (PlayerBots module, off by default): bots are created over time and visit the towns between quests.
   Players see them walk with their class model and gear.
-  Quests are simulated out of sight; bots do not fight, trade or chat yet.
-  A bot accepts a party invite and follows its leader through towns and areas; kicked or disbanded, it walks out.
+  Each campaign town maintains 2–5 residents at act-appropriate levels (Act 10: 63–75; level 1 only in Act 1).
+  Party followers use ordinary player combat: compatible linked gems, connected passive builds, hostile targeting,
+  damage, resurrection and persisted kill/gem experience. The native party-menu kick removes any selected bot.
+  Followers stand calmly within 60 cells of an idle leader, with rare short adjustments, and enter on clear cells ahead of the entrance.
+  Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
+  Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.
+  Shared deaths hide corpse health bars on each observer, including kills made by controlled party members.
+  Party state survives module reload while the leader remains online. Offscreen quests remain simulated;
+  trade, chat, ascendancy builds and advanced tactical AI remain open.
   See [player bots](../docs/dev/player-bots.md).
 
 ## Not working yet

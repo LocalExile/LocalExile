@@ -69,7 +69,7 @@ static partial class Game
     // The Cosmetics tab's Social Frame slot (MicrotransactionSlot 17): the portrait frames.
     internal const byte SocialFrameSlot = 17;
     // Per character: the ids of worn items whose requirements are not met (CharacterStatSources).
-    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<uint>> InactiveItems = new(StringComparer.OrdinalIgnoreCase);
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<uint>> InactiveItems = CharacterEquipmentState.Inactive;
     // The character panel's Spell Suppression chance stats (the client reads the final value).
     internal static readonly uint[] SuppressionChanceKeys = [.. new[] { "spell_suppression_chance_%",
         "base_spell_suppression_chance_%", "combined_spell_suppression_chance_%" }.Select(n => Stats.Key(n)).OfType<uint>()];

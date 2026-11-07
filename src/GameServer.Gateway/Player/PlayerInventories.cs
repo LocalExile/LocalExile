@@ -817,6 +817,12 @@ sealed class PlayerInventories
     /// <summary>Forgets the character's loaded items: the next use loads them from the database (tests: a restart).</summary>
     internal static void Forget(string character) => ByCharacter.TryRemove(character, out _);
 
+    // A confirmed build replacement retires old references, including the periodic unsaved-items writer.
+    internal static void Invalidate(string character)
+    {
+        if (ByCharacter.TryRemove(character, out var old)) old._stale = true;
+    }
+
     /// <summary>The character's items: as saved, or the class's start kit (saved at once) when it has no save. A saved item
     /// the game data doesn't know stops the load (<see cref="UnknownSavedItemException"/>) and the save stays as it is.</summary>
     public static PlayerInventories For(string character, ItemCatalog catalog, string folder = "data") =>
