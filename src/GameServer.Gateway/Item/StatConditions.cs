@@ -84,6 +84,9 @@ public static class StatConditions
         "_while_unarmed", "_while_wielding_staff", "_while_wielding_sword",
         "_while_life_leeching", "_while_mana_leeching", "_while_energy_shield_leeching", "_while_leeching",
         "_while_at_maximum_endurance_charges", "_while_at_maximum_frenzy_charges", "_while_at_maximum_power_charges",
+        // The item mods spell the same life/mana states with "when" rather than "while" (Lioneye's Paws, Daresso's
+        // Salute, Infernal Mantle); ConditionalItemPools publishes both keys for the same state.
+        "_when_on_full_life", "_when_on_low_life", "_when_on_full_mana", "_when_on_low_mana",
     ];
 
     static string? StateSuffix(string statId) => StateSuffixes.FirstOrDefault(s =>
