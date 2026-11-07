@@ -201,8 +201,8 @@ static partial class Game
                         PlayerMinions.OutputKind.Vaal => VaalSoulPresentation(conn),
                         PlayerMinions.OutputKind.Experience => InstanceEntities.PlayerExperienceUpdate(PlayerId, CurrentExperience(conn)),
                         PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action
-                            && output.Until > AreaTime(conn) ? InstanceProtocol.ActorAnimation(output.TargetId!.Value,
-                                (float)(output.Until - AreaTime(conn)), PlayerHitRecovery.TakeHitAnimation) : null,
+                            && output.Until > AreaTime(conn) ? TakeHitPacket(conn, output.TargetId!.Value, m, output.Until,
+                                AreaTime(conn)) : null,
                         _ => output.Packet,
                     };
                 }

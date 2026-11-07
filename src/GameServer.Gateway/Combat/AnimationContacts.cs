@@ -151,13 +151,13 @@ sealed class AnimationContacts(string folder = "data")
         return null;
     }
 
-    /// <summary>The ACT stance the client picks the default attack's clip from, by the hands' items (the thrusting-sword
-    /// and one-hand mace stances are not told apart here), or null for a weapon without one.</summary>
+    /// <summary>The ACT stance the client picks the default attack's clip from, by the hands' items.
+    /// A one-hand mace uses the sword pool; thrusting swords are not distinguished here.</summary>
     public static string? StanceFor(WeaponProfile weapon)
     {
         string? main = weapon.Unarmed ? (weapon.Shield ? "Shield" : "Unarmed") : weapon.Bow ? "Bow" : weapon.Staff ? "Staff"
             : weapon.Sword && weapon.TwoHandMelee ? "TwoHandSword" : weapon.Mace && weapon.TwoHandMelee ? "TwoHandMace"
-            : weapon.Sword ? "OneHandSword" : weapon.Dagger ? "Dagger" : weapon.Claw ? "Claw" : weapon.Wand ? "Wand" : null;
+            : weapon.Sword || weapon.Mace ? "OneHandSword" : weapon.Dagger ? "Dagger" : weapon.Claw ? "Claw" : weapon.Wand ? "Wand" : null;
         if (main is null || weapon.Unarmed || weapon.Bow || weapon.TwoHandMelee || weapon.Staff) return main;
         return weapon.Shield ? main + "Shield" : weapon.DualWield ? main + main : main;
     }
@@ -276,7 +276,8 @@ readonly record struct DefaultAttackClip(string Animation, string Source, int In
     /// <summary>
     /// When the contact plays after the swing's start, for an attack of <paramref name="attackSeconds"/>. A clip without a
     /// budget is taken to stretch to the attack (a 600 ms wand clip's contact at 300 plays 0.333 s into a 0.667 s
-    /// attack, a 1066 ms bow clip plays at 1.49 throughout a 0.714 s attack: live 2026-11-03). A budgeted clip plays
+    /// attack, a 1066 ms bow clip plays at 1.49 throughout a 0.714 s attack: live 2026-11-03, from held Moves; the
+    /// client's own shot leaves at <see cref="ReleaseSeconds"/>). A budgeted clip plays
     /// over its budget and, when the attack is longer, the client stretches it to the attack time before the contact
     /// (the Ranger's attack_sword_01a, 365 ms with the contact at 299 and a 0.45 s budget, in a 0.645 s attack: the
     /// first 100 ms at 0.81 of the clip's speed, then 0.29 until 430 ms, then 0.81 again, the contact at 0.56 s; 01b,
@@ -292,6 +293,28 @@ readonly record struct DefaultAttackClip(string Animation, string Source, int In
     /// carry none). A keyframe after the contact plays at the clip's pace after the stretch, as the contact does.
     /// </summary>
     public double CutInSeconds(double attackSeconds) => PlayedAt(CancelMs ?? ContactMs, attackSeconds);
+
+    /// <summary>
+    /// When the client's own shot leaves, on the clip clock it sets up (<c>0x141b0ac20</c> → <c>0x141b0a9b0</c>): a clip
+    /// without a budget that is shorter than the attack plays at its own speed outside its slow span, and the span takes
+    /// up the rest, at most 8 times its length (the 600 ms wand clip's contact at 300, span 150–235, leaves 0.367 s into a
+    /// 0.667 s attack). A budgeted clip, or one no shorter than the attack, leaves at <see cref="ContactSeconds"/>.
+    /// The client fires on the frame tick after this (<c>Game.LockstepShotAt</c>): live 2026-11-05, the wand on frame 12
+    /// of 33 ms (38 of 39), which bounds its release to 0.363–0.396 s and rules out the linear 0.333 s (frame 11); the
+    /// 0.367 s here is the model's, consistent with that, not a measured value.
+    /// </summary>
+    public double ReleaseSeconds(double attackSeconds)
+    {
+        double length = LengthMs / 1000.0, at = ContactMs / 1000.0;
+        if (BudgetSeconds is not null || attackSeconds <= length || SlowBeginMs is not { } b || SlowEndMs is not { } e || e <= b)
+            return ContactSeconds(attackSeconds);
+        double begin = b / 1000.0, end = e / 1000.0, span = end - begin;
+        double spanPlayed = Math.Min(8 * span, attackSeconds - length + span);
+        double pace = (length - span) / (attackSeconds - spanPlayed);
+        if (at <= begin) return at / pace;
+        if (at <= end) return begin / pace + (at - begin) * spanPlayed / span;
+        return begin / pace + spanPlayed + (at - end) / pace;
+    }
 
     double PlayedAt(int ms, double attackSeconds)
     {

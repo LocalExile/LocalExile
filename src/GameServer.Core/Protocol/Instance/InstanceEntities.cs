@@ -204,6 +204,15 @@ public static class InstanceEntities
     public static byte[] CreateObject(uint entityId, uint objectType, byte[] blob, uint headerU32 = 0, ushort headerU16 = 0) =>
         new LoginWriter().U16(CreateObjectId).U32(entityId).U32(headerU32).U16(headerU16).U32(objectType).Blob(blob).ToArray();
 
+    /// <summary>
+    /// A 0x2b9 and the 0x1a9 it needs: none when the blob's first byte has 0x02, which makes the create wake the object
+    /// itself (0x141ebe190 sets +0x8d |= 2, then the 0x2b9 handler calls ObjectInWakeZone: 0x142187480). A 0x1a9 to an
+    /// awake object only logs a [CRIT] line (0x141ec0aa0). GGG sent none of its 4 726 0x1a9 to an awake object.
+    /// </summary>
+    public static byte[] CreateInWakeZone(uint entityId, uint objectType, byte[] blob, uint headerU32 = 0) =>
+        (blob[0] & 0x02) != 0 ? CreateObject(entityId, objectType, blob, headerU32)
+            : [.. CreateObject(entityId, objectType, blob, headerU32), .. InstanceProtocol.EnterWakeZone(entityId)];
+
     public const ushort MonsterTypesId = 0x20;
 
     /// <summary>

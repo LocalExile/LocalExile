@@ -126,7 +126,7 @@ static partial class Game
                 if (bodySize >= 0)
                 {
                     bool Floor(int cx, int cy) => conn.Layout.WalkableFor(cx, cy, bodySize) && !conn.Barrier.Contains((cx, cy));
-                    if (CollisionEscape.Find(place, conn.Layout.GridW, conn.Layout.GridH, Floor, conn.MonsterBlockers(objectId),
+                    if (CollisionEscape.Find(place, conn.Layout.GridW, conn.Layout.GridH, Floor, conn.MonsterPlacementBlockers(objectId),
                         moverSize: bodySize) is { } clear) place = clear;
                 }
                 double now = conn.Clock.Elapsed.TotalSeconds;

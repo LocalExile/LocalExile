@@ -240,7 +240,7 @@ static partial class Game
         conn.WalkersSteppedTo = now;
         var walks = new Dictionary<uint, GameServer.Core.World.PlayerWalk>();
         foreach (var (id, m) in conn.Monsters)
-            if (LivingCollision.Blocks(m)) walks[id] = m.Walk;
+            if (LivingCollision.StepsWithBodies(m)) walks[id] = m.Walk;
         if (conn.PlayerSent && conn.PlayerLife > 0) walks[PlayerId] = conn.Walk;
         if (frame is { } f)
         {
@@ -286,12 +286,18 @@ static partial class Game
     // one the walk's times give (the
     // accumulator carries the remainder between steps and segments, and a new order mid-step keeps the step's fraction:
     // 0x141e4d180 rescales it by the new step time), so the same steps are taken here, grouped by frame and ordered by
-    // object within it. A path the search cut short paths again at its end within the tick.
+    // object within it. A path the search cut short paths again at its end within the tick. A walk-up the client runs
+    // (a monster's chase, the player's attack on a monster) also tests its goal in its own turn of each frame
+    // (StepWalkUp), whether its body blocks or not.
     static void StepFrames(ClientState conn, Dictionary<uint, GameServer.Core.World.PlayerWalk> walks, double from, double to, double length)
     {
-        if (walks.Values.All(w => w.ArrivesAt <= from && w.Reached)) return;
+        var chases = new Dictionary<uint, SpawnedMonster>();
+        foreach (var (id, m) in conn.Monsters)
+            if (WalkUpOpen(conn, m)) chases[id] = m;
+        var attack = PlayerWalkUpOpen(conn);
+        if (chases.Count == 0 && attack is null && walks.Values.All(w => w.ArrivesAt <= from && w.Reached)) return;
         using var bodies = conn.BeginMonsterBlockerFrame(from);
-        var order = walks.Keys.Order().ToArray();
+        var order = walks.Keys.Union(chases.Keys).Order().ToArray();
         // Frame ends at to, to - length, ...; the oldest one replayed starts at from (a pass far behind lumps the rest).
         int frames = Math.Clamp((int)Math.Ceiling((to - from) / length - 1e-9), 1, 100);
         for (int i = frames; i >= 1; i--)
@@ -299,7 +305,25 @@ static partial class Game
             double end = to - (i - 1) * length, start = i == frames ? from : end - length;
             foreach (uint id in order)
             {
-                var walk = walks[id];
+                if (id == PlayerId && attack is not null && PlayerWalkUpOpen(conn) == attack)
+                {
+                    var (result, timer) = StepWalkUp(bodies, new(PlayerId, conn.Walk, true, attack.TargetId, attack.Target?.Walk,
+                        attack.Reach, attack.Tolerance, attack.TimerFrom, attack.GroundTarget), start, end, length);
+                    attack.TimerFrom = timer;
+                    if (result == WalkUpResult.Swings) LockstepAttackSwings(conn, attack, start, end);
+                    else if (result == WalkUpResult.Fails) attack.Fails();
+                    continue;
+                }
+                if (chases.TryGetValue(id, out var chaser) && WalkUpOpen(conn, chaser))
+                {
+                    var (result, timer) = StepWalkUp(bodies, new(id, chaser.Walk, walks.ContainsKey(id), PlayerId,
+                        walks.GetValueOrDefault(PlayerId) ?? conn.Walk, (int)(chaser.Attack!.Range - 1), LivingCollision.PlayerSize,
+                        chaser.ClientChaseTimerFrom), start, end, length);
+                    chaser.ClientChaseTimerFrom = timer;
+                    if (result != WalkUpResult.Walking) WalkUpEnds(chaser, start, result == WalkUpResult.Swings);
+                    continue;
+                }
+                if (!walks.TryGetValue(id, out var walk)) continue;
                 for (int round = 0; round < 8; round++)
                 {
                     bool stopped = false;
@@ -317,13 +341,117 @@ static partial class Game
                 line.Append($"[frame] qpc={Stopwatch.GetTimestamp()} n={conn.ServerFrame - 1 - (long)Math.Round((to - end) / length)} end={end:0.000} now={to:0.000} m=");
                 foreach (uint id in order)
                 {
-                    var at = walks[id].Position(end);
-                    var (into, step) = walks[id].StepPhase(end);
+                    if (!walks.TryGetValue(id, out var traced)) continue;
+                    var at = traced.Position(end);
+                    var (into, step) = traced.StepPhase(end);
                     line.Append($"{id:x}:{at.X},{at.Y}/{into:0.0000}/{step:0.0000};");
                 }
                 Console.WriteLine(line);
             }
         }
+    }
+
+    // A lockstep client's monster walking up to the player on its chase order (the attack aimed at him) that has neither
+    // swung nor failed yet: the order went out (PlaceLockstepChase) and nothing the client gets has replaced it. A planned
+    // order carries it to its own generation until the gate places it, and a give-up or a freeze, which send nothing,
+    // keep it (NextPlannedAction); a swing order, a flinch, a stage and a transfer move the action generation on and end
+    // it. Out of the wake zone its copy does not tick.
+    internal static bool WalkUpOpen(ClientState conn, SpawnedMonster m) =>
+        conn.LockstepClient && m.ClientChase == m.ActionGeneration && !m.Dead && m.Life > 0 && !m.Asleep;
+
+    // A lockstep client's attack on a monster that is walking up (placed at its gate, goal not met) while it is still the
+    // player's action: an order the client takes ends it (a Move within two cells is none: PlaceLockstepPlayerMove places
+    // nothing), as do a hit's recovery and a transfer; a target gone from the area ends it too (not traced). A closed one
+    // is failed here, so the attack's task wakes. Under conn.Monsters.
+    internal static LockstepAttack? PlayerWalkUpOpen(ClientState conn)
+    {
+        if (!conn.LockstepClient || conn.LockstepAttack is not { Open: true } attack) return null;
+        if (conn.ActionCount == attack.Action && conn.PlayerSent && conn.PlayerLife > 0 && !conn.Closed && !conn.LeavingArea
+            && (attack.Target is null || ReferenceEquals(conn.Monsters.GetValueOrDefault(attack.TargetId), attack.Target))) return attack;
+        attack.Fails();
+        return null;
+    }
+
+    // A walk-up a lockstep client's MoveTo runs toward an object, in its walker's turn of a frame: a monster's chase at the
+    // player (WalkUpOpen) or the player's attack on a monster (PlayerWalkUpOpen).
+    readonly record struct WalkUpTurn(uint Id, GameServer.Core.World.PlayerWalk Walk, bool Blocks, uint TargetId,
+        GameServer.Core.World.PlayerWalk? Target, int Reach, int Tolerance, double TimerFrom, (int X, int Y) GroundTarget = default);
+    enum WalkUpResult { Walking, Swings, Fails }
+
+    // A walk-up's turn in a lockstep frame (07 §5). Its steps are checked as any walker's (none for a body that blocks
+    // nothing), and its MoveTo's goal (0x141e7b260: within the reach less one, widened by the target's size, with the line
+    // to it) is tested against the target object's own cell (0x14123d600) as the tick order leaves it: a target with a
+    // lower id has ticked this frame, one with a higher id stands where the frame before left it (objects tick in
+    // ascending id: 2 951 of 2 951 traced monster tests used the player's cell after his steps,
+    // 181 of 181 of the player's on the monster's before its own). It is tested at each waypoint the walker steps into
+    // (0x141e7bec0) and after the frame's steps (the Pathfinding tick, 0x141e7bfb0). Met, the swing starts in this frame
+    // (0x141e7bc20 → 0x141e942f0 → 0x141e94720, which waits for no 0x1ac in lockstep): at a waypoint or the path's end the
+    // walker stands there at once; mid-piece its stop (0x141e350e0) waits for the next tick's steps. A blocked step tests
+    // the goal at the cell it stopped on (its callback is 0x141e7bc20 too): met, it swings; else the action ends. Out of
+    // reach at the path's end, cut short by the search or not, it searches again from there toward the target's cell in
+    // the same tick (0x141e7b920); no path ends the action. Mid-path, out of goal, it searches again only toward a target
+    // that has left the cell it last searched toward, 2.0 s after that search, or 0.7 s after it once the target is 64
+    // cells from that cell (0x141e7bfb0: each tick adds its frame to +0x55c before the test, and 0x141e7b920 zeroes it;
+    // decompiled, not reached live). Returns the turn's outcome and when the search timer last started.
+    static (WalkUpResult Result, double TimerFrom) StepWalkUp(ClientState.MonsterBlockerFrame bodies, WalkUpTurn up,
+        double start, double end, double length)
+    {
+        var walk = up.Walk;
+        var target = up.Target?.Position(up.Id < up.TargetId ? start : end) ?? up.GroundTarget;
+        double timerFrom = up.TimerFrom;
+        bool InGoal((int X, int Y) cell) => walk.InReachOf(cell, target, up.Reach, up.Tolerance);
+        for (int round = 0; round < 8; round++)
+        {
+            foreach (var (at, cell) in walk.Steps(start, end))
+            {
+                if (up.Blocks && !Step(bodies, up.Id, walk, at, cell))
+                    return (InGoal(walk.Position(end)) ? WalkUpResult.Swings : WalkUpResult.Fails, timerFrom);
+                if (walk.EndsPiece(at) && InGoal(cell))
+                {
+                    walk.StopAfter(at);
+                    return (WalkUpResult.Swings, timerFrom);
+                }
+            }
+            bool walking = walk.ArrivesAt > end;
+            if (InGoal(walk.Position(end)))
+            {
+                walk.StopAfter(walking ? end + length : walk.ArrivesAt);
+                return (WalkUpResult.Swings, timerFrom);
+            }
+            if (walking)
+            {
+                var searched = walk.SearchedFor;
+                long dx = searched.X - target.X, dy = searched.Y - target.Y;
+                double timer = end - timerFrom;
+                if (searched == target || timer < 2.0 && (timer < 0.7 || dx * dx + dy * dy < 4096))
+                    return (WalkUpResult.Walking, timerFrom);
+                var before = walk.Save();
+                walk.Approach(target.X, target.Y, up.Reach, end, up.Tolerance, walk.Precision);
+                // Searched after this tick's add: the timer counts again from the frame's end.
+                if (walk.ArrivesAt > end) return (WalkUpResult.Walking, end);
+                // No step to take (no path, or the goal at precision 1 where he stands): 0x141e7b920 → 0x141e7bc20, a stop
+                // after the next tick's steps in this replayed frame (the order's own stop would wait for the end of the
+                // frame being sent).
+                bool met = walk.ReachedGoal;
+                walk.Restore(before);
+                walk.StopAfter(end + length);
+                return (met ? WalkUpResult.Swings : WalkUpResult.Fails, end);
+            }
+            walk.Approach(target.X, target.Y, up.Reach, Math.Max(walk.ArrivesAt, start), up.Tolerance, walk.Precision);
+            // Searched inside the Positioned tick, before this frame's add.
+            timerFrom = start;
+            if (walk.Reached && !walk.ReachedGoal) return (WalkUpResult.Fails, timerFrom);
+        }
+        return (WalkUpResult.Walking, timerFrom);
+    }
+
+    // A walk-up that swung, from the frame's start, for the AI to take (PlanMonsterAi), or failed: the client's action
+    // ends with no swing.
+    static void WalkUpEnds(SpawnedMonster m, double start, bool swings)
+    {
+        if (swings) (m.ClientSwingAt, m.ClientSwingAction) = (start, m.ActionGeneration);
+        else m.LastTarget = null;
+        m.ClientChase = null;
     }
 
     // One step of a walk, as the client checks it: false when it was blocked and ended the walk.

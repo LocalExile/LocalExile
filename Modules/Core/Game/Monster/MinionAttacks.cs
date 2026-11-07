@@ -109,8 +109,8 @@ static partial class Game
                         if (!Current() || attack.Started) return null;
                         attack.Started = true;
                         return a.InPlace
-                            ? InstanceProtocol.ActionStarted(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, 0x0408, targetObjectId: target.Id)
-                            : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, 0x0408, target.Id);
+                            ? InstanceProtocol.ActionStarted(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, conn.MonsterOrderFlags, targetObjectId: target.Id)
+                            : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, conn.MonsterOrderFlags, target.Id);
                     }
                 });
         while (true)

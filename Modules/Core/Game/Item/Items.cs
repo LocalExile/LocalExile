@@ -671,7 +671,16 @@ static partial class Game
                 InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
                 $"0x01ab player picks up world item 0x{id:x}", still: () => PlayerActionCurrent(conn, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (!PlayerActionCurrent(conn, action)) return;
+        lock (conn.Monsters)
+        {
+            if (!PlayerActionCurrent(conn, action)) return;
+            // Interaction's default completion lasts 0.1 s (3.29.3b, 0x141942160). A Move queued before it ends
+            // starts in Actor's completion callback, then its path is discarded by 0x141e94fc0. Keep the request
+            // pending on the server until that completion has passed; the walk-up itself remains interruptible.
+            if (conn.LockstepClient && use.Started)
+                conn.LockstepBusyUntil = Math.Max(conn.LockstepBusyUntil,
+                    (conn.LockstepFrame?.Start ?? conn.Clock.Elapsed.TotalSeconds) + .1);
+        }
         if (IsGold(ground))
         {
             await PickUpGold(remote, stream, ciphers, conn, id, ground, "picked up");

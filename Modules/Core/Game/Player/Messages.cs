@@ -202,9 +202,8 @@ static partial class Game
                 (int px, int py) = (0, 0);
                 CooldownUseTicket? cooldownUse = null;
                 int chargeBonus = cast && gem.Name is not null ? ShieldChargeBonusPct(conn, use.SkillId, gem.Effect) : 0, chargeToken = 0;
-                // A lockstep client's default attack at the ground (a held attack whose target died goes on at the ground,
-                // 07 §6) swings where the player stands: GGG's player stayed on its cell through 101 such attacks aimed
-                // 18 to 29 cells away, one per attack time. A predictive client sends a Move for that click instead.
+                // A lockstep client's forced stationary default attack swings where the player stands. Ordinary ground
+                // melee uses take StartLockstepGroundMelee's frame-stepped walk-up before reaching this handler.
                 bool inPlace = cast || conn.LockstepClient && use.SkillId == SkillCatalog.FirstSkillId;
                 void StartAction()
                 {
