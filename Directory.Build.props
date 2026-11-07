@@ -10,4 +10,8 @@
     <!-- The commit in the source link file is a compiler input: without this, each commit recompiles every project. -->
     <EnableSourceLink>false</EnableSourceLink>
   </PropertyGroup>
+
+  <!-- A mod's project in Mods/Source/<Name>/ (the user's, gitignored) builds as a mod. -->
+  <Import Project="src/GameServer.Modding/Mod.props"
+          Condition="$([MSBuild]::MakeRelative('$(MSBuildThisFileDirectory)', '$(MSBuildProjectDirectory)').Replace('\', '/').StartsWith('Mods/Source/'))" />
 </Project>

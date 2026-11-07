@@ -56,9 +56,10 @@ public sealed class Ping : IMod
 
 The official mods live in [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods) (its `AGENTS.md` has the
 layout and the rules); Waypoint's Browse panel installs them. A project mod's source goes in `Mods/Source/<id>/` (Waypoint
-puts it there when the mod has no release); `Mods/Source/Directory.Build.props` builds `<Name>.csproj` into
-`Mods/Binaries/<id>/` as `<id>.dll`, with the `mod.json` and `settings.json` beside it, and compiles against
-`GameServer.Modding` without copying it. `Mods/` is gitignored but that file: what is in `Mods/Source/` is the user's.
+puts it there when the mod has no release); `src/GameServer.Modding/Mod.props`, which the root `Directory.Build.props`
+imports for a project under `Mods/Source/`, builds `<Name>.csproj` into `Mods/Binaries/<id>/` as `<id>.dll`, with the
+`mod.json` and `settings.json` beside it, and compiles against `GameServer.Modding` without copying it. `Mods/` is
+gitignored: what is in it is the user's.
 To make a new one, copy one of LocalExile-Mods' examples (`example`, `hello`), rename the folder and the `.csproj`, and set
 the id in its `mod.json` to the new folder's name in lower case.
 
