@@ -2015,10 +2015,11 @@ static partial class Game
         // A summoned monster whose skill says so gives neither experience nor items.
         if (!m.NoRewards && alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
-            uint xp = Program.ServerHooks.Experience(killer, monster,
-                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, m.Rarity, conn.Pools.Level, m.Level));
-            // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too.
-            await GainGemExperience(remote, stream, ciphers, conn, xp);
+            var (xp, gemXp) = KillExperience(killer, monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
+                conn.Pools.Level, m.Level);
+            // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too:
+            // 10% of the kill's experience before the level penalty.
+            await GainGemExperience(remote, stream, ciphers, conn, gemXp);
             await GainExperience(remote, stream, ciphers, conn, xp, $"{m.Rarity} {m.Label} 0x{id:x}");
         }
         // A quest kill that levels the character up (a1q1: Hillock → at least level 2), wherever the player stands.
