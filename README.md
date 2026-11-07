@@ -1,22 +1,4 @@
-# Important Notice
-It's important to note that LocalExile is not an official Grinding Gear Games product, and it is not affiliated with or endorsed by Path of Exile or Grinding Gear Games. LocalExile does not in any case sponsor nor support illegal public servers. If you use this project to run an illegal public server and not for testing and learning it is your own personal choice.
-
-This project is for fun and education only. It is intended for local-gameplay with no internet much like MMO Solutions (TrinityCore, AzerothCore, MangOS).
-It is built by a community of contributors working with AI agents (such as Claude Opus 5.5). Pull requests are welcome
-and encouraged.
-
 [Join Discord](https://discord.gg/pd2Fd5M6Hd)
-
-# To play
-Download the zip from [Releases](https://github.com/LocalExile/LocalExile/releases), extract it, and run `LocalExile.exe`.
-You need your own standalone Path of Exile 3.29.3b client, and nothing else to install.
-Always start the game with `LocalExile.exe`: any other way can update the client, which breaks the setup.
-
-Licensed under [GPL-2.0](LICENSE); bundled components are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-
-# To develop [Humans]
-- Open up a Frontier Model (such as Claude Opus 5.5) and tell them to set-up this project on your machine. 
-- Tell them to read all the Agents/ folder and all the MD files.
 
 # LocalExile
 A local, from-scratch server for the Path of Exile **3.29.3b** client. It is written in C# (.NET 10) from scratch to serve 
@@ -24,6 +6,15 @@ the client's network protocol. You play on your own machine against servers runn
 
 It contains **no game files, keys or game data**. You need your own installed copy of the client, and everything the
 servers need is generated locally from it.
+
+## How to play?
+Download the zip from [Releases](https://github.com/LocalExile/LocalExile/releases), extract it, and run `LocalExile.exe`.
+You need your own standalone Path of Exile 3.29.3b client, and nothing else to install.
+Always start the game with `LocalExile.exe`: any other way can update the client, which breaks the setup.
+
+Prefer a launcher? [Waypoint](https://github.com/LocalExile/Waypoint) is a Windows workspace manager for LocalExile:
+it downloads the release (or sets up a source checkout), starts and stops the servers and the client, and manages mods,
+backups and accounts. It is a separate project, and it starts the game the safe way.
 
 ## Showcase (Most recent to older)
 https://github.com/user-attachments/assets/e20dd43d-4453-40d4-8f81-eb902a87817f
@@ -81,45 +72,15 @@ An overview; each area's full list (works, partly working, not working yet) is i
 
 ## Contributing
 
-People and AI agents are both welcome. Start with [AGENTS.md](AGENTS.md): the rules, then
-[Agents/Status.md](Agents/Status.md) (what works) and [Agents/Roadmap.md](Agents/Roadmap.md) (what to build next and
-how to pick up an item). The protocol reference and the notes are in
-[Agents/docs/](Agents/docs/README.md).
+Want to help build it? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Projects
+## License
 
-| Project | Role | Port |
-|---|---|---|
-| `GameServer.Auth` | login server; also generates keys and patches the client to trust them | 20493 (login), 127.0.0.1:20495 (control) |
-| `GameServer.Gateway` | instance (game) server | 6112 |
-| `GameServer.Patch` | local patching server, so the client never contacts the real patch servers; also edits the GGPK gateway list | 12995, http 8080 |
-| `GameServer.Host` + `GameServer.DevClient` | dev account service (register accounts, create characters) | 7000 |
-| `GameServer.Core` | protocol, crypto, accounts, instance registry | |
-| `GameServer.Data` | GGPK / bundle / `.dat` readers | |
-| `GameServer.Storage` | account and save storage | |
-| `GameServer.Modding` | the API that mods and modules build on | |
-| `LocalExile` | the player launcher (command line) shipped in releases | |
-| `Modules/` | game systems (NPC dialogue, Delve, Heist, Pantheon, ...), loaded by the Gateway | |
-| `Leagues/` | leagues, each a set of modules | |
-| `Mods/` | small user tweaks, reloaded while the Gateway runs | |
+Licensed under [GPL-2.0](LICENSE); bundled components are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
-## Getting Started
+## Important Notice
+It's important to note that LocalExile is not an official Grinding Gear Games product, and it is not affiliated with or endorsed by Path of Exile or Grinding Gear Games. LocalExile does not in any case sponsor nor support illegal public servers. If you use this project to run an illegal public server and not for testing and learning it is your own personal choice.
 
-**Full guide: [Agents/GettingStarted.md](Agents/GettingStarted.md).** It covers every step with its expected output, the edge cases
-and a troubleshooting table. It is written for people and for AI agents setting this up.
-
-In short (Windows, .NET 10 SDK, a standalone Path of Exile **3.29.3b** client; Linux is covered in the full guide):
-
-```powershell
-dotnet build GameServer.slnx
-robocopy "<your PoE 3.29.3b folder>" Client /E; Copy-Item Client\PathOfExile.exe Client\Game.exe
-dotnet run --project src/GameServer.Auth -- keygen Client/Game.exe
-dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.patched.exe
-dotnet run --project src/GameServer.Patch -- gateway --login 127.0.0.1:20493
-# needs Node.js (+ npm install in Tools/ooz) and Python 3.9+: live.ps1 extracts the game data first (scripts/dev/extract-data.ps1)
-# create an account + character: GameServer.Host and GameServer.DevClient (Agents/GettingStarted.md, step 8)
-.\scripts\dev\live.ps1 -Walkmaps   # -Walkmaps is optional: needs `pip install frida`, captures walk maps
-```
-
-**Always start the client through `live.ps1`.** Started any other way, the client contacts the official patch servers
-and may update itself.
+This project is for fun and education only. It is intended for local-gameplay with no internet much like MMO Solutions (TrinityCore, AzerothCore, MangOS).
+It is built by a community of contributors working with AI agents (such as Claude Opus 5.5). Pull requests are welcome
+and encouraged.
