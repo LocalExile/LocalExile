@@ -107,7 +107,8 @@ public sealed class PartyFollowerTests
         for (int tick = 0; tick <= 1200; tick++)
         {
             double now = tick / 10.0; // Two minutes of simulated AI, without a real-time wait.
-            Assert.False(Game.KeepControlledFollowerNear(idle, leader, now));
+            Assert.False(Game.KeepControlledFollowerNear(idle, leader, now),
+                $"idle at {now}: follower {idle.Walk.Position(now)}, leader {leader.Walk.Position(now)}, goal {leader.Walk.Destination}");
             var before = idle.Walk.Position(now);
             Game.IdleControlledFollower(idle, leader, now);
             if (idle.ActionCount != action)

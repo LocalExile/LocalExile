@@ -137,6 +137,10 @@ static partial class Game
                 || ClientPathfinder.ObjectBlocks(bodies, at.X, at.Y, 3, 6)) continue;
             var path = ClientPathfinder.FindPath(here, at, Floor, conn.Layout.GridW, conn.Layout.GridH, bodies, 2);
             if (path.Count < 2 || path[^1] != at) continue;
+            // Rounded path cells can briefly leave the circle even with both endpoints inside it.
+            var origin = leader.Walk.Position(now);
+            if (path.Zip(path.Skip(1)).Any(p => ClientPathfinder.Line(p.First, p.Second)
+                .Any(cell => Dist(cell, origin) > ControlledFollowerLeash))) continue;
             MoveControlledFollower(conn, at, now);
             break;
         }
