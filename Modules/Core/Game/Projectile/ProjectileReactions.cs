@@ -115,12 +115,12 @@ static partial class Game
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
         foreach (var send in kill.Afterwards) session.Enqueue(send);
-        uint xp = 0;
+        uint xp = 0, gemXp = 0;
         if (!monster.NoRewards && conn.PlayerLife > 0 && Dist(position, conn.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
-            xp = Program.ServerHooks.Experience(killer, modMonster,
-                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level));
-        var (gemPackets, leveled) = CommitGemExperience(conn, xp);
+            (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
+                conn.Pools.Level, monster.Level);
+        var (gemPackets, leveled) = CommitGemExperience(conn, gemXp);
         foreach (var packet in gemPackets) session.Packet(packet);
         if (leveled) session.Enqueue(() => SendSkills(session.remote, session.stream, session.ciphers, conn));
         if (QuestsOf(conn).LevelAfterKill(conn.Layout.Id, variety.Id) is int required and > 1 && required <= CharacterStats.LevelStarts.Count)

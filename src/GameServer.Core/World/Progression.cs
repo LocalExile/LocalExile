@@ -60,14 +60,16 @@ public static class Progression
     /// <summary>
     /// The experience a kill gives: DefaultMonsterStats' Experience at the monster's level × the variety's
     /// ExperienceMultiplier (percent) × the rarity multiplier × the level penalty, rounded, at least 1 when the base is.
+    /// With <paramref name="levelPenalty"/> false the penalty is skipped: the gems' 10% share is taken before it.
     /// </summary>
-    public static uint MonsterExperience(int baseExperience, int multiplierPercent, MonsterRarity rarity, int playerLevel, int monsterLevel)
+    public static uint MonsterExperience(int baseExperience, int multiplierPercent, MonsterRarity rarity, int playerLevel,
+        int monsterLevel, bool levelPenalty = true)
     {
         if (baseExperience <= 0 || multiplierPercent <= 0) return 0;
         double experienceMultiplier = ExperienceMultiplier;
         if (experienceMultiplier <= 0) return 0;
         double xp = baseExperience * (multiplierPercent / 100.0) * RarityMultiplier(rarity)
-            * LevelPenalty(playerLevel, monsterLevel) * experienceMultiplier;
+            * (levelPenalty ? LevelPenalty(playerLevel, monsterLevel) : 1) * experienceMultiplier;
         return (uint)Math.Max(1, Math.Round(xp));
     }
 

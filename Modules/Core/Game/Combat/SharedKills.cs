@@ -24,9 +24,9 @@ static partial class Game
                 await DropQuestItemsForKill(remote, stream, ciphers, other, variety.Id, at, $"{m.Label} (party kill)");
                 if (!m.NoRewards && Monsters.BaseExperience(variety, m.Level) is int baseXp)
                 {
-                    uint xp = Program.ServerHooks.Experience(PlayerOf(other), monster,
-                        Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, m.Rarity, other.Pools.Level, m.Level));
-                    await GainGemExperience(remote, stream, ciphers, other, xp);
+                    var (xp, gemXp) = KillExperience(PlayerOf(other), monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
+                        other.Pools.Level, m.Level);
+                    await GainGemExperience(remote, stream, ciphers, other, gemXp);
                     await GainExperience(remote, stream, ciphers, other, xp, $"party kill: {m.Rarity} {m.Label} (by {CharacterName(host)})");
                 }
                 if (QuestsOf(other).LevelAfterKill(other.Layout.Id, variety.Id) is int level and > 1 && level <= CharacterStats.LevelStarts.Count)

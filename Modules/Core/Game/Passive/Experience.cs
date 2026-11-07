@@ -2,10 +2,27 @@ using System.Collections.Concurrent;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Modding;
 using Progression = GameServer.Core.World.Progression;
+using Rarity = GameServer.Core.Protocol.Instance.MonsterRarity;
 
 static partial class Game
 {
+    /// <summary>
+    /// One kill's two experience values: the character's (with the level penalty) and the gems' base before that penalty
+    /// (they gain 10% of it in <see cref="CommitGemExperience"/>). "Socketed gems gain 10% of the experience your
+    /// character earns, before any level penalties"; items that increase experience gain reach both.
+    /// </summary>
+    internal static (uint Character, uint Gems) KillExperience(IPlayer player, MonsterInfo monster, int baseExperience,
+        int multiplierPercent, Rarity rarity, int playerLevel, int monsterLevel)
+    {
+        uint character = Progression.MonsterExperience(baseExperience, multiplierPercent, rarity, playerLevel, monsterLevel);
+        uint beforePenalty = Progression.MonsterExperience(baseExperience, multiplierPercent, rarity, playerLevel,
+            monsterLevel, levelPenalty: false);
+        return (Program.ServerHooks.Experience(player, monster, character),
+            Program.ServerHooks.Experience(player, monster, beforePenalty));
+    }
+
     internal sealed class CharacterLevelUpdates
     {
         public readonly Lock Gate = new();

@@ -41,8 +41,10 @@ threshold (`SkillCatalog.MaxLevelAt`, `GainGemExperience`; §"Requirements" belo
 derives whatever the experience says (checked live 2026-10-23).
 
 The server gives the kills' experience to the gems (`GainGemExperience`, from `MonsterKilled` only: a quest's level and
-`/add_xp` give the gems nothing): each gem socketed in an equipped item, in either weapon set (rows 1–10, 14, 15),
-gains 10% of the player's monster experience, up to the threshold of the first level whose requirement the character
+`/add_xp` give the gems nothing): each gem socketed in an equipped item, in either weapon set (rows 1-10, 14, 15),
+gains 10% of the kill's experience **before the character's level penalty** (the wiki's Gem page: "Socketed gems gain
+10% of the experience your character earns, before any level penalties. This value is not affected by level
+penalties."), up to the threshold of the first level whose requirement the character
 does not meet and the last level's threshold (a support gem too; a gem in an
 inactive item, at its last level, or at experience -1, a corrupted gem over its cap, nothing). All the gems change in
 one step under the inventory's lock (`PlayerInventories.ChangeSocketedGems`), written into the gem inside the socket
