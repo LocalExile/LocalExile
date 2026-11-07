@@ -22,6 +22,11 @@ sealed class GolemState
         public double WrathUntil, ShieldHitAt, NextOrb;
         public int InputHash;
         public Dictionary<uint, int> Own = [], OwnerBuff = [], Player = [];
+        public Dictionary<string, int> Auras = [];
+        public Dictionary<byte, Item> Equipment = [];
+        public Dictionary<string, int> Gear = [];
+        public SkillCatalog.Unarmed? Weapon;
+        public double HolyRegenerationUntil, HolyRegenerationPerSecond;
         public readonly Dictionary<int, Queue<double>> Charges = [];
         public IReadOnlyList<GrantedSkill> Skills = [];
         public IReadOnlyList<Ability> Abilities = [];

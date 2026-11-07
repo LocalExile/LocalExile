@@ -70,6 +70,8 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0030 socket {s}: refused ({why})");
             return;
         }
+        if (now is not null && PlayerInventories.ShowsOnModel(r))
+            ForgetGemActivation(conn, now.Item);
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], now is null ? [] : [now]),
             $"0x00bf cursor: remove gem {before.Id}" + (now is null ? "" : $", hold gem {now.Id} from the socket"));
@@ -145,11 +147,24 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x002f unsocket {s}: refused ({why})");
             return;
         }
+        if (PlayerInventories.ShowsOnModel(r)) ForgetGemActivation(conn, held.Item);
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(r), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold gem {held.Id}");
         if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
+    }
+
+    // Removing a physical source is an explicit deactivation, unlike town travel or a temporary actor restriction.
+    static void ForgetGemActivation(ClientState conn, Item gem)
+    {
+        var effects = ItemsFor(conn).GemEffects(gem).Select(e => SkillsFor(conn).EffectId(e)).OfType<string>().ToArray();
+        foreach (string effect in effects)
+        {
+            CharacterSaves.SetAuraActive(CharacterName(conn), effect, false);
+            if (effect == PetrifiedBlood.EffectId)
+                CharacterSaves.SetPetrifiedBlood(CharacterName(conn), false);
+        }
     }
 
     // A normal (non-cluster) jewel. The PassiveJewels1 pane (Inventories.dat row 23) holds one per allocated passive tree
@@ -413,7 +428,7 @@ static partial class Game
         lock (conn.Monsters)
         {
             RecomputePoolsAndSpeed(conn);
-            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
             conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         }
         await SendCharacterStats(remote, stream, ciphers, conn, "passive jewels");
@@ -425,7 +440,7 @@ static partial class Game
             $"melee {conn.Pools.MeleePhysicalDamagePct}, " +
             $"{conn.ClusterPassives.Count}/{ClusterNodeBudget(conn)} cluster node(s)" +
             (timeless is null ? "" : $", timeless {timeless.Name} {timeless.DisplayedSeed} {timeless.ConquerorName}"));
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),
+        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
             $"0x01b1 player life {conn.PlayerLife} (passive jewels)");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passive jewels)");
     }
@@ -565,8 +580,8 @@ static partial class Game
             r = FlaskRecovery.For(use, flask.Item, local,
                 name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
             copyLife = ManaFlaskCopiesLife(r, character);
-            canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerMaxLife, conn.PlayerMana, (uint)UnreservedMana(conn))
-                || copyLife && conn.PlayerLife < conn.PlayerMaxLife;
+            canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerUnreservedLife, conn.PlayerMana, (uint)UnreservedMana(conn))
+                || copyLife && conn.PlayerLife < conn.PlayerUnreservedLife;
         }
         bool CurrentRecovery()
         {
@@ -585,7 +600,7 @@ static partial class Game
             {
                 uint life;
                 lock (conn.Monsters) life = conn.PlayerLife;
-                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                     $"0x01b1 player life {life} (full pool, flask refused)");
             }
             if (use.ManaPerUse > 0)

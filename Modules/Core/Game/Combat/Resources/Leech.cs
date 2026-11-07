@@ -55,7 +55,7 @@ static partial class Game
         if (conn.PlayerLife == 0) LeechOf(conn).Clear(now);
         else
         {
-            LeechOf(conn).ClearFull(now, conn.PlayerLife >= conn.PlayerMaxLife,
+            LeechOf(conn).ClearFull(now, conn.PlayerLife >= conn.PlayerUnreservedLife,
                 conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
             SettleFullManaLocked(conn, ResourceEffectsTime(conn));
         }
@@ -74,16 +74,25 @@ static partial class Game
         int directDamage, LeechSources sources)
     {
         if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return;
+        if (sources.Attack)
+        {
+            DamagePacket Extra(string pool) => DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty,
+                (p, type) => p.Add(DamagePacket.Of(type, target.Curses[pool + "_leech_on_any_damage_when_hit_by_attack_permyriad"],
+                    target.Curses[pool + "_leech_on_any_damage_when_hit_by_attack_permyriad"])));
+            sources = sources with { Life = sources.Life.Add(Extra("life")), Mana = sources.Mana.Add(Extra("mana")),
+                GainOnHit = (sources.GainOnHit.Life + target.Curses["life_granted_when_hit_by_attacks"],
+                    sources.GainOnHit.Mana + target.Curses["mana_granted_when_hit_by_attacks"], sources.GainOnHit.EnergyShield) };
+        }
         var amounts = sources.Amounts(taken, directDamage);
         var session = LeechOf(conn);
-        if (target.Mods.Effects["cannot_have_life_leeched_from"] != 0) amounts.Life = 0;
-        if (target.Mods.Effects["cannot_have_energy_shield_leeched_from"] != 0)
+        if (target.Effects["cannot_have_life_leeched_from"] != 0) amounts.Life = 0;
+        if (target.Effects["cannot_have_energy_shield_leeched_from"] != 0)
         {
             amounts.EnergyShield = 0;
             if (session.ConvertsLifeToEnergyShield) amounts.Life = 0;
         }
         double now = ProjectileWorldTime(conn);
-        var instant = session.Hit(now, amounts, conn.PlayerLife >= conn.PlayerMaxLife,
+        var instant = session.Hit(now, amounts, conn.PlayerLife >= conn.PlayerUnreservedLife,
             conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum, sources.Attack);
         var gain = sources.GainOnHit;
         uint life = conn.PlayerLife, mana = conn.PlayerMana;

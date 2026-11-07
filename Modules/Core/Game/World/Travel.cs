@@ -74,6 +74,7 @@ static partial class Game
         }
         if (conn.Instance.Ground.Get(use.TargetId) is { } ground)
         {
+            if (await AnimateGroundItem(remote, stream, ciphers, conn, ground, use, requestedAt)) return;
             if (await GameEvents.AnyGroundItemUse(conn, use.TargetId, ground, use, requestedAt)) return;
             await PickUpGroundItem(remote, stream, ciphers, conn, use.TargetId, ground, use, requestedAt);
             return;

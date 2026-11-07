@@ -26,7 +26,7 @@ static partial class Game
     internal static int AttackHitChanceAt(ClientState conn, uint id, SpawnedMonster target, double at,
         AttackAccuracyProfile profile, IReadOnlyDictionary<uint, int>? player = null)
     {
-        int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
+        int evasion = target.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
         evasion = MonsterBlindRating(conn, id, target, evasion, at, player);
         bool close = TargetAccuracy.InCloseRange(Dist(conn.Walk.Position(at), target.Walk.Position(at)));
         return profile.Chance(evasion, target.Rarity == MonsterRarity.Unique, close);
@@ -716,7 +716,8 @@ static partial class Game
         // A link gem (Soul Link …) links its target at the end of its cast; it has no upfront cost, only its cost over time.
         if (gem.Name is not null && LinkSkills.Buffs.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await CastLink(remote, stream, ciphers, conn, skillId, gem.Effect, targetId, Current);
-        if (gem.Name is not null && SupportedReservation(conn, skillId) is { } reservation)
+        if (gem.Name is not null && PlacedKind(SupportedSkill(conn, skillId)) is { Trap: false, Mine: false }
+            && SupportedReservation(conn, skillId) is { } reservation)
         {
             if (!Current()) return false;
             if (SkillsFor(conn).EffectId(gem.Effect) == PetrifiedBlood.EffectId)
@@ -779,6 +780,10 @@ static partial class Game
         // Location instant acceptance handles only Frostblink's repositioning, without inventing its departure/arrival
         // hits or chilled ground. In particular do not route it through the generic single-area hit approximation.
         if (locationInstant) return true;
+        if (gem.Name is not null && (SkillsFor(conn).EffectId(gem.Effect) is "DetonateMines" or "GemDetonateMines" or "TriggeredDetonateMines"))
+        { lock (conn.Monsters) DetonateMinesLocked(conn, AreaTime(conn)); return true; }
+        if (gem.Name is not null && PlacedKind(SupportedSkill(conn, skillId)) is not (false, false))
+            return await PlaceSkill(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, Current);
         if (gem.Name is not null)
         {
             if (SkillsFor(conn).IsTravel(gem.Effect)) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Travel);
@@ -792,8 +797,14 @@ static partial class Game
                     () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } accepted) return accepted;
         if (gem.Name is not null && GameEvents.RunSkillCast(conn, SkillsFor(conn).EffectId(gem.Effect), skillId, from,
                 () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } taken) return taken;
+        if (gem.Name is not null && CurseCatalog.All.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
+            return await CastCurse(remote, stream, ciphers, conn, skillId, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && GolemData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } golem)
             return await CastGolem(remote, stream, ciphers, conn, skillId, golem, to, recoveryGeneration, Current);
+        if (gem.Name is not null && SummonData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } summon)
+            return await CastSummon(remote, stream, ciphers, conn, skillId, summon, to, targetId, recoveryGeneration, Current);
+        if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == "Desecrate")
+            return await Desecrate(remote, stream, ciphers, conn, skillId, to, Current);
         if (gem.Name is not null && TotemVariety(conn, gem.Effect) is { } totem)
         {
             _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, to, Current);
@@ -820,7 +831,7 @@ static partial class Game
             await UseInstantSkillAtLocation(remote, stream, ciphers, conn, skillId, default, targetId);
             return;
         }
-        if (gem.Name is null || !InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), gem.Effect)) return;
+        if (gem.Name is null || !ObjectInstantSupported(conn, skillId, gem.Effect)) return;
         int epoch;
         lock (conn.Monsters)
         {
@@ -845,11 +856,22 @@ static partial class Game
         }
     }
 
+    static bool ObjectInstantSupported(ClientState conn, ushort skill, int effect) =>
+        InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect)
+        || !SkillsFor(conn).IsMovement(effect) && GolemStat(SupportedSkill(conn, skill).Stats, "base_skill_is_instant") != 0;
+
     internal static async Task UseInstantSkillAtLocation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort skillId, (uint X, uint Y) aim, uint? targetObjectId = null)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
-        if (gem.Name is null || !InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect)) return;
+        if (gem.Name is null) return;
+        if (!InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))
+        {
+            // A self buff aimed at empty ground uses 0x190 too; it still applies at its caster.
+            if (ObjectInstantSupported(conn, skillId, gem.Effect))
+                await UseInstantSkill(remote, stream, ciphers, conn, skillId, PlayerId, conn.Walk.Position(AreaTime(conn)));
+            return;
+        }
         var own = SkillsFor(conn).EffectStats(gem.Effect, gem.Level, gem.Quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         int epoch;
         (int X, int Y) from, to;
@@ -923,9 +945,25 @@ static partial class Game
         {
             // Locked commit backstop: a source may have changed after dispatch/cooldown preflight.
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InTown(conn)
-                || OwnAuraRestrictionValue(conn) != 0 || CastingSpell(conn, effect) && SpellsDisabled(conn)) return false;
-            if (conn.Auras.Remove(skillId, out var old))
-                ended = old;
+                || OwnAuraSkillRestricted(conn, effect, skillId) || CastingSpell(conn, effect) && SpellsDisabled(conn)) return false;
+            if (effectId == "TemporalRift" && conn.Auras.ContainsKey(skillId))
+            {
+                var packets = RecallTemporalRiftLocked(conn);
+                if (packets.Length > 0) conn.Minions.OutputQueue.Add(new(packets, "Temporal Rift recalls resources and position"));
+                started = conn.Auras[skillId];
+            }
+            else if (AuraCatalog.IsStance(effectId) && conn.Auras.ContainsKey(skillId))
+            {
+                conn.Stance = AuraCatalog.OtherStance(conn.Stance);
+                foreach (var active in conn.Auras.Values.Where(a => AuraCatalog.IsStance(a.EffectId)).ToArray())
+                    conn.Auras[active.SkillId] = active with { Stance = conn.Stance,
+                        BuffRow = AuraCatalog.BuffRow(active.EffectId, conn.Stance), Buff = conn.NextBuff++,
+                        SourceBuff = active.SourceBuff is not null ? conn.NextBuff++ : null };
+                CharacterSaves.SetStance(CharacterName(conn), conn.Stance);
+                started = conn.Auras[skillId];
+            }
+            else if (conn.Auras.Remove(skillId, out var old))
+            { ended = old; EndReservationRuntimeLocked(conn, old); }
             else if (conn.Auras.Values.FirstOrDefault(a => a.EffectId == effectId) is { } same)
             {
                 // One aura of a kind at a time: a second gem of the same aura can't start it.
@@ -936,24 +974,22 @@ static partial class Game
             {
                 // Generosity: the supported aura's own increased effect, and "Supported Auras do not affect you".
                 var (supportEffect, affectsSelf) = AuraSupport(conn, skillId);
-                // Flesh and Stone alternates its stance on every activation (the skill's own description); other auras
-                // have none.
-                string? stance = AuraCatalog.Family(effectId) == "FleshAndStone" ? conn.NextFleshAndStoneStance : null;
+                var context = ReservationContext(conn, skillId);
+                string? stance = AuraCatalog.IsStance(effectId) ? conn.Stance : null;
                 var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
                     AuraCatalog.BuffRow(effectId, stance), reservation.Flat, reservation.Percent, level, quality,
-                    SourceBuff: conn.NextBuff++, SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance);
-                if (stance is not null) conn.NextFleshAndStoneStance = AuraCatalog.OtherStance(stance);
+                    SourceBuff: OwnAuraRestriction.IsAura(SupportedSkill(conn, skillId).Stats) ? conn.NextBuff++ : null,
+                    SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
+                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency);
                 conn.Auras[skillId] = aura;
-                int reserved = RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent);
-                if (reserved > conn.Pools.Mana)
+                if (!ReservationBudgetFits(conn))
                 {
                     conn.Auras.Remove(skillId);
-                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: needs {reserved} mana reserved, " +
-                        $"maximum is {conn.Pools.Mana}");
+                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: insufficient unreserved {(context.Life ? "life" : "mana")}");
                     return false;
                 }
                 started = aura;
-                conn.PlayerMana = (uint)Math.Min(conn.PlayerMana, (uint)(conn.Pools.Mana - reserved));
+                ClampReservedResources(conn);
             }
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
@@ -970,6 +1006,41 @@ static partial class Game
 
     internal static IEnumerable<byte[]> AuraBuffs(AuraCatalog.Aura aura) =>
         AuraCatalog.StartPackets(aura, PlayerId, Skills.ActionHash(aura.Effect));
+
+    internal static async Task DisableReservations(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, string name)
+    {
+        lock (conn.Monsters)
+        {
+            bool all = name.Equals("all", StringComparison.OrdinalIgnoreCase);
+            var matches = conn.Auras.Values.Where(a => all
+                || a.EffectId.Equals(name, StringComparison.OrdinalIgnoreCase) || a.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
+            var saved = CharacterSaves.Load(CharacterName(conn));
+            var remembered = (saved?.ActiveAuras ?? []).Where(id => all || id.Equals(name, StringComparison.OrdinalIgnoreCase)
+                || GemSkillEffects(conn).Any(g => SkillsFor(conn).EffectId(g.Effect) == id
+                    && g.Name.Equals(name, StringComparison.OrdinalIgnoreCase))).ToArray();
+            bool petrified = (all || name.Equals("Petrified Blood", StringComparison.OrdinalIgnoreCase)
+                || name.Equals(PetrifiedBlood.EffectId, StringComparison.OrdinalIgnoreCase))
+                && (conn.PetrifiedBlood.Active || saved?.PetrifiedBlood == true);
+            if (!all && matches.Length == 0 && remembered.Length == 0 && !petrified)
+                throw new ArgumentException("No active reservation matches that name; use /auras to list them.");
+            foreach (string id in remembered) CharacterSaves.SetAuraActive(CharacterName(conn), id, false);
+            if (petrified)
+            { conn.PetrifiedBlood.Suspend(); CharacterSaves.SetPetrifiedBlood(CharacterName(conn), false); }
+            foreach (var aura in matches)
+            {
+                conn.Auras.Remove(aura.SkillId);
+                CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
+                EndReservationRuntimeLocked(conn, aura);
+            }
+            conn.AuraStatsDirty = true;
+            conn.Pools = BuildPoolsFor(conn, conn.Pools.Level);
+            conn.ApplyMovementSpeed();
+        }
+        await SendOwnAuraChanges(remote, stream, ciphers, conn);
+        await SendCharacterStats(remote, stream, ciphers, conn, "reservation disabled");
+        await SendPlayerMana(remote, stream, ciphers, conn);
+    }
 
     // Every projectile uses the same scheduler and simulator. Definitions change rules, never execution paths.
     internal static Task LaunchProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -1426,7 +1497,7 @@ static partial class Game
                     // Devour: a killing blow recovers the support's life/mana.
                     if (applied.Value.Life == 0) DevourOnKill(conn, skillStats);
                     AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
-                        reflected, poison);
+                        reflected, poison, sourceSkill: skillId);
                     // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
                     // physical damage bleed it.
                     if (m.Life > 0 && rolled[DamageType.Fire].Max > 0
@@ -1576,7 +1647,9 @@ static partial class Game
         Cull cull = default)
     {
         if (m.Dead || m.Life == 0) return null;
+        uint before = m.Life;
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
+        if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)damage - before, 0, int.MaxValue);
         if (allyAt is null)
         {
             conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
@@ -1584,6 +1657,7 @@ static partial class Game
         }
         if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
         TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: m.Life == 0, allyAt);
+        if (allyAt is null && damage > 0 && !conn.Reservations.Secondary) ReservationHitLocked(conn, m);
         return new(m.Life, starts);
     }
 

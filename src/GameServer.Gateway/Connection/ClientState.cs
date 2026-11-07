@@ -138,6 +138,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
     public uint? SummonerId;
     public bool NoRewards;
+    public int Overkill;
+    public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
     public double RampageBlindUntil;
     public int StunSerial;
@@ -165,6 +167,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public MonsterRarity Rarity { get; init; }
     // Its mods (MonsterMods.cs): the rarity's own and the rolled affixes, with what they change. Kept with the instance.
     public MonsterModSet Mods { get; set; } = MonsterModSet.None;
+    public readonly MonsterCurses Curses = new();
+    public MonsterModEffects Effects => Curses.Effects(Mods.Effects);
     // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
     public int SpeedRoll { get; init; }
     // Damage over time not yet applied (fractions of a point between ticks).
@@ -700,7 +704,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool AuraStatsDirty;
     /// <summary>The stance the next Flesh and Stone activation starts in ("Blood" or "Sand"): the skill alternates on each
     /// use, and the stance flips when the aura starts (Game.ToggleAura), not when it ends.</summary>
-    public string NextFleshAndStoneStance = "Blood";
+    public string Stance = "Blood";
     public bool PlayerObjectCreated;
     // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Guarded by the Monsters lock.
     public readonly Dictionary<int, double> SkillReadyAt = [];
@@ -811,6 +815,16 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     }
     ushort nextBuff = 1;
     public uint PlayerMaxLife => Pools.Life;
+    public uint PlayerReservedLife
+    {
+        get
+        {
+            lock (Monsters) return (uint)Math.Min(Pools.Life,
+                (long)AuraCatalog.RequiredLife(Pools, Auras.Values) + global::PetrifiedBlood.RequiredLife(Pools, PetrifiedBlood)
+                + PlacedSkills.Reserved(Pools, Placed.All.Values, true));
+        }
+    }
+    public uint PlayerUnreservedLife => Pools.Life - PlayerReservedLife;
     // The player's life as the server keeps it (PlayerObject's Life, full on creation); 0 = dead.
     public bool AuraDeathHandled;
     uint playerLife;

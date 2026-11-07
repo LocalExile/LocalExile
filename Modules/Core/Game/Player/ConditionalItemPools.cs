@@ -112,7 +112,7 @@ static partial class Game
         {
             lock (conn.Monsters)
                 return conn.Closed || conn.LeavingArea ? null
-                    : GameServer.Core.Protocol.Instance.InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife);
+                    : GameServer.Core.Protocol.Instance.InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife);
         });
         // Remember the revision sampled before the await; a later change still needs its own publication.
         lock (conn.Monsters) state.Presented = revision;

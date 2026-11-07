@@ -43,8 +43,6 @@ static partial class Game
     // Pride adds its own enemy aura (BuffDefinitions 1331) with the ramp each monster keeps while it stays inside.
     // Each monster then keeps the increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and
     // burns read. A refund or a death takes the auras off; a new area is a new connection.
-    // How many u32 stat values the client reads in Pride's enemy buff (BuffDefinitions 1331) before its counted list.
-    const int PrideEnemyValues = 15;
 
     internal static async Task EnemyDebuffsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
@@ -85,8 +83,8 @@ static partial class Game
                     enemyAuras = [.. auras, new PassiveBuffAuras.Aura(0, "Pride", AuraCatalog.PrideBuffRow,
                         prideRadius, [3], [])];
                 }
-                // Flesh and Stone is an enemy aura too: Blood Stance's increased Physical Damage taken, Sand Stance's
-                // blind (below, with the passive blind aura's radius). Its stance comes from the activation (ToggleAura).
+                // Flesh and Stone's Blood Stance affects physical hits, with distance falloff.
+                // Sand Stance's hit reduction belongs to the incoming-hit executor, not the blind aura.
                 AuraCatalog.Aura? fleshAndStone = conn.Auras.Values.FirstOrDefault(a =>
                     AuraCatalog.Family(a.EffectId) == "FleshAndStone");
                 int fleshRadius = 0, fleshPhysical = 0;
@@ -101,6 +99,7 @@ static partial class Game
                             fleshSkills, Stats);
                 }
                 var bytes = new List<byte>();
+                CursesTickLocked(conn, now, bytes);
                 int added = 0, removed = 0;
                 // One timed debuff on a monster: its buff shown for the time left, shown again when that changes, taken
                 // off when it ends or the monster or the player dies. Whether it is on.
@@ -161,7 +160,7 @@ static partial class Game
                                 ExposureBuffRows[i], null))
                             EndExposureLocked(m, ExposureTypes[i]);
                     Withers(id, living, m);
-                    double distance = living && (enemyAuras.Count > 0 || m.PlayerAuras.Keys.Any(k => k.Peer == conn.PeerId))
+                    double distance = living && (enemyAuras.Count > 0 || fleshAndStone is not null || m.PlayerAuras.Keys.Any(k => k.Peer == conn.PeerId))
                         ? Dist(m.Walk.Position(now), here) : double.PositiveInfinity;
                     if (m.PlayerAuras.Count > 0)
                         foreach (var ((peer, definition), buff) in m.PlayerAuras.ToArray())
@@ -177,15 +176,8 @@ static partial class Game
                         if (distance > aura.Radius) continue;
                         if (!m.PlayerAuras.ContainsKey((conn.PeerId, aura.Definition)))
                         {
-                            // Pride's row (1331) has the bool at +0x7d (__col25 in the vendored schema) that, as IsRecovery
-                            // does, makes the client read its stat values: fifteen u32 before the counted list, whatever the
-                            // message holds (a probe on 0x141fdf870, live 2026-11-05), not the row's three GrantedStats (pride_physical_damage_taken_+%_final,
-                            // base_additional_physical_damage_reduction_%, receive_bleeding_chance_%_when_hit_by_attack).
-                            // Without them it read 12 bytes of the next message ("Unable to deserialise packet with pid
-                            // 1032. Last PID was 449", live 2026-11-05, Dominus' second form walking into the aura).
-                            uint[]? values = aura.Definition == AuraCatalog.PrideBuffRow ? [(uint)Math.Max(0, prideValues.Min), .. new uint[PrideEnemyValues - 1]] : null;
                             bytes.AddRange(InstanceEntities.AddBuff(id, m.PlayerAuras[(conn.PeerId, aura.Definition)] = conn.NextBuff++, aura.Definition, PlayerId,
-                                values: values));
+                                values: null));
                             added++;
                         }
                         elemental += aura.Stats.Where(s => s.Key == elementalKey).Sum(s => s.Value);
@@ -200,15 +192,14 @@ static partial class Game
                         m.PrideSince = double.NaN;
                         m.PridePhysicalMore = 0;
                     }
-                    // Blood Stance: the increased Physical Damage taken falls off with the monster's distance from the
+                    // Blood Stance: the more Physical Hit Damage taken falls off with the monster's distance from the
                     // player, full at 0 and nothing at the aura's edge (the data's ..._from_player_distance).
                     int physical = fleshBlood && living && fleshPhysical > 0 && distance <= fleshRadius
-                        ? (int)Math.Round(fleshPhysical * (1 - distance / fleshRadius), MidpointRounding.AwayFromZero)
+                        ? (int)Math.Round(fleshPhysical * AuraCatalog.DistanceEffect(distance, fleshRadius), MidpointRounding.AwayFromZero)
                         : 0;
                     m.TakenFromPlayer = (taunted ? config.TauntedDamageTakenPct : 0, elemental, physical);
                 }
-                // Sand Stance blinds the monsters within its radius, on top of the passive blind aura (if any).
-                int blindReach = Math.Max(blindRadius ?? 0, fleshAndStone is not null && !fleshBlood ? fleshRadius : 0);
+                int blindReach = blindRadius ?? 0;
                 int? radius = conn.PlayerLife > 0 && blindReach > 0 ? blindReach : null;
                 HashSet<uint> inside = radius is int r
                     ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && kv.Value.Mods.Effects["cannot_be_blinded"] == 0 && Dist(kv.Value.Walk.Position(now), here) <= r)

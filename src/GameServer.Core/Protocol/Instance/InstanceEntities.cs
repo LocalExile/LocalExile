@@ -293,9 +293,10 @@ public static class InstanceEntities
     /// (<c>0x140b14b00</c> before and after, when there is a record or an id): the character panel's skill list follows it.
     /// </summary>
     public static byte[] PlayerSkillsChange(uint playerId, IReadOnlyList<GrantedSkill> skills, IReadOnlyList<ushort> removed,
-        IReadOnlyList<VaalSoulSeed>? soulSeeds = null, IReadOnlyList<VaalSoulUpdate>? soulUpdates = null)
+        IReadOnlyList<VaalSoulSeed>? soulSeeds = null, IReadOnlyList<VaalSoulUpdate>? soulUpdates = null,
+        bool canDetonateMines = false)
     {
-        var w = new BlobWriter().U8(0x20).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
+        var w = new BlobWriter().U8(canDetonateMines ? (byte)0xa0 : (byte)0x20).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
         foreach (var s in skills) PlayerObject.WriteSkillRecord(w, s);
         foreach (var id in removed) w.U16(id);
         w.U8(checked((byte)(soulSeeds?.Count ?? 0)));
@@ -309,9 +310,9 @@ public static class InstanceEntities
     /// Existing entries are replaced, not consumed/appended: remaining and total BASE seconds, recovery rate, flags.
     /// A zero remaining budget clears the entry vector. Native skill base duration and cooldown group stay intact.</summary>
     public static byte[] PlayerSingleUseCooldowns(uint playerId, IReadOnlyList<SingleUseCooldownUpdate> cooldowns,
-        IReadOnlyList<VaalSoulBudget>? souls = null)
+        IReadOnlyList<VaalSoulBudget>? souls = null, bool canDetonateMines = false)
     {
-        var w = new BlobWriter().U8(0x40).U8(0).U8(0);
+        var w = new BlobWriter().U8(canDetonateMines ? (byte)0xc0 : (byte)0x40).U8(0).U8(0);
         PlayerObject.WriteSoulBudgets(w, souls);
         w.U32((uint)cooldowns.Count);
         foreach (var c in cooldowns)
@@ -610,6 +611,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 {
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
+    public IReadOnlyList<VisibleItem>? Equipped { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
@@ -665,7 +667,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                     if (AnimatedObject is null) w.U8(0);
                     else w.U8(1).WStr32(AnimatedObject);
                     break;
-                case "Inventories": w.U8(0).U8(0); break;
+                case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
                 // path, u16, u8, (life >= 1: no conditional bytes), u32, u32, then slot 20's two flag bytes.
                 case "Actor":
                     w.WStr32("").U16(0).U8(0).U32(0).U32(0);
@@ -1010,6 +1012,7 @@ public sealed record GrantedSupport(uint EffectsPerLevelRow, uint StatSetsPerLev
 public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatSetsPerLevelRow,
     IReadOnlyList<(uint Key, int Value)>? Stats = null, uint CooldownMs = 0)
 {
+    public (uint Object, ushort Skill)? Parent { get; init; }
     /// <summary>Skill-record bit1 (0x02): retain native GEPL Vaal soul inputs, regardless of current cost or balance.</summary>
     public bool VaalResourcesEnabled { get; init; }
     /// <summary>Native support references (GEPL row and source metadata), read by 0x142196ce0.</summary>
@@ -1066,7 +1069,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
     uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
-    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0)
+    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0, uint LifeReserved = 0)
 {
     /// <summary>Start in the client's washed-up beach state, which handles lying down and getting up on input.</summary>
     public bool WashedUp { get; init; }
@@ -1122,7 +1125,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         // comp3 (0x141e114d0): u16 count of entries (u16, u8, 0x141e06bb0 record).
         w.U16(0);
         // Life (0x141e6c2f0): life, mana and energy shield pools (0x141e6be70), then a flags byte (0x141e6c270).
-        Pool(w, Life); Pool(w, Mana, ManaReserved); Pool(w, EnergyShield);
+        Pool(w, Life, LifeReserved); Pool(w, Mana, ManaReserved); Pool(w, EnergyShield);
         w.U8(0);
         // Animated (0x141e56a80): flags. Bit0 + !bit1: u32 char count + UTF-16LE animated-object path; the client loads it
         // when it differs from the current one or none is set (+0x260 null), creating the 0x308-byte AO instance.
@@ -1198,7 +1201,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .U8(0).U32(s.StatSetsPerLevelRow);    // its stat set
         foreach (var (row, _) in s.ExtraStatSets) w.U8(0).U32(row);   // one more stat-set reference per additional set
         // 0x1421975f0: without bit1 a raw Vaal stored-use count makes the constructor zero its soul inputs.
-        w.U8(s.VaalResourcesEnabled ? (byte)0x02 : (byte)0).U8(checked((byte)s.Supports.Count));
+        w.U8((byte)((s.VaalResourcesEnabled ? 2 : 0) | (s.Parent is not null ? 1 : 0)));
+        if (s.Parent is { } parent) w.U32(parent.Object).U16(parent.Skill);
+        w.U8(checked((byte)s.Supports.Count));
         foreach (var support in s.Supports)
         {
             w.U8(0).U32(support.EffectsPerLevelRow).U8(0).U32(support.StatSetsPerLevelRow);

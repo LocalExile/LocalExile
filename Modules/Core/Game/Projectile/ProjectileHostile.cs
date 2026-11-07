@@ -26,7 +26,7 @@ static partial class Game
         var conn = session.Conn;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var from = ProjectileSession.Vector(m.Walk.Position(now));
-        var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && conn.Golems.All.TryGetValue(targetId, out var golem)
+        var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && OwnedFighter(conn, targetId) is { } golem
             ? golem.Monster.Walk.Position(now) : conn.Walk.Position(now)));
         double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
@@ -135,7 +135,7 @@ static partial class Game
     internal static ProjectileHitResult HostileHit(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
     {
         var conn = session.Conn;
-        if (conn.Golems.All.TryGetValue(contact.Target.Id, out var golem))
+        if (OwnedFighter(conn, contact.Target.Id) is { } golem)
         {
             bool landed = GolemTakeHitLocked(conn, golem, shot.MonsterId, shot.Monster, shot.Attack,
                 Math.Max(AreaTime(conn), contact.At / (double)ProjectileRuntime.QuantaPerSecond), area: shot.Attack.Projectile?.Lobbed == true);

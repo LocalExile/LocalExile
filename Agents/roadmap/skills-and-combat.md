@@ -20,7 +20,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 - **Ordinary aura activation:** nine previously rejected self auras now share reservation, presentation and the
   supported stat/damage paths.
   Discipline's ordinary ES pool and recharge are implemented with shared character scaling.
-  Remaining work: conditional consecrated ground, herald/minion/banner mechanics.
+  Herald procs, reservation minions, stationary Arctic Armour, Tempest Shield and Temporal Rift now have executors;
+  nearby allies receive ordinary auras. Remaining work is recorded in the aura section below.
   See protocol/11-skills.md section 13.
 - **Aura caster art:** the distinct EPKFiles2 visuals are selected on activation and area restoration;
   the live source-only regression is addressed with a separate received buff for the top-left icon, awaiting
@@ -304,14 +305,15 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Fifteen native controls verify installed pairs, actual bonuses/Mana, refusal, restoration, relog and death.
   Native grey-icon prediction and persistent restricting equipment remain separate verification.
   Duplicate-instance support context and queued ordinary acknowledgements have separate regression controls.
-  Complete Lone Messenger, party auras and unsupported curse/enemy/banner/Vaal executors remain separate.
+  Ordinary player and controlled-fighter aura sharing, Life reservation and Blasphemy hex execution are implemented;
+  remaining enemy/banner/Vaal executors are separate.
   Passive enemy auras send and apply only hit conversions so far ([11](../docs/protocol/11-skills.md) section 10e);
   the others (Overwhelm, the Occultist's) need consumers for their stats first.
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous
-  Fire's); Heralds, banners, curse auras and their unsupported conditional effects.
+  Fire's); banners and unsupported conditional effects. Verify the complete herald combat matrix,
+  retail Virulence decay and the skill-specific trap/mine payloads beyond the shared Skitterbot trigger/rearm lifecycle.
   The skill-bar indicator's buff association is implemented (0x1c1 bit3; live check pending, see Status).
-  Support gems come with the gem system ("Gems" below); party and minion auras and life reservation with their own
-  systems.
+  Support gems come with the gem system ("Gems" below); Life reservation has its own budget and recovery lifecycle.
 - **Done when:** the standard auras reserve correctly, their effects match PoB, and the character panel and HUD show
   the same reserved and unreserved values.
 

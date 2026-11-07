@@ -136,7 +136,10 @@ static partial class Game
         if (!conn.PlayerSent || conn.Closed || conn.LeavingArea || conn.Instance is null) return;
         var p = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         conn.Instance.PublishPlayer(new(conn.PeerId, conn.PeerType, template, p.X, p.Y, conn.PlayerLife, conn)
-            { Destination = conn.Walk.Destination });
+            { Destination = conn.Walk.Destination, Auras = conn.PlayerLife == 0 || InTown(conn) ? []
+                : conn.Auras.Values.Where(a => AuraCatalog.Shared(a.EffectId)).Select(a => new SharedAura(a,
+                    AuraRadius.Of(a, conn.Pools.AuraAreaPct, SkillsFor(conn), Stats),
+                    conn.Pools.AuraEffectPct + a.SupportEffectPct)).ToArray() });
     }
 
     // Stats.dat use_town_stance (row 21140; a stat key is its row + 1).

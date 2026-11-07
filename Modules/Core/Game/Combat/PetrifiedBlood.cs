@@ -10,7 +10,6 @@ static partial class Game
         ClientState conn, ushort skillId, int effect, string name, (int Flat, int Percent) reservation, int level, int quality)
     {
         bool started;
-        int required = 0;
         lock (conn.Monsters)
         {
             // Locked commit backstop: a source may have changed after dispatch/cooldown preflight.
@@ -24,18 +23,17 @@ static partial class Game
             else
             {
                 var stats = PetrifiedBloodEffectStats(conn, effect, level, quality);
-                required = RequiredManaWithPetrifiedBlood(conn, reservation.Percent);
-                if (required > conn.Pools.Mana)
+                var context = ReservationContext(conn, skillId);
+                if (!ReservationBudgetFits(conn, reservation.Percent, context.Life, context.Efficiency))
                 {
-                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: needs {required} mana reserved, " +
-                        $"maximum is {conn.Pools.Mana}");
+                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: insufficient unreserved {(context.Life ? "life" : "mana")}");
                     return false;
                 }
                 conn.PetrifiedBlood.Activate(skillId, effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
                     Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
                     reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(conn)), conn.NextBuff++,
-                    conn.Clock.Elapsed.TotalSeconds);
-                conn.PlayerMana = (uint)Math.Min(conn.PlayerMana, (uint)(conn.Pools.Mana - required));
+                    conn.Clock.Elapsed.TotalSeconds, context.Life, context.Efficiency);
+                ClampReservedResources(conn);
                 started = true;
             }
             // The client's own Life step reads life_recovery_per_minute; the full stat send below carries 0 while the
@@ -43,7 +41,7 @@ static partial class Game
             conn.AuraStatsDirty = true;
             CharacterSaves.SetPetrifiedBlood(CharacterName(conn), started);
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: {(started ? "on" : "off")}, " +
-                $"{required} mana reserved, Low Life threshold {conn.PetrifiedBlood.LowLifeThresholdPct}%");
+                $"Low Life threshold {conn.PetrifiedBlood.LowLifeThresholdPct}%");
         }
         await SendOwnAuraChanges(remote, stream, ciphers, conn);
         await SendPlayerMana(remote, stream, ciphers, conn,
@@ -61,14 +59,15 @@ static partial class Game
         var gem = GemSkillEffects(conn).FirstOrDefault(g => SkillsFor(conn).EffectId(g.Effect) == PetrifiedBlood.EffectId);
         if (gem.Name is null || GemSkillInstanceDisabled(conn, gem.Effect, gem.Id) is not null
             || SupportedReservation(conn, gem.Id) is not { } reservation) return;
-        int required = RequiredManaWithPetrifiedBlood(conn, reservation.Percent);
-        if (required > conn.Pools.Mana) return;
-        var stats = PetrifiedBloodEffectStats(conn, gem.Effect, gem.Level, gem.Quality);
+        var context = ReservationContext(conn, gem.Id);
+        if (!ReservationBudgetFits(conn, reservation.Percent, context.Life, context.Efficiency)) return;
+        var supported = SupportedSkill(conn, gem.Id);
+        var stats = PetrifiedBloodEffectStats(conn, gem.Effect, supported.Level, supported.Quality);
         conn.PetrifiedBlood.Activate(gem.Id, gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
             Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
             reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(conn)), conn.NextBuff++,
-            conn.Clock.Elapsed.TotalSeconds);
-        conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)(conn.Pools.Mana - required));
+            conn.Clock.Elapsed.TotalSeconds, context.Life, context.Efficiency);
+        ClampReservedResources(conn);
         conn.AuraStatsDirty = true;
         Console.WriteLine($"[gateway] {CharacterName(conn)}: restored saved Petrified Blood");
     }
@@ -95,10 +94,6 @@ static partial class Game
 
     static int LowLifeThresholdPct(IReadOnlyDictionary<uint, int> stats) =>
         LowLife.Threshold(Get(stats, "low_life_threshold_%_override"), Get(stats, "low_life_threshold_%"));
-
-    static int RequiredManaWithPetrifiedBlood(ClientState conn, int petrifiedBloodPercent) =>
-        AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values)
-        + PetrifiedBlood.RequiredMana(conn.Pools, petrifiedBloodPercent);
 
     // The invisible slow_life_loss_from_hit_damage buff (BuffDefinitions 1796) draws the dark deferred-loss overlay
     // on the life orb. Its single value is the current deferred life loss per minute; the duration is the last

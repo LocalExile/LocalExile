@@ -2500,6 +2500,25 @@ Monster spell stat rows are selected by `PlayerLevelReq` at the minion's actor l
 `GemLevel`; float interpolation 3 uses the effectiveness constants in `GameConstants`.
 Recovery buffs have extra packet fields: Safeguarding's `rock_golem_alt_buff` (592) needs `u82` and one recovery value;
 Withered (506) needs `u82` and two. Omitting these misaligns the next packet and crashes the native parser.
+Holy Relic regeneration (1181) and Reaper consumption (1870) have `IsRecovery=false`: omit recovery values even
+when the server implements healing; an extra value likewise misaligns the stream (the 1181 packet is 31 bytes).
+Reaper's `SummonedReaperUltimate` supplies its native animation; its internal GA damage effect has no independent
+GroundSlam clip in that rig and must not be started as a second actor action.
+
+Native manual admission reads final caps: Reaper `0x141c4cfc0` reads `number_of_reapers_allowed` (0x3a0b),
+SRS `0x141a442a0` reads `number_of_raging_spirits_allowed` (0x866).
+The placement action `0x14195e420` requires both the final trap/mine cap and `number_of_traps_to_throw` (0x718)
+or `number_of_mines_to_place` (0x119a). Base inputs alone leave these zero; injected use packets bypass this check.
+Blasphemy needs final `skill_is_instant` too; aiming its toggle at empty ground sends C→S 0x190, not 0x191.
+
+Placed traps/mines are misc actors, not monster blobs: `TrapMineObject` preserves their component order, with
+StateMachine only for RemoteMine. Trap metadata comes from `SkillTrapVariations`; the client accepts their native
+skill list at `0x4000` and subsequent action packets without client-data changes.
+Their payload skill's record flag 1 carries the parent object's u32 and source skill's u16, both blob-endian.
+Use object stats `is_trap_object` / `is_remote_mine`, not the skill's `is_trap` or a nonexistent `is_mine`.
+`BeThrown` (`0x141c0e8c0`) selects the native throw animation; a 0x1ba glide supplies horizontal travel in seconds,
+followed by `Arm` at landing. Actor update flag0 bit7 publishes detonation availability (Actor +0x219 bit3);
+`DetonateMines` admission (`0x141d23c70`) reads this bit, not the active-mine stat. Every Actor refresh must retain it.
 
 ## 10i. Warcry release: timing and release effects
 
@@ -2932,11 +2951,11 @@ failed I/O, allocation limits, actual official values and every skill's successf
   hostile living monster within its radius of the living player (0x1c1, the player as source) and comes off (0x1c2)
   when it leaves, dies, the node goes or the player dies; the blind aura shows the `blinded` buff instead (§12,
   Passive blind aura).
-- **Pride's enemy buff** (BuffDefinitions 1331 `player_physical_damage_aura`) carries fifteen u32 values before its
-  counted list: the reader (`0x141fdf870`) takes them whatever the message holds (a probe on its stream reads, live
-  2026-11-05), although the vendored schema shows `IsRecovery` unset (`__col25` set) and three GrantedStats.
-  With fewer, the client read the next message's bytes as values and its count, and showed "Unable to deserialise
-  packet with pid … Last PID was 449" (0x1c1) when a monster walked into the aura. Ours sends the ramp, then zeros.
+- **Pride's enemy buff** (BuffDefinitions 1331 `player_physical_damage_aura`) sends no stat-value words. A read-only
+  probe of the running 3.29.3b client (2026-11-07) found `row+0x7c=0`, `row+0x7d=1`, and three entries at `row+0xdc`.
+  The native `0x141fdf870` instructions test only `+0x7c` before reading value words; `+0x7d` is not this predicate.
+  The earlier fifteen-word interpretation was incorrect. The counted list immediately follows the optional header;
+  gameplay's Pride ramp is computed on the server.
 - **Taunt** (`TauntLocked`). Every warcry taunts the hostile monsters within its radius when its cast ends (wiki
   Warcry: base radius 6 m, 60 cells, grown by area of effect), the Basalt Flask within its 30 cells. 3 s (wiki
   Taunt), raised by `taunt_duration_+%`; a new taunt replaces the player's older one; a death of the monster or the
@@ -3136,6 +3155,15 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
    **Correction to the earlier notes:** 0x25f in `0x140ae1130`/`0x140ae4550` refers to Elemental
    Overload (BuffDefinitions row 606, returned one-based by `0x142454bd0`), not an aura UI event or a
    network opcode. Sending a standalone 0x25f packet is invalid and is not needed for aura indicators.
+  Tempest Shield (row 112, `TempestShieldBuff`) additionally requires a two-word counted list: art variation,
+  alternate-shield flag. `0x1417a4380` dereferences `Buff+0x80` and its second word before any length check;
+  `0x1417a4de0` passes the first word to MiscEffectPacks variation lookup. Empty-list activation reproduced
+  an access violation at `0x1417a43cf`. The base shield visual uses `[0, 0]`.
+
+  Temporal Rift (row 1915, `ChronomancerBuff`) also dereferences its list immediately: `0x141f7c8b0`
+  allocates the sample ring from word 0, and `0x141f7c9e0` reads the interval in milliseconds from word 1.
+  An empty list reproduced an access violation at `0x141f7c8e1`. The server uses `[42, 100]`, retaining
+  41 samples over four seconds; these sampling parameters are server choices, not captured retail traffic.
 - **Implemented effects.** Purity of Elements/Fire/Ice/Lightning add their resistances; Clarity and Vitality
   add their flat regeneration; Precision adds flat accuracy and increased critical strike chance; Haste adds
   attack, cast and movement speed. Generic

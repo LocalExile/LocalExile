@@ -123,7 +123,7 @@ static partial class Game
                 synchronized.Add(state);
             }
             if (updates.Count == 0) return null;
-            var bytes = InstanceEntities.PlayerSingleUseCooldowns(PlayerId, updates);
+            var bytes = InstanceEntities.PlayerSingleUseCooldowns(PlayerId, updates, canDetonateMines: CanDetonateMines(conn));
             foreach (var state in synchronized) state.NativeRefreshed();
             return bytes;
         }

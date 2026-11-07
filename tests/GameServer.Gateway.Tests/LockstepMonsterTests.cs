@@ -544,7 +544,7 @@ public class LockstepMonsterTests : IDisposable
             // finish on that frame clock before a pending Move is spent, or its path is lost on completion.
             conn.Clock.Reset();
             var session = new Game.ProjectileSession("pickup-frame", null!, null!, conn);
-            conn.ProjectileRuntime = session;
+            conn.ProjectileRuntimeState = session;
             try
             {
                 session.AdvanceTo(ProjectileRuntime.Time(1.105));
@@ -556,7 +556,7 @@ public class LockstepMonsterTests : IDisposable
                 Assert.Equal((140, 100), conn.Walk.Destination);
                 Assert.Equal(ProjectileRuntime.Time(1.105), session.Runtime.Now);
             }
-            finally { session.Invalidate(); conn.ProjectileRuntime = null; }
+            finally { session.Invalidate(); conn.ProjectileRuntimeState = null; }
         }
         finally
         {

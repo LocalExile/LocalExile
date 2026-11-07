@@ -136,11 +136,11 @@ static partial class Game
             if (level != conn.Pools.Level)
             {
                 CommitExperienceLevel(conn, level);
-                conn.PlayerLife = conn.PlayerMaxLife; conn.PlayerMana = (uint)UnreservedMana(conn);
+                conn.PlayerLife = conn.PlayerUnreservedLife; conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
                 TrimLeechLocked(conn);
                 session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
-                session.Packet(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife));
+                session.Packet(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
                 session.Enqueue(() => SendPlayerMana(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
                 session.Packet(PassivesMessage(conn).Bytes);
                 // Account-level persistence is a projection of the committed XP ledger.
@@ -230,7 +230,7 @@ static partial class Game
                 || f.Item.Charges >= FlaskCharges.Of(basis, ItemModStats.Local(f.Item, ItemsFor(conn).Mods)).MaxCharges)).ToList();
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        bool precision = conn.Auras.Values.Any(a => a.EffectId == "Precision");
+        bool precision = AffectingAuras(conn).Any(a => a.EffectId == "Precision");
         var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, at, random.Next);
         if (gains.Count > 0) CommitProjectileFlaskGain(session, (f, _) => gains.GetValueOrDefault(f.Id));
     }

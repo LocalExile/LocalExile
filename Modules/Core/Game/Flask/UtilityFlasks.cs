@@ -162,7 +162,7 @@ static partial class Game
                     // Pool/reservation output samples current values, never a pre-reload instant snapshot.
                     byte[] packet = output.Pool switch
                     {
-                        FlaskOutputPool.Life => InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),
+                        FlaskOutputPool.Life => InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
                         FlaskOutputPool.Mana => WithOwnAuraChanges(conn, () => InstanceProtocol.LifeUpdate(PlayerId,
                             conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)),
                         _ => output.Packet,

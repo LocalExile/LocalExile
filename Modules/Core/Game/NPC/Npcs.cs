@@ -55,12 +55,12 @@ static partial class Game
             lock (conn.Monsters)
             {
                 if (conn.PlayerLife == 0 || conn.HardcoreDeathRecorded) return;
-                conn.PlayerLife = conn.PlayerMaxLife;
+                conn.PlayerLife = conn.PlayerUnreservedLife;
                 conn.PlayerMana = (uint)UnreservedMana(conn);
             }
             await GainFlaskCharges(remote, stream, ciphers, conn, int.MaxValue, "vendor refill");
             PersistVitals(conn);
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife), "vendor restores life");
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), "vendor restores life");
             await SendPlayerMana(remote, stream, ciphers, conn, "vendor restores mana");
         }
         uint id;

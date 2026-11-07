@@ -4,7 +4,8 @@ static partial class Game
 {
     internal static readonly GemSupports Supports = new();
     internal sealed record SupportedGem(int Effect, int Level, int Quality, IReadOnlyList<GemSupports.Applied> Supports,
-        Dictionary<uint, int> Stats, Item? SourceGem = null, bool RequirementsMet = true, bool Granted = false);
+        Dictionary<uint, int> Stats, Item? SourceGem = null, bool RequirementsMet = true, bool Granted = false,
+        uint Host = 0, int Group = -1);
 
     internal static SupportedGem SupportedSkill(ClientState conn, ushort skillId)
     {
@@ -112,9 +113,20 @@ static partial class Game
         if (SkillsFor(conn).IsAura(selected.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
+        if (SkillsFor(conn).IsMelee(selected.Effect)
+            && conn.Auras.Values.FirstOrDefault(a => a.EffectId == "BloodAndSand" && a.AffectsSelf) is { } stance)
+        {
+            string input = stance.Stance == "Sand" ? "blood_sand_stance_melee_skills_area_of_effect_+%_final_in_sand_stance"
+                : "blood_sand_stance_melee_skills_area_of_effect_+%_final_in_blood_stance";
+            if (Stats.Key(input) is uint source && Stats.Key("active_skill_area_of_effect_+%_final") is uint target)
+            {
+                int value = SkillsFor(conn).EffectStats(stance.Effect, stance.Level, stance.Quality).FirstOrDefault(s => s.Item1 == source).Item2;
+                own[target] = (int)Math.Round(100 * ((1 + own.GetValueOrDefault(target) / 100.0) * (1 + value / 100.0) - 1));
+            }
+        }
         return new(selected.Effect, level, quality, supports, own, selected.Place.Gem,
             requirements?.Inactive.Contains(selected.Place.ItemId) != true
-                && GemRequirementsUnmetAt(conn, selected.Place.Gem, requirements) is null);
+                && GemRequirementsUnmetAt(conn, selected.Place.Gem, requirements) is null, Host: selected.Place.ItemId, Group: group);
     }
 
     internal static Dictionary<uint, int> SupportedStats(ClientState conn, ushort skillId)
@@ -129,7 +141,7 @@ static partial class Game
     {
         var stats = SupportedSkill(conn, skillId).Stats;
         int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        return (Stat("non_curse_aura_effect_+%"), Stat("aura_cannot_affect_self") == 0);
+        return (Stat("non_curse_aura_effect_+%") + Stat("aura_effect_+%"), Stat("aura_cannot_affect_self") == 0);
     }
 
     internal static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
@@ -417,14 +429,13 @@ static partial class Game
     {
         var gem = SupportedSkill(conn, skillId);
         var sourceReservation = SkillsFor(conn).Reservation(gem.Effect, gem.Level);
-        if (SkillsFor(conn).EffectId(gem.Effect) == "TemporalChains")
+        if (CurseCatalog.Hex(SkillsFor(conn).EffectId(gem.Effect)))
         {
-            if (!GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, "TemporalChains"))) return null;
-            var blasphemy = gem.Supports.FirstOrDefault(s => s.Effect.Id is "SupportBlasphemy" or "SupportBlasphemyPlus");
+            var blasphemy = gem.Supports.FirstOrDefault(s => IsBlasphemySupport(s.Effect.Id));
             if (blasphemy is null) return null;
             sourceReservation = SkillsFor(conn).Reservation(blasphemy.Effect.Row, blasphemy.Gem.Level);
             var sources = CharacterStatSources(conn).Stats;
-            if (Stats.Key("temporal_chains_no_reservation") is uint free
+            if (SkillsFor(conn).EffectId(gem.Effect) == "TemporalChains" && Stats.Key("temporal_chains_no_reservation") is uint free
                 && conn.PlayerStats.GetValueOrDefault(free, sources.GetValueOrDefault(free)) != 0) return (0, 0);
         }
         if (sourceReservation is not { } reservation) return null;

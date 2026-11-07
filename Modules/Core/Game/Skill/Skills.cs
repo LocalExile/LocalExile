@@ -414,7 +414,7 @@ static partial class Game
             if (Stats.Key("life_regeneration_rate_per_minute") is uint lr) extra[lr] = (int)Math.Min(int.MaxValue, (long)conn.Pools.Life * GodLifeRegenPctPerSecond / 100 * 60);
         }
         List<AuraCatalog.Aura> auras;
-        lock (conn.Monsters) auras = [.. conn.Auras.Values];
+        lock (conn.Monsters) auras = AffectingAuras(conn);
         foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), conn.Pools.AuraEffectPct, SkillsFor(conn), Stats).Concat(MinionAuraStats(conn, auras)))
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, extra, Stats).ToList())
@@ -737,6 +737,32 @@ static partial class Game
             ApplyProjectilePanelStats(effect, stats);
             if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(conn, id, stats);
+            // Native CanStart reads final limits, not the base inputs in the gem's stat set.
+            // Network stat snapshots do not run the client's stat calculators.
+            void Publish(string stat, int value) { if (Stats.Key(stat) is uint key) stats[key] = value; }
+            if (SummonData.Find(SkillsFor(conn).EffectId(effect)) is { LimitStat.Length: > 0 } summon)
+                Publish(summon.LimitStat.Replace("base_", "", StringComparison.Ordinal), SummonLimit(conn, summon, supported));
+            if (GolemData.Find(SkillsFor(conn).EffectId(effect)) is { IsGolem: true })
+                Publish("number_of_golems_allowed", GolemCatalog.Limit(OwnPanel("base_number_of_golems_allowed"),
+                    n => GolemStat(playerStats, n)));
+            var placed = PlacedKind(supported);
+            if (placed.Trap || placed.Mine)
+            {
+                int limit = PlacedSkillLimit(conn, supported, placed.Mine);
+                Publish(placed.Mine ? "number_of_remote_mines_allowed" : "number_of_traps_allowed", limit);
+                Publish(placed.Mine ? "skill_display_number_of_remote_mines_allowed" : "skill_display_number_of_traps_allowed", limit);
+                Publish(placed.Mine ? "skill_is_mined" : "skill_is_trapped", 1);
+                Publish(placed.Mine ? "number_of_mines_to_place" : "number_of_traps_to_throw",
+                    PlacedSkillCount(conn, supported, placed.Mine));
+                Publish("active_skill_base_area_of_effect_radius", SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get));
+                Publish("active_skill_area_of_effect_radius", (int)SkillRadius(conn, own, true, effect));
+            }
+            Publish("skill_is_instant", GolemStat(own, "base_skill_is_instant") != 0 ? 1 : 0);
+            if (CurseCatalog.Hex(SkillsFor(conn).EffectId(effect) ?? ""))
+            {
+                Publish("active_skill_base_area_of_effect_radius", 22);
+                Publish("active_skill_area_of_effect_radius", CurseRadius(conn, id, OwnAuraRestriction.IsAura(own), supported, playerStats));
+            }
             if (SkillsFor(conn).FindByRow(id, effect, supported.Level, [.. stats.Select(kv => (kv.Key, kv.Value))]) is { } skill)
             {
                 Console.WriteLine($"[gateway] gem skill 0x{skill.Id:x4} {name} level {level} quality {quality} (effect {effect}): GEPL {skill.EffectsPerLevelRow}, " +
@@ -937,6 +963,7 @@ static partial class Game
     {
         var gem = SupportedSkill(conn, skillId);
         if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted) return "skill is unavailable";
+        if (GolemStat(gem.Stats, "cannot_cast_curses") != 0) return "this curse is triggered by Hextouch";
         if ((ActorSkillInstanceDisabled(conn, effect, skillId) ?? WeaponRestricted(conn, effect)
                 ?? GemRequirementsUnmet(conn, gem.SourceGem)) is { } disabled)
             return disabled;
@@ -1108,10 +1135,10 @@ static partial class Game
         {
             // A lethal hit while SendCharacterStats awaited must not turn a Hardcore death into a level-up heal.
             if (conn.Hardcore && (conn.PlayerLife == 0 || conn.HardcoreDeathRecorded)) return;
-            (conn.PlayerLife, conn.PlayerMana) = (conn.PlayerMaxLife, (uint)mana);
+            (conn.PlayerLife, conn.PlayerMana) = (conn.PlayerUnreservedLife, (uint)mana);
             conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
         }
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMaxLife), $"0x01b1 player life {conn.PlayerMaxLife}");
+        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), $"0x01b1 player life {conn.PlayerMaxLife}");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
         await SendPassives(remote, stream, ciphers, conn);
     }
@@ -1169,10 +1196,12 @@ static partial class Game
                 else
                 {
                     var stats = PetrifiedBloodEffectStats(conn, gem.Effect, gem.Level, gem.Quality);
+                    var context = ReservationContext(conn, id);
                     conn.PetrifiedBlood.Refresh(gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
                         Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-                        reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(conn)));
-                    conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+                        reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(conn)), context.Life, context.Efficiency);
+                    if (!ReservationBudgetFits(conn)) conn.PetrifiedBlood.Suspend();
+                    ClampReservedResources(conn);
                     conn.AuraStatsDirty = true;
                 }
             }
@@ -1221,9 +1250,42 @@ static partial class Game
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return;
             ended = [.. conn.Auras.Values.Where(a => gone.Contains(a.SkillId))];
-            foreach (var aura in ended) conn.Auras.Remove(aura.SkillId);
+            foreach (var aura in ended)
+            {
+                conn.Auras.Remove(aura.SkillId);
+                EndReservationRuntimeLocked(conn, aura);
+                CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
+            }
             petrifiedEnded = conn.PetrifiedBlood.Active && gone.Contains(conn.PetrifiedBlood.SkillId);
-            if (petrifiedEnded) conn.PetrifiedBlood.Suspend();
+            if (petrifiedEnded)
+            {
+                conn.PetrifiedBlood.Suspend();
+                CharacterSaves.SetPetrifiedBlood(CharacterName(conn), false);
+            }
+            double now = AreaTime(conn);
+            foreach (var fighter in conn.Summons.Fighters.Values.Where(g => gone.Contains(g.Source)).ToArray())
+                RemoveSummonLocked(conn, fighter, now);
+            foreach (var golem in conn.Golems.All.Values.Where(g => gone.Contains(g.Source)).ToArray())
+                RemoveGolemLocked(conn, golem, now);
+            conn.Golems.Waiting.RemoveAll(w => gone.Contains(w.Saved.Skill));
+            var placedPackets = new List<byte>();
+            foreach (var placed in conn.Placed.All.Values.Where(p => gone.Contains(p.Skill)).ToArray())
+                RemovePlacedLocked(conn, placed, placedPackets);
+            foreach (var ground in conn.Placed.Grounds.Where(g => gone.Contains(g.Source)).ToArray())
+            {
+                placedPackets.AddRange(InstanceProtocol.RemoveObject(ground.Object));
+                conn.Placed.Grounds.Remove(ground);
+            }
+            if (placedPackets.Count > 0)
+                conn.Minions.OutputQueue.Add(new([.. placedPackets], "placed skill source removed"));
+            if (!conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic") && conn.Summons.HolyBuff != 0)
+            {
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, conn.Summons.HolyBuff), "Holy Relic source removed"));
+                conn.Summons.HolyBuff = 0;
+                conn.Summons.HolyRegenerationUntil = 0;
+                conn.Summons.HolyRegenerationPerMinute = 0;
+                conn.Minions.StatRevision++;
+            }
             if (ended.Count > 0 || petrifiedEnded)
             {
                 conn.AuraStatsDirty = true;
@@ -1231,6 +1293,9 @@ static partial class Game
                 conn.ApplyMovementSpeed();
             }
         }
+        SaveSummons(conn);
+        SaveGolems(conn);
+        await RefreshGolemBuffs(remote, stream, ciphers, conn);
         if (ended.Count > 0 || petrifiedEnded)
         {
             await SendOwnAuraChanges(remote, stream, ciphers, conn);

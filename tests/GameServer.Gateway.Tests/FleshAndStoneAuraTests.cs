@@ -2,8 +2,7 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-/// <summary>Flesh and Stone (#471): the aura now activates, it alternates its stance on each use, Sand Stance reduces the
-/// damage the player takes and blinds nearby monsters, and Blood Stance raises the Physical Damage nearby monsters take.</summary>
+/// <summary>Shared stances and distance-dependent hit effects.</summary>
 public class FleshAndStoneAuraTests
 {
     [Fact]
@@ -18,6 +17,22 @@ public class FleshAndStoneAuraTests
         Assert.Equal("Sand", AuraCatalog.OtherStance("Blood"));
         Assert.Equal("Blood", AuraCatalog.OtherStance("Sand"));
         Assert.Equal("Sand", AuraCatalog.OtherStance(null));
+        Assert.True(AuraCatalog.Supported("BloodAndSand"));
+        Assert.Equal(AuraCatalog.FleshAndStoneSandRow, AuraCatalog.BuffRow("BloodAndSand", "Sand"));
+        Assert.Equal(1, AuraCatalog.DistanceEffect(0, 40));
+        Assert.Equal(.5, AuraCatalog.DistanceEffect(20, 40));
+        Assert.Equal(0, AuraCatalog.DistanceEffect(40, 40));
+        Assert.Equal(0, AuraCatalog.DistanceEffect(80, 40));
+        var skills = Program.Skills;
+        var haste = new AuraCatalog.Aura(1, skills.EffectRow("Haste"), "Haste", "Haste", 1, 152, 0, 5000, Level: 20);
+        var stronger = haste with { SkillId = 2, Level = 1, ExternalEffectPct = 100 };
+        var own = AuraCatalog.Bonus([haste], 0, skills, Program.Stats);
+        var external = AuraCatalog.Bonus([stronger], 0, skills, Program.Stats);
+        var together = AuraCatalog.Bonus([haste, stronger], 0, skills, Program.Stats);
+        Assert.Equal(Math.Max(own.AttackSpeedPct, external.AttackSpeedPct), together.AttackSpeedPct);
+        Assert.Equal(Math.Max(own.MovementVelocityPct, external.MovementVelocityPct), together.MovementVelocityPct);
+        uint cast = Program.Stats.Key("cast_speed_+%")!.Value;
+        Assert.Equal(30, AuraCatalog.RawStats([haste, stronger], 0, skills, Program.Stats).Single(p => p.Key == cast).Value);
     }
 
     [Fact]
@@ -35,7 +50,7 @@ public class FleshAndStoneAuraTests
         uint? takenKey = Program.Stats.Key("base_damage_taken_+%");
         Assert.NotNull(takenKey);
         var sandStats = AuraCatalog.RawStats([sand], 0, skills, Program.Stats).ToDictionary(x => x.Key, x => x.Value);
-        Assert.Equal(reduction, sandStats[takenKey!.Value]);
+        Assert.DoesNotContain(takenKey!.Value, sandStats.Keys); // An enemy-distance reduction is never a global reduced-taken stat.
         Assert.DoesNotContain(AuraCatalog.RawStats([blood], 0, skills, Program.Stats), x => x.Key == takenKey);
 
         // The Blood Stance value is data-driven, and only the Blood tick applies it (EnemyDebuffsTick's stance check).
@@ -49,5 +64,8 @@ public class FleshAndStoneAuraTests
         monster.TakenFromPlayer = (0, 0, 50);
         Assert.Equal(150, Game.MonsterTakesMitigated(monster, physical, spell: false));
         Assert.Equal(100, Game.MonsterTakesMitigated(monster, fire, spell: false));
+        monster.PridePhysicalMore = 20;
+        Assert.Equal(180, Game.MonsterTakesMitigated(monster, physical, spell: false));
+        Assert.Equal(1.2, Game.MonsterDotTaken(monster, DamageType.Physical)); // Flesh and Stone affects hits only.
     }
 }

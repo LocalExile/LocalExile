@@ -13,6 +13,14 @@ static partial class Game
 
     static void AddGolemStats(ClientState conn, Dictionary<uint, int> stats)
     {
+        AddSummonCounts(conn, stats);
+        lock (conn.Monsters)
+        {
+            if (Stats.Key("number_of_active_mines") is uint mines)
+                stats[mines] = conn.Placed.All.Values.Count(p => p.Mine);
+            if (Stats.Key("number_of_active_traps") is uint traps)
+                stats[traps] = conn.Placed.All.Values.Count(p => !p.Mine);
+        }
         lock (conn.Monsters)
             if (conn.PlayerLife > 0)
                 foreach (var (key, value) in conn.Golems.OwnerStats)

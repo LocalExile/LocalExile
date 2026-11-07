@@ -361,8 +361,14 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         int row = PickLevel(t.PerLevel, effectRow, level);
         if (row < 0 || row >= t.Reservations.Count) return null;
         var r = t.Reservations[row];
-        return r.ManaFlat == 0 && r.ManaPercent == 0 ? null : (r.ManaFlat, r.ManaPercent);
+        return r.ManaFlat == 0 && r.ManaPercent == 0
+            ? r.LifeFlat == 0 && r.LifePercent == 0 ? null : (r.LifeFlat, r.LifePercent)
+            : (r.ManaFlat, r.ManaPercent);
     }
+
+    public bool LifeReservation(int effectRow, int level) => _tables.Value is { } t
+        && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0
+        && (t.Reservations[row].LifeFlat != 0 || t.Reservations[row].LifePercent != 0);
 
     /// <summary>The Vaal souls a use of a skill needs at a level (GrantedEffectsPerLevel VaalSouls; 0 for skills that are
     /// not Vaal skills).</summary>
