@@ -163,7 +163,7 @@ Remove-Item $exported
 Copy-Into 'scripts\re\ot_components.py' 'scripts\re\ot_components.py'
 Copy-Into 'scripts\re\anim_contacts.py' 'scripts\re\anim_contacts.py'
 
-# Licenses, and what AGPL-3.0 asks: where this exact source is.
+# Licenses, and what GPL-2.0 asks: where this exact source is.
 Copy-Into 'LICENSE' 'licenses\LICENSE.txt'
 Copy-Into 'THIRD-PARTY-NOTICES.md' 'licenses\THIRD-PARTY-NOTICES.md'
 Copy-Into 'data\schema\LICENSE' 'licenses\dat-schema-LICENSE.txt'

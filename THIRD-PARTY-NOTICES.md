@@ -1,6 +1,6 @@
 # Third-party notices
 
-LocalExile is licensed under AGPL-3.0 ([LICENSE](LICENSE)). A release also holds the programs and libraries below, each
+LocalExile is licensed under GPL-2.0 ([LICENSE](LICENSE)). A release also holds the programs and libraries below, each
 under its own license. Their license texts are in the release's `licenses/` folder or in the package named.
 
 | Component | Used for | License |
