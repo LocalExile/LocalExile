@@ -8,6 +8,13 @@ using GameServer.Core.Protocol.Login;
 // that comes later gets them where they are, with the life they have, and whoever leaves takes nothing with them.
 static partial class Game
 {
+    // Per recipient, not per killer: a virtual bot transport is not the player's view.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, DeadMonsterBars> DeadBars = new();
+    sealed class DeadMonsterBars
+    {
+        public InstanceWorld? World;
+        public readonly HashSet<uint> Hidden = [];
+    }
     // The instance's monster ids start here (InstanceWorld.NewMonsterId); below it are each client's own objects and the
     // players' minions.
     const uint SharedMonsterIds = 0x08000000;
@@ -510,11 +517,14 @@ static partial class Game
             var packets = new List<byte[]>();
             lock (world.Monsters)
             {
+                var bars = DeadBars.GetOrCreateValue(conn);
+                if (!ReferenceEquals(bars.World, world)) { bars.World = world; bars.Hidden.Clear(); }
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 foreach (uint gone in conn.MonsterViews.Keys.Where(id => !world.Monsters.ContainsKey(id)
                     && !world.DormantMonsters.ContainsKey(id)).ToList())
                 {
                     conn.MonsterViews.Remove(gone);
+                    bars.Hidden.Remove(gone);
                     if (!runner) packets.Add(InstanceProtocol.RemoveObject(gone));
                 }
                 foreach (var (id, m) in world.Monsters.Concat(world.DormantMonsters).OrderBy(e => e.Key))
@@ -542,14 +552,18 @@ static partial class Game
                     }
                     if (dormant || conn.AsleepMonsters.Contains(id)) continue;
                     // Its walks: from the AI of its target's connection, which sends that client its own orders.
-                    if (!ReferenceEquals(m.Target, conn) && !(runner && m.Target is null))
+                    if (life > 0 && !ReferenceEquals(m.Target, conn) && !(runner && m.Target is null))
                     {
                         if (to != seen.To && to != at)
                             packets.Add(InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408));
                         else if (to == at && Math.Max(Math.Abs(seen.At.X - at.X), Math.Abs(seen.At.Y - at.Y)) > 20)
                             packets.Add(InstanceProtocol.Teleport(id, at.X, at.Y, 0x7fffffff));
                     }
-                    if (seen.Life != life) packets.Add(InstanceProtocol.LifeUpdate(id, life));
+                    bool terminal = life == 0 && bars.Hidden.Add(id);
+                    if (terminal) packets.Add(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
+                    if (life > 0 && bars.Hidden.Remove(id))
+                        packets.Add(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]));
+                    if (terminal || seen.Life != life) packets.Add(InstanceProtocol.LifeUpdate(id, life));
                     conn.MonsterViews[id] = new(at, to, life);
                     // A boss the others fight: its life bar here too.
                     if (m.BossBarShown && life > 0 && conn.BossBarsSeen.Add(id)) bossBars.Add((id, m));

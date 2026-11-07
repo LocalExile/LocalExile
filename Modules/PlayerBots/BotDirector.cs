@@ -64,6 +64,7 @@ sealed class Bot
     public DateTime? LeaderGoneSince;
     public uint Party;
     public InstanceState? FollowIn;
+    public ClientState? Combat;
 }
 
 /// <summary>Creates bots up to the limit, one per interval, walks them through the route and shows them in the towns
@@ -80,12 +81,15 @@ sealed partial class BotDirector
     internal readonly Random _random = new();
     internal readonly List<Bot> _bots = [];
     readonly CancellationTokenSource _stop = new();
+    int _stopped;
+    Task? _running;
     static int _nextPeer = 0x38000000;
     // In one town at once at most MaxQuick bots on a quick visit and MaxStaying staying; the places they stand are at
     // least StandApart cells from each other's. Bodies do not collide (as players in the game).
     const int MaxQuick = 5, MaxStaying = 5, StandApart = 20;
 
     readonly string _statePath;
+    readonly Dictionary<string, int> _townTargets = new(StringComparer.Ordinal);
 
     public BotDirector(BotSettings settings, List<BotQuest> route, BotLog log, Action<string> console, string statePath) =>
         (_settings, _route, _log, _console, _statePath) = (settings, route, log, console, statePath);
@@ -93,7 +97,12 @@ sealed partial class BotDirector
     public void Start()
     {
         Resume();
-        _ = Task.Run(Run);
+        foreach (string town in _route.Select(q => q.Town).Distinct(StringComparer.Ordinal))
+            _townTargets[town] = _random.Next(2, 6);
+        _nextParty = (int)Math.Max(PartyIdBase, _bots.Select(b => (long)b.Party).DefaultIfEmpty(PartyIdBase).Max());
+        foreach (var party in _bots.Where(b => b.Leader is not null).GroupBy(b => b.Party))
+            _ = SendPartyWhenReady(party.First().Leader!, party.Key);
+        _running = Task.Run(Run);
     }
 
     // The bots a restart left: their progress from state.json; a marked bot account the file does not know is deleted.
@@ -102,7 +111,7 @@ sealed partial class BotDirector
     sealed record SavedBot(Guid AccountId, Guid CharacterId, string Account, string Name, CharacterClass Class, int Level, int QuestIndex, int Deaths,
         BotPhase Phase = BotPhase.Questing, string? Town = null, double X = 0, double Y = 0, double TargetX = 0, double TargetY = 0,
         string? TargetKind = null, string? Doing = null, double SecondsLeft = 0, int ActivitiesLeft = 0,
-        bool Quick = false, List<string>? Gear = null, int GearLevel = 0);
+        bool Quick = false, List<string>? Gear = null, int GearLevel = 0, string? LeaderName = null, uint Party = 0);
 
     void Resume()
     {
@@ -119,10 +128,24 @@ sealed partial class BotDirector
                 Until = DateTime.UtcNow.AddSeconds(Math.Max(0, s.SecondsLeft)),
                 Quick = s.Quick, Gear = s.Gear ?? [], GearLevel = s.GearLevel,
             };
-            if (bot.Gear.Count == 0) Dress(bot);
-            // Its party went with the restart: on with its quests.
+            // A module reload retains a live party. Its members can have earned levels beyond
+            // their last town's ambient range, which must not reset their build or experience.
             if (bot.Phase is BotPhase.Following or BotPhase.Departing)
-                (bot.Phase, bot.Until, bot.Doing) = (BotPhase.Questing, DateTime.UtcNow, "идёт дальше по квестам");
+            {
+                var leader = bot.Phase == BotPhase.Following ? Program.InGame.Keys.FirstOrDefault(c => !c.Controlled
+                    && !c.Closed && !c.LeavingArea && Program.CharacterName(c) == s.LeaderName) : null;
+                if (leader is not null && s.Party >= PartyIdBase)
+                    (bot.Leader, bot.LeaderName, bot.Party) = (leader, s.LeaderName, s.Party);
+                else (bot.Phase, bot.Until, bot.Doing) = (BotPhase.Questing, DateTime.UtcNow, "идёт дальше по квестам");
+            }
+            if (bot.Leader is null)
+            {
+                var levels = LevelsForTown(bot.Town);
+                bot.Level = Math.Clamp(bot.Level, levels.Min, levels.Max);
+            }
+            if (bot.Gear.Count == 0 || bot.GearLevel != bot.Level
+                || CharacterSaves.ModuleData(bot.Name, "PlayerBots.BuildVersion") != "1")
+            { Dress(bot); SaveProgress(bot); }
             _bots.Add(bot);
             // A bot an earlier version left waiting for room in a town goes on with its quests.
             if (bot.Doing.StartsWith("ждёт", StringComparison.Ordinal))
@@ -130,8 +153,8 @@ sealed partial class BotDirector
             _log.Write(bot.Account, bot.Name, $"сервер перезапущен: продолжает с того же места — {bot.Doing}");
         }
         // A restart may bring back more bots in a town than it takes: the extra ones go on with their quests.
-        foreach (var town in _bots.Where(b => b.Phase != BotPhase.Questing).GroupBy(b => (b.Town, b.Quick)).ToList())
-            foreach (var extra in town.Skip(town.Key.Quick ? MaxQuick : MaxStaying).ToList())
+        foreach (var town in _bots.Where(b => b.Leader is null && b.Phase != BotPhase.Questing).GroupBy(b => b.Town).ToList())
+            foreach (var extra in town.Skip(5).ToList())
             {
                 _log.Write(extra.Account, extra.Name, $"после перезапуска в городе {extra.Town} нет места: идёт дальше по квестам");
                 BeginQuest(extra, DateTime.UtcNow);
@@ -157,7 +180,7 @@ sealed partial class BotDirector
         var now = DateTime.UtcNow;
         lock (_bots) bots = [.. _bots.Select(b => new SavedBot(b.AccountId, b.CharacterId, b.Account, b.Name, b.Class, b.Level, b.QuestIndex, b.Deaths,
             b.Phase, b.Town, b.X, b.Y, b.TargetX, b.TargetY, b.TargetKind, b.Doing, (b.Until - now).TotalSeconds, b.ActivitiesLeft,
-            b.Quick, b.Gear, b.GearLevel))];
+            b.Quick, b.Gear, b.GearLevel, b.LeaderName, b.Party))];
         Directory.CreateDirectory(Path.GetDirectoryName(_statePath)!);
         File.WriteAllText(_statePath + ".tmp", JsonSerializer.Serialize(bots, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(_statePath + ".tmp", _statePath, overwrite: true);
@@ -165,8 +188,10 @@ sealed partial class BotDirector
 
     public void Stop()
     {
+        if (Interlocked.Exchange(ref _stopped, 1) != 0) return;
         _stop.Cancel();
-        lock (_bots) foreach (var bot in _bots) Hide(bot);
+        _running?.GetAwaiter().GetResult();
+        lock (_bots) foreach (var bot in _bots) { StopCombat(bot); Hide(bot); }
         try { SaveState(); } catch (IOException) { }
     }
 
@@ -188,12 +213,18 @@ sealed partial class BotDirector
                     if (count < _settings.MaxBots) Spawn();
                 }
                 var towns = LiveTowns();
+                EnsureTownPopulation();
                 lock (_bots)
                     foreach (var bot in _bots.ToList())
                     {
                         try { Step(bot, now, 0.1, towns); }
                         catch (Exception error) { _log.Error(bot.Account, bot.Name, error); bot.Until = now.AddSeconds(5); }
                     }
+                Bot[] followers;
+                lock (_bots) followers = _bots.Where(b => b.Phase == BotPhase.Following).ToArray();
+                foreach (var bot in followers)
+                    try { await StepCombat(bot); }
+                    catch (Exception error) { StopCombat(bot); _log.Error(bot.Account, bot.Name, error); }
                 if (now >= nextStatus)
                 {
                     nextStatus = now.AddSeconds(_settings.StatusSeconds);
@@ -203,7 +234,8 @@ sealed partial class BotDirector
                 }
             }
             catch (Exception error) { _console($"bots: {error.Message}"); }
-            await Task.Delay(100).ConfigureAwait(false);
+            try { await Task.Delay(100, _stop.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (_stop.IsCancellationRequested) { break; }
         }
     }
 
@@ -211,7 +243,7 @@ sealed partial class BotDirector
 
     // ---- accounts and characters ----
 
-    void Spawn()
+    void Spawn(string? town = null)
     {
         string name = BotNames.Pick(_random, n => _accounts.FindCharacter(n) is not null || _accounts.FindAccount(n + "_bot") is not null);
         var cls = (CharacterClass)_random.Next(Enum.GetValues<CharacterClass>().Length);
@@ -220,18 +252,23 @@ sealed partial class BotDirector
         var account = new Account(Guid.NewGuid(), name + "_bot", BotMark + Guid.NewGuid().ToString("N"),
             Convert.ToBase64String(Guid.NewGuid().ToByteArray()), now);
         _accounts.AddAccount(account);
-        var character = new Character(Guid.NewGuid(), account.Id, name, cls, 1, _settings.League, AccountService.StartingArea, now, now, "1_1_town");
+        town ??= "1_1_town";
+        var range = LevelsForTown(town);
+        int level = _random.Next(range.Min, range.Max + 1);
+        var character = new Character(Guid.NewGuid(), account.Id, name, cls, level, _settings.League, town, now, now, town);
         _accounts.AddCharacter(character);
         var bot = new Bot
         {
             AccountId = account.Id, CharacterId = character.Id, Account = account.Name, Name = name, Class = cls,
             PeerId = unchecked((uint)Interlocked.Increment(ref _nextPeer)),
+            Level = level, Town = town, QuestIndex = Math.Max(0, _route.FindIndex(q => q.Town == town)),
         };
         Dress(bot);
         lock (_bots) _bots.Add(bot);
         _log.Write(bot.Account, bot.Name, $"создан: {cls}, лига {_settings.League}; экипировка: {BotGear.Describe(bot.Gear)}; начинает сюжет на Побережье");
         _console($"bots: created {bot.Name} ({cls}), {_bots.Count}/{_settings.MaxBots}");
-        BeginQuest(bot, DateTime.UtcNow);
+        bot.Phase = BotPhase.Arriving;
+        bot.ActivitiesLeft = 3;
     }
 
     void Retire(Bot bot)
@@ -271,6 +308,9 @@ sealed partial class BotDirector
         var quest = _route[bot.QuestIndex];
         Hide(bot);
         bot.Town = quest.Town;
+        var levels = LevelsForTown(bot.Town);
+        int nextLevel = Math.Clamp(bot.Level, levels.Min, levels.Max);
+        if (nextLevel != bot.Level) { bot.Level = nextLevel; Dress(bot); SaveProgress(bot); }
         bot.Phase = BotPhase.Questing;
         int[] minutes = _settings.QuestMinutes is [var lo, var hi] ? [lo, hi] : [2, 6];
         bot.Until = now.AddSeconds(_random.Next(minutes[0] * 60, minutes[1] * 60 + 1));
@@ -289,7 +329,7 @@ sealed partial class BotDirector
         else
         {
             int gained = quest.Side ? 1 : _random.Next(1, 3);
-            bot.Level = Math.Min(100, bot.Level + gained);
+            bot.Level = Math.Min(LevelsForTown(bot.Town).Max, bot.Level + gained);
             _log.Write(bot.Account, bot.Name, $"выполнил квест {quest.Id} «{quest.Name}», уровень {bot.Level}");
             Loot(bot);
             bot.QuestIndex++;
@@ -311,8 +351,8 @@ sealed partial class BotDirector
         bot.Doing = bot.Quick ? "прилетает в город сдать квест" : "возвращается в город";
     }
 
-    int InTown(Bot bot) => _bots.Count(b => b != bot && b.Town == bot.Town && b.Phase != BotPhase.Questing && b.Quick == bot.Quick);
-    static int Cap(Bot bot) => bot.Quick ? MaxQuick : MaxStaying;
+    int InTown(Bot bot) => _bots.Count(b => b != bot && b.Town == bot.Town && b.Leader is null && b.Phase != BotPhase.Questing);
+    static int Cap(Bot bot) => 5;
 
     // What the out-of-sight quest did, as the log tells it: the zone cleared and its kills (simulated), and new gear when
     // the level has grown enough for better bases (real: the model shows it from the next town visit).
@@ -320,7 +360,7 @@ sealed partial class BotDirector
     {
         var quest = _route[bot.QuestIndex];
         _log.Write(bot.Account, bot.Name, $"зачистил зону ({quest.Where}): убито монстров {_random.Next(40, 220)}");
-        if (bot.Level - bot.GearLevel >= 4)
+        if (bot.Level != bot.GearLevel)
         {
             Dress(bot);
             _log.Write(bot.Account, bot.Name, $"надел предметы лучше (ур. {bot.Level}): {BotGear.Describe(bot.Gear)}");
@@ -338,6 +378,18 @@ sealed partial class BotDirector
     {
         bot.Gear = BotGear.Pick(bot.Class, bot.Level, _random);
         bot.GearLevel = bot.Level;
+        if (Program.GameLogicOrNull is IControlledPlayerRules rules)
+        {
+            var build = rules.BuildControlled(bot.Class, bot.Level);
+            Saves.Atomically(() =>
+            {
+                CharacterSaves.Write(bot.Name, build);
+                PlayerInventories.Invalidate(bot.Name);
+                CharacterEquipmentState.Replaced(bot.Name);
+            });
+            bot.Gear = build.Inventories.Values.SelectMany(i => i).Select(i => Program.Items.ByHash(i.Item.Type)?.Id)
+                .Where(id => id is not null).Select(id => id!).ToList();
+        }
     }
 
     // ---- the town ----
@@ -520,6 +572,78 @@ sealed partial class BotDirector
     {
         foreach (var instance in bot.Shown) instance.RemovePlayer(bot.PeerId);
         bot.Shown.Clear();
+    }
+
+    internal static (int Min, int Max) LevelsForTown(string town) => town switch
+    {
+        "1_1_town" => (1, 15), "1_2_town" => (12, 25), "1_3_town" => (23, 34),
+        "1_4_town" => (33, 41), "1_5_town" => (39, 46), "2_6_town" => (44, 53),
+        "2_7_town" => (50, 59), "2_8_town" => (55, 64), "2_9_town" => (60, 69),
+        "2_10_town" => (63, 75), _ => (68, 80),
+    };
+
+    void EnsureTownPopulation()
+    {
+        foreach (var (town, wanted) in _townTargets)
+        {
+            int present;
+            lock (_bots) present = _bots.Count(b => b.Town == town && b.Leader is null && b.Phase is not (BotPhase.Questing or BotPhase.Leaving));
+            while (present++ < wanted)
+            {
+                Bot? visitor;
+                lock (_bots) visitor = _bots.Where(b => b.Leader is null && b.Phase == BotPhase.Questing)
+                    .OrderByDescending(b => b.Town == town).FirstOrDefault();
+                if (visitor is null)
+                {
+                    lock (_bots) if (_bots.Count >= _settings.MaxBots) break;
+                    Spawn(town);
+                }
+                else
+                {
+                    if (visitor.Town != town)
+                    {
+                        visitor.Town = town; visitor.QuestIndex = Math.Max(0, _route.FindIndex(q => q.Town == town));
+                        var levels = LevelsForTown(town);
+                        visitor.Level = Math.Clamp(visitor.Level, levels.Min, levels.Max);
+                        Dress(visitor); SaveProgress(visitor);
+                    }
+                    visitor.Phase = BotPhase.Arriving; visitor.ActivitiesLeft = 3;
+                }
+            }
+        }
+    }
+
+    static void StopCombat(Bot bot)
+    {
+        if (bot.Combat is { } old) ControlledPlayers.Close(old);
+        bot.Combat = null;
+    }
+
+    async Task StepCombat(Bot bot)
+    {
+        var leader = bot.Leader;
+        if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || leader is not { Closed: false, PlayerSent: true }
+            || leader.LeavingArea || Program.GameLogicOrNull is not IControlledPlayerRules rules)
+        { StopCombat(bot); return; }
+        if (bot.Combat is null || bot.Combat.Closed || !ReferenceEquals(bot.Combat.Instance, leader.Instance))
+        {
+            StopCombat(bot);
+            Hide(bot);
+            var record = _accounts.GetCharacter(bot.CharacterId);
+            if (record is null) return;
+            var player = ControlledPlayers.Open(record, bot.Account, leader);
+            bot.Combat = player;
+            await rules.InitializeControlled(player, leader);
+            if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || !ReferenceEquals(bot.Leader, leader))
+            { StopCombat(bot); return; }
+            bot.PeerId = player.PeerId;
+        }
+        var current = bot.Combat;
+        if (current is null) return;
+        await rules.StepControlled(current, leader);
+        if (bot.Phase != BotPhase.Following || !ReferenceEquals(bot.Combat, current)) return;
+        var position = current.Walk.Position(current.Clock.Elapsed.TotalSeconds);
+        (bot.X, bot.Y, bot.Level) = (position.X, position.Y, current.Pools.Level);
     }
 
     // The player object other clients create for the bot: its class's body, name and pools; no gear drawn yet.
