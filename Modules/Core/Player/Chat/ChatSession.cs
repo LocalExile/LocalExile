@@ -153,12 +153,13 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
         return frame.Type switch
         {
             ChatFrame.Line when named && frame.Kind is ChatChannelKind.Global or ChatChannelKind.Trade && text.Length > 0 =>
-                Deliver(InstanceChat.ChatLine(text, InstanceChat.Sender(frame.Kind == ChatChannelKind.Global ? TypedChannel.Global : TypedChannel.Trade, frame.Name!)),
+                Deliver(InstanceChat.ChatLine(text, InstanceChat.Sender(frame.Kind == ChatChannelKind.Global ? TypedChannel.Global : TypedChannel.Trade, frame.Name!),
+                    items: chat.LineItems(Conn, text, frame.Items)),
                     $"0x0017 {frame.Kind} chat line from {frame.Name}"),
             ChatFrame.Whisper when named && text.Length > 0 =>
-                Deliver(InstanceChat.ChatLine(text, "@" + frame.Name), $"0x0017 whisper from {frame.Name}"),
+                Deliver(InstanceChat.ChatLine(text, "@" + frame.Name, items: chat.LineItems(Conn, text, frame.Items)), $"0x0017 whisper from {frame.Name}"),
             ChatFrame.Whispered when named && text.Length > 0 =>
-                Deliver(InstanceChat.ChatLine(text, "@" + frame.Name, InstanceChat.WhisperSentFlag), $"0x0017 whisper to {frame.Name}"),
+                Deliver(InstanceChat.ChatLine(text, "@" + frame.Name, InstanceChat.WhisperSentFlag, chat.LineItems(Conn, text, frame.Items)), $"0x0017 whisper to {frame.Name}"),
             ChatFrame.Offline when named => Tell($"{frame.Name} is not online."),
             ChatFrame.TooFast => Tell("You are sending messages too fast."),
             _ => Task.CompletedTask,

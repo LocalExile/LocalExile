@@ -8,17 +8,25 @@ namespace GameServer.Core.Chat;
 
 /// <summary>One message between a chat member and a chat server (Agents/docs/protocol/10-chat-and-commands.md §6). What
 /// <see cref="Name"/> means depends on the type: the speaker in a line, the other player in a whisper.</summary>
-public sealed record ChatFrame(string Type, string? Name = null, ChatChannelKind? Kind = null, ushort? Channel = null, string? Text = null, byte? Language = null)
+public sealed record ChatFrame(string Type, string? Name = null, ChatChannelKind? Kind = null, ushort? Channel = null, string? Text = null, byte? Language = null,
+    IReadOnlyList<ChatFrameItem>? Items = null)
 {
     public const string Hello = "hello", Join = "join", Say = "say", Whisper = "whisper";
     public const string Welcome = "welcome", Line = "line", Whispered = "whispered", Offline = "offline", TooFast = "too-fast";
 }
 
+/// <summary>An item linked in a line: the '_' of the text it stands on, and the item as the Gateway's ChatItems wrote it. A
+/// chat server only passes it on; the Gateway that shows it checks it.</summary>
+public sealed record ChatFrameItem(int At, string Item);
+
 /// <summary>The chat servers' wire: each frame is a big-endian u16 length and that many bytes of JSON. Everything read from
 /// it is untrusted: a public server is open to anyone, and a member cannot vouch for its server.</summary>
 public static class ChatWire
 {
-    public const int MaxFrame = 8192, MaxText = 1024, MaxName = 32;
+    public const int MaxFrame = 8192, MaxText = 1024, MaxName = 32, MaxItems = 5;
+
+    /// <summary>The character the client writes in a line for each linked item.</summary>
+    public const char ItemMark = '_';
 
     static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
@@ -40,6 +48,19 @@ public static class ChatWire
         string clean = string.Concat((text ?? "").Where(c => !char.IsControl(c)));
         return clean.Length > MaxText ? clean[..MaxText] : clean;
     }
+
+    /// <summary>The items that stand on a mark of the text, in its order as the client wants them; null for none.</summary>
+    public static IReadOnlyList<ChatFrameItem>? Items(string text, IReadOnlyList<ChatFrameItem>? items)
+    {
+        if (items is null) return null;
+        ChatFrameItem[] placed = [.. items.Where(i => i is { Item.Length: > 0 } && i.At >= 0 && i.At < text.Length && text[i.At] == ItemMark)
+            .DistinctBy(i => i.At).OrderBy(i => i.At).Take(MaxItems)];
+        return placed.Length == 0 ? null : placed;
+    }
+
+    /// <summary>The frame without its items when they would make it too long: the line still goes, its marks as they are.</summary>
+    public static ChatFrame Fitted(ChatFrame frame) =>
+        frame.Items is null || JsonSerializer.SerializeToUtf8Bytes(frame, Options).Length <= MaxFrame ? frame : frame with { Items = null };
 
     public static async Task WriteAsync(Stream stream, ChatFrame frame, CancellationToken cancel)
     {

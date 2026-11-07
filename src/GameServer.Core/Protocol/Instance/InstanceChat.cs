@@ -10,11 +10,12 @@ public static class InstanceChat
     public const ushort ChatId = 0x15;
 
     /// <summary>
-    /// C→S 0x15: what the player typed in the chat box, slash commands included. Compact wide string (the format of
-    /// <see cref="LoginWriter.WStr"/>) then a u8, 0 in every capture. Plain text arrives with the channel prefix the
+    /// C→S 0x15 (class 0x1435c0650, write 0x141f91120, read 0x141f912e0): what the player typed in the chat box, slash
+    /// commands included. Compact wide string (the format of <see cref="LoginWriter.WStr"/>), u8 n, then n × u32: where
+    /// each linked item stands in the text, on a '_', counting the channel prefix. Plain text arrives with the prefix the
     /// client added ("#hello" for global), commands as typed ("/spawn_mob 42"). Captured live 2026-10-16.
     /// </summary>
-    public sealed record ChatInput(string Text, byte U8)
+    public sealed record ChatInput(string Text, IReadOnlyList<uint> Links)
     {
         public bool IsCommand => Text.StartsWith('/');
     }
@@ -25,8 +26,24 @@ public static class InstanceChat
         var r = new LoginReader(m);
         r.U16();
         r.WStr();
-        r.U8();
+        for (int links = r.U8(); links > 0; links--) r.U32();
         return r.Short ? null : r.Position;
+    }
+
+    /// <summary>C→S 0x12, 0x13 and 0x14 (senders in 0x14018f700): one per item linked in a line, just before its 0x15. Only
+    /// 0x12, an item in an inventory, is mapped; 0x13 (u32, u8 index, u8) and 0x14 (u32, u8 index) are the client's other
+    /// kinds of link.</summary>
+    public const ushort LinkItemId = 0x12, LinkOtherId = 0x13, LinkAnotherId = 0x14;
+    public const int LinkItemLength = 12, LinkOtherLength = 8, LinkAnotherLength = 7;
+
+    /// <summary>C→S 0x12 (class 0x1435bffc0, write 0x141f90f40): u8 the link's index in its line, u32 inventory id (with
+    /// the side-channel bits of <see cref="InstanceItems.ReadPickUpItem"/>), u32 item id, u8.</summary>
+    public sealed record LinkItem(byte Index, uint InventoryId, uint ItemId);
+
+    public static LinkItem ReadLinkItem(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U8(), r.U32() & 0xc01fffff, r.U32());
     }
 
     public const ushort MessageBoxId = 0x0d;
@@ -40,9 +57,13 @@ public static class InstanceChat
     /// <summary>S→C 0x17 (class 0x1435dcec0, read 0x140e0c710; dispatcher case 2 → listeners at instance +0xb78 → chat
     /// panel 0x140179f20 / 0x14017a300): one line in the chat panel. wstr sender (its first character picks the channel),
     /// wstr text, wstr guild tag, u16 flags (bit 8 sends it to +0xd78 instead, bit 3 adds a field), u8, u8, 8 bytes, u8,
-    /// u8 n + n linked items. An empty sender and zeros print the text alone. Live 2026-10-20.</summary>
-    public static byte[] ChatLine(string text, string sender = "", ushort flags = 0) =>
-        new LoginWriter().U16(ChatLineId).WStr(sender).WStr(text).WStr("").U16(flags).U8(0).U8(0).RawU64(0).U8(0).U8(0).ToArray();
+    /// u8 n + n linked items, in the order of the text. An empty sender and zeros print the text alone. Live 2026-10-20.</summary>
+    public static byte[] ChatLine(string text, string sender = "", ushort flags = 0, IReadOnlyList<ChatLineItem>? items = null)
+    {
+        var w = new LoginWriter().U16(ChatLineId).WStr(sender).WStr(text).WStr("").U16(flags).U8(0).U8(0).RawU64(0).U8(0).U8((byte)(items?.Count ?? 0));
+        foreach (var item in items ?? []) w.U32(item.At).Bytes(item.Wire);
+        return w.ToArray();
+    }
 
     /// <summary>The 0x17 flag of the sender's own copy of a whisper: bit 2 of the flags' first byte (0x14017a300; 4 in the second
     /// byte reddens the text). An '@' line then reads "@To Name" for "@From Name",
@@ -52,7 +73,10 @@ public static class InstanceChat
     public static ChatInput ReadChat(ReadOnlySpan<byte> m)
     {
         var r = new LoginReader(m[2..]);
-        return new ChatInput(r.WStr(), r.U8());
+        string text = r.WStr();
+        var links = new uint[r.U8()];
+        for (int i = 0; i < links.Length; i++) links[i] = r.U32();
+        return new ChatInput(text, links);
     }
 
     /// <summary>
@@ -115,6 +139,9 @@ public static class InstanceChat
     public static byte[] ChannelJoined(ChatChannelKind kind, ushort channel, byte language) =>
         new LoginWriter().U16(ChannelJoinedId).U16(channel).U8((byte)kind).U8(language).ToArray();
 }
+
+/// <summary>An item linked in a 0x17 line: the '_' of the text it replaces (0x14017a300) and <see cref="Item.Wire"/>.</summary>
+public sealed record ChatLineItem(uint At, byte[] Wire);
 
 /// <summary>The two chat channels a player joins by number (C→S 0x134, S→C 0x135).</summary>
 public enum ChatChannelKind : byte { Global = 0, Trade = 1 }

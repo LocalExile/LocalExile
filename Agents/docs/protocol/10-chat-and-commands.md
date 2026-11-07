@@ -22,7 +22,11 @@ The prefixes are `#` global, `$` trade, `%` party, `&` guild and `@` whisper; lo
 the chat box: `hello local`, `#hello global`, `$hello trade`).
 After a trade line the chat box opens with `$` already typed, so the next line goes to trade too.
 The client's sender is `0x14215ddd0` (instance, text, linked items): it runs the client's own slash commands
-(`0x14215c3b0`, Commands.dat), then sends the rest as 0x15.
+(`0x14215c3b0`, Commands.dat), then sends the rest as 0x15: wstr, u8 n, n × u32.
+Those u32s are items linked with Ctrl+Alt+click: each is the place of the `_` the client writes for one in the text, counting
+the prefix (`#_` is 1). Before the 0x15 the client sends one message per link (`0x14018f700`, n the index in the line):
+0x12 for an item in an inventory (u8 index, u32 inventory, u32 item, u8; `Chat` keeps the item for the line), 0x13
+(u32, u8 index, u8) and 0x14 (u32, u8 index) for two other kinds, framed but not mapped, so their `_` stays text.
 A plain line reaches its listeners, the player too, as a 0x17 chat line (the Chat module): sender
 `Name` for local, `#Name` for global and `$Name` for trade, the text without its prefix.
 Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name green, `#OfflineWitch: hello global`
@@ -48,7 +52,9 @@ Candidates that read a wide string were found by mapping every S→C factory cas
 **S→C 0x17: chat line** (class `0x1435dcec0`, read `0x140e0c710`, dispatcher case 2 → listeners at instance +0xb78 →
 chat panel `0x140179f20` / `0x14017a300`; verified 2026-10-20 with `/raw`): wstr sender (its first character picks the
 channel), wstr text, wstr guild tag, u16 flags (raw; bit 8 sends the message to the +0xd78 listeners instead, bit 3 adds a
-field read by `0x1408402a0`, bit 7 sets a mode 5), u8, u8, 8 bytes, u8, u8 n + n × (u32, item) linked items. An empty
+field read by `0x1408402a0`, bit 7 sets a mode 5), u8, u8, 8 bytes, u8, u8 n + n × (u32, item) linked items: the panel
+(`0x14017a300`) replaces the character at the u32, in the text without a sender, by a link to the item (read `0x1421ec2c0`,
+the u16-length item of [13](13-items.md) §2), in order. An empty
 sender with every other field 0 prints the text alone (`InstanceChat.ChatLine`). The client's `<green>{text}` markup
 in the text does not colour the line (live 2026-10-21). But with an empty sender, the text up to the first `: ` is drawn
 green like a local speaker's name and the rest white (live 2026-10-21: `/com accuracy` was green up to `default:`); the
@@ -428,12 +434,18 @@ Each frame is a big-endian u16 length and that many bytes of JSON, at most 8192 
 | `hello` | to the server, first | `name` |
 | `welcome` | answer to `hello` | `name`, the one the character has here |
 | `join` | to the server | `kind` (0 global, 1 trade), `channel`, `language` (0x134's byte); replaces the channel of that kind |
-| `say` | to the server | `kind`, `text` |
-| `line` | to everyone on the channel, the speaker too | `name`, `kind`, `text` |
-| `whisper` | to the server, then to the target | `name` (the target, then the sender), `text` |
-| `whispered` | to the sender | `name`, `text` |
+| `say` | to the server | `kind`, `text`, `items` |
+| `line` | to everyone on the channel, the speaker too | `name`, `kind`, `text`, `items` |
+| `whisper` | to the server, then to the target | `name` (the target, then the sender), `text`, `items` |
+| `whispered` | to the sender | `name`, `text`, `items` |
 | `offline` | to the sender | `name` |
 | `too-fast` | to the sender | 5 lines at once, then one a second |
+
+`items` are linked items, at most 5, each `at` (the `_` of the text) and `item`: `ChatItems` writes the item's saved form, not
+the client's bytes, because the client stops at an item it cannot read and a chat server is open to anyone. The server only
+passes them on and drops them when the frame would be too long; each Gateway checks them against its game data, and what
+fails stays `_`. A chat server from before `items` drops them. An item that has left the inventory since it was linked sends no
+0x12: the client writes `ChatBoxStaleLink` and the item's name in the text instead.
 
 ## 7. Open
 
