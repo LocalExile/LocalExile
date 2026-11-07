@@ -32,7 +32,8 @@ static partial class Game
                 if (!shared && !ReferenceEquals(by, conn)) continue; // another player's own
                 conn.SeenGround.Add(id);
                 if (ReferenceEquals(by, conn)) continue; // shown where it was put down
-                packets.Add(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), item.Blob()));
+                packets.Add(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),
+                    item.Blob(justDropped: ground.IsNewFor(conn, id))));
                 packets.Add(InstanceProtocol.EnterWakeZone(id));
             }
             return packets.Count == 0 ? null : packets.SelectMany(p => p).ToArray();

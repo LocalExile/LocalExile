@@ -266,7 +266,7 @@ public sealed partial class DelveModule
         foreach (var (id, ground) in groundItems)
         {
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
-                InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()), "Delve completion reward", valid);
+                InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)), "Delve completion reward", valid);
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null, valid);
         }
         Console.WriteLine($"[gateway] {remote} Delve depth {trip.Depth} completed: {groundItems.Count} items, +{reward.QuantityPercent}% quantity, +{reward.Rarity}% rarity");

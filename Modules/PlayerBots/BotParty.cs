@@ -71,6 +71,7 @@ sealed partial class BotDirector
     // Out of the party: to the nearest way out of the area it is in, then on with its quests (StepWithLeader).
     void Depart(Bot bot, string why)
     {
+        bot.Control = null;
         StopCombat(bot);
         bot.Phase = BotPhase.Departing;
         bot.Doing = $"{why}: уходит к ближайшему выходу";
@@ -193,6 +194,7 @@ sealed partial class BotDirector
     // Back to its quests (from where it left them), out of the party.
     void Unparty(Bot bot, DateTime now, string why)
     {
+        bot.Control = null;
         StopCombat(bot);
         Hide(bot);
         _log.Write(bot.Account, bot.Name, $"покинул группу ({why}): продолжает квесты");

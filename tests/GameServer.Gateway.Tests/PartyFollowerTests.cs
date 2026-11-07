@@ -146,7 +146,7 @@ public sealed class PartyFollowerTests
         Assert.True(Game.ControlledFollowerPoint(isolated, leader, arrival: true).X <= 105);
     }
 
-    sealed class Runtime : IDisposable
+    internal sealed class Runtime : IDisposable
     {
         readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
         readonly IModuleLifetime? previousLifetime = Game.CombatLifetime;
@@ -174,7 +174,7 @@ public sealed class PartyFollowerTests
         }
     }
 
-    sealed class Wire : IDisposable
+    internal sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);
         readonly TcpClient writer = new();

@@ -192,7 +192,7 @@ static partial class Game
 
     internal static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
     {
-        session.Packet(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()));
+        session.Packet(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)));
         session.Packet(InstanceProtocol.EnterWakeZone(id));
     }
 

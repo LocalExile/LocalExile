@@ -8,7 +8,8 @@ namespace GameServer.Modules.PlayerBots;
 /// <summary>The module's settings (settings.json, beside module.json, with the user's values).</summary>
 sealed record BotSettings(int MaxBots = 100, int SpawnIntervalSeconds = 60, int FirstSpawnSeconds = 60,
     string League = "Standard", int[]? QuestMinutes = null, int[]? TownActivities = null, int[]? IdleSeconds = null,
-    double DeathChancePerQuest = 0.15, int StatusSeconds = 10);
+    double DeathChancePerQuest = 0.15, int StatusSeconds = 10,
+    bool McpEnabled = false, int McpPort = 6194, int McpLeaseSeconds = 30);
 
 /// <summary>One quest of the bots' guides (story-main.md, story-side.md).</summary>
 sealed record BotQuest(string Act, string Town, string Id, string Name, string Where, bool Side)
@@ -65,6 +66,8 @@ sealed class Bot
     public uint Party;
     public InstanceState? FollowIn;
     public ClientState? Combat;
+    public Guid ControlEpoch = Guid.NewGuid();
+    public BotControlLease? Control;
 }
 
 /// <summary>Creates bots up to the limit, one per interval, walks them through the route and shows them in the towns
@@ -83,6 +86,7 @@ sealed partial class BotDirector
     readonly CancellationTokenSource _stop = new();
     int _stopped;
     Task? _running;
+    BotMcpServer? _mcp;
     static int _nextPeer = 0x38000000;
     // In one town at once at most MaxQuick bots on a quick visit and MaxStaying staying; the places they stand are at
     // least StandApart cells from each other's. Bodies do not collide (as players in the game).
@@ -103,6 +107,12 @@ sealed partial class BotDirector
         foreach (var party in _bots.Where(b => b.Leader is not null).GroupBy(b => b.Party))
             _ = SendPartyWhenReady(party.First().Leader!, party.Key);
         _running = Task.Run(Run);
+        if (_settings.McpEnabled)
+        {
+            try { _mcp = new(this, _settings.McpPort, _console); }
+            catch (Exception error) when (error is System.Net.HttpListenerException or IOException or UnauthorizedAccessException)
+            { _console($"bots MCP not started: {error.Message}"); }
+        }
     }
 
     // The bots a restart left: their progress from state.json; a marked bot account the file does not know is deleted.
@@ -189,9 +199,10 @@ sealed partial class BotDirector
     public void Stop()
     {
         if (Interlocked.Exchange(ref _stopped, 1) != 0) return;
+        _mcp?.Dispose();
         _stop.Cancel();
         _running?.GetAwaiter().GetResult();
-        lock (_bots) foreach (var bot in _bots) { StopCombat(bot); Hide(bot); }
+        lock (_bots) foreach (var bot in _bots) { bot.Control = null; StopCombat(bot); Hide(bot); }
         try { SaveState(); } catch (IOException) { }
     }
 
@@ -615,12 +626,13 @@ sealed partial class BotDirector
 
     static void StopCombat(Bot bot)
     {
-        if (bot.Combat is { } old) ControlledPlayers.Close(old);
+        if (bot.Combat is { } old) { (Program.GameLogicOrNull as IControlledPlayerCommands)?.ClearControlledIntent(old); ControlledPlayers.Close(old); }
         bot.Combat = null;
     }
 
     async Task StepCombat(Bot bot)
     {
+        lock (_bots) ExpireControl(bot);
         var leader = bot.Leader;
         if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || leader is not { Closed: false, PlayerSent: true }
             || leader.LeavingArea || Program.GameLogicOrNull is not IControlledPlayerRules rules)
@@ -633,6 +645,7 @@ sealed partial class BotDirector
             if (record is null) return;
             var player = ControlledPlayers.Open(record, bot.Account, leader);
             bot.Combat = player;
+            bot.ControlEpoch = Guid.NewGuid();
             await rules.InitializeControlled(player, leader);
             if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || !ReferenceEquals(bot.Leader, leader))
             { StopCombat(bot); return; }

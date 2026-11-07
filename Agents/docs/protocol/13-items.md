@@ -649,6 +649,11 @@ Scroll Fragments → a Scroll of Wisdom.
 WorldItem, InteractionAction (u8 0). WorldItem `0x141ea10a0`: u32 a (non-zero → one more u32), u8 (+0x50), u32
 ItemVisualIdentity HASH16 override (0 = the item's), then the item data without its length prefix. Created with 0x2b9 +
 wake zone 0x1a9 at the player's estimated cell, removed with 0x2bb.
+The WorldItem u8 at +0x50 marks a fresh drop: `0x141ea15a0` dispatches it through the client override
+`0x1415e3870`, which permits drop audio only when non-zero. Fresh drops send 1; area replay and partial-stack
+replacement send 0 so already-grounded items do not replay their sound. Filter rules still decide alert/suppression.
+Filter playback is `0x140c9b2d0` → `0x140109f70`; native NeverSink traces requested `AlertSound_06.ogg` for
+Divine/Mirror and `AlertSound_03.ogg` for the Medicine Chest, without server-selected sound IDs.
 
 Clicking it sends C→S 0x24 on the object (skill 0x0266, Interaction). **Flag 0x0002 = the inventory panel is open**
 (0x040a vs 0x0408): the item goes to the cursor instead of the first free cell. The Gateway echoes the interaction at

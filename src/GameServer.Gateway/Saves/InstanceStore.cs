@@ -62,7 +62,7 @@ sealed partial class InstanceState
         lock (_startWeapons)
         {
             if (_startWeapons.TryGetValue(character, out var placed) && ReferenceEquals(placed.Weapon, weapon.Item)) return null;
-            uint id = Ground.Add(weapon, shared: false);
+            uint id = Ground.Add(weapon, null, shared: false, justDropped: false);
             _startWeapons[character] = (id, weapon.Item);
             return id;
         }
@@ -147,10 +147,25 @@ sealed class InstanceGround
     public const uint FirstItemId = 0x100000;
     readonly Dictionary<uint, WorldItemObject> _items = [];
     uint _nextId = FirstItemId;
+    long birthVersion;
+    readonly Dictionary<uint, long> births = [];
+    sealed record Observer(long Since);
+    readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, Observer> observers = new();
+
+    // The baseline belongs to an admitted connection, not to the reloadable Game module.
+    public void Observe(object observer)
+    {
+        lock (_items) observers.GetValue(observer, _ => new(birthVersion));
+    }
+
+    public bool IsNewFor(object observer, uint id)
+    {
+        lock (_items) return births.GetValueOrDefault(id) > observers.GetValue(observer, _ => new(birthVersion)).Since;
+    }
 
     public void Restore(uint id, WorldItemObject item)
     {
-        lock (_items) _items[id] = item;
+        lock (_items) { _items[id] = item; births.Remove(id); }
     }
 
     // Who put each item down (the client already shown it) and the items only that player sees (quest items, the start
@@ -158,12 +173,15 @@ sealed class InstanceGround
     readonly Dictionary<uint, object> _by = [];
     readonly HashSet<uint> _private = [];
 
-    public uint Add(WorldItemObject item, object? by = null, bool shared = true)
+    public uint Add(WorldItemObject item, object? by = null, bool shared = true) => Add(item, by, shared, justDropped: true);
+
+    public uint Add(WorldItemObject item, object? by, bool shared, bool justDropped)
     {
         lock (_items)
         {
             uint id = _nextId++;
             _items[id] = item;
+            if (justDropped) births[id] = ++birthVersion;
             if (by is not null) _by[id] = by;
             if (!shared) _private.Add(id);
             return id;
@@ -190,6 +208,7 @@ sealed class InstanceGround
             if (!_items.Remove(id, out var item)) return null;
             _by.Remove(id);
             _private.Remove(id);
+            births.Remove(id);
             return item;
         }
     }
