@@ -699,6 +699,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Automated test covers Tornado Shot with level-1 Lifetap: 9 Mana becomes 27 Life, the first use grants the buff,
   and the hit and flask bonuses apply. Code: `Combat/Lifetap.cs`, `Player.cs`, `ConditionalSupportDamage.cs`;
   docs: [25](../docs/protocol/25-gem-supports.md).
+- Blood Magic: `keystone_blood_magic` (the passive node and item-granted keystones such as Malachai's Awakening and
+  Tukohama's Fortress) converts every skill's whole Mana cost to Life in `PayMana`, without Lifetap's multiplier,
+  counter or buff; a skill whose Life cost is not below current Life is refused, and reservations stay on Mana.
+  Automated test: Tornado Shot's 9 Mana becomes 9 Life with Mana unchanged. Code: `Player.cs`;
+  docs: [25](../docs/protocol/25-gem-supports.md).
 - Bow projectile counts: actual bow attacks now read `number_of_additional_arrows` and
   `number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more` on top of the generic projectile additions, so
   bow/quiver modifiers and passives such as Master Fletcher add primary arrows. The arrow inputs are gated to a real
