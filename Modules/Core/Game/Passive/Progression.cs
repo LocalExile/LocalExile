@@ -1090,7 +1090,9 @@ static partial class Game
             SpellSuppressionWhileMoving: Get("spell_suppression_chance_%_while_moving"),
             SpellSuppressionIfHitRecently: Get("spell_suppression_chance_%_if_enemy_hit_recently"),
             SpellSuppressionWhileFullEnergyShield: Get("spell_suppression_chance_%_while_on_full_energy_shield"),
-            MovementVelocityPct: Get("base_movement_velocity_+%"),
+            // Item mods state movement as movement_velocity_+% (the conditional "when on low/full life" ones fold onto
+            // it); passives and base-speed mods use base_movement_velocity_+%. Both are speed inputs.
+            MovementVelocityPct: Get("base_movement_velocity_+%") + Get("movement_velocity_+%"),
             BlockChance: Get("additional_block_%") + Get("attack_block_%") + Get("monster_base_block_%")
                 + blockWhileDualOrShield + shieldBlock + staffBlock + dualBlock + bowBlock,
             SpellBlockChance: Get("base_spell_block_%") + Get("additional_spell_block_%") + staffOrShieldSpell
