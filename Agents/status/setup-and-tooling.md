@@ -19,13 +19,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
   Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
   Docs: [releases](../docs/dev/releases.md).
-- `LocalExileGUI.exe` in a release: a window over `LocalExile.exe --json` to play, set up, switch mods, create accounts,
-  change passwords and check the install, in English, Simplified or Traditional Chinese. It builds with the compiler of
-  .NET Framework 4.x and ships no runtime.
-  Tried on a set-up PC's install: a servers-only run and its stop, the full check, the mod list, all three languages.
-  Not tried from it: the setup, a client start, an account creation, a password change.
-  Code: `src/LocalExileGui`, `scripts/release/build-release.ps1`.
-  Docs: [releases](../docs/dev/releases.md) ("For a GUI").
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.
@@ -83,8 +76,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Trades and parties, Atlas passives, the crafting bench, cosmetics, vendors, portals and the map device, tattoos, the campaign's quests (QuestObjects), hideout editing, chat commands and unique belts are Core modules too. The game\'s rules are the `Game` module; the Gateway keeps the framework, game data, saves and connection state. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
   without Harvest places no station. Not tried in the client after the move.
   The seven example mods, all off by default, moved to [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods)
-  (2026-11-07); Waypoint installs them. A release ships no mods; its window lists the installed ones by their
-  `mod.json` name and description.
+  (2026-11-07); Waypoint installs them. A release ships no mods.
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
   `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
