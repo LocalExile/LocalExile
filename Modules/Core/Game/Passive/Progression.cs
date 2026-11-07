@@ -1018,8 +1018,10 @@ static partial class Game
         int accuracyMoreVsUnique = Get("accuracy_rating_+%_final_vs_unique_enemies_from_mastery");
         int accuracyMoreCloseRange = Get("accuracy_rating_+%_final_vs_enemies_in_close_range_from_mastery");
         int allMax = Get("additional_maximum_all_resistances_%"), allElemMax = Get("additional_maximum_all_elemental_resistances_%");
-        // The cold-and-lightning pair-resistance stat (Sea Legs' +40%): one input stat that both elements' pools take.
+        // The pair-resistance stats: one input adds to both named elements (Cold and Lightning is Sea Legs').
         int pairRes = Get(ResistanceOvercap.ColdAndLightningResistance);
+        int fireColdRes = Get("fire_and_cold_damage_resistance_%");
+        int fireLightningRes = Get("fire_and_lightning_damage_resistance_%");
         // Reservation efficiency: generic efficiency applies to both pools; the mana/life-specific stats only to theirs.
         // Aura effect is the generic non-curse/aura effect; the Reservation mastery's self-aura effect is included.
         int manaReservation = Get("base_mana_reservation_efficiency_+%") + Get("base_reservation_efficiency_+%")
@@ -1077,9 +1079,9 @@ static partial class Game
             DoubleBodyArmour: Get("damage_reduction_rating_from_body_armour_doubled") != 0,
             NoBodyArmour: Get("gain_no_armour_from_body_armour") != 0,
             MeleePhysicalDamagePct: Get("melee_physical_damage_+%"),
-            FireResistance: allRes + Get("base_fire_damage_resistance_%"),
-            ColdResistance: allRes + Get("base_cold_damage_resistance_%") + pairRes,
-            LightningResistance: allRes + Get("base_lightning_damage_resistance_%") + pairRes,
+            FireResistance: allRes + Get("base_fire_damage_resistance_%") + fireColdRes + fireLightningRes,
+            ColdResistance: allRes + Get("base_cold_damage_resistance_%") + pairRes + fireColdRes,
+            LightningResistance: allRes + Get("base_lightning_damage_resistance_%") + pairRes + fireLightningRes,
             ChaosResistance: Get("base_chaos_damage_resistance_%"),
             FireMaxResistance: allMax + allElemMax + Get("base_maximum_fire_damage_resistance_%"),
             ColdMaxResistance: allMax + allElemMax + Get("base_maximum_cold_damage_resistance_%"),
