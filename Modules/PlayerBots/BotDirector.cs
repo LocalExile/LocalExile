@@ -150,11 +150,12 @@ sealed partial class BotDirector
             }
             if (bot.Leader is null)
             {
-                var levels = LevelsForTown(bot.Town);
-                bot.Level = Math.Clamp(bot.Level, levels.Min, levels.Max);
+                bot.Level = LevelForTown(bot.Level, bot.Town, _random);
             }
             if (bot.Gear.Count == 0 || bot.GearLevel != bot.Level
-                || CharacterSaves.ModuleData(bot.Name, "PlayerBots.BuildVersion") != "1")
+                || CharacterSaves.ModuleData(bot.Name, "PlayerBots.BuildVersion") != "1"
+                || bot.Leader is null && CharacterSaves.Load(bot.Name)?.Experience is { } xp
+                    && (xp < CharacterStats.ExperienceFor(bot.Level) || xp >= CharacterStats.ExperienceFor(bot.Level + 1)))
             { Dress(bot); SaveProgress(bot); }
             _bots.Add(bot);
             // A bot an earlier version left waiting for room in a town goes on with its quests.
@@ -319,8 +320,7 @@ sealed partial class BotDirector
         var quest = _route[bot.QuestIndex];
         Hide(bot);
         bot.Town = quest.Town;
-        var levels = LevelsForTown(bot.Town);
-        int nextLevel = Math.Clamp(bot.Level, levels.Min, levels.Max);
+        int nextLevel = LevelForTown(bot.Level, bot.Town, _random);
         if (nextLevel != bot.Level) { bot.Level = nextLevel; Dress(bot); SaveProgress(bot); }
         bot.Phase = BotPhase.Questing;
         int[] minutes = _settings.QuestMinutes is [var lo, var hi] ? [lo, hi] : [2, 6];
@@ -585,13 +585,25 @@ sealed partial class BotDirector
         bot.Shown.Clear();
     }
 
-    internal static (int Min, int Max) LevelsForTown(string town) => town switch
+    internal static (int Min, int Max) LevelsForTown(string town)
     {
-        "1_1_town" => (1, 15), "1_2_town" => (12, 25), "1_3_town" => (23, 34),
-        "1_4_town" => (33, 41), "1_5_town" => (39, 46), "2_6_town" => (44, 53),
-        "2_7_town" => (50, 59), "2_8_town" => (55, 64), "2_9_town" => (60, 69),
-        "2_10_town" => (63, 75), _ => (68, 80),
-    };
+        int act = town switch
+        {
+            "1_1_town" => 1, "1_2_town" => 2, "1_3_town" => 3, "1_4_town" => 4, "1_5_town" => 5,
+            "2_6_town" => 6, "2_7_town" => 7, "2_8_town" => 8, "2_9_town" => 9, "2_10_town" => 10, _ => 0,
+        };
+        if (act == 0) return (68, 80);
+        if (act == 1) return (1, 3);
+        if (act == 10) return (59, 75);
+        int center = 2 + (int)Math.Round((act - 1) * 65.0 / 9, MidpointRounding.AwayFromZero);
+        return (center - 5, center + 5);
+    }
+
+    internal static int LevelForTown(int current, string town, Random random)
+    {
+        var range = LevelsForTown(town);
+        return current >= range.Min && current <= range.Max ? current : random.Next(range.Min, range.Max + 1);
+    }
 
     void EnsureTownPopulation()
     {
@@ -614,8 +626,7 @@ sealed partial class BotDirector
                     if (visitor.Town != town)
                     {
                         visitor.Town = town; visitor.QuestIndex = Math.Max(0, _route.FindIndex(q => q.Town == town));
-                        var levels = LevelsForTown(town);
-                        visitor.Level = Math.Clamp(visitor.Level, levels.Min, levels.Max);
+                        visitor.Level = LevelForTown(visitor.Level, town, _random);
                         Dress(visitor); SaveProgress(visitor);
                     }
                     visitor.Phase = BotPhase.Arriving; visitor.ActivitiesLeft = 3;
@@ -668,6 +679,7 @@ sealed partial class BotDirector
         var cls = Program.Skills.ClassFor(Program.Skills.RowOfClass((int)bot.Class));
         uint life = (uint)(cls.BaseMaxLife + 12 * (bot.Level - 1)), mana = (uint)(cls.BaseMaxMana + 6 * (bot.Level - 1));
         var player = new PlayerObject(bot.Name, CharacterClassByte.Encode((byte)cls.IntegerId, 0), (int)bot.X, (int)bot.Y, life, mana,
+            Experience: CharacterStats.ExperienceFor(bot.Level),
             AnimatedObject: cls.AnimatedObject, Skills: [], Stats: bot.Town.Contains("_town", StringComparison.Ordinal) ? [(TownStance, 1)] : [],
             Equipped: BotGear.Looks(bot.Gear));
         return (InstanceEntities.ObjectTypeHash(cls.ObjectType), player);

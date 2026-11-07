@@ -37,6 +37,12 @@ sealed partial class BotDirector
     internal object McpConfiguration() => new
     {
         module = "PlayerBots", settings = _settings,
+        townLevels = Enumerable.Range(1, 10).Select(act =>
+        {
+            string town = $"{(act <= 5 ? 1 : 2)}_{act}_town";
+            var range = LevelsForTown(town);
+            return new { act, town, minimum = range.Min, maximum = range.Max };
+        }).ToArray(),
         controls = new { maximumLeaderDistance = (Program.GameLogicOrNull as IControlledPlayerCommands)?.MaximumLeaderDistance, gapGraceGameSeconds = 1.25,
             immediateRecoveryDistance = 100, orderLifetimeGameSeconds = 5, observationEnemyLimit = 64,
             leaseSeconds = _settings.McpLeaseSeconds, partyBotsOnly = true, fallback = "ordinary following and combat AI" },

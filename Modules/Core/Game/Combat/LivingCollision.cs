@@ -202,6 +202,8 @@ static partial class Game
                     }
                     if (previous.Life != peer.Life)
                         packets.Add(InstanceProtocol.LifeUpdate(peer.Id, peer.Life));
+                    if (previous.Template.Experience != peer.Template.Experience)
+                        packets.Add(InstanceEntities.PlayerExperienceUpdate(peer.Id, peer.Template.Experience));
                     int scale = (peer.Template.Stats ?? []).SingleOrDefault(s => s.Key == ActorScale.Final).Value;
                     int before = (previous.Template.Stats ?? []).SingleOrDefault(s => s.Key == ActorScale.Final).Value;
                     if (scale != before)

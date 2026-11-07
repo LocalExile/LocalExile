@@ -24,6 +24,10 @@ sealed partial class BotDirector
             if (bot is null) return false;
             if (_bots.Count(b => ReferenceEquals(b.Leader, conn) && b.Phase == BotPhase.Following) >= 5)
                 return true;
+            // Select from the inviting town once. Later area changes preserve earned levels and experience.
+            int level = LevelForTown(bot.Level, bot.Town, _random);
+            if (level != bot.Level) { bot.Level = level; Dress(bot); }
+            SaveProgress(bot);
             party = _bots.FirstOrDefault(b => ReferenceEquals(b.Leader, conn))?.Party ?? unchecked((uint)Interlocked.Increment(ref _nextParty));
             Hide(bot);
             (bot.Leader, bot.Party, bot.Phase, bot.FollowIn) = (conn, party, BotPhase.Following, null);

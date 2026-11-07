@@ -13,8 +13,51 @@ public sealed class PlayerBotsMcpTests
     }
 
     [Fact]
-    public void Mcp_contract_leases_retries_and_short_orders_keep_human_party_boundaries()
+    public async Task Party_bots_publish_campaign_levels_and_keep_external_control_boundaries()
     {
+        (int Min, int Max)[] ranges = [(1, 3), (4, 14), (11, 21), (19, 29), (26, 36),
+            (33, 43), (40, 50), (48, 58), (55, 65), (59, 75)];
+        var random = new Random(41);
+        for (int act = 1; act <= 10; act++)
+        {
+            string town = $"{(act <= 5 ? 1 : 2)}_{act}_town";
+            var range = ranges[act - 1];
+            Assert.Equal(range, BotDirector.LevelsForTown(town));
+            var picked = new HashSet<int>();
+            for (int i = 0; i < 100; i++)
+            {
+                int level = BotDirector.LevelForTown(0, town, random);
+                picked.Add(level);
+                Assert.InRange(level, range.Min, range.Max);
+                Assert.Equal(level, BotDirector.LevelForTown(level, town, random));
+                var resident = new Bot { AccountId = Guid.Empty, CharacterId = Guid.Empty, Account = "bot", Name = "resident",
+                    Class = GameServer.Core.Accounts.CharacterClass.Marauder, PeerId = 0x38000000, Level = level, Town = town };
+                Assert.Equal(CharacterStats.ExperienceFor(level), BotDirector.Template(resident).Player.Experience);
+            }
+            Assert.True(picked.Count > 1);
+        }
+        using (var runtime = new PartyFollowerTests.Runtime())
+        using (var wire = new PartyFollowerTests.Wire())
+        {
+            var instance = new InstanceState();
+            var observer = runtime.Connection(instance, wire);
+            var resident = new Bot { AccountId = Guid.Empty, CharacterId = Guid.Empty, Account = "bot", Name = "resident",
+                Class = GameServer.Core.Accounts.CharacterClass.Marauder, PeerId = 0x38000000, Level = 59, Town = "2_10_town" };
+            var before = BotDirector.Template(resident);
+            instance.PublishPlayer(new(resident.PeerId, before.Type, before.Player, 100, 100, before.Player.Life));
+            await Game.SyncInstancePlayers("town", wire.Stream, wire.Ciphers, observer);
+            Assert.Equal(CharacterStats.ExperienceFor(59), observer.SeenPlayers[resident.PeerId].Template.Experience);
+            resident.Level = 60;
+            var after = BotDirector.Template(resident);
+            instance.PublishPlayer(new(resident.PeerId, after.Type, after.Player, 100, 100, after.Player.Life));
+            string update = Convert.ToHexString(GameServer.Core.Protocol.Instance.InstanceEntities.PlayerExperienceUpdate(
+                resident.PeerId, CharacterStats.ExperienceFor(60)));
+            int Count() => Program.HistoryFor(wire.Ciphers).Lines().Count(line => line.Contains(update, StringComparison.Ordinal));
+            await Game.SyncInstancePlayers("town", wire.Stream, wire.Ciphers, observer);
+            Assert.Equal(1, Count());
+            await Game.SyncInstancePlayers("town", wire.Stream, wire.Ciphers, observer);
+            Assert.Equal(1, Count());
+        }
         int calls = 0;
         var protocol = new BotMcpProtocol((name, args) => { calls++; return new { name }; }, () => new { port = 6194 });
         JsonElement Reply(string value, string? header = null)
