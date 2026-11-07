@@ -105,8 +105,11 @@ static class GroundSlamWave
     public const double HalfAngleDegrees = 30;
 
     /// <summary>How fast the wave's front travels, in cells a second (10 cells = 1 m). ESTIMATE: no table carries a
-    /// speed; the live measurement is the delay before a monster at a known distance takes its hit.</summary>
-    public const double CellsPerSecond = 60;
+    /// speed. The live client plays the whole slam in one 0.633 s clip, so the front has to cross the wave's reach
+    /// well inside that: at 60 cells a second a monster 60 cells away took its hit a whole second after the
+    /// animation was over (measured live 2026-11-07), which reads as damage arriving late. 400 lands the farthest
+    /// reach in about 0.15 s and keeps the nearest-first stagger.</summary>
+    public const double CellsPerSecond = 400;
 
     /// <summary>The reach in cells of the wave a skill of <paramref name="areaRadius"/> cells sends: the base length,
     /// moved by however far the skill's own radius sits from the generic one (so the gem's per-level radius, a

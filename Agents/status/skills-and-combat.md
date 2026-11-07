@@ -933,6 +933,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
   path), and each such swing's contact now comes from its own rig clip (`GemAttackContactDelay`: groundslam_maul's 0.633
   of the attack, where the class's attack1_maul, the default attack's swing, is 0.692) — both are logged with the sweep.
   Not yet checked with the real client.
+  Remaining: the client queues its Move until the clip's cut-in (Lockstep.cs) while the server walks on the Move as it
+  arrives, so the server's position leads by up to about 0.3 s during a swing; holding the Move until the contact
+  (`HeldMove`) would align them, and needs `Messages.cs`, `PlayerAilments.cs` and a `ClientState` field.
   Code: `SkillArea.cs` (`GroundSlamWave`), `Combat.cs` (`AreaSkillHit`, `GemAttackContactDelay`),
   `AnimationContacts.cs` (`SkillAttackContact`).
 - Warcry release (Enduring Cry, the only warcry executor): the cry's time follows warcry speed and action speed as the
