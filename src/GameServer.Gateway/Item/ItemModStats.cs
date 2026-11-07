@@ -66,6 +66,10 @@ static class ItemModStats
         foreach (var mod in item.Mods)
             if (mods.ByHash(mod.Hash) is { } row)
             {
+                // A mod that displays an aura for other creatures ("Nearby Enemies have 50% increased Fire and Cold
+                // Resistances") carries that aura's stats in the same row; they belong to the nearby enemies or allies,
+                // never to the wearer (Eye of Malice, The Admiral). No seeded unique mixes one with self stats.
+                if (row.Stats.Any(s => IsOthersAura(s.Id))) continue;
                 int percent = EffectPercent(mod, row, effect);
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
                     if (row.Stats[s].Local == local)
@@ -106,6 +110,12 @@ static class ItemModStats
         mod.Section != ModSection.Explicit ? 0
         : effect.Explicit + (row.GenerationType == ItemRolls.Prefix ? effect.Prefix
             : row.GenerationType == ItemRolls.Suffix ? effect.Suffix : 0);
+
+    /// <summary>Whether a stat marks its mod as an aura for other creatures. The marker is a display stat: "nearby"
+    /// (enemies or allies) or a debuff the wearer puts on them.</summary>
+    static bool IsOthersAura(string id) => id.StartsWith("local_display_", StringComparison.Ordinal)
+        && (id.Contains("nearby", StringComparison.OrdinalIgnoreCase)
+            || id.EndsWith("_debuff", StringComparison.OrdinalIgnoreCase));
 
     static bool IsEffectStat(string id) => id is ExplicitEffect or PrefixEffect or SuffixEffect;
 
