@@ -7,9 +7,9 @@ using GameServer.Data.Terrain.Generation;
 /// it (<see cref="LabyrinthLayout"/>), the area each room is played in, and the labyrinth node an area's extra data names
 /// (<c>0x141ec7220</c> flag 0x08; with it the client applies the room's LabyrinthNodeOverrides and secrets, and the
 /// server's level generator must too, <see cref="ServerLevels"/>).
-/// The official server's daily seed and its pick of a room's area are not in the client: here the seed is the UTC day's
-/// number since 1970 (<c>Game_LAB_SEED</c> overrides it) and a room's area is one of its LabyrinthAreas row's areas for
-/// the difficulty, chosen from the seed and the room's place in the layout.
+/// The official server's daily seed and its pick of a room's area are not in the client; poelab.com's layouts show both:
+/// the seed is the UTC day's number since 1970, the same for every tier (<c>Game_LAB_SEED</c> overrides it), and a room's
+/// area is one of its LabyrinthAreas row's areas for the difficulty (<see cref="LabyrinthLayout.AreaPick"/>).
 /// </summary>
 static class LabyrinthDay
 {
@@ -232,8 +232,7 @@ static class LabyrinthDay
         {
             int row = layouts.Ref(layout.Nodes[i].Row, 0x44);
             int[] choices = row < 0 ? [] : areas.RefList(row, column);
-            picked.Add(choices.Length == 0 ? null
-                : worldAreas.String(choices[(int)(unchecked(seed * 0x9e3779b1u + (uint)i * 0x85ebca77u) % (uint)choices.Length)], 0));
+            picked.Add(choices.Length == 0 ? null : worldAreas.String(choices[layout.AreaPick(layout.Nodes[i], choices.Length)], 0));
         }
         return new Day(layout, picked);
     }
