@@ -80,6 +80,24 @@ Faustus, Isla, Sonja and Raulf in Kingsmarch, Kurai, Faustus, Adiyah, Whakano an
 Ailith (`ChayulaFarmerHub`) in the Monastery of the Keepers. Kingsmarch, the Rogue Harbour and the Monastery have not
 been placed live yet: their NPCs, stash and guild stash are offsets from the arrival (`StashCatalog.FromArrival`).
 Every hideout also gets Einhar (`EinharHideout`).
+Faustus uses `Metadata/NPC/League/Kalguur/VillageFaustusHideout`, whose OT supplies his model and gates it on
+`CanSeeFaustusInHideout` (QuestFlags row 3509); send the flag for hideout visits without saving quest progress.
+His native dialogue and Currency Exchange placement/cancellation/refund were checked in the Lush Hideout;
+asynchronous item trade remains unsupported.
+
+Currency Exchange uses window `0x5e`; `0x02e7` ends with the order-slot limit (10), not a zero terminator.
+Collection `0x02eb` is `BEu32 orderId, u8 side, u8 singleStack, u8 toCursor, u8, u8` after the opcode.
+Side **0 refunds offered currency**, side 1 collects proceeds. Native mouse callbacks `0x140bfc820` and
+`0x140bfc970` set singleStack=1 for left-click, toCursor=1 without Ctrl; Ctrl-right-click clears both.
+The trailing bytes come from `0x141664050`; controller collection uses `FE FF`. They do not select the destination.
+Sender `0x140b92ad0` preserves these five bytes. Reversing side or reading singleStack as the destination prevents
+cancelled-order refunds. Empty collected orders use status 4 with zero remaining/proceeds.
+Market depth `0x02f2` carries sorted pair hashes, then two compact-count vectors of
+`BEu16 receive, BEu16 pay, rawu64 stock`. The first vector supplies the first currency to the player;
+the second supplies the second. These are counterparty orders, so their wanted/offered ratios are reversed.
+Sending each side's own orders instead displays the ask when the player needs the bid.
+The client caches exchange depth per queried pair. Push `0x02f2` again after a fill/cancel
+(including empty vectors when exhausted); `0x02f1` alone updates only the owned order, not market stock.
 
 Several town rooms do not start at (0, 0): the area has a border around the room. The atlas's grid placement for
 fixed layouts ([08](08-area-transitions.md) §6, step 10) assumes (0, 0), so its exits in those towns are probably off

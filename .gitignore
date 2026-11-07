@@ -26,6 +26,13 @@ PathOfExile*.exe
 
 # Built mods (Mods/Source/ builds into Mods/Binaries/<id>/; Agents/docs/dev/modding.md). Mods from elsewhere go there too.
 /Mods/
+!/Mods/
+/Mods/*
+!/Mods/Source/
+/Mods/Source/*
+!/Mods/Source/CurrencyMarket/
+/Mods/Source/CurrencyMarket/bin/
+/Mods/Source/CurrencyMarket/obj/
 # Built modules: leagues and other overhauls (Agents/docs/dev/modules.md).
 /Modules/**/bin/
 /Modules/**/obj/

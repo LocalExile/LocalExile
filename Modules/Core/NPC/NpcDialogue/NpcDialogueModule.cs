@@ -4,7 +4,7 @@ using GameServer.Modding;
 namespace GameServer.Modules.NpcDialogue;
 
 /// <summary>What every NPC's dialogue options do: their text, quest rewards, hideout selection, respec and identifying.</summary>
-public sealed class NpcDialogueModule : IModule
+public sealed partial class NpcDialogueModule : IModule
 {
     /// <inheritdoc/>
     public void Load(IModuleContext module) => module.OnNpcOption(async talk =>
@@ -12,6 +12,9 @@ public sealed class NpcDialogueModule : IModule
         var world = module.World(talk.Player);
         switch (talk.Category)
         {
+            case "CurrencyExchange":
+                await OpenExchange(module, talk.Player);
+                return true;
             case "SelectHideout":
                 await world.NpcClose("0x0084 close NPC dialogue for hideout selection");
                 await talk.Player.Send(InstanceWaypoints.OpenUi(InstanceNpcs.HideoutSelectionUi, talk.OpensGuildHideouts ? 1u : 0u),

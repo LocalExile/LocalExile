@@ -229,6 +229,7 @@ sealed class NpcCatalog
         new("Metadata/NPC/Epilogue/KiracHideout", 249, 358, 4.0f),
         new("Metadata/NPC/Epilogue/LillyHideout", 235, 372, 4.0f),
         new("Metadata/NPC/League/Bestiary/EinharHideout", 242, 365, 4.0f),
+        new("Metadata/NPC/League/Kalguur/VillageFaustusHideout", 277, 330, 4.0f),
     ];
 
     public static IReadOnlyList<Placement> HideoutNpcs => Hideout;

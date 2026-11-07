@@ -5,6 +5,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Faustus supports Currency Exchange orders and refunds; CurrencyMarket uses a pinned public-price snapshot by default.
+  Configurable spreads/volume and opt-in online refresh: [CurrencyMarket](../../Mods/Source/CurrencyMarket/README.md).
 - Heist Locker is placed in each hideout and opens its native window (0x7b kind 0x37).
   The native window handler and visible state were verified through the real client.
   Its placement supports the hideout editor; storage transfers were not added by this change.

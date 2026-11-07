@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <None Update="README.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="prices.default.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

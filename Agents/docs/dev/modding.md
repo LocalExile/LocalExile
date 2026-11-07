@@ -132,6 +132,12 @@ warning).
 
 ## Limits
 
+`RegisterExchangeMarket()` returns a lifetime-owned `IExchangeMarket`. Publish finite
+`ExchangeQuote` snapshots by stable key and local league list; repeat keys preserve consumed stock across
+reloads. Unloading withdraws that mod's liquidity without touching player escrow. CurrencyMarket in
+`Mods/Source/CurrencyMarket/` uses a bundled public-price snapshot offline by default; online refresh is opt-in.
+Its settings/cache are runtime state under `data/mods/currencymarket/`, outside the watched binary folder.
+
 - A mod can use the framework, `GameServer.Modding`, the assemblies of the mods it depends on and the files in its
   folder; any other `GameServer.*` assembly is refused when it loads.
 - Not built yet: a mod replacing rows of the catalogs (`Catalogs` only picks between the game files' two data sets), and the rest of
