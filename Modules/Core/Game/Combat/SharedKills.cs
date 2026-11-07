@@ -7,15 +7,44 @@ using Progression = GameServer.Core.World.Progression;
 // (and their gems'), the kill's quest flags and a quest kill's level, sent on their own connection by their own loop.
 static partial class Game
 {
-    internal static void ShareKill(ClientState host, uint id, SpawnedMonster m, MonsterCatalog.Variety variety, (int X, int Y) at)
+    /// <summary>One member's share of a party kill's experience (<see cref="Progression.PartyMultiplier"/>).</summary>
+    internal sealed record PartyExperienceShare(ClientState Conn, double Multiplier);
+
+    /// <summary>
+    /// The living players in the instance (the presence: a private area is entered as the party's instance) and their
+    /// shares of a kill's experience. A dead or leaving player takes no share. The wiki's Experience page: the monster's
+    /// experience is multiplied by the party size and split by (level + 10)^2.71, capped at each player's solo
+    /// experience.
+    /// </summary>
+    internal static IReadOnlyList<PartyExperienceShare> PartyExperienceShares(ClientState host)
     {
-        var presence = host.Instance.Presence;
+        var members = new List<ClientState>();
+        if (host.PlayerLife > 0) members.Add(host);
+        var seen = new HashSet<ClientState> { host };
+        foreach (var peer in host.Instance?.Presence.PlayersExcept(host.PeerId) ?? [])
+        {
+            if (peer.Owner is not { } other || !seen.Add(other) || other.Closed || other.LeavingArea || !other.PlayerSent
+                || peer.Life == 0) continue;
+            members.Add(other);
+        }
+        if (members.Count == 0) return [];
+        if (members.Count == 1) return [new(members[0], 1)];
+        var levels = members.Select(m => m.Pools.Level).ToList();
+        return [.. members.Select((m, i) => new PartyExperienceShare(m, Progression.PartyMultiplier(levels, i)))];
+    }
+
+    internal static double PartyExperienceShareOf(IReadOnlyList<PartyExperienceShare> shares, ClientState conn) =>
+        shares.FirstOrDefault(s => ReferenceEquals(s.Conn, conn))?.Multiplier ?? 1;
+
+    internal static void ShareKill(ClientState host, uint id, SpawnedMonster m, MonsterCatalog.Variety variety,
+        (int X, int Y) at, IReadOnlyList<PartyExperienceShare> shares)
+    {
         if (!host.Instance.World.MonsterOrigins.ContainsKey(id)) return; // a player's minion or ally
         var monster = ModMonster(m, at);
-        foreach (var peer in presence.PlayersExcept(host.PeerId))
+        foreach (var share in shares)
         {
-            if (peer.Owner is not { } other || other.Closed || other.LeavingArea || peer.Life == 0
-                || Dist(at, (peer.X, peer.Y)) > ExperienceRange) continue;
+            if (ReferenceEquals(share.Conn, host)) continue;
+            var other = share.Conn;
             other.KillShares.Enqueue(async (remote, stream, ciphers) =>
             {
                 if (HardcoreProgressBlocked(other)) return;
@@ -24,9 +53,9 @@ static partial class Game
                 await DropQuestItemsForKill(remote, stream, ciphers, other, variety.Id, at, $"{m.Label} (party kill)");
                 if (!m.NoRewards && Monsters.BaseExperience(variety, m.Level) is int baseXp)
                 {
-                    uint xp = Program.ServerHooks.Experience(PlayerOf(other), monster,
-                        Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, m.Rarity, other.Pools.Level, m.Level));
-                    await GainGemExperience(remote, stream, ciphers, other, xp);
+                    var (xp, gemXp) = KillExperience(PlayerOf(other), monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
+                        other.Pools.Level, m.Level, share.Multiplier);
+                    await GainGemExperience(remote, stream, ciphers, other, gemXp);
                     await GainExperience(remote, stream, ciphers, other, xp, $"party kill: {m.Rarity} {m.Label} (by {CharacterName(host)})");
                 }
                 if (QuestsOf(other).LevelAfterKill(other.Layout.Id, variety.Id) is int level and > 1 && level <= CharacterStats.LevelStarts.Count)

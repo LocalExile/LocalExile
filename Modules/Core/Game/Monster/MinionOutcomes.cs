@@ -32,6 +32,8 @@ static partial class Game
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
         SoulEaterSoul(conn, at);
+        var partyShares = PartyExperienceShares(conn);
+        ShareKill(conn, victimId, monster, variety, at, partyShares);
         var killer = PlayerOf(conn); var modMonster = ModMonster(monster, at);
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
@@ -58,13 +60,13 @@ static partial class Game
         var kill = new KillContext(conn, monster, variety.Id, at) { PlayerKill = playerKill, CommittedOutput = packets };
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
         foreach (var (packet, log) in packets) state.OutputQueue.Add(new(packet, log));
-        uint xp = 0;
+        uint xp = 0, gemXp = 0;
         if (conn.PlayerLife > 0 && Dist(at, conn.Walk.Position(now)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
-            xp = Program.ServerHooks.Experience(killer, modMonster,
-                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level));
+            (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
+                conn.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, conn));
         var gemRows = new List<(byte Row, uint[] Items)>();
-        var (_, leveled) = CommitGemExperience(conn, xp, gemRows);
+        var (_, leveled) = CommitGemExperience(conn, gemXp, gemRows);
         foreach (var (row, ids) in gemRows)
             state.OutputQueue.Add(new([], "gem experience (current)", Kind: PlayerMinions.OutputKind.GemInventory, InventoryRow: row, ItemIds: ids));
         if (leveled) state.StatRevision++;
