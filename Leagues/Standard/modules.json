@@ -16,6 +16,7 @@
     "Core/World/Atlas",
     "Core/World/HideoutEditing",
     "Core/World/Portals",
-    "Core/World/QuestObjects"
+    "Core/World/QuestObjects",
+    "POB"
   ]
 }

@@ -14,6 +14,7 @@
   <!-- The Gateway's types are internal (top-level program); its tests and the modules reach them. -->
   <ItemGroup>
     <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+    <InternalsVisibleTo Include="pob" />
     <InternalsVisibleTo Include="game" />
     <InternalsVisibleTo Include="atlas" />
     <InternalsVisibleTo Include="bench" />
