@@ -2474,9 +2474,20 @@ when the server implements healing; an extra value likewise misaligns the stream
 Reaper's `SummonedReaperUltimate` supplies its native animation; its internal GA damage effect has no independent
 GroundSlam clip in that rig and must not be started as a second actor action.
 
+Native manual admission reads final caps: Reaper `0x141c4cfc0` reads `number_of_reapers_allowed` (0x3a0b),
+SRS `0x141a442a0` reads `number_of_raging_spirits_allowed` (0x866).
+The placement action `0x14195e420` requires both the final trap/mine cap and `number_of_traps_to_throw` (0x718)
+or `number_of_mines_to_place` (0x119a). Base inputs alone leave these zero; injected use packets bypass this check.
+Blasphemy needs final `skill_is_instant` too; aiming its toggle at empty ground sends C→S 0x190, not 0x191.
+
 Placed traps/mines are misc actors, not monster blobs: `TrapMineObject` preserves their component order, with
 StateMachine only for RemoteMine. Trap metadata comes from `SkillTrapVariations`; the client accepts their native
 skill list at `0x4000` and subsequent action packets without client-data changes.
+Their payload skill's record flag 1 carries the parent object's u32 and source skill's u16, both blob-endian.
+Use object stats `is_trap_object` / `is_remote_mine`, not the skill's `is_trap` or a nonexistent `is_mine`.
+`BeThrown` (`0x141c0e8c0`) selects the native throw animation; a 0x1ba glide supplies horizontal travel in seconds,
+followed by `Arm` at landing. Actor update flag0 bit7 publishes detonation availability (Actor +0x219 bit3);
+`DetonateMines` admission (`0x141d23c70`) reads this bit, not the active-mine stat. Every Actor refresh must retain it.
 
 ## 10i. Warcry release: timing and release effects
 

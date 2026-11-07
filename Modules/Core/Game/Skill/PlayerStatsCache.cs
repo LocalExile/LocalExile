@@ -105,7 +105,7 @@ static partial class Game
 
     internal static byte[] PlayerSkillsIfChanged(ClientState conn, IReadOnlyList<GrantedSkill> skills)
     {
-        var bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, []);
+        var bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn));
         var sent = SentSkillLists.GetOrCreateValue(conn);
         lock (sent)
         {
@@ -119,6 +119,6 @@ static partial class Game
     internal static void RecordPlayerSkills(ClientState conn, IReadOnlyList<GrantedSkill> skills)
     {
         var sent = SentSkillLists.GetOrCreateValue(conn);
-        lock (sent) sent.Bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, []);
+        lock (sent) sent.Bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn));
     }
 }

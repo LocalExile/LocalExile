@@ -284,9 +284,10 @@ public static class InstanceEntities
     /// (<c>0x140b14b00</c> before and after, when there is a record or an id): the character panel's skill list follows it.
     /// </summary>
     public static byte[] PlayerSkillsChange(uint playerId, IReadOnlyList<GrantedSkill> skills, IReadOnlyList<ushort> removed,
-        IReadOnlyList<VaalSoulSeed>? soulSeeds = null, IReadOnlyList<VaalSoulUpdate>? soulUpdates = null)
+        IReadOnlyList<VaalSoulSeed>? soulSeeds = null, IReadOnlyList<VaalSoulUpdate>? soulUpdates = null,
+        bool canDetonateMines = false)
     {
-        var w = new BlobWriter().U8(0x20).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
+        var w = new BlobWriter().U8(canDetonateMines ? (byte)0xa0 : (byte)0x20).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
         foreach (var s in skills) PlayerObject.WriteSkillRecord(w, s);
         foreach (var id in removed) w.U16(id);
         w.U8(checked((byte)(soulSeeds?.Count ?? 0)));
@@ -300,9 +301,9 @@ public static class InstanceEntities
     /// Existing entries are replaced, not consumed/appended: remaining and total BASE seconds, recovery rate, flags.
     /// A zero remaining budget clears the entry vector. Native skill base duration and cooldown group stay intact.</summary>
     public static byte[] PlayerSingleUseCooldowns(uint playerId, IReadOnlyList<SingleUseCooldownUpdate> cooldowns,
-        IReadOnlyList<VaalSoulBudget>? souls = null)
+        IReadOnlyList<VaalSoulBudget>? souls = null, bool canDetonateMines = false)
     {
-        var w = new BlobWriter().U8(0x40).U8(0).U8(0);
+        var w = new BlobWriter().U8(canDetonateMines ? (byte)0xc0 : (byte)0x40).U8(0).U8(0);
         PlayerObject.WriteSoulBudgets(w, souls);
         w.U32((uint)cooldowns.Count);
         foreach (var c in cooldowns)
@@ -971,6 +972,7 @@ public sealed record GrantedSupport(uint EffectsPerLevelRow, uint StatSetsPerLev
 public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatSetsPerLevelRow,
     IReadOnlyList<(uint Key, int Value)>? Stats = null, uint CooldownMs = 0)
 {
+    public (uint Object, ushort Skill)? Parent { get; init; }
     /// <summary>Skill-record bit1 (0x02): retain native GEPL Vaal soul inputs, regardless of current cost or balance.</summary>
     public bool VaalResourcesEnabled { get; init; }
     /// <summary>Native support references (GEPL row and source metadata), read by 0x142196ce0.</summary>
@@ -1159,7 +1161,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .U8(0).U32(s.StatSetsPerLevelRow);    // its stat set
         foreach (var (row, _) in s.ExtraStatSets) w.U8(0).U32(row);   // one more stat-set reference per additional set
         // 0x1421975f0: without bit1 a raw Vaal stored-use count makes the constructor zero its soul inputs.
-        w.U8(s.VaalResourcesEnabled ? (byte)0x02 : (byte)0).U8(checked((byte)s.Supports.Count));
+        w.U8((byte)((s.VaalResourcesEnabled ? 2 : 0) | (s.Parent is not null ? 1 : 0)));
+        if (s.Parent is { } parent) w.U32(parent.Object).U16(parent.Skill);
+        w.U8(checked((byte)s.Supports.Count));
         foreach (var support in s.Supports)
         {
             w.U8(0).U32(support.EffectsPerLevelRow).U8(0).U32(support.StatSetsPerLevelRow);

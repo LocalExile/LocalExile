@@ -112,7 +112,7 @@ static partial class Game
         IReadOnlyList<ushort> gone)
     {
         var changes = VaalSoulChanges(conn);
-        return InstanceEntities.PlayerSkillsChange(PlayerId, skills, gone, changes.Seeds, changes.Updates);
+        return InstanceEntities.PlayerSkillsChange(PlayerId, skills, gone, changes.Seeds, changes.Updates, CanDetonateMines(conn));
     }
 
     internal static byte[]? VaalSoulPresentation(ClientState conn)
@@ -122,7 +122,7 @@ static partial class Game
             if (conn.Closed || conn.LeavingArea || conn.VaalSoulsRetired) return null;
             var changes = VaalSoulChanges(conn);
             return changes.Seeds.Length == 0 && changes.Updates.Length == 0 ? null
-                : InstanceEntities.PlayerSkillsChange(PlayerId, [], [], changes.Seeds, changes.Updates);
+                : InstanceEntities.PlayerSkillsChange(PlayerId, [], [], changes.Seeds, changes.Updates, CanDetonateMines(conn));
         }
     }
 

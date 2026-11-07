@@ -731,7 +731,7 @@ static partial class Game
         if (gem.Name is not null && (SkillsFor(conn).EffectId(gem.Effect) is "DetonateMines" or "GemDetonateMines" or "TriggeredDetonateMines"))
         { lock (conn.Monsters) DetonateMinesLocked(conn, AreaTime(conn)); return true; }
         if (gem.Name is not null && PlacedKind(SupportedSkill(conn, skillId)) is not (false, false))
-            return await PlaceSkill(remote, stream, ciphers, conn, skillId, to, recoveryGeneration, Current);
+            return await PlaceSkill(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, Current);
         if (gem.Name is not null)
         {
             if (SkillsFor(conn).IsTravel(gem.Effect)) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Travel);
@@ -778,7 +778,7 @@ static partial class Game
             await UseInstantSkillAtLocation(remote, stream, ciphers, conn, skillId, default, targetId);
             return;
         }
-        if (gem.Name is null || !InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), gem.Effect)) return;
+        if (gem.Name is null || !ObjectInstantSupported(conn, skillId, gem.Effect)) return;
         int epoch;
         lock (conn.Monsters)
         {
@@ -803,11 +803,22 @@ static partial class Game
         }
     }
 
+    static bool ObjectInstantSupported(ClientState conn, ushort skill, int effect) =>
+        InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect)
+        || !SkillsFor(conn).IsMovement(effect) && GolemStat(SupportedSkill(conn, skill).Stats, "base_skill_is_instant") != 0;
+
     internal static async Task UseInstantSkillAtLocation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort skillId, (uint X, uint Y) aim, uint? targetObjectId = null)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
-        if (gem.Name is null || !InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect)) return;
+        if (gem.Name is null) return;
+        if (!InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))
+        {
+            // A self buff aimed at empty ground uses 0x190 too; it still applies at its caster.
+            if (ObjectInstantSupported(conn, skillId, gem.Effect))
+                await UseInstantSkill(remote, stream, ciphers, conn, skillId, PlayerId, conn.Walk.Position(AreaTime(conn)));
+            return;
+        }
         var own = SkillsFor(conn).EffectStats(gem.Effect, gem.Level, gem.Quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         int epoch;
         (int X, int Y) from, to;

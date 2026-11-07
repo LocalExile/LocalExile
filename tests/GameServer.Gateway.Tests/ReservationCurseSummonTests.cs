@@ -106,6 +106,10 @@ public sealed class ReservationCurseSummonTests
                 return Game.GemSkillEffects(conn).First().Id;
             }
             ushort curseSource = Equip("Flammability", "Blasphemy Support");
+            int Published(ushort sourceId, string stat) => Game.PlayerSkills(conn).Single(s => s.Id == sourceId).Stats!
+                .FirstOrDefault(p => p.Key == Program.Stats.Key(stat)).Value;
+            Assert.Equal(1, Published(curseSource, "skill_is_instant"));
+            Assert.Equal(42, Published(curseSource, "active_skill_area_of_effect_radius"));
             var victim = new SpawnedMonster("curse-target", new(100, 100, 1), 100, 8, 100000)
                 { Hostile = true, Variety = monsters.Find("Metadata/Monsters/Zombies/Zombie"), Level = 70 };
             conn.Monsters[0x800abcd] = victim;
@@ -114,6 +118,25 @@ public sealed class ReservationCurseSummonTests
             Assert.Equal(0, victim.Mods.Effects["base_fire_damage_resistance_%"]);
             Assert.Single(victim.Curses.All);
             victim.Curses.Clear();
+
+            foreach (var (name, stat) in new[] {
+                ("Summon Reaper", "number_of_reapers_allowed"), ("Summon Holy Relic", "number_of_relics_allowed"),
+                ("Summon Raging Spirit", "number_of_raging_spirits_allowed"), ("Summon Skeletons", "number_of_skeletons_allowed"),
+                ("Raise Zombie", "number_of_zombies_allowed"), ("Raise Spectre", "number_of_spectres_allowed") })
+            {
+                ushort id = Equip(name);
+                var supported = Game.SupportedSkill(conn, id);
+                var definition = catalog.Find(Program.Skills.EffectId(supported.Effect))!;
+                Assert.True(Published(id, stat) > 0, name);
+                Assert.Equal(Game.SummonLimit(conn, definition, supported), Published(id, stat));
+            }
+            foreach (var (name, mineKind) in new[] { ("Stormblast Mine", true), ("Fire Trap", false) })
+            {
+                ushort id = Equip(name);
+                Assert.Equal(15, Published(id, mineKind ? "number_of_remote_mines_allowed" : "number_of_traps_allowed"));
+                Assert.Equal(1, Published(id, mineKind ? "number_of_mines_to_place" : "number_of_traps_to_throw"));
+                Assert.Equal(1, Published(id, mineKind ? "skill_is_mined" : "skill_is_trapped"));
+            }
 
             ushort zombieSource = Equip("Raise Zombie");
             Assert.Equal(0u, await Game.SummonFighter("test", wire.Stream, wire.Ciphers, conn, zombieSource, catalog.Find("RaiseZombie")!, (100, 100)));
@@ -155,8 +178,46 @@ public sealed class ReservationCurseSummonTests
             Assert.Equal(6, PlacedSkills.Reserved(pools: conn.Pools, [mine], life: false));
             mine.SkitterTriggered = true;
             conn.Placed.All[1] = mine;
+            Assert.Equal(1, Game.CharacterPlayerStats(conn)[Program.Stats.Key("number_of_active_mines")!.Value]);
+            var payload = new GrantedSkill(0x4000, 1, 2) { VaalResourcesEnabled = true };
+            var unownedPacket = InstanceEntities.PlayerSkillsChange(0x1000, [payload], []);
+            var ownedPacket = InstanceEntities.PlayerSkillsChange(0x1000, [payload with { Parent = (0x10203040, 0x1234) }], []);
+            Assert.Equal(unownedPacket.Length + 6, ownedPacket.Length);
+            Assert.Contains("03403020103412", Convert.ToHexString(ownedPacket));
+            var enabled = InstanceEntities.PlayerSkillsChange(0x1000, [], [], canDetonateMines: true);
+            Assert.Equal(0xa0, enabled[15]);
+            var airborne = mine with { Id = 2, Armed = 4, LandAt = 3, Landed = false };
+            var landing = new List<byte>();
+            Game.LandPlacedLocked(conn, airborne, 2.9, landing);
+            Assert.Empty(landing); Assert.False(airborne.Landed);
+            Game.LandPlacedLocked(conn, airborne, 3, landing);
+            Assert.True(airborne.Landed); Assert.NotEmpty(landing);
+            int landedBytes = landing.Count;
+            Game.LandPlacedLocked(conn, airborne, 3.1, landing);
+            Assert.Equal(landedBytes, landing.Count);
             Game.DetonateMinesLocked(conn, 4);
             Assert.Equal(4, mine.DetonateAt);
+            await Game.EndSkillEffects("test", wire.Stream, wire.Ciphers, conn, [animated]);
+            Assert.Empty(conn.Summons.Fighters);
+            ushort claritySource = Equip("Clarity");
+            CharacterSaves.SetAuraActive(conn.Character!, "Clarity", true);
+            conn.ClientSkillIds = [claritySource];
+            var heldHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
+            var socket = new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Weapon1), heldHost.Id, 0);
+            await Game.UnsocketGem("test", wire.Stream, wire.Ciphers, conn, socket);
+            Assert.DoesNotContain("Clarity", CharacterSaves.Load(conn.Character!)!.ActiveAuras ?? []);
+            conn.Monsters.Clear();
+            var groundTarget = new SpawnedMonster("burn-target", new(100, 100, 1), 100, 8, 10000) { Hostile = true };
+            conn.Monsters[0x800abcf] = groundTarget;
+            conn.Placed.Grounds.Add(new(10, 1, (100, 100), 20, 1000, 1.75, 0));
+            conn.Placed.Grounds.Add(new(11, 1, (100, 100), 20, 500, 1.75, 0));
+            Game.PlacedGroundsLocked("test", wire.Stream, wire.Ciphers, conn, 2, []);
+            Assert.Equal(8250u, groundTarget.Life);
+            Assert.Empty(conn.Placed.Grounds);
+            await Game.SocketGem("test", wire.Stream, wire.Ciphers, conn, socket);
+            Game.ReconcileOwnAuras(conn, validateSkills: true);
+            Assert.DoesNotContain(conn.Auras.Values, a => a.EffectId == "Clarity");
+            Assert.DoesNotContain("Clarity", CharacterSaves.Load(conn.Character!)!.ActiveAuras ?? []);
         }
         finally
         {

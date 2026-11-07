@@ -42,11 +42,12 @@ static partial class Game
             : Math.Max(0, 1 + Get("number_of_additional_curses_allowed"));
     }
 
-    static int CurseRadius(ClientState conn, ushort skill, bool aura, SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
+    internal static int CurseRadius(ClientState conn, ushort skill, bool aura, SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
     {
         var own = (captured ?? SupportedSkill(conn, skill)).Stats; var player = sources ?? CharacterPlayerStats(conn);
         int Get(string n) => GolemStat(player, n) + GolemStat(own, n);
-        return SkillArea.Radius((aura ? AuraCatalog.BaseRadius : 16) + Get("active_skill_base_radius_+"),
+        // Hexes retain their own base radius when Blasphemy converts them to auras.
+        return SkillArea.Radius(22,
             n => Get(n) + (n == SkillArea.BaseIncreased ? Get("curse_area_of_effect_+%") : 0), spell: true);
     }
 

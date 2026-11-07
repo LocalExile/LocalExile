@@ -70,6 +70,8 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0030 socket {s}: refused ({why})");
             return;
         }
+        if (now is not null && PlayerInventories.ShowsOnModel(r))
+            ForgetGemActivation(conn, now.Item);
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], now is null ? [] : [now]),
             $"0x00bf cursor: remove gem {before.Id}" + (now is null ? "" : $", hold gem {now.Id} from the socket"));
@@ -145,11 +147,24 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x002f unsocket {s}: refused ({why})");
             return;
         }
+        if (PlayerInventories.ShowsOnModel(r)) ForgetGemActivation(conn, held.Item);
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(r), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold gem {held.Id}");
         if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
+    }
+
+    // Removing a physical source is an explicit deactivation, unlike town travel or a temporary actor restriction.
+    static void ForgetGemActivation(ClientState conn, Item gem)
+    {
+        var effects = ItemsFor(conn).GemEffects(gem).Select(e => SkillsFor(conn).EffectId(e)).OfType<string>().ToArray();
+        foreach (string effect in effects)
+        {
+            CharacterSaves.SetAuraActive(CharacterName(conn), effect, false);
+            if (effect == PetrifiedBlood.EffectId)
+                CharacterSaves.SetPetrifiedBlood(CharacterName(conn), false);
+        }
     }
 
     // A normal (non-cluster) jewel. The PassiveJewels1 pane (Inventories.dat row 23) holds one per allocated passive tree
