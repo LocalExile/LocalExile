@@ -81,12 +81,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
   Trades and parties, Atlas passives, the crafting bench, cosmetics, vendors, portals and the map device, tattoos, the campaign's quests (QuestObjects), hideout editing, chat commands and unique belts are Core modules too. The game\'s rules are the `Game` module; the Gateway keeps the framework, game data, saves and connection state. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
   without Harvest places no station. Not tried in the client after the move.
-  `Mods/Source/` has seven examples, all off by default; five show settings.
-  `FastCampaign` (experience and movement speed, `/fast`, three languages) loaded as a script in a running Gateway and read
-  its `settings.txt`; not tried with the client, nor built as a project (no SDK on that PC).
+  The seven example mods, all off by default, moved to [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods)
+  (2026-11-07); Waypoint installs them. A release ships no mods; its window lists the installed ones by their
+  `mod.json` name and description.
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
-  `live.ps1` builds `Mods\Source\` (the example mod: 100x item quantity, `/example`) into `Mods\Binaries\`.
+  `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
   Live: the running Gateway loaded the example mod by itself when it was first built.
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
   dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
@@ -97,7 +97,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (fallback, required features, tunables, scoped hooks) and built-ins.
   Missing: mods replacing catalog rows, and the hooks not yet tried with the client (drops, experience, stats, packets).
   Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `ModScripts.cs`, `ServerLeagues.cs`, `Program.Mods.cs`,
-  `Program.ModuleWorld.cs`, `Modules/`, `Mods/Source/`.
+  `Program.ModuleWorld.cs`, `Modules/`, `Mods/Source/Directory.Build.props`.
   Docs: [modding](../docs/dev/modding.md).
 
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.

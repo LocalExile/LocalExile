@@ -67,7 +67,7 @@ This research does not change the production simulator or certify native/officia
 | [dev/debugging.md](dev/debugging.md) | log timestamps and archives, error stack traces, the packet history and dumps, `Game_TRACE`, client crashes, `bugreport.ps1` |
 | [dev/performance.md](dev/performance.md) | measuring a stack's startup, memory, area creation and busy-instance CPU (`scripts/perf/startup.ps1`, `scripts/perf/PerfBench`), results and the remaining costs |
 | [dev/editable-game-data.md](dev/editable-game-data.md) | what game data can become editable in SQLite, the client-compatibility boundary, the snapshot/cache design and the phased plan |
-| [dev/modding.md](dev/modding.md) | mods in `Mods/Binaries/<id>/`: `mod.json`, writing one in `Mods/Source/`, the hooks, reloading, limits |
+| [dev/modding.md](dev/modding.md) | mods in `Mods/Binaries/<id>/`: `mod.json`, writing one (LocalExile-Mods), the hooks, reloading, limits |
 | [dev/item-crafter.md](dev/item-crafter.md) | the item crafter hook for tools: the Gateway's `crafter` mode (bases, mod pools, stat descriptions) and `/item_give` |
 | [dev/player-bots.md](dev/player-bots.md) | the PlayerBots module: server-driven characters that play the campaign and visit towns, settings, logs, the client findings behind their walk and stance |
 | [dev/campaign-automation.md](dev/campaign-automation.md) | the campaign driver: `campaign.ps1`, the runner, quest step files and verbs, `/state`, `/kill`, `/quest_preset`, its own ports and client session |

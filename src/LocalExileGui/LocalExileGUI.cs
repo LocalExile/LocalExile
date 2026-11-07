@@ -294,19 +294,12 @@ namespace LocalExileGui
     {
         public string Id;
         public string Version;
+        public string Description = "";
         public bool Enabled;
     }
 
     static class Mods
     {
-        /// <summary>The mod's description in Strings.cs ("mod.&lt;id&gt;"), empty for a mod it does not know.</summary>
-        public static string Describe(string id)
-        {
-            string key = "mod." + id;
-            string text = I18n.T(key);
-            return text == key ? "" : text;
-        }
-
         static Dictionary<string, bool> ReadChoices()
         {
             var choices = new Dictionary<string, bool>(StringComparer.Ordinal);
@@ -331,6 +324,7 @@ namespace LocalExileGui
                 string id = Path.GetFileName(dir);
                 string version = "0";
                 bool enabled = true;
+                string description = "";
                 string manifest = Path.Combine(dir, "mod.json");
                 if (File.Exists(manifest))
                 {
@@ -339,12 +333,29 @@ namespace LocalExileGui
                     if (v.Success) version = v.Groups[1].Value;
                     var e = Regex.Match(text, "\"enabled\"\\s*:\\s*(true|false)");
                     if (e.Success) enabled = e.Groups[1].Value == "true";
+                    description = Describe(text);
                 }
                 bool choice;
                 if (choices.TryGetValue(id, out choice)) enabled = choice;
-                result.Add(new ModEntry { Id = id, Version = version, Enabled = enabled });
+                result.Add(new ModEntry { Id = id, Version = version, Description = description, Enabled = enabled });
             }
             return result;
+        }
+
+        /// <summary>The manifest's "name" and "description" (Waypoint shows them too), empty when it has neither or is not
+        /// plain JSON (a manifest may have comments, which the serializer refuses).</summary>
+        static string Describe(string manifest)
+        {
+            Dictionary<string, object> fields;
+            try { fields = new JavaScriptSerializer().DeserializeObject(manifest) as Dictionary<string, object>; }
+            catch (ArgumentException) { return ""; }
+            catch (InvalidOperationException) { return ""; }
+            if (fields == null) return "";
+            object name, description;
+            string n = fields.TryGetValue("name", out name) ? name as string : null;
+            string d = fields.TryGetValue("description", out description) ? description as string : null;
+            if (string.IsNullOrEmpty(n)) return d ?? "";
+            return string.IsNullOrEmpty(d) ? n : n + ": " + d;
         }
 
         public static void Save(IEnumerable<ModEntry> mods)
@@ -957,7 +968,7 @@ namespace LocalExileGui
             {
                 foreach (var m in Mods.Load())
                 {
-                    var item = new ListViewItem(new[] { m.Id, m.Version, Mods.Describe(m.Id) }) { Checked = m.Enabled, Tag = m };
+                    var item = new ListViewItem(new[] { m.Id, m.Version, m.Description }) { Checked = m.Enabled, Tag = m };
                     _modList.Items.Add(item);
                 }
             }

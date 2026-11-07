@@ -107,16 +107,6 @@ namespace LocalExileGui
             Add("step.servers", "Starting the servers", "启动服务器", "啟動伺服器");
             Add("step.client", "Starting the game client", "启动游戏客户端", "啟動遊戲用戶端");
 
-            Add("mod.fastcampaign", "Faster campaign: 5× kill experience, +50% movement speed (/fast in game shows and changes it, with the speed-run commands)",
-                "快速过剧情：击杀经验 ×5、移动速度 +50%（游戏里 /fast 查看和调整，并列出速通命令）",
-                "快速過劇情：擊殺經驗 ×5、移動速度 +50%（遊戲內 /fast 查看與調整，並列出速通指令）");
-            Add("mod.doubleexperience", "2× experience from kills", "击杀获得的经验 ×2", "擊殺獲得的經驗 ×2");
-            Add("mod.itemquantity", "10× as many item drops", "物品掉落数量 ×10", "物品掉落數量 ×10");
-            Add("mod.itemrarity", "10× the chance of magic, rare and unique equipment", "魔法、稀有、传奇装备的出现几率 ×10", "魔法、稀有、傳奇裝備的出現機率 ×10");
-            Add("mod.bossloot", "An extra Exalted Orb from every unique monster", "每个传奇怪物额外掉落一个崇高石", "每個傳奇怪物額外掉落一個崇高石");
-            Add("mod.hello", "Example: chat command /hello [name]", "示例：聊天命令 /hello [名字]", "範例：聊天指令 /hello [名字]");
-            Add("mod.example", "Example: chat command /example, counting kills and areas", "示例：聊天命令 /example，统计击杀和进入的区域", "範例：聊天指令 /example，統計擊殺與進入的區域");
-
             Add("tab.play", "Play", "开始游戏", "開始遊戲");
             Add("tab.setup", "Setup", "首次设置", "首次設定");
             Add("tab.mods", "Mods", "Mod 管理", "Mod 管理");
