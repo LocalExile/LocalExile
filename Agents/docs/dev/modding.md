@@ -177,7 +177,7 @@ Gateway's log does with `[mods]`.
   overwrite the originals while the mod runs. Path-backed loading avoids the loader/finalizer failure reproduced
   with collectible `LoadFromStream` assemblies on Windows .NET 10. The copy is removed after its context is collected;
   a retained context or a failed file removal is logged. No client files are involved.
-- `/mod` lists the mods with their version, kind and hook count, and why the others did not load.
+- `/mod` lists the loaded mods first, with their version, kind and hook count, then why the others did not load.
   `/mod_reload [id]` reloads one (with its dependents) or all.
 - `/mod_disable <id>` unloads a mod and its dependents; `/mod_enable <id>` loads it and them again. The choice lasts across
   restarts and rebuilds, and is kept in `mod-state.txt` in `Mods/Binaries/`, over the manifest's `enabled`. A running
