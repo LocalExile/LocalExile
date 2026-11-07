@@ -103,12 +103,6 @@ partial class Program
                 // The area stats the instance is played with (0x1d's list): the level is generated with them, as the
                 // client generates its own from the packet (AreaStats; ServerLevels.PlayedStats).
                 var areaStats = AreaStats.Compose(characterName, areaHash, resolved.League);
-                // The league's code, its modules and the mods may set stats of their own (ModifyAreaStats), before the level
-                // is generated with the list: the client gets the same list in 0x1d.
-                var areaStatList = new AreaStatList(AreaLayouts.IdOf(areaHash), resolved.League, characterName);
-                ServerHooks.AreaStats(ServerLeagues.Resolve(resolved.LeagueForm, resolved.League, LeagueCatalog.Startup), areaStatList);
-                foreach (var (name, value) in areaStatList.Changes)
-                    if (Stats.Key(name) is uint key) areaStats[key] = value;
                 // The client generates the area at the seed and level of 0x1d: a seed the Gateway can generate too.
                 uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats);
                 ulong instanceId = resolved.Instance;
