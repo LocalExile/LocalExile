@@ -7,7 +7,8 @@ using GameServer.Core.World;
 static partial class Game
 {
     static bool GolemCurrent(ClientState conn, GolemState.Golem g) => CurrentGameWork && !conn.Closed && !conn.LeavingArea
-        && conn.Golems.All.GetValueOrDefault(g.Id) == g && conn.Monsters.GetValueOrDefault(g.Id) == g.Monster;
+        && (conn.Golems.All.GetValueOrDefault(g.Id) == g || conn.Reservations.Fighters.GetValueOrDefault(g.Id) == g)
+        && conn.Monsters.GetValueOrDefault(g.Id) == g.Monster;
 
     static void GolemStepLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g, double now)
     {
@@ -16,10 +17,11 @@ static partial class Game
         double elapsed = Math.Max(0, now - g.LastStep); g.LastStep = now;
         int Own(string n) => GolemStat(g.Own, n);
         int Player(string n) => GolemStat(g.Player, n);
-        double regen = (g.Definition.Kind == "Stone" ? .02 : .01) +
-            (Player("minion_life_regeneration_rate_per_minute_%") + Own("minion_life_regeneration_rate_per_minute_%") + Player("golem_life_regeneration_per_minute_%")) / 6000.0;
+        double regen = (g.Definition.IsGolem ? g.Definition.Kind == "Stone" ? .02 : .01 : 0) +
+            (Player("minion_life_regeneration_rate_per_minute_%") + Own("minion_life_regeneration_rate_per_minute_%")
+                + (g.Definition.IsGolem ? Player("golem_life_regeneration_per_minute_%") : 0)) / 6000.0;
         g.Regeneration += elapsed * (m.MaxLife * regen + Player("minion_base_life_regeneration_rate_per_minute") / 60.0
-            + Player("minion_life_regeneration_rate_per_second"));
+            + Player("minion_life_regeneration_rate_per_second") + m.Mods.Effects["base_life_regeneration_rate_per_minute"] / 60.0);
         int heal = (int)Math.Min(int.MaxValue, g.Regeneration); g.Regeneration -= heal;
         if (heal > 0 && m.Life < m.MaxLife)
         {
@@ -140,7 +142,7 @@ static partial class Game
 
     static byte[]? GolemActionPresentation(ClientState conn, PlayerMinions.Output output)
     {
-        if (output.TargetId is not uint id || !conn.Golems.All.TryGetValue(id, out var g) || !GolemCurrent(conn, g)
+        if (output.TargetId is not uint id || OwnedFighter(conn, id) is not { } g || !GolemCurrent(conn, g)
             || g.Monster.Dead || g.Pending is not { Started: false } pending || pending.Generation != output.Action
             || pending.Generation != g.Monster.ActionGeneration) return null;
         double now = AreaTime(conn); var from = g.Monster.Walk.Position(now); var a = pending.Ability;
@@ -295,7 +297,8 @@ static partial class Game
         if (!CurrentGameWork || target.Dead || target.Invulnerable || !target.Hostile || conn.Monsters.GetValueOrDefault(id) != target) return false;
         if (!a.Attack.Spell)
         {
-            int accuracy = g.Monster.Mods.Effects.Accuracy(Monsters.BaseAccuracy(g.Monster.Level) ?? 0);
+            int accuracy = g.Monster.Mods.Effects.Accuracy((Monsters.BaseAccuracy(g.Monster.Level) ?? 0)
+                + g.Monster.Mods.Effects["accuracy_rating"]);
             int evasion = UnderBlind(conn, id, target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0));
             if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), Random.Shared.Next(100))) return false;
         }
@@ -309,7 +312,8 @@ static partial class Game
                 GolemStat(g.Own, "bone_golem_damage_per_non_golem_minion_nearby_maximum_%")) / 100.0;
             if (a.Effect == 10802 && g.Combo >= 3) factor *= 1 + GolemStat(a.Stats, "bone_golem_damage_+%_final_after_third_combo_index") / 100.0;
         }
-        int crit = (int)(a.Crit * (1 + g.Monster.Mods.Effects["critical_strike_chance_+%"] / 100.0));
+        int crit = (int)(a.Crit * (1 + (g.Monster.Mods.Effects["critical_strike_chance_+%"]
+            + (a.Attack.Spell ? g.Monster.Mods.Effects["spell_critical_strike_chance_+%"] : 0)) / 100.0));
         bool critical = Random.Shared.Next(10_000) < crit;
         if (critical) factor *= 1.3 + g.Monster.Mods.Effects["base_critical_strike_multiplier_+"] / 100.0;
         var rolled = a.Attack.Damage.Scale(factor).Roll(Random.Shared);

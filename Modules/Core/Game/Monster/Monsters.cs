@@ -519,7 +519,7 @@ static partial class Game
                 // Out of the wake zone the client's copy stands frozen (07 §3); the server's stands too (KeepWakeZone
                 // ended its walk) and gets no order until it is back, or the return's 0x128 would put the copy wherever
                 // the estimate walked meanwhile (live 2026-11-03: 162 cells, in one jump).
-                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted || m.Asleep || conn.Golems.All.ContainsKey(id)
+                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted || m.Asleep || OwnedFighter(conn, id) is not null
                     || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
                 // Asleep for this client (its own wake zone, KeepWakeZone): no order and no boss bar about an object the
                 // client has put to sleep; the boss life bar for one crashed the client (live 2026-11-05).
@@ -1277,7 +1277,7 @@ static partial class Game
             if (InGracePeriod(conn)) return null;
             double now = conn.Clock.Elapsed.TotalSeconds;
             var here = conn.Walk.Position(now);
-            foreach (var golem in conn.Golems.All.Values.ToArray())
+            foreach (var golem in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).ToArray())
                 if (!golem.Monster.Dead && Dist(golem.Monster.Walk.Position(now), aim) <= radius)
                     GolemTakeHitLocked(conn, golem, id, m, a, now, area: true);
             double dx = here.X - aim.X, dy = here.Y - aim.Y;
@@ -1401,6 +1401,7 @@ static partial class Game
         int damage = 0, chaosDamage = 0, physicalDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
         int blindedPct = DamageTakenFromBlindedPct(conn, id, stats);
+        double reservationFactor = ReservationHitTakenFactor(conn, m, now);
         foreach (var (type, range) in mitigated.Components)
         {
             int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
@@ -1415,6 +1416,7 @@ static partial class Game
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
             value = (int)Math.Round(value * conn.ElementalAilments.DamageTakenFactor(now,
                     blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && !a.Spell, StatOf))
+                * reservationFactor * ReservationTypedHitTakenFactor(conn, type, now)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
             // belongs to that hit too (as in the synthetic spell-hit path).
@@ -1482,6 +1484,7 @@ static partial class Game
         if (GameServer.Core.World.RandomRolls.Chance(StatOf("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
             m.Ailments.Freeze(1, now, StatOf, name => m.Mods.Effects[name], AilmentArea(StatOf, _ => 0, spell: false));
         AilmentsWhenHitLocked(m, StatOf, blocked, now);
+        ReservationWhenHitLocked(conn, id, m, blocked, now);
         if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
         RecordHardcoreDeath(conn);
         bool spirit = m.Rarity == MonsterRarity.Unique

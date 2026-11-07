@@ -1205,8 +1205,14 @@ static class CommandsFeature
                 $"evasion {evasion} ({conn.Pools.EvasionPct}% increased): {100 - hitChance}% chance to evade " +
                 $"(monster accuracy {monsterAccuracy}, {hitChance}% chance to be hit).");
         })
-        .Add("auras", "/auras (active auras, their reservation and the character's efficiency)", async _ =>
+        .Add("auras", "/auras [off <name|effectId|all>] (list reservations or disable one, including stances)", async args =>
         {
+            if (args.Length > 0)
+            {
+                if (args.Length < 2 || !args[0].Equals("off", StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException("/auras off <name|effectId|all>");
+                await DisableReservations(remote, stream, ciphers, conn, string.Join(' ', args.Skip(1)));
+            }
             List<AuraCatalog.Aura> auras;
             int reserved;
             int maxMana;

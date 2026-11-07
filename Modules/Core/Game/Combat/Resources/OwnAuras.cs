@@ -45,10 +45,11 @@ static partial class Game
     {
         if (conn.Auras.Count == 0) return false;
         lock (conn.Monsters) sources ??= CharacterStatSources(conn).Stats;
-        bool all = OwnAuraRestrictionValue(conn, sources) != 0, spells = !all && SpellsDisabled(conn, sources);
-        var gone = conn.Auras.Values.Where(a => all || spells && CastingSpell(conn, a.Effect)).ToArray();
+        bool all = OwnAuraRestrictionValue(conn, sources) != 0, spells = SpellsDisabled(conn, sources);
+        var gone = conn.Auras.Values.Where(a => all && SkillsFor(conn).IsAura(a.Effect)
+            || spells && CastingSpell(conn, a.Effect)).ToArray();
         if (gone.Length == 0) return false;
-        foreach (var aura in gone) conn.Auras.Remove(aura.SkillId);
+        foreach (var aura in gone) { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
         conn.AuraStatsDirty = true;
         return true;
     }
@@ -73,19 +74,28 @@ static partial class Game
         {
             var available = GemSkillEffects(conn).ToDictionary(g => g.Id, g => g.Effect);
             var gone = conn.Auras.Values.Where(a => InTown(conn)
-                || !available.TryGetValue(a.SkillId, out int effect) || effect != a.Effect).ToArray();
-            foreach (var aura in gone) conn.Auras.Remove(aura.SkillId);
-            foreach (var aura in conn.Auras.Values.Where(a => a.EffectId == "TemporalChains").ToArray())
+                || !available.TryGetValue(a.SkillId, out int effect) || effect != a.Effect
+                || GemSkillInstanceDisabled(conn, a.Effect, a.SkillId) is not null).ToArray();
+            foreach (var aura in gone) { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
+            foreach (var aura in conn.Auras.Values.ToArray())
             {
                 var reservation = SupportedReservation(conn, aura.SkillId);
-                if (reservation is null) { conn.Auras.Remove(aura.SkillId); conn.AuraStatsDirty = true; continue; }
-                var repriced = aura with { ManaFlat = reservation.Value.Flat, ManaPercent = reservation.Value.Percent };
+                if (reservation is null)
+                {
+                    conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura);
+                    conn.AuraStatsDirty = true; continue;
+                }
+                var gem = SupportedSkill(conn, aura.SkillId);
+                var support = AuraSupport(conn, aura.SkillId);
+                var repriced = aura with { ManaFlat = reservation.Value.Flat, ManaPercent = reservation.Value.Percent,
+                    Level = gem.Level, Quality = gem.Quality, SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf };
                 if (repriced == aura) continue;
                 conn.Auras[aura.SkillId] = repriced;
-                if (RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent) > conn.Pools.Mana) conn.Auras.Remove(aura.SkillId);
+                if (RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent) > conn.Pools.Mana)
+                { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
                 conn.AuraStatsDirty = true;
             }
-            if (gone.Length > 0)
+            if (gone.Length > 0 || conn.AuraStatsDirty)
             {
                 conn.AuraStatsDirty = true;
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
@@ -110,6 +120,7 @@ static partial class Game
         // in particular never prefix a creation snapshot with buffs, Stats, Actor or Life updates.
         if (!conn.PlayerObjectCreated && !conn.PlayerSent) return snapshot();
         var packets = new List<byte[]>();
+        packets.Add(ReconcileReceivedAurasLocked(conn));
         bool Same(AuraCatalog.Aura a, AuraCatalog.Aura b) => a.Buff == b.Buff && a.SourceBuff == b.SourceBuff;
         foreach (var old in conn.PresentedAuras.Values)
             if (!conn.Auras.TryGetValue(old.SkillId, out var current) || !Same(old, current))

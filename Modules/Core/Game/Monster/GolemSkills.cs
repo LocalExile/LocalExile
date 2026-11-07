@@ -17,7 +17,19 @@ static partial class Game
                 && name.EndsWith("_damage", StringComparison.Ordinal)) continue;
             values[name] = values.GetValueOrDefault(name) + value;
         }
+        foreach (var (name, value) in golem.Auras) values[name] = values.GetValueOrDefault(name) + value;
         int Get(string n) => GolemStat(player, n);
+        if (!golem.Definition.IsGolem)
+        {
+            values["global_minimum_added_physical_damage"] = values.GetValueOrDefault("global_minimum_added_physical_damage")
+                + Get("non_golem_minion_global_minimum_added_physical_damage");
+            values["global_maximum_added_physical_damage"] = values.GetValueOrDefault("global_maximum_added_physical_damage")
+                + Get("non_golem_minion_global_maximum_added_physical_damage");
+            values["attack_speed_+%"] = values.GetValueOrDefault("attack_speed_+%") + values.GetValueOrDefault("attack_and_cast_speed_+%");
+            values["base_movement_velocity_+%"] = values.GetValueOrDefault("movement_speed_+%") + values.GetValueOrDefault("base_movement_velocity_+%");
+            values.Remove("life_regeneration_rate_per_minute_%");
+            return MonsterModSet.None with { Effects = new(values) };
+        }
         string family = golem.Definition.Kind == "Carrion" ? "bone" : golem.Definition.Kind.ToLowerInvariant();
         values["damage_+%"] = values.GetValueOrDefault("damage_+%") + Get("golem_damage_+%") + Get(family + "_golem_damage_+%")
             + Get("golem_damage_+%_per_active_golem_type") * Math.Max(1, Get("virtual_current_number_of_golem_types"))
@@ -34,17 +46,19 @@ static partial class Game
     static uint GolemMaximumLife(MonsterCatalog.Variety variety, byte level, GolemState.Golem golem, IReadOnlyDictionary<uint, int> player)
     {
         int Own(string name) => GolemStat(golem.Own, name);
-        double increased = GolemStat(player, "minion_maximum_life_+%") + Own("minion_maximum_life_+%") + GolemStat(player, "golem_maximum_life_+%");
+        double increased = GolemStat(player, "minion_maximum_life_+%") + Own("minion_maximum_life_+%")
+            + (golem.Definition.IsGolem ? GolemStat(player, "golem_maximum_life_+%") : 0);
         double more = Math.Max(0, 1 + Own("active_skill_minion_life_+%_final") / 100.0)
             * Math.Max(0, 1 + Own("support_minion_maximum_life_+%_final") / 100.0)
             * Math.Max(0, 1 + Own("support_minion_damage_minion_life_+%_final") / 100.0)
-            * Math.Max(0, 1 + GolemTether(player, "life") / 100.0);
+            * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(player, "life") / 100.0) : 1);
         if (golem.Definition.Kind is "Flame" or "Ice" or "Lightning" && GolemStat(player, "elemental_golems_maximum_life_is_doubled") > 0) more *= 2;
         return (uint)Math.Clamp((Monsters.BaseLife(variety, level) ?? 100) * Math.Max(.01, 1 + increased / 100) * more, 1, int.MaxValue);
     }
 
     static double GolemShield(GolemState.Golem golem, IReadOnlyDictionary<uint, int> player) => golem.Monster is null ? 0
-        : Math.Max(0, GolemStat(player, "minion_maximum_life_%_to_add_as_maximum_energy_shield") / 100.0 * golem.Monster.MaxLife);
+        : Math.Max(0, GolemStat(player, "minion_maximum_life_%_to_add_as_maximum_energy_shield") / 100.0 * golem.Monster.MaxLife
+            + golem.Auras.GetValueOrDefault("base_maximum_energy_shield"));
 
     internal static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
         GolemState.Golem golem, IReadOnlyDictionary<uint, int> player)
@@ -100,7 +114,7 @@ static partial class Game
                 * Math.Max(0, 1 + Own("support_minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Own("minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Raw("active_skill_damage_+%_final") / 100.0)
-                * Math.Max(0, 1 + GolemTether(player, "damage") / 100.0);
+                * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(player, "damage") / 100.0) : 1);
             var types = new HashSet<int>();
             if (spell) types.Add(1); else { types.Add(0); types.Add(19); }
             if (Raw("is_area_damage") != 0) types.Add(7);
@@ -116,7 +130,12 @@ static partial class Game
                     if ((path.History & DamageTypes.HistoryOf(type)) != 0) increase += mods[type.ToString().ToLowerInvariant() + "_damage_+%"];
                 if ((path.History & DamageTypeHistory.Elemental) != 0) increase += mods["elemental_damage_+%"];
                 var (general, typed) = GemSupportDamage.Multipliers(path.History, supportStats, types);
-                modified = modified.Add(path.Type, path.Range.Scale(Math.Max(0, 1 + increase / 100) * more * general * typed));
+                double physicalMore = (path.History & DamageTypeHistory.Physical) != 0
+                    ? Math.Max(0, 1 + Own("active_skill_minion_physical_damage_+%_final") / 100.0) : 1;
+                double auraMore = spell ? Math.Max(0, 1 + mods["spell_damage_aura_spell_damage_+%_final"] / 100.0) : 1;
+                if (spell && (path.History & DamageTypeHistory.Lightning) != 0)
+                    auraMore *= Math.Max(0, 1 + mods["wrath_aura_spell_lightning_damage_+%_final"] / 100.0);
+                modified = modified.Add(path.Type, path.Range.Scale(Math.Max(0, 1 + increase / 100) * more * physicalMore * auraMore * general * typed));
             }
             damage = modified;
             string id = catalog.EffectId(effect) ?? "";
@@ -133,7 +152,7 @@ static partial class Game
             projectile ??= GolemProjectile(effect, catalog);
             var contact = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, level, projectile);
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
-                (GolemStat(player, "minion_cooldown_recovery_+%") + GolemStat(player, "golem_skill_cooldown_recovery_+%") + Own("minion_cooldown_recovery_+%")) / 100.0);
+                (GolemStat(player, "minion_cooldown_recovery_+%") + (golem.Definition.IsGolem ? GolemStat(player, "golem_skill_cooldown_recovery_+%") : 0) + Own("minion_cooldown_recovery_+%")) / 100.0);
             result.Add(new(effect, skill, id, attack, raw, radius, cd, Math.Max(1, catalog.CooldownUses(effect, skillLevel)),
                 Math.Clamp(contact?.Fraction ?? .5, .05, 1), projectile, crit));
         }
@@ -176,10 +195,12 @@ static partial class Game
 
     static void RefreshGolemLocked(ClientState conn, GolemState.Golem golem, IReadOnlyDictionary<uint, int> player)
     {
+        golem.Auras = MinionAuraStats(conn, golem);
         var hash = new HashCode();
         foreach (var p in player.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         foreach (var p in golem.Own.OrderBy(p => p.Key)) hash.Add(p);
+        foreach (var p in golem.Auras.OrderBy(p => p.Key)) hash.Add(p);
         int input = hash.ToHashCode();
         if (input == golem.InputHash) return;
         golem.InputHash = input;
