@@ -1000,16 +1000,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Discipline's ordinary ES pool and recharge are verified separately above; conditional effects remain partial.
   Reservation overflow is refused.
   See [11](../docs/protocol/11-skills.md) section 13.
-- Flesh and Stone (#471, 2026-11-05, not checked live): the aura now activates (it was refused as an unimplemented
-  effect) and alternates its stance on every activation, the skill's own description: Blood Stance's BuffDefinitions row
-  1308 for 1309, with `NextFleshAndStoneStance` flipping when the aura starts. Blood Stance gives the monsters within the
-  aura radius the data's increased Physical Damage taken, full beside the player and falling off with distance, on the
-  physical share only (`SpawnedMonster.TakenFromPlayer.Physical`, read by `MonsterTakesMitigated` and `MonsterDotTaken`).
-  Sand Stance blinds the monsters within the same radius (the passive blind aura's mechanism, whichever radius is
-  larger) and adds the data's Sand Stance damage-taken reduction to the player's `base_damage_taken_+%`. Local rules, not
-  the official ones: the reduction is applied at its full value (the data scales it by the attacker's distance), Maim is
-  not modelled (monsters have no movement-speed slow) and the skill's 2 s cooldown is the client's own. Two Gateway
-  tests cover the registration, the stance rows and both effects.
+- Flesh and Stone and Blood and Sand share a persisted stance: recasting switches both without releasing reservation;
+  `/auras off <name|effectId|all>` explicitly disables them. Blood and Sand modifies melee area damage and area.
+  Flesh and Stone uses the current gem's distance-dependent more physical hit damage / less incoming hit damage;
+  the obsolete blind, global reduced-damage and physical-DoT bonuses are removed. Native stance switching and off passed.
   Code: `AuraCatalog` (`FleshAndStone*`, `RawStats`), `Game.ToggleAura` / `EnemyDebuffsTick`, `MonsterMods`.
 - Passive-granted skills: a passive's `GrantedEffectsPerLevel` skill joins the gem skills at the row's fixed level,
   with a stable id, no supports, quality 0 and no requirements; it casts, reserves, saves and ends like a gem's.
@@ -1023,7 +1017,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   hits/projectiles. Golems follow, scale with gem level/quality and supports, grant their distinct owner buffs and save
   activation across areas. Local rule: each activated golem returns two game seconds after death while its source is
   usable. All variants summoned in the real client; ordinary combat, buffs and repeated returns checked live.
-  Partial: exact official AI priorities, some support interactions, party buff sharing and bespoke boss damage.
+  Nearby ordinary auras now affect owned fighters. Partial: exact official AI priorities, some support interactions,
+  sharing golem owner buffs with other players and bespoke boss damage.
   See [11](../docs/protocol/11-skills.md) section 10h; relics remain in section 13 and [Paladin](../docs/game/paladin.md).
 - Link skills: Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link link one of the player's minions when
   he has `link_skills_can_target_minions` (Deep Connections); with no party play there is nothing else to link.
@@ -1170,8 +1165,13 @@ This is a research baseline, not new live skill acceptance or complete native/se
   death cleared both.
   The skill-bar active frame and rotating circle now receive the buff's skill id/action hash association (0x1c1 bit3),
   including area-entry restoration; automated checks pass, live icon verification pending.
-  Not modelled: Heralds, banners, curse auras, unsupported conditional effects, Purity ailment immunity, Reservation
-  masteries 1/2/6, supports, party/minion auras and life reservation
+  Permanent spell buffs, five heralds, Skitterbots and Temporal Rift share source/reservation reconciliation.
+  Purity grants elemental-ailment immunity; Arctic Armour gives stationary hit mitigation, freeze immunity and chilled
+  trail; Tempest Shield grants shield spell block, shock immunity and block retaliation. Herald kill/poison procs use
+  the ordinary damage/minion pipeline. Temporal Rift recalls position/resources from four seconds ago, with native proof.
+  Nearby player auras reach allies and controlled fighters using caster effect; duplicate families select each stat's
+  strongest value. Unsupported curse/banner/Vaal executors and Life reservation remain open; Skitterbot trap/mine
+  triggering needs the placed-skill framework, and Agony's retail Virulence decay curve remains unverified.
   ([11](../docs/protocol/11-skills.md) 13).
 - **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
   a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit

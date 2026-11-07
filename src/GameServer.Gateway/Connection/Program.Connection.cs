@@ -550,6 +550,7 @@ partial class Program
     // short gate. Send's gate orders the packets and runs their state callbacks; it never holds this one while waiting.
     internal static async Task Write(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes)
     {
+        if (ControlledPlayers.IsTransport(ciphers)) return;
         var wire = WireGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
         var performance = MetricsFor(ciphers);
         long waitingAt = Stopwatch.GetTimestamp();

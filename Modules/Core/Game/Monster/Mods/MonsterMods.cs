@@ -112,7 +112,8 @@ static partial class Game
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true);
         // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
         // physical part only, never to the elemental share's fallback factor.
-        double physicalFactor = 1 + (Math.Max(0, m.PridePhysicalMore) + Math.Max(0, m.TakenFromPlayer.Physical)) / 100.0;
+        double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
+            * (1 + Math.Max(0, m.TakenFromPlayer.Physical) / 100.0);
         return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
             + physicalTaken * factor * (physicalFactor - 1));
     }
@@ -182,8 +183,7 @@ static partial class Game
         // Pride's more damage, the Maim support's increased physical damage taken and Flesh and Stone's Blood Stance
         // all apply to the physical part only.
         if (type == DamageType.Physical)
-            factor *= 1 + (Math.Max(0, m.PridePhysicalMore) + MaimedPhysicalTaken(m, now)
-                + Math.Max(0, m.TakenFromPlayer.Physical)) / 100.0;
+            factor *= (1 + Math.Max(0, m.PridePhysicalMore) / 100.0) * (1 + MaimedPhysicalTaken(m, now) / 100.0);
         return factor;
     }
 

@@ -31,23 +31,33 @@ static partial class Game
     // Restoring an already enabled aura is not a fresh cast: transient mana availability must not discard its saved intent.
     internal static IReadOnlyList<AuraCatalog.Aura> RestoreRememberedAuras(ClientState conn, IEnumerable<string> saved)
     {
-        if (conn.Closed || conn.LeavingArea || conn.RageRetired || InTown(conn) || OwnAuraRestrictionValue(conn) != 0) return [];
+        if (conn.Closed || conn.LeavingArea || conn.RageRetired || InTown(conn)) return [];
         var wanted = saved.Select(AuraCatalog.Family).ToHashSet(StringComparer.Ordinal);
+        conn.Stance = CharacterSaves.Load(CharacterName(conn))?.Stance == "Sand" ? "Sand" : "Blood";
         var candidates = new List<AuraCatalog.Aura>();
         foreach (var gem in GemSkillEffects(conn))
             if (SkillsFor(conn).EffectId(gem.Effect) is { } effect && wanted.Contains(AuraCatalog.Family(effect)) && AuraCatalog.Supported(effect)
                 && !conn.Auras.Values.Any(a => AuraCatalog.Family(a.EffectId) == AuraCatalog.Family(effect))
                 && GemSkillInstanceDisabled(conn, gem.Effect, gem.Id) is null
+                && !OwnAuraSkillRestricted(conn, gem.Effect, gem.Id)
                 && SupportedReservation(conn, gem.Id) is { } reservation)
             {
                 var supported = SupportedSkill(conn, gem.Id);
                 var (supportEffect, affectsSelf) = AuraSupport(conn, gem.Id);
-                candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.NextBuff++, AuraCatalog.BuffRow(effect),
-                    reservation.Flat, reservation.Percent, supported.Level, supported.Quality, SourceBuff: conn.NextBuff++,
-                    SupportEffectPct: supportEffect, AffectsSelf: affectsSelf));
+                string? stance = AuraCatalog.IsStance(effect) ? conn.Stance : null;
+                candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.NextBuff++, AuraCatalog.BuffRow(effect, stance),
+                    reservation.Flat, reservation.Percent, supported.Level, supported.Quality,
+                    SourceBuff: SkillsFor(conn).IsAura(gem.Effect) ? conn.NextBuff++ : null,
+                    SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance));
             }
-        var restored = AuraCatalog.Restore(saved, candidates, conn.Pools, InTown(conn));
-        foreach (var aura in restored) conn.Auras[aura.SkillId] = aura;
+        var restored = new List<AuraCatalog.Aura>();
+        foreach (var aura in AuraCatalog.Restore(saved, candidates, conn.Pools, InTown(conn)))
+        {
+            conn.Auras[aura.SkillId] = aura;
+            if (RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent) > conn.Pools.Mana)
+                conn.Auras.Remove(aura.SkillId);
+            else restored.Add(aura);
+        }
         if (restored.Count > 0)
         {
             conn.AuraStatsDirty = true;
@@ -518,6 +528,11 @@ static partial class Game
             // Chieftain stays outside: its minion follows its published state.
             bool current = await Program.SendBatched(remote, stream, ciphers, async () =>
             {
+                // A stationary, full-resource ally may otherwise send no stats or mana at all.
+                // Reconcile shared auras on the periodic gate too, so entry/exit never needs another action.
+                if (conn.Auras.Count > 0 || conn.ReceivedAuras.Count > 0 || conn.AuraStatsDirty
+                    || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0))
+                    await SendOwnAuraChanges(remote, stream, ciphers, conn);
                 await SendAntiquarian(remote, stream, ciphers, conn);
                 await SendKillOnslaught(remote, stream, ciphers, conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return false;

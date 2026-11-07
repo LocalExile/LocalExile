@@ -2893,11 +2893,11 @@ failed I/O, allocation limits, actual official values and every skill's successf
   hostile living monster within its radius of the living player (0x1c1, the player as source) and comes off (0x1c2)
   when it leaves, dies, the node goes or the player dies; the blind aura shows the `blinded` buff instead (§12,
   Passive blind aura).
-- **Pride's enemy buff** (BuffDefinitions 1331 `player_physical_damage_aura`) carries fifteen u32 values before its
-  counted list: the reader (`0x141fdf870`) takes them whatever the message holds (a probe on its stream reads, live
-  2026-11-05), although the vendored schema shows `IsRecovery` unset (`__col25` set) and three GrantedStats.
-  With fewer, the client read the next message's bytes as values and its count, and showed "Unable to deserialise
-  packet with pid … Last PID was 449" (0x1c1) when a monster walked into the aura. Ours sends the ramp, then zeros.
+- **Pride's enemy buff** (BuffDefinitions 1331 `player_physical_damage_aura`) sends no stat-value words. A read-only
+  probe of the running 3.29.3b client (2026-11-07) found `row+0x7c=0`, `row+0x7d=1`, and three entries at `row+0xdc`.
+  The native `0x141fdf870` instructions test only `+0x7c` before reading value words; `+0x7d` is not this predicate.
+  The earlier fifteen-word interpretation was incorrect. The counted list immediately follows the optional header;
+  gameplay's Pride ramp is computed on the server.
 - **Taunt** (`TauntLocked`). Every warcry taunts the hostile monsters within its radius when its cast ends (wiki
   Warcry: base radius 6 m, 60 cells, grown by area of effect), the Basalt Flask within its 30 cells. 3 s (wiki
   Taunt), raised by `taunt_duration_+%`; a new taunt replaces the player's older one; a death of the monster or the
@@ -3097,6 +3097,15 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
    **Correction to the earlier notes:** 0x25f in `0x140ae1130`/`0x140ae4550` refers to Elemental
    Overload (BuffDefinitions row 606, returned one-based by `0x142454bd0`), not an aura UI event or a
    network opcode. Sending a standalone 0x25f packet is invalid and is not needed for aura indicators.
+  Tempest Shield (row 112, `TempestShieldBuff`) additionally requires a two-word counted list: art variation,
+  alternate-shield flag. `0x1417a4380` dereferences `Buff+0x80` and its second word before any length check;
+  `0x1417a4de0` passes the first word to MiscEffectPacks variation lookup. Empty-list activation reproduced
+  an access violation at `0x1417a43cf`. The base shield visual uses `[0, 0]`.
+
+  Temporal Rift (row 1915, `ChronomancerBuff`) also dereferences its list immediately: `0x141f7c8b0`
+  allocates the sample ring from word 0, and `0x141f7c9e0` reads the interval in milliseconds from word 1.
+  An empty list reproduced an access violation at `0x141f7c8e1`. The server uses `[42, 100]`, retaining
+  41 samples over four seconds; these sampling parameters are server choices, not captured retail traffic.
 - **Implemented effects.** Purity of Elements/Fire/Ice/Lightning add their resistances; Clarity and Vitality
   add their flat regeneration; Precision adds flat accuracy and increased critical strike chance; Haste adds
   attack, cast and movement speed. Generic

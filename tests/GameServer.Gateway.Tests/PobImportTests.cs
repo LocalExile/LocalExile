@@ -17,8 +17,7 @@ public sealed class PobImportTests
     static CharacterBuildImports.Prepared Plan(Character record, CharacterSaves.Save save) =>
         new(record.Id, record.AccountId, record.League, CharacterClass.Templar, 90, save, "test", []);
 
-    [Fact]
-    public void Confirmation_is_single_use_expires_and_cannot_reuse_a_cancelled_or_replaced_build()
+    void Confirmation_is_single_use_expires_and_cannot_reuse_a_cancelled_or_replaced_build()
     {
         var clock = new Clock();
         var session = new CharacterBuildImports.Session(clock);
@@ -49,6 +48,7 @@ public sealed class PobImportTests
     [Fact]
     public void Apply_is_atomic_merges_latest_unrelated_progress_and_retires_old_inventory_writers()
     {
+        Confirmation_is_single_use_expires_and_cannot_reuse_a_cancelled_or_replaced_build();
         string path = Path.Combine(Path.GetTempPath(), $"pob-import-{Guid.NewGuid():N}.db");
         Saves.Open(path);
         var record = new Character(Guid.NewGuid(), Guid.NewGuid(), "PobAtomic", CharacterClass.Witch, 10,
@@ -63,24 +63,36 @@ public sealed class PobImportTests
             var latest = new CharacterSaves.Save(new()
             {
                 [0] = [new(901, 1, 1, old)], [2] = [new(902, 0, 0, old)],
-            }, Experience: 42, QuestFlags: ["KeepMe"], PortalCosmetic: 3, ModuleData: new() { ["keep"] = "new" });
+            }, Experience: 42, QuestFlags: ["KeepMe"], PortalCosmetic: 3, PetrifiedBlood: true,
+                ModuleData: new() { ["keep"] = "new", ["Game.Golems"] = "old source" });
             CharacterSaves.Write(record.Name, latest);
             var cached = PlayerInventories.For(record.Name, catalog);
             var proposed = new CharacterSaves.Save(new() { [2] = [new(1, 0, 0, old)] }, Experience: 1234,
                 Passives: [10, 20]);
             var plan = Plan(record, proposed);
+            CharacterEquipmentState.Inactive[record.Name] = [902];
+            var oldGemIds = GemSkillIds.ByCharacter.GetOrAdd(record.Name, _ => new());
+            oldGemIds.Assign([new(902, 0, 12)], [0x4000, 0x4001]);
             string before = JsonSerializer.Serialize(CharacterSaves.Load(record.Name));
             Saves.FailWrite = key => key == record.Name;
             Assert.Throws<IOException>(() => CharacterBuildImports.Apply(plan));
             Assert.Equal(before, JsonSerializer.Serialize(CharacterSaves.Load(record.Name)));
             Assert.Equal(record, accounts.GetCharacter(record.Id));
+            Assert.Contains(902u, CharacterEquipmentState.Inactive[record.Name]);
+            Assert.Same(oldGemIds, GemSkillIds.ByCharacter[record.Name]);
             Saves.FailWrite = null;
             CharacterBuildImports.Apply(plan);
+            Assert.False(CharacterEquipmentState.Inactive.ContainsKey(record.Name));
+            Assert.False(GemSkillIds.ByCharacter.ContainsKey(record.Name));
+            Assert.Equal((ushort?)0x4000, GemSkillIds.ByCharacter.GetOrAdd(record.Name, _ => new())
+                .Assign([new(902, 0, 13)], [0x4000, 0x4001]).Single());
             var saved = CharacterSaves.Load(record.Name)!;
             Assert.Equal([901u], saved.Inventories[0].Select(i => i.Id));
             Assert.Equal([902u], saved.Inventories[2].Select(i => i.Id));
             Assert.Equal(latest.QuestFlags, saved.QuestFlags);
             Assert.Equal("new", saved.ModuleData!["keep"]);
+            Assert.False(saved.ModuleData.ContainsKey("Game.Golems"));
+            Assert.Null(saved.PetrifiedBlood);
             Assert.Equal(latest.PortalCosmetic, saved.PortalCosmetic);
             Assert.Equal(1234u, saved.Experience);
             Assert.Equal(CharacterClass.Templar, accounts.GetCharacter(record.Id)!.Class);
@@ -90,11 +102,39 @@ public sealed class PobImportTests
             cached.SaveUnsaved();
             Assert.Equal(0, CharacterSaves.Load(record.Name)!.Inventories[2][0].Item.Quality);
             Assert.Throws<InvalidDataException>(() => CharacterBuildImports.Apply(plan with { AccountId = Guid.NewGuid() }));
+
+            // An imported item may legitimately sustain its own requirement once equipped. Reusing the id of an
+            // inactive old item must not require allocating a temporary Strength node to wake the new build up.
+            var glovesType = catalog.All.First(t => t.Class == "Gloves" && t.Supported && t.DropLevel < 80
+                && catalog.Requirements(t) is { Str: > 14 and < 40, Dex: 0, Int: 0 });
+            var strength = catalog.Mods.All.First(m => m.Domain == 1 && m.GenerationType == 2 && m.Level < 80
+                && m.Stats.Count == 1 && m.Stats[0].Id == "additional_strength" && m.RangeAt(0).Max >= 40);
+            int addedStrength = strength.RangeAt(0).Max;
+            var fireball = ItemCatalog.Create(catalog.All.First(t => t.Name == "Fireball"));
+            var gloves = ItemCatalog.Create(glovesType) with { Rarity = ItemRarity.Rare,
+                Mods = [new(ModSection.Explicit, strength.Hash, [addedStrength])],
+                Sockets = [new(SocketColour.White, fireball)], Links = [1] };
+            var ready = new CharacterSaves.Save(new() { [8] = [new(1, 0, 0, CharacterSaves.ToSaved(gloves, catalog.Mods))] },
+                Experience: CharacterStats.ExperienceFor(90), Passives: []);
+            CharacterEquipmentState.Inactive[record.Name] = [902];
+            CharacterBuildImports.Apply(Plan(record, ready) with { Class = CharacterClass.Witch });
+            int row = Program.Skills.RowOfClass((int)CharacterClass.Witch);
+            var admitted = new ClientState(new(1, "pob-readiness", 1000, 1000, 100, 100, null, []), 1, 1)
+            { Character = record.Name, CharacterId = record.Id, ClassRow = row,
+                Pools = CharacterStats.For(Program.Skills.ClassFor(row), 90) };
+            Game.PrepareCharacterForArea("test", admitted, 90);
+            Assert.Empty(admitted.PlayerStats); // No developer attribute overrides or extra passive allocation.
+            Assert.Empty(CharacterEquipmentState.Inactive[record.Name]);
+            Assert.Equal(Program.Skills.ClassFor(row).Strength + addedStrength, (int)admitted.Pools.Strength);
+            var importedSkill = Game.GemSkillEffects(admitted).Single(g => g.Name == "Fireball");
+            Assert.True(Game.SupportedSkill(admitted, importedSkill.Id).RequirementsMet);
+            Assert.True(Game.SupportedHitFor(admitted, importedSkill.Id, suppress: false).MaxTotal > 0);
         }
         finally
         {
             Saves.FailWrite = null;
             PlayerInventories.Forget(record.Name);
+            CharacterEquipmentState.Replaced(record.Name);
             TestEnvironment.ReleaseSaves(path);
         }
     }

@@ -138,6 +138,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
     public uint? SummonerId;
     public bool NoRewards;
+    public int Overkill;
+    public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
     public double RampageBlindUntil;
     public int StunSerial;
@@ -312,6 +314,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
     internal readonly CharacterBuildImports.Session BuildImport = new();
     internal bool BuildFinalized;
+    internal bool Controlled, ControlledPrepared;
+    internal double ControlledNextAction, ControlledDeadSince = double.NaN;
     public AreaLayout Layout { get; private set; } = layout;
     public uint Ticket => ticket;
     public uint Seed => seed;
@@ -644,7 +648,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool AuraStatsDirty;
     /// <summary>The stance the next Flesh and Stone activation starts in ("Blood" or "Sand"): the skill alternates on each
     /// use, and the stance flips when the aura starts (Game.ToggleAura), not when it ends.</summary>
-    public string NextFleshAndStoneStance = "Blood";
+    public string Stance = "Blood";
     public bool PlayerObjectCreated;
     // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Guarded by the Monsters lock.
     public readonly Dictionary<int, double> SkillReadyAt = [];

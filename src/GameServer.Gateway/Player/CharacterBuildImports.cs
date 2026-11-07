@@ -41,6 +41,7 @@ static class CharacterBuildImports
     // Called after all old-session writers and leaving hooks, while the instance socket is still open.
     internal static void Apply(Prepared plan)
     {
+        string? replaced = null;
         Saves.Atomically(() =>
         {
             var accounts = new SqliteAccountStore(Saves.Db);
@@ -52,9 +53,12 @@ static class CharacterBuildImports
             Saves.Db.SetMeta($"pob-backup/{record.Id:N}/{Guid.NewGuid():N}", JsonSerializer.Serialize(new { Record = record, Save = current }));
             CharacterSaves.Write(record.Name, merged);
             accounts.UpdateCharacter(record with { Class = plan.Class, Level = plan.Level });
+            replaced = record.Name;
             CharacterSaves.ForgetExperience(record.Name);
             PlayerInventories.Invalidate(record.Name);
         });
+        // A rollback leaves the old build and all its derived identities intact.
+        CharacterEquipmentState.Replaced(replaced!);
     }
 
     internal static CharacterSaves.Save Merge(CharacterSaves.Save current, CharacterSaves.Save build)
@@ -70,7 +74,9 @@ static class CharacterBuildImports
             MasteryEffects = build.MasteryEffects, Tattoos = build.Tattoos, TattooKeystones = build.TattooKeystones,
             ExtraPassivePoints = build.ExtraPassivePoints, ClusterPassives = build.ClusterPassives, MainAscendancy = build.MainAscendancy,
             PantheonMajor = build.PantheonMajor, PantheonMinor = build.PantheonMinor,
-            ActiveAuras = null, Life = null, Mana = null, VitalsOwner = null, Tutorial = null, StartWeapon = null,
+            ActiveAuras = null, PetrifiedBlood = null, Stance = null,
+            ModuleData = current.ModuleData?.Where(kv => kv.Key != "Game.Golems").ToDictionary(kv => kv.Key, kv => kv.Value),
+            Life = null, Mana = null, VitalsOwner = null, Tutorial = null, StartWeapon = null,
             AttackInPlaceSlots = null, SkillBarMask52 = null,
         };
     }

@@ -70,7 +70,7 @@ static class CharacterSaves
         Dictionary<ushort, ushort>? TattooKeystones = null, List<List<ushort>>? AtlasPassivePresets = null,
         ushort? AtlasPassivePoints = null, string? SelectedAtlasLayout = null, Dictionary<string, string>? ModuleData = null,
         List<string>? QuestRefundsCredited = null, string? PantheonMajor = null, string? PantheonMinor = null,
-        ushort? AttackInPlaceSlots = null, ushort? SkillBarMask52 = null)
+        ushort? AttackInPlaceSlots = null, ushort? SkillBarMask52 = null, string? Stance = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -187,6 +187,7 @@ static class CharacterSaves
         && HardcoreDeathRules.TicketMatches(current, characterId, league);
 
     public static void ClearActiveAuras(string character) => Update(character, save => save with { ActiveAuras = [] });
+    public static void SetStance(string character, string stance) => Update(character, save => save with { Stance = stance });
 
     /// <summary>Persist aura intent by stable GrantedEffects Id, replacing any alias of the same aura family.</summary>
     public static void SetAuraActive(string character, string effect, bool active) => Update(character, save =>

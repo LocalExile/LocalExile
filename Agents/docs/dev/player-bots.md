@@ -56,8 +56,11 @@ does not know is deleted, and no other account ever is, whatever its name.
 - **Stance**: the client picks an actor's animation set (`FUN_141e97190`: `"Town"` in a town or with `use_town_stance`,
   else the weapon's) when its Inventories component changes, not when the object is created (Frida, 2026-11-01).
   An observer therefore gets the peer's equipment (0x2ba) right after creating it, for the town stance (not yet verified live).
+- **Party kick**: the native member-menu action sends C→S `0x94` with a compact wide string containing the selected
+  account (`0x140aba4c0`), not `0x97` (promote leader). Confirmed through the actual party portrait menu.
 
 ## Not done yet
 
-Bots do not fight, loot, craft or trade for real: quests are timed, and the log tells what such a quest would hold.
-They do not chat or join parties.
+Party combat uses the ordinary player pipeline; offscreen quests, loot and crafting remain simulated.
+Trading, chat and advanced tactical/ascendancy builds remain open. Current implementation status is in
+[NPCs and chat](../../status/npcs-and-chat.md).

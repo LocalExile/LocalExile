@@ -218,6 +218,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Optional POB module imports builds after confirmation; transformed weapons and hybrid gems retain native data.
+  Atomic replacement retires inactive-equipment and skill identities only after commit, so reused item ids apply
+  imported attributes and usable gems immediately; old aura/stance/golem intent is cleared, unrelated progress retained.
   See [module documentation](../../Modules/POB/README.md).
 
 - **On-kill explosions and attribute damage reduction (implemented 2026-11-04; native behavior checked with the

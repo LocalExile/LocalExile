@@ -413,7 +413,7 @@ static partial class Game
             if (Stats.Key("life_regeneration_rate_per_minute") is uint lr) extra[lr] = (int)Math.Min(int.MaxValue, (long)conn.Pools.Life * GodLifeRegenPctPerSecond / 100 * 60);
         }
         List<AuraCatalog.Aura> auras;
-        lock (conn.Monsters) auras = [.. conn.Auras.Values];
+        lock (conn.Monsters) auras = AffectingAuras(conn);
         foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), conn.Pools.AuraEffectPct, SkillsFor(conn), Stats).Concat(MinionAuraStats(conn, auras)))
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, extra, Stats).ToList())

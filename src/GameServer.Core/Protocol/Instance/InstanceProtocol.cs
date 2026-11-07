@@ -522,7 +522,7 @@ public static class InstanceProtocol
                 : id == InstanceStash.SetAffinitiesId ? InstanceStash.SetAffinitiesLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceNpcs.CtrlBuyId ? InstanceNpcs.CtrlBuyLength(data[pos..]) ?? int.MaxValue
                 : id is InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitMenagerieId ? InstanceWaypoints.VisitHideoutLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceSocial.PartyInviteId ? InstanceSocial.PartyInviteLength(data[pos..]) ?? int.MaxValue
+                : id is InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId ? InstanceSocial.PartyInviteLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceTransfer.LeaveAreaAckId ? InstanceTransfer.LeaveAreaAckLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceSocial.FriendAddId ? InstanceSocial.FriendAddLength(data[pos..]) ?? int.MaxValue : KnownClientLength(id);
             if (known is not int len) { unknown = data[pos..].ToArray(); break; }

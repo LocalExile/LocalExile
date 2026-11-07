@@ -4,7 +4,7 @@ using System.Text.Json;
 sealed class GolemCatalog(string folder = "data")
 {
     internal sealed record Definition(int Effect, string Id, string Kind, string Variety, ushort Buff,
-        IReadOnlyList<(string Source, string Target)> BuffStats, bool Hordes, bool Special);
+        IReadOnlyList<(string Source, string Target)> BuffStats, bool Hordes, bool Special, bool IsGolem = true);
 
     readonly Lazy<IReadOnlyDictionary<string, Definition>> definitions = new(() => Load(folder));
     readonly Lazy<Scaling> scaling = new(() => new(folder));

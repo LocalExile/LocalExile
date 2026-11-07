@@ -203,7 +203,7 @@ static partial class Game
         IReadOnlyDictionary<string, bool> conditionFlags;
         lock (conn.Monsters)
         {
-            auraEffects = StatConditions.AuraSet(conn.Auras.Values.Select(a => a.EffectId));
+            auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId));
             conditionNow = conn.Clock.Elapsed.TotalSeconds;
             recentEvents = conn.RecentEvents.Snapshot(conditionNow);
             recentExpiry = conn.RecentEvents.NextExpiry(conditionNow);
@@ -717,7 +717,7 @@ static partial class Game
             BodyEnergyShield = converted.EnergyShield == 0 ? 0 : body.EnergyShield,
         };
         List<AuraCatalog.Aura> auras;
-        lock (conn.Monsters) auras = [.. conn.Auras.Values];
+        lock (conn.Monsters) auras = AffectingAuras(conn);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(conn), Stats);
         // Match CharacterPlayerStats: a dev value replaces the complete raw passive/equipment/aura input.
         // Read raw replacements once, preserving independent mana and incoming-hit consumers.
@@ -813,6 +813,8 @@ static partial class Game
             CriticalStrikeChancePct = attackIncrease,
             SpellCriticalStrikeChancePct = spellIncrease,
             AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct,
+            SpellBlockChance = bonus.SpellBlockChance + (activeWeapon.Shield
+                ? auras.Where(a => a.EffectId == "TempestShield").Select(a => ReservationStat(conn, a, "shield_spell_block_%")).DefaultIfEmpty(0).Max() : 0),
             MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(conn)
         };
         // Running utility flasks and Mageblood's permanent ones combined before one strongest-per-effect pass: the same

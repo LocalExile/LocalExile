@@ -65,6 +65,7 @@ static partial class Game
         double perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
         double seconds = settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]);
         for (int i = 0; i < stacks; i++) target.Poisons.Add(now, perSecond, seconds);
+        ReservationPoisonLocked(conn, now);
     }
 
     internal static async Task TickPoisons(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
