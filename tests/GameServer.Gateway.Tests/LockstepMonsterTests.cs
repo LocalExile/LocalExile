@@ -137,7 +137,8 @@ public class LockstepMonsterTests : IDisposable
         hurtConn.LockstepFrame = (1.023, 1.056);
         lock (hurtConn.Monsters)
         {
-            Assert.NotNull(HitReaction.TryFlinch(hurt, 10, 1.024, new Random(1)));
+            // This scenario fixes the native recovery duration; the server's stun formula is tested separately.
+            hurt.FlinchUntil = 2.024;
             Game.TakeHitPacket(hurtConn, 0x3000, hurt, hurt.FlinchUntil, 1.024);   // its send gate
         }
         Assert.Equal(1.023 + 32 * 0.033, hurt.FlinchUntil, 9);
@@ -440,6 +441,7 @@ public class LockstepMonsterTests : IDisposable
         // whose searches set up those walks: their search timers run from then (0x141e7bfb0)
         (left.ClientChaseTimerFrom, frozenWalker.ClientChaseTimerFrom) = (0.5, 0.5);
         var plan = Game.PlanMonsterAi(held, new MonsterAiCadence(), now: 1.0);
+        Assert.Empty(plan.EndedActions);
         Assert.Empty(plan.Moves);
         Assert.Equal((218, 100), left.Walk.Destination);
         Assert.True(left.Walk.Moving(1.5));
@@ -464,6 +466,7 @@ public class LockstepMonsterTests : IDisposable
         var predictive = Connection(lockstep: false);
         var (gone, stopped) = Pair(predictive, frames: false);
         var relayPlan = Game.PlanMonsterAi(predictive, new MonsterAiCadence(), now: 1.0);
+        Assert.Equal(new uint[] { 0x3000 }, relayPlan.EndedActions);
         var moves = relayPlan.Moves;
         Assert.Equal([(0x3000u, "gives up"), (0x3001u, "is frozen")], moves.Select(mv => (mv.Id, mv.Why)).Order());
         Assert.Equal(moves.Single(mv => mv.Id == 0x3000u).To, gone.Walk.Destination);

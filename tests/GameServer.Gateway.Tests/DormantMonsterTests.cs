@@ -125,6 +125,47 @@ public class DormantMonsterTests
                 }
             }
         }
+
+        // Both connections retain the same dormant roster and watch when the instance runner leaves.
+        var instance = new InstanceState();
+        var firstClient = new ClientState(new(1, "shared-dormant", 300, 300, 100, 100, null, []), 1, 1)
+        {
+            Instance = instance, PlayerSent = true, PlayerLife = 100,
+        };
+        var secondClient = new ClientState(new(1, "shared-dormant", 300, 300, 100, 100, null, []), 1, 1)
+        {
+            Instance = instance,
+        };
+        instance.PublishPlayer(new(firstClient.PeerId, 7, new("Peer", 1, 80, 80, 100, 100),
+            80, 80, 100, firstClient));
+        var sharedBody = Body(53, 50);
+        lock (firstClient.Monsters)
+        {
+            Assert.Same(firstClient.Monsters, secondClient.Monsters);
+            Assert.Same(firstClient.DormantMonsters, secondClient.DormantMonsters);
+            MonsterEmerge.AddLocked(firstClient, 0x303f, sharedBody, EmergeKind.Buried, unrisen: true);
+            Assert.Same(sharedBody, Assert.Single(MonsterEmerge.Buried(secondClient)).Value);
+            using (var frame = secondClient.BeginMonsterBlockerFrame(0))
+                Assert.DoesNotContain(new ClientPathfinder.Blocker(53, 50, 2), frame.ForPlayer);
+            secondClient.MonsterViews[0x303f] = new((53, 50), (53, 50), sharedBody.Life);
+            using (var frame = secondClient.BeginMonsterBlockerFrame(0))
+            {
+                Assert.Contains(new ClientPathfinder.Blocker(53, 50, 2), frame.ForPlayer);
+                Assert.Contains(new ClientPathfinder.Blocker(80, 80, LivingCollision.PlayerSize), frame.ForPlayer);
+            }
+            Assert.True(MonsterEmerge.Unwatched(secondClient));
+            Assert.True(MonsterEmerge.StartWatch(firstClient));
+            Assert.False(MonsterEmerge.Unwatched(secondClient));
+            firstClient.Closed = true;
+            MonsterEmerge.StopWatch(firstClient);
+            Assert.True(MonsterEmerge.Unwatched(secondClient));
+            Assert.True(MonsterEmerge.StartWatch(secondClient));
+            Assert.Same(sharedBody, Assert.Single(new MonsterEmerge().RiseLocked(secondClient, (50, 50), 1, out bool watching)).Monster);
+            Assert.False(watching);
+            Assert.Empty(firstClient.DormantMonsters);
+            Assert.Same(sharedBody, firstClient.Monsters[0x303f]);
+            Assert.False(MonsterEmerge.Unwatched(firstClient));
+        }
     }
 
     [Fact]
@@ -133,6 +174,8 @@ public class DormantMonsterTests
         string database = Path.Combine(Path.GetTempPath(), $"localexile-monster-restore-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
         var previousLifetime = Game.CombatLifetime;
+        var previousOutgoing = Program.Outgoing;
+        ClientState? peer = null;
         var lifetime = new ModuleLifetime("Game");
         var conn = new ClientState(new(1, "restore-cells", 300, 300, 100, 100, null, []), 1, 1)
         {
@@ -189,10 +232,100 @@ public class DormantMonsterTests
             uint fresh = await Game.SpawnMonster("restore-cells", stream, ciphers, conn, variety, 1,
                 MonsterRarity.Normal, 50, 50, log: false, mods: MonsterModSet.None, unrisen: false);
             Assert.NotEqual((50, 50), conn.Monsters[fresh].Walk.Position(0));
+
+            // A later client receives the still-buried create before that body joins its collision view. Capture
+            // the real send bytes before encryption so the entire initial Transitionable state is checked too.
+            var peerCiphers = new ConnectionCiphers(new byte[64], isClient: false);
+            var sent = new List<byte[]>();
+            Program.Outgoing = (wire, bytes) =>
+            {
+                if (ReferenceEquals(wire, peerCiphers)) sent.Add((byte[])bytes.Clone());
+            };
+            peer = new ClientState(new(1, "restore-cells", 300, 300, 100, 100, null, []), 1, 1)
+            {
+                Instance = conn.Instance, Character = $"restore-peer-{Guid.NewGuid():N}", PlayerSent = true,
+                PlayerLife = 100, LockstepClient = true, LockstepFrame = (.99, 1.023),
+            };
+            conn.PlayerSent = true;
+            Program.InGame.TryAdd(conn, 0);
+            Program.InGame.TryAdd(peer, 0);
+            var bodyCell = new ClientPathfinder.Blocker(53, 50, LivingCollision.Size(buriedEntry.Value));
+            Assert.DoesNotContain(bodyCell, peer.Blockers);
+            var origin = conn.Instance.World.MonsterOrigins[buriedEntry.Key];
+            Assert.Equal(MonsterEmerge.UnrisenState, origin.Object.TransitionState);
+            byte[] dormantCreate = GameServer.Core.Protocol.Instance.InstanceEntities.CreateObject(buriedEntry.Key,
+                origin.Type, (origin.Object with { Life = buriedEntry.Value.Life }).Blob());
+            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
+            Assert.Contains(sent, bytes => bytes.AsSpan().IndexOf(dormantCreate) >= 0);
+            Assert.Contains(buriedEntry.Key, peer.MonsterViews.Keys);
+            Assert.Contains(buriedEntry.Key, peer.AwakeMonsters);
+            Assert.Contains(bodyCell, peer.Blockers);
+            Game.PublishAwakeMonsters(peer);
+            Assert.Contains(buriedEntry.Key, peer.AwakeMonsters);
+            Assert.DoesNotContain(buriedEntry.Key, peer.RunMonsters);
+            sent.Clear();
+            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
+            await Game.SyncInstanceMonsters("restore-cells", stream, ciphers, conn);
+            Assert.Empty(sent);
+            Assert.Contains(buriedEntry.Key, conn.MonsterViews.Keys);
+            peer.AsleepMonsters.Add(buriedEntry.Key);
+            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
+            Assert.DoesNotContain(buriedEntry.Key, peer.AwakeMonsters);
+            Assert.Contains(buriedEntry.Key, peer.MonsterViews.Keys);
+            Assert.Empty(sent);
+            peer.AsleepMonsters.Remove(buriedEntry.Key);
+
+            // A runner handoff must rebind even dormant walkers to the new connection's collision/frame view.
+            var oldWalk = buriedEntry.Value.Walk;
+            conn.Closed = true;
+            Assert.False(Game.ClaimMonsterHost("restore-peer", peer));
+            Assert.Same(peer, conn.Instance.World.Runner);
+            Assert.NotSame(oldWalk, buriedEntry.Value.Walk);
+            Assert.Equal((53, 50), buriedEntry.Value.Walk.Position(1));
+            Assert.Equal(peer.LockstepFrame, buriedEntry.Value.Walk.FrameOf!(1));
+            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
+            Assert.Contains(buriedEntry.Key, peer.AwakeMonsters);
+
+            // Rising keeps the already-created object. Its actual component/action sends precede a sync that
+            // neither recreates nor removes it; the unchanged awake admission permits peers to receive the rise.
+            (uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds) risen;
+            bool watching;
+            lock (peer.Monsters)
+                risen = Assert.Single(new MonsterEmerge().RiseLocked(peer, (53, 50), 1, out watching));
+            Assert.False(watching);
+            Assert.Same(buriedEntry.Value, risen.Monster);
+            await Game.Emerge("restore-peer", stream, peerCiphers, peer, risen.Id, risen.Monster, risen.At, risen.Seconds);
+            Assert.Equal(2, sent.Count);
+            Assert.Equal(GameServer.Core.Protocol.Instance.InstanceEntities.TransitionableUpdate(risen.Id,
+                (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable"), MonsterEmerge.RisenState(variety)), sent[0]);
+            Assert.Equal(0x01ab, BinaryPrimitives.ReadUInt16BigEndian(sent[1]));
+            Assert.Equal(risen.Id, BinaryPrimitives.ReadUInt32BigEndian(sent[1].AsSpan(2)));
+            sent.Clear();
+            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
+            Assert.Empty(sent);
+            Assert.Same(buriedEntry.Value, peer.Monsters[risen.Id]);
+            Assert.Contains(risen.Id, peer.MonsterViews.Keys);
+
+            // A real removal still leaves the peer's view once, using the upstream non-runner removal rule.
+            conn.Closed = false;
+            conn.Instance.World.Runner = conn;
+            lock (conn.Monsters) Assert.True(conn.Monsters.Remove(risen.Id));
+            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
+            Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.RemoveObject(risen.Id), Assert.Single(sent));
+            Assert.DoesNotContain(risen.Id, peer.MonsterViews.Keys);
+            Assert.DoesNotContain(risen.Id, peer.AwakeMonsters);
         }
         finally
         {
             conn.Closed = true;
+            Program.InGame.TryRemove(conn, out _);
+            if (peer is not null)
+            {
+                peer.Closed = true;
+                Program.InGame.TryRemove(peer, out _);
+                PlayerInventories.Forget(peer.Character!);
+            }
+            Program.Outgoing = previousOutgoing;
             lifetime.Stop(ex => throw ex);
             PlayerInventories.Forget(conn.Character!);
             Game.CombatLifetime = previousLifetime;

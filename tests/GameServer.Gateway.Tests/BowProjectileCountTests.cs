@@ -109,6 +109,24 @@ public sealed class BowProjectileCountTests
             Assert.DoesNotContain(Assert.Single(Game.PlayerDefaultSkills(bowConn, [], character)).Stats ?? [],
                 s => s.Key == StatKeys.VirtualTotalArrows);
             Assert.False(bowConn.ClientDrawnShot is not null || bowConn.DefaultAttackRecordLockstep);
+
+            // The initial predictive list is cached. Mode confirmation must rebuild it with the same equipment,
+            // stats and pools, even after SendLockstepDefaultAttack has latched its refresh request.
+            var predictive = Game.PlayerSkills(bowConn);
+            Assert.Same(predictive, Game.PlayerSkills(bowConn));
+            Assert.DoesNotContain(Assert.Single(predictive, s => s.Id == SkillCatalog.FirstSkillId).Stats ?? [],
+                s => s.Key == StatKeys.VirtualTotalArrows);
+            bowConn.LockstepClient = true;
+            bowConn.DefaultAttackRecordLockstep = true;
+            var confirmed = Game.PlayerSkills(bowConn);
+            Assert.NotSame(predictive, confirmed);
+            var confirmedDefault = Assert.Single(confirmed, s => s.Id == SkillCatalog.FirstSkillId);
+            foreach (uint key in new[] { StatKeys.TotalProjectilesToFire, StatKeys.VirtualTotalProjectiles,
+                StatKeys.TotalArrowsToFire, StatKeys.VirtualTotalArrows })
+                Assert.Equal(1, Assert.Single(confirmedDefault.Stats!, s => s.Key == key).Value);
+            Assert.Equal(OrdinaryRangedAttack.Arrow, bowConn.ClientDrawnShot);
+            Assert.True(bowConn.DefaultAttackRecordLockstep);
+            Assert.Same(confirmed, Game.PlayerSkills(bowConn));
         }
         finally
         {

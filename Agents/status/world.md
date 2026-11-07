@@ -89,6 +89,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Local lockstep works; crowd and predictive gaps remain ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
 - League isolation is enforced by full league for towns and instance selection.
   SSF wilderness instances and Gateway ground-item state additionally belong to the stable character ID.
   Another character, including one reusing a deleted name, cannot inherit or join that state.
@@ -267,20 +268,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
-- The client's lockstep network mode (also what "auto" picks on localhost) is served with `Game_LOCKSTEP=1` on a
-  connection confirmed as local, or `Game_LOCKSTEP=network` on any connection.
-  The player walks, uses objects and skills, and walks up to a monster and swings by the client's own rules as
-  monsters do; monsters chase in legs, take their surround slots and wait out a hit's recovery in the client's frames,
-  their orders carry GGG's flags, and no Move goes to a monster within 2 cells of its target, which the client would
-  ignore, on any path: a give-up or a freeze sends nothing ([07](../docs/protocol/07-latency-visibility-movement.md)
-  §5, §6).
-  A monster that gives up goes on with its last order as the client's does; GGG's goes on with idle orders. A frozen
-  monster walks on (not traced).
-  Wand, bow and sword pack fights meet the recorded client-cell sync gates; held-walk monster accuracy and broader
-  predictive, skill and network validation remain open (roadmap: "Lockstep network mode").
-  Dormant-body membership and saved-cell restoration are corrected; focused predictive differences remain under investigation.
-  Without it the player is drawn but cannot move or use objects, and the Gateway asks for Predictive once per
-  connection.
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell
   (The Submerged Passage, seed 1); quest flags are derived from visited areas and waypoints, not from quests
   ([16](../docs/protocol/16-waypoints.md) "Open").

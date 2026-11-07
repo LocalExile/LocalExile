@@ -989,8 +989,11 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// Guarded by Monsters; rising transfers the same actor to the targetable roster.</summary>
     public SortedDictionary<uint, SpawnedMonster> DormantMonsters => Instance?.World.DormantMonsters ?? ownDormantMonsters;
     readonly SortedDictionary<uint, SpawnedMonster> ownDormantMonsters = [];
+    // A shared dormant body enters this client's collision view with its admitted create, not merely with the
+    // instance's roster entry. Connections without an instance retain their local body contract.
     IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters =>
-        Monsters.Concat(DormantMonsters).OrderBy(pair => pair.Key);
+        Monsters.Concat(DormantMonsters.Where(pair => Instance is null || MonsterViews.ContainsKey(pair.Key)))
+            .OrderBy(pair => pair.Key);
     // Items on the ground by object id (dropped with C→S 0x29).
     /// <summary>The area instance's state shared across connections: its ground items.</summary>
     public InstanceState Instance { get; init; } = null!;

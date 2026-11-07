@@ -519,6 +519,11 @@ Native checks: normal zombie clearance 4 cells, unique Hillock clearance 5 cells
 
 ## 6. Lockstep (not served yet)
 
+Local lockstep is partly working through M5's accepted dormant-body and saved-cell corrections (§5).
+Held-walk crowd accuracy remains the first open gap; predictive drift and standing-start discrepancies remain
+unresolved. This does not establish full predictive equivalence or complete skill and network support.
+Lockstep remains off by default; enabling it by default is the maintainer's decision.
+
 Everything above is the client's **Predictive** network mode (Options → Game → Network Mode;
 `[NETWORKING] networking_type=predictive` in `Documents\My Games\Path of Exile\production_Config.ini`; the mode is
 `+0x984` of the world: 0 predictive, 2 lockstep, 3 auto). The client alone chooses it: no message sets or reports it.
