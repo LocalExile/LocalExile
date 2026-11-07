@@ -8,6 +8,9 @@ sealed class InstanceWorld
     /// <summary>The instance's monsters (and the players' minions in it) by object id; the instance's lock.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> Monsters = [];
 
+    /// <summary>Created monsters waiting to emerge, under the same Monsters lock and instance lifetime.</summary>
+    public readonly SortedDictionary<uint, SpawnedMonster> DormantMonsters = [];
+
     /// <summary>The instance's game time: walks, cooldowns and timers of everyone in it. Pausing stops it, so a connection
     /// pauses only when it is alone here (Connection.SetPaused).</summary>
     public readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();

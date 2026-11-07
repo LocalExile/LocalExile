@@ -206,6 +206,9 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     public object? Payload { get; init; }
     /// <summary>Optional initial-projectile snapshots; continuation children inherit their parent's selected payload.</summary>
     public IReadOnlyList<object?>? ProjectilePayloads { get; init; }
+    /// <summary>Optional per-projectile destinations. Each initial flight ends at its destination; children retain
+    /// their own continuation geometry. Used when the native action scatters target cells instead of directions.</summary>
+    public IReadOnlyList<ProjectileVector>? ProjectileTargets { get; init; }
     public int Seed { get; init; } = 1;
     /// <summary>The client action sequence that released this use, for the native terminal RNG.</summary>
     public ushort Sequence { get; init; }

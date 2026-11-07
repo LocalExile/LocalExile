@@ -170,7 +170,8 @@ static partial class Game
     /// (BuffDefinitions 1, 2, 3, which draw BuffVisuals 3, 4, 5) and the virtual_action_speed_+% the native walk
     /// (0x141e7c0b0) and action clips read, which network stats do not derive (04 §4.1a). A chill re-times the server's
     /// walk by the same factor, so both walk the monster alike. A freeze is not sent there (−100 would divide the native
-    /// clip by zero); the AI stops the monster instead. Under the Monsters lock.
+    /// clip by zero); on a predictive client the AI stops the monster instead, and on a lockstep client nothing stops it,
+    /// the estimate's walk included (07 §6). Under the Monsters lock.
     /// </summary>
     internal static List<(byte[] Packet, string Log)> MonsterAilmentChangesLocked(ClientState conn, double now)
     {

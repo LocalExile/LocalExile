@@ -198,7 +198,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
                             var at = native.Walk.Position(now); var target = conn.Walk.Position(now);
                             bytes.AddRange(InstanceProtocol.ActionStarted(caster, at.X, at.Y, target.X, target.Y,
                                 HarbingerActor.SkillId(change.Owner.Source, SkillsFor(conn), cast.Skill.Effect),
-                                conn.NextActionSequence(), 0x0408, targetObjectId: PlayerId));
+                                conn.NextActionSequence(), conn.MonsterOrderFlags, targetObjectId: PlayerId));
                             bytes.AddRange(InstanceProtocol.ActionEnded(caster));
                         }
                 foreach (uint actor in state.Session.PruneActors())

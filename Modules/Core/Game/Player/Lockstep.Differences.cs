@@ -21,13 +21,21 @@ static partial class Game
             await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b6 server frame length {FrameMs} ms");
             double frame = FrameMs / 1000d, first = conn.Clock.Elapsed.TotalSeconds;
             long ended = 0;
-            // Well under a frame: a timer tick landing just before a boundary must not hold the frame for a whole period.
-            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(Math.Max(1, FrameMs / 3)));
-            while (!conn.Closed && await timer.WaitForNextTickAsync())
+            while (!conn.Closed)
             {
-                long due = (long)((conn.Clock.Elapsed.TotalSeconds - first) / frame);
-                if (due == ended) continue;
-                for (; ended < due; ended++)
+                // Paused, the Clock stands and no frame falls due: it looks again a third of a frame later.
+                if (conn.Paused)
+                {
+                    await Task.Delay(Math.Max(1, FrameMs / 3));
+                    continue;
+                }
+                // Woken at the next frame end, on the Gateway's 1 ms timer (WindowsTimerResolution): a poll of a third of
+                // a frame landed just before a boundary often enough to send frames 22 and 44 ms apart.
+                double wait = first + (ended + 1) * frame - conn.Clock.Elapsed.TotalSeconds;
+                if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                if (now < first + (ended + 1) * frame) continue;
+                for (; first + (ended + 1) * frame <= now; ended++)
                 {
                     // The frame advances in the frame end's send gate, under the combat lock: an order written after the
                     // 0x2b5 finds the new frame (LockstepOrderFrom), one written before it the old, and a pass that holds
@@ -44,6 +52,7 @@ static partial class Game
                     });
                 }
                 await ProbeLockstepLatency(remote, stream, ciphers, conn);
+                SendLockstepDefaultAttack(remote, stream, ciphers, conn);
                 await StartLockstepActions(remote, stream, ciphers, conn, first + ended * frame);
             }
         }
@@ -80,6 +89,11 @@ static partial class Game
         if (request.Target is { } target)
         {
             _ = OnUseObject(remote, stream, ciphers, conn, new(target, request.Skill, sequence, request.Flags), at);
+            return;
+        }
+        if (LockstepGroundMelee(conn, request.Skill, request.Flags))
+        {
+            _ = StartLockstepGroundMelee(remote, stream, ciphers, conn, request.Aim, request.Skill, sequence, request.Flags);
             return;
         }
         byte[] use = new LoginWriter().U16(InstanceProtocol.UseSkillAtLocationId).U32((uint)request.Aim.X).U32((uint)request.Aim.Y)
@@ -150,4 +164,19 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} lockstep round trip {conn.LockstepLatency.Lowest:0.0} ms at the lowest: " +
                 (conn.LockstepLatency.Confirmed ? "served" : "not low enough, the connection is treated as a real network"));
     }
+
+    // Differs from GGG: a monster that gives up its pursuit (PlanMonsterAi, "gives up") gets no order and goes on with its
+    // last one as the client's monster does, a chase's walk-up after the player (NextPlannedAction): the Gateway has no
+    // idle AI. GGG sends nothing at that moment either, but idle orders follow: of 131 pursuits it ended with the player
+    // 60+ cells off, 65 got a Move of 3+ cells, 30 a self-aimed Wait (the variety's granted Wait skill, flags 0x80), 9 a
+    // flight and 15 an aimed order again after 3 s or more.
+
+    // Not traced: a frozen monster (PlanMonsterAi, MonsterActionFactor 0) gets no stop on a lockstep client and walks on,
+    // its estimate too, a chase's walk-up with its goal test (NextPlannedAction). The client takes no Move onto the
+    // walker's own cell and does not stop the player for is_frozen (07 §5); what GGG sends to stop a frozen monster, if
+    // anything, is not known.
+
+    // Differs from GGG: a monster whose chase walk-up starts its swing (StepWalkUp, TakeLockstepChase) gets no 0x1ac
+    // (MonsterSwing's begunAt path). GGG sends one when its own copy starts the swing; a lockstep client does nothing with
+    // a 0x1ac (0x14164dc70), and its swing starts by its own goal test either way.
 }
