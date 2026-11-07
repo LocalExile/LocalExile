@@ -15,6 +15,7 @@ internal static class Program
           PoEDataExtractor list   <ggpk>
           PoEDataExtractor cat    <ggpk> <index-path> [--out <file>]
           PoEDataExtractor decode <ggpk> [--schema <schema.min.json>] [--out <dir>]
+          PoEDataExtractor validate <ggpk> --json
         """;
 
     private static int Main(string[] args)
@@ -33,6 +34,7 @@ internal static class Program
                 "raw" => Raw(args[1], args),
                 "cat" => Cat(args[1], args),
                 "decode" => Decode(args[1], args),
+                "validate" => Validate(args[1], args),
                 _ => Fail(),
             };
         }
@@ -47,6 +49,14 @@ internal static class Program
     {
         Console.Error.WriteLine(Usage);
         return 2;
+    }
+
+    private static int Validate(string ggpkPath, string[] args)
+    {
+        if (args.Length != 3 || args[2] != "--json") return Fail();
+        var report = ClientDataValidation.Check(ggpkPath, CreateOodle);
+        Console.WriteLine(JsonSerializer.Serialize(report, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+        return report.Ok ? 0 : 1;
     }
 
     private static int List(string ggpkPath)

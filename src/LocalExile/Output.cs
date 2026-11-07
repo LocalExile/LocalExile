@@ -87,10 +87,14 @@ sealed class Output
         else Line(message);
     }
 
-    public void Fail(ExitCode code, string message)
+    public void Fail(ExitCode code, string message, string? reason = null, string? details = null)
     {
-        if (Json) Event("error", new() { ["code"] = (int)code, ["kind"] = code.ToString(), ["message"] = message });
-        else Line($"ERROR: {message}");
+        if (Json) Event("error", new() { ["code"] = (int)code, ["kind"] = code.ToString(), ["message"] = message, ["reason"] = reason, ["details"] = details });
+        else
+        {
+            Line($"ERROR: {message}");
+            if (details is not null) Line($"Details: {details}");
+        }
     }
 
     void Line(string text)

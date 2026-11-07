@@ -64,6 +64,18 @@ to copy it or link to it), runs the extraction with the same manifest and stamps
 servers, and starts the client. It stays running until the client closes, and the servers end with it (a job object:
 also on a crash or a closed window).
 
+`check --client <folder>` is read-only: it checks the executable, the bundle index and three required tables
+(`WorldAreas`, `BaseItemTypes`, `Stats`). A pass establishes readiness of those inputs, not the integrity or version of
+every asset. Setup uses the same check before copying and before promoting `Client.partial` to `Client`; a failure
+keeps the unfinished copy. An existing `Client` is checked too and is never replaced by `--client`.
+Keep an unusable copy for diagnosis: opening the official PoE launcher to repair it can update it beyond the supported version.
+
+The archive check is `app/PoEDataExtractor validate <ggpk> --json` (helper protocol 1), using extraction's Node decoder.
+It has bounded reads/output and a 60-second launcher deadline; exceeding a quick-check budget or failing to run the
+worker does not establish damaged game data. The check never patches, extracts tables, creates accounts or starts the game.
+Read leases deny competing writers where the filesystem supports it; size/time changes and mismatched copied index/executable
+fingerprints stop promotion. Filesystems without enforced read sharing cannot provide an atomic snapshot against outside writers.
+
 **The client starts only one way:** `Client\Game.patched.exe --patching-server 127.0.0.1:<patch port>`, in `ClientLaunch.cs`.
 Any other start can update it. The version check needs both the login key blobs (`ClientImage`) and the HNC mask's hash.
 
@@ -89,10 +101,14 @@ Every event has `schema` (1), `event` and `time`; a change that breaks a reader 
 | `value` | `name`, `value`: the answer of `version`, `client-command`, `check` |
 | `needs-input` | `option`, `message`, optional `suggestion`: run again with that option |
 | `ready` | `patch`, `login`, `gateway`, optional `clientPid` (none with `--no-client`) |
-| `error` | `code`, `kind`, `message` |
+| `error` | `code`, `kind`, `message`; optional `reason`, `details` for validation failures |
 
 Exit codes: 0 done, 1 unexpected, 2 usage, 3 client not usable, 4 extraction failed, 5 a server failed, 6 a port in use or
 already running, 7 input needed, 8 the client failed to start.
+Validation adds optional fields to schema 1, preserving existing events and exit-code meanings.
+Client failures include `invalid-index`, `invalid-archive`, `required-data-unreadable`, `unsupported-executable` and
+read/access failures. Tool/protocol failures, deadlines and read budgets are reported separately; logs/details retain
+the archive path and failed stage. Front ends must not interpret an unavailable validator as proof of an unusable client.
 A GUI keeps the process running while the game runs: ending it ends the servers and the client.
 `--password-stdin` takes the new account's password as the first line of standard input.
 

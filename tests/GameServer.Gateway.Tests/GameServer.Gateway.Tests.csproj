@@ -19,6 +19,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
+    <ProjectReference Include="..\..\src\LocalExile\LocalExile.csproj" Aliases="LocalExileLauncher" />
+    <ProjectReference Include="..\..\Tools\PoEDataExtractor\PoEDataExtractor.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Game\Game.csproj" />
     <ProjectReference Include="..\..\Modules\Survivors\SurvivorsRun\SurvivorsRun.csproj" />
     <ProjectReference Include="..\..\Modules\Survivors\SurvivorsRewards\SurvivorsRewards.csproj" />

@@ -3,9 +3,11 @@ namespace LocalExile;
 enum ExitCode { Ok = 0, Unexpected = 1, Usage = 2, Client = 3, Extraction = 4, Server = 5, Busy = 6, NeedsInput = 7, ClientStart = 8 }
 
 /// <summary>A failure the player can act on: its message is shown as it is, and its code is the process's exit code.</summary>
-sealed class LauncherException(ExitCode code, string message) : Exception(message)
+sealed class LauncherException(ExitCode code, string message, string? reason = null, string? details = null) : Exception(message)
 {
     public ExitCode Code { get; } = code;
+    public string? Reason { get; } = reason;
+    public string? Details { get; } = details;
 }
 
 sealed class Options

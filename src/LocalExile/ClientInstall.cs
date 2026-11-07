@@ -1,5 +1,6 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using System.Security.Cryptography;
 
 namespace LocalExile;
 
@@ -7,14 +8,17 @@ namespace LocalExile;
 /// path, as they do in a checkout. Game.exe and Game.patched.exe are added beside the client's own files.</summary>
 static class ClientInstall
 {
+    public const string RequiredVersion = "3.29.3b";
+    const int MaxExecutableBytes = 128 << 20;
     const string Folder = "Client";
     static string Ggpk => Path.Combine(Folder, "Content.ggpk");
     static string GameExe => Path.Combine(Folder, "Game.exe");
     static string PatchedExe => Path.Combine(Folder, "Game.patched.exe");
     static readonly string Keys = Path.Combine("data", "login-keys.json");
+    sealed record CheckedExecutable(string Path, string Sha256);
 
     /// <summary>The folder's 3.29.3b executable, or why it has none.</summary>
-    static string? FindExecutable(string folder, out string problem)
+    static CheckedExecutable? FindExecutable(string folder, out string problem, bool reportReadErrors = false)
     {
         problem = "";
         if (!File.Exists(Path.Combine(folder, "Content.ggpk")))
@@ -23,51 +27,106 @@ static class ClientInstall
             return null;
         }
         // A checkout's PathOfExile.exe can be the small launcher, with the game in Game.exe. The check reads the executable.
+        Exception? readError = null;
+        string? oversized = null;
         foreach (string name in new[] { "PathOfExile.exe", "Game.exe" })
         {
             string path = Path.Combine(folder, name);
             if (!File.Exists(path)) continue;
             try
             {
-                byte[] image = File.ReadAllBytes(path);
+                using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                if (input.Length > MaxExecutableBytes) { oversized = path; continue; }
+                byte[] image = new byte[(int)input.Length];
+                input.ReadExactly(image);
                 _ = new ClientImage(image);
                 HncSender.LoadMask(image);
-                return path;
+                return new(path, Convert.ToHexStringLower(SHA256.HashData(image)));
             }
-            catch (Exception e) when (e is FormatException or InvalidDataException or ArgumentException or IOException or InvalidOperationException) { }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { readError = e; }
+            catch (Exception e) when (e is FormatException or InvalidDataException or ArgumentException or InvalidOperationException) { }
         }
+        if (reportReadErrors && readError is not null)
+            throw new LauncherException(ExitCode.Client, "The client executable could not be read. Close its updater and check access to this folder.",
+                readError is UnauthorizedAccessException ? "access-denied" : "client-unreadable", $"{folder}: {readError.Message}");
+        if (reportReadErrors && oversized is not null)
+            throw new LauncherException(ExitCode.Unexpected,
+                "A client executable exceeds the validator's 128 MiB limit. Keep this copy and check or update the LocalExile package.",
+                "validation-limit", oversized);
         problem = $"{folder} does not hold the Path of Exile 3.29.3b executable; other versions do not work";
         return null;
     }
 
-    public static void Check(string folder, Output log)
+    static CheckedExecutable RequireExecutable(string folder)
     {
-        string? exe = FindExecutable(folder, out string problem);
-        if (exe is null) throw new LauncherException(ExitCode.Client, problem);
+        var exe = FindExecutable(folder, out string problem, reportReadErrors: true);
+        if (exe is null)
+            throw new LauncherException(ExitCode.Client, problem +
+                ". Keep this copy; opening the official PoE launcher may update it to an unsupported version.",
+                File.Exists(Path.Combine(folder, "Content.ggpk")) ? "unsupported-executable" : "missing-client-file");
+        return exe;
+    }
+
+    static ClientReadLease AcquireCheckedClient(string folder, out string executable)
+    {
+        var image = RequireExecutable(folder);
+        var lease = ClientReadLease.Open(folder, image.Path);
+        try
+        {
+            lease.AssertExecutable(image.Sha256);
+            executable = image.Path;
+            return lease;
+        }
+        catch { lease.Dispose(); throw; }
+    }
+
+    public static async Task CheckAsync(string folder, Output log, CancellationToken stop = default)
+    {
+        using var lease = AcquireCheckedClient(folder, out string exe);
+        var result = await ClientArchiveCheck.RunAsync(folder, stop);
+        lease.AssertUnchanged();
         log.Value("client", $"{exe} is the 3.29.3b client");
+        log.Value("client-data", $"Index and sampled required tables are readable ({result.Files} files, {result.Bundles} bundles); this is not a full asset verification.");
+        log.Value("client-index-sha256", result.IndexSha256);
     }
 
     /// <summary>Client\ holds the checked client when this returns.</summary>
-    public static void Ensure(Options options, Output log)
+    public static async Task EnsureAsync(Options options, Output log)
     {
         log.Step("client-check", "checking the client ...");
         if (Directory.Exists(Folder))
         {
-            string? exe = FindExecutable(Folder, out string problem);
-            if (exe is null) throw new LauncherException(ExitCode.Client, $"{problem} (remove the Client folder to choose another)");
-            EnsureGameExe(exe);
-            log.Info($"using {Path.GetFullPath(Folder)}");
+            try
+            {
+                using var existing = AcquireCheckedClient(Folder, out string exe);
+                await ClientArchiveCheck.RunAsync(Folder);
+                existing.AssertUnchanged();
+                EnsureGameExe(exe);
+                log.Info($"using {Path.GetFullPath(Folder)}");
+            }
+            catch (LauncherException e)
+            {
+                string context = e.Code == ExitCode.Client
+                    ? $"The existing Client folder failed its readiness check. {e.Message} It was kept. To try another game copy, set it up in a different LocalExile installation folder."
+                    : $"The existing Client folder was kept. {e.Message}";
+                throw new LauncherException(e.Code, context,
+                    e.Reason, e.Details);
+            }
             return;
         }
+        if (File.Exists(Folder) || new DirectoryInfo(Folder).LinkTarget is not null)
+            throw new LauncherException(ExitCode.Client, "The existing Client path cannot be used and was kept. Use another LocalExile installation folder to select a different client.",
+                "client-unreadable");
 
         string source = options.Client ?? Ask(log);
-        string? found = FindExecutable(source, out string why);
-        if (found is null) throw new LauncherException(ExitCode.Client, why);
+        using var original = AcquireCheckedClient(source, out string found);
+        var ready = await ClientArchiveCheck.RunAsync(source);
+        original.AssertUnchanged();
         log.Info($"{found} is the 3.29.3b client");
 
         string mode = options.ClientMode ?? AskMode(source, log);
         if (mode == "link") Link(source, log);
-        else Copy(source, log);
+        else await CopyAsync(source, log, original, ready);
         EnsureGameExe(Path.Combine(Folder, Path.GetFileName(found)));
     }
 
@@ -139,13 +198,16 @@ static class ClientInstall
     }
 
     /// <summary>Into a temporary folder that becomes Client\ only when complete, so a stopped copy is resumed and never used.</summary>
-    static void Copy(string source, Output log)
+    static async Task CopyAsync(string source, Output log, ClientReadLease original, ClientArchiveCheck ready)
     {
         string temp = Folder + ".partial";
+        ClientCopyPaths.CheckRoots(source, temp);
         var files = new DirectoryInfo(source).EnumerateFiles("*", SearchOption.AllDirectories).ToList();
         long total = files.Sum(f => f.Length), done = 0;
+        long remaining = files.Where(file => ClientCopyPaths.NeedsCopy(file,
+            new FileInfo(Path.Combine(temp, Path.GetRelativePath(source, file.FullName))))).Sum(file => file.Length);
         long free = new DriveInfo(Path.GetFullPath(".")).AvailableFreeSpace;
-        if (free < total) throw new LauncherException(ExitCode.Client, $"copying the client needs {total >> 30} GB and {free >> 30} GB are free; free some space, or use --client-mode link");
+        if (free < remaining) throw new LauncherException(ExitCode.Client, $"copying the remaining client files needs {remaining >> 30} GB and {free >> 30} GB are free; free some space, or use --client-mode link");
         log.Step("client-copy", $"copying the client ({total >> 30} GB); this can take several minutes ...");
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var report = TimeSpan.FromSeconds(10);
@@ -153,11 +215,14 @@ static class ClientInstall
         foreach (var file in files)
         {
             string target = Path.Combine(temp, Path.GetRelativePath(source, file.FullName));
+            ClientCopyPaths.CheckTarget(temp, target);
             var existing = new FileInfo(target);
-            if (existing.Exists && existing.Length == file.Length && existing.LastWriteTimeUtc == file.LastWriteTimeUtc) { done += file.Length; continue; }
+            if (!ClientCopyPaths.NeedsCopy(file, existing)) { done += file.Length; continue; }
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            using (var from = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1, FileOptions.SequentialScan))
-            using (var to = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 1))
+            // Remove only this staging entry, then create a new file: never truncate a late hard-link/symlink target.
+            if (existing.Exists) File.Delete(target);
+            using (var from = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, 1, FileOptions.SequentialScan))
+            using (var to = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1))
             {
                 int read;
                 while ((read = from.Read(buffer)) > 0)
@@ -170,6 +235,25 @@ static class ClientInstall
                 }
             }
             File.SetLastWriteTimeUtc(target, file.LastWriteTimeUtc);
+        }
+        log.Step("client-check", "checking the unfinished client copy before using it ...");
+        try
+        {
+            ClientCopyPaths.CheckTree(temp);
+            // Bind the candidate to the exact source executable that EnsureGameExe will use after promotion.
+            string copiedExe = Path.Combine(temp, original.ExecutableName);
+            using var candidate = ClientReadLease.Open(temp, copiedExe);
+            var copied = await ClientArchiveCheck.RunAsync(temp);
+            original.AssertUnchanged();
+            candidate.AssertUnchanged();
+            if (copied.IndexSha256 != ready.IndexSha256 || candidate.ExecutableSha256 != original.ExecutableSha256)
+                throw new LauncherException(ExitCode.Client, "The copied index or executable differs from the checked source. The unfinished copy was kept.",
+                    "client-changed");
+        }
+        catch (LauncherException e)
+        {
+            throw new LauncherException(e.Code, $"{e.Message} The unfinished copy remains in Client.partial and will not be used.",
+                e.Reason, e.Details);
         }
         Directory.Move(temp, Folder);
     }

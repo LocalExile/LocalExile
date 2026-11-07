@@ -16,6 +16,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `scripts/re/game-pack`, `GamePack.cs`, `ClientConstants.cs`.
 - Player releases, started by hand: a workflow builds a draft with a self-contained zip, and `LocalExile.exe` takes a player
   from the client to the game with no SDK, Python or Node installed (`--json` for a GUI).
+  Read-only readiness checks validate the index and sampled tables before copying and before promoting an unfinished copy.
+  Invalid clients are preserved; structured failures warn against using the official updater as a repair.
   Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
   Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
   Docs: [releases](../docs/dev/releases.md).

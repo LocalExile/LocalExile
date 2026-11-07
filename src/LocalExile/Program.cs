@@ -57,8 +57,15 @@ try
             log.Value("client-command", ClientLaunch.CommandLine(ports.Patch));
             return 0;
         case "check":
-            ClientInstall.Check(options.Client ?? "Client", log);
+        {
+            KillOnExitJob.AddCurrentProcess();
+            using var cancel = new CancellationTokenSource();
+            ConsoleCancelEventHandler interrupt = (_, e) => { e.Cancel = true; cancel.Cancel(); };
+            Console.CancelKeyPress += interrupt;
+            try { await ClientInstall.CheckAsync(options.Client ?? "Client", log, cancel.Token); }
+            finally { Console.CancelKeyPress -= interrupt; }
             return 0;
+        }
         case "stop":
             Servers.StopInstall(root, log);
             return 0;
@@ -78,7 +85,7 @@ try
     if (withClient) ClientLaunch.AssertNoneRunning();
     if (options.Command == "run") Servers.AssertPortsFree(ports);
 
-    ClientInstall.Ensure(options, log);
+    await ClientInstall.EnsureAsync(options, log);
     Extraction.Run(log);
     ClientInstall.EnsureKeysAndPatch(log);
     Accounts.EnsureOne(options, log);
@@ -107,8 +114,13 @@ try
 }
 catch (LauncherException e)
 {
-    log.Fail(e.Code, e.Message);
+    log.Fail(e.Code, e.Message, e.Reason, e.Details);
     return (int)e.Code;
+}
+catch (OperationCanceledException)
+{
+    log.Fail(ExitCode.Client, "Client validation was cancelled; your game files were kept.", "validation-cancelled");
+    return (int)ExitCode.Client;
 }
 catch (Exception e)
 {

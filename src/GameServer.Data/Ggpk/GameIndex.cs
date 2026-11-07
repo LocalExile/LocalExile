@@ -67,42 +67,74 @@ public sealed class GameIndex
         return lo < FileCount && HashAt(lo) == hash ? lo : -1;
     }
 
-    public static GameIndex Parse(byte[] indexContent)
+    public static GameIndex Parse(byte[] indexContent, int maxRecords = int.MaxValue)
     {
         ArgumentNullException.ThrowIfNull(indexContent);
         int offset = 0;
+        GgpkFormatException Invalid(string field) => new("invalid-index",
+            $"bundle index has invalid or truncated {field} at byte {offset} ({indexContent.Length} decoded bytes)");
+        void Require(int length, string field)
+        {
+            if (length < 0 || length > indexContent.Length - offset) throw Invalid(field);
+        }
+        int Int32(string field)
+        {
+            Require(4, field);
+            int value = BinaryPrimitives.ReadInt32LittleEndian(indexContent.AsSpan(offset));
+            offset += 4;
+            return value;
+        }
+        int Count(string field, int recordBytes)
+        {
+            int count = Int32(field);
+            if (count < 0 || count > (indexContent.Length - offset) / recordBytes) throw Invalid(field);
+            if (count > maxRecords)
+                throw new GgpkFormatException("validation-limit", $"index {field} {count} exceeds quick-check limit {maxRecords}");
+            return count;
+        }
 
         // Bundles.
-        int bundlesCount = BinaryPrimitives.ReadInt32LittleEndian(indexContent.AsSpan(offset));
-        offset += 4;
+        int bundlesCount = Count("bundle count", 8);
 
         var bundleFiles = new string[bundlesCount];
+        var bundleSizes = new int[bundlesCount];
         for (int i = 0; i < bundlesCount; i++)
         {
-            int nameLen = BinaryPrimitives.ReadInt32LittleEndian(indexContent.AsSpan(offset));
-            offset += 4;
+            int nameLen = Int32("bundle name length");
+            Require(nameLen, "bundle name");
+            if (nameLen == 0) throw Invalid("empty bundle name");
             string name = Encoding.UTF8.GetString(indexContent, offset, nameLen);
             offset += nameLen;
-            _ = BinaryPrimitives.ReadInt32LittleEndian(indexContent.AsSpan(offset)); // decompressed size
-            offset += 4;
+            bundleSizes[i] = Int32("bundle decoded size");
+            if (bundleSizes[i] < 0) throw Invalid("bundle decoded size");
 
             bundleFiles[i] = ToBundlePath(name);
         }
 
         // Files.
-        int filesCount = BinaryPrimitives.ReadInt32LittleEndian(indexContent.AsSpan(offset));
-        offset += 4;
+        int filesCount = Count("file count", FileRecordSize);
         var filesInfo = indexContent.AsSpan(offset, filesCount * FileRecordSize).ToArray();
         offset += filesCount * FileRecordSize;
+        for (int i = 0; i < filesCount; i++)
+        {
+            var record = filesInfo.AsSpan(i * FileRecordSize);
+            int bundle = BinaryPrimitives.ReadInt32LittleEndian(record[8..]);
+            int start = BinaryPrimitives.ReadInt32LittleEndian(record[12..]);
+            int size = BinaryPrimitives.ReadInt32LittleEndian(record[16..]);
+            if ((uint)bundle >= (uint)bundlesCount || start < 0 || size < 0
+                || (long)start + size > bundleSizes[bundle])
+                throw Invalid($"file record {i}");
+        }
 
         // Directories (only needed to list paths).
-        int dirsCount = BinaryPrimitives.ReadInt32LittleEndian(indexContent.AsSpan(offset));
-        offset += 4;
+        int dirsCount = Count("directory count", 20);
         var dirs = new (int, int)[dirsCount];
         for (int i = 0; i < dirsCount; i++)
         {
             var d = indexContent.AsSpan(offset + i * 20);
             dirs[i] = (BinaryPrimitives.ReadInt32LittleEndian(d[8..]), BinaryPrimitives.ReadInt32LittleEndian(d[12..]));
+            if (dirs[i].Item1 < 0 || dirs[i].Item2 < 0 || (long)dirs[i].Item1 + dirs[i].Item2 > int.MaxValue)
+                throw Invalid($"directory record {i}");
         }
         offset += dirsCount * 20;
 
@@ -129,6 +161,8 @@ public sealed class GameIndex
     {
         foreach (var (start, size) in Directories)
         {
+            if (start < 0 || size < 0 || start > pathTable.Length || size > pathTable.Length - start)
+                throw new GgpkFormatException("invalid-index", "directory points outside the decoded path table");
             var bases = new List<string>();
             bool baseMode = false;
             int pos = start, end = start + size;
@@ -142,13 +176,16 @@ public sealed class GameIndex
                     if (baseMode) bases.Clear();
                     continue;
                 }
-                int z = Array.IndexOf(pathTable, (byte)0, pos);
+                if (n < 0) throw new GgpkFormatException("invalid-index", "negative path base reference");
+                int z = Array.IndexOf(pathTable, (byte)0, pos, end - pos);
+                if (z < pos || z >= end) throw new GgpkFormatException("invalid-index", "unterminated path in directory record");
                 string str = Encoding.UTF8.GetString(pathTable, pos, z - pos);
                 pos = z + 1;
                 if (n - 1 < bases.Count) str = bases[n - 1] + str;
                 if (baseMode) bases.Add(str);
                 else yield return str;
             }
+            if (pos != end) throw new GgpkFormatException("invalid-index", "truncated path record");
         }
     }
 
