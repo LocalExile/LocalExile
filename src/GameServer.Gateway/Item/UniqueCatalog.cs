@@ -69,6 +69,10 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         ["Blackheart|Metadata/Items/Rings/Ring1"] = ["LevelRequirementOverrideUnique__1"],
         ["Cragfall|Metadata/Items/Quivers/Quiver6"] = ["LevelRequirementOverrideUnique__4"],
         ["Craghead|Metadata/Items/Quivers/Quiver6"] = ["LevelRequirementOverrideUnique__4"],
+        // 3.29.0: these three uniques have a hidden property forbidding white sockets (PoEDB version history).
+        // Existing items keep their sockets; only newly generated ones are affected.
+        ["Dialla's Malefaction|Metadata/Items/Armours/BodyArmours/BodyInt8"] = ["LocalNoWhiteSocketsUnique__1"],
+        ["Skin of the Loyal|Metadata/Items/Armours/BodyArmours/BodyInt1"] = ["LocalNoWhiteSocketsUnique__1"],
         ["Doedre's Damning|Metadata/Items/Rings/Ring3"] = ["LevelRequirementOverrideUnique__1"],
         ["Kalandra's Touch|Metadata/Items/Rings/MirrorRing"] = ["LevelRequirementOverrideUnique__1"],
         ["Kaom's Sign|Metadata/Items/Rings/Ring2"] = ["LevelRequirementOverrideUnique__1"],
@@ -178,10 +182,22 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         // The seed omits layout metadata. Do not invent an ordinary layout for socket-changing mods:
         // fixed counts/colours, six-links and Abyss layouts still need their own generation rules.
         var local = ItemModStats.Local(item, items.Mods);
+        bool noWhite = local.ContainsKey("local_sockets_cannot_be_white");
+        if (local.ContainsKey("local_six_linked_random_sockets"))
+        {
+            int count = Math.Min(6, CurrencyEffects.SocketCapacity(item, type));
+            if (count == 0) return item;
+            var requirements = items.Requirements(type);
+            return item with
+            {
+                Sockets = [.. Enumerable.Range(0, count).Select(_ =>
+                    new ItemSocket(SocketColours.Roll(requirements, item.ItemLevel, item.Quality, random, noWhite: noWhite)))],
+                Links = [(byte)count],
+            };
+        }
         if (local.Keys.Any(id => id is "local_has_no_sockets" or "local_has_X_sockets"
-            or "local_all_sockets_are_white" or "local_six_linked_random_sockets"
-            or "local_has_X_abyss_sockets" or "local_cannot_have_non_abyssal_sockets")) return item;
-        var (sockets, links) = items.DefaultSockets(type, item.ItemLevel, item.Quality, random);
+            or "local_all_sockets_are_white" or "local_has_X_abyss_sockets" or "local_cannot_have_non_abyssal_sockets")) return item;
+        var (sockets, links) = items.DefaultSockets(type, item.ItemLevel, item.Quality, random, noWhite);
         return item with { Sockets = sockets, Links = links };
     }
 
