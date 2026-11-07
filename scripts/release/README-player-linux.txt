@@ -23,4 +23,4 @@ IF SOMETHING GOES WRONG
 Logs are in logs/. ./LocalExile --help lists every option.
 
 LICENSE
-AGPL-3.0. See licenses/: the source of this exact build is named in licenses/SOURCE.txt.
+GPL-2.0. See licenses/: the source of this exact build is named in licenses/SOURCE.txt.

@@ -35,6 +35,7 @@ static partial class Game
         }
         ChargesOf(conn).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(conn).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary));
+        CurseCharges(conn, m, false);
     }
 
     // The player died (PlayerDied): every gained charge goes now, not at the ticker's next step, which a pause holds back.
@@ -56,6 +57,7 @@ static partial class Game
             conn.RecentEvents.Record(StatConditions.KilledEnemy, now);
         }
         ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
+        CurseCharges(conn, m, true);
     }
 
     // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit

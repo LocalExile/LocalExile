@@ -59,7 +59,7 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
-            uint maxLife = conn.PlayerMaxLife, maxMana = (uint)UnreservedMana(conn);
+            uint maxLife = conn.PlayerUnreservedLife, maxMana = (uint)UnreservedMana(conn);
             (uint Life, uint Mana) initial;
             if (!LeagueFor(conn).Rules.PersistsVitals) initial = InitialVitals(false, null, maxLife, maxMana);
             else

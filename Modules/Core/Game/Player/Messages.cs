@@ -202,9 +202,8 @@ static partial class Game
                 (int px, int py) = (0, 0);
                 CooldownUseTicket? cooldownUse = null;
                 int chargeBonus = cast && gem.Name is not null ? ShieldChargeBonusPct(conn, use.SkillId, gem.Effect) : 0, chargeToken = 0;
-                // A lockstep client's default attack at the ground (a held attack whose target died goes on at the ground,
-                // 07 §6) swings where the player stands: GGG's player stayed on its cell through 101 such attacks aimed
-                // 18 to 29 cells away, one per attack time. A predictive client sends a Move for that click instead.
+                // A lockstep client's forced stationary default attack swings where the player stands. Ordinary ground
+                // melee uses take StartLockstepGroundMelee's frame-stepped walk-up before reaching this handler.
                 bool inPlace = cast || conn.LockstepClient && use.SkillId == SkillCatalog.FirstSkillId;
                 void StartAction()
                 {
@@ -290,19 +289,9 @@ static partial class Game
             }
             else if (InstanceProtocol.IsLockstepRequest(id))
             {
-                if (conn.LockstepServed && !conn.LockstepLatency.Refused)
-                {
-                    OnLockstepRequest(remote, conn, id, bytes);
-                    if (id == InstanceProtocol.LockstepMoveUpdateId) await AimLockstepChannel(remote, stream, ciphers, conn);
-                    continue;
-                }
-                // The client moves this way only in lockstep, which the Gateway does not serve yet (07 §6): say so once per
-                // connection.
-                if (conn.WarnedLockstep) continue;
-                conn.WarnedLockstep = true;
-                Console.WriteLine($"[gateway] {remote} <= 0x{id:x4} lockstep movement: the client's Network Mode is lockstep (\"auto\" picks it on localhost); " +
-                    "only Predictive is supported, the player cannot move");
-                await Send(remote, stream, ciphers, InstanceChat.MessageBox(LockstepWarning), "0x000d message box: lockstep warning");
+                // The client chose lockstep (07 §6): it is served as it asks.
+                OnLockstepRequest(remote, conn, id, bytes);
+                if (id == InstanceProtocol.LockstepMoveUpdateId) await AimLockstepChannel(remote, stream, ciphers, conn);
             }
             else if (id == InstancePause.RequestId)
                 await SetPaused(remote, stream, ciphers, conn, InstancePause.ReadRequest(bytes));
@@ -401,7 +390,7 @@ static partial class Game
                 if (command.Id == InstanceItems.DestroyCursorItemCommand) await DestroyHeldItem(remote, stream, ciphers, conn);
                 else if (command.Id == InstanceItems.WarpToHideoutCommand) await WarpToHideout(remote, stream, ciphers, conn, "/hideout");
                 else if (command.Id == InstanceItems.ForceResyncCommand) await SendResync(remote, stream, ciphers, conn, "the client asked");
-                else if (command.Id == InstanceItems.AfkCommand && conn.LockstepServed) AnswerLockstepProbe(remote, conn, readAt);
+                else if (command.Id == InstanceItems.AfkCommand && conn.LockstepClient) AnswerLockstepProbe(remote, conn, readAt);
                 else Console.WriteLine($"[gateway] {remote} <= 0x0016 command {command} (not handled)");
             }
             else if (id == InstanceWaypoints.VisitHideoutId)
@@ -605,6 +594,7 @@ static partial class Game
             {
                 var chat = InstanceChat.ReadChat(bytes);
                 Console.WriteLine($"[gateway] {remote} <= 0x0015 chat \"{chat.Text}\" (u8 {chat.U8})");
+                // Plain lines are the Chat module's.
                 if (chat.IsCommand)
                 {
                     // A preceding slash command can finish a Game + Commands reload in this same batch.
@@ -612,12 +602,6 @@ static partial class Game
                     conn.Commands = Program.Commands(remote, stream, ciphers, conn);
                     await conn.Commands.RunAsync(chat.Text);
                 }
-                else await EchoChat(remote, stream, ciphers, conn, chat.Text);
-            }
-            else if (id == InstanceChat.JoinChannelId)
-            {
-                if (InstanceChat.ReadJoinChannel(bytes) is { } join) await JoinChatChannel(remote, stream, ciphers, conn, join);
-                else Console.WriteLine($"[gateway] {remote} <= 0x0134 join with an unknown channel kind, ignored: {Convert.ToHexString(bytes)}");
             }
             else if (id == InstanceTransfer.ChooseInstanceId)
             {
@@ -686,8 +670,6 @@ static partial class Game
                     await SendWornCosmetics(remote, stream, ciphers, conn, "entering the area");
                     // The saved skill bar (S→C 0x53), right after the player and the area.
                     await SendSkillBar(remote, stream, ciphers, conn);
-                    // The chat channels joined earlier in the session (Program.Chat.cs).
-                    await SendChatChannels(remote, stream, ciphers, conn);
                     // The equipment again (S→C 0x02ba), as after an equip: the player object's own list does not set how a
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
                     await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
@@ -704,7 +686,7 @@ static partial class Game
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     await Program.ServerHooks.AreaGenerated(PlayerOf(conn));
                     ActivateResourceEffects(conn, ProjectileWorldTime(conn));
-                    _ = conn.LockstepServed ? RunLockstepFrames(remote, stream, ciphers, conn) : RunServerFrames(remote, stream, ciphers, conn);
+                    _ = RunLockstepFrames(remote, stream, ciphers, conn);
                     Program.ActivatePlayerUpdates(conn);
                     _ = conn.RampageWorld;
                     lock (conn.Monsters)

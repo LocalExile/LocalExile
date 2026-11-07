@@ -26,6 +26,8 @@ sealed class PetrifiedBloodState
     public double SentLossExpiry { get; set; }
     /// <summary>The skill's mana reservation in permyriad (3500 = 35%).</summary>
     public int ManaPercent { get; private set; }
+    public bool ReservesLife { get; private set; }
+    public int ReservationEfficiencyPct { get; private set; }
 
     readonly List<Debt> debts = [];
     double last;
@@ -34,7 +36,7 @@ sealed class PetrifiedBloodState
     readonly record struct Debt(double Rate, double Start, double End);
 
     public void Activate(ushort skillId, int effect, int loseOverTimePct, int preventPct, int lifeCostPct, int manaPercent,
-        int lowLifeThresholdPct, ushort buff, double now)
+        int lowLifeThresholdPct, ushort buff, double now, bool reservesLife = false, int reservationEfficiencyPct = 0)
     {
         Active = true;
         SkillId = skillId;
@@ -43,6 +45,8 @@ sealed class PetrifiedBloodState
         PreventPct = Math.Clamp(preventPct, 0, 100);
         LifeCostPct = Math.Max(0, lifeCostPct);
         ManaPercent = Math.Max(0, manaPercent);
+        ReservesLife = reservesLife;
+        ReservationEfficiencyPct = reservationEfficiencyPct;
         LowLifeThresholdPct = Math.Clamp(lowLifeThresholdPct, 0, 100);
         SentRecoveryBlocked = null;
         Buff = buff;
@@ -52,7 +56,7 @@ sealed class PetrifiedBloodState
     /// <summary>Re-reads the gem's values after a level, quality or support change without disturbing the running
     /// buff, its instance or the life loss already owed.</summary>
     public void Refresh(int effect, int loseOverTimePct, int preventPct, int lifeCostPct, int manaPercent,
-        int lowLifeThresholdPct)
+        int lowLifeThresholdPct, bool reservesLife = false, int reservationEfficiencyPct = 0)
     {
         if (!Active) return;
         Effect = effect;
@@ -60,6 +64,8 @@ sealed class PetrifiedBloodState
         PreventPct = Math.Clamp(preventPct, 0, 100);
         LifeCostPct = Math.Max(0, lifeCostPct);
         ManaPercent = Math.Max(0, manaPercent);
+        ReservesLife = reservesLife;
+        ReservationEfficiencyPct = reservationEfficiencyPct;
         LowLifeThresholdPct = Math.Clamp(lowLifeThresholdPct, 0, 100);
     }
 
@@ -77,6 +83,8 @@ sealed class PetrifiedBloodState
         SkillId = 0;
         Effect = 0;
         ManaPercent = 0;
+        ReservesLife = false;
+        ReservationEfficiencyPct = 0;
         SentRecoveryBlocked = null;
         Buff = 0;
     }
@@ -214,10 +222,10 @@ static class PetrifiedBlood
         if (amount > 0 && conn.PetrifiedBlood.Active)
         {
             uint half = LowLifeMaximum(conn);
-            uint maximum = current >= half ? current : half;
+            uint maximum = Math.Min(conn.PlayerUnreservedLife, current >= half ? current : half);
             return RecoveryPool.Advance(current, maximum, amount, ref carry, minimum);
         }
-        return RecoveryPool.Advance(current, conn.PlayerMaxLife, amount, ref carry, minimum);
+        return RecoveryPool.Advance(current, conn.PlayerUnreservedLife, amount, ref carry, minimum);
     }
 
     /// <summary>The life cost a skill adds while the buff runs and the player is not on Low Life: the buff's share of
@@ -232,13 +240,21 @@ static class PetrifiedBlood
     /// <summary>The mana the buff reserves, using the same efficiency and per-skill percent rounding as
     /// <see cref="AuraCatalog.RequiredMana"/>.</summary>
     public static int RequiredMana(CharacterStats.Pools pools, PetrifiedBloodState state) =>
-        state.Active ? RequiredMana(pools, state.ManaPercent) : 0;
+        state.Active && !state.ReservesLife ? Required(pools.Mana, pools.ManaReservationEfficiencyPct,
+            state.ManaPercent, state.ReservationEfficiencyPct) : 0;
+
+    public static int RequiredLife(CharacterStats.Pools pools, PetrifiedBloodState state) =>
+        state.Active && state.ReservesLife ? Required(pools.Life, pools.LifeReservationEfficiencyPct,
+            state.ManaPercent, state.ReservationEfficiencyPct) : 0;
 
     public static int RequiredMana(CharacterStats.Pools pools, int manaPercent)
+        => Required(pools.Mana, pools.ManaReservationEfficiencyPct, manaPercent, 0);
+
+    public static int Required(uint maximum, int efficiencyPct, int percent, int additionalEfficiency)
     {
-        if (manaPercent <= 0) return 0;
-        double efficiency = Math.Max(-99, pools.ManaReservationEfficiencyPct) / 100.0 + 1;
-        double percent = Math.Round(manaPercent / 100.0 / efficiency, 2, MidpointRounding.AwayFromZero);
-        return (int)Math.Clamp(Math.Ceiling(pools.Mana * percent / 100.0), 0, int.MaxValue);
+        if (percent <= 0) return 0;
+        double efficiency = Math.Max(-99L, (long)efficiencyPct + additionalEfficiency) / 100.0 + 1;
+        double reservedPercent = Math.Round(percent / 100.0 / efficiency, 2, MidpointRounding.AwayFromZero);
+        return (int)Math.Clamp(Math.Ceiling(maximum * reservedPercent / 100.0), 0, int.MaxValue);
     }
 }

@@ -12,14 +12,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   (replies as chat lines).
   Code: `Program.Commands.cs` (`Commands`), `ChatCommands.cs`.
   Docs: [10](../docs/protocol/10-chat-and-commands.md).
-- Chat lines and channels: what the player types comes back as a chat line from the character (S→C 0x17), local in
-  the local colour, `#` global as "#Name: text" and `$` trade as "$Name: text".
+- Chat lines and channels (the `Chat` module): local lines go to the players of the instance, `#` global, `$` trade and
+  `@Name` whispers go through a chat server, so players of separate Gateways can talk.
+  Each Gateway runs a local chat server; a mod (`UseChatServer`: `globalchat` in LocalExile-Mods) moves its players to another server, and
+  disabling the mod moves them back. When that server fails a player is told in chat and stays local, trying again at an area change a minute later.
+  `src/GameServer.Chat` is the server to host; it stores nothing.
   The global and trade channel joins (C→S 0x134, after entering an area and for `/global N` and `/trade N`) are
-  answered with S→C 0x135 and "You have joined global chat channel N.", so they no longer time out and the Global and
+  answered with S→C 0x135 and "You have joined global chat channel N.", so they do not time out and the Global and
   Trade tabs work.
   The client joins once per session, so every area entry sends 0x135 for the channels already joined.
-  One player per server: nobody else sees the lines; party, guild and whisper lines are not echoed.
-  Code: `Program.Chat.cs`, `ChatChannels.cs`.
+  Party and guild lines are not sent. A name already on a chat server gets a number there (`Name[1]`); nothing proves a name.
+  Code: `Modules/Core/Player/Chat`, `src/GameServer.Core/Chat`.
+  Docs: [10](../docs/protocol/10-chat-and-commands.md) §6.
 - NPCs in every campaign town (acts 1-10, Oriath, the Karui Shores): each town room's own NPC lines, placed as the
   client places the room (checked against its walk-map capture of every town), with name, minimap icon, model and
   facing.
@@ -95,8 +99,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [17](../docs/protocol/17-npcs.md#vendor-evidence-and-local-policy).
 - **Player bots** (PlayerBots module, off by default): bots are created over time and visit the towns between quests.
   Players see them walk with their class model and gear.
-  Quests are simulated out of sight; bots do not fight, trade or chat yet.
-  A bot accepts a party invite and follows its leader through towns and areas; kicked or disbanded, it walks out.
+  Each campaign town maintains 2–5 residents at act-appropriate levels (Act 10: 63–75; level 1 only in Act 1).
+  Party followers use ordinary player combat: compatible linked gems, connected passive builds, hostile targeting,
+  damage, resurrection and persisted kill/gem experience. The native party-menu kick removes any selected bot.
+  Followers stand calmly within 60 cells of an idle leader, with rare short adjustments, and enter on clear cells ahead of the entrance.
+  Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
+  Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.
+  Shared deaths hide corpse health bars on each observer, including kills made by controlled party members.
+  Party state survives module reload while the leader remains online. Offscreen quests remain simulated;
+  trade, chat, ascendancy builds and advanced tactical AI remain open.
   See [player bots](../docs/dev/player-bots.md).
 
 ## Not working yet

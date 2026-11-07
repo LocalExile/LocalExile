@@ -19,13 +19,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
   Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
   Docs: [releases](../docs/dev/releases.md).
-- `LocalExileGUI.exe` in a release: a window over `LocalExile.exe --json` to play, set up, switch mods, create accounts,
-  change passwords and check the install, in English, Simplified or Traditional Chinese. It builds with the compiler of
-  .NET Framework 4.x and ships no runtime.
-  Tried on a set-up PC's install: a servers-only run and its stop, the full check, the mod list, all three languages.
-  Not tried from it: the setup, a client start, an account creation, a password change.
-  Code: `src/LocalExileGui`, `scripts/release/build-release.ps1`.
-  Docs: [releases](../docs/dev/releases.md) ("For a GUI").
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.
@@ -64,26 +57,29 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64
-  package; its launcher sets up and runs the servers natively. Not yet: `-Walkmaps`, named clients, the client from a
-  Linux release, and a Linux release job in `.github/workflows/release.yml`.
+  package; its launcher sets up and runs the servers natively. The release workflow builds it beside the Windows one. Not yet:
+  `-Walkmaps`, named clients, and the client from a Linux release.
   Code: `scripts/dev/platform-linux.ps1`.
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
   collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
-  `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`).
+  `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`; a running Gateway also
+  applies that file when a launcher rewrites it).
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
   Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
+  Settings: a mod's or module's `settings.json` declares what can be tuned (ten types, defaults, limits); the user's values
+  are in `data/mods/` and `data/modules/`, checked, and a change reloads it ([modding](../docs/dev/modding.md), "Settings").
+  A user's modules per league are added and removed in `data/league-modules.json`, over the leagues' own lists.
   Leagues ([modules](../docs/dev/modules.md)) are folders in `Leagues/`, read once at start: cards and check boxes as in the real create screen, a parent to migrate to, Void, and
   modules listed per league in its `modules.json`. Characters of a deleted or ended league cannot be entered.
   Not tried in the client: a blocked character.
   Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
   Trades and parties, Atlas passives, the crafting bench, cosmetics, vendors, portals and the map device, tattoos, the campaign's quests (QuestObjects), hideout editing, chat commands and unique belts are Core modules too. The game\'s rules are the `Game` module; the Gateway keeps the framework, game data, saves and connection state. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
   without Harvest places no station. Not tried in the client after the move.
-  `Mods/Source/` has seven examples, of which only `example` is on by default.
-  `FastCampaign` (experience and movement speed, `/fast`, three languages) loaded as a script in a running Gateway and read
-  its `settings.txt`; not tried with the client, nor built as a project (no SDK on that PC).
+  The seven example mods, all off by default, moved to [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods)
+  (2026-11-07); Waypoint installs them. A release ships no mods.
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
-  `live.ps1` builds `Mods\Source\` (the example mod: 100x item quantity, `/example`) into `Mods\Binaries\`.
+  `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
   Live: the running Gateway loaded the example mod by itself when it was first built.
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
   dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
@@ -94,7 +90,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (fallback, required features, tunables, scoped hooks) and built-ins.
   Missing: mods replacing catalog rows, and the hooks not yet tried with the client (drops, experience, stats, packets).
   Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `ModScripts.cs`, `ServerLeagues.cs`, `Program.Mods.cs`,
-  `Program.ModuleWorld.cs`, `Modules/`, `Mods/Source/`.
+  `Program.ModuleWorld.cs`, `Modules/`, `src/GameServer.Modding/Mod.props`.
   Docs: [modding](../docs/dev/modding.md).
 
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.

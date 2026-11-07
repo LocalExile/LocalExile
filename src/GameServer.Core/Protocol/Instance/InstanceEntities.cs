@@ -204,6 +204,15 @@ public static class InstanceEntities
     public static byte[] CreateObject(uint entityId, uint objectType, byte[] blob, uint headerU32 = 0, ushort headerU16 = 0) =>
         new LoginWriter().U16(CreateObjectId).U32(entityId).U32(headerU32).U16(headerU16).U32(objectType).Blob(blob).ToArray();
 
+    /// <summary>
+    /// A 0x2b9 and the 0x1a9 it needs: none when the blob's first byte has 0x02, which makes the create wake the object
+    /// itself (0x141ebe190 sets +0x8d |= 2, then the 0x2b9 handler calls ObjectInWakeZone: 0x142187480). A 0x1a9 to an
+    /// awake object only logs a [CRIT] line (0x141ec0aa0). GGG sent none of its 4 726 0x1a9 to an awake object.
+    /// </summary>
+    public static byte[] CreateInWakeZone(uint entityId, uint objectType, byte[] blob, uint headerU32 = 0) =>
+        (blob[0] & 0x02) != 0 ? CreateObject(entityId, objectType, blob, headerU32)
+            : [.. CreateObject(entityId, objectType, blob, headerU32), .. InstanceProtocol.EnterWakeZone(entityId)];
+
     public const ushort MonsterTypesId = 0x20;
 
     /// <summary>
@@ -284,9 +293,10 @@ public static class InstanceEntities
     /// (<c>0x140b14b00</c> before and after, when there is a record or an id): the character panel's skill list follows it.
     /// </summary>
     public static byte[] PlayerSkillsChange(uint playerId, IReadOnlyList<GrantedSkill> skills, IReadOnlyList<ushort> removed,
-        IReadOnlyList<VaalSoulSeed>? soulSeeds = null, IReadOnlyList<VaalSoulUpdate>? soulUpdates = null)
+        IReadOnlyList<VaalSoulSeed>? soulSeeds = null, IReadOnlyList<VaalSoulUpdate>? soulUpdates = null,
+        bool canDetonateMines = false)
     {
-        var w = new BlobWriter().U8(0x20).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
+        var w = new BlobWriter().U8(canDetonateMines ? (byte)0xa0 : (byte)0x20).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
         foreach (var s in skills) PlayerObject.WriteSkillRecord(w, s);
         foreach (var id in removed) w.U16(id);
         w.U8(checked((byte)(soulSeeds?.Count ?? 0)));
@@ -300,9 +310,9 @@ public static class InstanceEntities
     /// Existing entries are replaced, not consumed/appended: remaining and total BASE seconds, recovery rate, flags.
     /// A zero remaining budget clears the entry vector. Native skill base duration and cooldown group stay intact.</summary>
     public static byte[] PlayerSingleUseCooldowns(uint playerId, IReadOnlyList<SingleUseCooldownUpdate> cooldowns,
-        IReadOnlyList<VaalSoulBudget>? souls = null)
+        IReadOnlyList<VaalSoulBudget>? souls = null, bool canDetonateMines = false)
     {
-        var w = new BlobWriter().U8(0x40).U8(0).U8(0);
+        var w = new BlobWriter().U8(canDetonateMines ? (byte)0xc0 : (byte)0x40).U8(0).U8(0);
         PlayerObject.WriteSoulBudgets(w, souls);
         w.U32((uint)cooldowns.Count);
         foreach (var c in cooldowns)
@@ -601,6 +611,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 {
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
+    public IReadOnlyList<VisibleItem>? Equipped { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
@@ -656,7 +667,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                     if (AnimatedObject is null) w.U8(0);
                     else w.U8(1).WStr32(AnimatedObject);
                     break;
-                case "Inventories": w.U8(0).U8(0); break;
+                case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
                 // path, u16, u8, (life >= 1: no conditional bytes), u32, u32, then slot 20's two flag bytes.
                 case "Actor":
                     w.WStr32("").U16(0).U8(0).U32(0).U32(0);
@@ -865,6 +876,37 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 }
 
 /// <summary>
+/// A soul line: <c>Metadata/Effects/ServerBeamEffect</c>, as the official server's Soul Eater sends it (captured from
+/// 3.29.3c). The Beam component (0x14166e9c0) reads the MiscBeams row + 1, a 16-bit flag word and a third flag byte,
+/// then the endpoints. The official packet: row 0 (SoulEaterBeam) + 1, flags 0x0C97, start world x/y, start object id,
+/// 0, end world x/y, end object id, 0. The client follows the two objects; the positions are their snapshot.
+/// World coordinates are grid cells times ten.
+/// </summary>
+public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint StartObject, float EndWorldX, float EndWorldY,
+    uint EndObject, ushort BeamRow = 0)
+{
+    public const string TypePath = "Metadata/Effects/ServerBeamEffect";
+    /// <summary>Positioned x/y are cells; the Beam's endpoints are world units (ten per cell).</summary>
+    public const float WorldPerCell = 10;
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        w.U8(0).U8(0);                                                  // object flags, base data entries
+        // Positioned: the corpse's cell, no rotation, team 0, no extra flags or visibility bytes (19 bytes before Beam).
+        w.I32(StartGridX).I32(StartGridY).F32(0).U16(0).U8(0).U8(0);
+        w.U8(0);                                                        // Animated: the Beam row's art
+        // Beam, exactly as the official server's (3.29.3c capture): row + 1, flags A0|A1|A2|A4|A7|B2|B3, then each end's
+        // world position and object id (the client follows the objects; the positions are their snapshot).
+        w.U16((ushort)(BeamRow + 1)).U8(0x97).U8(0x0C).U8(0x00)
+            .F32(StartGridX * WorldPerCell).F32(StartGridY * WorldPerCell).U32(StartObject).U32(0)
+            .F32(EndWorldX).F32(EndWorldY).U32(EndObject).U32(0);
+        w.U8(0);                                                        // tasks
+        return w.ToArray();
+    }
+}
+
+/// <summary>
 /// The Crux of Nothingness's central shrine (<c>Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/RitualPillar2</c>):
 /// Positioned, BaseEvents, Animated, StateMachine, Stats, the type's read order (Positioned first, then the .ot's
 /// sections). The arena's <c>HugeRitualShrine01_01.ao</c> is explicit art because the type itself names no model.
@@ -970,6 +1012,7 @@ public sealed record GrantedSupport(uint EffectsPerLevelRow, uint StatSetsPerLev
 public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatSetsPerLevelRow,
     IReadOnlyList<(uint Key, int Value)>? Stats = null, uint CooldownMs = 0)
 {
+    public (uint Object, ushort Skill)? Parent { get; init; }
     /// <summary>Skill-record bit1 (0x02): retain native GEPL Vaal soul inputs, regardless of current cost or balance.</summary>
     public bool VaalResourcesEnabled { get; init; }
     /// <summary>Native support references (GEPL row and source metadata), read by 0x142196ce0.</summary>
@@ -1026,7 +1069,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
     uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
-    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0)
+    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0, uint LifeReserved = 0)
 {
     /// <summary>Start in the client's washed-up beach state, which handles lying down and getting up on input.</summary>
     public bool WashedUp { get; init; }
@@ -1082,7 +1125,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         // comp3 (0x141e114d0): u16 count of entries (u16, u8, 0x141e06bb0 record).
         w.U16(0);
         // Life (0x141e6c2f0): life, mana and energy shield pools (0x141e6be70), then a flags byte (0x141e6c270).
-        Pool(w, Life); Pool(w, Mana, ManaReserved); Pool(w, EnergyShield);
+        Pool(w, Life, LifeReserved); Pool(w, Mana, ManaReserved); Pool(w, EnergyShield);
         w.U8(0);
         // Animated (0x141e56a80): flags. Bit0 + !bit1: u32 char count + UTF-16LE animated-object path; the client loads it
         // when it differs from the current one or none is set (+0x260 null), creating the 0x308-byte AO instance.
@@ -1158,7 +1201,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .U8(0).U32(s.StatSetsPerLevelRow);    // its stat set
         foreach (var (row, _) in s.ExtraStatSets) w.U8(0).U32(row);   // one more stat-set reference per additional set
         // 0x1421975f0: without bit1 a raw Vaal stored-use count makes the constructor zero its soul inputs.
-        w.U8(s.VaalResourcesEnabled ? (byte)0x02 : (byte)0).U8(checked((byte)s.Supports.Count));
+        w.U8((byte)((s.VaalResourcesEnabled ? 2 : 0) | (s.Parent is not null ? 1 : 0)));
+        if (s.Parent is { } parent) w.U32(parent.Object).U16(parent.Skill);
+        w.U8(checked((byte)s.Supports.Count));
         foreach (var support in s.Supports)
         {
             w.U8(0).U32(support.EffectsPerLevelRow).U8(0).U32(support.StatSetsPerLevelRow);

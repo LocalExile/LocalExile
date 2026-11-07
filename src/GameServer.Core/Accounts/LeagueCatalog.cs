@@ -88,8 +88,9 @@ public sealed class LeagueCatalog
         All = [.. good.Where(l => l.Creatable && !l.Ended)];
     }
 
-    /// <summary>The leagues in a folder: each a subfolder with a league.json and a modules.json, and Source/ or Binaries/.</summary>
-    public static LeagueCatalog FromFolder(string folder)
+    /// <summary>The leagues in a folder: each a subfolder with a league.json and a modules.json, and Source/ or Binaries/; with the
+    /// user's changes to their module lists from <paramref name="moduleChanges"/> (<see cref="ChangeModules"/>) when it exists.</summary>
+    public static LeagueCatalog FromFolder(string folder, string? moduleChanges = null)
     {
         var leagues = new List<League>();
         var errors = new List<string>();
@@ -101,7 +102,48 @@ public sealed class LeagueCatalog
             try { leagues.Add(Read(Path.GetFileName(dir), path)); }
             catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or IOException) { errors.Add($"{Path.GetFileName(dir)}: {e.Message}"); }
         }
+        if (moduleChanges is not null && File.Exists(moduleChanges)) leagues = ChangeModules(leagues, File.ReadAllText(moduleChanges), errors);
         return new(leagues.OrderBy(l => !l.Name.Equals(Standard, StringComparison.OrdinalIgnoreCase)), errors);
+    }
+
+    /// <summary>The user's own module lists, over the leagues' <c>modules.json</c> (which stay as LocalExile ships them):
+    /// <c>{"&lt;league&gt;": {"add": [paths under Modules/], "remove": [paths or ids]}}</c>. An added module goes last, so a
+    /// module listed before it that gives rules keeps them. The game itself cannot be removed. A wrong entry is an error
+    /// line and changes nothing; an unreadable file changes no league.</summary>
+    public static List<League> ChangeModules(List<League> leagues, string json, List<string> errors)
+    {
+        const string Name = "league-modules.json";
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(json, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }); }
+        catch (JsonException e) { errors.Add($"{Name}: {e.Message}"); return leagues; }
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) { errors.Add($"{Name}: not an object of league to changes"); return leagues; }
+            var changed = leagues.ToList();
+            foreach (var entry in doc.RootElement.EnumerateObject())
+            {
+                int at = changed.FindIndex(l => l.Name.Equals(entry.Name, StringComparison.OrdinalIgnoreCase));
+                if (at < 0) { errors.Add($"{Name}: no league \"{entry.Name}\""); continue; }
+                string[]? Paths(string name) => !entry.Value.TryGetProperty(name, out var list) ? []
+                    : list.ValueKind == JsonValueKind.Array && list.EnumerateArray().All(e => e.ValueKind == JsonValueKind.String) ? [.. list.EnumerateArray().Select(e => e.GetString()!)] : null;
+                if (entry.Value.ValueKind != JsonValueKind.Object || Paths("add") is not { } add || Paths("remove") is not { } remove)
+                {
+                    errors.Add($"{Name}: {entry.Name}'s changes are not {{\"add\": [...], \"remove\": [...]}} lists of modules");
+                    continue;
+                }
+                static string Id(string path) => path.Replace('\\', '/').TrimEnd('/').Split('/')[^1];
+                var modules = changed[at].Modules.ToList();
+                foreach (string gone in remove)
+                {
+                    if (Id(gone).Equals("Game", StringComparison.OrdinalIgnoreCase)) { errors.Add($"{Name}: {entry.Name} cannot remove the game itself (Core/Game)"); continue; }
+                    modules.RemoveAll(m => m.Equals(gone, StringComparison.OrdinalIgnoreCase) || Id(m).Equals(Id(gone), StringComparison.OrdinalIgnoreCase));
+                }
+                foreach (string added in add)
+                    if (!modules.Any(m => Id(m).Equals(Id(added), StringComparison.OrdinalIgnoreCase))) modules.Add(added.Replace('\\', '/'));
+                changed[at] = changed[at] with { Modules = modules };
+            }
+            return changed;
+        }
     }
 
     static League Read(string folderName, string path)
@@ -124,8 +166,9 @@ public sealed class LeagueCatalog
         };
     }
 
-    /// <summary>The leagues in the configured folder.</summary>
-    public static LeagueCatalog FromEnvironment() => FromFolder(Environment.GetEnvironmentVariable("Game_LEAGUES_FOLDER") ?? "Leagues");
+    /// <summary>The leagues in the configured folder, with the user's module lists (<c>data/league-modules.json</c>).</summary>
+    public static LeagueCatalog FromEnvironment() => FromFolder(Environment.GetEnvironmentVariable("Game_LEAGUES_FOLDER") ?? "Leagues",
+        Environment.GetEnvironmentVariable("Game_LEAGUE_MODULES") ?? Path.Combine("data", "league-modules.json"));
 
     /// <summary>The leagues as they were when this server started: leagues come and go only with a restart.</summary>
     public static LeagueCatalog Startup => _startup.Value;

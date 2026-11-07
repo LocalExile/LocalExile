@@ -12,9 +12,10 @@ static partial class Game
     /// ChaosDamageTaken INC), then a spell's less damage taken.</summary>
     internal static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental = false, bool hit = false,
         bool chaos = false) =>
-        m.Mods.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
+        m.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
-            + (chaos ? WitheredTaken(m, now) : 0));
+            + (chaos ? WitheredTaken(m, now) : 0)
+            + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0));
 
     /// <summary>The shocks a kill of a monster by the player (its life reached 0 from a hit or Righteous Fire) inflicts.
     /// Berek's Respite (shock_X_nearby_enemies_for_2_s_on_killing_shocked_enemy): when it was shocked, each other living
@@ -31,10 +32,10 @@ static partial class Game
             var at = m.Walk.Position(now);
             foreach (var other in conn.Monsters.Values)
                 if (!ReferenceEquals(other, m) && !other.Dead && other.Hostile && Dist(other.Walk.Position(now), at) <= 20)
-                    other.Ailments.Equivalent(m.Ailments, shock, now, name => other.Mods.Effects[name]);
+                    other.Ailments.Equivalent(m.Ailments, shock, now, name => other.Effects[name]);
         }
         if (Get("enemy_shock_on_kill") != 0)
-            m.Ailments.ShockOnKill(now, Get, name => m.Mods.Effects[name], AilmentArea(Get, _ => 0, spell: false));
+            m.Ailments.ShockOnKill(now, Get, name => m.Effects[name], AilmentArea(Get, _ => 0, spell: false));
     }
 
     /// <summary>The chills and shocks without damage (MonsterElementalAilments.WithoutDamage) a monster hit that lands on
@@ -45,7 +46,7 @@ static partial class Game
     /// </summary>
     internal static void AilmentsWhenHitLocked(SpawnedMonster m, Func<string, int> player, bool blocked, double now)
     {
-        int Target(string name) => m.Mods.Effects[name];
+        int Target(string name) => m.Effects[name];
         double area = AilmentArea(player, _ => 0, spell: false);
         if (player("chill_enemy_when_hit_duration_ms") is > 0 and int ms)
             m.Ailments.WithoutDamage(Kind.Chill, ms / 1000.0, now, player, Target, area, stated: 30);
@@ -78,14 +79,14 @@ static partial class Game
             for (var kind = Kind.Chill; kind <= Kind.Shock; kind++)
                 m.Ailments.Proliferated(kind, reached ? sources.Where(s => s.Ailment.Kind == kind && !ReferenceEquals(s.M, m)
                     && Dist(s.At, at) <= s.Ailment.Spread).Select(s => s.Ailment).MaxBy(s => (s.Magnitude, s.Until)) : null,
-                    name => m.Mods.Effects[name]);
+                    name => m.Effects[name]);
         }
     }
 
     /// <summary>Its action speed: 0 frozen, else less by its chill. Unstoppable (action_speed_cannot_be_reduced_below_base)
     /// keeps it at 1.</summary>
     internal static double MonsterActionFactor(SpawnedMonster m, double now) =>
-        m.Mods.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
+        m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
             : m.Ailments.ActionFactor(now) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
 
     /// <summary>
@@ -104,18 +105,21 @@ static partial class Game
     internal static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
-        MonsterPoisons.Settings poison = default)
+        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0)
     {
+        CursesOnHitLocked(conn, m, sourceSkill, spell, now);
+        if (!spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
+            HolyRelicsOnHitLocked(conn, conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key, m, now);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         // The physical part counts after the monster's physical reduction and its Maim, as the hit's damage does.
         var taken = mitigated.Select((type, range) => range.Scale(factor
             * (type == DamageType.Physical
-                ? Math.Max(0, 1 - (m.Mods.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+                ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
         var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill),
-            name => m.Mods.Effects[name], random, AilmentArea(Player, Skill, spell));
+            name => m.Effects[name], random, AilmentArea(Player, Skill, spell));
         foreach (var effect in added)
             if (effect.Kind == Kind.Freeze) conn.RecentEvents.Record(StatConditions.FrozeEnemy, now);
             else if (effect.Kind == Kind.Shock) conn.RecentEvents.Record(StatConditions.ShockedEnemy, now);
@@ -137,7 +141,7 @@ static partial class Game
         PoisonOnHitLocked(conn, m, mitigated, spell, critical, player, skill, poison, now, random);
         // Fleeing (MonsterFlee): its own draws (Random.Shared), so a projectile's reaction draws stay in order.
         if (!m.Fleeing && MonsterFlee.Rolls(MonsterFlee.Chance(spell, Player, Skill),
-                m.Mods.Effects["monster_chance_to_not_flee_%"], Random.Shared))
+                m.Effects["monster_chance_to_not_flee_%"], Random.Shared))
         {
             int size = Math.Max(0, LivingCollision.Size(m));
             m.FleeTo = MonsterFlee.Point(m.Walk.Position(now), conn.Walk.Position(now),
@@ -145,7 +149,7 @@ static partial class Game
             m.Fleeing = m.FleeTo is not null;
         }
         if (added.Count == 0 || conn.PlayerLife == 0
-            || !RandomRolls.Chance(m.Mods.Effects["reflect_non_damaging_ailments_%_chance"], 100, random)) return;
+            || !RandomRolls.Chance(m.Effects["reflect_non_damaging_ailments_%_chance"], 100, random)) return;
         if (reflected is not null) reflected.AddRange(added);
         else ReflectAilmentsLocked(conn, added, now, player, random);
     }
@@ -170,7 +174,8 @@ static partial class Game
     /// (BuffDefinitions 1, 2, 3, which draw BuffVisuals 3, 4, 5) and the virtual_action_speed_+% the native walk
     /// (0x141e7c0b0) and action clips read, which network stats do not derive (04 §4.1a). A chill re-times the server's
     /// walk by the same factor, so both walk the monster alike. A freeze is not sent there (−100 would divide the native
-    /// clip by zero); the AI stops the monster instead. Under the Monsters lock.
+    /// clip by zero); on a predictive client the AI stops the monster instead, and on a lockstep client nothing stops it,
+    /// the estimate's walk included (07 §6). Under the Monsters lock.
     /// </summary>
     internal static List<(byte[] Packet, string Log)> MonsterAilmentChangesLocked(ClientState conn, double now)
     {
@@ -185,9 +190,9 @@ static partial class Game
                 if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
                 if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
             }
-            double action = m.Mods.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
+            double action = m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
                 : (1 - a.Magnitude(Kind.Chill, now) / 100) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
-            double walk = m.Mods.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
+            double walk = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
             // Maim: 30% reduced movement speed while maimed (PoB: MovementSpeed INC -30 with the Maimed condition).
             if (m.MaimedUntil > now) walk *= 0.7;
             if (walk != a.WalkFactor)

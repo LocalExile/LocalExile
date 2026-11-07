@@ -137,6 +137,7 @@ static partial class Game
                             $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
             }
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
+        sources = WithSummonBuffs(conn, sources);
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
@@ -203,7 +204,7 @@ static partial class Game
         IReadOnlyDictionary<string, bool> conditionFlags;
         lock (conn.Monsters)
         {
-            auraEffects = StatConditions.AuraSet(conn.Auras.Values.Select(a => a.EffectId));
+            auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId));
             conditionNow = conn.Clock.Elapsed.TotalSeconds;
             recentEvents = conn.RecentEvents.Snapshot(conditionNow);
             recentExpiry = conn.RecentEvents.NextExpiry(conditionNow);
@@ -717,7 +718,7 @@ static partial class Game
             BodyEnergyShield = converted.EnergyShield == 0 ? 0 : body.EnergyShield,
         };
         List<AuraCatalog.Aura> auras;
-        lock (conn.Monsters) auras = [.. conn.Auras.Values];
+        lock (conn.Monsters) auras = AffectingAuras(conn);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(conn), Stats);
         // Match CharacterPlayerStats: a dev value replaces the complete raw passive/equipment/aura input.
         // Read raw replacements once, preserving independent mana and incoming-hit consumers.
@@ -813,6 +814,8 @@ static partial class Game
             CriticalStrikeChancePct = attackIncrease,
             SpellCriticalStrikeChancePct = spellIncrease,
             AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct,
+            SpellBlockChance = bonus.SpellBlockChance + (activeWeapon.Shield
+                ? auras.Where(a => a.EffectId == "TempestShield").Select(a => ReservationStat(conn, a, "shield_spell_block_%")).DefaultIfEmpty(0).Max() : 0),
             MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(conn)
         };
         // Running utility flasks and Mageblood's permanent ones combined before one strongest-per-effect pass: the same
@@ -1466,7 +1469,7 @@ static partial class Game
             await SendCharacterStats(remote, stream, ciphers, conn, "passives");
             await Send(remote, stream, ciphers, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(conn));
             // A refund can lower the maximum life: the current life needs its own 0x1b1 (0x1b3 only carries the maximum).
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
                 $"0x01b1 player life {conn.PlayerLife} (passives)");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passives)");
         }

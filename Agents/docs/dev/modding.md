@@ -17,6 +17,7 @@ where it calls the hooks).
 ```
 Mods/Binaries/<id>/
   mod.json      { "id": "<id>", "version": "1.0.0", "kind": "feature", "depends": [], "assembly": "<id>.dll", "enabled": true }
+  settings.json what can be tuned, when it has settings (Settings)
   <id>.dll      the mod (and its .pdb, for line numbers in its errors)
   ...           other assemblies it ships, its own files
 ```
@@ -53,21 +54,14 @@ public sealed class Ping : IMod
 
 ## Writing one
 
-The source of a first-party mod lives in `Mods/Source/<Name>/` (in the solution); `Mods/Source/Directory.Build.props` builds
-`<Name>.csproj` into `Mods/Binaries/<name>/` as `<name>.dll`, with the `mod.json` beside it, and compiles against
-`GameServer.Modding` without copying it.
-To make a new one, copy one of the examples, rename the folder and the `.csproj`, and set the id in its `mod.json` to the
-new folder's name in lower case.
-
-| Example | Shows | On by default |
-|---|---|---|
-| `Example` | `/example`, counting kills and areas: state that a reload starts over | yes |
-| `Hello` | `/hello [name]`: a chat command with arguments, the player's details | no |
-| `ItemQuantity` | 10 times as many items | no |
-| `ItemRarity` | 10 times the chance of magic, rare and unique equipment | no |
-| `DoubleExperience` | twice the experience from kills | no |
-| `BossLoot` | an Exalted Orb from every unique monster: an extra drop by name | no |
-| `FastCampaign` | a faster campaign: 5 times the experience from kills and +50% movement speed, changed by `/fast_xp` and `/fast_speed` and kept in its `settings.txt`; `/fast` lists the Gateway's commands that skip ahead, in English, Simplified or Traditional Chinese (`/fast_lang`) | no |
+The official mods live in [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods) (its `AGENTS.md` has the
+layout and the rules); Waypoint's Browse panel installs them. A project mod's source goes in `Mods/Source/<id>/` (Waypoint
+puts it there when the mod has no release); `src/GameServer.Modding/Mod.props`, which the root `Directory.Build.props`
+imports for a project under `Mods/Source/`, builds `<Name>.csproj` into `Mods/Binaries/<id>/` as `<id>.dll`, with the
+`mod.json` and `settings.json` beside it, and compiles against `GameServer.Modding` without copying it. `Mods/` is
+gitignored: what is in it is the user's.
+To make a new one, copy one of LocalExile-Mods' examples (`example`, `hello`), rename the folder and the `.csproj`, and set
+the id in its `mod.json` to the new folder's name in lower case.
 
 ```csharp
 public sealed class MyMod : IMod
@@ -82,6 +76,71 @@ public sealed class MyMod : IMod
 
 Every public class that implements `IMod` is created and its `Load` called once. One that also implements
 `IDisposable` is disposed when the mod unloads.
+
+## Settings
+
+A mod or [module](modules.md) with something to tune declares it in `settings.json`, beside its `mod.json` or `module.json`;
+one with nothing to tune has no such file. The declarations are LocalExile's and stay as shipped: what a user changes is in
+their own file, `data/mods/<id>.json` (a module's `data/modules/<id>.json`), holding only the values they changed, so
+`git pull` and a release update keep it. An editor such as Waypoint draws its form from the declarations and writes that
+file; the mod reads both only through the host.
+
+```json
+{
+  "version": 1,
+  "renamed": { "multiplyBy": "multiplier" },
+  "settings": {
+    "multiplier": {
+      "type": "number", "default": 10, "min": 1, "max": 100, "format": "multiplier",
+      "label": "Item quantity", "description": "How many times as many items every kill drops."
+    }
+  }
+}
+```
+
+```csharp
+sealed record Choices(double Multiplier);
+
+public void Load(IModContext mod)
+{
+    double multiplier = mod.Settings<Choices>().Multiplier;
+    mod.ModifyDrops(drops => drops.Quantity *= multiplier);
+}
+```
+
+- `Settings<T>()` reads the user's values over the defaults into `T` by name (case does not matter); every declared setting
+  has a value. `SaveSettings(values)` writes them as the user's (a chat command that changes one, as LocalExile-Mods' `fastcampaign`'s),
+  leaving out those equal to their default, and refuses a value that does not fit.
+- A change to `settings.json` or to the user's file reloads the mod (Reloading), and the new load reads them.
+- A value that does not fit its declaration is logged (`[mods] <id>: setting <name> … its default … is used`) and its
+  default used; a value no longer declared is logged and kept in the user's file. A declaration that is wrong, its
+  default included, fails the load with `settings.json: …` as the reason.
+- `version` is the declarations' own number; `renamed` moves a user's value from an old name to its new one.
+
+| Type | Value | Its attributes |
+|---|---|---|
+| `bool` | `true` or `false` | |
+| `integer` | a whole number | `min`, `max`, `step` |
+| `number` | a number | `min`, `max`, `step` |
+| `range` | `[low, high]`, low not above high | `min`, `max` (both ends), `of`: `integer` or `number` (default) |
+| `choice` | one of its `options`, or of a `source` | `options` or `source` |
+| `choices` | a list of those, each once | `options` or `source`, `minItems`, `maxItems` |
+| `text` | text | `minLength`, `maxLength`, `pattern` (a regular expression the whole text matches) |
+| `list` | a list of `item` | `item` (a declaration with no default), `minItems`, `maxItems` |
+| `map` | an object of key to `value` | `value` (a declaration with no default), and `options` or `source` for its keys (any key without) |
+| `group` | an object of its `settings` | `settings` (declarations, as the file's); its default is theirs, so it has none of its own |
+
+Every setting has `type` and `default` (a group excepted), and may have:
+
+- `label` and `description`, an editor's text; `unit` (`s`, `min`, `%`, `cells`, …); `format`: `percent` (0.15 shown as
+  15%), `duration` (seconds shown as minutes and seconds) or `multiplier` (0.25 shown as ×0.25).
+- `options`: values, or `{"value": …, "label": "…"}` for an editor's text.
+- `source`: the game's values of a kind, checked once the game module is loaded: `area`, `monster`, `item`, `gem`,
+  `stat`, `npc` or `quest_flag` (what the chat commands complete, and what `GameServer.Gateway values <kind>` lists).
+- `when`: `{"<setting>": value, …}`, shown only while those settings have those values.
+- `applies`: `now` (default: the reload), `nextArea` (the reload, but the player sees it in the next area) or `restart`
+  (read once when the Gateway starts).
+- `advanced`: `true` hides it behind an editor's advanced view.
 
 ## Hooks
 
@@ -98,6 +157,7 @@ Each `IModContext` call returns a handle; disposing it removes that hook, and un
 | `ModifyDrops(modify)` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them) |
 | `ModifyExperience(modify)` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
 | `ModifyStats(modify)` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like `/god`'s: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
+| `UseChatServer(host, port)` | until it unloads: global, trade and whisper chat go through this [chat server](../protocol/10-chat-and-commands.md) instead of the local one | |
 
 A player (`IPlayer`) is one connection: character, account, league, its modes and the league it plays by, level, area id and seed, position,
 `Tell` (chat lines) and `Send` (a raw S→C message). An area change is a new connection.
@@ -108,20 +168,22 @@ cheap (`ModifyStats` runs on every stat rebuild).
 
 ## Reloading
 
-The Gateway watches `Mods/Binaries/`. A change in a mod's folder (a build, an edited `mod.json`, a new or deleted folder)
-reloads that mod and every mod that depends on it, about 0.4 s after the last file is written.
+The Gateway watches `Mods/Binaries/` and `data/mods/`. A change in a mod's folder (a build, an edited `mod.json` or
+`settings.json`, a new or deleted folder) or to its user's settings reloads that mod and every mod that depends on it, about
+0.4 s after the last file is written.
 Players in game read `Mods: loaded <id> …`, `Mods: unloaded <id>` or `Mods: <id> not loaded: <why>` in chat, as the
 Gateway's log does with `[mods]`.
 
-- A reload starts the mod's state over: its fields and statics are new. What it saved (its own files) stays.
+- A reload starts the mod's state over: its fields and statics are new. What it saved (its settings, its own files) stays.
 - The assemblies and symbols load from a private disk copy under the system temporary directory, so a build can
   overwrite the originals while the mod runs. Path-backed loading avoids the loader/finalizer failure reproduced
   with collectible `LoadFromStream` assemblies on Windows .NET 10. The copy is removed after its context is collected;
   a retained context or a failed file removal is logged. No client files are involved.
-- `/mod` lists the mods with their version, kind and hook count, and why the others did not load.
+- `/mod` lists the loaded mods first, with their version, kind and hook count, then why the others did not load.
   `/mod_reload [id]` reloads one (with its dependents) or all.
 - `/mod_disable <id>` unloads a mod and its dependents; `/mod_enable <id>` loads it and them again. The choice lasts across
-  restarts and rebuilds, and is kept in `mod-state.txt` in `Mods/Binaries/`, over the manifest's `enabled`.
+  restarts and rebuilds, and is kept in `mod-state.txt` in `Mods/Binaries/`, over the manifest's `enabled`. A running
+  Gateway also applies that file when another program (a launcher) rewrites it.
 - After an unload the Gateway checks that the mod's load context was freed, and logs
   `an unloaded mod is still in memory` when it was not after 2 s: a thread, timer or task of the mod still runs, or
   something outside the mod holds one of its objects. Stop what the mod started in `Dispose`.

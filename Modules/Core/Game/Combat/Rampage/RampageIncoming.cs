@@ -30,7 +30,7 @@ static partial class Game
         {
             monster.LastTarget = target;
             monster.SwingGeneration = null;
-            plan.Moves.Add((id, monster, ++monster.ActionGeneration, PlaceMove(plan, monster, target, now), target, "chases Rampage weapon"));
+            plan.Moves.Add((id, monster, NextPlannedAction(monster), PlaceMove(plan, monster, target, now), target, "chases Rampage weapon"));
         }
         return true;
     }
@@ -59,9 +59,9 @@ static partial class Game
             var from = attacker.Walk.Position(startedAt); var to = weapon.Walk.Position(startedAt);
             attacker.BusyUntil = startedAt + attack.Seconds;
             return attack.InPlace ? InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y,
-                    attack.SkillId, conn.NextActionSequence(), 0x0408, targetObjectId: targetId)
+                    attack.SkillId, conn.NextActionSequence(), conn.MonsterOrderFlags, targetObjectId: targetId)
                 : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, to.X, to.Y,
-                    attack.SkillId, conn.NextActionSequence(), 0x0408, targetId);
+                    attack.SkillId, conn.NextActionSequence(), conn.MonsterOrderFlags, targetId);
         }, "Monster attacks Rampage weapon")) return;
         if (!await WaitMonsterActionTime(conn, id, attacker, action, startedAt + attack.Seconds / 2)) return;
         await SendMonsterAction(remote, stream, ciphers, conn, id, attacker, action, () =>

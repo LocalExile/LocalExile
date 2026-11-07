@@ -13,6 +13,9 @@ static class TutorialObjects
     // TalkToWoundedExile(8.2,22.8) supplies the two voice lengths, not two stages of one scene.
     // NPCTalk options 2/3 play DBG_03 (22.763 s) / DBG_02 (7.951 s). The rig's bite clip lasts 3.1 s.
     public const double BiteSeconds = 3.1;
+    // Interaction's MoveTo uses max range 6 and tolerance 3 (0x141e8eb60 -> 0x141e7b530),
+    // distinct from this chest's blocking footprint of 1. WalkUpTo adds 3 to this interaction size.
+    public const int ChestInteractionSize = 3;
     // ActionTypes WashedUp HASH16 47065, masked to its basic-action skill id.
     public const ushort WashedUpSkillId = 0x37d9;
     // An action the server starts itself has the sequence's top bit set (0x141e94fc0); this is the character's first.

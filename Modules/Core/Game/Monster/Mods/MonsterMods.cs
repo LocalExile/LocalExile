@@ -52,9 +52,11 @@ static partial class Game
     internal static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
         out bool critical, Func<int>? selfCriticalReduction = null)
     {
-        var e = m.Mods.Effects;
+        var e = m.Effects;
         critical = e.CriticalChance > 0 && random.Next(10_000) < e.CriticalChance;
         double factor = critical ? MonsterModEffects.CriticalMultiplierOnPlayer(selfCriticalReduction?.Invoke() ?? 0) / 100.0 : 1;
+        factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
+            ? "enfeeble_damage_+%_vs_rare_or_unique_final" : "enfeeble_damage_+%_final"] / 100.0);
         if (e.ExecutionerPct(playerLife, playerMaxLife) is int executioner and > 0)
         {
             int increased = e["damage_+%"] + e["physical_damage_+%"];
@@ -79,7 +81,7 @@ static partial class Game
         Penetration.PerType pen, double now = double.NaN)
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
-        return resistance with { Value = resistance.Value + m.Mods.Effects.Resistance(type) + MonsterExposure(m, type, now),
+        return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now),
             Maximum = MonsterModEffects.MaxResistance, Penetration = pen.Of(type) + (type == DamageType.Cold
                 && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0 ? pen.ColdVsChilled : 0) };
     }
@@ -96,7 +98,7 @@ static partial class Game
     /// </summary>
     internal static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN)
     {
-        var e = m.Mods.Effects;
+        var e = m.Effects;
         double physical = mitigated[DamageType.Physical].Min;
         double physicalTaken = physical * Math.Max(0, 1 - (e.PhysicalReduction - CrushReduction(m, now)) / 100.0)
             * (1 + MaimedPhysicalTaken(m, now) / 100.0);
@@ -112,7 +114,9 @@ static partial class Game
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true);
         // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
         // physical part only, never to the elemental share's fallback factor.
-        double physicalFactor = 1 + (Math.Max(0, m.PridePhysicalMore) + Math.Max(0, m.TakenFromPlayer.Physical)) / 100.0;
+        double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
+            * (1 + Math.Max(0, m.TakenFromPlayer.Physical) / 100.0)
+            * (1 + e["physical_damage_taken_+%"] / 100.0);
         return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
             + physicalTaken * factor * (physicalFactor - 1));
     }
@@ -120,9 +124,9 @@ static partial class Game
     internal static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,
         double now = double.NaN) =>
         mitigated.Select((type, range) => range.Scale(type == DamageType.Physical
-            ? Math.Max(0, 1 - (m.Mods.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+            ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                 * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1))
-            .Scale(m.Mods.Effects.DamageTaken(spell));
+            .Scale(m.Effects.DamageTaken(spell));
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
     internal static int SelfCriticalReduction(ClientState conn) =>
@@ -137,7 +141,7 @@ static partial class Game
     {
         if (spell) return false;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
-        int chance = m.Mods.Effects.BlockChance - Math.Max(0, Skill("support_reduce_enemy_block_and_spell_block_%"));
+        int chance = m.Effects.BlockChance - Math.Max(0, Skill("support_reduce_enemy_block_and_spell_block_%"));
         if (m.OverpoweredUntil > now) chance -= m.OverpoweredPercent;
         if (chance <= 0 || random.Next(100) >= chance) return false;
         if (Skill("apply_overpowered_on_enemy_block_reduced_block_and_spell_block_%") is var overpowered and > 0
@@ -161,7 +165,7 @@ static partial class Game
     /// <summary>The critical strike multiplier a critical hit of the player has on this monster: 100% when it takes no
     /// extra damage from critical strikes (of Toughness).</summary>
     internal static int CriticalMultiplierOn(SpawnedMonster m, int multiplier) =>
-        m.Mods.Effects.NoExtraCriticalDamage ? 100 : multiplier;
+        m.Effects.NoExtraCriticalDamage ? 100 : multiplier + m.Curses["enemy_additional_critical_strike_multiplier_against_self"];
 
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
     internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds,
@@ -182,8 +186,8 @@ static partial class Game
         // Pride's more damage, the Maim support's increased physical damage taken and Flesh and Stone's Blood Stance
         // all apply to the physical part only.
         if (type == DamageType.Physical)
-            factor *= 1 + (Math.Max(0, m.PridePhysicalMore) + MaimedPhysicalTaken(m, now)
-                + Math.Max(0, m.TakenFromPlayer.Physical)) / 100.0;
+            factor *= (1 + Math.Max(0, m.PridePhysicalMore) / 100.0) * (1 + MaimedPhysicalTaken(m, now) / 100.0)
+                * (1 + m.Effects["physical_damage_taken_+%"] / 100.0);
         return factor;
     }
 
@@ -247,7 +251,7 @@ static partial class Game
         foreach (var (id, m) in monsters)
         {
             if (m.Dead || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; continue; }
-            double perSecond = m.Mods.Effects.LifeRegenPerSecond(m.MaxLife);
+            double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
             if (onHitPct != 0 && seconds > 0)
             {
                 double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));

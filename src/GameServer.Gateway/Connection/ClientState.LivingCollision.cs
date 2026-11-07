@@ -2,6 +2,32 @@ using GameServer.Core.World;
 
 sealed partial class ClientState
 {
+    readonly Dictionary<uint, (SpawnedMonster Monster, ClientPathfinder.Blocker Body)> corpseBodies = [];
+
+    // A dead actor remains in the native pathfinder until its Positioned clear reaches this client.
+    // Keep its death cell, not its abandoned walk's later analytical position. Under Monsters.
+    public void RetainCorpseBody(uint id, SpawnedMonster monster, double at)
+    {
+        if (!LockstepClient || LivingCollision.Size(monster) < 0 || monster.Variety?.PositionedBlocking == false) return;
+        var p = monster.Walk.Position(at);
+        corpseBodies[id] = (monster, new(p.X, p.Y, LivingCollision.Size(monster)));
+    }
+
+    public void ReleaseCorpseBody(uint id, SpawnedMonster monster)
+    {
+        if (corpseBodies.TryGetValue(id, out var corpse) && ReferenceEquals(corpse.Monster, monster)) corpseBodies.Remove(id);
+    }
+
+    public ClientPathfinder.Blocker? MonsterBody(uint id, SpawnedMonster monster, double at)
+    {
+        if (LivingCollision.Blocks(monster))
+        {
+            var p = monster.Walk.Position(at);
+            return new(p.X, p.Y, LivingCollision.Size(monster));
+        }
+        return corpseBodies.TryGetValue(id, out var corpse) && ReferenceEquals(corpse.Monster, monster) ? corpse.Body : null;
+    }
+
     public IReadOnlyList<ClientPathfinder.Blocker> CorrectionBlockers()
     {
         var result = new List<ClientPathfinder.Blocker>(StationaryBlockers);
@@ -18,6 +44,18 @@ sealed partial class ClientState
         {
             if (monsterFrame is { } frame) return frame.For(self);
             using var snapshot = BeginMonsterBlockerFrame(Clock.Elapsed.TotalSeconds);
+            return snapshot.For(self);
+        }
+    }
+
+    /// <summary>The existing new-spawn clearance policy, separate from native runtime body discovery.
+    /// Established saved positions never use this proposal search.</summary>
+    public IReadOnlyList<ClientPathfinder.Blocker> MonsterPlacementBlockers(uint self)
+    {
+        lock (Monsters)
+        {
+            // Do not reuse a runtime frame: it contains dormant bodies which this policy never considered.
+            using var snapshot = new MonsterBlockerFrame(this, Clock.Elapsed.TotalSeconds, monsterFrame, placement: true);
             return snapshot.For(self);
         }
     }

@@ -26,9 +26,6 @@ static partial class Game
     internal static byte DeathScreenFlags(ClientState conn) => ForceHardcore || conn.Hardcore ? (byte)0x01 : conn.LastTown == 0 ? (byte)0x04 : (byte)0x0c;
     // PoB's "recently": the last 4 seconds.
     internal const double RecentlySeconds = 4;
-    // Shown once per connection when the client moves in lockstep (InstanceProtocol.IsLockstepMovement).
-    internal const string LockstepWarning = "Your Network Mode is lockstep, which this server does not support yet: your character stays " +
-        "hidden and cannot move. Set Options > Game > Network Mode to Predictive, then log out to the character screen and Play again.";
     // The Positioned size (object_size − 1) of area transitions and waypoints (AreaTransition.ot, Waypoint.ot
     // object_size 6): the player walks up to them as the client does (PlayerWalk.WalkUpTo).
     internal const int AreaTransitionObjectSize = 5, WaypointObjectSize = 5;
@@ -72,7 +69,7 @@ static partial class Game
     // The Cosmetics tab's Social Frame slot (MicrotransactionSlot 17): the portrait frames.
     internal const byte SocialFrameSlot = 17;
     // Per character: the ids of worn items whose requirements are not met (CharacterStatSources).
-    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<uint>> InactiveItems = new(StringComparer.OrdinalIgnoreCase);
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<uint>> InactiveItems = CharacterEquipmentState.Inactive;
     // The character panel's Spell Suppression chance stats (the client reads the final value).
     internal static readonly uint[] SuppressionChanceKeys = [.. new[] { "spell_suppression_chance_%",
         "base_spell_suppression_chance_%", "combined_spell_suppression_chance_%" }.Select(n => Stats.Key(n)).OfType<uint>()];

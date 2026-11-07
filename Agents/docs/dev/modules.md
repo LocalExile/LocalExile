@@ -49,6 +49,15 @@ Beside `league.json`, `modules.json` lists the modules the league loads, Core on
 
 A league with no `modules.json`, or a module listed twice, does not load. Every league that can be played lists `Core/Game`. The Gateway logs a listed path with no module.
 
+A user's own changes to the lists are in `data/league-modules.json` (`Game_LEAGUE_MODULES` moves it), so the leagues' files stay as
+LocalExile ships them; Auth and the Gateway read both when they start. An added module goes last, so a module before it that
+gives rules keeps them; `remove` takes a path or an id; `Core/Game` cannot be removed. A wrong entry is a `[leagues] not loaded:`
+line and changes nothing.
+
+```json
+{ "Standard": { "add": ["PlayerBots"], "remove": ["Core/Item/Tattoos"] } }
+```
+
 - **Standard** is required: the Gateway refuses to start without it. Its modules change like any league's.
 - **Void** has no modules and cannot be created in. Its characters are listed and cannot be entered. A custom event league can have it as parent,
   so that nothing it drops reaches Standard.
@@ -71,9 +80,10 @@ A catalog type holding some rules stays when `ClientState` has a field of it (`C
 A module has no knowledge of leagues, and is not changed by one. A league needing even a small difference uses a module of its own, which may share code.
 One copy of a module runs for every league listing it, since one connection is in one league; its hooks run per player. A module no league lists does not load.
 
-- **Core** (`Modules/Core/`) is ordinary modules, in folders by subject: `Game`; `NPC/` `NpcDialogue`, `Vendors`; `World/` `Portals`, `QuestObjects` (the campaign's quests: the act tables of the quest engine, [campaign quests](../game/campaign-quests.md)), `HideoutEditing`, `Atlas`; `Content/` `Harvest`, `Heist`, `Delve`; `Item/` `Bench`, `Tattoos`, `UniqueBelts`, `Cosmetics`; `Player/` `Social`, `Commands`, `Pantheon` (the god choice and its powers, [pantheon](../game/campaign/pantheon.md)). A folder holding a `module.json` is a module, at any depth; its id is the folder's name, and ids are unique.
+- **Core** (`Modules/Core/`) is ordinary modules, in folders by subject: `Game`; `NPC/` `NpcDialogue`, `Vendors`; `World/` `Portals`, `QuestObjects` (the campaign's quests: the act tables of the quest engine, [campaign quests](../game/campaign-quests.md)), `HideoutEditing`, `Atlas`; `Content/` `Harvest`, `Heist`, `Delve`; `Item/` `Bench`, `Tattoos`, `UniqueBelts`, `Cosmetics`; `Player/` `Chat`, `Social`, `Commands`, `Pantheon` (the god choice and its powers, [pantheon](../game/campaign/pantheon.md)). A folder holding a `module.json` is a module, at any depth; its id is the folder's name, and ids are unique.
 - **`Game`** is the rules: casting, hits, monsters, items, passives, travel, in subfolders by subject (`Combat/`, `Monster/`, `Skill/`, `Item/`, `Passive/`, `Projectile/`, `Flask/`, `World/`, `NPC/`, `Player/`). Its parts call one another, so they are one assembly, and a league cannot turn one part off. Every other module depends on it; rebuilding it reloads them all, and its in-memory per-connection sessions (leech, charges, fortification, projectiles) start over.
-- **Hot reload:** a new build in `bin/`, an edited `module.json`, a saved loose `.cs` file, or `/module_reload [id]` reloads a module and those that depend on it; their state starts over.
+- **Hot reload:** a new build in `bin/`, an edited `module.json` or `settings.json`, a change to its user's settings, a saved loose `.cs` file, or `/module_reload [id]` reloads a module and those that depend on it; their state starts over.
+- **Settings:** what a module lets the user tune is declared in its `settings.json`, read with `Settings<T>()`, and the user's values are in `data/modules/<id>.json`, as for a mod ([modding](modding.md), "Settings"). A module's settings are the same in every league that lists it.
   Bad new files leave the running one as it is; a build that throws while loading goes back to the assemblies it had. Saving a project's source does nothing until it is built.
 - **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.
 - **To make one:** copy `Modules/Core/Content/Heist/`, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` and `GameServer.Gateway.csproj` for internals, and list it in the `modules.json` of the leagues that want it.
@@ -88,6 +98,9 @@ The optional [Phrecia Ascendancies](../game/phrecia-modules.md) family uses this
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
 A module can alter the game fully: it compiles against the Gateway and its internals (add its assembly to `InternalsVisibleTo` in `GameServer.Gateway.csproj`), with `using static Program`, `using static Game` (both global in a module) and `ConnOf(player)`. Mods see only `GameServer.Modding`. Per-player state in a module's own
 `ConditionalWeakTable<IPlayer, …>` starts over with a hot reload, and objects it placed stop answering until the player's next area; state in `ClientState` survives.
+Another module's internal extension members (an `extension(...)` block, such as `ClientStateRules` in Game) are out of reach:
+the 10.0.1xx SDKs, the ones Linux distributions ship, reject them with CS0570, though newer SDKs build them. Read what
+they wrap instead, or call a static method.
 
 A Core module reaches the framework through the hooks and `GameEvents` (`Modding/GameEvents.cs`), the Gateway's own hand-over points, with `GameEvent.For(conn)` running only the modules of that connection's league. Add a new hand-over there, in general terms, instead of naming a module in the framework.
 

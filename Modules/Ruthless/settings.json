@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "settings": {
+    "itemDropMultiplier": {
+      "type": "number", "default": 0.20, "min": 0, "max": 1, "format": "percent",
+      "label": "Item drops",
+      "description": "Ruthless item-drop quantity, as a share of the server's ordinary drop system."
+    },
+    "goldMultiplier": {
+      "type": "number", "default": 0.25, "min": 0, "max": 1, "format": "percent",
+      "label": "Gold",
+      "description": "Share of ordinary gold rewards."
+    },
+    "equipmentRarityMultiplier": {
+      "type": "number", "default": 0.25, "min": 0, "max": 1, "format": "multiplier",
+      "label": "Equipment rarity",
+      "description": "Multiplier of the chances of magic, rare and unique equipment."
+    },
+    "gemExperienceMultiplier": {
+      "type": "number", "default": 0.25, "min": 0, "max": 1, "format": "percent",
+      "label": "Gem experience",
+      "description": "Share of ordinary gem experience from kills."
+    },
+    "vendorRewardMultiplier": {
+      "type": "number", "default": 0.20, "min": 0, "max": 1, "format": "percent",
+      "label": "Vendor rewards",
+      "description": "Share of basic vendor-sale rewards; ordinary multi-item recipes stay disabled."
+    },
+    "experiencePenaltyStartLevel": {
+      "type": "integer", "default": 68, "min": 1, "max": 100,
+      "label": "Experience penalty from level",
+      "description": "First character level affected by the extra player-experience penalty."
+    },
+    "experienceMultiplierPerLevel": {
+      "type": "number", "default": 0.90, "min": 0, "max": 1, "format": "multiplier",
+      "label": "Experience per penalty level",
+      "description": "Factor compounded once at the start level and once for each level after it: 0.90 gives 90% at the start level, 81% one level later."
+    },
+    "campaignBossLifeRecoveryFraction": {
+      "type": "number", "default": 0.25, "min": 0, "max": 1, "format": "percent",
+      "label": "Boss life on player death",
+      "description": "Share of maximum life a nearby campaign boss recovers when the player dies."
+    }
+  }
+}

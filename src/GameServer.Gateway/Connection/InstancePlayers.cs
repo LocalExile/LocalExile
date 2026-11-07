@@ -9,7 +9,10 @@ sealed record InstancePlayer(uint Id, uint Type, PlayerObject Template, int X, i
     /// <summary>Where the player is walking to (its walk's last cell; its own cell when standing). Observers start a Move
     /// action toward it, which their client paths and animates, instead of gliding the body from pose to pose.</summary>
     public (int X, int Y)? Destination { get; init; }
+    public IReadOnlyList<SharedAura> Auras { get; init; } = [];
 }
+
+sealed record SharedAura(AuraCatalog.Aura Aura, int Radius, int Effect);
 
 /// <summary>Player presence shared by one Auth instance, independently of its characters' private world state.</summary>
 sealed class InstancePresence
@@ -116,6 +119,7 @@ sealed partial class ClientState
     /// <summary>The party this player is in, counting the player (1: none): Social's parties and PlayerBots' (SetPartySize).
     /// Each member beyond the first gives Game.PartyBonus.</summary>
     public int PartySize = 1;
+    public readonly Dictionary<(uint Peer, ushort Skill), AuraCatalog.Aura> ReceivedAuras = [];
     /// <summary>The open player trade (Program.Social), and the player this one asked to trade with (its PeerId).</summary>
     public PlayerTrade? Trade;
     public uint TradeRequestTo;

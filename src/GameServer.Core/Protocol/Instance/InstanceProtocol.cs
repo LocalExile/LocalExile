@@ -160,8 +160,8 @@ public static class InstanceProtocol
     /// What the client sends to move instead of 0x25 when it runs in lockstep (Options → Network Mode; "auto" chose it
     /// on localhost, live 2026-10-18): 0x018e (15 bytes: i32, i32 offsets from the player, u16 skill id 0x2909 Move, u16
     /// flags 0x0400 / 0x0402, u8), then 0x0192 (10 bytes: two i32) and 0x0195 (id only). Lengths from 26 captures of each,
-    /// every one alone in its chunk; the layout is inferred, not read from the client's serializers. The server does not
-    /// answer them unless the connection serves lockstep (LockstepLink): anywhere else the Gateway asks for Predictive.
+    /// every one alone in its chunk; the layout is inferred, not read from the client's serializers. The Gateway serves
+    /// them whenever the client sends them: the client alone picks its Network Mode.
     /// </summary>
     public static bool IsLockstepMovement(ushort id) => id is LockstepMoveStartId or LockstepMoveUpdateId or LockstepMoveStopId;
 
@@ -522,7 +522,7 @@ public static class InstanceProtocol
                 : id == InstanceStash.SetAffinitiesId ? InstanceStash.SetAffinitiesLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceNpcs.CtrlBuyId ? InstanceNpcs.CtrlBuyLength(data[pos..]) ?? int.MaxValue
                 : id is InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitMenagerieId ? InstanceWaypoints.VisitHideoutLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceSocial.PartyInviteId ? InstanceSocial.PartyInviteLength(data[pos..]) ?? int.MaxValue
+                : id is InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId ? InstanceSocial.PartyInviteLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceTransfer.LeaveAreaAckId ? InstanceTransfer.LeaveAreaAckLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceSocial.FriendAddId ? InstanceSocial.FriendAddLength(data[pos..]) ?? int.MaxValue : KnownClientLength(id);
             if (known is not int len) { unknown = data[pos..].ToArray(); break; }

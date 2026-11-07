@@ -532,7 +532,12 @@ A clip longer than its attack plays linearly. When the attack outlasts the clip,
 `0x141b0a620`) plays the outside of the clip's `slow_begin`..`slow_end` span at normal speed and stretches the span
 instead, so the contact keyframe is no longer a plain fraction of the attack; the server's `AttackContactDelay` assumes it
 is for attack gems. The 1.457 s attack above did this (span 223..394 ms, speed 0.305, contact at about 785 ms, measured).
-A slower weapon or a negative player speed would still reach it.
+A slower weapon or a negative player speed would still reach it. So does the default wand attack: the 0.667 s attack
+holds the 600 ms `attack1_wand` clip's span 150..235 for 152 ms, so its contact plays about 0.367 s in, not at 0.333.
+A lockstep client's own bolt leaves on the frame tick after it ([07](07-latency-visibility-movement.md) §6): frame 12
+of 33 ms (live 2026-11-05, 38 of 39), which bounds the release to 0.363..0.396 s and rules out the linear 0.333 (frame
+11); 0.367 is the model's value, consistent with that. The span takes up at most 8 times its length (`0x141b0ac20`
+passes the clip's length, or the ACT's `attack_time`).
 
 The default attack's clip is the class ACT's stance `Melee` entry (`data/animation-contacts.json` "defaultAttack",
 `scripts/re/anim_contacts.py`): a rig clip (`attack1_wand`; `attack1_bow` with `item_animation`, the bow's own rig), or
@@ -551,6 +556,10 @@ is taken to stretch to the attack (the wand's 300 of 600 ms contact played 0.333
 0.37 to 0.40 s into a 0.714 s attack ran at 0.40 to 0.43 s, later ones at once), else at the contact (the wand's and the
 sword's clips carry none): `DefaultAttackClip.CutInSeconds`. Many skill clips carry one too (Cleave's at 633 of
 1133 ms, Puncture's at 600 of 1066); attack gems do not use them yet.
+One-hand maces use the sword stance pool too: the Marauder's Driftwood Club plays `attack_sword_01a`,
+the 0..387 ms view of `doublestrike_sword`, with a 0.5 s budget.
+Falling back to `attack1_maul` releases the server's next Move while the client still queues it;
+the attack completion then discards that queued walk's path (`0x141e8f670` → `0x141e94fc0`).
 
 Burning Arrow's muzzle flash is `Projectiles.MiscAnimatedFlash` (row 3657), which `DefaultArrow` does not have. The client
 creates an effect object at the clip's contact, without a server message: in the same trace at about 375 ms after the
@@ -940,28 +949,42 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   Its busy period covers the full attack duration from the actual action send; contact still occurs halfway through:
   the hit lands if the monster lives and the player is still within reach + 2 (0x1af, then 0x1b1 on the player).
   A mortar skill (Sand Spitter: `monster_mortar_attack`, GrantedEffects SkillID 183 → MonsterMortar 183 →
-  `Metadata/Projectiles/SandspitterMortarProjectile`, 1170 units/s) releases a server projectile object instead
-  (`Program.ProjectileHostile.cs`), at the clip's contact keyframe rather than halfway: MonsterMortar's `Animation`
+  `Metadata/Projectiles/SandspitterMortarProjectile`, 1170 units/s) is drawn by the client, as from GGG, whose server
+  creates no mortar object: the mortar action's constructor (`0x141b69900`) takes its MonsterMortar row from the
+  record's `skill_behaviour_variation` (0x1921; row 0, `MortarMolten`, without it), and its release fires nothing
+  without a count ([actions and emission](../re/projectiles/actions-and-emission.md)). GGG's Spitter records carry
+  row 183 and `total_number_of_projectiles_to_fire`, `virtual_total_number_of_projectiles` and
+  `virtual_total_number_of_arrows` at 1. The Gateway's carry the skill's count there (`number_of_projectiles_override`,
+  else `base_number_of_projectiles` plus `number_of_additional_projectiles`: 3 for the side-area Spitter), the count
+  the server simulates. Only `monster_mortar_attack` is traced: the spell forms (`monster_mortar`,
+  `monster_mortar_around_caster`) are another client action, and the server still creates their objects, with no row
+  or total count on the record. The server simulates the flight for the hit
+  (`Program.ProjectileHostile.cs`), released at the clip's contact keyframe rather than halfway: MonsterMortar's `Animation`
   (row 20, Animation.dat `SpellProjectile`) names the ACT pool (`SpellProjectile = "attack1,attack2"`), the native
   selector seeded with the action's 0xffff sequence picks `attack1` (as it picks the player's wand clip), and that
   clip's `contact` is at 374.5 of 1000 ms in the Spitter's .ao (`exclude_metadata_events = true` replaces the rig's
   416 ms) with position [1.33, 45.89, −71.56]: model units, +x the model's left, −y its front, −z up. With
   `projectile_uses_contact_position` the shot leaves there: 45.9 units (4.2 cells) behind a body that faces away from
   its target (`action_should_face_away_from_target`), so toward the player, and 71.6 units (9 marker steps) up; the
-  lateral part is not applied (the grid's handedness is not established and it is under a cell), the offset scales
+  native straight attack rotates the lateral offset too, then rounds the launch point to grid cells. The offset scales
   with the model when `use_scaled_contact_offset` says so (MonsterVarieties `ModelSizeMultiplier`), and the flight
   still runs from the monster toward the aim (`maintain_projectile_direction_when_using_contact_position`). Data:
   `data/monster-contacts.json` (`scripts/re/monster_contacts.py`: per variety the ACT pools of `Melee` and the
   projectile tables' animation keys, each clip's index, length, contact and position, rig events merged with the .ao
   chain's as `ot_components.rig_clips`). Whether the client seeds a monster action's clip choice from the 0xffff
   sequence is assumed from the wand's selector and still needs a live check (the two clips differ by 75 ms and 1.3
-  cells). The lob lands on the player's cell on the shared runtime, no closer to the Spitter than the skill's
-  `projectile_minimum_range` (50 units, 4.6 cells: a player at its feet stands in the dead zone), team 2 so no
-  monster is in its way, and the same contact pipeline commits the hit when it lands on a player within the splash
-  (`Game_MONSTER_MORTAR_RADIUS`, default 10 cells; the skill's stats carry no radius; `projectile_spread_radius` 3 is
-  not modelled). Melee swings still land at half the attack time. The
-  client creates no projectile of its own for a monster's action (Frida 2026-10-29: 27 Sand Spitter attacks, no
-  client-side object), so without the server's object there is nothing to see. Such a skill also carries its stat
+  cells). `MonsterMortar` names the action table, not an arc: `0x141b69ba0` → `0x141bacf60` selects
+  straight `0x141e34220` without a ballistic-angle stat, as for the Sand Spitter.
+  It keeps the action order's target through windup, translates that target by the contact offset,
+  extends it to `projectile_minimum_range` (50 **cells** from the actor), then scatters it within 3 cells.
+  The random seed contains the action sequence, projectile index plus two, and owner ID;
+  the animation-speed draw precedes scatter even when speed variation is zero.
+  The server follows those destinations and direct square contact, with the player's body size of one cell.
+  It neither reacquires the player's position at release nor applies the former 10-cell splash to these shots.
+  In lockstep the release is scheduled at the frame end that crosses contact, as for the player's own projectile;
+  a fractional-time release can contact a dodging player before the client has advanced its visible flight.
+  Spell mortar arcs retain their existing landing model and radius fallback; they are not covered by this trace.
+  The earlier no-client-projectile observations used records without the required count. Such a skill also carries its stat
   set's own entries beside the attack's numbers (`MonsterProjectileSkillStats`: `action_should_face_away_from_target`,
   `projectile_uses_contact_position`, `use_scaled_contact_offset`, the 3-cell spread and 50-cell minimum range;
   not the effect's cast-time or mana entries), because the client derives none and without the face-away flag the
@@ -1110,6 +1133,9 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
     mana. A monster inside the skill's hit radius adds nothing to the decision: within reach the point is a swing (the
     hit still covers every monster within the skill's radius of it, the client aiming at the cell rather than the
     object: Holy Strike on a monster sends 0x25, live 2026-10-25), beyond reach it is an attack-move.
+    The client's threshold for that choice is not traced: its action's walk-up (`0x141e8eb60`) gives MoveTo the range
+    less one as the max range with no branch on the kind of target, as for a monster ([07](07-latency-visibility-movement.md)
+    §5), but the Gateway keeps the whole range here (`GroundAttackWalks`) until a trace settles it.
     The client spends the skill's mana on every use it starts, including an attack-move it only walks for, so the
     Gateway answers an attack-move with the authoritative mana (S→C 0x1b1, at most four a second); otherwise the orb
     falls behind the server's and recovery flasks are refused as "full" ([13](13-items.md) §8).
@@ -1676,10 +1702,14 @@ respectively; both reach Projectile component construction `0x141e37850`. Suppre
 visual for ordinary Burning Arrow (`ClientDrawsPrimaryProjectile`), preserving its existing server simulation and
 continuation-child presentation. This visual correction does not generalize to unverified attack variants.
 Repeating the mouse-input control after the correction creates one client Burning Arrow and no server arrow object.
-Ordinary bow arrows and wand bolts (`ScheduleOrdinaryRanged`) keep their server object,
-and rightly so: across 40 default-attack arrows on 2026-10-29 the same trace saw no client-created projectile at all
-(only the 36 server `DefaultArrow` objects), and none for a monster's action either (27 Sand Spitter attacks). These observations describe those supplied ordinary-attack inputs. Trace: `scripts/re/frida/trace-projectile-create.js`
-(load `common.js` and the trace in one script: `run.py` gives each file its own scope).
+Ordinary bow arrows and wand bolts (`ScheduleOrdinaryRanged`) are drawn by a lockstep client when the default attack's
+record carries the count the server simulates (`OrdinaryRangedCountStats`; a bow's arrow totals too, as GGG's records).
+Without that count, the 2026-10-29 ordinary-attack inputs produced only server objects. With it, a lockstep client drew
+one `WandProjectile` or `DefaultArrow` per shot (live 2026-11-05, 39 and 36), so the server keeps their simulation but
+sends no duplicate primary object. The record is sent again once the client shows it runs lockstep, since the player's
+create goes out before it does. A predictive client's ordinary arrows and bolts retain their server objects.
+These observations describe those supplied ordinary-attack inputs.
+
 
 **Which actions predict (static, 2026-10-30).** The action class comes from ActiveSkills `ActionType` →
 ActionTypes `HASH16` (Fireball 0xaa4e, factory `0x1412817b0`, vtable `0x1434462c8`; Spark 0x7859, constructor
@@ -1764,9 +1794,10 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
 - **Object.** A 0x2b9 of the Projectiles.dat type named after the effect (`Metadata/Projectiles/Fireball`, hash of the
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
   Animated, BaseEvents and Projectile, so the blob is Positioned, one Animated byte and the tasks byte
-  (`ProjectileObject`; the Animated component is index 1), then 0x1a9 (wake zone). The real link between a skill and
-  its projectile is unknown; the Gateway matches the Id, then the Id with a `Royale`, `AltX`, `AltY` or `AltZ` suffix
-  removed: 3.29 files the Royale and transfigured duplicates of a skill under its own name plus a suffix, and those
+  (`ProjectileObject`; the Animated component is index 1). Its byte 0 has 0x02, so the create wakes the object itself and
+  no 0x1a9 follows ([07](07-latency-visibility-movement.md) §3). The real link between a skill and its projectile is
+  unknown; the Gateway matches the Id, then the Id with a `Royale`, `AltX`, `AltY` or `AltZ` suffix removed: 3.29
+  files the Royale and transfigured duplicates of a skill under its own name plus a suffix, and those
   duplicates fire the base skill's row (the Lightning Arrow gem grants `LightningArrowRoyale`, whose row is
   `Metadata/Projectiles/LightningArrow`). `ProjectileFallbacks` covers the effects no suffix rule reaches, because their
   row is named otherwise (Elemental Hit's `ElementalHitArrowCombined`). Multiple projectiles are one object each, spread around the
@@ -2469,6 +2500,25 @@ Monster spell stat rows are selected by `PlayerLevelReq` at the minion's actor l
 `GemLevel`; float interpolation 3 uses the effectiveness constants in `GameConstants`.
 Recovery buffs have extra packet fields: Safeguarding's `rock_golem_alt_buff` (592) needs `u82` and one recovery value;
 Withered (506) needs `u82` and two. Omitting these misaligns the next packet and crashes the native parser.
+Holy Relic regeneration (1181) and Reaper consumption (1870) have `IsRecovery=false`: omit recovery values even
+when the server implements healing; an extra value likewise misaligns the stream (the 1181 packet is 31 bytes).
+Reaper's `SummonedReaperUltimate` supplies its native animation; its internal GA damage effect has no independent
+GroundSlam clip in that rig and must not be started as a second actor action.
+
+Native manual admission reads final caps: Reaper `0x141c4cfc0` reads `number_of_reapers_allowed` (0x3a0b),
+SRS `0x141a442a0` reads `number_of_raging_spirits_allowed` (0x866).
+The placement action `0x14195e420` requires both the final trap/mine cap and `number_of_traps_to_throw` (0x718)
+or `number_of_mines_to_place` (0x119a). Base inputs alone leave these zero; injected use packets bypass this check.
+Blasphemy needs final `skill_is_instant` too; aiming its toggle at empty ground sends C→S 0x190, not 0x191.
+
+Placed traps/mines are misc actors, not monster blobs: `TrapMineObject` preserves their component order, with
+StateMachine only for RemoteMine. Trap metadata comes from `SkillTrapVariations`; the client accepts their native
+skill list at `0x4000` and subsequent action packets without client-data changes.
+Their payload skill's record flag 1 carries the parent object's u32 and source skill's u16, both blob-endian.
+Use object stats `is_trap_object` / `is_remote_mine`, not the skill's `is_trap` or a nonexistent `is_mine`.
+`BeThrown` (`0x141c0e8c0`) selects the native throw animation; a 0x1ba glide supplies horizontal travel in seconds,
+followed by `Arm` at landing. Actor update flag0 bit7 publishes detonation availability (Actor +0x219 bit3);
+`DetonateMines` admission (`0x141d23c70`) reads this bit, not the active-mine stat. Every Actor refresh must retain it.
 
 ## 10i. Warcry release: timing and release effects
 
@@ -2705,6 +2755,19 @@ failed I/O, allocation limits, actual official values and every skill's successf
   cache. Existing-instance partial updates copy decoded `+70/+60/+64` into those fields; omitted bit2 count
   supplies 1, not preservation. See [the exact repeat state/input contract](../re/projectiles/repeat-source-state.md).
   This identifies a supported input route, not official server values or timing for those definitions.
+- **Soul Eater** (`SoulEater.cs`): `gain_soul_eater_during_flask_effect` with any flask effect (a utility flask's
+  running effect, Mageblood's permanent one, or a life/mana flask still recovering) puts `soul_eater_aura` (277,
+  invisible; BuffVisuals 288's `soul_eater/epk.epk` attaches `souleater.ao`) and `soul_eater_player` (279, the icon and
+  its count, `virtual_soul_eater_maximum_stacks` = 45 + `soul_eater_maximum_stacks_+`) on the player and sends
+  `using_flask` = 1: the client computes `soul_eater_from_stat` only when that flag is set (0x142826e20 in 3.29.3b,
+  reading keys 0xea5, 0xf4e and 0xf52), so without it its native flask/Soul Eater visuals stay off. Each kill within 60
+  cells is one soul; the player tick presents the changed count and, per soul, a **ServerBeamEffect** from the corpse to
+  the player. The official 3.29.3c capture of that object's Beam component (`0x1416710c0`; 3.29.3b `0x14166e9c0`):
+  19 bytes of object header + Positioned + Animated, then u16 MiscBeams row + 1 (1 = SoulEaterBeam, row 0), a 16-bit
+  flag word `0x0C97` (A0|A1|A2|A4|A7|B2|B3) and a zero third byte, then start world x/y, start object id, 0, end world
+  x/y, end object id, 0. The endpoints are **world units (ten per grid cell)**; the client follows the two object ids
+  and stretches the row's art by the distance over its `MiscBeams.__col2` (200). The object type's own Beam row is 673,
+  which the update (`0x14166d0c0`) skips, so the reader's row value must differ (1).
 - **Passive self buffs** (`PassiveBuffAuras.SelfBuffsFor`, §10e). A row without `IsRecovery` carries no values in
   0x1c1, so the client cannot apply them: the server adds the values to the allocated passives' stat sum and sends the
   buff for its icon and visual only. The buff goes out with 0x1c1 at area entry (each area's connection starts without
@@ -2888,11 +2951,11 @@ failed I/O, allocation limits, actual official values and every skill's successf
   hostile living monster within its radius of the living player (0x1c1, the player as source) and comes off (0x1c2)
   when it leaves, dies, the node goes or the player dies; the blind aura shows the `blinded` buff instead (§12,
   Passive blind aura).
-- **Pride's enemy buff** (BuffDefinitions 1331 `player_physical_damage_aura`) carries fifteen u32 values before its
-  counted list: the reader (`0x141fdf870`) takes them whatever the message holds (a probe on its stream reads, live
-  2026-11-05), although the vendored schema shows `IsRecovery` unset (`__col25` set) and three GrantedStats.
-  With fewer, the client read the next message's bytes as values and its count, and showed "Unable to deserialise
-  packet with pid … Last PID was 449" (0x1c1) when a monster walked into the aura. Ours sends the ramp, then zeros.
+- **Pride's enemy buff** (BuffDefinitions 1331 `player_physical_damage_aura`) sends no stat-value words. A read-only
+  probe of the running 3.29.3b client (2026-11-07) found `row+0x7c=0`, `row+0x7d=1`, and three entries at `row+0xdc`.
+  The native `0x141fdf870` instructions test only `+0x7c` before reading value words; `+0x7d` is not this predicate.
+  The earlier fifteen-word interpretation was incorrect. The counted list immediately follows the optional header;
+  gameplay's Pride ramp is computed on the server.
 - **Taunt** (`TauntLocked`). Every warcry taunts the hostile monsters within its radius when its cast ends (wiki
   Warcry: base radius 6 m, 60 cells, grown by area of effect), the Basalt Flask within its 30 cells. 3 s (wiki
   Taunt), raised by `taunt_duration_+%`; a new taunt replaces the player's older one; a death of the monster or the
@@ -3092,6 +3155,15 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
    **Correction to the earlier notes:** 0x25f in `0x140ae1130`/`0x140ae4550` refers to Elemental
    Overload (BuffDefinitions row 606, returned one-based by `0x142454bd0`), not an aura UI event or a
    network opcode. Sending a standalone 0x25f packet is invalid and is not needed for aura indicators.
+  Tempest Shield (row 112, `TempestShieldBuff`) additionally requires a two-word counted list: art variation,
+  alternate-shield flag. `0x1417a4380` dereferences `Buff+0x80` and its second word before any length check;
+  `0x1417a4de0` passes the first word to MiscEffectPacks variation lookup. Empty-list activation reproduced
+  an access violation at `0x1417a43cf`. The base shield visual uses `[0, 0]`.
+
+  Temporal Rift (row 1915, `ChronomancerBuff`) also dereferences its list immediately: `0x141f7c8b0`
+  allocates the sample ring from word 0, and `0x141f7c9e0` reads the interval in milliseconds from word 1.
+  An empty list reproduced an access violation at `0x141f7c8e1`. The server uses `[42, 100]`, retaining
+  41 samples over four seconds; these sampling parameters are server choices, not captured retail traffic.
 - **Implemented effects.** Purity of Elements/Fire/Ice/Lightning add their resistances; Clarity and Vitality
   add their flat regeneration; Precision adds flat accuracy and increased critical strike chance; Haste adds
   attack, cast and movement speed. Generic

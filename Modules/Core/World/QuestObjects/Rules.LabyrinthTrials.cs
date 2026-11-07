@@ -607,7 +607,7 @@ static partial class QuestobjectsRules
                     lock (conn.Monsters)
                         if (conn.Monsters.TryGetValue(w.Mob, out var woken)) (woken.BusyUntil, woken.Aggro) = (now + Emerges.Seconds(w.Monster) + 0.3, true);
                     if (Emerges.SkillId is ushort emerge)
-                        await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionStarted(w.Mob, w.Statue.X, w.Statue.Y, w.Statue.X, w.Statue.Y, emerge, 0xffff, 0x0408),
+                        await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionStarted(w.Mob, w.Statue.X, w.Statue.Y, w.Statue.X, w.Statue.Y, emerge, 0xffff, conn.MonsterOrderFlags),
                             .. InstanceProtocol.ActionEnded(w.Mob)], $"0x01ab statue monster 0x{w.Mob:x} {w.Monster.Name} at ({w.Statue.X}, {w.Statue.Y}) steps down");
                 }
                 await Task.Delay(200);
@@ -1245,7 +1245,7 @@ static partial class QuestobjectsRules
         if (life == 0)
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                 "0x01b3 player hide_mini_life_bar = 1");
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
             $"0x01b1 player hit by {trap} for {damage}, life {life}/{conn.PlayerMaxLife}{(life == 0 ? " (dies)" : "")}");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana after {trap}");
         if (life == 0) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
@@ -1322,7 +1322,7 @@ static partial class QuestobjectsRules
                     }
                 }
                 await SendPlayerEnergyShield(remote, stream, ciphers, conn);
-                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                     life == 0 ? $"0x01b1 player bleeds {dealt} from a trial spike trap and dies" : null);
                 if (over) break;
             }
@@ -1564,7 +1564,7 @@ static partial class QuestobjectsRules
                     if (over) (poisons.Ticking, poisons.Carried) = (false, 0);
                 }
                 if (dealt > 0)
-                    await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+                    await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                         died ? $"0x01b1 player takes {dealt} poison damage from a trial dart trap and dies" : null);
                 if (LabyrinthTrials.PoisonBuffRow is not null)
                     foreach (ushort old in ended) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, old), null);

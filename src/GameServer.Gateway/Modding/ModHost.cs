@@ -21,6 +21,13 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     /// <summary>The mods' folder, relative to the working directory (the repository root) unless absolute.</summary>
     public string Folder { get; } = folder;
 
+    /// <summary>The users' values of the settings, one <c>&lt;id&gt;.json</c> each (<see cref="ModSettings"/>): <c>data/mods</c>,
+    /// <c>data/modules</c> or <c>data/leagues</c>. A change to one reloads its mod.</summary>
+    public string SettingsFolder { get; } = Path.Combine("data", (leagues ? "league" : modules ? "module" : "mod") + "s");
+
+    /// <summary>The game's values of a kind, for a setting's <c>source</c>.</summary>
+    public ModSettings.Values? GameValues { get; init; }
+
     readonly Lock _gate = new();
     readonly Dictionary<string, LoadedMod> _loaded = new(StringComparer.Ordinal);
     // Why a folder's mod is not loaded, as last logged (logged again only when it changes).
@@ -30,7 +37,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     // /mod_enable and /mod_disable's choices (StateFile), over each manifest's "enabled"; the folders turned off by either.
     readonly Dictionary<string, bool> _choices = new(StringComparer.Ordinal);
     readonly HashSet<string> _off = new(StringComparer.Ordinal);
-    FileSystemWatcher? _watcher;
+    FileSystemWatcher? _watcher, _settingsWatcher;
 
     // The hooks. Each list is swapped whole (ImmutableInterlocked), so a dispatch iterates a snapshot without a lock.
     ImmutableDictionary<string, CommandHook> _commands = ImmutableDictionary.Create<string, CommandHook>(StringComparer.OrdinalIgnoreCase);
@@ -100,6 +107,26 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         _watcher.Deleted += (_, e) => Touched(e.FullPath);
         _watcher.Renamed += (_, e) => { Touched(e.OldFullPath); Touched(e.FullPath); };
         _watcher.EnableRaisingEvents = true;
+        Directory.CreateDirectory(SettingsFolder);
+        _settingsWatcher = new FileSystemWatcher(Path.GetFullPath(SettingsFolder), "*.json")
+        {
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+        };
+        _settingsWatcher.Changed += (_, e) => SettingsTouched(e.FullPath);
+        _settingsWatcher.Created += (_, e) => SettingsTouched(e.FullPath);
+        _settingsWatcher.Deleted += (_, e) => SettingsTouched(e.FullPath);
+        _settingsWatcher.Renamed += (_, e) => { SettingsTouched(e.OldFullPath); SettingsTouched(e.FullPath); };
+        _settingsWatcher.EnableRaisingEvents = true;
+    }
+
+    // A user's values: the mod of that id (as its folder spells it) reloads.
+    void SettingsTouched(string path)
+    {
+        string name = Path.GetFileNameWithoutExtension(path);
+        string? id;
+        lock (_gate) id = _loaded.Keys.FirstOrDefault(k => k.Equals(name, StringComparison.OrdinalIgnoreCase));
+        id ??= Dirs().Select(Path.GetFileName).FirstOrDefault(d => string.Equals(d, name, StringComparison.OrdinalIgnoreCase));
+        if (id is not null) Later(id, busy: 0);
     }
 
     /// <summary>Whether a mod of this id is loaded.</summary>
@@ -111,6 +138,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     public void Dispose()
     {
         _watcher?.Dispose();
+        _settingsWatcher?.Dispose();
         lock (_gate)
         {
             foreach (var (timer, _) in _pending.Values) timer.Dispose();
@@ -162,6 +190,23 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
             LoadMissing();
             return true;
         }
+    }
+
+    // The state file again: the mods it now turns off unload (with their dependents), the ones it turns on load.
+    // False when the file could not be read yet.
+    bool ChoicesChanged()
+    {
+        var before = new Dictionary<string, bool>(_choices, StringComparer.Ordinal);
+        _choices.Clear();
+        try { ReadChoices(); }
+        catch (IOException) { foreach (var choice in before) _choices[choice.Key] = choice.Value; return false; }
+        if (before.Count == _choices.Count && !before.Except(_choices).Any()) return true;
+        foreach (var mod in _loaded.Values.ToList())
+            if (!_choices.GetValueOrDefault(mod.Manifest.Id, mod.Manifest.Enabled) && _loaded.ContainsKey(mod.Manifest.Id))
+                foreach (string affected in UnloadOrder(Dependents(mod.Manifest.Id))) Unload(affected);
+        foreach (string id in before.Keys.Union(_choices.Keys)) _failed.Remove(id);
+        LoadMissing();
+        return true;
     }
 
     void ReadChoices()
@@ -340,12 +385,14 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         if (modules && !leagues && Dirs().FirstOrDefault(d => (path + Path.DirectorySeparatorChar).StartsWith(Path.GetFullPath(d) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) is { } moduleDir)
             parts = [Path.GetFileName(moduleDir), .. Path.GetRelativePath(moduleDir, path).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)];
         string id = parts[0];
-        if (id is "" or "." or ".." or StateFile || relative.StartsWith("..", StringComparison.Ordinal)) return;
+        if (id is "" or "." or ".." || relative.StartsWith("..", StringComparison.Ordinal)) return;
+        // Choices written by another program (a launcher's switch) apply like /mod_enable and /mod_disable.
+        if (id == StateFile) { if (!modules && parts.Length == 1) Later(StateFile, busy: 0); return; }
         // A module's source and its build's scratch are not the module: its build's output is.
         // A league's own compile writes its Binaries/.
         if (leagues && parts is [_, "Binaries", ..]) return;
         if (modules && parts is [_, var part, ..]
-            && (part == "obj" || (part != "bin" && part != Manifest && HasProject(DirOf(id) ?? "")))) return;
+            && (part == "obj" || (part != "bin" && part != Manifest && part != ModSettings.FileName && HasProject(DirOf(id) ?? "")))) return;
         Later(id, busy: 0);
     }
 
@@ -371,6 +418,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
             pending.Timer.Dispose();
             tries = pending.Busy;
             if (modules) busy = HotReload(id);
+            else if (id == StateFile) busy = !ChoicesChanged();
             else
             {
                 foreach (string affected in UnloadOrder(Dependents(id))) Unload(affected);
@@ -792,5 +840,35 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         public IDisposable ModifyExperience(Action<ExperienceGain> modify) => Add(host._experience, modify);
         public IDisposable ModifyStats(Action<StatSheet> modify) => Add(host._stats, modify);
 
+        public IDisposable UseChatServer(string host, int port)
+        {
+            if (mod.Unloaded) throw new InvalidOperationException($"mod {mod.Manifest.Id} is unloaded");
+            return mod.Lifetime.Own(ChatRoutes.Use(host, port));
+        }
+
+        string ValuesPath => Path.Combine(host.SettingsFolder, mod.Manifest.Id + ".json");
+
+        ModSettings.Schema Schema()
+        {
+            string path = Path.Combine(mod.Folder, ModSettings.FileName);
+            if (!File.Exists(path)) throw new FormatException($"no {ModSettings.FileName} in the {host.Noun}'s folder");
+            try { return ModSettings.Parse(File.ReadAllText(path), host.GameValues); }
+            catch (FormatException e) { throw new FormatException($"{ModSettings.FileName}: {e.Message}"); }
+        }
+
+        public T Settings<T>()
+        {
+            var schema = Schema();
+            string? values = File.Exists(ValuesPath) ? File.ReadAllText(ValuesPath) : null;
+            return ModSettings.Bound<T>(ModSettings.Merge(schema, values, Log, host.GameValues));
+        }
+
+        public void SaveSettings<T>(T settings)
+        {
+            string json = ModSettings.Saved(Schema(), settings, File.Exists(ValuesPath) ? File.ReadAllText(ValuesPath) : null, host.GameValues);
+            Directory.CreateDirectory(host.SettingsFolder);
+            File.WriteAllText(ValuesPath + ".tmp", json);
+            File.Move(ValuesPath + ".tmp", ValuesPath, overwrite: true);
+        }
     }
 }

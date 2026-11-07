@@ -36,6 +36,10 @@ public static class InstanceSocial
     /// <summary>C→S 0x93: "Invite to Party": wstr the character's name.</summary>
     public static string ReadPartyInvite(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
 
+    /// <summary>C→S 0x94: wstr the selected party member's account (0x140aba4c0). 0x97 promotes a leader.</summary>
+    public const ushort PartyKickId = 0x94;
+    public static string ReadPartyKick(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
+
     /// <summary>C→S 0x80: wstr name, two independent bytes (0x141f94db0).
     /// First byte selects friends (0) or ignore (1); second is add (0), remove/decline (1), accept (2).
     /// Returned U16 packs the native low/high bytes: friend add 0, remove/decline 0x100, accept 0x200.</summary>

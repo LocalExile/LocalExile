@@ -31,7 +31,7 @@ static partial class Game
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
-        SoulEaterSoul(conn, at);
+        SoulEaterSoul(conn, victimId, at);
         var killer = PlayerOf(conn); var modMonster = ModMonster(monster, at);
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
@@ -77,7 +77,7 @@ static partial class Game
             if (level != conn.Pools.Level)
             {
                 CommitExperienceLevel(conn, level);
-                conn.PlayerLife = conn.PlayerMaxLife; conn.PlayerMana = (uint)UnreservedMana(conn);
+                conn.PlayerLife = conn.PlayerUnreservedLife; conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); TrimLeechLocked(conn);
                 state.StatRevision++; state.AccountRevision++;
                 state.OutputQueue.Add(new([], "0x0033 current passive skill tree (accepted level)", Kind: PlayerMinions.OutputKind.Passives));
@@ -201,8 +201,8 @@ static partial class Game
                         PlayerMinions.OutputKind.Vaal => VaalSoulPresentation(conn),
                         PlayerMinions.OutputKind.Experience => InstanceEntities.PlayerExperienceUpdate(PlayerId, CurrentExperience(conn)),
                         PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action
-                            && output.Until > AreaTime(conn) ? InstanceProtocol.ActorAnimation(output.TargetId!.Value,
-                                (float)(output.Until - AreaTime(conn)), PlayerHitRecovery.TakeHitAnimation) : null,
+                            && output.Until > AreaTime(conn) ? TakeHitPacket(conn, output.TargetId!.Value, m, output.Until,
+                                AreaTime(conn)) : null,
                         _ => output.Packet,
                     };
                 }
@@ -251,7 +251,7 @@ static partial class Game
             if (!Current()) return;
             await SendPlayerMana(remote, stream, ciphers, conn); await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             await Send(remote, stream, ciphers, [], "player life after minion outcomes", atGate: () =>
-            { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife) : null; });
+            { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife) : null; });
             lock (conn.Monsters) if (Current() && !conn.Closed && !conn.LeavingArea) state.PresentedStatRevision = Math.Max(state.PresentedStatRevision, revision);
         }
         if (!Current() || account == state.PresentedAccountRevision) return;

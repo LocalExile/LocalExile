@@ -10,6 +10,7 @@
     "Core/Item/UniqueBelts",
     "Core/NPC/NpcDialogue",
     "Core/NPC/Vendors",
+    "Core/Player/Chat",
     "Core/Player/Commands",
     "Core/Player/Pantheon",
     "Core/Player/Social",

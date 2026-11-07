@@ -25,6 +25,7 @@ static partial class Game
     /// player's minions go with him.</summary>
     internal static void KeepInstanceMonsters(ClientState left)
     {
+        SaveSummons(left);
         lock (left.Monsters)
         {
             left.Instance.Monsters = SavedMonster.Save(InstanceMonsters(left),

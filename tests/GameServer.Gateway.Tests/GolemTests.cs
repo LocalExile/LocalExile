@@ -129,12 +129,28 @@ public sealed class GolemTests
             await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 9);
             Assert.Equal(70, conn.Golems.All.Values.Single().Monster.Level);
             Assert.Equal(29, conn.Golems.OwnerStats[increased]);
+            var auraFighter = conn.Golems.All.Values.Single();
+            var auraAt = auraFighter.Monster.Walk.Position(0);
+            var allyHaste = new AuraCatalog.Aura(1, Program.Skills.EffectRow("Haste"), "Haste", "Haste", 1, 152, 0, 5000);
+            var ally = new InstancePlayer(0x2000abcd, 0, new("Ally", 0, auraAt.X, auraAt.Y, 100, 100), auraAt.X, auraAt.Y, 100)
+                { Auras = [new(allyHaste, 1000, 100)] };
+            conn.Instance.PublishPlayer(ally);
+            await Game.SendOwnAuraChanges("test", wire.Stream, wire.Ciphers, conn);
+            Assert.Single(conn.ReceivedAuras);
+            await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 9.6);
+            Assert.Equal(20, auraFighter.Auras["base_movement_velocity_+%"]);
+            Assert.Equal(30, auraFighter.Auras["attack_speed_+%"]);
+            conn.Instance.RemovePlayer(ally.Id);
+            await Game.SendOwnAuraChanges("test", wire.Stream, wire.Ciphers, conn);
+            Assert.Empty(conn.ReceivedAuras);
+            await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 10.2);
+            Assert.Empty(auraFighter.Auras); // Leaving the aura's instance retires all its cached minion bonuses.
             var living = conn.Golems.All.Values.Single();
             var position = living.Monster.Walk.Position(0);
             var target = new SpawnedMonster("golem target", new(position.X + 2, position.Y, 0), 100, 8, 1000000);
             conn.Monsters[0x08000001] = target;
-            await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 10);
-            await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 11);
+            await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 10.3);
+            await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 11.3);
             Assert.True(target.Life < target.MaxLife);
             var smallHit = spell with { Damage = DamagePacket.Of(DamageType.Physical, 100, 100) };
             uint before = living.Monster.Life;
@@ -156,6 +172,52 @@ public sealed class GolemTests
             Assert.False(conn.Golems.OwnerStats.ContainsKey(increased));
             await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 15);
             Assert.Empty(conn.Golems.All);
+
+            // Reservation minions use the same native abilities/contact pipeline, without acquiring golem limits,
+            // owner buffs or the local golem auto-resummon rule. Every permanent gem must release its reservation.
+            foreach (string effectId in new[] { "Haste", "PurityOfElements", "PurityOfFire", "PurityOfIce", "PurityOfLightning",
+                "Clarity", "Vitality", "Precision", "Determination", "Grace", "Discipline", "Anger", "Hatred", "Wrath",
+                "Zealotry", "Malevolence", "BloodAndSand", "FleshAndStone", "Pride", "ArcticArmour", "TempestShield",
+                "HeraldOfAsh", "HeraldOfIce", "HeraldOfThunder", "HeraldOfPurity", "HeraldOfAgony",
+                "SummonSkitterbots", "TemporalRift" })
+            {
+                var type = Program.Items.All.FirstOrDefault(t => Program.Items.Gem(t) is { IsSupport: false } data
+                    && Program.Skills.EffectId(data.Variant(0).Effect) == effectId);
+                Assert.True(type is not null, "Missing reservation gem: " + effectId);
+                var reservationGem = ItemCatalog.Create(type!);
+                var wornWeapon = weapon with { Sockets = [new(SocketColour.White, reservationGem)] };
+                Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wornWeapon);
+                var active = Game.GemSkillEffects(conn).Single(g => Program.Skills.EffectId(g.Effect) == effectId);
+                var reservation = Game.SupportedReservation(conn, active.Id);
+                Assert.NotNull(reservation);
+                Assert.True(await Game.ToggleAura("test", wire.Stream, wire.Ciphers, conn, active.Id, active.Effect,
+                    active.Name, reservation!.Value, active.Level, active.Quality), effectId);
+                Assert.Single(conn.Auras); Assert.True(Game.ReservedMana(conn) > 0, effectId);
+                var aura = conn.Auras[active.Id];
+                if (effectId == "TempestShield")
+                    Assert.Equal(Convert.FromHexString("000000020000000000000000"),
+                        AuraCatalog.StartPackets(aura, 0x1000, null).Last()[^12..]);
+                if (effectId == "TemporalRift")
+                    Assert.Equal(Convert.FromHexString("000000020000002A00000064"),
+                        AuraCatalog.StartPackets(aura, 0x1000, null).Last()[^12..]);
+                if (effectId is "HeraldOfIce" or "HeraldOfThunder" or "TempestShield")
+                    Assert.True(Game.ReservationHitPacket(conn, aura).MaxTotal > 0, effectId);
+                if (effectId == "HeraldOfPurity")
+                {
+                    Game.ReservationKill(new(conn, target, "test", position));
+                    await Game.ReservationSkillsTick("test", wire.Stream, wire.Ciphers, conn, conn.Clock.Elapsed.TotalSeconds);
+                    Assert.Contains(conn.Reservations.Fighters.Values, f => f.Definition.Kind == "Purity");
+                }
+                if (effectId == "SummonSkitterbots")
+                {
+                    await Game.ReservationSkillsTick("test", wire.Stream, wire.Ciphers, conn, conn.Clock.Elapsed.TotalSeconds);
+                    Assert.Equal(2, conn.Reservations.Fighters.Count);
+                }
+                await Game.DisableReservations("test", wire.Stream, wire.Ciphers, conn, effectId);
+                Assert.Empty(conn.Auras); Assert.Equal(0, Game.ReservedMana(conn));
+                Assert.Empty(conn.Reservations.Fighters);
+                Game.ItemsOf(conn).Remove(PlayerInventories.Weapon1, Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single().Id);
+            }
         }
         finally
         {
@@ -169,6 +231,7 @@ public sealed class GolemTests
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);
         readonly TcpClient writer = new(); readonly TcpClient reader;
+        readonly Task drain;
         public readonly ConnectionCiphers Ciphers = new(new byte[64], false);
         public NetworkStream Stream => writer.GetStream();
         public Wire()
@@ -176,7 +239,12 @@ public sealed class GolemTests
             listener.Start(); var accepting = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             reader = accepting.GetAwaiter().GetResult();
+            drain = Task.Run(async () =>
+            {
+                try { var buffer = new byte[65536]; while (await reader.GetStream().ReadAsync(buffer) > 0) { } }
+                catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+            });
         }
-        public void Dispose() { reader.Dispose(); writer.Dispose(); listener.Stop(); }
+        public void Dispose() { reader.Dispose(); writer.Dispose(); listener.Stop(); drain.GetAwaiter().GetResult(); }
     }
 }
