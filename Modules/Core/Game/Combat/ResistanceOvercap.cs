@@ -50,8 +50,11 @@ static class ResistanceOvercap
         int Effective(string name) => stats.Key(name) is uint key && devStats.TryGetValue(key, out int dev) ? dev : StatOf(name);
         int Replacement(string name) => Effective(name) - StatOf(name);
         int commonResistance = Replacement("base_resist_all_elements_%") + Replacement(ColdAndLightningResistance);
-        int coldRaw = bonus.ColdResistance + commonResistance + Replacement("base_cold_damage_resistance_%");
-        int lightningRaw = bonus.LightningResistance + commonResistance + Replacement("base_lightning_damage_resistance_%");
+        // The other two pair stats: fire-and-cold raises cold, fire-and-lightning raises lightning.
+        int fireCold = Replacement("fire_and_cold_damage_resistance_%");
+        int fireLightning = Replacement("fire_and_lightning_damage_resistance_%");
+        int coldRaw = bonus.ColdResistance + commonResistance + fireCold + Replacement("base_cold_damage_resistance_%");
+        int lightningRaw = bonus.LightningResistance + commonResistance + fireLightning + Replacement("base_lightning_damage_resistance_%");
         int commonMaximum = Replacement("additional_maximum_all_resistances_%")
             + Replacement("additional_maximum_all_elemental_resistances_%");
         int coldMax = Math.Min(GameServer.Core.World.DamageModel.MaxResistCap, GameServer.Core.World.DamageModel.DefaultMaxResistance
@@ -71,6 +74,7 @@ static class ResistanceOvercap
     }
 
     public static bool IsInput(string name) => name is ColdEvasionFlag or LightningCritFlag or ColdAndLightningResistance
+        or "fire_and_cold_damage_resistance_%" or "fire_and_lightning_damage_resistance_%"
         or "base_cold_damage_resistance_%" or "base_lightning_damage_resistance_%" or "base_resist_all_elements_%"
         or "base_maximum_cold_damage_resistance_%" or "base_maximum_lightning_damage_resistance_%"
         or "additional_maximum_all_resistances_%" or "additional_maximum_all_elemental_resistances_%";
