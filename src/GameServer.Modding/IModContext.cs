@@ -57,6 +57,18 @@ public interface IModContext
     /// <summary>Stats added to the character's own (beside the passives' and auras'), by stat id
     /// (<c>Stats.dat</c>, as /set_stat takes them). Asked again whenever the server rebuilds the character's stats.</summary>
     IDisposable ModifyStats(Action<StatSheet> modify);
+
+    /// <summary>The settings its <c>settings.json</c> declares, with the user's values (<c>data/mods/&lt;id&gt;.json</c>, for a
+    /// module <c>data/modules/&lt;id&gt;.json</c>) over the defaults, read into <typeparamref name="T"/> by name (case does not
+    /// matter). A value that does not fit its declaration is logged and its default used. A change to either file reloads
+    /// the mod, so the new load reads them again (Agents/docs/dev/modding.md, "Settings").</summary>
+    /// <exception cref="FormatException"><c>settings.json</c> is missing or declares something wrong: the load fails.</exception>
+    T Settings<T>();
+
+    /// <summary>Writes these values as the user's (a chat command that changes a setting), the ones equal to their default
+    /// left out; the write reloads the mod. Throws <see cref="ArgumentException"/>, writing nothing, when one does not fit
+    /// its declaration.</summary>
+    void SaveSettings<T>(T settings);
 }
 
 /// <summary>What a module (or a league's own code) can do: everything a mod can, and overhauls. It runs only for the players of

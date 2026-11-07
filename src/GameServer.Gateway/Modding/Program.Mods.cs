@@ -17,6 +17,7 @@ partial class Program
     {
         Active = (player, id) => player.LeagueId.Equals(id, StringComparison.OrdinalIgnoreCase),
         WorldOf = player => Logic.WorldFor(ConnOf(player)),
+        GameValues = GameValuesOf,
     };
 
     internal static readonly ModHost ServerModules = new(ModulesFolder, Console.WriteLine, modules: true)
@@ -25,8 +26,15 @@ partial class Program
         // A module runs only for the players whose league lists it, so a league without one has nothing of it to break on.
         Active = (player, id) => ModulesFor(ConnOf(player)).Contains(id),
         WorldOf = player => Logic.WorldFor(ConnOf(player)),
+        GameValues = GameValuesOf,
     };
-    internal static readonly ModHost ServerMods = new(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine);
+    internal static readonly ModHost ServerMods = new(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine)
+    {
+        GameValues = GameValuesOf,
+    };
+
+    // A setting's source (an area, an item, ...): what /goto and the other commands complete; unknown before the game module loads.
+    static IEnumerable<string>? GameValuesOf(string kind) => GameLogicOrNull?.CompletionValues(kind)?.Select(v => v.Value);
     internal static readonly ServerHooks ServerHooks = new(ServerLeagueCode, ServerModules, ServerMods);
 
     internal static void StartMods()

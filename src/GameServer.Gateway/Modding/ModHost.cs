@@ -21,6 +21,13 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     /// <summary>The mods' folder, relative to the working directory (the repository root) unless absolute.</summary>
     public string Folder { get; } = folder;
 
+    /// <summary>The users' values of the settings, one <c>&lt;id&gt;.json</c> each (<see cref="ModSettings"/>): <c>data/mods</c>,
+    /// <c>data/modules</c> or <c>data/leagues</c>. A change to one reloads its mod.</summary>
+    public string SettingsFolder { get; } = Path.Combine("data", (leagues ? "league" : modules ? "module" : "mod") + "s");
+
+    /// <summary>The game's values of a kind, for a setting's <c>source</c>.</summary>
+    public ModSettings.Values? GameValues { get; init; }
+
     readonly Lock _gate = new();
     readonly Dictionary<string, LoadedMod> _loaded = new(StringComparer.Ordinal);
     // Why a folder's mod is not loaded, as last logged (logged again only when it changes).
@@ -30,7 +37,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     // /mod_enable and /mod_disable's choices (StateFile), over each manifest's "enabled"; the folders turned off by either.
     readonly Dictionary<string, bool> _choices = new(StringComparer.Ordinal);
     readonly HashSet<string> _off = new(StringComparer.Ordinal);
-    FileSystemWatcher? _watcher;
+    FileSystemWatcher? _watcher, _settingsWatcher;
 
     // The hooks. Each list is swapped whole (ImmutableInterlocked), so a dispatch iterates a snapshot without a lock.
     ImmutableDictionary<string, CommandHook> _commands = ImmutableDictionary.Create<string, CommandHook>(StringComparer.OrdinalIgnoreCase);
@@ -100,6 +107,26 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         _watcher.Deleted += (_, e) => Touched(e.FullPath);
         _watcher.Renamed += (_, e) => { Touched(e.OldFullPath); Touched(e.FullPath); };
         _watcher.EnableRaisingEvents = true;
+        Directory.CreateDirectory(SettingsFolder);
+        _settingsWatcher = new FileSystemWatcher(Path.GetFullPath(SettingsFolder), "*.json")
+        {
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+        };
+        _settingsWatcher.Changed += (_, e) => SettingsTouched(e.FullPath);
+        _settingsWatcher.Created += (_, e) => SettingsTouched(e.FullPath);
+        _settingsWatcher.Deleted += (_, e) => SettingsTouched(e.FullPath);
+        _settingsWatcher.Renamed += (_, e) => { SettingsTouched(e.OldFullPath); SettingsTouched(e.FullPath); };
+        _settingsWatcher.EnableRaisingEvents = true;
+    }
+
+    // A user's values: the mod of that id (as its folder spells it) reloads.
+    void SettingsTouched(string path)
+    {
+        string name = Path.GetFileNameWithoutExtension(path);
+        string? id;
+        lock (_gate) id = _loaded.Keys.FirstOrDefault(k => k.Equals(name, StringComparison.OrdinalIgnoreCase));
+        id ??= Dirs().Select(Path.GetFileName).FirstOrDefault(d => string.Equals(d, name, StringComparison.OrdinalIgnoreCase));
+        if (id is not null) Later(id, busy: 0);
     }
 
     /// <summary>Whether a mod of this id is loaded.</summary>
@@ -111,6 +138,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     public void Dispose()
     {
         _watcher?.Dispose();
+        _settingsWatcher?.Dispose();
         lock (_gate)
         {
             foreach (var (timer, _) in _pending.Values) timer.Dispose();
@@ -345,7 +373,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         // A league's own compile writes its Binaries/.
         if (leagues && parts is [_, "Binaries", ..]) return;
         if (modules && parts is [_, var part, ..]
-            && (part == "obj" || (part != "bin" && part != Manifest && HasProject(DirOf(id) ?? "")))) return;
+            && (part == "obj" || (part != "bin" && part != Manifest && part != ModSettings.FileName && HasProject(DirOf(id) ?? "")))) return;
         Later(id, busy: 0);
     }
 
@@ -792,5 +820,29 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         public IDisposable ModifyExperience(Action<ExperienceGain> modify) => Add(host._experience, modify);
         public IDisposable ModifyStats(Action<StatSheet> modify) => Add(host._stats, modify);
 
+        string ValuesPath => Path.Combine(host.SettingsFolder, mod.Manifest.Id + ".json");
+
+        ModSettings.Schema Schema()
+        {
+            string path = Path.Combine(mod.Folder, ModSettings.FileName);
+            if (!File.Exists(path)) throw new FormatException($"no {ModSettings.FileName} in the {host.Noun}'s folder");
+            try { return ModSettings.Parse(File.ReadAllText(path), host.GameValues); }
+            catch (FormatException e) { throw new FormatException($"{ModSettings.FileName}: {e.Message}"); }
+        }
+
+        public T Settings<T>()
+        {
+            var schema = Schema();
+            string? values = File.Exists(ValuesPath) ? File.ReadAllText(ValuesPath) : null;
+            return ModSettings.Bound<T>(ModSettings.Merge(schema, values, Log, host.GameValues));
+        }
+
+        public void SaveSettings<T>(T settings)
+        {
+            string json = ModSettings.Saved(Schema(), settings, File.Exists(ValuesPath) ? File.ReadAllText(ValuesPath) : null, host.GameValues);
+            Directory.CreateDirectory(host.SettingsFolder);
+            File.WriteAllText(ValuesPath + ".tmp", json);
+            File.Move(ValuesPath + ".tmp", ValuesPath, overwrite: true);
+        }
     }
 }

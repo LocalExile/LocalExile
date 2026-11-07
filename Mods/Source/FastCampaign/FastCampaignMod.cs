@@ -5,24 +5,29 @@ namespace LocalExile.Mods.FastCampaign;
 /// <summary>
 /// A faster campaign: more experience from kills, extra movement speed, and /fast, which lists the Gateway's own commands
 /// that skip ahead (waypoints, area travel, level). Off by default: /mod_enable fastcampaign.
-/// The settings, the language of its chat lines included, are kept in settings.txt in the mod's folder; writing it reloads
-/// the mod, and the new load reads them back.
+/// Its settings (settings.json), the language of its chat lines included, are the user's; /fast_xp, /fast_speed and
+/// /fast_lang save them, which reloads the mod, and the new load reads them back.
 /// </summary>
 public sealed class FastCampaignMod : IMod
 {
-    const string SettingsFile = "settings.txt";
+    // Before its settings were settings.json: read once into the user's values, then removed.
+    const string OldSettingsFile = "settings.txt";
     const string SpeedStat = "base_movement_velocity_+%";
     const int MaxExperience = 100, MaxSpeed = 300;
 
-    int _experience = 5;
-    int _speed = 50;
+    sealed record Choices(int Experience, int Speed, string Language);
+
+    int _experience;
+    int _speed;
     int _language;
-    string _path = "";
+    IModContext _mod = null!;
 
     public void Load(IModContext mod)
     {
-        _path = Path.Combine(mod.Folder, SettingsFile);
-        Read();
+        _mod = mod;
+        var choices = mod.Settings<Choices>();
+        (_experience, _speed, _language) = (choices.Experience, choices.Speed, Text.Find(choices.Language));
+        if (ReadOld(Path.Combine(mod.Folder, OldSettingsFile))) Save();
 
         mod.ModifyExperience(gain =>
         {
@@ -52,7 +57,7 @@ public sealed class FastCampaignMod : IMod
         if (command.Args.Count != 1 || !int.TryParse(command.Args[0], out int value) || value < min || value > max)
             return command.Player.Tell(string.Format(Text.Usage[language], command.Name, min, max, Volatile.Read(ref setting)));
         Volatile.Write(ref setting, value);
-        Write();
+        Save();
         return command.Player.Tell(string.Format(done[language], value));
     }
 
@@ -61,14 +66,18 @@ public sealed class FastCampaignMod : IMod
         int language = command.Args.Count == 1 ? Text.Find(command.Args[0]) : -1;
         if (language < 0) return command.Player.Tell($"/fast_lang <{string.Join(" | ", Text.Languages)}>");
         Volatile.Write(ref _language, language);
-        Write();
+        Save();
         return command.Player.Tell(Text.LanguageSet[language]);
     }
 
-    void Read()
+    // The user's values; writing them reloads the mod.
+    void Save() => _mod.SaveSettings(new Choices(Volatile.Read(ref _experience), Volatile.Read(ref _speed), Text.Languages[Volatile.Read(ref _language)]));
+
+    // settings.txt of an older version (xp=, speed=, language= lines): true when it was there, and is now gone.
+    bool ReadOld(string path)
     {
-        if (!File.Exists(_path)) return;
-        foreach (string line in File.ReadAllLines(_path))
+        if (!File.Exists(path)) return false;
+        foreach (string line in File.ReadAllLines(path))
         {
             string[] parts = line.Split('=', 2, StringSplitOptions.TrimEntries);
             if (parts.Length != 2) continue;
@@ -77,14 +86,9 @@ public sealed class FastCampaignMod : IMod
             else if (parts[0] == "xp") _experience = Math.Clamp(value, 1, MaxExperience);
             else if (parts[0] == "speed") _speed = Math.Clamp(value, 0, MaxSpeed);
         }
+        File.Delete(path);
+        return true;
     }
-
-    void Write() => File.WriteAllLines(_path,
-    [
-        $"xp={Volatile.Read(ref _experience)}",
-        $"speed={Volatile.Read(ref _speed)}",
-        $"language={Text.Languages[Volatile.Read(ref _language)]}",
-    ]);
 
     /// <summary>The mod's chat lines, by language: English, Simplified Chinese, Traditional Chinese.</summary>
     static class Text

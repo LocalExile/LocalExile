@@ -2,11 +2,15 @@ using GameServer.Modding;
 
 namespace LocalExile.Mods.ItemQuantity;
 
-/// <summary>10 times as many items from every kill. Off by default: /mod_enable itemquantity.</summary>
+/// <summary>More items from every kill, 10 times as many by default (its multiplier setting). Off by default: /mod_enable itemquantity.</summary>
 public sealed class ItemQuantityMod : IMod
 {
-    const double Multiplier = 10;
+    sealed record Choices(double Multiplier);
 
-    // Multiplied, not set: another mod's quantity stays in.
-    public void Load(IModContext mod) => mod.ModifyDrops(drops => drops.Quantity *= Multiplier);
+    public void Load(IModContext mod)
+    {
+        double multiplier = mod.Settings<Choices>().Multiplier;
+        // Multiplied, not set: another mod's quantity stays in.
+        mod.ModifyDrops(drops => drops.Quantity *= multiplier);
+    }
 }

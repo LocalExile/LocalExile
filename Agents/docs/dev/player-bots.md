@@ -1,21 +1,16 @@
 # Player bots (the PlayerBots module)
 
 `Modules/PlayerBots/` makes a new server look lived in: server-driven characters that are created over time, play
-through the campaign, visit the towns and leave again. Off by default (`"enabled": false` in its settings).
+through the campaign, visit the towns and leave again. Off by default: no league lists it.
 
 ## Turning it on
 
-The Standard league lists the module (`Leagues/Standard/modules.json`); it only acts when
-`Modules/PlayerBots/playerbots.json` has `"enabled": true`. The module hot-reloads on build like any other.
+List it in a league, as `data/league-modules.json` does with
+`{"Standard": {"add": ["PlayerBots"]}}` ([modules](modules.md)), then restart the Gateway. Its settings are in
+`settings.json` beside it, and a user's values in `data/modules/PlayerBots.json` ([modding](modding.md), "Settings"); a
+change reloads the module, so the bots start over from `state/bots.json`.
 
-| Setting | Default | Meaning |
-|---|---|---|
-| `maxBots` | 100 | bots at most, all towns together |
-| `spawnIntervalSeconds` / `firstSpawnSeconds` | 60 / 60 | one new bot this often, the first this long after the start |
-| `league` | Standard | the league of the bots' characters |
-| `questMinutes` | [2, 6] | how long a quest takes (out of sight) |
-| `townActivities` / `idleSeconds` | [2, 4] / [8, 75] | what a staying visit does in town, and how long it stands at each place |
-| `deathChancePerQuest` | 0.15 | a death makes the bot retry the quest |
+Each setting's default, limits and meaning are in its `settings.json`.
 
 ## What a bot is
 

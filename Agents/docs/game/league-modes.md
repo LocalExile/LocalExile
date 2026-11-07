@@ -146,42 +146,27 @@ Native table values and implemented campaign rules are used where available; unk
 
 ## Change Ruthless balance without rebuilding
 
-The tracked file `Modules/Ruthless/ruthless.json` controls eight numeric settings.
-These are server settings, separate from the private client's graphics and input settings.
-GGG does not publish the exact server drop and XP formulas, so these defaults are LocalExile approximations.
-They are not claimed to reproduce retail probabilities.
+Eight numbers are the Ruthless module's settings, declared in `Modules/Ruthless/settings.json` with their defaults and
+limits ([modding](../dev/modding.md), "Settings"). These are server settings, separate from the private client's graphics
+and input settings. GGG does not publish the exact server drop and XP formulas, so the defaults are LocalExile
+approximations; they are not claimed to reproduce retail probabilities.
 
-Run these commands in PowerShell from the repository root (the folder containing `AGENTS.md`):
-
-```powershell
-notepad .\Modules\Ruthless\ruthless.json
-```
-
-The file contains:
+A user's values go in `data/modules/Ruthless.json`, with only the numbers they change (Waypoint writes it), for example:
 
 ```json
-{
-  "itemDropMultiplier": 0.20,
-  "goldMultiplier": 0.25,
-  "equipmentRarityMultiplier": 0.25,
-  "gemExperienceMultiplier": 0.25,
-  "vendorRewardMultiplier": 0.20,
-  "experiencePenaltyStartLevel": 68,
-  "experienceMultiplierPerLevel": 0.90,
-  "campaignBossLifeRecoveryFraction": 0.25
-}
+{ "gemExperienceMultiplier": 0.5 }
 ```
 
-| Setting | Meaning |
-|---|---|
-| `itemDropMultiplier` | Ruthless item-drop quantity relative to the server's ordinary drop system |
-| `goldMultiplier` | Fraction of ordinary gold rewards |
-| `equipmentRarityMultiplier` | Multiplier used for equipment rarity chances |
-| `gemExperienceMultiplier` | Fraction of ordinary gem XP from kills |
-| `vendorRewardMultiplier` | Fraction of basic vendor-sale rewards; ordinary multi-item recipes stay disabled |
-| `experiencePenaltyStartLevel` | First character level affected by the extra player-XP penalty |
-| `experienceMultiplierPerLevel` | Factor compounded once at the start level and once for each subsequent level |
-| `campaignBossLifeRecoveryFraction` | Share of maximum life restored to a nearby campaign boss on player death |
+| Setting | Default | Meaning |
+|---|---|---|
+| `itemDropMultiplier` | 0.20 | Ruthless item-drop quantity relative to the server's ordinary drop system |
+| `goldMultiplier` | 0.25 | Fraction of ordinary gold rewards |
+| `equipmentRarityMultiplier` | 0.25 | Multiplier used for equipment rarity chances |
+| `gemExperienceMultiplier` | 0.25 | Fraction of ordinary gem XP from kills |
+| `vendorRewardMultiplier` | 0.20 | Fraction of basic vendor-sale rewards; ordinary multi-item recipes stay disabled |
+| `experiencePenaltyStartLevel` | 68 | First character level affected by the extra player-XP penalty |
+| `experienceMultiplierPerLevel` | 0.90 | Factor compounded once at the start level and once for each subsequent level |
+| `campaignBossLifeRecoveryFraction` | 0.25 | Share of maximum life restored to a nearby campaign boss on player death |
 
 For a multiplier, `0.25` means 25%, `0.50` means 50%, and `1.0` means the ordinary amount.
 For example, changing `gemExperienceMultiplier` from `0.25` to `0.50` doubles this Ruthless gem-XP allowance.
@@ -190,24 +175,13 @@ With the defaults, level68 gets 90% of otherwise earned XP, level69 gets 81%, an
 Whole item, gold and player-XP rewards round down; very small rewards can become zero.
 Fractional Ruthless gem XP accumulates on the connection until enough is earned for a whole point.
 
-Keep the property names, commas, quotation marks and braces; JSON does not accept comments or a trailing comma.
-All seven fraction/factor settings must be finite numbers between 0 and 1 inclusive.
-The start level must be a whole number between 1 and 100.
-Press Ctrl+S in Notepad after editing.
-No build or server restart is needed: a relevant Ruthless action checks for changes, at most once each second.
-Already-created loot and completed rewards are not recalculated.
+All seven fraction/factor settings are between 0 and 1 inclusive; the start level is a whole number between 1 and 100.
+Saving the file reloads the module at once, without a build or restart; already-created loot and completed rewards are
+not recalculated. A value out of its limits is logged as `[modules] Ruthless: setting <name> …` and its default used.
 
-To check whether the file loaded, run this in the repository's PowerShell window after a relevant Ruthless action:
-
-```powershell
-Get-Content .\logs\live-gateway.log -Tail 100 | Select-String '\[ruthless\]'
-```
-
-Success includes `[ruthless] loaded settings from` and the file's absolute path.
-An invalid, incomplete or unavailable file logs `[ruthless] keeping previous settings:` followed by the reason.
-The last valid snapshot stays active; fixing and saving the file retries the load.
-At startup with no valid file yet, the built-in defaults above remain active.
-`Game_RUTHLESS_RULES` may choose a different file when starting the Gateway; changing that path requires a restart.
+`Game_RUTHLESS_RULES` names a file of all eight numbers instead (the format above, every number given). That file is
+checked at most once a second, logs `[modules] Ruthless: loaded settings from` its path, and keeps its last valid numbers
+through an invalid edit; changing the variable needs a Gateway restart.
 
 ## Validation
 
