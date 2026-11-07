@@ -1769,14 +1769,30 @@ static partial class Game
 
     const double CorpseBlockDelaySeconds = .165;
 
-    // The server stops counting a dead body at once. The client keeps walking around it until it is told.
-    internal static void StopCorpseBlocking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m) =>
-        SendAfter(CorpseBlockDelaySeconds, () => Send(remote, stream, ciphers, InstanceProtocol.StopBlocking(id), $"0x02b0 corpse of 0x{id:x} stops blocking",
-            still: () => { lock (conn.Monsters) return !conn.Closed && !conn.LeavingArea && ReferenceEquals(conn.Monsters.GetValueOrDefault(id), m); }));
+    // The client keeps routing around a corpse until Positioned clears its body. Retire the lockstep estimate at
+    // that message's send gate too; clearing it on death gives early post-kill Moves a different path.
+    internal static void StopCorpseBlocking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
+    {
+        lock (conn.Monsters) conn.RetainCorpseBody(id, m, conn.LockstepFrame?.Start ?? ProjectileWorldTime(conn));
+        SendAfter(CorpseBlockDelaySeconds, () => Send(remote, stream, ciphers, [], $"0x02b0 corpse of 0x{id:x} stops blocking", atGate: () =>
+        {
+            using (ProjectileMutation(conn, phase: "send"))
+            {
+                if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), m))
+                {
+                    conn.ReleaseCorpseBody(id, m);
+                    return null;
+                }
+                StepWalkers(conn, ProjectileWorldTime(conn));
+                conn.ReleaseCorpseBody(id, m);
+                return InstanceProtocol.StopBlocking(id);
+            }
+        }));
+    }
 
     // A monster died (its life reached 0 from the player's attack or skill): the player gains its experience when near
     // enough and it drops its items around where it fell (ItemDrops). Its corpse stays where it fell for as long as the
-    // player is in the area (it stays in Monsters as Dead: no AI, no body collision); leaving does not save it.
+    // player is in the area (it stays in Monsters as Dead: no AI, body cleared by StopCorpseBlocking); leaving does not save it.
     // A minion's kill (byMinion) is not the player's for his on-kill effects.
     internal static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         bool byMinion = false)

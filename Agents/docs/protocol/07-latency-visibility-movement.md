@@ -633,6 +633,10 @@ tolerance -1 and precision 1 (`0x141e7b530`): live, an aim 17 cells right and 9 
 The tutorial support chest's Interaction uses MoveTo max range 6, tolerance 3, precision 1. Its blocking footprint
 is only 1; using that footprint for interaction makes the server walk four cells past the native stopping point.
 
+A killed monster's Positioned body still affects path search until its `0x2b0` clear. A Move during that interval
+can start a different route even when it never touches the corpse. Keep the death-cell blocker through the clear's
+send gate, after stepping earlier frames; clearing it when Life reaches zero can force a position correction on the next action.
+
 A Move whose target is within two cells (Chebyshev) of the walker's cell is not taken by the client at all: no path
 search, no step and no move onto the 0x1ab's position pair, even when the pair is not the walker's cell, and the action
 the walker is in goes on (the Move before, under a shot too). The test is the admission of `Move` and `MoveSpecial`

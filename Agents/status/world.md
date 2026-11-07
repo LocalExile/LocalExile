@@ -89,8 +89,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Local lockstep handles pickup/attack recovery and ground melee/chest approach; crowd and predictive gaps remain
-  ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
+- Local lockstep handles pickup/attack recovery, corpse collision and ground melee/chest approach;
+  crowd and predictive gaps remain ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
 - League isolation is enforced by full league for towns and instance selection.
   SSF wilderness instances and Gateway ground-item state additionally belong to the stable character ID.
   Another character, including one reusing a deleted name, cannot inherit or join that state.

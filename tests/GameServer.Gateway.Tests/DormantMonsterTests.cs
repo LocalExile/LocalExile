@@ -97,6 +97,21 @@ public class DormantMonsterTests
             using (var frame = conn.BeginMonsterBlockerFrame(2))
                 Assert.Equal(new uint[] { 0x3041 }, frame.Bodies.Select(b => b.Id));
 
+            // Life and Positioned's blocking lifetime differ: a post-kill path still sees the death cell until
+            // the clear is sent. A replacement at the same ID must not inherit the old corpse's body.
+            conn.RetainCorpseBody(0x303f, first, 2);
+            Assert.Contains(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
+            Assert.False(LivingCollision.StepsWithBodies(first));
+            using (var frame = conn.BeginMonsterBlockerFrame(2))
+                Assert.Contains(new ClientPathfinder.Blocker(53, 50, 2), frame.ForPlayer);
+            Assert.Null(conn.MonsterBody(0x303f, new("replacement", new(80, 80, 8), 60, 2, 0), 2));
+            conn.ReleaseCorpseBody(0x303f, first);
+            Assert.DoesNotContain(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
+            conn.LockstepClient = false;
+            conn.RetainCorpseBody(0x303f, first, 2);
+            Assert.DoesNotContain(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
+            conn.LockstepClient = true;
+
             // A nonblocking mover must still take collision-checked movement turns. Without StepWalkers admitting
             // it, Position would advance analytically through the dormant neighbour instead of stopping at 0.1 s.
             foreach (bool lockstep in new[] { false, true })

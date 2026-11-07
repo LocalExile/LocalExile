@@ -45,12 +45,13 @@ sealed partial class ClientState
             IEnumerable<KeyValuePair<uint, SpawnedMonster>> actors = placement ? owner.Monsters : owner.CollisionMonsters;
             foreach (var (id, m) in actors)
             {
-                if (!(placement ? LivingCollision.StepsWithBodies(m) : LivingCollision.Blocks(m))) continue;
+                if (placement && !LivingCollision.StepsWithBodies(m)) continue;
                 var p = m.Walk.Position(now);
                 int size = LivingCollision.Size(m);
-                var blocker = new ClientPathfinder.Blocker(p.X, p.Y, size);
+                ClientPathfinder.Blocker? selected = placement ? new(p.X, p.Y, size) : owner.MonsterBody(id, m, now);
+                if (selected is not { } blocker) continue;
                 indices.Add(id, (Bodies.Count, current.Add(blocker)));
-                Bodies.Add((id, p.X, p.Y, size));
+                Bodies.Add((id, blocker.X, blocker.Y, blocker.Size));
             }
             // Phasing (Quartz Flask): the player and the monsters pass each other.
             forPlayer = owner.IsPhasing ? FixedBlockers : playerBody >= 0 ? current.Without(playerBody) : current;

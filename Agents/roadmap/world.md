@@ -151,7 +151,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   action start putting the client on the server's cell, which ends the parted copies of a crowd.
   It works locally, off by default; over a network it is not verified ([status](../status/world.md)).
   - **Known:** M5's dormant-body membership and saved-cell restoration are accepted with open issues.
-    Pickup completion, one-hand mace recovery, ground melee walk-up and tutorial chest approach follow the client.
+    Pickup completion, one-hand mace recovery, corpse collision, ground melee walk-up and tutorial chest approach
+    follow the client.
     Held-walk crowd accuracy still trails; predictive drift and standing-start discrepancies remain unresolved
     ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
   - **Start:** close the remaining held-walk gap, then finish frame record ordering, action ownership and ranged

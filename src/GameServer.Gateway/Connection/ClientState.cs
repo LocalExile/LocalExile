@@ -533,11 +533,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
             double now = Clock.Elapsed.TotalSeconds;
             List<ClientPathfinder.Blocker>? all = null;
             lock (Monsters)
-                foreach (var (_, m) in CollisionMonsters)
+                foreach (var (id, m) in CollisionMonsters)
                 {
-                    if (!LivingCollision.Blocks(m)) continue;
-                    var (x, y) = m.Walk.Position(now);
-                    (all ??= [.. fixedOnes]).Add(new(x, y, LivingCollision.Size(m)));
+                    if (MonsterBody(id, m, now) is { } body) (all ??= [.. fixedOnes]).Add(body);
                 }
             foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
                 if (peer.Life > 0 && peer.Owner is not null) (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
