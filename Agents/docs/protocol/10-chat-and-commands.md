@@ -23,11 +23,11 @@ the chat box: `hello local`, `#hello global`, `$hello trade`).
 After a trade line the chat box opens with `$` already typed, so the next line goes to trade too.
 The client's sender is `0x14215ddd0` (instance, text, linked items): it runs the client's own slash commands
 (`0x14215c3b0`, Commands.dat), then sends the rest as 0x15.
-The Gateway echoes a plain line as a 0x17 chat line from the character (`ChatChannels.Echo`, `Program.Chat.cs`): sender
+A plain line reaches its listeners, the player too, as a 0x17 chat line (the Chat module): sender
 `Name` for local, `#Name` for global and `$Name` for trade, the text without its prefix.
 Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name green, `#OfflineWitch: hello global`
 with the name red and `$OfflineWitch: hello trade` with the name orange (the chat timestamps option was on).
-Party, guild and whisper lines are not echoed (there is nobody to send them to).
+Party and guild lines are not sent. A whisper is typed `@Name text`.
 
 ## 2. Server → client text
 
@@ -54,7 +54,8 @@ in the text does not colour the line (live 2026-10-21). But with an empty sender
 green like a local speaker's name and the rest white (live 2026-10-21: `/com accuracy` was green up to `default:`); the
 `/commands` header ends with `:` for that. Sender prefixes (live 2026-10-21, `/raw`): `#Test` shows `#Test: line` in
 the global colour (red), `$Test` `$Test: line` in trade orange, `@Test` `@From Test: line` in whisper purple, the whole
-line coloured; `%` and `&` show nothing without a party or guild. A sender of the prefix alone (`$`, `#`) prints the
+line coloured; bit 2 of the flags' first byte (u16 0x0400) turns the `@` line into the sender's copy (ClientStrings `ChatBoxTo` for `ChatBoxFrom`, no
+`WhisperArrived` sound or window flash; `0x14017a300`), bit 6 adds the `AutoReplyPrefix`; u16 0x0004 reddens the text. `0x14017a300` takes the prefix off the sender and writes it back before the name, so `#` and `$` always show; only flag bit 7 keeps it off, and that makes the line local. `%` and `&` show nothing without a party or guild. A sender of the prefix alone (`$`, `#`) prints the
 text white with no name, like an empty sender. So a coloured line always shows its sender and a colon. With an empty sender, `0x14017a300` wraps the text in a colour
 looked up by `0x142426ea0(byte & 0x1f)` (the byte at +0x158 of the object at instance +0xc810) and runs it through the
 markup parser `0x14018fb50`; `ChatColours.dat` has rows Default, Red, Green, Blue, ChayulaMessage. Per-line colour: open.
@@ -84,6 +85,9 @@ Live 2026-10-25 the two requests were `0134 FFFF 00 01 00` and `0134 FFFF 01 01 
 An older capture had `0134 0334 00 01 00` (global, channel 820, the number in the timeout seen before) and
 `0134 0001 01 01 00` (trade, channel 1).
 A kind other than 0 or 1 is ignored (logged).
+The language is 0 English, 1 French, 2 German, 3 Portuguese, 4 Russian, 5 Thai, 6 Traditional Chinese, 7 Simplified Chinese,
+8 Spanish, 9 Korean, 10 Japanese (`0x1422ed4f0`): the Chat Language option, or `/global N ru` (live 2026-11-07: 4; `Data/Languages.dat` rows
+decide what is accepted, else the client prints "That realm does not exist." and sends nothing).
 The Gateway took 20 bytes for 0x99 then: 0x99 is 4 bytes (class `0x1435c0258`, write `0x141f95200`: two u8), and the
 same chunk held the two joins and 0x129 (id only).
 
@@ -402,8 +406,37 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
 - **Placement.** The nearest walkable cell 6–20 cells from the server's estimate of the player; ids from 0x3000. The
   world is active, so 0x2b9 is created at once; 0x1a9 puts it in the wake zone.
 
-## 6. Open
+## 6. Chat servers
 
-- The chat line's flags, and the language names of 0x134's language byte (the official text ends with one).
+Global, trade and whisper lines leave the Gateway for a chat server, GGG's split: a character keeps one TCP connection to
+it across its areas, so players of separate Gateways can talk. Local lines stay in the Gateway.
+
+The Chat module runs a chat server on a free loopback port, so each Gateway has chat alone. A mod moves the players to
+another server with `UseChatServer(host, port)`, at once and until it unloads ([modding](../dev/modding.md)). A character says
+`Failed to connect to host:port chat channel, switching back to local chat server.` in chat when that server fails or the
+connection drops, each reason once, and tries again at an area change after 60 s.
+
+To host one: `dotnet run -c Release --project src/GameServer.Chat` (solution `GameServer.Chat.slnx`), with
+`Game_CHAT_BIND` and `Game_CHAT_PORT` (default 0.0.0.0:6113). It needs an open TCP port, so a VM, not an HTTP-only host.
+Nothing is encrypted, stored or authenticated. Separate Gateways can have characters of one name, so a later one gets the
+first free `Name[n]` for that connection; `@Name[n]` whispers to it.
+
+Each frame is a big-endian u16 length and that many bytes of JSON, at most 8192 (`ChatWire`):
+
+| type | Direction | Fields |
+|---|---|---|
+| `hello` | to the server, first | `name` |
+| `welcome` | answer to `hello` | `name`, the one the character has here |
+| `join` | to the server | `kind` (0 global, 1 trade), `channel`, `language` (0x134's byte); replaces the channel of that kind |
+| `say` | to the server | `kind`, `text` |
+| `line` | to everyone on the channel, the speaker too | `name`, `kind`, `text` |
+| `whisper` | to the server, then to the target | `name` (the target, then the sender), `text` |
+| `whispered` | to the sender | `name`, `text` |
+| `offline` | to the sender | `name` |
+| `too-fast` | to the sender | 5 lines at once, then one a second |
+
+## 7. Open
+
+- The rest of the chat line's flags.
 - Monsters: **skills** (their GrantedEffects, so they fight back), the boss life bar (StateMachine `boss_life_bar`), the 346
   varieties with other components (NPC, ControlZone, …), AI and combat.

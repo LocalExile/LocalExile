@@ -157,6 +157,7 @@ Each `IModContext` call returns a handle; disposing it removes that hook, and un
 | `ModifyDrops(modify)` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them) |
 | `ModifyExperience(modify)` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
 | `ModifyStats(modify)` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like `/god`'s: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
+| `UseChatServer(host, port)` | until it unloads: global, trade and whisper chat go through this [chat server](../protocol/10-chat-and-commands.md) instead of the local one | |
 
 A player (`IPlayer`) is one connection: character, account, league, its modes and the league it plays by, level, area id and seed, position,
 `Tell` (chat lines) and `Send` (a raw S→C message). An area change is a new connection.

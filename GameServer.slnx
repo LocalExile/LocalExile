@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/GameServer.Auth/GameServer.Auth.csproj" />
+    <Project Path="src/GameServer.Chat/GameServer.Chat.csproj" />
     <Project Path="src/GameServer.Core/GameServer.Core.csproj" />
     <Project Path="src/GameServer.Data/GameServer.Data.csproj" />
     <Project Path="src/GameServer.Gateway/GameServer.Gateway.csproj" />
@@ -17,6 +18,7 @@
     <Project Path="Modules/Core/Content/Harvest/Harvest.csproj" />
     <Project Path="Modules/Core/Content/Heist/Heist.csproj" />
     <Project Path="Modules/Core/World/HideoutEditing/HideoutEditing.csproj" />
+    <Project Path="Modules/Core/Player/Chat/Chat.csproj" />
     <Project Path="Modules/Core/Player/Commands/Commands.csproj" />
     <Project Path="Modules/Core/Player/Pantheon/Pantheon.csproj" />
     <Project Path="Modules/Core/NPC/Vendors/Vendors.csproj" />
