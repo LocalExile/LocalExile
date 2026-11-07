@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
 // Where serving lockstep differs from GGG's server, each on purpose and each with its reason. Lockstep.cs holds what
-// follows GGG; 07 §6 lists these. The loopback rule is LockstepLink in the Gateway.
+// follows GGG; 07 §6 lists these.
 static partial class Game
 {
     // Differs from GGG: its server steps its world in frames, so a frame is a tick of the simulation. Ours walks on the
@@ -13,7 +13,8 @@ static partial class Game
     // 33 ms timer drifted 28 to 47 ms apart, with gaps to 390 ms). GGG's spacing is 30 to 36 ms. The Clock stops in the
     // Escape menu's pause, and so do the frames.
     // Differs from GGG: it never sends 0x2b6 (14 236 frames) and relies on the client's default, which is not traced; ours
-    // says the length it paces by, as every connection's frames do (RunServerFrames).
+    // says the length it paces by. Every connection runs these frames: the client alone picks its Network Mode, and a
+    // predictive one ignores 0x2b5 (07 §6).
     internal static async Task RunLockstepFrames(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         try
@@ -46,7 +47,8 @@ static partial class Game
                         lock (conn.Monsters)
                         {
                             conn.ServerFrame++;
-                            conn.LockstepFrame = (first + (ending + 1) * frame, first + (ending + 2) * frame);
+                            // A predictive client ignores the frames, so its timings keep the server's clock.
+                            if (conn.LockstepClient) conn.LockstepFrame = (first + (ending + 1) * frame, first + (ending + 2) * frame);
                         }
                         return InstanceProtocol.FrameEnd();
                     });
@@ -128,17 +130,16 @@ static partial class Game
     }
 
     // Differs from GGG: 0x194 was in none of its sessions here, and the handler reads as an idle timeout (the client runs
-    // /afk with its default text); here it times the client. Nothing else a server can read tells a
-    // tunnel on both ends from loopback: both socket ends and the given address are local, and the lag byte reads the same
-    // at 44 ms as it can here. 0x194 is the one message found that the client answers by itself, so here it measures the
-    // real round trip (LockstepLatency), only to a client that has shown it is in lockstep. It takes the wire alone, as
+    // /afk with its default text); here it times the client. 0x194 is the one message found that the client answers by
+    // itself, so here it measures the real round trip (LockstepLatency) for LockstepClientCell, only to a client that has
+    // shown it is in lockstep. It takes the wire alone, as
     // the 0x1c does, because a send gate held by game state would read as latency. The steps are random so that a probe
     // does not keep landing at the same point of a slow client's update.
     static async Task ProbeLockstepLatency(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (!conn.LockstepClient || now < conn.LockstepNextProbeAt) return;
-        conn.LockstepNextProbeAt = now + (conn.LockstepLatency.Settled && (conn.LockstepLatency.Confirmed || conn.LockstepLatency.Refused) ? 2 : .07)
+        conn.LockstepNextProbeAt = now + (conn.LockstepLatency.Settled ? 2 : .07)
             + Random.Shared.NextDouble() * .05;
         long sent = Interlocked.Exchange(ref conn.LockstepProbeSentAt, 0);
         if (sent != 0 && Stopwatch.GetElapsedTime(sent).TotalMilliseconds < LockstepLatency.Lost)
@@ -146,7 +147,7 @@ static partial class Game
             Interlocked.CompareExchange(ref conn.LockstepProbeSentAt, sent, 0);
             return;
         }
-        if (sent != 0) NoteLockstepLatency(remote, conn, LockstepLatency.Lost);
+        if (sent != 0) conn.LockstepLatency.Add(LockstepLatency.Lost);
         Interlocked.Exchange(ref conn.LockstepProbeSentAt, Stopwatch.GetTimestamp());
         await SendPong(stream, ciphers, InstanceProtocol.AfkRequest());
     }
@@ -155,14 +156,7 @@ static partial class Game
     internal static void AnswerLockstepProbe(string remote, ClientState conn, long readAt)
     {
         long sent = Interlocked.Exchange(ref conn.LockstepProbeSentAt, 0);
-        if (sent != 0) NoteLockstepLatency(remote, conn, Stopwatch.GetElapsedTime(sent, readAt).TotalMilliseconds);
-    }
-
-    static void NoteLockstepLatency(string remote, ClientState conn, double ms)
-    {
-        if (conn.LockstepLatency.Add(ms))
-            Console.WriteLine($"[gateway] {remote} lockstep round trip {conn.LockstepLatency.Lowest:0.0} ms at the lowest: " +
-                (conn.LockstepLatency.Confirmed ? "served" : "not low enough, the connection is treated as a real network"));
+        if (sent != 0) conn.LockstepLatency.Add(Stopwatch.GetElapsedTime(sent, readAt).TotalMilliseconds);
     }
 
     // Differs from GGG: a monster that gives up its pursuit (PlanMonsterAi, "gives up") gets no order and goes on with its

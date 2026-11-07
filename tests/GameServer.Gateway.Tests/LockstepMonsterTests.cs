@@ -531,7 +531,7 @@ public class LockstepMonsterTests : IDisposable
         Assert.True(conn.Walk.Moving(1.1));
         // The frame pass spends nothing on it either: no sequence, no action, no 0x1ab (none can go out here). The pass
         // reads the character's gems, so it gets a save store of its own.
-        conn.LockstepLatency = LockstepLatency.Unconditional();
+        conn.LockstepLatency = new();
         conn.LockstepHold.Press((player.X + 2, player.Y), 0x2909, 0x0408);
         var spent = (conn.LockstepSequence, conn.ActionCount);
         string saves = Path.Combine(Path.GetTempPath(), $"localexile-lockstep-near-{Guid.NewGuid():N}.db");

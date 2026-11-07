@@ -517,12 +517,12 @@ This provides body collision for players already sharing an instance, not a part
 Native checks: normal zombie clearance 4 cells, unique Hillock clearance 5 cells; removal frees the target cell.
 
 
-## 6. Lockstep (not served yet)
+## 6. Lockstep
 
-Local lockstep is partly working through M5's accepted dormant-body and saved-cell corrections (§5).
+Lockstep is partly working through M5's accepted dormant-body and saved-cell corrections (§5).
 Held-walk crowd accuracy remains the first open gap; predictive drift and standing-start discrepancies remain
-unresolved. This does not establish full predictive equivalence or complete skill and network support.
-Lockstep remains off by default; enabling it by default is the maintainer's decision.
+unresolved. This does not establish full predictive equivalence or complete skill and network support, so Predictive
+stays the preferred mode.
 
 Everything above is the client's **Predictive** network mode (Options → Game → Network Mode;
 `[NETWORKING] networking_type=predictive` in `Documents\My Games\Path of Exile\production_Config.ini`; the mode is
@@ -530,19 +530,17 @@ Everything above is the client's **Predictive** network mode (Options → Game �
 "Auto" starts at lockstep (`0x14449e7f0` holds 2), drops to predictive when connecting took over 90 ms and returns under
 70 ms (`0x142148880`), so it picks lockstep on localhost. A fourth value, `hybrid`, is disabled in the client.
 
-`Game_LOCKSTEP` decides who is served: `1` a connection confirmed as local, `network` any connection, unset nobody
-(`LockstepLink`). A client not served gets a message box asking for Predictive (once per connection). A predictive client
-plays predictive whatever the setting. Latency adds input delay, not position error: both sides count the same frames,
-so a client on a slower link plays the same frames later.
+The Gateway has no mode setting: every connection serves both, and follows what its client sends (a player switches by
+changing the option and entering again). The first sign of lockstep logs once per connection that Predictive is the
+preferred mode (`ClientState.NoteLockstepClient`). Latency adds input delay, not position error: both sides count the
+same frames, so a client on a slower link plays the same frames later.
 
 A tick's u8 tells the modes apart early: only a lockstep world counts frames behind, so a predictive client's is always 0
-and a lockstep one's turns nonzero within seconds, idle or not. Addresses cannot tell a tunnel on both ends from loopback,
-so with `1` a client in lockstep is also timed (`LockstepLatency`), and with `network` it is timed for aiming only. S→C **0x194** (id only, handled on arrival) tells a client to go
+and a lockstep one's turns nonzero within seconds, idle or not. A lockstep client is timed for aiming
+(`LockstepLatency`, `LockstepClientCell`). S→C **0x194** (id only, handled on arrival) tells a client to go
 AFK: it answers at once with C→S 0x16 command 36 and the text "This player is AFK.", and nothing else changes until a
 server replies. The client reads its socket once per update, so one round trip says little on a slow client (about 100 ms
-on loopback with the window in the background), and the lowest of the last 16 is the network's. The bar is the client's
-own: under 70 ms, over 90 ms. Requests wait for the first verdict. A character keeps its verdict across area changes for
-30 s. A connection that slows turns off within about 30 s, and back on when it recovers.
+on loopback with the window in the background), and the lowest of the last 16 is the network's.
 
 **Server frames.** In lockstep the client's world does not run on its own clock: it runs **server frames**. S→C
 **0x2b6** (u8) sets the frame length in ms (`0x141645fa0` stores the zero-extended byte as u32 at world `+0x11c`);
@@ -558,7 +556,7 @@ target. See [World message inputs](../re/projectiles/world-message-inputs.md) an
 Behind by 1, 2, 30 or 60 frames, it speeds up × 1.01, 1.5, 2 or 5;
 the most frames it was behind since the last tick goes out as the u8 of C→S 0x1b (world `+0xb98`,
 "lockstep_lag_frames"). Without 0x2b5 nothing runs: the player is created but never drawn. A predictive client ignores
-0x2b5, and 0x2b6 only stores its byte, so the Gateway always sends them (`RunServerFrames`, 33 ms, `Game_FRAME_MS`):
+0x2b5, and 0x2b6 only stores its byte, so the Gateway always sends them (`RunLockstepFrames`, 33 ms, `Game_FRAME_MS`):
 a lockstep client is then drawn and its world runs. Found with hardware watchpoints on those fields.
 On Windows a timer wait ends on the clock tick, 15.6 ms unless the
 process asks for less, and Windows 11 drops the request of a process without a window (every launcher starts the
@@ -752,16 +750,15 @@ differed on the two sides at 11 % of matched chase orders), a step then lands a 
 phase offset it leaves (under a frame now) persists until that walk ends, since a matched order rescales each side's
 own phase. GGG's server has none of this: it is the client's own simulation.
 
-**Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLink`; `Lockstep.cs` and
+**Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLatency`; `Lockstep.cs` and
 `LockstepHold` follow GGG):
 
 | Here | GGG | Why |
 |---|---|---|
 | Client and server can differ between action starts | Never: its server is the client's simulation | The server is a port |
 | New monster and totem placement searches for a nearby clear cell | The authoritative spawn-placement algorithm is not established here | Existing placement policy, separate from runtime bodies; restoring saved actors keeps their established cells |
-| Off unless `Game_LOCKSTEP` asks, and local only with `1` | Any connection, any latency | A port corrects the client at each action start, so serving a network is the server owner's choice |
 | The client's cell for a target is estimated: the lowest round trip and two frames ago | Its frames say which it was | A lockstep request carries no frame |
-| Sends 0x194 to time a lockstep client | Not seen in any session; by its handler, an idle timeout | It is the one message found that the client answers by itself, and nothing else tells a tunnel from loopback |
+| Sends 0x194 to time a lockstep client | Not seen in any session; by its handler, an idle timeout | It is the one message found that the client answers by itself |
 | Frames laid over a clock, late ones sent at once | Frames are ticks of its world | The walks run on the clock |
 | Orders a walking monster again only at a frame start right after its estimate's step | On its cadence, from its own simulation | A set after an order whose from cell is off zeroes the client's step accumulator while the estimate keeps its fraction; right after the estimate's step there is under a frame to lose |
 | Sends 0x2b6 | Never | The client's default is not traced |
