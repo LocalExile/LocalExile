@@ -22,4 +22,20 @@ public class ResistanceSpellingTests
         Assert.Equal(20 - 5, bonus.LightningResistance);
         Assert.Equal(0, bonus.ChaosResistance);
     }
+
+    [Fact]
+    public void Nearby_enemy_resistance_mods_do_not_reach_the_wearer()
+    {
+        var items = new ItemCatalog("data");
+        var uniques = new UniqueCatalog(items, "data");
+        var stats = new StatCatalog();
+        uint fire = stats.Key("fire_damage_resistance_+%")!.Value, cold = stats.Key("cold_damage_resistance_+%")!.Value;
+        var eye = uniques.Create(uniques.All.First(d => d.Name == "Eye of Malice"), new Random(1))!;
+        var eyeStats = ItemModStats.Global([eye], items.Mods, stats);
+        Assert.Equal(0, eyeStats.GetValueOrDefault(fire));
+        Assert.Equal(0, eyeStats.GetValueOrDefault(cold));
+        var cowl = uniques.Create(uniques.All.First(d => d.Name == "Cowl of the Cryophile"), new Random(1))!;
+        var cowlStats = ItemModStats.Global([cowl], items.Mods, stats);
+        Assert.True(cowlStats.GetValueOrDefault(fire) is <= -50 and >= -55, $"fire {cowlStats.GetValueOrDefault(fire)}");
+    }
 }
