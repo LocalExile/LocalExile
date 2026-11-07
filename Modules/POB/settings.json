@@ -1,4 +1,18 @@
 {
-  "ConverterExecutable": "",
-  "ConverterArguments": []
+  "version": 1,
+  "settings": {
+    "converterExecutable": {
+      "type": "text", "default": "", "maxLength": 1024,
+      "label": "External converter executable",
+      "description": "Operator-installed converter path. Empty disables code conversion.",
+      "applies": "restart"
+    },
+    "converterArguments": {
+      "type": "list", "default": [], "maxItems": 32,
+      "item": { "type": "text", "maxLength": 4096 },
+      "label": "External converter arguments",
+      "description": "Fixed argument list. Build codes are sent through stdin.",
+      "applies": "restart"
+    }
+  }
 }

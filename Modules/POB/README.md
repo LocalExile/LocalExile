@@ -9,7 +9,8 @@ compatibility database or separately maintained conversion project. Conversion b
 Enable `POB` in the league's `modules.json`. Removing it disables import for that league.
 League module lists are read at Gateway startup. Build the module through the normal solution build.
 
-Set `ConverterExecutable` and `ConverterArguments` in the module's `settings.json` to an operator-installed tool.
+Set `converterExecutable` and `converterArguments` through the module settings to an operator-installed tool.
+The declaration and defaults live in `settings.json`; operator overrides use the host's normal settings storage.
 The executable is an explicit filesystem path; arguments are a fixed JSON string array, never a shell command.
 The default executable is empty: code conversion reports that no external converter is configured.
 The server neither downloads nor installs a converter. Release packaging includes only the server module.

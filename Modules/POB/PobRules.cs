@@ -15,7 +15,8 @@ static class PobRules
         if (args.Length == 2 && args[0].Equals("file", StringComparison.OrdinalIgnoreCase))
         {
             string name = args[1];
-            if (name != Path.GetFileName(name) || name.Length > 80 || !(name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
+            if (name != Path.GetFileName(name) || name.Length > 80 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+                || !(name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
             { await conn.Commands!.Reply("PoB: нужен файл .txt или .json из data/pob-import/inbox."); return; }
             string path = Path.Combine("data", "pob-import", "inbox", name);
             try
