@@ -58,7 +58,7 @@ $commit = (git rev-parse HEAD).Trim()
 Check-Exit 'git rev-parse'
 $properties = @('-c', 'Release', "-p:Version=$Version", "-p:InformationalVersion=$Version+$commit", '-v', 'q', '-nologo')
 
-# Modules and mods compile against the Gateway, and copy nothing of it. Each goes into its own bin\ or Mods\Binaries\.
+# Modules compile against the Gateway, and copy nothing of it. Each goes into its own bin\.
 Step 'building the solution in Release ...'
 dotnet build GameServer.slnx @properties
 Check-Exit 'dotnet build'
@@ -84,12 +84,14 @@ if (-not $IsLinux) {
 }
 
 # The modules as the Gateway loads them: each one's manifest and other files, and its bin\ without the build's leftovers.
-Step 'copying modules, mods and leagues ...'
+Step 'copying modules and leagues ...'
 Get-ChildItem Modules -Recurse -File | Where-Object {
     $relative = $_.FullName.Substring($repo.Length + 1).Replace('/', '\')
     $relative -notmatch '\\obj\\' -and $_.Extension -notin '.cs', '.csproj', '.props'
 } | ForEach-Object { Copy-Into $_.FullName $_.FullName.Substring($repo.Length + 1) }
-Copy-Into 'Mods\Binaries' 'Mods\Binaries'
+# No mods ship: Waypoint installs them from LocalExile-Mods. The empty folder is where they go, and what the Gateway watches;
+# a maintainer's own installed mods stay out of the package.
+New-Item -ItemType Directory -Force (Join-Path $package 'Mods\Binaries') | Out-Null
 Copy-Into 'Leagues' 'Leagues'
 Get-ChildItem (Join-Path $package 'Leagues') -Recurse -Directory -Filter Binaries | Remove-Item -Recurse -Force
 

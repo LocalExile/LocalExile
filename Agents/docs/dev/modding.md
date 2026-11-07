@@ -54,23 +54,13 @@ public sealed class Ping : IMod
 
 ## Writing one
 
-The source of a first-party mod lives in `Mods/Source/<Name>/` (in the solution); `Mods/Source/Directory.Build.props` builds
-`<Name>.csproj` into `Mods/Binaries/<name>/` as `<name>.dll`, with the `mod.json` beside it, and compiles against
-`GameServer.Modding` without copying it.
-To make a new one, copy one of the examples, rename the folder and the `.csproj`, and set the id in its `mod.json` to the
-new folder's name in lower case.
-
-Every example is off until `/mod_enable <id>` (or Waypoint's Mods section).
-
-| Example | Shows |
-|---|---|
-| `Example` | `/example`, counting kills and areas: state that a reload starts over |
-| `Hello` | `/hello [name]`: a chat command with arguments, the player's details |
-| `ItemQuantity` | more items from kills: a `number` setting (10 times by default) |
-| `ItemRarity` | a better chance of magic, rare and unique equipment: a `number` setting (10 times) |
-| `DoubleExperience` | more experience from kills: a `number` setting (twice) |
-| `BossLoot` | an extra drop by name: a `choice` from the game's items (an Exalted Orb) and `choices` of monster rarities (unique) |
-| `FastCampaign` | a faster campaign: 5 times the experience from kills and +50% movement speed; `/fast_xp`, `/fast_speed` and `/fast_lang` save its settings from chat (`SaveSettings`); `/fast` lists the Gateway's commands that skip ahead, in English, Simplified or Traditional Chinese |
+The official mods live in [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods) (its `AGENTS.md` has the
+layout and the rules); Waypoint's Browse panel installs them. A project mod's source goes in `Mods/Source/<id>/` (Waypoint
+puts it there when the mod has no release); `Mods/Source/Directory.Build.props` builds `<Name>.csproj` into
+`Mods/Binaries/<id>/` as `<id>.dll`, with the `mod.json` and `settings.json` beside it, and compiles against
+`GameServer.Modding` without copying it. `Mods/` is gitignored but that file: what is in `Mods/Source/` is the user's.
+To make a new one, copy one of LocalExile-Mods' examples (`example`, `hello`), rename the folder and the `.csproj`, and set
+the id in its `mod.json` to the new folder's name in lower case.
 
 ```csharp
 public sealed class MyMod : IMod
@@ -118,7 +108,7 @@ public void Load(IModContext mod)
 ```
 
 - `Settings<T>()` reads the user's values over the defaults into `T` by name (case does not matter); every declared setting
-  has a value. `SaveSettings(values)` writes them as the user's (a chat command that changes one, as `FastCampaign`'s),
+  has a value. `SaveSettings(values)` writes them as the user's (a chat command that changes one, as LocalExile-Mods' `fastcampaign`'s),
   leaving out those equal to their default, and refuses a value that does not fit.
 - A change to `settings.json` or to the user's file reloads the mod (Reloading), and the new load reads them.
 - A value that does not fit its declaration is logged (`[mods] <id>: setting <name> … its default … is used`) and its
@@ -187,10 +177,11 @@ Gateway's log does with `[mods]`.
   overwrite the originals while the mod runs. Path-backed loading avoids the loader/finalizer failure reproduced
   with collectible `LoadFromStream` assemblies on Windows .NET 10. The copy is removed after its context is collected;
   a retained context or a failed file removal is logged. No client files are involved.
-- `/mod` lists the mods with their version, kind and hook count, and why the others did not load.
+- `/mod` lists the loaded mods first, with their version, kind and hook count, then why the others did not load.
   `/mod_reload [id]` reloads one (with its dependents) or all.
 - `/mod_disable <id>` unloads a mod and its dependents; `/mod_enable <id>` loads it and them again. The choice lasts across
-  restarts and rebuilds, and is kept in `mod-state.txt` in `Mods/Binaries/`, over the manifest's `enabled`.
+  restarts and rebuilds, and is kept in `mod-state.txt` in `Mods/Binaries/`, over the manifest's `enabled`. A running
+  Gateway also applies that file when another program (a launcher) rewrites it.
 - After an unload the Gateway checks that the mod's load context was freed, and logs
   `an unloaded mod is still in memory` when it was not after 2 s: a thread, timer or task of the mod still runs, or
   something outside the mod holds one of its objects. Stop what the mod started in `Dispose`.
