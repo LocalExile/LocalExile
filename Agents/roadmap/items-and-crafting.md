@@ -35,9 +35,10 @@ features.
   Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant).
   Enkindling/Instilling transactions, charge lock and rare-hit automation have native acceptance; verify the other
   automatic triggers natively and connect incoming Bleed/Poison sources when those mechanics exist.
-  Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): sockets are not generated
-  (`Sockets:` lines are dropped, and Tabula Rasa has neither its sockets nor mods); the five synthesis uniques and The Eternal
-  Struggle lack their random implicits; uniques with a choice of variants are one fixed choice, and the variable mods of the 34 uniques the
+  Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): fixed-count/colour, six-link and
+  Abyss layouts beyond Tabula Rasa still lack generation rules (`Sockets:` lines are dropped); ordinary default sockets
+  and Tabula's six linked whites/hidden overrides are implemented, awaiting a fresh native check. The five synthesis
+  uniques and The Eternal Struggle lack their random implicits; uniques with a choice of variants are one fixed choice, and the variable mods of the 34 uniques the
   generator lists stay out, `{crafted}` lines too (Cinderswallow Urn's enchant-like rolls).
   Doryani's Delusion's generated variants are its corrupted ones.
   poedb differs from PoB's current variant on the base of Twyzel, Replica Twyzel, Kitava's Feast and Dissolution of the

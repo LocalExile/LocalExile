@@ -159,7 +159,21 @@ static class ItemModStats
     }
 
     /// <summary>A worn item with what it needs: strength, dexterity, intelligence and character level.</summary>
-    public sealed record Worn(uint Id, Item Item, int Strength, int Dexterity, int Intelligence, int Level);
+    public sealed record Worn(uint Id, Item Item, int Strength, int Dexterity, int Intelligence, int Level)
+    {
+        public bool BaseRequirementsApplied { get; init; }
+    }
+
+    /// <summary>Apply clothing's attribute waiver before merging the socketed gems' requirements.</summary>
+    public static Worn ApplyBaseRequirementOverrides(Worn worn, ModCatalog mods)
+    {
+        if (worn.BaseRequirementsApplied) return worn;
+        var local = Local(worn.Item, mods);
+        bool waived = local.GetValueOrDefault("local_no_attribute_requirements") != 0
+            || local.GetValueOrDefault("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0;
+        return worn with { Strength = waived ? 0 : worn.Strength, Dexterity = waived ? 0 : worn.Dexterity,
+            Intelligence = waived ? 0 : worn.Intelligence, BaseRequirementsApplied = true };
+    }
 
     /// <summary>
     /// The worn items that are inactive (their requirements are not met), as in the game: an item stays equipped but its
@@ -197,15 +211,7 @@ static class ItemModStats
         IReadOnlyList<Worn> worn, int level, Func<IReadOnlyList<Worn>, (int Str, int Dex, int Int)> finalAttributes,
         IReadOnlySet<uint>? previous = null, ModCatalog? mods = null)
     {
-        // The Tabula/Skin/Apostate hidden modifier also suppresses native attribute requirements.
-        // Keep the level requirement: removing attributes does not make a high-level item wearable at level one.
-        if (mods is not null) worn = worn.Select(w =>
-        {
-            var local = Local(w.Item, mods);
-            return local.GetValueOrDefault("local_no_attribute_requirements") != 0
-                || local.GetValueOrDefault("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0
-                ? w with { Strength = 0, Dexterity = 0, Intelligence = 0 } : w;
-        }).ToArray();
+        if (mods is not null) worn = worn.Select(w => ApplyBaseRequirementOverrides(w, mods)).ToArray();
         var inactive = Inactive(worn, level, finalAttributes, previous);
         return (inactive, worn.Where(w => !inactive.Contains(w.Id)).Select(w => w.Item).ToArray());
     }
