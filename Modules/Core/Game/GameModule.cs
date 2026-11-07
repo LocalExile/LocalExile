@@ -21,7 +21,7 @@ public sealed class GameModule : IModule
     }
 }
 
-sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic
+sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IControlledPlayerRules
 {
     internal IModuleLifetime? Lifetime { get; } = lifetime ?? Rules.CombatLifetime;
     public void ResumePlayerUpdates(ClientState conn)
@@ -97,4 +97,8 @@ sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic
     public IPlayerWorld WorldFor(ClientState conn) => new Rules.ModuleWorld(conn);
     public IEnumerable<(string Value, string Detail)>? CompletionValues(string kind) => Rules.CompletionValues(kind);
     public double PlayerActionFactor(ClientState conn) => Rules.PlayerActionFactor(conn);
+    public CharacterSaves.Save BuildControlled(GameServer.Core.Accounts.CharacterClass characterClass, int level) => Rules.BuildControlledPlayer(characterClass, level);
+    public Task InitializeControlled(ClientState player, ClientState leader) => Rules.InitializeControlledPlayer(player, leader);
+    public Task StepControlled(ClientState player, ClientState leader) => Rules.StepControlledPlayer(player, leader);
+    public Task ControlledCompletion(ClientState player) => player.PlayerUpdatesState is PlayerUpdatesState updates ? updates.Completion : Task.CompletedTask;
 }
