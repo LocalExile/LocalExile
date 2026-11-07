@@ -1159,8 +1159,17 @@ static partial class Game
             : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false) + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
         int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect)) * radiusMore);
-        // A melee skill aimed far away still lands in front of the player; a self-targeted spell goes off around the caster.
-        var centre = VaalExecutor(conn, gem.Effect) || !spell && Dist(from, to) > radius + weapon.Range ? from
+        // Ground Slam's wave: the skills whose action is the data's "DistanceScaledGroundSlam" travel forward from where
+        // the player stands instead of landing one circle (GroundSlamWave; its length, half angle and direction are read
+        // once here, so the log after the sweep can report them). Vaal Ground Slam's own skill is a different action, so
+        // the Vaal blast keeps its radial hit.
+        bool wave = !immediate && !spell && SkillsFor(conn).ActionHash(gem.Effect) == GroundSlamWave.Action;
+        double waveLength = wave ? GroundSlamWave.Length(radius) : 0;
+        double waveHalfAngle = wave ? GroundSlamWave.HalfAngle(Stat) : 0;
+        (double X, double Y) waveDir = wave ? GroundSlamWave.Direction(from, to) : (0, 0);
+        // A wave starts where the player stands and only takes its direction from the aim; a melee skill aimed far away
+        // still lands in front of the player; a self-targeted spell goes off around the caster.
+        var centre = wave || VaalExecutor(conn, gem.Effect) || !spell && Dist(from, to) > radius + weapon.Range ? from
             : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         if (cooldownUse?.Instant != true && conn.ActionCount != action) return;
@@ -1186,10 +1195,11 @@ static partial class Game
         int sweep;
         // Melee Splash victims and their damage multiplier (see MeleeSplash).
         var splashMore = new Dictionary<uint, double>();
-        // Ice Nova's ring reaches each victim in turn (IceNovaRing); a channel's sweep lands at once.
+        // Ice Nova's ring reaches each victim in turn (IceNovaRing) and Ground Slam's wave does the same by distance
+        // (GroundSlamWave); a channel's sweep lands at once.
         bool ring = !immediate && SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action;
         int artVariation = ring ? SkillArtVariation(conn, gem.Gem) : 0;
-        double ringStart = 0;
+        double sweepStart = 0;
         double[] reach = [];
         int epoch = conn.ProjectileEpoch;
         using (ProjectileMutation(conn))
@@ -1201,17 +1211,21 @@ static partial class Game
                 && PlayerActionBlocked(conn, conn.Clock.Elapsed.TotalSeconds, conn.Clock.Elapsed.TotalSeconds)) return;
             // Queued mana output may outlast movement: resolve a channel at its current position.
             if (channelGeneration is not null) centre = conn.Walk.Position(now);
-            var found = conn.Monsters.Select(e => (e.Key, e.Value, Distance: Dist(e.Value.Walk.Position(now), centre)))
+            var found = conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
+                .Select(e => (e.Key, e.Value, e.At, Distance: Dist(e.At, centre)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
-                    && e.Distance <= radius && once?.Contains(e.Key) != true)
+                    && e.Distance <= (wave ? waveLength : radius) && once?.Contains(e.Key) != true
+                    && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength)))
                 .ToList();
             // Hits that may reach each monster only once across several sweeps record it here.
             if (once is not null) foreach (var f in found) once.Add(f.Key);
-            if (ring)
+            if (ring || wave)
             {
                 found.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-                reach = [.. found.Select(f => IceNovaRing.Reach(f.Distance, radius, artVariation))];
-                ringStart = conn.Clock.Elapsed.TotalSeconds;
+                reach = wave
+                    ? [.. found.Select(f => GroundSlamWave.AdvanceSeconds(f.Distance))]
+                    : [.. found.Select(f => IceNovaRing.Reach(f.Distance, radius, artVariation))];
+                sweepStart = conn.Clock.Elapsed.TotalSeconds;
             }
             targets = [.. found.Select(f => (f.Key, f.Value))];
             sweep = targets.Count;
@@ -1268,7 +1282,12 @@ static partial class Game
         for (int victim = 0; victim < targets.Count; victim++)
         {
             var (id, m) = targets[victim];
-            if (ring && victim < reach.Length && reach[victim] > 0 && !await WaitProjectileTime(conn, ringStart + reach[victim], epoch)) break;
+            // A ring and a wave arrive over time: the victim nearest the caster (or the player) first, each one when its
+            // front reaches it. A retired wave (death, area change, a closed connection) stops the rest of the sweep.
+            if ((ring || wave) && victim < reach.Length && reach[victim] > 0
+                && !await WaitProjectileTime(conn, sweepStart + reach[victim], epoch)) break;
+            if (wave && victim < reach.Length)
+                Console.WriteLine($"[gateway] {remote} {gem.Name} wave reaches 0x{id:x} at {reach[victim] * GroundSlamWave.CellsPerSecond:0.#} cells {reach[victim]:0.###} s after the slam");
             MonsterHit? applied;
             int damage;
             bool critical;
@@ -1279,10 +1298,10 @@ static partial class Game
             using (ProjectileMutation(conn))
             {
                 // Catch up earlier projectile contacts before reading Rage or any other live offensive input. Stopping
-                // the sweep keeps the kills it already queued. A released nova keeps expanding when the player moves on:
-                // its action was checked at the release.
+                // the sweep keeps the kills it already queued. A released nova or slam wave keeps travelling when the
+                // player moves on: its action was checked at the release.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                    || !ring && (!Current() || cooldownUse is null && !PlayerActionCurrent(conn, action))) break;
+                    || !(ring || wave) && (!Current() || cooldownUse is null && !PlayerActionCurrent(conn, action))) break;
                 if (m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                 bool freshPlayer = player is null;
                 if (player is null)
@@ -1416,7 +1435,12 @@ static partial class Game
         if (reflected.Count > 0 && player is not null)
             using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
         foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
-        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) within {radius} cells of ({centre.X}, {centre.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+        // The wave reports its own shape (the tunables to calibrate, GroundSlamWave) instead of the circle.
+        string shape = wave
+            ? $"in a wave {waveLength:0.#} cells long from ({from.X}, {from.Y}) toward ({waveDir.X:0.##}, {waveDir.Y:0.##}), "
+                + $"half angle {waveHalfAngle:0.#} deg at {GroundSlamWave.CellsPerSecond:0.#} cells/s"
+            : $"within {radius} cells of ({centre.X}, {centre.Y})";
+        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) {shape} (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
         if (BloodCharges.Uses(Stat) && player is not null)
         {
             bool changed;
