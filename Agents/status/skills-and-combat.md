@@ -370,8 +370,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `SkillCatalog.cs`, Gateway (`CastOn`, `LaunchProjectile`, `AreaSkillHit`), `ProjectileObject`.
   Docs: [11](../docs/protocol/11-skills.md) §9–10.
 - Resistances: the passive `base_resist_all_elements_%` / per-element `base_*_damage_resistance_%` are summed from the
-  0% base, the two Kitava quest penalties (-30% each) are mirrored from quest flags, and the final value uses Path of
-  Building's floor -200 / default max 75 / absolute cap 90 (`DamageModel`);
+  0% base, and the pair-resistance stats (`cold_and_lightning_`, `fire_and_cold_`, `fire_and_lightning_`) each raise
+  both named elements; the two Kitava quest penalties (-30% each) are mirrored from quest flags, and the final value uses
+  Path of Building's floor -200 / default max 75 / absolute cap 90 (`DamageModel`);
   used by Righteous Fire's self-burn and `/hit`; `/resistances` shows modifier, penalty and final.
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
