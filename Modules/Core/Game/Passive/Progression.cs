@@ -947,6 +947,9 @@ static partial class Game
     {
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         int allRes = Get("base_resist_all_elements_%");
+        // The item tables also spell resistances without the base_ prefix (The Annihilating Light's -70% elemental,
+        // the Cowl uniques' reduced single resistances); both spellings are the same character stat.
+        int elementalRes = Get("elemental_damage_resistance_+%");
         // The game's block stats are conditional on the equipped weapons:
         // - dual_wield_or_shield_block_%: dual wielding or a shield;
         // - block_while_dual_wielding_% / _claws: dual wielding (the latter with two claws);
@@ -1077,9 +1080,10 @@ static partial class Game
             DoubleBodyArmour: Get("damage_reduction_rating_from_body_armour_doubled") != 0,
             NoBodyArmour: Get("gain_no_armour_from_body_armour") != 0,
             MeleePhysicalDamagePct: Get("melee_physical_damage_+%"),
-            FireResistance: allRes + Get("base_fire_damage_resistance_%"),
-            ColdResistance: allRes + Get("base_cold_damage_resistance_%") + pairRes,
-            LightningResistance: allRes + Get("base_lightning_damage_resistance_%") + pairRes,
+            FireResistance: allRes + Get("base_fire_damage_resistance_%") + Get("fire_damage_resistance_+%") + elementalRes,
+            ColdResistance: allRes + Get("base_cold_damage_resistance_%") + Get("cold_damage_resistance_+%") + elementalRes + pairRes,
+            LightningResistance: allRes + Get("base_lightning_damage_resistance_%") + Get("lightning_damage_resistance_+%")
+                + elementalRes + pairRes,
             ChaosResistance: Get("base_chaos_damage_resistance_%"),
             FireMaxResistance: allMax + allElemMax + Get("base_maximum_fire_damage_resistance_%"),
             ColdMaxResistance: allMax + allElemMax + Get("base_maximum_cold_damage_resistance_%"),
