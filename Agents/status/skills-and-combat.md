@@ -1203,6 +1203,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   (`soul_eater_player`, 279) and the invisible `soul_eater_aura` (277), the client's `using_flask` flag is sent, and each
   soul draws the official `ServerBeamEffect` line from the corpse to the player (see
   [11-skills.md](../docs/protocol/11-skills.md) §12).
+  Soulthirst's loss of eaten souls on flask use is not implemented.
   Not modelled at present: the threshold smoke cloud (no timed smoke ground), Unholy Might (no Unholy Might system),
   the frenzy charge every 50 kills (the charge session has no Rampage-count rule), starting a streak at maximum
   endurance charges and losing them when it ends, and the map/leaguestone Rampage modifiers.
