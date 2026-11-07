@@ -24,13 +24,14 @@ static partial class Game
         if (hit.Life == 0 && !deferKill) CommitAcceptedKillLocked(conn, id, monster, now, playerKill);
     }
 
-    static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
+    internal static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
         var state = conn.Minions;
         if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
+        ShareKill(conn, victimId, monster, variety, at);
         SoulEaterSoul(conn, victimId, at);
         var killer = PlayerOf(conn); var modMonster = ModMonster(monster, at);
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
@@ -59,7 +60,7 @@ static partial class Game
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
         foreach (var (packet, log) in packets) state.OutputQueue.Add(new(packet, log));
         uint xp = 0;
-        if (conn.PlayerLife > 0 && Dist(at, conn.Walk.Position(now)) <= ExperienceRange
+        if (!monster.NoRewards && conn.PlayerLife > 0 && Dist(at, conn.Walk.Position(now)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
             xp = Program.ServerHooks.Experience(killer, modMonster,
                 Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level));

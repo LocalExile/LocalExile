@@ -11,6 +11,9 @@ yet confirmed on screen).
 - **The client derives the level from the experience** in the Player component ([04](04-player-entity.md) §4.6):
   S→C 0x2ba to component 6 with flag bit0 + u32 experience (`InstanceEntities.PlayerExperienceUpdate`). Crossing a
   level start (ExperienceLevels.dat) changes the level on the client.
+  Its ClientPlayer callback `0x1415e0b90` publishes the level change but does not itself create the flash.
+  The default flash is MiscAnimated `LevelUp`, HASH32 `0xff248759`,
+  `Metadata/Effects/misc/levelup_new/rig.ao`; its default animation is `levelup`.
 - **A kill** (`MonsterKilled`): the player gains experience when alive and within `Game_XP_RANGE` cells (default 150)
   of the monster when it dies (melee, Fireball or Righteous Fire). Amount (`Progression.MonsterExperience`):
   DefaultMonsterStats `Experience` at the monster's level × MonsterVarieties `ExperienceMultiplier` / 100 × rarity

@@ -103,7 +103,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Each campaign town maintains 2–5 residents with native level display (Act 1: 1–3; Act 10: 59–75; intermediate acts interpolate the center with ±5).
   Invited bots keep their town-selected level across zones and grow through earned experience, without scaling to monster levels.
   Party followers use ordinary player combat: compatible linked gems, connected passive builds, hostile targeting,
-  damage, resurrection and persisted kill/gem experience. The native party-menu kick removes any selected bot.
+  damage, resurrection and persisted kill/gem experience, shared for melee, projectile and owned kills.
+  Observers receive earned experience, level stats and the default level-up flash; active-party reload retains earned XP.
+  The native party-menu kick removes any selected bot.
   Followers stand calmly within 60 cells of an idle leader, with rare short adjustments, and enter on clear cells ahead of the entrance.
   Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
   Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.

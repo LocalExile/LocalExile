@@ -306,7 +306,7 @@ static partial class Game
     // art created before replacement. Permanent connection state holds only object ids and deadlines.
     // Polled every 50 ms: with no temporary art at all there is nothing to remove, so the send gate and the Monsters lock
     // are left alone (a racy read of the count only delays a removal to the next poll).
-    static Task SendTemporarySkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    internal static Task SendTemporarySkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         conn.TemporarySkillEffects.Count == 0 ? Task.CompletedTask : Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             lock (conn.Monsters)

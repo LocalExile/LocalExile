@@ -41,22 +41,44 @@ public sealed class PlayerBotsMcpTests
         {
             var instance = new InstanceState();
             var observer = runtime.Connection(instance, wire);
+            var actor = runtime.Connection(instance, wire);
             var resident = new Bot { AccountId = Guid.Empty, CharacterId = Guid.Empty, Account = "bot", Name = "resident",
-                Class = GameServer.Core.Accounts.CharacterClass.Marauder, PeerId = 0x38000000, Level = 59, Town = "2_10_town" };
+                Class = GameServer.Core.Accounts.CharacterClass.Marauder, PeerId = actor.PeerId, Level = 59, Town = "2_10_town" };
             var before = BotDirector.Template(resident);
-            instance.PublishPlayer(new(resident.PeerId, before.Type, before.Player, 100, 100, before.Player.Life));
+            actor.PeerType = before.Type; actor.PeerTemplate = before.Player; actor.Experience = before.Player.Experience;
+            Game.RefreshPeerScale(actor, 100);
             await Game.SyncInstancePlayers("town", wire.Stream, wire.Ciphers, observer);
             Assert.Equal(CharacterStats.ExperienceFor(59), observer.SeenPlayers[resident.PeerId].Template.Experience);
-            resident.Level = 60;
-            var after = BotDirector.Template(resident);
-            instance.PublishPlayer(new(resident.PeerId, after.Type, after.Player, 100, 100, after.Player.Life));
+            Assert.Empty(observer.TemporarySkillEffects);
+            actor.Experience = CharacterStats.ExperienceFor(60);
+            Game.RefreshPeerScale(actor, 100);
             string update = Convert.ToHexString(GameServer.Core.Protocol.Instance.InstanceEntities.PlayerExperienceUpdate(
                 resident.PeerId, CharacterStats.ExperienceFor(60)));
             int Count() => Program.HistoryFor(wire.Ciphers).Lines().Count(line => line.Contains(update, StringComparison.Ordinal));
+            uint levelKey = Program.Stats.Key("level")!.Value;
+            string levelUpdate = Convert.ToHexString(GameServer.Core.Protocol.Instance.InstanceEntities.StatsUpdate(
+                resident.PeerId, [(levelKey, 60)]));
+            int LevelCount() => Program.HistoryFor(wire.Ciphers).Lines().Count(line => line.Contains(levelUpdate, StringComparison.Ordinal));
             await Game.SyncInstancePlayers("town", wire.Stream, wire.Ciphers, observer);
             Assert.Equal(1, Count());
+            Assert.Equal(1, LevelCount());
+            uint effect = Assert.Single(observer.TemporarySkillEffects).Key;
+            string effectPacket = Convert.ToHexString(GameServer.Core.Protocol.Instance.InstanceEntities.CreateObject(effect,
+                GameServer.Core.Protocol.Instance.InstanceEntities.ObjectTypeHash(GameServer.Core.Protocol.Instance.EffectObject.TypePath),
+                new GameServer.Core.Protocol.Instance.EffectObject(actor.Walk.Position(0).X, actor.Walk.Position(0).Y,
+                    "Metadata/Effects/misc/levelup_new/rig.ao") { Parent = actor.PeerId }.Blob())[..6]);
+            Assert.Contains(Program.HistoryFor(wire.Ciphers).Lines(), line => line.Contains(effectPacket, StringComparison.Ordinal));
             await Game.SyncInstancePlayers("town", wire.Stream, wire.Ciphers, observer);
             Assert.Equal(1, Count());
+            Assert.Equal(1, LevelCount());
+            Assert.Single(observer.TemporarySkillEffects);
+            observer.TemporarySkillEffects[effect] = -1;
+            await Game.SendTemporarySkillEffects("town", wire.Stream, wire.Ciphers, observer);
+            Assert.Empty(observer.TemporarySkillEffects);
+            resident.Gear = ["test gear"]; resident.GearLevel = 59; resident.Level = 60; resident.Leader = observer;
+            Assert.False(BotDirector.NeedsBuildOnResume(resident, "1", CharacterStats.ExperienceFor(60) + 123));
+            resident.Leader = null;
+            Assert.True(BotDirector.NeedsBuildOnResume(resident, "1", CharacterStats.ExperienceFor(60) + 123));
         }
         int calls = 0;
         var protocol = new BotMcpProtocol((name, args) => { calls++; return new { name }; }, () => new { port = 6194 });

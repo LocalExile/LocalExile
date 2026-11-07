@@ -152,10 +152,8 @@ sealed partial class BotDirector
             {
                 bot.Level = LevelForTown(bot.Level, bot.Town, _random);
             }
-            if (bot.Gear.Count == 0 || bot.GearLevel != bot.Level
-                || CharacterSaves.ModuleData(bot.Name, "PlayerBots.BuildVersion") != "1"
-                || bot.Leader is null && CharacterSaves.Load(bot.Name)?.Experience is { } xp
-                    && (xp < CharacterStats.ExperienceFor(bot.Level) || xp >= CharacterStats.ExperienceFor(bot.Level + 1)))
+            if (NeedsBuildOnResume(bot, CharacterSaves.ModuleData(bot.Name, "PlayerBots.BuildVersion"),
+                CharacterSaves.Load(bot.Name)?.Experience))
             { Dress(bot); SaveProgress(bot); }
             _bots.Add(bot);
             // A bot an earlier version left waiting for room in a town goes on with its quests.
@@ -402,6 +400,11 @@ sealed partial class BotDirector
                 .Where(id => id is not null).Select(id => id!).ToList();
         }
     }
+
+    internal static bool NeedsBuildOnResume(Bot bot, string? version, uint? experience) =>
+        bot.Gear.Count == 0 || version != "1" || bot.Leader is null && (bot.GearLevel != bot.Level
+            || experience is uint xp && (xp < CharacterStats.ExperienceFor(bot.Level)
+                || xp >= CharacterStats.ExperienceFor(bot.Level + 1)));
 
     // ---- the town ----
 

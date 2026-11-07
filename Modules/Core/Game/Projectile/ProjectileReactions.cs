@@ -114,6 +114,7 @@ static partial class Game
             session.Enqueue(() => ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
         SoulEaterSoul(conn, id, position);
+        ShareKill(conn, id, monster, variety, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };
