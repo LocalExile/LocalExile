@@ -105,6 +105,8 @@ static partial class Game
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(conn);
         var modMonster = ModMonster(monster, position);
+        var partyShares = PartyExperienceShares(conn);
+        ShareKill(conn, id, monster, variety, position, partyShares);
         if (playerKill)
         {
             session.Enqueue(() => Program.ServerHooks.MonsterKilled(new(killer, modMonster)));
@@ -124,7 +126,7 @@ static partial class Game
         if (!monster.NoRewards && conn.PlayerLife > 0 && Dist(position, conn.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
             (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
-                conn.Pools.Level, monster.Level);
+                conn.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, conn));
         var (gemPackets, leveled) = CommitGemExperience(conn, gemXp);
         foreach (var packet in gemPackets) session.Packet(packet);
         if (leveled) session.Enqueue(() => SendSkills(session.remote, session.stream, session.ciphers, conn));

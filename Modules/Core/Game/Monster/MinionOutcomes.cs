@@ -31,7 +31,8 @@ static partial class Game
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
-        ShareKill(conn, victimId, monster, variety, at);
+        var partyShares = PartyExperienceShares(conn);
+        ShareKill(conn, victimId, monster, variety, at, partyShares);
         SoulEaterSoul(conn, victimId, at);
         var killer = PlayerOf(conn); var modMonster = ModMonster(monster, at);
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
@@ -63,7 +64,7 @@ static partial class Game
         if (!monster.NoRewards && conn.PlayerLife > 0 && Dist(at, conn.Walk.Position(now)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
             (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
-                conn.Pools.Level, monster.Level);
+                conn.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, conn));
         var gemRows = new List<(byte Row, uint[] Items)>();
         var (_, leveled) = CommitGemExperience(conn, gemXp, gemRows);
         foreach (var (row, ids) in gemRows)
