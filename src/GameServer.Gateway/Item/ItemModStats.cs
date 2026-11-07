@@ -158,6 +158,31 @@ static class ItemModStats
         return new(cache.GetValue(item, current => new(Sum([current], mods, local: true))).Stats);
     }
 
+    /// <summary>An item's attribute requirements after its own local modifiers: the base's requirement raised or lowered
+    /// by <c>local_attribute_requirements_+%</c> and the per-attribute stats (Agnerod's 40% increased Strength
+    /// Requirement, Chober Chaber's reduced one), or zero with a no-attribute-requirement modifier. A row that is both the
+    /// base implicit and an explicit mod counts once (Queen's Escape).</summary>
+    public static (int Str, int Dex, int Int) AttributeRequirements(ItemCatalog items, Item item, ItemCatalog.BaseType type)
+    {
+        var local = Local(item, items.Mods);
+        if (local.GetValueOrDefault("local_no_attribute_requirements") != 0
+            || local.GetValueOrDefault("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0) return (0, 0, 0);
+        int Percent(string id) => item.Mods.GroupBy(mod => mod.Hash).Sum(group => ValueOf(group.First(), id));
+        int ValueOf(ItemMod mod, string id)
+        {
+            if (items.Mods.ByHash(mod.Hash) is not { } row) return 0;
+            for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+                if (row.Stats[s].Id == id) return mod.Values[s];
+            return 0;
+        }
+        int all = Percent("local_attribute_requirements_+%");
+        int Scale(int value, int percent) => (int)Math.Floor(value * (100L + all + percent) / 100.0);
+        var (str, dex, intel) = items.Requirements(type);
+        return (Scale(str, Percent("local_strength_requirement_+%")),
+            Scale(dex, Percent("local_dexterity_requirement_+%")),
+            Scale(intel, Percent("local_intelligence_requirement_+%")));
+    }
+
     /// <summary>A worn item with what it needs: strength, dexterity, intelligence and character level.</summary>
     public sealed record Worn(uint Id, Item Item, int Strength, int Dexterity, int Intelligence, int Level);
 
