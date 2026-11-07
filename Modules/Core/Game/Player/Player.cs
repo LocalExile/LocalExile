@@ -410,7 +410,7 @@ static partial class Game
     internal static int SkillArtVariation(ClientState conn, uint gem) =>
         Stats.Key("skill_art_variation") is not uint key ? 0
         : CharacterSaves.SkillCosmetics(CharacterName(conn)).Where(kv => CharacterSaves.SkillCosmeticGem(kv.Key) == gem)
-            .SelectMany(kv => Mtx.Find(kv.Value.Record) is { } r && MtxEffects.Of(r.MtxTypeHash) is { } fx ? fx.Stats : [])
+            .SelectMany(kv => Mtx.Resolve(kv.Value) is { } r && MtxEffects.Of(r.MtxTypeHash) is { } fx ? fx.Stats : [])
             .Where(st => st.Stat == key).Select(st => st.Value).FirstOrDefault();
 
     internal static async Task ActivateRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort skillId,

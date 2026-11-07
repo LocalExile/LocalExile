@@ -565,7 +565,7 @@ static partial class Game
                 stats[critKey] = SupportedCriticalChance(conn, id);
             // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.
             foreach (var (key, worn) in skillCosmetics)
-                if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Find(worn.Record) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
+                if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Resolve(worn) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
                     foreach (var (k, v) in fx.Stats) stats[k] = v;
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.

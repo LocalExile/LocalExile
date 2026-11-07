@@ -81,7 +81,7 @@ static class CosmeticsFeature
         }
         Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key} (gem 0x{slot.GemHash:x8}, slot type {slot.SlotType}), " +
             $"record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}, stats {string.Join(", ", (record is null ? null : MtxEffects.Of(record.MtxTypeHash))?.Stats.Select(st => $"{Stats.Name(st.Stat)} {st.Value}") ?? [])})");
-        CharacterSaves.SetSkillCosmetic(CharacterName(conn), slot.GemHash, slot.SlotType, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, 0));
+        CharacterSaves.SetSkillCosmetic(CharacterName(conn), slot.GemHash, slot.SlotType, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, 0, record.MtxTypeHash));
         await SendWornCosmetics(remote, stream, ciphers, conn, "after the skill pick");
         await SendSkills(remote, stream, ciphers, conn);
         // A Righteous Fire already burning from this gem takes the new art at once: casting again while it burns does
@@ -102,7 +102,7 @@ static class CosmeticsFeature
         }
         Console.WriteLine($"[gateway] {remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}), option {pick.Option}");
         string character = CharacterName(conn);
-        CharacterSaves.SetCosmetic(character, pick.Slot, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, pick.Option));
+        CharacterSaves.SetCosmetic(character, pick.Slot, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, pick.Option, record.MtxTypeHash));
         conn.WornCosmetics = null;
         if (pick.Slot == InstanceMicrotransactions.PortalSlot)
         {

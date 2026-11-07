@@ -26,6 +26,12 @@ sealed class MtxCatalog(string folder = "data")
     /// <summary>The owned record of a MtxTypes HASH32, or null.</summary>
     public InstanceMicrotransactions.Record? ByHash(uint hash) => Owned.FirstOrDefault(r => r.MtxTypeHash == hash);
 
+    /// <summary>The owned record a saved pick names: by its hash, or for a pick a 3.29.3b build saved (no hash) by its
+    /// record moved to the 3.29.3c MtxTypes rows (<see cref="CosmeticMigration"/>). Null when it no longer exists.</summary>
+    public InstanceMicrotransactions.Record? Resolve(CharacterSaves.SavedCosmetic saved) =>
+        saved.Hash is uint hash ? ByHash(hash)
+        : CosmeticMigration.Record3293c(saved.Record) is uint record ? Find(record) : null;
+
     /// <summary>
     /// The worn table 0x1f3 carries for <paramref name="worn"/> (MicrotransactionSlot Id → saved pick): a pick whose
     /// record no longer exists (another game version's data) is left out, so the client never gets a hash it cannot
@@ -33,7 +39,7 @@ sealed class MtxCatalog(string folder = "data")
     /// </summary>
     public List<InstanceMicrotransactions.Equipped> Equipped(IReadOnlyDictionary<byte, CharacterSaves.SavedCosmetic> worn) =>
         [.. worn.Where(w => w.Key < InstanceMicrotransactions.SlotCount)
-            .Select(w => (w.Key, w.Value, Record: Find(w.Value.Record)))
+            .Select(w => (w.Key, w.Value, Record: Resolve(w.Value)))
             .Where(w => w.Record is not null)
             .OrderBy(w => w.Key)
             .Select(w => new InstanceMicrotransactions.Equipped(w.Key, w.Record!.Id, w.Record.MtxTypeHash, w.Record.Qword, w.Value.Option))];
