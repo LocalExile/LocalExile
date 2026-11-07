@@ -23,4 +23,4 @@ Logs are in logs\. An antivirus may flag Client\Game.patched.exe, a modified cop
 this package. LocalExile.exe --help lists every option.
 
 LICENSE
-AGPL-3.0. See licenses\: the source of this exact build is named in licenses\SOURCE.txt.
+GPL-2.0. See licenses\: the source of this exact build is named in licenses\SOURCE.txt.
