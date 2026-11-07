@@ -85,6 +85,29 @@ sealed class AnimationContacts(string folder = "data")
     public ContactPoint? AttackContactPoint(string animatedObject, WeaponProfile weapon) => AttackClip(animatedObject, weapon)?.Clip.Point;
 
     /// <summary>
+    /// When a melee attack <em>skill's own</em> animation hits, as a fraction of its clip, and the clip's name: the rig's
+    /// clip named for the skill (<paramref name="skillClip"/> "groundslam" → groundslam_maul), the weapon's stance first,
+    /// then the skill's other variants, then its newer attack_&lt;skill&gt; clips. Null when the rig has no clip for the
+    /// skill, so the caller keeps the attack1 keyframe (<see cref="AttackContact"/>) — the default attack's swing, not
+    /// this skill's: the Str rig's attack1_maul contacts at 0.692 of the attack where groundslam_maul's is 0.633.
+    /// </summary>
+    public (string Name, double Contact)? SkillAttackContact(string animatedObject, WeaponProfile weapon, string? skillClip) =>
+        SkillAttackClip(animatedObject, weapon, skillClip) is { } found
+            ? (found.Name, (double)found.Clip.Contact / found.Clip.Length) : null;
+
+    private (string Name, AnimationClip Clip)? SkillAttackClip(string animatedObject, WeaponProfile weapon, string? skillClip)
+    {
+        if (string.IsNullOrEmpty(skillClip) || !_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
+        var anims = actor.Clips;
+        if (anims.TryGetValue($"{skillClip}_{WeaponSuffix(weapon) ?? "unarmed"}", out var stance) && stance.Length > 0)
+            return ($"{skillClip}_{WeaponSuffix(weapon) ?? "unarmed"}", stance);
+        foreach (string prefix in (string[])[skillClip + "_", "attack_" + skillClip])
+            foreach (var (name, clip) in anims.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+                if (clip.Length > 0 && name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return (name, clip);
+        return null;
+    }
+
+    /// <summary>
     /// The rig clip a run skill's cast plays through 0x1b2 kind 0 (a clip change, which does not touch the action
     /// state, unlike 0x1d1's input lock). The weapon's own stance clip comes first, then the unarmed one, then any clip
     /// of the same kind: the older rigs name spells <c>spell_projectile_*</c>, the newer ones <c>spellprojectile_*</c>.

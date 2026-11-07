@@ -910,6 +910,34 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Other Vaal executors remain explicit refusals; the bounded modular native session did not repeat a full Vaal matrix.
   See [Behemoth](../docs/game/behemoth.md) for execution models and source ownership.
   See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md).
+- Ground Slam now hits as the forward wave its data action names, not as one circle: the skills whose ActionTypes action
+  is "DistanceScaledGroundSlam" (GrantedEffects GroundSlam, GroundSlamAltX, GroundSlamAltY, GroundSlamRoyale and
+  PlaytestSlam) send a sector from where the player stands whose front advances to the skill's reach, each monster hit
+  as the front arrives it and the rest of the sweep dropped on death, area change or a closed connection. Vaal Ground
+  Slam's own skill is a different action, so its 40-cell radial blast is unchanged, as are Ice Nova's ring, Cyclone,
+  Rolling Magma and every other circle. The player's gem resolves to GrantedEffects "GroundSlam"; the +40% final radius
+  and 4 melee repeats belong to the old "ExileGroundSlam" row, which no GemEffects row grants. The tables carry no wave
+  length, base angle or speed (the four `ground_slam_*` shape stats are held by no player stat set and no Mod of the
+  3.29 table), so `GroundSlamWave` holds three estimates — a 60-cell length at the generic 12-cell area radius, moved by
+  however far the skill's own radius sits from it; half angle 30 deg (half the 60-degree cone `ground_slam_cone_angle_override`
+  names), grown by the gem's `ground_slam_angle_+%`; and 60 cells a second — to calibrate against a live measurement.
+  The wave's close-range damage (`groundslam_damage_to_close_targets_+%_final`, real in the gem's own stats) is still
+  applied by the Vaal executor only. A live session's 0x0024 object uses reach the same sweep, with the wave's origin
+  already the post-walk swing position, so the gap between its object uses and its sweeps was swings whose hit the server
+  dropped (22 of 80 swing echoes), not a missing area part. Client fact (measured live 2026-11-07): clicking a monster
+  and immediately walking away plays the whole swing and draws the wave, so the client queues the Move instead of
+  cancelling the attack; the server was dropping the paid hit on the action counter alone. A gem melee swing
+  (`holdsItsSwing`: an attack that is Melee, not channelled) now keeps its hit over a moved action counter, and only a
+  death, an area change, a pause, a freeze or a stun's hit recovery ends it. This was every gem melee attack, not Ground
+  Slam alone (Cleave, Sweep, Ground Slam's alternate-quality forms and Vaal Ground Slam's own blast all take the same
+  path), and each such swing's contact now comes from its own rig clip (`GemAttackContactDelay`: groundslam_maul's 0.633
+  of the attack, where the class's attack1_maul, the default attack's swing, is 0.692) — both are logged with the sweep.
+  Not yet checked with the real client.
+  Remaining: the client queues its Move until the clip's cut-in (Lockstep.cs) while the server walks on the Move as it
+  arrives, so the server's position leads by up to about 0.3 s during a swing; holding the Move until the contact
+  (`HeldMove`) would align them, and needs `Messages.cs`, `PlayerAilments.cs` and a `ClientState` field.
+  Code: `SkillArea.cs` (`GroundSlamWave`), `Combat.cs` (`AreaSkillHit`, `GemAttackContactDelay`),
+  `AnimationContacts.cs` (`SkillAttackContact`).
 - Warcry release (Enduring Cry, the only warcry executor): the cry's time follows warcry speed and action speed as the
   client's does, and its release runs the shared warcry effects within its radius: corpse explosions that consume the
   corpse and quest chests opening (Deathrattle).

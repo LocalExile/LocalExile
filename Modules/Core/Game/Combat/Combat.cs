@@ -124,6 +124,42 @@ static partial class Game
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0);
     }
 
+    // A gem melee attack's contact: the skill's own rig clip when the data has one (Ground Slam's groundslam_maul, 0.633
+    // of the attack), else the class's attack1 keyframe (AttackContactDelay: 0.692 for the Str rig's attack1_maul, the
+    // default attack's own swing). The clip is taken to stretch to the attack time, as the client plays it, so the
+    // server's hit lands where the client's weapon visually hits. clip/fraction come back for the sweep's log.
+    internal static double GemAttackContactDelay(ClientState conn, int effect, double attackSeconds,
+        out string? clip, out double fraction)
+    {
+        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+        var weapon = WeaponProfileFor(conn, activeSet: true);
+        if (SkillsFor(conn).EffectId(effect) is { } effectId
+            && Animations.SkillAttackContact(ao, weapon, SkillClipName(effectId)) is { } found)
+        {
+            (clip, fraction) = (found.Name, found.Contact);
+            return AttackTiming.ContactDelay(attackSeconds, found.Contact, 0);
+        }
+        clip = null;
+        fraction = Animations.AttackContact(ao, weapon);
+        return AttackTiming.ContactDelay(attackSeconds, fraction, 0);
+    }
+
+    // The rig clip a skill is named by: its GrantedEffects Id without separators ("GroundSlam" → "groundslam",
+    // "Cleave" → "cleave"), which is how the rigs name groundslam_maul and cleave_maul.
+    internal static string SkillClipName(string effectId) =>
+        new([.. effectId.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant)]);
+
+    // PlayerActionCurrent's state half, without its action-token test: a gem melee swing keeps its hit when the player
+    // only walks on (AreaSkillHit's holdsItsSwing), while a death, an area change, a retirement, a pause, a freeze or a
+    // stun's hit recovery still ends it.
+    internal static bool PlayerStateAllowsAction(ClientState conn)
+    {
+        lock (conn.Monsters)
+            return !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !conn.Paused
+                && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0
+                && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds);
+    }
+
     // The default attack's contact: its stance clip as the client plays it (DefaultAttackClip.ContactSeconds: a one-hand
     // sword's lands 0.56 s into a 0.645 s swing, not at the attack1 keyframe's 0.45). The walk-in compensation comes
     // from the actual approach result, rather than adding walk-in latency to a stationary swing; a lockstep client walks
@@ -1256,7 +1292,17 @@ static partial class Game
         double radiusMore = 1, int addedChaos = 0, double? swingAt = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
-        bool Current() => (cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken))
+        var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
+        bool spell = hitPlan.Kind == SkillHitKind.Spell;
+        // A gem melee swing keeps its hit when the player only walks on: the client queues a Move until its clip's
+        // cut-in instead of running it (Lockstep.cs, measured live 2026-11-03), so the Move the server hears first is a
+        // queued order, not a replacement of the swing. Everything else keeps the action-token rule (a Move cancels the
+        // swing), and a real interruption (death, area change, pause, freeze, stun recovery) still ends this one.
+        bool holdsItsSwing = !spell && !immediate && channelGeneration is null && SkillsFor(conn).IsMelee(gem.Effect);
+        bool TokenCurrent() => holdsItsSwing
+            ? PlayerStateAllowsAction(conn)
+            : cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken);
+        bool Current() => TokenCurrent()
             && (SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null
                 || paidVaal is not null && VaalAdmissionCurrent(conn, paidVaal))
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
@@ -1266,10 +1312,8 @@ static partial class Game
         int effectiveness = SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
         if (Stat("base_deal_no_damage") != 0) return;
-        var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
         if (!hitPlan.CanHit) return;
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
-        bool spell = hitPlan.Kind == SkillHitKind.Spell;
         var weapon = WeaponFor(conn);
         int? castDuration = spell ? CastMs(conn, gem.Effect, skillId) : 0;
         if (castDuration is null) return;
@@ -1277,17 +1321,47 @@ static partial class Game
         double ruthless = spell ? 1 : RuthlessBlowMore(conn, skillId, Stat);
         double delay;
         // A spell lands at its area cast clip's contact keyframe (a repeat a whole cast later each), an attack at its
-        // swing's; the player swings where it stands, so without the walk-in offset.
+        // swing's own clip (GemAttackContactDelay; the player swings where it stands, so without the walk-in offset).
+        string? contactClip = null;
+        double contactFraction = 0;
         lock (conn.Monsters) delay = spell
             ? castDuration.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject))
-            : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false) + repeatDelay;
+            : GemAttackContactDelay(conn, gem.Effect, SupportedAttackSeconds(conn, skillId), out contactClip, out contactFraction)
+                + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
         int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect)) * radiusMore);
-        // A melee skill aimed far away still lands in front of the player; a self-targeted spell goes off around the caster.
-        var centre = VaalExecutor(conn, gem.Effect) || !spell && Dist(from, to) > radius + weapon.Range ? from
+        // Ground Slam's wave: the skills whose action is the data's "DistanceScaledGroundSlam" travel forward from where
+        // the player stands instead of landing one circle (GroundSlamWave; its length, half angle and direction are read
+        // once here, so the log after the sweep can report them). Vaal Ground Slam's own skill is a different action, so
+        // the Vaal blast keeps its radial hit.
+        bool wave = !immediate && !spell && SkillsFor(conn).ActionHash(gem.Effect) == GroundSlamWave.Action;
+        double waveLength = wave ? GroundSlamWave.Length(radius) : 0;
+        double waveHalfAngle = wave ? GroundSlamWave.HalfAngle(Stat) : 0;
+        (double X, double Y) waveDir = wave ? GroundSlamWave.Direction(from, to) : (0, 0);
+        // A wave starts where the player stands and only takes its direction from the aim; a melee skill aimed far away
+        // still lands in front of the player; a self-targeted spell goes off around the caster.
+        var centre = wave || VaalExecutor(conn, gem.Effect) || !spell && Dist(from, to) > radius + weapon.Range ? from
             : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
-        if (cooldownUse?.Instant != true && conn.ActionCount != action) return;
+        // A later action (a Move, another use) replaces the swing; nothing of it lands from then on. The ordinary attack
+        // says so at its own contact (Attack's HitTarget); this says so for a gem skill's sweep, whose drop was otherwise
+        // invisible in the log (the live tests cannot count what a swing did without it).
+        bool Replaced()
+        {
+            if (cooldownUse?.Instant == true || conn.ActionCount == action) return false;
+            // A gem melee swing survives the Move the client queued behind its swing (holdsItsSwing): the walk order
+            // stands, the hit still lands, and only a real interruption (which PlayerStateAllowsAction refuses) drops it.
+            if (holdsItsSwing && PlayerStateAllowsAction(conn))
+            {
+                Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: the swing keeps its hit over the "
+                    + $"queued move order (action {action} -> {conn.ActionCount})");
+                return false;
+            }
+            Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: the swing was replaced by action "
+                + $"{conn.ActionCount} before its hit (action {action}), no hit lands");
+            return true;
+        }
+        if (Replaced()) return;
         // A Strike's spirit strikes and previous-location strike, chosen as it starts, as the client chooses them
         // (StrikeTargets). Each monster takes one hit of the use, whichever of them reaches it.
         List<uint> spirit = [];
@@ -1306,16 +1380,17 @@ static partial class Game
         {
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.05, delay)));
             await WhilePaused(conn);
-            if ((cooldownUse?.Instant != true && conn.ActionCount != action) || conn.Closed || !Current()) return;
+            if (Replaced() || conn.Closed || !Current()) return;
         }
         List<(uint Id, SpawnedMonster M)> targets;
         int sweep;
         // Melee Splash victims and their damage multiplier (see MeleeSplash).
         var splashMore = new Dictionary<uint, double>();
-        // Ice Nova's ring reaches each victim in turn (IceNovaRing); a channel's sweep lands at once.
+        // Ice Nova's ring reaches each victim in turn (IceNovaRing) and Ground Slam's wave does the same by distance
+        // (GroundSlamWave); a channel's sweep lands at once.
         bool ring = !immediate && SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action;
         int artVariation = ring ? SkillArtVariation(conn, gem.Gem) : 0;
-        double ringStart = 0;
+        double sweepStart = 0;
         double[] reach = [];
         int epoch = conn.ProjectileEpoch;
         using (ProjectileMutation(conn))
@@ -1327,17 +1402,21 @@ static partial class Game
                 && PlayerActionBlocked(conn, conn.Clock.Elapsed.TotalSeconds, conn.Clock.Elapsed.TotalSeconds)) return;
             // Queued mana output may outlast movement: resolve a channel at its current position.
             if (channelGeneration is not null) centre = conn.Walk.Position(now);
-            var found = conn.Monsters.Select(e => (e.Key, e.Value, Distance: Dist(e.Value.Walk.Position(now), centre)))
+            var found = conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
+                .Select(e => (e.Key, e.Value, e.At, Distance: Dist(e.At, centre)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
-                    && e.Distance <= radius && once?.Contains(e.Key) != true)
+                    && e.Distance <= (wave ? waveLength : radius) && once?.Contains(e.Key) != true
+                    && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength)))
                 .ToList();
             // Hits that may reach each monster only once across several sweeps record it here.
             if (once is not null) foreach (var f in found) once.Add(f.Key);
-            if (ring)
+            if (ring || wave)
             {
                 found.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-                reach = [.. found.Select(f => IceNovaRing.Reach(f.Distance, radius, artVariation))];
-                ringStart = conn.Clock.Elapsed.TotalSeconds;
+                reach = wave
+                    ? [.. found.Select(f => GroundSlamWave.AdvanceSeconds(f.Distance))]
+                    : [.. found.Select(f => IceNovaRing.Reach(f.Distance, radius, artVariation))];
+                sweepStart = conn.Clock.Elapsed.TotalSeconds;
             }
             targets = [.. found.Select(f => (f.Key, f.Value))];
             sweep = targets.Count;
@@ -1394,7 +1473,17 @@ static partial class Game
         for (int victim = 0; victim < targets.Count; victim++)
         {
             var (id, m) = targets[victim];
-            if (ring && victim < reach.Length && reach[victim] > 0 && !await WaitProjectileTime(conn, ringStart + reach[victim], epoch)) break;
+            // A ring and a wave arrive over time: the victim nearest the caster (or the player) first, each one when its
+            // front reaches it. A retired wave (death, area change, a closed connection) stops the rest of the sweep.
+            if ((ring || wave) && victim < reach.Length && reach[victim] > 0
+                && !await WaitProjectileTime(conn, sweepStart + reach[victim], epoch))
+            {
+                if (wave) Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: the wave was retired "
+                    + $"{conn.Clock.Elapsed.TotalSeconds - sweepStart:0.###} s in, {targets.Count - victim} monster(s) left unhit");
+                break;
+            }
+            if (wave && victim < reach.Length)
+                Console.WriteLine($"[gateway] {remote} {gem.Name} wave reaches 0x{id:x} at {reach[victim] * GroundSlamWave.CellsPerSecond:0.#} cells {reach[victim]:0.###} s after the slam");
             MonsterHit? applied;
             int damage;
             bool critical;
@@ -1405,10 +1494,10 @@ static partial class Game
             using (ProjectileMutation(conn))
             {
                 // Catch up earlier projectile contacts before reading Rage or any other live offensive input. Stopping
-                // the sweep keeps the kills it already queued. A released nova keeps expanding when the player moves on:
-                // its action was checked at the release.
+                // the sweep keeps the kills it already queued. A released nova or slam wave keeps travelling when the
+                // player moves on: its action was checked at the release.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                    || !ring && (!Current() || cooldownUse is null && !PlayerActionCurrent(conn, action))) break;
+                    || !(ring || wave) && (!Current() || !holdsItsSwing && cooldownUse is null && !PlayerActionCurrent(conn, action))) break;
                 if (m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                 bool freshPlayer = player is null;
                 if (player is null)
@@ -1542,7 +1631,17 @@ static partial class Game
         if (reflected.Count > 0 && player is not null)
             using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
         foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
-        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) within {radius} cells of ({centre.X}, {centre.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+        // The wave reports its own shape (the tunables to calibrate, GroundSlamWave) instead of the circle; a gem melee
+        // attack reports the clip its contact came from (GemAttackContactDelay), which the live check can compare with the
+        // client's animation.
+        string shape = wave
+            ? $"in a wave {waveLength:0.#} cells long from ({from.X}, {from.Y}) toward ({waveDir.X:0.##}, {waveDir.Y:0.##}), "
+                + $"half angle {waveHalfAngle:0.#} deg at {GroundSlamWave.CellsPerSecond:0.#} cells/s"
+            : $"within {radius} cells of ({centre.X}, {centre.Y})";
+        string contact = holdsItsSwing
+            ? $", contact {contactFraction:0.###} of the attack ({(contactClip is null ? "the attack1 fallback" : contactClip)})"
+            : "";
+        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) {shape}{contact} (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
         if (BloodCharges.Uses(Stat) && player is not null)
         {
             bool changed;
