@@ -1764,13 +1764,16 @@ static partial class Game
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(conn, at);
         await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
-        ShareKill(conn, id, m, variety, at);
+        // The party's kill: every living player in the area takes their share (Progression.PartyMultiplier), the killer
+        // included. The presence of a private area is the party (an area is entered as the party's instance).
+        var partyShares = PartyExperienceShares(conn);
+        ShareKill(conn, id, m, variety, at, partyShares);
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });
         // A summoned monster whose skill says so gives neither experience nor items.
         if (!m.NoRewards && alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
             var (xp, gemXp) = KillExperience(killer, monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
-                conn.Pools.Level, m.Level);
+                conn.Pools.Level, m.Level, PartyExperienceShareOf(partyShares, conn));
             // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too:
             // 10% of the kill's experience before the level penalty.
             await GainGemExperience(remote, stream, ciphers, conn, gemXp);

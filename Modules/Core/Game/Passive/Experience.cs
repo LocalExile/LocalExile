@@ -14,11 +14,12 @@ static partial class Game
     /// character earns, before any level penalties"; items that increase experience gain reach both.
     /// </summary>
     internal static (uint Character, uint Gems) KillExperience(IPlayer player, MonsterInfo monster, int baseExperience,
-        int multiplierPercent, Rarity rarity, int playerLevel, int monsterLevel)
+        int multiplierPercent, Rarity rarity, int playerLevel, int monsterLevel, double partyMultiplier = 1)
     {
-        uint character = Progression.MonsterExperience(baseExperience, multiplierPercent, rarity, playerLevel, monsterLevel);
+        uint character = Progression.MonsterExperience(baseExperience, multiplierPercent, rarity, playerLevel, monsterLevel,
+            partyMultiplier: partyMultiplier);
         uint beforePenalty = Progression.MonsterExperience(baseExperience, multiplierPercent, rarity, playerLevel,
-            monsterLevel, levelPenalty: false);
+            monsterLevel, levelPenalty: false, partyMultiplier: partyMultiplier);
         return (Program.ServerHooks.Experience(player, monster, character),
             Program.ServerHooks.Experience(player, monster, beforePenalty));
     }
