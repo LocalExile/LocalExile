@@ -275,6 +275,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   base Life before Life increases; independent global/aura ES remains ES and excluded shields grant no converted Life.
   The corrupted-item conditional ES increase enters the global ES bucket, leaving tooltips and converted Life alone.
   Hidden no-attribute-requirement modifiers retain the level gate.
+  Local requirement percentages (`local_attribute_requirements_+%`, `local_strength_requirement_+%` and the dexterity
+  and intelligence ones) change an item's attribute requirements, counting a row that is both implicit and explicit once;
+  automated, no native requirement check yet.
   Automated coverage passes; historical native conversion and corrupted-item ES controls are recorded at `0bae37a`
   and `c9060e4` (see the protocol reference for values).
   Fresh real-client checks of the merged branch and other unique/conditional mechanics remain open.

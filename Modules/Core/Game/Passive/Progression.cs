@@ -540,10 +540,13 @@ static partial class Game
         }
         var wornItems = worn
             .Select(i => (i, t: ItemsFor(conn).ByHash(i.Item.TypeHash)))
-            .Select(x => x.t is { } t
-                ? new ItemModStats.Worn(x.i.Id, x.i.Item, Req(ItemsFor(conn).Requirements(t).Str), Req(ItemsFor(conn).Requirements(t).Dex), Req(ItemsFor(conn).Requirements(t).Int),
-                    ItemModStats.LevelRequirement(x.i.Item, t.DropLevel, ItemsFor(conn).Mods))
-                : new ItemModStats.Worn(x.i.Id, x.i.Item, 0, 0, 0, 0))
+            .Select(x =>
+            {
+                if (x.t is not { } t) return new ItemModStats.Worn(x.i.Id, x.i.Item, 0, 0, 0, 0);
+                var (str, dex, intel) = ItemModStats.AttributeRequirements(ItemsFor(conn), x.i.Item, t);
+                return new ItemModStats.Worn(x.i.Id, x.i.Item, Req(str), Req(dex), Req(intel),
+                    ItemModStats.LevelRequirement(x.i.Item, t.DropLevel, ItemsFor(conn).Mods));
+            })
             .Select(WithGems).ToList();
         // Requirements compare virtual_*_for_requirements, as the client and GemRequirementsUnmet do: the attribute unless
         // /set_stat replaced it. The mod catalog lets the resolver see the hidden modifier that waives requirements.
