@@ -992,24 +992,7 @@ static class CommandsFeature
                 await conn.Commands!.Reply($"{chosen.Name} is already your main ascendancy.");
                 return;
             }
-            AscendancyProgress next;
-            lock (conn.Monsters)
-            {
-                using var availability = AscendancyPolicies.Enter(conn, chosen.Identity);
-                next = Saves.Atomically(() =>
-                {
-                    var saved = CharacterSaves.Load(CharacterName(conn));
-                    return CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
-                    {
-                        var candidate = Game.AscendancyRules.Select(baseClass, latest, chosen.Identity);
-                        ValidateOrdinaryPassives(conn, saved?.Passives ?? [], candidate);
-                        return candidate;
-                    });
-                });
-                conn.MainAscendancy = next;
-                AscendancyPolicies.SelectionChanged(conn);
-                conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
-            }
+            Game.SelectMainAscendancy(conn, chosen);
             await conn.Commands!.Reply($"Main ascendancy selected - {chosen.Name}. Reloading the area to show its tree.");
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"ascendancy {chosen.Name}");
         })
@@ -1017,24 +1000,8 @@ static class CommandsFeature
         {
             if (args.Length != 1) throw new ArgumentException("a Labyrinth tier or all");
             string tier = args[0].ToLowerInvariant();
-            byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
-            AscendancyProgress next;
-            lock (conn.Monsters)
-            {
-                using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
-                next = CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
-                {
-                    AscendancyPolicies.RequireCurrentSelection(conn.MainAscendancy.Selection, latest.Selection);
-                    foreach (string award in tier == "all" ? global::AscendancyRules.AwardKeys : [tier])
-                        latest = Game.AscendancyRules.Award(baseClass, latest, award);
-                    return latest;
-                });
-                conn.MainAscendancy = next;
-                AscendancyPolicies.SelectionChanged(conn);
-                conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
-            }
-            await SendPassives(remote, stream, ciphers, conn);
-            await conn.Commands!.Reply($"Ascendancy points earned - {next.EarnedPoints}; each tier can be earned once.");
+            int earned = await Game.AwardAscendancyPoints(remote, stream, ciphers, conn, tier == "all" ? global::AscendancyRules.AwardKeys : [tier]);
+            await conn.Commands!.Reply($"Ascendancy points earned - {earned}; each tier can be earned once.");
         })
         .Add("reset_ascendancy", "/reset_ascendancy (refund all ascendancy nodes; five refund points per node/effect, choice shells are free)", async _ =>
         {

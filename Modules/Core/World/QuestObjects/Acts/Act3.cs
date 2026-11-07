@@ -81,6 +81,12 @@ static class Act3Objects
         ReturnPortal = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAirlockPortal",
         PlazaDoor = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAirlockDoor", Plaza = "Labyrinth_Airlock";
     public static readonly string PlazaDoorOpen = LabyrinthDay.PlazaDoorOpen;
+    /// <summary>The Ascendancy Chamber behind Izaro's last arena (boss_ascendancy.arm in each Normal FinalBoss area): its
+    /// portal out of the Labyrinth (to town, as the plaza's) and the font (a tile record, StatueLionBase), which awards the
+    /// Labyrinth's points and opens the class selector.</summary>
+    public const string ChamberPortal = "Metadata/Terrain/Labyrinth/Objects/LabyrinthReturnPortal",
+        AscendancyFont = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAscendancyDevice";
+    public const string Chamber1 = "1_Labyrinth_boss_1_end", Chamber2 = "1_Labyrinth_boss_2_end", Chamber3 = "1_Labyrinth_boss_3_end_#";
 }
 
 /// <summary>
@@ -224,6 +230,12 @@ sealed class Act3 : Act
                 On.Object(Act3Objects.Plaza, Act3Objects.LabyrinthSelect),
                 On.Object(Act3Objects.Plaza, Act3Objects.ReturnPortal),
                 On.Object(Act3Objects.Plaza, Act3Objects.PlazaDoor, Act3Objects.PlazaDoorOpen),
+                On.Object(Act3Objects.Chamber1, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.Chamber2, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.Chamber3, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.Chamber1, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.Chamber2, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.Chamber3, Act3Objects.AscendancyFont),
             },
             new Quest("a3q10")
             {

@@ -203,7 +203,7 @@ The character's actual league and account stash are unchanged.
 Phrecia selection and game connections are explicitly gated pending an agreed client-compatible graph.
 The installed alternate graph has older ordinary topology; this slice never installs or recovers a graph in the client.
 Ordinary/unascended connections do not run an alternate-graph compatibility check.
-The native Labyrinth/Altar flow is still separate work (#151).
+The Ascendancy Chamber's font chooses it natively ([scope and checks](../game/ascendancies.md)).
 [Native addresses, wire layout and live traces](../re/ascendancy-client-3.29.3b.md).
 
 **Book of Skill** (`UseSkillBook`). Right-clicking one (C→S 0x58, as an Orb of Regret) uses it up and adds one extra
@@ -229,7 +229,7 @@ it off.
 
 ## Open
 
-- Phrecia client compatibility, special ascendancy gameplay and native Labyrinth/Altar acquisition (#151).
+- Phrecia client compatibility and special ascendancy gameplay.
   Selection/points/saves have automated coverage; this slice makes no claim that all 19 classes' gameplay works.
   See [scope and checks](../game/ascendancies.md).
 - The real rarity experience bonuses, the level 95+ penalty, party sharing.

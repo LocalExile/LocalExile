@@ -101,6 +101,7 @@ public static class InstanceProtocol
         UseInstantSkillAtLocationId => 12, UseInstantSkillId => 8,
         InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
         InstanceWaypoints.LabyrinthChosenId => InstanceWaypoints.LabyrinthChosenLength,
+        InstanceWaypoints.AscendancyChosenId => InstanceWaypoints.AscendancyChosenLength,
         InstanceMicrotransactions.SkillPickId => InstanceMicrotransactions.SkillPickLength,
         InstanceMicrotransactions.RequestId => InstanceMicrotransactions.RequestLength,
         InstanceHideouts.SelectId => InstanceHideouts.SelectLength,
