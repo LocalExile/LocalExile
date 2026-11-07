@@ -180,7 +180,8 @@ Gateway's log does with `[mods]`.
 - `/mod` lists the mods with their version, kind and hook count, and why the others did not load.
   `/mod_reload [id]` reloads one (with its dependents) or all.
 - `/mod_disable <id>` unloads a mod and its dependents; `/mod_enable <id>` loads it and them again. The choice lasts across
-  restarts and rebuilds, and is kept in `mod-state.txt` in `Mods/Binaries/`, over the manifest's `enabled`.
+  restarts and rebuilds, and is kept in `mod-state.txt` in `Mods/Binaries/`, over the manifest's `enabled`. A running
+  Gateway also applies that file when another program (a launcher) rewrites it.
 - After an unload the Gateway checks that the mod's load context was freed, and logs
   `an unloaded mod is still in memory` when it was not after 2 s: a thread, timer or task of the mod still runs, or
   something outside the mod holds one of its objects. Stop what the mod started in `Dispose`.
