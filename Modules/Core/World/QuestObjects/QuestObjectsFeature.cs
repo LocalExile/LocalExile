@@ -95,13 +95,13 @@ static class QuestObjectsFeature
     {
         if (!LeagueFor(conn).Rules.TutorialGifts) return;
         if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { ChestOpened:false }) return;
-        if (!TryBeginObjectWalk(conn, requestedAt, chest.X, chest.Y, 1, out var objectWalk)) return;
+        if (!TryBeginObjectWalk(conn, requestedAt, chest.X, chest.Y, TutorialObjects.ChestInteractionSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         if (!use.Started)   // a lockstep client got its start from the frame pass
             await Send(remote,stream,ciphers,InstanceProtocol.ActionStarted(PlayerId,here.X,here.Y,chest.X,chest.Y,use.SkillId,use.Sequence,use.Flags,targetObjectId:use.TargetId),null,still:()=>PlayerActionCurrent(conn,action));
         if(arrive>now) await Task.Delay(TimeSpan.FromSeconds(arrive-now));
         if(!PlayerActionCurrent(conn,action) || conn.Closed) return;
-        if(GameServer.Core.World.PlayerWalk.InWalkUpRange(stop,(chest.X,chest.Y),1))
+        if(GameServer.Core.World.PlayerWalk.InWalkUpRange(stop,(chest.X,chest.Y),TutorialObjects.ChestInteractionSize))
             await OpenTutorialChestCore(remote,stream,ciphers,conn,use.TargetId,chest);
         await Send(remote,stream,ciphers,InstanceProtocol.ActionEnded(PlayerId),null);
     }

@@ -151,13 +151,13 @@ sealed class AnimationContacts(string folder = "data")
         return null;
     }
 
-    /// <summary>The ACT stance the client picks the default attack's clip from, by the hands' items (the thrusting-sword
-    /// and one-hand mace stances are not told apart here), or null for a weapon without one.</summary>
+    /// <summary>The ACT stance the client picks the default attack's clip from, by the hands' items.
+    /// A one-hand mace uses the sword pool; thrusting swords are not distinguished here.</summary>
     public static string? StanceFor(WeaponProfile weapon)
     {
         string? main = weapon.Unarmed ? (weapon.Shield ? "Shield" : "Unarmed") : weapon.Bow ? "Bow" : weapon.Staff ? "Staff"
             : weapon.Sword && weapon.TwoHandMelee ? "TwoHandSword" : weapon.Mace && weapon.TwoHandMelee ? "TwoHandMace"
-            : weapon.Sword ? "OneHandSword" : weapon.Dagger ? "Dagger" : weapon.Claw ? "Claw" : weapon.Wand ? "Wand" : null;
+            : weapon.Sword || weapon.Mace ? "OneHandSword" : weapon.Dagger ? "Dagger" : weapon.Claw ? "Claw" : weapon.Wand ? "Wand" : null;
         if (main is null || weapon.Unarmed || weapon.Bow || weapon.TwoHandMelee || weapon.Staff) return main;
         return weapon.Shield ? main + "Shield" : weapon.DualWield ? main + main : main;
     }

@@ -211,7 +211,8 @@ static partial class Game
             }
             if (Conn.PlayerLife > 0)
                 result.Add(new(new(PlayerId, epoch), 1,
-                    t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0));
+                    t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
+                    { Size = LivingCollision.PlayerSize });
             return result;
         }
 

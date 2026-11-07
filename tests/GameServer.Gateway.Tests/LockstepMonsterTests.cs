@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using GameServer.Core.World;
+using GameServer.Core.Projectiles;
 using GameServer.Modding;
 using Xunit;
 
@@ -595,5 +596,54 @@ public class LockstepMonsterTests : IDisposable
             Assert.DoesNotContain(straight, s => s.Item1 is StatKeys.SkillBehaviourVariation or StatKeys.VirtualTotalProjectiles);
             Assert.False(Game.MonsterProjectileProfile(bugs, 5, 10, 30).HideVisual);
         }
+        var spitter = skills.MonsterProjectile(skills.EffectRow("MMASandSpitterProjectile"))!;
+        Assert.False(spitter.Lobbed);
+        Assert.Equal((50, 3), (spitter.MinimumRange, spitter.SpreadRadius));
+        // Spitter contact occurs on its twelfth 33 ms frame, not between frames at 0.371 s.
+        Assert.Equal(10 + 12 * .033, Game.LockstepShotAt(10, .99 * .3745), 6);
+        var direct = Game.MonsterProjectileProfile(spitter, 107.64, 11, 50) with { ContactCells = 2 };
+        Assert.True(direct.DirectDamage);
+        Assert.Null(direct.EndArea);
+        // Native straight-path destinations for standing and moving targets (141b69ba0).
+        Assert.Equal(new ProjectileVector(848, 533), Game.MonsterMortarTarget(new(894, 554), new(890, 552),
+            new(876, 546), 50, 3, 0xffff, 0x8000032, 0));
+        Assert.Equal(new ProjectileVector(854, 583), Game.MonsterMortarTarget(new(894, 554), new(891, 557),
+            new(877, 567), 50, 3, 0xffff, 0x8000032, 0));
+        var aimed = Connection(lockstep: true);
+        aimed.Clock.Stop();
+        aimed.Walk.Teleport(880, 548, 0);
+        var source = new SpawnedMonster("Spitter", new(894, 554, 20), 60, 2, 15);
+        var attack = new MonsterAttack(0x1535, 1, 30, DamagePacket.Empty) { Projectile = spitter };
+        var session = new Game.ProjectileSession("ordered-aim", null!, null!, aimed);
+        try
+        {
+            var first = Game.MonsterProjectileUse(session, 0x8000032, source, attack, spitter, 0, orderedAim: (880, 548));
+            aimed.Walk.Teleport(880, 564, 0);
+            var dodged = Game.MonsterProjectileUse(session, 0x8000032, source, attack, spitter, 0, orderedAim: (880, 548));
+            Assert.Equal(first.Origin, dodged.Origin);
+            Assert.Equal(first.Aim, dodged.Aim);
+            Assert.Equal(first.ProjectileTargets, dodged.ProjectileTargets);
+            Assert.NotEqual(dodged.Aim, Game.MonsterProjectileUse(session, 0x8000032, source, attack, spitter, 0).Aim);
+        }
+        finally { session.Invalidate(); }
+        foreach (bool dodge in new[] { false, true })
+        {
+            var world = new MortarContactWorld(dodge);
+            var runtime = new ProjectileRuntime(world);
+            runtime.Release(new(direct, new(2), new(2), 2, new(0, 0), new(20, 0))
+                { ProjectileTargets = [new(50, 0)] });
+            runtime.AdvanceTo(ProjectileRuntime.Time(1));
+            Assert.Equal(dodge ? 0 : 1, world.Hits);
+        }
+    }
+
+    sealed class MortarContactWorld(bool dodge) : IProjectileWorld
+    {
+        public int Hits;
+        public IReadOnlyList<ProjectileActor> Actors(long from, long until) =>
+            [new(new(1), 1, t => new(20, dodge ? 40 * t / (double)ProjectileRuntime.QuantaPerSecond : 0), 0) { Size = 1 }];
+        public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) => null;
+        public ProjectileHitResult Hit(ProjectileDamage damage) { Hits++; return ProjectileHitResult.Hit; }
+        public void Publish(ProjectileEvent value) { }
     }
 }

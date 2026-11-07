@@ -1436,12 +1436,16 @@ static partial class Game
             seq = sequence ?? conn.NextActionSequence();
         }
         double startedAt = 0;
+        (int X, int Y)? projectileAim = null;
         bool walkUp = use is null && !area && !a.InPlace;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {
             if (MonsterSwingOrderLocked(conn, m, a, action, use is null && !area, seconds, AreaTime(conn)) is not { } order) return null;
             (startedAt, seconds) = (order.StartedAt, order.Seconds);
             var (from, player) = (order.From, order.Player);
+            // The client-drawn straight mortar retains the action order's aim throughout its windup
+            // (141ba51a0 -> 141b69ba0). Reacquiring here at release would turn a dodged shot toward the player.
+            if (a.Projectile is { Variation: > 0, Lobbed: false }) projectileAim = player;
             if (walkUp) seq = m.NextSequence();
             // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
             // 2026-11-01: the Immolator stayed shut): its actor's clip is played instead (0x1d1, SummonAnimation).
@@ -1454,6 +1458,14 @@ static partial class Game
         // their clip too), half the attack time without rig data.
         double contact = a.Release?.Fraction ?? (walkUp && m.Variety is { } variety
             ? SkillsFor(conn).MonsterContact(variety.Id, "Melee", seq)?.ContactFraction : null) ?? 0.5;
+        if (conn.LockstepClient && a.Projectile is { Variation: > 0, Lobbed: false } nativeProjectile)
+        {
+            // Like the player's native shot, the monster emits at the end of the frame that crosses contact.
+            // Starting between frames lets the server hit a moving player before the visible flight reaches them.
+            LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a, nativeProjectile, action, projectileAim,
+                LockstepShotAt(startedAt, seconds * contact), seq);
+            return;
+        }
         if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * contact)) return;
         if (a.Summon is { } summon)
         {
@@ -1463,7 +1475,7 @@ static partial class Game
         if (a.Projectile is { } projectile)
         {
             // The shot leaves at the contact and flies; its hit lands when it reaches the player (Program.ProjectileHostile.cs).
-            LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a, projectile, action);
+            LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a, projectile, action, projectileAim, sequence: seq);
             return;
         }
         if (area) { await MonsterAreaContact(remote, stream, ciphers, conn, id, m, a, action, areaRadius, seq); return; }

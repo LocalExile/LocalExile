@@ -42,6 +42,14 @@ public sealed class DefaultAttackTimingTests : IDisposable
         Assert.Equal("attack_sword_01a", clip.Animation);
         Assert.Equal(0.299 * 0.45 / 0.365 + 0.195, clip.ContactSeconds(0.645), 3);
         Assert.Equal(0.5636, contacts.DefaultAttackContactSeconds(ao, sword, 7, 0.645), 3);
+        // One-hand maces use the sword stance too: the Marauder's club plays attack_sword_01a,
+        // a 0..387 ms view of doublestrike_sword, rather than attack1_maul's contact fraction.
+        var mace = sword with { Sword = false, Mace = true };
+        Assert.Equal("OneHandSword", AnimationContacts.StanceFor(mace));
+        Assert.Equal("OneHandSwordShield", AnimationContacts.StanceFor(mace with { Shield = true }));
+        Assert.Equal("TwoHandMace", AnimationContacts.StanceFor(mace with { OneHand = false, TwoHandMelee = true }));
+        Assert.Equal(contacts.DefaultAttackCutInSeconds(ao, sword, 7, 0.645),
+            contacts.DefaultAttackCutInSeconds(ao, mace, 7, 0.645));
         // An attack shorter than the budget compresses the view: the contact at its fraction.
         Assert.Equal(0.4 * 299 / 365.0, clip.ContactSeconds(0.4), 3);
         // A clip without a budget stretches to the attack: a 600 ms wand clip's contact at 300 in a 0.667 s attack.

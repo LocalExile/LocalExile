@@ -556,6 +556,10 @@ is taken to stretch to the attack (the wand's 300 of 600 ms contact played 0.333
 0.37 to 0.40 s into a 0.714 s attack ran at 0.40 to 0.43 s, later ones at once), else at the contact (the wand's and the
 sword's clips carry none): `DefaultAttackClip.CutInSeconds`. Many skill clips carry one too (Cleave's at 633 of
 1133 ms, Puncture's at 600 of 1066); attack gems do not use them yet.
+One-hand maces use the sword stance pool too: the Marauder's Driftwood Club plays `attack_sword_01a`,
+the 0..387 ms view of `doublestrike_sword`, with a 0.5 s budget.
+Falling back to `attack1_maul` releases the server's next Move while the client still queues it;
+the attack completion then discards that queued walk's path (`0x141e8f670` → `0x141e94fc0`).
 
 Burning Arrow's muzzle flash is `Projectiles.MiscAnimatedFlash` (row 3657), which `DefaultArrow` does not have. The client
 creates an effect object at the clip's contact, without a server message: in the same trace at about 375 ms after the
@@ -962,20 +966,25 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   416 ms) with position [1.33, 45.89, −71.56]: model units, +x the model's left, −y its front, −z up. With
   `projectile_uses_contact_position` the shot leaves there: 45.9 units (4.2 cells) behind a body that faces away from
   its target (`action_should_face_away_from_target`), so toward the player, and 71.6 units (9 marker steps) up; the
-  lateral part is not applied (the grid's handedness is not established and it is under a cell), the offset scales
+  native straight attack rotates the lateral offset too, then rounds the launch point to grid cells. The offset scales
   with the model when `use_scaled_contact_offset` says so (MonsterVarieties `ModelSizeMultiplier`), and the flight
   still runs from the monster toward the aim (`maintain_projectile_direction_when_using_contact_position`). Data:
   `data/monster-contacts.json` (`scripts/re/monster_contacts.py`: per variety the ACT pools of `Melee` and the
   projectile tables' animation keys, each clip's index, length, contact and position, rig events merged with the .ao
   chain's as `ot_components.rig_clips`). Whether the client seeds a monster action's clip choice from the 0xffff
   sequence is assumed from the wand's selector and still needs a live check (the two clips differ by 75 ms and 1.3
-  cells). The lob lands on the player's cell on the shared runtime, no closer to the Spitter than the skill's
-  `projectile_minimum_range` (50 units, 4.6 cells: a player at its feet stands in the dead zone), team 2 so no
-  monster is in its way, and the same contact pipeline commits the hit when it lands on a player within the splash
-  (`Game_MONSTER_MORTAR_RADIUS`, default 10 cells; the skill's stats carry no radius; `projectile_spread_radius` 3 is
-  not modelled). Melee swings still land at half the attack time. The
-  client creates no projectile of its own for a monster's action (Frida 2026-10-29: 27 Sand Spitter attacks, no
-  client-side object), so without the server's object there is nothing to see. Such a skill also carries its stat
+  cells). `MonsterMortar` names the action table, not an arc: `0x141b69ba0` → `0x141bacf60` selects
+  straight `0x141e34220` without a ballistic-angle stat, as for the Sand Spitter.
+  It keeps the action order's target through windup, translates that target by the contact offset,
+  extends it to `projectile_minimum_range` (50 **cells** from the actor), then scatters it within 3 cells.
+  The random seed contains the action sequence, projectile index plus two, and owner ID;
+  the animation-speed draw precedes scatter even when speed variation is zero.
+  The server follows those destinations and direct square contact, with the player's body size of one cell.
+  It neither reacquires the player's position at release nor applies the former 10-cell splash to these shots.
+  In lockstep the release is scheduled at the frame end that crosses contact, as for the player's own projectile;
+  a fractional-time release can contact a dodging player before the client has advanced its visible flight.
+  Spell mortar arcs retain their existing landing model and radius fallback; they are not covered by this trace.
+  The earlier no-client-projectile observations used records without the required count. Such a skill also carries its stat
   set's own entries beside the attack's numbers (`MonsterProjectileSkillStats`: `action_should_face_away_from_target`,
   `projectile_uses_contact_position`, `use_scaled_contact_offset`, the 3-cell spread and 50-cell minimum range;
   not the effect's cast-time or mana entries), because the client derives none and without the face-away flag the

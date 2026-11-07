@@ -307,8 +307,8 @@ static partial class Game
             {
                 if (id == PlayerId && attack is not null && PlayerWalkUpOpen(conn) == attack)
                 {
-                    var (result, timer) = StepWalkUp(bodies, new(PlayerId, conn.Walk, true, attack.TargetId, attack.Target.Walk,
-                        attack.Reach, attack.Tolerance, attack.TimerFrom), start, end, length);
+                    var (result, timer) = StepWalkUp(bodies, new(PlayerId, conn.Walk, true, attack.TargetId, attack.Target?.Walk,
+                        attack.Reach, attack.Tolerance, attack.TimerFrom, attack.GroundTarget), start, end, length);
                     attack.TimerFrom = timer;
                     if (result == WalkUpResult.Swings) LockstepAttackSwings(conn, attack, start, end);
                     else if (result == WalkUpResult.Fails) attack.Fails();
@@ -367,7 +367,7 @@ static partial class Game
     {
         if (!conn.LockstepClient || conn.LockstepAttack is not { Open: true } attack) return null;
         if (conn.ActionCount == attack.Action && conn.PlayerSent && conn.PlayerLife > 0 && !conn.Closed && !conn.LeavingArea
-            && ReferenceEquals(conn.Monsters.GetValueOrDefault(attack.TargetId), attack.Target)) return attack;
+            && (attack.Target is null || ReferenceEquals(conn.Monsters.GetValueOrDefault(attack.TargetId), attack.Target))) return attack;
         attack.Fails();
         return null;
     }
@@ -375,7 +375,7 @@ static partial class Game
     // A walk-up a lockstep client's MoveTo runs toward an object, in its walker's turn of a frame: a monster's chase at the
     // player (WalkUpOpen) or the player's attack on a monster (PlayerWalkUpOpen).
     readonly record struct WalkUpTurn(uint Id, GameServer.Core.World.PlayerWalk Walk, bool Blocks, uint TargetId,
-        GameServer.Core.World.PlayerWalk Target, int Reach, int Tolerance, double TimerFrom);
+        GameServer.Core.World.PlayerWalk? Target, int Reach, int Tolerance, double TimerFrom, (int X, int Y) GroundTarget = default);
     enum WalkUpResult { Walking, Swings, Fails }
 
     // A walk-up's turn in a lockstep frame (07 §5). Its steps are checked as any walker's (none for a body that blocks
@@ -397,7 +397,7 @@ static partial class Game
         double start, double end, double length)
     {
         var walk = up.Walk;
-        var target = up.Target.Position(up.Id < up.TargetId ? start : end);
+        var target = up.Target?.Position(up.Id < up.TargetId ? start : end) ?? up.GroundTarget;
         double timerFrom = up.TimerFrom;
         bool InGoal((int X, int Y) cell) => walk.InReachOf(cell, target, up.Reach, up.Tolerance);
         for (int round = 0; round < 8; round++)

@@ -620,10 +620,18 @@ played its last Move meanwhile and was then put on that cell, up to 35 cells awa
 skill's repeats came at the attack time from the request, each cancelling the walk-up before it. Live after: 18 bow
 attacks in 52 s started at most 3.2 cells off the client's cell, none cancelled.
 
-A held attack whose target died goes on at the ground, and the default attack at the ground swings where the player
-stands: GGG's player stayed on its cell through 101 such attacks aimed 18 to 29 cells away, one per attack time. The
-Gateway stands for it on a lockstep client (`Messages.cs`, `inPlace`); it walked there before, which put the player on
-the dead monster's cell. A predictive client sends a Move for that click instead, so nothing changes there.
+Pickup arrival also starts Interaction's default 0.1 s completion (`0x141942160`).
+A Move queued inside it starts in `0x141e8f670`, then `0x141e94fc0` discards its new path.
+The Gateway holds subsequent lockstep input through that completion, only after arrival; walking up stays interruptible.
+
+A held attack whose target died goes on at the ground. The stationary GGG sample (101 attacks aimed 18–29 cells
+away) does not establish that every ground attack stands still. Actor `0x141e8eb60` uses flag 1 to force a stationary
+swing; otherwise it starts MoveTo toward the aim. A default melee ground use has the weapon's range minus one,
+tolerance -1 and precision 1 (`0x141e7b530`): live, an aim 17 cells right and 9 up with range 10 walked 8 right and
+5 up before swinging, both near a monster and on empty ground. The swing's hold and repeat timer begin on arrival.
+
+The tutorial support chest's Interaction uses MoveTo max range 6, tolerance 3, precision 1. Its blocking footprint
+is only 1; using that footprint for interaction makes the server walk four cells past the native stopping point.
 
 A Move whose target is within two cells (Chebyshev) of the walker's cell is not taken by the client at all: no path
 search, no step and no move onto the 0x1ab's position pair, even when the pair is not the walker's cell, and the action

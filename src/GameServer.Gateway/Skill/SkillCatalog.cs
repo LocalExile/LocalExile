@@ -835,9 +835,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// SkillID: 183 for the Sand Spitter's, 55 for a Cannibal's ThrowFire); 0 for any other projectile, for the spell
         /// forms (<c>monster_mortar</c>, not traced) and for the skills whose SkillID is row 0.</summary>
         public int Variation { get; init; }
-        /// <summary>The skill's <c>projectile_minimum_range</c> in world units (the Spitter's 50): a lob lands no closer
-        /// to the monster than this. 0 without the stat.</summary>
+        /// <summary>The skill's <c>projectile_minimum_range</c> in grid cells (0x141b69ba0; the Spitter's 50).</summary>
         public int MinimumRange { get; init; }
+        public int SpreadRadius { get; init; }
         /// <summary>The spread of a multi-projectile release: a fan by default, a full turn for a ring.</summary>
         public double SpreadRadians { get; init; } = Math.PI / 6;
         /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
@@ -918,7 +918,15 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
         int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
             : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
-        return projectile with { MinimumRange = Get("projectile_minimum_range"), Count = Math.Max(1, count) };
+        return projectile with
+        {
+            MinimumRange = Get("projectile_minimum_range"), SpreadRadius = Get("projectile_spread_radius"),
+            Count = Math.Max(1, count),
+            // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
+            // (141b69ba0 -> 141bacf60) selects a straight path unless a ballistic stat requests an arc.
+            Lobbed = projectile.Variation == 0 || Get("projectile_ballistic_angle_from_reference_event") != 0
+                || Get("projectile_ballistic_angle_from_target_distance") != 0,
+        };
     }
 
     /// <summary>What a monster's summoning skill brings: its stat set's <c>alternate_minion</c> (a SummonedSpecificMonsters

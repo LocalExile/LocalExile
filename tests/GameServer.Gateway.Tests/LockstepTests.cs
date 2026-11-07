@@ -261,6 +261,28 @@ public class LockstepTests
         Assert.Equal((126, 101), far.Walk.Destination);
         Replay(far, .792);
         Assert.Equal(new LockstepAttack.Swing(.759, .792, (126, 101)), await farAttack.Decided);
+
+        // A ground melee use walks to weapon range too, with no target-size tolerance. Native 3.29.3b:
+        // an aim 17 cells right and 9 up stops 8 right and 5 up, then starts the swing there.
+        conn = Lockstep(new SpawnedMonster("Drowned", new PlayerWalk(200, 200, 8, size: 2), 0, 4, 100));
+        attack = new(++conn.ActionCount, 0, null, 10, -1, 1, () => .5)
+        {
+            GroundTarget = (117, 91), GroundAttackSeconds = () => .645,
+        };
+        conn.LockstepAttack = attack;
+        Assert.Equal(((100, 100), (117, 91)), Game.PlaceLockstepAttack(conn, attack, 0));
+        Assert.True(attack.Open);
+        Assert.Equal(0, conn.LockstepBusyUntil);
+        Replay(conn, .33);
+        Assert.Equal((108, 95), conn.Walk.Position(.33));
+        Assert.Equal((108, 95), (await attack.Decided)!.Value.From);
+        Assert.True(conn.LockstepBusyUntil > .33);
+        Assert.True(conn.NextAttackAt > .33);
+
+        // The tutorial chest's interaction range is independent of its blocking size of 1. Native stops at y=555,
+        // four cells before the old footprint-based walk-up; the next order must start at that same cell.
+        var chestWalk = new PlayerWalk(797, 564, 37);
+        Assert.Equal((797, 555), chestWalk.WalkUpTo(800, 547, TutorialObjects.ChestInteractionSize, 0).Stop);
     }
 
     // A create whose blob's first byte has 0x02 (a projectile's) wakes the object itself; a 0x1a9 after it only logs on the

@@ -91,6 +91,11 @@ static partial class Game
             _ = OnUseObject(remote, stream, ciphers, conn, new(target, request.Skill, sequence, request.Flags), at);
             return;
         }
+        if (LockstepGroundMelee(conn, request.Skill, request.Flags))
+        {
+            _ = StartLockstepGroundMelee(remote, stream, ciphers, conn, request.Aim, request.Skill, sequence, request.Flags);
+            return;
+        }
         byte[] use = new LoginWriter().U16(InstanceProtocol.UseSkillAtLocationId).U32((uint)request.Aim.X).U32((uint)request.Aim.Y)
             .U16(request.Skill).U16(sequence).U16(request.Flags).ToArray();
         _ = Task.Run(async () =>
