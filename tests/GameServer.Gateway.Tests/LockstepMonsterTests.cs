@@ -536,13 +536,33 @@ public class LockstepMonsterTests : IDisposable
         var spent = (conn.LockstepSequence, conn.ActionCount);
         string saves = Path.Combine(Path.GetTempPath(), $"localexile-lockstep-near-{Guid.NewGuid():N}.db");
         Saves.Open(saves);
-        try { await Game.StartLockstepActions("near", null!, null!, conn, 1.0); }
+        try
+        {
+            await Game.StartLockstepActions("near", null!, null!, conn, 1.0);
+            Assert.Single(conn.LockstepTrail);   // the pass ran past the latency gate
+            // Projectile time can be ahead of the current client frame. A pickup's 100 ms hold must still
+            // finish on that frame clock before a pending Move is spent, or its path is lost on completion.
+            conn.Clock.Reset();
+            var session = new Game.ProjectileSession("pickup-frame", null!, null!, conn);
+            conn.ProjectileRuntime = session;
+            try
+            {
+                session.AdvanceTo(ProjectileRuntime.Time(1.105));
+                conn.LockstepBusyUntil = 1.1;
+                conn.LockstepFrame = (1.099, 1.132);
+                conn.LockstepHold.Press((160, 100), 0x2909, 0);
+                await Game.StartLockstepActions("pickup-frame", null!, null!, conn, 1.099);
+                Assert.Equal(spent, (conn.LockstepSequence, conn.ActionCount));
+                Assert.Equal((140, 100), conn.Walk.Destination);
+                Assert.Equal(ProjectileRuntime.Time(1.105), session.Runtime.Now);
+            }
+            finally { session.Invalidate(); conn.ProjectileRuntime = null; }
+        }
         finally
         {
             PlayerInventories.Forget(conn.Character!);
             TestEnvironment.ReleaseSaves(saves);
         }
-        Assert.Single(conn.LockstepTrail);   // the pass ran past the latency gate
         Assert.Equal(spent, (conn.LockstepSequence, conn.ActionCount));
         Assert.Equal((140, 100), conn.Walk.Destination);
         Assert.True(conn.Walk.Moving(1.1));

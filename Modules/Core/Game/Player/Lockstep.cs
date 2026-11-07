@@ -109,7 +109,9 @@ static partial class Game
                 conn.ChannelSkill = 0;
                 conn.ChannelGeneration++;
             }
-            bool free = at >= conn.LockstepBusyUntil;
+            // Readiness belongs to the client's frame. Projectile time may already be ahead of it; using that
+            // clock can start a Move before pickup completion, whose cleanup then discards the new path.
+            bool free = frameStart >= conn.LockstepBusyUntil;
             if (!PlayerActionBlocked(conn, at, at) && free)
             {
                 if (conn.LockstepSkill.Target is { } aimedAt && aimedAt != PlayerId

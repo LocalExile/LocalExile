@@ -623,6 +623,8 @@ attacks in 52 s started at most 3.2 cells off the client's cell, none cancelled.
 Pickup arrival also starts Interaction's default 0.1 s completion (`0x141942160`).
 A Move queued inside it starts in `0x141e8f670`, then `0x141e94fc0` discards its new path.
 The Gateway holds subsequent lockstep input through that completion, only after arrival; walking up stays interruptible.
+Readiness uses the client frame start: live, a Move at arrival +3 frames (99 ms) lost its path, while +4 frames
+preserved it. The projectile clock can already exceed 100 ms during that third frame and must not release the hold.
 
 A held attack whose target died goes on at the ground. The stationary GGG sample (101 attacks aimed 18–29 cells
 away) does not establish that every ground attack stands still. Actor `0x141e8eb60` uses flag 1 to force a stationary
