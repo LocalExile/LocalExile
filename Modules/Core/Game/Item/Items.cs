@@ -527,6 +527,7 @@ static partial class Game
     {
         // A survivors run keeps the ground clear: no loot reaches the client at all.
         if (!GameEvents.AllowsLoot(conn)) return;
+        conn.Instance.Ground.Observe(conn);
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
             conn.SeenGround.Add(id);
@@ -651,7 +652,7 @@ static partial class Game
         var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         var ground = new WorldItemObject(x, y, held.Item);
         uint id = conn.Instance.Ground.Add(ground, conn);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
+        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
             $"0x02b9 create world item 0x{id:x} at ({x}, {y})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 world item 0x{id:x} enters wake zone");
     }
@@ -727,7 +728,7 @@ static partial class Game
                 {
                     // Fits said yes, so this is not expected; the rest goes back on the ground rather than vanish.
                     rest = new WorldItemObject(ground.GridX, ground.GridY, ground.Item with { StackSize = (ushort)stacked.Left });
-                    restId = conn.Instance.Ground.Add(rest, conn);
+                    restId = conn.Instance.Ground.Add(rest, conn, shared: true, justDropped: false);
                 }
             }
             if (rest is not null)

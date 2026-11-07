@@ -588,6 +588,7 @@ QUEST_TILE_TYPES = [
     "Metadata/QuestObjects/Inca/PoisonTree",
     "Metadata/QuestObjects/Labyrinth/LabyrinthPlaqueTown",
     "Metadata/Terrain/Labyrinth/Objects/LabyrinthAirlockDoor",
+    "Metadata/Terrain/Labyrinth/Objects/LabyrinthReturnPortal",
     "Metadata/QuestObjects/Labyrinth/LabyrinthStatueTown",
     "Metadata/QuestObjects/Library/HiddenDoor",
     "Metadata/QuestObjects/Library/HiddenDoorGeneric",

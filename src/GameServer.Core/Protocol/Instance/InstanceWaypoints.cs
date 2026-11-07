@@ -92,6 +92,15 @@ public static class InstanceWaypoints
     /// u8 1 Normal … 4 Eternal (live 2026-11-03: Normal sent 1).</summary>
     public const ushort LabyrinthChosenId = 0x212, LabyrinthChosenLength = 3;
 
+    /// <summary>The Ascendancy Chamber's font: kind 0x0a has no screen-table name; the client passes the player's class byte
+    /// (+0x158) to its listeners (instance +0x1a78, <c>0x140dcdaa0</c>), which open the class selector
+    /// (AscendancyClassSelectorWindow, <c>0x140b724b0</c>) for an unascended character, else the passive tree.</summary>
+    public const byte AscendancySelectUi = 0x0a;
+
+    /// <summary>C→S 0x39 (3 bytes, writer 0x140e29080, sent by the selector's Ascend, <c>0x140b742b0</c>): u8 the chosen
+    /// Ascendancy.dat row. 0x3a (<c>0x140b74490</c>) is the same for a Descendancy row.</summary>
+    public const ushort AscendancyChosenId = 0x39, AscendancyChosenLength = 3;
+
     /// <summary>
     /// S→C 0x4c (class 0x1435dc7e0, read 0x14219f460; dispatcher case 0x12): u32 BE (+0x10, passed with the bitset to the
     /// listeners at instance +0x73f0), then 19 raw bytes (+0x14) copied to instance +0xcf31: bit i = the i-th WorldAreas

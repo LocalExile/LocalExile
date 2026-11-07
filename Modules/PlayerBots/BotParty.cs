@@ -24,6 +24,10 @@ sealed partial class BotDirector
             if (bot is null) return false;
             if (_bots.Count(b => ReferenceEquals(b.Leader, conn) && b.Phase == BotPhase.Following) >= 5)
                 return true;
+            // Select from the inviting town once. Later area changes preserve earned levels and experience.
+            int level = LevelForTown(bot.Level, bot.Town, _random);
+            if (level != bot.Level) { bot.Level = level; Dress(bot); }
+            SaveProgress(bot);
             party = _bots.FirstOrDefault(b => ReferenceEquals(b.Leader, conn))?.Party ?? unchecked((uint)Interlocked.Increment(ref _nextParty));
             Hide(bot);
             (bot.Leader, bot.Party, bot.Phase, bot.FollowIn) = (conn, party, BotPhase.Following, null);
@@ -71,6 +75,7 @@ sealed partial class BotDirector
     // Out of the party: to the nearest way out of the area it is in, then on with its quests (StepWithLeader).
     void Depart(Bot bot, string why)
     {
+        bot.Control = null;
         StopCombat(bot);
         bot.Phase = BotPhase.Departing;
         bot.Doing = $"{why}: уходит к ближайшему выходу";
@@ -193,6 +198,7 @@ sealed partial class BotDirector
     // Back to its quests (from where it left them), out of the party.
     void Unparty(Bot bot, DateTime now, string why)
     {
+        bot.Control = null;
         StopCombat(bot);
         Hide(bot);
         _log.Write(bot.Account, bot.Name, $"покинул группу ({why}): продолжает квесты");

@@ -1,6 +1,19 @@
 {
   "version": 1,
   "settings": {
+    "mcpEnabled": {
+      "type": "bool", "default": false, "label": "External AI control (MCP)",
+      "description": "Authenticated loopback MCP for bots in human-led parties.", "applies": "restart"
+    },
+    "mcpPort": {
+      "type": "integer", "default": 6194, "min": 1024, "max": 65535,
+      "label": "MCP port", "description": "Loopback HTTP port for external AI clients.", "applies": "restart"
+    },
+    "mcpLeaseSeconds": {
+      "type": "integer", "default": 30, "min": 15, "max": 120,
+      "label": "External control lease", "description": "Wall seconds before unattended control returns to ordinary AI.",
+      "format": "duration", "unit": "s", "applies": "restart"
+    },
     "maxBots": {
       "type": "integer", "default": 100, "min": 0, "max": 1000,
       "label": "Most bots",

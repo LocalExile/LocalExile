@@ -11,6 +11,9 @@ yet confirmed on screen).
 - **The client derives the level from the experience** in the Player component ([04](04-player-entity.md) §4.6):
   S→C 0x2ba to component 6 with flag bit0 + u32 experience (`InstanceEntities.PlayerExperienceUpdate`). Crossing a
   level start (ExperienceLevels.dat) changes the level on the client.
+  Its ClientPlayer callback `0x1415e0b90` publishes the level change but does not itself create the flash.
+  The default flash is MiscAnimated `LevelUp`, HASH32 `0xff248759`,
+  `Metadata/Effects/misc/levelup_new/rig.ao`; its default animation is `levelup`.
 - **A kill** (`MonsterKilled`): the player gains experience when alive and within `Game_XP_RANGE` cells (default 150)
   of the monster when it dies (melee, Fireball or Righteous Fire). Amount (`Progression.MonsterExperience`):
   DefaultMonsterStats `Experience` at the monster's level × MonsterVarieties `ExperienceMultiplier` / 100 × rarity
@@ -200,7 +203,7 @@ The character's actual league and account stash are unchanged.
 Phrecia selection and game connections are explicitly gated pending an agreed client-compatible graph.
 The installed alternate graph has older ordinary topology; this slice never installs or recovers a graph in the client.
 Ordinary/unascended connections do not run an alternate-graph compatibility check.
-The native Labyrinth/Altar flow is still separate work (#151).
+The Ascendancy Chamber's font chooses it natively ([scope and checks](../game/ascendancies.md)).
 [Native addresses, wire layout and live traces](../re/ascendancy-client-3.29.3b.md).
 
 **Book of Skill** (`UseSkillBook`). Right-clicking one (C→S 0x58, as an Orb of Regret) uses it up and adds one extra
@@ -226,7 +229,7 @@ it off.
 
 ## Open
 
-- Phrecia client compatibility, special ascendancy gameplay and native Labyrinth/Altar acquisition (#151).
+- Phrecia client compatibility and special ascendancy gameplay.
   Selection/points/saves have automated coverage; this slice makes no claim that all 19 classes' gameplay works.
   See [scope and checks](../game/ascendancies.md).
 - The real rarity experience bonuses, the level 95+ penalty, party sharing.

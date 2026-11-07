@@ -11,8 +11,9 @@ namespace GameServer.Gateway.Tests;
 public sealed class PartyFollowerTests
 {
     [Fact]
-    public async Task Shared_deaths_hide_each_observers_bar_once_and_wait_for_sleeping_objects()
+    public async Task Shared_deaths_reward_nearby_players_and_hide_each_observers_bar_once()
     {
+        await PartyExperienceChecks.Verify();
         using var runtime = new Runtime();
         using var firstWire = new Wire();
         using var sleepingWire = new Wire();
@@ -146,7 +147,7 @@ public sealed class PartyFollowerTests
         Assert.True(Game.ControlledFollowerPoint(isolated, leader, arrival: true).X <= 105);
     }
 
-    sealed class Runtime : IDisposable
+    internal sealed class Runtime : IDisposable
     {
         readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
         readonly IModuleLifetime? previousLifetime = Game.CombatLifetime;
@@ -157,10 +158,10 @@ public sealed class PartyFollowerTests
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         }
-        public ClientState Connection(InstanceState instance, Wire wire)
+        public ClientState Connection(InstanceState instance, Wire wire, string? character = null)
         {
             var conn = new ClientState(new(1, "follower", 300, 300, 100, 100, null, []), 1, 1)
-            { Instance = instance, PlayerLife = 1000, PlayerSent = true, Controlled = true,
+            { Instance = instance, Character = character, PlayerLife = 1000, PlayerSent = true, Controlled = true,
                 Wire = ("follower-test", wire.Stream, wire.Ciphers) };
             players.Add(conn); Program.InGame.TryAdd(conn, 0);
             return conn;
@@ -174,7 +175,7 @@ public sealed class PartyFollowerTests
         }
     }
 
-    sealed class Wire : IDisposable
+    internal sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);
         readonly TcpClient writer = new();
