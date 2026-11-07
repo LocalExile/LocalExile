@@ -6,7 +6,7 @@ using GameServer.Core.Protocol.Login;
 // Lockstep.Differences.cs, not here.
 static partial class Game
 {
-    // C→S 0x18e, 0x18f, 0x192, 0x195 and 0x196 on a connection that serves lockstep. They only change what the player asks
+    // C→S 0x18e, 0x18f, 0x192, 0x195 and 0x196, which a client sends only in lockstep. They only change what the player asks
     // for: everything starts in the frame pass, as on GGG's server, which answers a click at the next frame start and the
     // rest from the player's own tick. The offsets are from the client's cell, and GGG's target is that cell plus the
     // offset: where the cursor is (median 0.8 cells off over 5 300 requests, moving or not). The newest request wins. A request made during a
@@ -15,7 +15,7 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
-            conn.LockstepClient = true;
+            conn.NoteLockstepClient(remote);
             var here = LockstepClientCell(conn, conn.Clock.Elapsed.TotalSeconds);
             if (id == InstanceProtocol.LockstepMoveStartId)
             {
@@ -97,8 +97,8 @@ static partial class Game
                 conn.LockstepUse = null;
                 return;
             }
-            // Requests wait here until the round trip is known; on a refused connection none arrive.
-            if (!conn.LockstepLatency.Confirmed) return;
+            // A predictive client keeps its own walk: the frame pass is a lockstep client's only.
+            if (!conn.LockstepClient) return;
             at = Math.Max(frameStart, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
             StepWalkers(conn, at);
             conn.LockstepTrail.Enqueue((at, conn.Walk.Position(at)));

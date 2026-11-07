@@ -361,11 +361,11 @@ Success, in order:
 4. Click **Log In**, select your character, and click **Play**.
 5. You arrive in Lioneye's Watch. Click the ground to walk.
 
-**Set Network Mode to Predictive once** (Esc → Options → Game → Network Mode), then log out to the character screen
-and click Play again. The server supports only Predictive. With the default "auto", the client picks lockstep on
-localhost: your character is not drawn and does not move, and the server shows a message box saying so. The setting is
-saved in `Documents\My Games\Path of Exile\production_Config.ini` (`networking_type=predictive`), which your normal
-client shares.
+**Network Mode** (Esc → Options → Game → Network Mode) is the client's choice, and the server follows it. Predictive is
+the preferred mode; lockstep is served but partly working ([07](docs/protocol/07-latency-visibility-movement.md) §6).
+With the default "auto", the client picks lockstep on localhost, and the Gateway log says once that Predictive is
+preferred. To switch, change the option, log out to the character screen and click Play again. The setting is saved in
+`Documents\My Games\Path of Exile\production_Config.ini` (`networking_type=`), which your normal client shares.
 
 **League modes:** the existing creation screen's Hardcore, SSF and Ruthless choices select server rules.
 Selected modes change server rules; Hardcore Ruthless death is permanent.
@@ -452,7 +452,6 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data/tables` and `data/item-types.json` existed, and that empty kit was saved in `data\saves.db` | extract them, stop the Gateway, delete that character's row from `data\saves.db` (or move the whole DB aside to start over), run `live.ps1` again |
 | Character select shows no characters | the character was created after the login server started | run `live.ps1` again |
 | `dotnet build` / `dotnet test` fails with `MSB3027` ... `locked by: ".NET Host"` | the servers `live.ps1` started are running from the same `bin\` folders | let `live.ps1` rebuild them (`-Only Gateway` …), or build and test elsewhere with a short path: `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` |
-| In town, but your character is invisible and clicks do nothing | Network Mode is lockstep ("auto" picks it on localhost); the Gateway log says `lockstep movement` | Options → Game → Network Mode → Predictive, then log out to the character screen and Play again |
 | Stuck after Play (no area) | `Game_GATEWAY_ENTER` was set to something other than `1` | unset it; `live.ps1` sets it to `1` |
 | `HNC mask not found` in `live-gateway.err` | `Client\Game.exe` is not 3.29.3b | use the right client version |
 | Spawn in the sea or off the map | an area the server does not generate, with no walk map yet | use `-Walkmaps` (step 9) and enter the area again |
@@ -469,7 +468,6 @@ Environment variables, read when each server starts:
 |---|---|---|
 | `Game_GATEWAY_ENTER` | `1` (set by `live.ps1`) | `1` = enter the area after creating the player |
 | `Game_BIND` | `127.0.0.1` | address Auth and Gateway listen on |
-| `Game_LOCKSTEP` | off | serve a lockstep client: `1` on a connection confirmed as local, `network` on any connection ([07](docs/protocol/07-latency-visibility-movement.md) §6) |
 | `Game_LOGIN_PORT` | 20493 | login server port (must match step 6) |
 | `Game_GATEWAY_PORT` | 6112 | instance server port |
 | `Game_GATEWAY_HOST` | 127.0.0.1 | address (IP) Auth and the Gateway send the client for its first area and every area change |

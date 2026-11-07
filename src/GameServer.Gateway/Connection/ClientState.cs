@@ -1002,20 +1002,28 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// <summary>This connection placed or restored the instance's monsters, so it saves them when it closes.</summary>
     public bool MonstersPlaced;
     public volatile bool AiEnabled = true, Closed;
-    // Whether the lockstep warning was shown on this connection.
-    public bool WarnedLockstep;
-    // Confirmed local and opted in (LockstepLink): this connection answers a lockstep client (Game.RunLockstepFrames).
-    public bool LockstepServed { get; init; }
     // The client has shown it is in lockstep, by a lag byte in a tick or by a request. A predictive client's lag byte stays
-    // 0, so it is never probed and keeps its own messages.
+    // 0, so it is never probed and keeps its own messages. The client alone picks its Network Mode (07 §6): every
+    // connection serves both, and a player switches by changing it and entering again.
     public volatile bool LockstepClient;
+    int _lockstepNoted;
+
+    /// <summary>Marks the client as lockstep and, once per connection, logs that Predictive is the preferred mode.</summary>
+    public void NoteLockstepClient(string remote)
+    {
+        LockstepClient = true;
+        if (Interlocked.Exchange(ref _lockstepNoted, 1) == 0)
+            Console.WriteLine($"[gateway] {remote} the client's Network Mode is lockstep (\"auto\" picks it on a low round trip): " +
+                "served in lockstep, but lockstep is not currently the preferred networking mode; Predictive is " +
+                "(Options > Game > Network Mode, then log out to the character screen and Play again)");
+    }
     // What the default attack's last skill record was built for: a lockstep client (DefaultAttackRecordLockstep), and
     // the projectile whose count it carries (DefaultArrow or WandProjectile), which the client then draws itself
     // (Game.PlayerDefaultSkills); null when it carries none.
     public volatile bool DefaultAttackRecordLockstep;
     public volatile string? ClientDrawnShot;
     // The real round trip (LockstepLatency), its probe in flight (Stopwatch timestamp, 0 for none) and the next one's time.
-    public LockstepLatency LockstepLatency = null!;
+    public LockstepLatency LockstepLatency = new();
     public long LockstepProbeSentAt;
     // Where the player was at each recent frame start (Game.LockstepClientCell).
     public readonly Queue<(double At, (int X, int Y) Cell)> LockstepTrail = new();

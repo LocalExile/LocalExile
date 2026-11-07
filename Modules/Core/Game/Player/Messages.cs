@@ -289,19 +289,9 @@ static partial class Game
             }
             else if (InstanceProtocol.IsLockstepRequest(id))
             {
-                if (conn.LockstepServed && !conn.LockstepLatency.Refused)
-                {
-                    OnLockstepRequest(remote, conn, id, bytes);
-                    if (id == InstanceProtocol.LockstepMoveUpdateId) await AimLockstepChannel(remote, stream, ciphers, conn);
-                    continue;
-                }
-                // The client moves this way only in lockstep, which the Gateway does not serve yet (07 §6): say so once per
-                // connection.
-                if (conn.WarnedLockstep) continue;
-                conn.WarnedLockstep = true;
-                Console.WriteLine($"[gateway] {remote} <= 0x{id:x4} lockstep movement: the client's Network Mode is lockstep (\"auto\" picks it on localhost); " +
-                    "only Predictive is supported, the player cannot move");
-                await Send(remote, stream, ciphers, InstanceChat.MessageBox(LockstepWarning), "0x000d message box: lockstep warning");
+                // The client chose lockstep (07 §6): it is served as it asks.
+                OnLockstepRequest(remote, conn, id, bytes);
+                if (id == InstanceProtocol.LockstepMoveUpdateId) await AimLockstepChannel(remote, stream, ciphers, conn);
             }
             else if (id == InstancePause.RequestId)
                 await SetPaused(remote, stream, ciphers, conn, InstancePause.ReadRequest(bytes));
@@ -400,7 +390,7 @@ static partial class Game
                 if (command.Id == InstanceItems.DestroyCursorItemCommand) await DestroyHeldItem(remote, stream, ciphers, conn);
                 else if (command.Id == InstanceItems.WarpToHideoutCommand) await WarpToHideout(remote, stream, ciphers, conn, "/hideout");
                 else if (command.Id == InstanceItems.ForceResyncCommand) await SendResync(remote, stream, ciphers, conn, "the client asked");
-                else if (command.Id == InstanceItems.AfkCommand && conn.LockstepServed) AnswerLockstepProbe(remote, conn, readAt);
+                else if (command.Id == InstanceItems.AfkCommand && conn.LockstepClient) AnswerLockstepProbe(remote, conn, readAt);
                 else Console.WriteLine($"[gateway] {remote} <= 0x0016 command {command} (not handled)");
             }
             else if (id == InstanceWaypoints.VisitHideoutId)
@@ -703,7 +693,7 @@ static partial class Game
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     await Program.ServerHooks.AreaGenerated(PlayerOf(conn));
                     ActivateResourceEffects(conn, ProjectileWorldTime(conn));
-                    _ = conn.LockstepServed ? RunLockstepFrames(remote, stream, ciphers, conn) : RunServerFrames(remote, stream, ciphers, conn);
+                    _ = RunLockstepFrames(remote, stream, ciphers, conn);
                     Program.ActivatePlayerUpdates(conn);
                     _ = conn.RampageWorld;
                     lock (conn.Monsters)

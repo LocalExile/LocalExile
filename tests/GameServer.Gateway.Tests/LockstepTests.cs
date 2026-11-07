@@ -9,10 +9,6 @@ namespace GameServer.Gateway.Tests;
 
 public class LockstepTests
 {
-    static readonly IPEndPoint Local = new(IPAddress.Loopback, 6112), LocalV6 = new(IPAddress.IPv6Loopback, 6112),
-        Lan = new(IPAddress.Parse("192.0.2.10"), 6112);
-    const uint GivenLocal = 0x7f000001, GivenPublic = 0xcb007107;
-
     [Fact]
     public void A_walker_on_frames_starts_on_the_frame_and_stops_after_its_steps()
     {
@@ -302,39 +298,24 @@ public class LockstepTests
     }
 
     [Fact]
-    public void Only_a_connection_confirmed_as_local_is_served()
+    public void The_client_picks_its_mode_and_its_round_trip_only_aims()
     {
-        Assert.Equal(LockstepMode.Local, LockstepLink.ModeOf("1"));
-        Assert.Equal(LockstepMode.Network, LockstepLink.ModeOf("network"));
-        Assert.Equal(LockstepMode.Off, LockstepLink.ModeOf("0"));
-        Assert.Equal(LockstepMode.Off, LockstepLink.ModeOf(null));
-        Assert.True(LockstepLink.Confirmed(LockstepMode.Local, Local, Local, GivenLocal));
-        Assert.True(LockstepLink.Confirmed(LockstepMode.Local, LocalV6, LocalV6, GivenLocal));
-        Assert.False(LockstepLink.Confirmed(LockstepMode.Off, Local, Local, GivenLocal));
-        Assert.False(LockstepLink.Confirmed(LockstepMode.Local, Lan, Local, GivenLocal));
-        Assert.False(LockstepLink.Confirmed(LockstepMode.Local, Local, Lan, GivenLocal));
-        Assert.False(LockstepLink.Confirmed(LockstepMode.Local, Lan, Lan, GivenPublic));
-        // A tunnel on the server's side: from 127.0.0.1, but the client was told another address.
-        Assert.False(LockstepLink.Confirmed(LockstepMode.Local, Local, Local, GivenPublic));
-        Assert.False(LockstepLink.Confirmed(LockstepMode.Local, null, Local, GivenLocal));
-        Assert.True(LockstepLink.Confirmed(LockstepMode.Network, Lan, Lan, GivenPublic));
-        Assert.False(LockstepLink.Confirmed(LockstepMode.Off, Lan, Lan, GivenPublic));
-        var network = LockstepLatency.Unconditional();
-        for (int i = 0; i < LockstepLatency.Window; i++) network.Add(300);
-        Assert.True(network.Confirmed && !network.Refused && network.Settled);
+        // No server setting: a connection becomes lockstep only when its client shows it is, and at any round trip.
+        var conn = new ClientState(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1);
+        Assert.False(conn.LockstepClient);
+        conn.NoteLockstepClient("test");
+        conn.NoteLockstepClient("test");
+        Assert.True(conn.LockstepClient);
 
-        // A tunnel on both ends: the lowest round trip decides, by the client's own 70 and 90 ms, and only with enough of them.
-        var fast = LockstepLatency.For("fast");
-        for (int i = 0; i < LockstepLatency.Enough - 1; i++) fast.Add(104);
-        Assert.False(fast.Confirmed || fast.Refused);
-        Assert.True(fast.Add(12));
-        Assert.True(fast.Confirmed);
-        var slow = LockstepLatency.For("slow");
-        for (int i = 0; i < LockstepLatency.Enough; i++) slow.Add(95);
-        Assert.True(slow.Refused && !slow.Confirmed);
-        var between = LockstepLatency.For("between");
-        for (int i = 0; i < LockstepLatency.Window; i++) between.Add(80);
-        Assert.True(between.Refused);
+        var slow = new LockstepLatency();
+        Assert.True(double.IsNaN(slow.Lowest));
+        for (int i = 0; i < LockstepLatency.Enough - 1; i++) slow.Add(300);
+        Assert.False(slow.Settled);
+        slow.Add(250);
+        Assert.True(slow.Settled);
+        Assert.Equal(250, slow.Lowest);
+        for (int i = 0; i < LockstepLatency.Window; i++) slow.Add(LockstepLatency.Lost);
+        Assert.Equal(LockstepLatency.Lost, slow.Lowest);
     }
 
     [Fact]
