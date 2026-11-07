@@ -197,7 +197,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   and shows the way into the day's first room; the portal goes back to town. Each room is its own instance (the run
   picks its seed, so the server knows its node), its "entranceN" exits lead to its neighbours, Izaro's arena's way on
   is open (no fight yet), the glyph statues open the Labyrinth map (0x7b kind 0x0f) with the run's rooms (S→C 0x1cb),
-  and a statue by an exit also shows the room behind it, the way there in green (not yet checked live);
+  and a statue by an exit also shows the room behind it, the way there in green (checked live 2026-11-07);
   being anywhere else ends the run, and the plaza's door shuts again. Checked live 2026-11-03.
   In the last room's Ascendancy Chamber the font gives the tier's two ascendancy points and opens the class selector
   (0x7b kind 0x0a; the choice, C→S 0x39, is saved and the area reloads), and its portal goes back to town.
