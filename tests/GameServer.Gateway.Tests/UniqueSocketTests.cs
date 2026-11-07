@@ -17,12 +17,26 @@ public class UniqueSocketTests
             Assert.All(item.Sockets, socket => Assert.Null(socket.Gem));
         }
         // These layouts need their own implementation; the ordinary fallback must not invent two gem sockets.
-        foreach (string name in new[] { "Kaom's Heart", "Actum", "Loreweave", "Skin of the Loyal", "Tombfist", "Malachai's Artifice", "Mageblood" })
+        foreach (string name in new[] { "Kaom's Heart", "Actum", "Loreweave", "Tombfist", "Malachai's Artifice", "Mageblood" })
         {
             var item = Assert.IsType<Item>(uniques.Create(name, new Random(17)));
             Assert.Empty(item.Sockets);
             Assert.Null(item.Links);
         }
+        // Skin of the Loyal is the six-linked random-colour layout, and in 3.29 it cannot roll a white socket.
+        var loyal = Assert.IsType<Item>(uniques.Create("Skin of the Loyal", new Random(17)));
+        Assert.Equal(6, loyal.Sockets.Count);
+        Assert.Equal(new byte[] { 6 }, loyal.Links);
+        Assert.All(loyal.Sockets, socket => Assert.NotEqual(SocketColour.White, socket.Colour));
+        Assert.Equal(1, ItemModStats.Local(loyal, items.Mods).GetValueOrDefault("local_socketed_gem_level_+"));
+        Assert.NotEqual(0, ItemModStats.Sum([loyal], items.Mods).GetValueOrDefault("global_defences_+%"));
+        // Dialla's Malefaction has no fixed count: ordinary sockets, still never white.
+        var dialla = Assert.IsType<Item>(uniques.Create("Dialla's Malefaction", new Random(17)));
+        Assert.Equal(2, dialla.Sockets.Count);
+        Assert.Equal(new byte[] { 2 }, dialla.Links);
+        Assert.All(dialla.Sockets, socket => Assert.NotEqual(SocketColour.White, socket.Colour));
+        foreach (var robe in new[] { loyal, dialla })
+            Assert.Equal(1, ItemModStats.Local(robe, items.Mods).GetValueOrDefault("local_sockets_cannot_be_white"));
     }
 
     [Fact]
