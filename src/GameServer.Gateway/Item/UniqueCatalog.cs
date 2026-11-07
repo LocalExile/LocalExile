@@ -82,6 +82,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         ["Sidhebreath|Metadata/Items/Amulets/Amulet1"] = ["LevelRequirementOverrideUnique__1"],
         ["Stone of Lazhwar|Metadata/Items/Amulets/Amulet5"] = ["LevelRequirementOverrideUnique__5"],
         ["Sudden Dawn|Metadata/Items/Armours/Helmets/HelmetInt7"] = ["LevelRequirementOverrideUnique__3"],
+        ["Tabula Rasa|Metadata/Items/Armours/BodyArmours/BodyInt1"] = ["RemoveStatsFromTabulaRasa", "LevelRequirementOverrideUnique__1"],
         ["Tear of Purity|Metadata/Items/Amulets/Amulet5"] = ["LevelRequirementOverrideUnique__5"],
     };
 
@@ -166,7 +167,22 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
-        return item with { Mods = mods };
+        item = item with { Mods = mods };
+        if (definition.Name.Equals("Tabula Rasa", StringComparison.OrdinalIgnoreCase)
+            && definition.BaseTypeId == "Metadata/Items/Armours/BodyArmours/BodyInt1")
+            return item with
+            {
+                Sockets = Enumerable.Range(0, 6).Select(_ => new ItemSocket(SocketColour.White)).ToArray(),
+                Links = [6],
+            };
+        // The seed omits layout metadata. Do not invent an ordinary layout for socket-changing mods:
+        // fixed counts/colours, six-links and Abyss layouts still need their own generation rules.
+        var local = ItemModStats.Local(item, items.Mods);
+        if (local.Keys.Any(id => id is "local_has_no_sockets" or "local_has_X_sockets"
+            or "local_all_sockets_are_white" or "local_six_linked_random_sockets"
+            or "local_has_X_abyss_sockets" or "local_cannot_have_non_abyssal_sockets")) return item;
+        var (sockets, links) = items.DefaultSockets(type, item.ItemLevel, item.Quality, random);
+        return item with { Sockets = sockets, Links = links };
     }
 
     IEnumerable<ItemMod> Rolled(Definition definition, string[] ids, ModSection section, Random random)
