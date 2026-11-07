@@ -14,9 +14,18 @@ sealed class SoulEaterState
     /// <summary>The buff's source is present (the stat and a flask effect): kept by the stat build, read by kills.</summary>
     public bool Enabled { get; set; }
 
-    /// <summary>The buff instance the client has, and the count it was last told: a change sends 0x1c2 then 0x1c1.</summary>
+    public int Limit { get; private set; } = MaximumStacks;
+
+    public void SetMaximum(int maximum)
+    {
+        Limit = Math.Clamp(maximum, 0, ushort.MaxValue);
+        stacks = Math.Min(stacks, Limit);
+    }
+
+    /// <summary>The buff instance the client has, and the count it was last told.</summary>
     public ushort Buff { get; set; }
     public int SentStacks { get; set; }
+    public bool SentUsingFlask { get; set; }
     /// <summary>The "soul_eater_aura" instance (277): the EPK that draws the soul visuals, separate from the icon.</summary>
     public ushort AuraBuff { get; set; }
     /// <summary>The souls eaten since the last presentation (the dead object's id and its cell): the player tick sends
@@ -33,7 +42,7 @@ sealed class SoulEaterState
     public int Soul(double now)
     {
         Decay(now);
-        if (stacks < MaximumStacks) stacks++;
+        if (stacks < Limit) stacks++;
         lastSoul = now;
         return stacks;
     }
@@ -43,6 +52,7 @@ sealed class SoulEaterState
         stacks = 0;
         lastSoul = double.NegativeInfinity;
         Enabled = false;
+        Souls.Clear();
     }
 
     void Decay(double now)

@@ -1198,7 +1198,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   modifiers for area of effect (per 25 kills) and Chain Hook / Shield Charge attack speed (per 10 kills) count, and a
   kill grants the extra Vaal Soul while the streak is active. `gain_soul_eater_during_flask_effect` grants Soul Eater
   while a flask effect runs: 5% increased attack and cast speed and 1% character size per soul, one soul per kill
-  within 60 cells, at most 45, and one lost every 0.5 s after 4 s without a kill. The player gets its icon and count
+  within 60 cells, a base maximum of 45 plus item stack modifiers, and one lost every 0.5 s after 4 s without a kill.
+  The player gets its icon and count
   (`soul_eater_player`, 279) and the invisible `soul_eater_aura` (277), the client's `using_flask` flag is sent, and each
   soul draws the official `ServerBeamEffect` line from the corpse to the player (see
   [11-skills.md](../docs/protocol/11-skills.md) §12).

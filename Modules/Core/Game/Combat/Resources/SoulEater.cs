@@ -28,7 +28,13 @@ static partial class Game
     /// (a stat, not the server's evaluated stats): 1 while any effect is on. Soul Eater's soul visuals are one of them.</summary>
     internal static void WithUsingFlask(ClientState conn, Dictionary<uint, int> stats)
     {
-        if (AnyFlaskEffect(conn) && Stats.Key("using_flask") is uint key) stats[key] = 1;
+        if (Stats.Key("using_flask") is uint key) stats[key] = AnyFlaskEffect(conn) ? 1 : 0;
+    }
+
+    static int SoulEaterMaximum(IReadOnlyDictionary<uint, int> stats)
+    {
+        int bonus = Stats.Key("soul_eater_maximum_stacks_+") is uint key ? stats.GetValueOrDefault(key) : 0;
+        return (int)Math.Clamp(SoulEaterState.MaximumStacks + (long)bonus, 0, ushort.MaxValue);
     }
 
     internal static bool SoulEaterActive(ClientState conn, IReadOnlyDictionary<uint, int> stats) =>
@@ -38,6 +44,7 @@ static partial class Game
     internal static int SoulEaterAttackSpeed(ClientState conn, IReadOnlyDictionary<uint, int> stats)
     {
         if (!SoulEaterActive(conn, stats)) return 0;
+        conn.SoulEater.SetMaximum(SoulEaterMaximum(stats));
         return 5 * conn.SoulEater.Stacks(conn.Clock.Elapsed.TotalSeconds);
     }
 
@@ -47,12 +54,10 @@ static partial class Game
         bool active = SoulEaterActive(conn, stats);
         conn.SoulEater.Enabled = active;
         if (!active) { conn.SoulEater.Clear(); return; }
+        conn.SoulEater.SetMaximum(SoulEaterMaximum(stats));
         // The buff's ShowCount reads this virtual: the base maximum plus the Soul Ascension gloves' increase.
         if (Stats.Key("virtual_soul_eater_maximum_stacks") is uint maximumKey)
-        {
-            int bonus = Stats.Key("soul_eater_maximum_stacks_+") is uint bonusKey ? stats.GetValueOrDefault(bonusKey) : 0;
-            stats[maximumKey] = Math.Clamp(SoulEaterState.MaximumStacks + bonus, 0, ushort.MaxValue);
-        }
+            stats[maximumKey] = conn.SoulEater.Limit;
         int stacks = conn.SoulEater.Stacks(conn.Clock.Elapsed.TotalSeconds);
         if (stacks <= 0) return;
         void Add(string name, int amount)
@@ -90,11 +95,16 @@ static partial class Game
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
+            // Refresh the source before deciding what to publish. Recovery flasks can start/end without a soul gain.
+            var currentStats = CharacterPlayerStats(conn);
             double now = conn.Clock.Elapsed.TotalSeconds;
             bool active = conn.SoulEater.Enabled && conn.PlayerLife > 0;
+            bool usingFlask = Stats.Key("using_flask") is uint flaskKey && currentStats.GetValueOrDefault(flaskKey) != 0;
             int stacks = SoulEaterCount(conn, now);
             bool auraChanged = active != (conn.SoulEater.AuraBuff != 0);
-            if (!auraChanged && stacks == conn.SoulEater.SentStacks && conn.SoulEater.Souls.Count == 0) return null;
+            bool statsChanged = auraChanged || stacks != conn.SoulEater.SentStacks || usingFlask != conn.SoulEater.SentUsingFlask;
+            if (!active) conn.SoulEater.Souls.Clear();
+            if (!statsChanged && conn.SoulEater.Souls.Count == 0) return null;
             var bytes = new List<byte>();
             if (conn.SoulEater.Souls.Count > 0)
             {
@@ -107,11 +117,8 @@ static partial class Game
                         new BeamEffectObject(sx, sy, soulId, px * BeamEffectObject.WorldPerCell,
                             py * BeamEffectObject.WorldPerCell, PlayerId).Blob()));
                     bytes.AddRange(InstanceProtocol.EnterWakeZone(beam));
-                    SendAfter(0.6, async () =>
-                    {
-                        if (conn.Closed || conn.LeavingArea) return;
-                        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(beam), null);
-                    });
+                    // The connection owns the expiry so the replacement Game module can retire it after a reload.
+                    conn.TemporarySkillEffects[beam] = AreaTime(conn) + 0.6;
                 }
                 conn.SoulEater.Souls.Clear();
             }
@@ -142,12 +149,16 @@ static partial class Game
                     bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.SoulEater.Buff, SoulEaterBuffRow, PlayerId,
                         stacks: (ushort)Math.Min(ushort.MaxValue, stacks)));
                 }
+            }
+            if (statsChanged)
+            {
                 // Attack and cast speed are in the character's stats; the skill list carries the attack time the client
                 // swings with, so both go out when a soul is gained or lost.
                 bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
                 bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
                 conn.SoulEater.SentStacks = SoulEaterCount(conn, now);
-                Console.WriteLine($"[gateway] {CharacterName(conn)} Soul Eater {conn.SoulEater.SentStacks}/{SoulEaterState.MaximumStacks}");
+                conn.SoulEater.SentUsingFlask = usingFlask;
+                Console.WriteLine($"[gateway] {CharacterName(conn)} Soul Eater {conn.SoulEater.SentStacks}/{conn.SoulEater.Limit}");
             }
             return [.. bytes];
         }
