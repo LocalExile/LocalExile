@@ -17,6 +17,7 @@ public sealed class ChatModule : IModule
         var chat = new ChatService(module.Log);
         module.Lifetime.Own(chat);
         module.Lifetime.Own(ChatRoutes.Follow(chat.RouteChanged));
+        module.OnPacket(InstanceChat.LinkItemId, p => chat.Linked(ConnOf(p.Player), InstanceChat.ReadLinkItem(p.Bytes.Span)));
         module.OnPacket(InstanceChat.ChatId, p => chat.Typed(ConnOf(p.Player), InstanceChat.ReadChat(p.Bytes.Span)));
         module.OnPacket(InstanceChat.JoinChannelId, p => chat.Join(ConnOf(p.Player), p.Bytes));
         module.OnAreaGenerated(player => chat.Entered(ConnOf(player)));
@@ -30,6 +31,7 @@ sealed class ChatService : IDisposable
 {
     readonly ChatServer _local = new(IPAddress.Loopback, 0);
     readonly ConcurrentDictionary<string, ChatSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
+    readonly ConcurrentDictionary<ClientState, ConcurrentDictionary<byte, Item>> _linked = new();
 
     public ChatChannels Channels { get; } = new();
     public Action<string> Log { get; }
@@ -59,33 +61,64 @@ sealed class ChatService : IDisposable
         return session;
     }
 
+    // C→S 0x12: an item of the line the next 0x15 brings. Read here, so the line shows it as it is now.
+    public Task<bool> Linked(ClientState conn, InstanceChat.LinkItem link)
+    {
+        var stash = StashOf(conn);
+        IReadOnlyList<InventoryItem> items = stash.TabOf(link.InventoryId) is int tab ? stash.Inventory(tab).Items
+            : PlayerInventories.Row(link.InventoryId) is byte row ? ItemsOf(conn).Items(row) : [];
+        if (items.FirstOrDefault(i => i.Id == link.ItemId) is { } linked) _linked.GetOrAdd(conn, _ => new())[link.Index] = linked.Item;
+        else Log($"{conn.Wire.Remote} <= 0x0012 link of {link}: no such item");
+        return Task.FromResult(true);
+    }
+
+    // The linked items of a line, where they stand in its text: cut is what the text lost from the front of the typed line.
+    static IReadOnlyList<(int At, Item Item)> Placed(InstanceChat.ChatInput chat, ConcurrentDictionary<byte, Item>? linked, string text, int cut) =>
+        linked is null ? [] : [.. chat.Links.Select((link, index) => (At: (int)link - cut, Item: linked.GetValueOrDefault((byte)index)))
+            .Where(l => l.Item is not null && l.At >= 0 && l.At < text.Length && text[l.At] == ChatWire.ItemMark).Select(l => (l.At, l.Item!))];
+
+    static IReadOnlyList<ChatFrameItem>? FrameItems(ClientState conn, IReadOnlyList<(int At, Item Item)> placed, string text) =>
+        ChatWire.Items(text, [.. placed.Select(l => new ChatFrameItem(l.At, ChatItems.Write(l.Item, ItemsFor(conn))))]);
+
+    /// <summary>The items of a line from a chat server that this client can be shown: the others stay '_'.</summary>
+    public IReadOnlyList<ChatLineItem>? LineItems(ClientState conn, string text, IReadOnlyList<ChatFrameItem>? items)
+    {
+        if (ChatWire.Items(text, items) is not { } placed) return null;
+        var catalog = ItemsFor(conn);
+        return [.. placed.Select(i => (i.At, Wire: ChatItems.Wire(i.Item, catalog))).Where(i => i.Wire is not null).Select(i => new ChatLineItem((uint)i.At, i.Wire!))];
+    }
+
     // C→S 0x15 without a slash: a slash command is the Gateway's. The sender sees its own line as the server sends it back.
     public async Task<bool> Typed(ClientState conn, InstanceChat.ChatInput chat)
     {
+        _linked.TryRemove(conn, out var linked);
         if (chat.IsCommand) return false;
         string name = CharacterName(conn);
         Log($"{conn.Wire.Remote} <= 0x0015 chat \"{chat.Text}\"");
         var (channel, typed) = InstanceChat.SplitChannel(chat.Text);
         string text = ChatWire.Clean(typed);
         if (string.IsNullOrWhiteSpace(text)) return true;
+        int prefix = chat.Text.Length - typed.Length;
         switch (channel)
         {
             case TypedChannel.Local:
-                await SayLocally(conn, text, name);
+                await SayLocally(conn, text, name, [.. Placed(chat, linked, text, prefix).OrderBy(l => l.At).Take(ChatWire.MaxItems).Select(l => new ChatLineItem((uint)l.At, l.Item.Wire()))]);
                 break;
             case TypedChannel.Global or TypedChannel.Trade:
                 var kind = channel == TypedChannel.Global ? ChatChannelKind.Global : ChatChannelKind.Trade;
                 var session = Session(conn);
                 await session.Ready;
-                session.Send(new ChatFrame(ChatFrame.Say, Kind: kind, Text: text));
+                session.Send(ChatWire.Fitted(new ChatFrame(ChatFrame.Say, Kind: kind, Text: text, Items: FrameItems(conn, Placed(chat, linked, text, prefix), text))));
                 break;
             case TypedChannel.Whisper:
                 // "@Name the text".
                 int space = text.IndexOf(' ');
                 if (space <= 0 || text[(space + 1)..].Trim() is not { Length: > 0 } whisper) break;
+                int start = text.Length - text[(space + 1)..].TrimStart().Length;
                 var whispering = Session(conn);
                 await whispering.Ready;
-                whispering.Send(new ChatFrame(ChatFrame.Whisper, text[..space], Text: whisper));
+                whispering.Send(ChatWire.Fitted(new ChatFrame(ChatFrame.Whisper, text[..space], Text: whisper,
+                    Items: FrameItems(conn, Placed(chat, linked, whisper, prefix + start), whisper))));
                 break;
         }
         return true;
@@ -93,12 +126,12 @@ sealed class ChatService : IDisposable
 
     // Not through a chat server: who is in the area is this Gateway's to know. Each gets its own bytes, as a send encrypts
     // them in place: a second client given the same array read noise and crashed (live 2026-11-07).
-    static async Task SayLocally(ClientState conn, string text, string name)
+    static async Task SayLocally(ClientState conn, string text, string name, IReadOnlyList<ChatLineItem> items)
     {
         foreach (var other in InGame.Keys)
             if (other is { Controlled: false, Closed: false, Outbox: { } outbox } && ReferenceEquals(other.Instance.Presence, conn.Instance.Presence))
             {
-                try { await outbox(InstanceChat.ChatLine(text, name), $"0x0017 chat line from {name}"); }
+                try { await outbox(InstanceChat.ChatLine(text, name, items: items), $"0x0017 chat line from {name}"); }
                 catch (Exception e) when (e is IOException or ObjectDisposedException) { }
             }
     }
@@ -163,6 +196,7 @@ sealed class ChatService : IDisposable
     // An area change closes the connection too, and the next one takes the session over.
     public Task Leaving(ClientState conn, string why)
     {
+        _linked.TryRemove(conn, out _);
         if (why == "disconnected" && !conn.LeavingArea && conn.PendingTransfer is null
             && _sessions.TryGetValue(CharacterName(conn), out var session) && ReferenceEquals(session.Conn, conn)
             && _sessions.TryRemove(CharacterName(conn), out _))

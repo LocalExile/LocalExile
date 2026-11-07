@@ -593,7 +593,7 @@ static partial class Game
             else if (id == InstanceChat.ChatId)
             {
                 var chat = InstanceChat.ReadChat(bytes);
-                Console.WriteLine($"[gateway] {remote} <= 0x0015 chat \"{chat.Text}\" (u8 {chat.U8})");
+                Console.WriteLine($"[gateway] {remote} <= 0x0015 chat \"{chat.Text}\" ({chat.Links.Count} linked)");
                 // Plain lines are the Chat module's.
                 if (chat.IsCommand)
                 {
