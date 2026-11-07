@@ -18,6 +18,7 @@ static partial class Game
             values[name] = values.GetValueOrDefault(name) + value;
         }
         foreach (var (name, value) in golem.Auras) values[name] = values.GetValueOrDefault(name) + value;
+        foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
         int Get(string n) => GolemStat(player, n);
         if (!golem.Definition.IsGolem)
         {
@@ -53,7 +54,10 @@ static partial class Game
             * Math.Max(0, 1 + Own("support_minion_damage_minion_life_+%_final") / 100.0)
             * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(player, "life") / 100.0) : 1);
         if (golem.Definition.Kind is "Flame" or "Ice" or "Lightning" && GolemStat(player, "elemental_golems_maximum_life_is_doubled") > 0) more *= 2;
-        return (uint)Math.Clamp((Monsters.BaseLife(variety, level) ?? 100) * Math.Max(.01, 1 + increased / 100) * more, 1, int.MaxValue);
+        if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(player, "active_skill_non_reaper_minion_maximum_life_+%_final") / 100d);
+        increased += golem.Gear.GetValueOrDefault("maximum_life_+%");
+        return (uint)Math.Clamp(((Monsters.BaseLife(variety, level) ?? 100) + golem.Gear.GetValueOrDefault("base_maximum_life"))
+            * Math.Max(.01, 1 + increased / 100) * more, 1, int.MaxValue);
     }
 
     static double GolemShield(GolemState.Golem golem, IReadOnlyDictionary<uint, int> player) => golem.Monster is null ? 0
@@ -72,7 +76,7 @@ static partial class Game
             int Raw(string name) => GolemStat(raw, name);
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
             double seconds = (spell || Raw("cast_time_overrides_attack_duration") != 0) && catalog.CastTimeMs(effect) > 0
-                ? catalog.CastTimeMs(effect) / 1000.0 : variety.AttackMs / 1000.0;
+                ? catalog.CastTimeMs(effect) / 1000.0 : (golem.Weapon?.AttackMs ?? variety.AttackMs) / 1000.0;
             double speed = 1 + (spell ? mods["cast_speed_+%"] + mods["attack_and_cast_speed_+%"] : mods["attack_speed_+%"] + Raw("attack_speed_+%")) / 100.0;
             speed *= Math.Max(.01, 1 + Raw(spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100.0);
             if (!spell) speed *= Math.Max(.01, 1 + catalog.AttackSpeedMultiplier(effect, skillLevel) / 100.0);
@@ -85,10 +89,11 @@ static partial class Game
                     int min = Raw($"spell_minimum_base_{slug}_damage"), max = Raw($"spell_maximum_base_{slug}_damage");
                     if (max > 0) damage = damage.Add(type, new(min, max));
                 }
-            else
+            else if (catalog.IsAttack(effect) && Raw("base_deal_no_damage") == 0)
             {
                 var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
-                damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(multiplier);
+                damage = (golem.Weapon is { } equipped ? equipped.LocalDamage ?? DamagePacket.Of(DamageType.Physical, equipped.MinDamage, equipped.MaxDamage)
+                    : DamagePacket.Of(DamageType.Physical, min, max)).Scale(multiplier);
             }
             if (effect == 5268 && damage.MaxTotal <= 0)
             {
@@ -110,11 +115,13 @@ static partial class Game
                 conversion.AddGlobal(DamageType.Physical, type, mods[$"physical_damage_%_to_convert_to_{slug}"]);
                 conversion.AddGain(DamageType.Physical, type, mods[$"physical_damage_%_to_add_as_{slug}"]);
             }
+            var rawDamage = damage;
             double more = Math.Max(0, 1 + Own("active_skill_minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Own("support_minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Own("minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Raw("active_skill_damage_+%_final") / 100.0)
                 * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(player, "damage") / 100.0) : 1);
+            if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(player, "active_skill_non_reaper_minion_damage_+%_final") / 100d);
             var types = new HashSet<int>();
             if (spell) types.Add(1); else { types.Add(0); types.Add(19); }
             if (Raw("is_area_damage") != 0) types.Add(7);
@@ -140,6 +147,7 @@ static partial class Game
             damage = modified;
             string id = catalog.EffectId(effect) ?? "";
             double range = spell ? Math.Max(20, 70 * (1 + Raw("spell_maximum_action_distance_+%") / 100.0)) : variety.AttackRange;
+            if (!spell && golem.Weapon is { } weapon) range = weapon.Melee ? weapon.Range : 70;
             if (id.Contains("Whirling", StringComparison.Ordinal) || id.Contains("Cyclone", StringComparison.Ordinal) || id.Contains("Leap", StringComparison.Ordinal)) range = 45;
             double radius = Raw("active_skill_base_area_of_effect_radius");
             if (radius <= 0) radius = id.Contains("Slam", StringComparison.Ordinal) ? 15 : 10;
@@ -150,11 +158,24 @@ static partial class Game
             var projectile = catalog.MonsterProjectile(effect);
             // Ice spear / Flame spray are named active skills rather than monster_projectile_spell rows.
             projectile ??= GolemProjectile(effect, catalog);
+            if (!spell && golem.Weapon is { Melee: false } ranged)
+                projectile ??= new(ranged.WieldingWand ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
             var contact = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, level, projectile);
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
                 (GolemStat(player, "minion_cooldown_recovery_+%") + (golem.Definition.IsGolem ? GolemStat(player, "golem_skill_cooldown_recovery_+%") : 0) + Own("minion_cooldown_recovery_+%")) / 100.0);
-            result.Add(new(effect, skill, id, attack, raw, radius, cd, Math.Max(1, catalog.CooldownUses(effect, skillLevel)),
-                Math.Clamp(contact?.Fraction ?? .5, .05, 1), projectile, crit));
+            var ability = new GolemState.Ability(effect, skill, id, attack, raw, radius, cd, Math.Max(1, catalog.CooldownUses(effect, skillLevel)),
+                Math.Clamp(contact?.Fraction ?? .5, .05, 1), projectile, crit);
+            result.Add(ability);
+            int AilmentStat(string name) => mods[name] + Raw(name) + (name == "critical_ailment_dot_multiplier_+" ? 50 : 0);
+            string hand = spell ? "spell" : "main_hand";
+            var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null), rawDamage.Scale(more), conversion, AilmentStat);
+            var ignite = MonsterIgnites.Settings.From(rows, hand, AilmentStat);
+            var bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(rows, hand, AilmentStat, golem.Weapon?.LocalSources, projectile is null, projectile is not null);
+            double bleedMore = Math.Max(0, 1 + Own("active_skill_minion_bleeding_damage_+%_final") / 100d);
+            bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore, CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
+            var poison = MonsterPoisons.Settings.From(rows, hand, AilmentStat, golem.Weapon?.LocalSources);
+            int chance = AilmentStat("base_chance_to_poison_on_hit_%") + AilmentStat(spell ? "spells_chance_to_poison_on_hit_%" : "chance_to_poison_on_hit_with_attacks_%") + poison.WeaponChance;
+            MinionAilmentProfiles.Add(ability, new(ignite, bleed, poison, chance));
         }
         return result;
     }
@@ -197,10 +218,12 @@ static partial class Game
     {
         golem.Auras = MinionAuraStats(conn, golem);
         var hash = new HashCode();
+        hash.Add(CombatLifetime);
         foreach (var p in player.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         foreach (var p in golem.Own.OrderBy(p => p.Key)) hash.Add(p);
         foreach (var p in golem.Auras.OrderBy(p => p.Key)) hash.Add(p);
+        foreach (var p in golem.Gear.OrderBy(p => p.Key)) hash.Add(p);
         int input = hash.ToHashCode();
         if (input == golem.InputHash) return;
         golem.InputHash = input;

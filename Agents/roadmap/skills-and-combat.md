@@ -305,14 +305,15 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Fifteen native controls verify installed pairs, actual bonuses/Mana, refusal, restoration, relog and death.
   Native grey-icon prediction and persistent restricting equipment remain separate verification.
   Duplicate-instance support context and queued ordinary acknowledgements have separate regression controls.
-  Ordinary player and controlled-fighter aura sharing is implemented; unsupported curse/enemy/banner/Vaal executors remain separate.
+  Ordinary player and controlled-fighter aura sharing, Life reservation and Blasphemy hex execution are implemented;
+  remaining enemy/banner/Vaal executors are separate.
   Passive enemy auras send and apply only hit conversions so far ([11](../docs/protocol/11-skills.md) section 10e);
   the others (Overwhelm, the Occultist's) need consumers for their stats first.
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous
-  Fire's); banners, curse auras and unsupported conditional effects. Verify the complete herald combat matrix,
-  retail Virulence decay and Skitterbot trap/mine triggering when placed skills have an executor.
+  Fire's); banners and unsupported conditional effects. Verify the complete herald combat matrix,
+  retail Virulence decay and the skill-specific trap/mine payloads beyond the shared Skitterbot trigger/rearm lifecycle.
   The skill-bar indicator's buff association is implemented (0x1c1 bit3; live check pending, see Status).
-  Support gems come with the gem system ("Gems" below); Life reservation still needs its own pool lifecycle.
+  Support gems come with the gem system ("Gems" below); Life reservation has its own budget and recovery lifecycle.
 - **Done when:** the standard auras reserve correctly, their effects match PoB, and the character panel and HUD show
   the same reserved and unreserved values.
 

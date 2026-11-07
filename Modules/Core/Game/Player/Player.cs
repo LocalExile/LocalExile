@@ -44,17 +44,19 @@ static partial class Game
             {
                 var supported = SupportedSkill(conn, gem.Id);
                 var (supportEffect, affectsSelf) = AuraSupport(conn, gem.Id);
+                var context = ReservationContext(conn, gem.Id);
                 string? stance = AuraCatalog.IsStance(effect) ? conn.Stance : null;
                 candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.NextBuff++, AuraCatalog.BuffRow(effect, stance),
                     reservation.Flat, reservation.Percent, supported.Level, supported.Quality,
-                    SourceBuff: SkillsFor(conn).IsAura(gem.Effect) ? conn.NextBuff++ : null,
-                    SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance));
+                    SourceBuff: OwnAuraRestriction.IsAura(supported.Stats) ? conn.NextBuff++ : null,
+                    SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
+                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency));
             }
         var restored = new List<AuraCatalog.Aura>();
         foreach (var aura in AuraCatalog.Restore(saved, candidates, conn.Pools, InTown(conn)))
         {
             conn.Auras[aura.SkillId] = aura;
-            if (RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent) > conn.Pools.Mana)
+            if (!ReservationBudgetFits(conn))
                 conn.Auras.Remove(aura.SkillId);
             else restored.Add(aura);
         }
@@ -65,6 +67,7 @@ static partial class Game
             conn.ApplyMovementSpeed();
             conn.PlayerMana = Math.Min(conn.PlayerMana,
                 (uint)UnreservedMana(conn));
+            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
             Console.WriteLine($"[gateway] {CharacterName(conn)}: restored saved auras: {string.Join(", ", restored.Select(a => a.EffectId))}");
         }
         return restored;
@@ -178,7 +181,7 @@ static partial class Game
         {
             lock (conn.Monsters)
                 return !conn.Closed && !conn.LeavingArea && conn.PlayerLife == 0 && conn.IncomingHitEpoch == deathEpoch
-                    ? [.. InstanceProtocol.LifeUpdate(PlayerId, 0),
+                    ? [.. InstanceProtocol.LifeUpdate(PlayerId, 0, conn.PlayerReservedLife),
                         .. InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                         .. InstanceProtocol.DeathScreen(DeathScreenFlags(conn))] : null;
         });
@@ -190,7 +193,7 @@ static partial class Game
         {
             EnsureOwnAuraPools(conn);
             return Math.Min((int)conn.Pools.Mana, AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values)
-                + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood));
+                + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood) + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false));
         }
     }
 
@@ -227,7 +230,7 @@ static partial class Game
         if (lifeCost > 0)
             await Send(remote, stream, ciphers, [], log, atGate: () =>
             {
-                lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife);
+                lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife);
             });
         await SendPlayerMana(remote, stream, ciphers, conn, log);
     }
@@ -729,7 +732,7 @@ static partial class Game
                 }
                 else
                 {
-                    leech.ClearFull(now, lifeBefore >= conn.PlayerMaxLife, manaBefore >= manaCap,
+                    leech.ClearFull(now, lifeBefore >= conn.PlayerUnreservedLife, manaBefore >= manaCap,
                         conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
                     var leeched = leech.TakeRecovery(now);
                     int IncomingStat(string name) => RecoveryStat(name);
@@ -762,7 +765,7 @@ static partial class Game
                         + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife) + recoupLife;
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(conn, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
                     uint afterBurn = (uint)Math.Max(1, (long)afterNonFlask - lifeBurn);
-                    conn.PlayerLife = lifeAfter = RecoveryPool.Advance(afterBurn, conn.PlayerMaxLife, life, ref flaskCarry);
+                    conn.PlayerLife = lifeAfter = RecoveryPool.Advance(afterBurn, conn.PlayerUnreservedLife, life, ref flaskCarry);
                     // Trap degeneration can kill; keep the same current-owner recovery and death publication gates.
                     if (lifeTrap > 0 && !HardcoreProgressBlocked(conn))
                     {
@@ -803,7 +806,7 @@ static partial class Game
                             (pbRateChanged, pbRateBlocked) = (true, recoveryBlocked);
                         }
                         manaAfter = conn.PlayerMana;
-                        leech.ClearFull(now, lifeAfter >= conn.PlayerMaxLife, manaAfter >= manaCap,
+                        leech.ClearFull(now, lifeAfter >= conn.PlayerUnreservedLife, manaAfter >= manaCap,
                             conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
                     }
                 }
@@ -834,11 +837,11 @@ static partial class Game
             if (rf is not null && lifeAfter == 1 && conn.EnergyShield.Current == 0)
                 await EndRighteousFire(remote, stream, ciphers, conn, "one life and no energy shield");
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            if ((lifeAfter != lifeBefore || instantLifeChanged) && ailmentDeathEpoch is null) await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, lifeAfter), null);
+            if ((lifeAfter != lifeBefore || instantLifeChanged) && ailmentDeathEpoch is null) await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, lifeAfter, conn.PlayerReservedLife), null);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (manaAfter != manaBefore || instantManaChanged) await SendPlayerMana(remote, stream, ciphers, conn, null);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            bool lifeFull = lifeAfter == conn.PlayerMaxLife, manaFull = manaAfter == manaCap;
+            bool lifeFull = lifeAfter == conn.PlayerUnreservedLife, manaFull = manaAfter == manaCap;
             lock (conn.Monsters)
             {
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
@@ -1054,7 +1057,7 @@ static partial class Game
             if (conn.PlayerLife > 0) return;
             conn.InvalidateIncomingHits();
             LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
-            conn.PlayerLife = conn.PlayerMaxLife;
+            conn.PlayerLife = conn.PlayerUnreservedLife;
             conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
             conn.HitRecovery.Clear();
             conn.Ward.SetMaximum(conn.Pools.Ward); conn.Ward.Restore();
@@ -1075,7 +1078,7 @@ static partial class Game
             return;
         }
         // Revive first: a teleport sent while the player is dead left them where they died (live 2026-10-17).
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMaxLife),
+        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
             $"0x01b1 player revived with {conn.PlayerMaxLife} life");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
         // Death may have published false full-pool conditions while the player ticker kept its pre-death chance.
@@ -1126,7 +1129,7 @@ static partial class Game
                 () => CharacterSaves.Load(CharacterName(conn))?.Tutorial);
         var player = new PlayerObject(string.IsNullOrEmpty(name) ? "Exile" : name, ClassIndex: PackedClass(conn), GridX: layout.SpawnX, GridY: layout.SpawnY, Life: conn.PlayerLife, EnergyShield: conn.EnergyShield.Current,
             Mana: (uint)Math.Min(conn.PlayerMana, (uint)Math.Max(0, (int)pools.Mana - reservedMana)), ManaReserved: (uint)reservedMana,
-            Experience: conn.Experience,
+            Experience: conn.Experience, LifeReserved: conn.PlayerReservedLife,
             AnimatedObject: Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? cls.AnimatedObject,
             Skills: [.. SkillsFor(conn).PlayerDefaults(weaponStats), .. GemSkills(conn, [.. weaponStats, .. statList], characterInputs, panelSources!)], Stats: [.. weaponStats, .. statList],
             Equipped: Looks(conn, PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn))),

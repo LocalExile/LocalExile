@@ -46,12 +46,14 @@ static partial class Game
         lock (conn.Monsters)
         {
             var session = LeechOf(conn);
-            if (conn.PlayerLife == 0 || session.OnKill == default) return;
+            if (conn.PlayerLife == 0) return;
             // The corpse keeps its killing hit's ailments (wiki Ailment: they count as killing an affected enemy); a
             // shattered one kept only that it was frozen.
             double now = ProjectileWorldTime(conn);
             var k = session.OnKill.For(m.Ignites.Burning || m.Ignites.DiedBurning, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
                 m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
+            k = k with { Life = k.Life + (session.RecoversLife ? m.Curses["life_granted_when_killed"] : 0),
+                Mana = k.Mana + m.Curses["mana_granted_when_killed"] };
             static double Amount(int flat, int pct, uint maximum) => Math.Max(0, Math.Floor(flat + maximum * (double)pct / 100));
             uint life = conn.PlayerLife, mana = conn.PlayerMana;
             conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, life,

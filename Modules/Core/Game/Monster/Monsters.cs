@@ -68,7 +68,7 @@ static partial class Game
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
         IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
         IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null,
-        MonsterModSet? extraMods = null, bool scripted = false)
+        MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null, Func<bool>? ownedAdmission = null)
     {
         uint id;
         // Under the lock the projectile visuals and ground art take ids under: minions spawn from their own loop.
@@ -193,7 +193,7 @@ static partial class Game
         var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, states, MonsterEmerge.CreateState(variety, emerge, waits), team,
             skills, stats)
         {
-            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation,
+            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks,
         };
         // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2b9 type is its hash.
         if (QuestKillCommitOutput is { } output)
@@ -224,6 +224,7 @@ static partial class Game
                 using (ProjectileMutation(conn))
                 {
                     if (!CurrentGameWork || conn.Closed || conn.LeavingArea || ownedCurrent is not null && !ownedCurrent()) return null;
+                    if (ownedAdmission is not null && !ownedAdmission()) return null;
                     AddMonsterLocked(); admitted = true;
                     return [.. create, .. InstanceProtocol.EnterWakeZone(id)];
                 }
@@ -1086,7 +1087,7 @@ static partial class Game
         {
             lock (conn.Monsters)
                 if (!MonsterPresent(conn, id, m) || m.Invulnerable || m.HitAnimations is not { Count: > 0 }
-                    || m.Mods.Effects.CannotBeStunned || HitReaction.Chance(stun, m.MaxLife) <= 0) return;
+                    || m.Effects.CannotBeStunned || HitReaction.Chance(stun, m.MaxLife) <= 0) return;
             bool checkedAtGate = false;
             await Send(remote, stream, ciphers, [], null, atGate: () =>
             {
@@ -1348,7 +1349,7 @@ static partial class Game
         // The monster's accuracy comes from DefaultMonsterStats at its level. Evasion uses PoE's shared entropy
         // counter: every attack adds its hit chance, and reaching 100 consumes 100 and hits (evasion cannot streak
         // indefinitely). A new counter starts after 3.33 s without an attack.
-        int baseAccuracy = m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
+        int baseAccuracy = m.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
         int monsterAccuracy = MonsterBlindRating(conn, id, m, baseAccuracy, now, stats);
         int evasion = TimedBlind.Apply(PlayerEvasionBase(conn, now), PlayerBlindValue(conn, stats).Less);
         int hitChance = DamageModel.AccuracyHitChance(evasion, monsterAccuracy);
@@ -1482,7 +1483,7 @@ static partial class Game
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
         if (GameServer.Core.World.RandomRolls.Chance(StatOf("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
-            m.Ailments.Freeze(1, now, StatOf, name => m.Mods.Effects[name], AilmentArea(StatOf, _ => 0, spell: false));
+            m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false));
         AilmentsWhenHitLocked(m, StatOf, blocked, now);
         ReservationWhenHitLocked(conn, id, m, blocked, now);
         if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
@@ -1497,10 +1498,10 @@ static partial class Game
             Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
                 + $"alive={life > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
         RageWhenHitLocked(conn);
-        if (!blocked && conn.PlayerLife > 0 && m.Mods.Effects["global_chance_to_blind_on_hit_%"] is > 0 and var blindChance
+        if (!blocked && conn.PlayerLife > 0 && m.Effects["global_chance_to_blind_on_hit_%"] is > 0 and var blindChance
             && (blindChance >= 100 || conn.IncomingHitRandom.Next(100) < blindChance))
-            InflictPlayerBlind(conn, 4 * Math.Max(0, 1 + m.Mods.Effects["blind_duration_+%"] / 100d),
-                m.Mods.Effects["blind_effect_+%"], stats);
+            InflictPlayerBlind(conn, 4 * Math.Max(0, 1 + m.Effects["blind_duration_+%"] / 100d),
+                m.Effects["blind_effect_+%"], stats);
         // The hit packet carries this outcome's presentation and is processed at once (kind 3): 0x4000 particles,
         // 0x0200 main hand, 0x0001 blood, 0x0040 blocked, 0x0020 critical, code = the largest damage component.
         // The 3.29.3b decode (action-hit-packet-3.29.3b.md §§1–4) shows kind 2 only queues the package until an
@@ -1526,7 +1527,7 @@ static partial class Game
         if (hit.Life == 0)
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                 "0x01b3 player hide_mini_life_bar = 1");
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, hit.Life),
+        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, hit.Life, conn.PlayerReservedLife),
             $"0x01b1 player hit by monster 0x{id:x} for {hit.Damage}{(hit.Critical ? " (critical)" : "")}" +
             $"{(hit.RawDamage != hit.Damage ? $" ({hit.RawDamage} physical before {DamageModel.ArmourReduction(hit.Armour.EffectiveArmour, hit.RawDamage)}% armour, effective rating {hit.Armour.EffectiveArmour})" : "")}" +
             $"{(hit.Blocked ? " (blocked)" : "")}, life {hit.Life}/{conn.PlayerMaxLife}{(hit.Life == 0 ? " (dies)" : "")}");
@@ -1553,7 +1554,7 @@ static partial class Game
     // player's current reduced attack speed (Pools.AttackerSlowPct), additive with its own increases.
     internal static double MonsterSwingSeconds(ClientState conn, SpawnedMonster m, double now) =>
         m.Attack is not { } a ? 0
-        : now - m.HitPlayerAt <= RecentlySeconds ? m.Mods.Effects.AttackSeconds(a.Seconds, conn.Pools.AttackerSlowPct) : a.Seconds;
+        : now - m.HitPlayerAt <= RecentlySeconds ? m.Effects.AttackSeconds(a.Seconds, conn.Pools.AttackerSlowPct) : a.Seconds;
 
     // The attack stats on a monster's Stats component (it carries them from its creation, 11-skills.md §6) again when
     // its attack time changes or goes back, so the client's swing can follow the server's. Called from the player tick

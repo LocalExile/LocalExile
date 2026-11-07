@@ -167,6 +167,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public MonsterRarity Rarity { get; init; }
     // Its mods (MonsterMods.cs): the rarity's own and the rolled affixes, with what they change. Kept with the instance.
     public MonsterModSet Mods { get; set; } = MonsterModSet.None;
+    public readonly MonsterCurses Curses = new();
+    public MonsterModEffects Effects => Curses.Effects(Mods.Effects);
     // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
     public int SpeedRoll { get; init; }
     // Damage over time not yet applied (fractions of a point between ticks).
@@ -755,6 +757,16 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     }
     ushort nextBuff = 1;
     public uint PlayerMaxLife => Pools.Life;
+    public uint PlayerReservedLife
+    {
+        get
+        {
+            lock (Monsters) return (uint)Math.Min(Pools.Life,
+                (long)AuraCatalog.RequiredLife(Pools, Auras.Values) + global::PetrifiedBlood.RequiredLife(Pools, PetrifiedBlood)
+                + PlacedSkills.Reserved(Pools, Placed.All.Values, true));
+        }
+    }
+    public uint PlayerUnreservedLife => Pools.Life - PlayerReservedLife;
     // The player's life as the server keeps it (PlayerObject's Life, full on creation); 0 = dead.
     public bool AuraDeathHandled;
     uint playerLife;

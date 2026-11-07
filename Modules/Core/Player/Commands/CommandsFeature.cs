@@ -120,7 +120,7 @@ static class CommandsFeature
                         if (rawAttribute || rebuildLife || rebuildMana)
                         {
                             uint lifeBefore = conn.PlayerLife, manaBefore = conn.PlayerMana;
-                            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+                            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
                             conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
                             lifeClamped = conn.PlayerLife != lifeBefore;
                             manaClamped = conn.PlayerMana != manaBefore;
@@ -152,19 +152,19 @@ static class CommandsFeature
                 // Skill refresh can restore an aura or update its reservation; use those completed caps too.
                 lock (conn.Monsters)
                 {
-                    conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+                    conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
                     conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
                 }
                 // A raw pool change can alter reservation while current mana stays idle. Sample resources only after
                 // earlier queued sends, and never refill or resurrect a character when a maximum grows.
                 await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
-                    () => InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife), "raw attribute current life");
+                    () => InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), "raw attribute current life");
                 await SendPlayerMana(remote, stream, ciphers, conn, "raw attribute mana reservation");
             }
             if (!rawAttribute && (rebuildLife || lifeClamped))
                 await Send(remote, stream, ciphers, [], "0x01b1 life after raw source rebuild", atGate: () =>
                 {
-                    lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife);
+                    lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife);
                 });
             // Reservation can change with maximum mana even when recovery leaves current mana unchanged.
             if (!rawAttribute && (rebuildMana || manaClamped))
@@ -1135,7 +1135,7 @@ static class CommandsFeature
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                     "0x01b3 player hide_mini_life_bar = 1 (dev hit)");
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                 $"0x01b1 player dev {type} hit for {dealt} ({amount} before {mitigation}), life {life}/{conn.PlayerMaxLife}");
             if (hit.Mana != hit.ManaBefore)
                 await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})");
@@ -1221,15 +1221,16 @@ static class CommandsFeature
             lock (conn.Monsters)
             {
                 auras = [.. conn.Auras.Values];
-                reserved = AuraCatalog.ReservedMana(conn.Pools, auras);
+                reserved = ReservedMana(conn);
                 maxMana = (int)conn.Pools.Mana;
                 efficiency = conn.Pools.ManaReservationEfficiencyPct;
                 auraEffect = conn.Pools.AuraEffectPct;
             }
             string list = auras.Count == 0 ? "none" : string.Join(", ", auras.Select(a =>
-                $"{a.Name} ({a.ManaFlat} flat, {a.ManaPercent / 100.0:0.##}%)"));
+                $"{a.Name} ({a.ManaFlat} flat, {a.ManaPercent / 100.0:0.##}% {(a.ReservesLife ? "life" : "mana")})"));
             await conn.Commands!.Reply($"Auras: {list}. Mana {conn.PlayerMana}/{maxMana}, {reserved} reserved " +
-                $"({maxMana - reserved} unreserved); reservation efficiency {efficiency}%, aura effect {auraEffect}%.");
+                $"({maxMana - reserved} unreserved); Life {conn.PlayerLife}/{conn.PlayerMaxLife}, {conn.PlayerReservedLife} reserved. " +
+                $"Reservation efficiency mana {efficiency}%, life {conn.Pools.LifeReservationEfficiencyPct}%, aura effect {auraEffect}%.");
         })
         .Add("spellhit", "/spellhit <fire|cold|lightning|chaos|physical> <damage> (dev: spell hit through resistance and Spell Suppression)", async args =>
         {
@@ -1248,7 +1249,7 @@ static class CommandsFeature
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                     "0x01b3 player hide_mini_life_bar = 1 (dev spell hit)");
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                 $"0x01b1 player dev spell {type} hit for {dealt} ({amount} before {mitigation}, suppression {(suppressed ? "yes" : "no")}), life {life}/{conn.PlayerMaxLife}");
             if (hit.Mana != hit.ManaBefore)
                 await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})");
@@ -1308,7 +1309,7 @@ static class CommandsFeature
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                     "0x01b3 player hide_mini_life_bar = 1 (dev block hit)");
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                 $"0x01b1 player dev {(spell ? "spell" : "attack")} hit for {dealt} ({(blocked ? "blocked" : mitigation)}), life {life}/{conn.PlayerMaxLife}");
             if (mana != manaBefore)
                 await SendPlayerMana(remote, stream, ciphers, conn,
@@ -1336,8 +1337,8 @@ static class CommandsFeature
         })
         .Add("heal", "/heal (full life; also revives: 0x1b1 from 0 runs the client's revive)", async _ =>
         {
-            lock (conn.Monsters) { (conn.PlayerLife, conn.PlayerMana) = (conn.PlayerMaxLife, (uint)UnreservedMana(conn)); conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); }
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMaxLife),
+            lock (conn.Monsters) { (conn.PlayerLife, conn.PlayerMana) = (conn.PlayerUnreservedLife, (uint)UnreservedMana(conn)); conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); }
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
                 $"0x01b1 player healed to {conn.PlayerMaxLife}");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 0)]),

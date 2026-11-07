@@ -33,6 +33,7 @@ static class GameDataFiles
         ("data/tables/LabyrinthTrials.json", "the Trials of Ascendancy (their areas and completion flags)"),
         ("data/tables/GrantedEffectStatSets.json", "the Labyrinth spike traps' damage (LbRetractableTrap)"),
         ("data/tables/GameConstants.json", "golem actor-level spell damage scaling"),
+        ("data/tables/SkillTrapVariations.json", "native placed-trap object identities"),
         ("data/tables/BuffDefinitions.json", "the Labyrinth spike traps' bleeding buff"),
         ("data/tables/MapFragmentMods.json", "map scarabs and fragments"),
         ("data/tables/MapDeviceRecipes.json", "map device recipes (Maven, Atziri)"),
@@ -67,7 +68,7 @@ static class GameDataFiles
     /// entry, the version that added it): with an older one the feature runs without it, silently.</summary>
     public static readonly (string Entry, int Version, string Feature)[] Needed =
     [
-        ("tables", 3, "Kirac progression and gold refresh prices"),
+        ("tables", 4, "Kirac progression, gold refresh prices and native trap identities"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
         ("animation-contacts", 4, "class rig animation indices for 0x1b2 cast clips: without them run casts have no character animation"),

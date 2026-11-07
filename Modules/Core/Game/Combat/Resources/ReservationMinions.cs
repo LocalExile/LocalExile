@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 static partial class Game
 {
     static GolemState.Golem? OwnedFighter(ClientState conn, uint id) =>
-        conn.Golems.All.GetValueOrDefault(id) ?? conn.Reservations.Fighters.GetValueOrDefault(id);
+        conn.Golems.All.GetValueOrDefault(id) ?? conn.Reservations.Fighters.GetValueOrDefault(id) ?? conn.Summons.Fighters.GetValueOrDefault(id);
 
     static Dictionary<uint, int> ReservationMinionStats(ClientState conn, AuraCatalog.Aura aura, string kind)
     {
@@ -124,14 +124,19 @@ static partial class Game
                     fighter.Own = ReservationMinionStats(conn, aura, fighter.Definition.Kind);
                     RefreshGolemLocked(conn, fighter, player!);
                 }
-                GolemStepLocked(remote, stream, ciphers, conn, fighter, now);
+                var pending = fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) && now >= fighter.NextOrb
+                    ? conn.Placed.All.Values.Where(p => !p.SkitterTriggered && now >= p.Armed
+                        && Dist(p.At, conn.Walk.Position(now)) <= 100).MinBy(p => Dist(p.At, fighter.Monster.Walk.Position(now))) : null;
+                if (pending is not null) GolemMoveLocked(conn, fighter, pending.At, now);
+                else GolemStepLocked(remote, stream, ciphers, conn, fighter, now);
                 if (!fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal)) continue;
                 bool cold = fighter.Definition.Kind == "SkitterCold";
                 foreach (var monster in conn.Monsters.Values)
                     if (monster is { Hostile: true, Dead: false, Life: > 0 }
-                        && Dist(monster.Walk.Position(now), fighter.Monster.Walk.Position(now)) <= 30)
+                        && Dist(monster.Walk.Position(now), fighter.Monster.Walk.Position(now)) <= SkillArea.Radius(30,
+                            n => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, "minion_" + n), spell: true))
                         monster.Ailments.WithoutDamage(cold ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock,
-                            .2, now, n => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, "minion_" + n),
+                            .2, now, n => SkitterAilmentStat(fighter, n),
                             n => monster.Mods.Effects[n]);
             }
         }
@@ -142,6 +147,16 @@ static partial class Game
             await SummonReservationFighter(remote, stream, ciphers, conn, skitter, "SkitterCold");
             await SummonReservationFighter(remote, stream, ciphers, conn, skitter, "SkitterLightning");
         }
+    }
+
+    internal static int SkitterAilmentStat(GolemState.Golem fighter, string name)
+    {
+        int Get(string n) => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, "minion_" + n);
+        return name switch {
+            "virtual_chill_effect_+%" => Get(name) + Get("chill_effect_+%") + Get("cold_ailment_effect_+%") + Get("non_damaging_ailment_effect_+%"),
+            "virtual_shock_effect_+%" => Get(name) + Get("shock_effect_+%") + Get("lightning_ailment_effect_+%") + Get("non_damaging_ailment_effect_+%"),
+            _ => Get(name),
+        };
     }
 
     static void ReservationStackBuffLocked(ClientState conn, ref ushort instance, ref int shown, int count, ushort row)

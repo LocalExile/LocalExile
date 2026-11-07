@@ -9,7 +9,8 @@ static class AuraCatalog
     /// level and quality.</summary>
     public sealed record Aura(ushort SkillId, int Effect, string EffectId, string Name, ushort Buff, ushort BuffRow,
         int ManaFlat, int ManaPercent, int Level = 1, int Quality = 0, ushort? SourceBuff = null,
-        int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null, int? ExternalEffectPct = null);
+        int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null, int? ExternalEffectPct = null,
+        bool ReservesLife = false, int ReservationEfficiencyPct = 0);
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
     // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
@@ -19,7 +20,7 @@ static class AuraCatalog
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, source, aura.BuffRow,
                 player, aura.SkillId, auraSource: true, displayState: 0);
         // An enemy hex aura has a source on its caster, never a received self curse.
-        if (aura.EffectId != "TemporalChains")
+        if (!CurseCatalog.Hex(aura.EffectId))
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
                 player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null,
                 // TempestShieldBuff's native behaviour reads the art variation and alternate-shield flag
@@ -64,6 +65,9 @@ static class AuraCatalog
         // Pride's buff is on nearby enemies; the same row also draws the player's aura icon (BuffVisuals 1098).
         ["Pride"] = PrideBuffRow,
         ["TemporalChains"] = 69,
+        ["ElementalWeakness"] = 70, ["Flammability"] = 71, ["Frostbite"] = 72,
+        ["Conductivity"] = 73, ["Enfeeble"] = 76, ["Vulnerability"] = 79,
+        ["Punishment"] = 81, ["Despair"] = 1016,
         // The native stance icon is shared; the two skills' effects remain independent.
         ["FleshAndStone"] = FleshAndStoneBloodRow,
         ["BloodAndSand"] = FleshAndStoneBloodRow,
@@ -141,7 +145,8 @@ static class AuraCatalog
         var restored = new List<Aura>();
         foreach (string effect in saved.Select(Family).Distinct())
             if (gems.TryGetValue(effect, out var aura))
-                if (RequiredMana(pools, restored.Append(aura)) <= pools.Mana) restored.Add(aura);
+                if (RequiredMana(pools, restored.Append(aura)) <= pools.Mana
+                    && RequiredLife(pools, restored.Append(aura)) < pools.Life) restored.Add(aura);
         return restored;
     }
 
@@ -154,16 +159,22 @@ static class AuraCatalog
         => Math.Min((int)pools.Mana, RequiredMana(pools, auras));
 
     public static int RequiredMana(CharacterStats.Pools pools, IEnumerable<Aura> auras)
+        => Required(pools.Mana, pools.ManaReservationEfficiencyPct, auras.Where(a => !a.ReservesLife));
+
+    public static int RequiredLife(CharacterStats.Pools pools, IEnumerable<Aura> auras)
+        => Required(pools.Life, pools.LifeReservationEfficiencyPct, auras.Where(a => a.ReservesLife));
+
+    internal static int Required(uint maximum, int efficiencyPct, IEnumerable<Aura> auras)
     {
-        double efficiency = Math.Max(-99, pools.ManaReservationEfficiencyPct) / 100.0 + 1;
         double flat = 0, percent = 0;
         foreach (var aura in auras)
         {
+            double efficiency = Math.Max(-99L, (long)efficiencyPct + aura.ReservationEfficiencyPct) / 100.0 + 1;
             flat += Math.Round(aura.ManaFlat / efficiency, MidpointRounding.AwayFromZero);
             // PoB rounds each skill's reserved percent to two decimals before summing it.
             percent += Math.Round(aura.ManaPercent / 100.0 / efficiency, 2, MidpointRounding.AwayFromZero);
         }
-        double reserved = flat + pools.Mana * percent / 100.0;
+        double reserved = flat + maximum * percent / 100.0;
         return (int)Math.Clamp(Math.Ceiling(reserved), 0, int.MaxValue);
     }
 

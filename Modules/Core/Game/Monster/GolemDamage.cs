@@ -11,8 +11,8 @@ static partial class Game
         if (conn.Golems.IncomingHits.Any(h => h.Enemy == id && h.Generation == enemy.ActionGeneration)) return true;
         if (enemy.BusyUntil > now || MonsterActionFactor(enemy, now) == 0) return false;
         var here = enemy.Walk.Position(now);
-        var golem = conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Where(g => !g.Monster.Dead && g.Monster.Life > 0
-                && (g.Definition.IsGolem || g.Definition.Kind == "Purity"))
+        var golem = conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Concat(conn.Summons.Fighters.Values).Where(g => !g.Monster.Dead && g.Monster.Life > 0
+                && (g.Definition.IsGolem || g.Definition.Kind == "Purity" || conn.Summons.Definitions.GetValueOrDefault(g.Id)?.Targetable == true))
             .Select(g => (G: g, Distance: Dist(here, g.Monster.Walk.Position(now))))
             .Where(t => t.Distance <= enemy.AggroRange && (t.Distance < ownerDistance || t.G.Taunts.GetValueOrDefault(id) > now))
             .OrderByDescending(t => t.G.Taunts.GetValueOrDefault(id) > now).ThenBy(t => t.Distance).FirstOrDefault();
@@ -80,13 +80,13 @@ static partial class Game
     {
         if (!GolemCurrent(conn, g) || g.Monster.Dead || g.Monster.Life == 0) return false;
         if (!g.Definition.IsGolem && g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") return false;
-        var m = g.Monster; var effects = m.Mods.Effects;
+        var m = g.Monster; var effects = m.Effects;
         int Player(string name) => GolemStat(g.Player, name);
         if (!attack.Spell)
         {
             int evasion = (int)Math.Max(0, effects.Evasion((Monsters.BaseEvasion(m.Level) ?? 0) + effects["base_evasion_rating"])
                 * (1 + effects["grace_aura_evasion_rating_+%_final"] / 100.0));
-            int accuracy = source.Mods.Effects.Accuracy(Monsters.BaseAccuracy(source.Level) ?? 0);
+            int accuracy = source.Effects.Accuracy(Monsters.BaseAccuracy(source.Level) ?? 0);
             if (Random.Shared.Next(100) >= DamageModel.AccuracyHitChance(evasion, accuracy)) return false;
         }
         int block = attack.Spell ? Player("minion_additional_spell_block_%") : Player("minion_block_%");
@@ -128,10 +128,10 @@ static partial class Game
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
         if (!elementalImmune)
         {
-            m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => source.Mods.Effects[n], n => effects[n], Random.Shared);
+            m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => source.Effects[n], n => effects[n], Random.Shared);
             double fire = rolled[DamageType.Fire].Min / (critical ? 1.3 : 1);
             int IgniteStat(string n) => n == "critical_ailment_dot_multiplier_+" ? 50
-                : IgniteIncreases.Contains(n) ? 0 : source.Mods.Effects[n];
+                : IgniteIncreases.Contains(n) ? 0 : source.Effects[n];
             if (IgniteFromHit(fire, critical, IgniteStat, 1, m, Random.Shared) is { } ignite && g.Burns.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds))
             {
                 if (g.Burns.Buff is ushort old) conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(g.Id, old), null));

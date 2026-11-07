@@ -87,13 +87,14 @@ static partial class Game
                 }
                 var gem = SupportedSkill(conn, aura.SkillId);
                 var support = AuraSupport(conn, aura.SkillId);
+                var context = ReservationContext(conn, aura.SkillId);
                 var repriced = aura with { ManaFlat = reservation.Value.Flat, ManaPercent = reservation.Value.Percent,
-                    Level = gem.Level, Quality = gem.Quality, SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf };
-                if (repriced == aura) continue;
+                    Level = gem.Level, Quality = gem.Quality, SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf,
+                    ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency };
                 conn.Auras[aura.SkillId] = repriced;
-                if (RequiredManaWithPetrifiedBlood(conn, conn.PetrifiedBlood.ManaPercent) > conn.Pools.Mana)
-                { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
-                conn.AuraStatsDirty = true;
+                if (!ReservationBudgetFits(conn))
+                { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); conn.AuraStatsDirty = true; }
+                else if (repriced != aura) conn.AuraStatsDirty = true;
             }
             if (gone.Length > 0 || conn.AuraStatsDirty)
             {
@@ -101,6 +102,7 @@ static partial class Game
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+                conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
             }
         }
         if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
@@ -121,6 +123,7 @@ static partial class Game
         if (!conn.PlayerObjectCreated && !conn.PlayerSent) return snapshot();
         var packets = new List<byte[]>();
         packets.Add(ReconcileReceivedAurasLocked(conn));
+        ClampReservedResources(conn);
         bool Same(AuraCatalog.Aura a, AuraCatalog.Aura b) => a.Buff == b.Buff && a.SourceBuff == b.SourceBuff;
         foreach (var old in conn.PresentedAuras.Values)
             if (!conn.Auras.TryGetValue(old.SkillId, out var current) || !Same(old, current))
@@ -140,6 +143,7 @@ static partial class Game
             conn.AuraStatsDirty = false;
             packets.Add(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
             packets.Add(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
+            packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
             packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana,
                 (uint)ReservedMana(conn), pool: ManaPool));
         }

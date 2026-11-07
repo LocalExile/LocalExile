@@ -99,6 +99,7 @@ static partial class Game
                             fleshSkills, Stats);
                 }
                 var bytes = new List<byte>();
+                CursesTickLocked(conn, now, bytes);
                 int added = 0, removed = 0;
                 // One timed debuff on a monster: its buff shown for the time left, shown again when that changes, taken
                 // off when it ends or the monster or the player dies. Whether it is on.

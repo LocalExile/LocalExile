@@ -13,6 +13,7 @@ static partial class Game
 
     static void AddGolemStats(ClientState conn, Dictionary<uint, int> stats)
     {
+        AddSummonCounts(conn, stats);
         lock (conn.Monsters)
             if (conn.PlayerLife > 0)
                 foreach (var (key, value) in conn.Golems.OwnerStats)

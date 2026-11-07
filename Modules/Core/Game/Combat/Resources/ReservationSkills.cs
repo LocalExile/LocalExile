@@ -258,13 +258,13 @@ static partial class Game
         var history = conn.Reservations.Echoes;
         if (!history.TryPeek(out var old) || conn.PlayerLife == 0 || !conn.Layout.WalkableFor(old.X, old.Y, 0)) return [];
         conn.Walk.Teleport(old.X, old.Y, AreaTime(conn));
-        conn.PlayerLife = Math.Min(old.Life, conn.PlayerMaxLife);
+        conn.PlayerLife = Math.Min(old.Life, conn.PlayerUnreservedLife);
         conn.PlayerMana = Math.Min(old.Mana, (uint)UnreservedMana(conn));
         conn.EnergyShield.Empty();
         conn.EnergyShield.Recover((uint)Math.Clamp(old.Shield, 0, uint.MaxValue));
         history.Clear();
         return [.. InstanceProtocol.Teleport(PlayerId, old.X, old.Y),
-            .. InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),
+            .. InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
             .. InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool),
             .. InstanceProtocol.LifeUpdate(PlayerId, conn.EnergyShield.Current, pool: 2)];
     }

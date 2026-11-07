@@ -182,10 +182,11 @@ sealed class InstanceGround
     }
 
     /// <summary>Removes the item: only one caller gets it, so a pickup can never duplicate it.</summary>
-    public WorldItemObject? Take(uint id)
+    public WorldItemObject? Take(uint id, WorldItemObject? expected = null)
     {
         lock (_items)
         {
+            if (expected is not null && !ReferenceEquals(_items.GetValueOrDefault(id), expected)) return null;
             if (!_items.Remove(id, out var item)) return null;
             _by.Remove(id);
             _private.Remove(id);

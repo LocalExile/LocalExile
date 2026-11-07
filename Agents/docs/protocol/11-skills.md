@@ -2469,6 +2469,14 @@ Monster spell stat rows are selected by `PlayerLevelReq` at the minion's actor l
 `GemLevel`; float interpolation 3 uses the effectiveness constants in `GameConstants`.
 Recovery buffs have extra packet fields: Safeguarding's `rock_golem_alt_buff` (592) needs `u82` and one recovery value;
 Withered (506) needs `u82` and two. Omitting these misaligns the next packet and crashes the native parser.
+Holy Relic regeneration (1181) and Reaper consumption (1870) have `IsRecovery=false`: omit recovery values even
+when the server implements healing; an extra value likewise misaligns the stream (the 1181 packet is 31 bytes).
+Reaper's `SummonedReaperUltimate` supplies its native animation; its internal GA damage effect has no independent
+GroundSlam clip in that rig and must not be started as a second actor action.
+
+Placed traps/mines are misc actors, not monster blobs: `TrapMineObject` preserves their component order, with
+StateMachine only for RemoteMine. Trap metadata comes from `SkillTrapVariations`; the client accepts their native
+skill list at `0x4000` and subsequent action packets without client-data changes.
 
 ## 10i. Warcry release: timing and release effects
 

@@ -1170,9 +1170,12 @@ This is a research baseline, not new live skill acceptance or complete native/se
   trail; Tempest Shield grants shield spell block, shock immunity and block retaliation. Herald kill/poison procs use
   the ordinary damage/minion pipeline. Temporal Rift recalls position/resources from four seconds ago, with native proof.
   Nearby player auras reach allies and controlled fighters using caster effect; duplicate families select each stat's
-  strongest value. Unsupported curse/banner/Vaal executors and Life reservation remain open; Skitterbot trap/mine
-  triggering needs the placed-skill framework, and Agony's retail Virulence decay curve remains unverified.
+  strongest value. Life reservation uses an independent budget, Arrogance and pool/recovery caps; curse auras use
+  the hex lifecycle. Skitterbots apply scaled chill/shock and trigger placed traps/mines, rearming a mine once;
+  full trap/mine skill-specific payloads, banner/Vaal executors and Agony's retail Virulence decay remain partial.
   ([11](../docs/protocol/11-skills.md) 13).
+- Summoning gems have combat, costs and saved rosters; special executors remain partial ([11](../docs/protocol/11-skills.md) 10h).
+- Hexes/marks have limits and combat effects; reflection and special payloads remain partial (`MonsterCurses`).
 - **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
   a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
   (1 plus `number_of_additional_totems_allowed`; past it the oldest dies).
@@ -1640,9 +1643,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - Projectile spawn height on platforms and doodads: the protocol carries no player z and the server has no
   surface-height model, so a projectile on the hideout waypoint platform spawns at the terrain height below it.
   Tracked in issue #182.
-- Leech and Mark curses (curses in general) do not exist yet.
-  Spirit of Utula's Leadership (`leech_%_is_instant`) therefore changes nothing, and Spirit of Rakiata (a crit against
-  a Marked Unique) is never triggered ([Ancestral Commander](../docs/game/ancestral-commander.md)).
+- Spirit of Utula's Leadership and Rakiata's Mark-specific trigger still need their own chieftain executors.
 - Effects that should be attached to bones (Righteous Fire's orbs, MiscAnimated RighteousFireOrb) are not sent;
   an effect object follows the player only by 0x1ba glides.
   Combat auras, Heralds and banners are not implemented; only the simple auras above use buffs.
