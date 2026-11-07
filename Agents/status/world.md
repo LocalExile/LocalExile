@@ -278,7 +278,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   monster walks on (not traced).
   Wand, bow and sword pack fights meet the recorded client-cell sync gates; held-walk monster accuracy and broader
   predictive, skill and network validation remain open (roadmap: "Lockstep network mode").
-  Dormant-body membership and saved-cell restoration are corrected; their isolated milestone still needs its live comparison.
+  Dormant-body membership and saved-cell restoration are corrected; focused predictive differences remain under investigation.
   Without it the player is drawn but cannot move or use objects, and the Gateway asks for Predictive once per
   connection.
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell

@@ -151,9 +151,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   action start putting the client on the server's cell, which ends the parted copies of a crowd.
   It works locally, off by default; over a network it is not verified ([status](../status/world.md)).
   - **Known:** the recorded pack sync gates pass for wand, bow and sword; held-walk crowd accuracy still trails.
-    Dormant-body membership and saved-cell restoration are corrected, with isolated live and predictive validation
-    pending ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
-  - **Start:** validate that standalone correction, then finish frame record ordering and action ownership, ranged
+    Dormant-body membership and saved-cell restoration are corrected; the focused predictive comparison leaves
+    standing starts and bow discrepancy episodes unresolved ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
+  - **Start:** investigate those predictive differences, then finish frame record ordering and action ownership, ranged
     chase behavior and the remaining crowd-step differences before skills and breadth.
   - **Done when:** on a fixed bench every sync figure is within GGG's margin. The bench is pack fights per weapon,
     natural packs and a dense area. The figures are monsters standing per order kind, monsters in a pack, monsters
