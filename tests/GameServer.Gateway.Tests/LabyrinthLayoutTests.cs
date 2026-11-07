@@ -33,4 +33,14 @@ public sealed class LabyrinthLayoutTests
         // The node the client reads from the area's extra data (0x141ec7220 flag 0x08): seed, row, difficulty.
         Assert.Equal(new byte[] { 0x08, 0, 0, 0, 0, 0, 0x34, 0x12, 1 }, LabyrinthDay.ExtraData(new(0, 0x1234, 1)));
     }
+
+    // C→S 0x39 is taken only in the Ascendancy Chamber's room: every tier's FinalBoss areas, some with a "_#", and no other.
+    [Theory]
+    [InlineData("1_Labyrinth_boss_2_end", true)]
+    [InlineData("1_Labyrinth_boss_3_end_#", true)]
+    [InlineData("EndGame_Labyrinth_boss_1_end", true)]
+    [InlineData("1_Labyrinth_boss_2", false)]
+    [InlineData("1_Labyrinth_EH_end_bottleneck", false)]
+    [InlineData("1_3_town", false)]
+    public void OnlyTheLastRoomsAreTheChamber(string area, bool chamber) => Assert.Equal(chamber, LabyrinthDay.IsChamber(area));
 }

@@ -2,7 +2,9 @@
 
 An ascendancy is a second class chosen for an existing character.
 This change supplies the server's choice and passive-point lifecycle through chat commands.
-It does not implement the native Labyrinth/Altar chooser (#151), or every special effect of the 19 Phrecia classes.
+The Ascendancy Chamber's font opens the native class selector (S→C 0x7b kind 0x0a; the client picks the selector for an
+unascended class byte, else the passive tree) and its Ascend sends C→S 0x39 with the Ascendancy.dat row (0x3a: a
+Descendancy row). It does not implement every special effect of the 19 Phrecia classes.
 
 ## What can be used
 
