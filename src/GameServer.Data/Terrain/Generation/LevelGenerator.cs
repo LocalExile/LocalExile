@@ -17,8 +17,14 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
     ushort Hash16 = 0, bool IsMapArea = false, int AreaType = 0, int Level = 1, Func<int, int>? LeagueChance = null,
     (bool Enabled, int Chance)? DiscoverableHideout = null, Func<int, (int Max, bool NeedsChance, bool Skip)>? League = null,
     string? HideoutClaim = null, Func<string, IReadOnlyList<TopologyInfo>?>? SubArea = null, bool IsLabyrinth = false,
-    bool IsLabyrinthBoss = false, string? Master = null, Func<int, IReadOnlyList<TopologyInfo>?>? SubAreaRow = null)
+    bool IsLabyrinthBoss = false, string? Master = null, Func<int, IReadOnlyList<TopologyInfo>?>? SubAreaRow = null,
+    IReadOnlyDictionary<int, int>? Stats = null, RawDat? CoreLeagues = null, IReadOnlyList<string>? Plugins = null,
+    Func<string, RawDat>? Table = null, int? ExpeditionFaction = null)
 {
+    /// <summary>An area stat the server sent in 0x1d (RecordA / RecordB, 1-based Stats ids), 0 when absent: what the
+    /// generator reads through world +0x120's lookup (<c>0x14204a570</c> and the league rolls).</summary>
+    public int Stat(int id) => Stats is { } s && s.TryGetValue(id, out int v) ? v : 0;
+
     /// <summary>The area's row and the rows it points to, from the game's tables.</summary>
     public static AreaInfo Load(Func<string, byte[]?> read, string areaId, int level)
     {
@@ -46,7 +52,8 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
             i => (leagues.I32(i, 0x8a), leagues.Bool(i, 0x8e), leagues.Bool(i, 0xa0)),
             claim < 0 ? null : areas.String(claim, 0),
             id => areas.Find(r => areas.String(r, 0) == id) is var r and >= 0 ? Tops(r) : null, areas.Bool(row, 0x171), areas.Bool(row, 0x1bb),
-            areas.String(row, 0x192) is { Length: > 0 } tsi ? tsi : null, r => r < areas.Count ? Tops(r) : null);
+            areas.String(row, 0x192) is { Length: > 0 } tsi ? tsi : null, r => r < areas.Count ? Tops(r) : null,
+            CoreLeagues: leagues, Table: Dat);
     }
 }
 
@@ -85,10 +92,14 @@ public static class LevelGenerator
     /// log when generation stops at a part that is not ported, <paramref name="notes"/> to keep its notes and
     /// <paramref name="onStage"/> to see a tile graph at the stage boundaries the client trace records.</summary>
     public static GenerationResult Generate(TerrainCache files, AreaInfo area, uint seed, int topologyVariant = 60, LevelRandom? rng = null,
-        List<string>? notes = null, Action<string, TileGraph>? onStage = null, LabyrinthNodeKey? labyrinthNode = null)
+        List<string>? notes = null, Action<string, TileGraph>? onStage = null, LabyrinthNodeKey? labyrinthNode = null,
+        IncursionPast? incursion = null, DeepwaterBoard? deepwater = null, AzmeriWoods? azmeri = null,
+        IncursionTemple? temple = null, SafehouseRooms? safehouse = null, HeistState? heist = null)
     {
         rng ??= new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
         notes ??= [];
+        // The HeistPlugin's level from the server's state (0x141f3d980), before the area's own rolls.
+        var heistLevel = heist is null ? null : HeistLevel.Build(files.Raw, area.Id, area.Level, heist, notes);
         var features = ExtraTerrainFeatures.Roll(area, rng);
         if (features.Count > 0) notes.Add("extra terrain features: " + string.Join(", ", features.Select(f => $"{f.Name} x{f.Count}")));
 
@@ -102,7 +113,7 @@ public static class LevelGenerator
         // 0x14204a570's adds: the rolled features' rows wait in the extra room pool (generator +0x40).
         var pool = ExtraRoomPool.Create(files.Raw, features);
         bool hideout = features.Any(f => f.Name == ExtraTerrainFeatures.DiscoverableHideout);
-        var secondaries = SubAreas(files, area, topology.Graph, hideout, topologyVariant, pool, rng, notes);
+        var secondaries = SubAreas(files, area, topology.Graph, hideout, topologyVariant, pool, rng, notes, features);
         var labyrinth = area.IsLabyrinth ? new LabyrinthPass(files.Raw, area.Id, area.IsLabyrinthBoss, labyrinthNode) : null;
         // A tile graph with sub-areas goes through the subgraph records too (0x142049d10), as their primary.
         bool dgr = topology.Graph.EndsWith(".dgr", StringComparison.OrdinalIgnoreCase) || secondaries.Count != 0;
@@ -112,7 +123,8 @@ public static class LevelGenerator
         {
             var tiler = new DungeonTiler(files, rng, notes, pool)
             {
-                Hideout = hideout, Labyrinth = labyrinth, Secondaries = secondaries, Master = area.Master, Town = area.IsTown,
+                Hideout = hideout, Labyrinth = labyrinth, Incursion = incursion, Deepwater = deepwater, Azmeri = azmeri, Temple = temple, Safehouse = safehouse, Heist = heistLevel, SubAreaRow = area.SubAreaRow, Variant = topologyVariant,
+                Secondaries = secondaries, Master = area.Master, Town = area.IsTown,
                 VaalSideArea = features.Any(f => f.Name == ExtraTerrainFeatures.VaalSideArea),
             };
             grid = tiler.Generate(topology.Graph, orientation);
@@ -128,7 +140,7 @@ public static class LevelGenerator
         return new GenerationResult(grid, rng, topology, notes, records);
     }
 
-    static List<TopologyInfo> Choices(IReadOnlyList<TopologyInfo> topologies, int variant, string areaId)
+    internal static List<TopologyInfo> Choices(IReadOnlyList<TopologyInfo> topologies, int variant, string areaId)
     {
         var choices = topologies.Where(t => t.Variant == variant).ToList();
         if (choices.Count == 0) choices = topologies.Where(t => t.Variant == 60).ToList();
@@ -146,7 +158,7 @@ public static class LevelGenerator
     /// mask. The node filter <c>0x142036490</c> (league= nodes) is left to <see cref="TileGraphGenerator.Prepare"/>,
     /// which stops on them.</summary>
     static List<(string Graph, int Orientation)> SubAreas(TerrainCache files, AreaInfo area, string graphPath, bool hideout, int variant,
-        ExtraRoomPool pool, LevelRandom rng, List<string> notes)
+        ExtraRoomPool pool, LevelRandom rng, List<string> notes, IReadOnlyList<ExtraTerrainFeatures.Feature>? features = null)
     {
         var graph = TileGraph.Parse(files.Text(graphPath) ?? throw new FileNotFoundException(graphPath));
         var ids = new List<string>();
@@ -171,6 +183,29 @@ public static class LevelGenerator
             notes.Add($"sub-area {id}: {topology.Graph}, orientation {orientation}");
             result.Add((topology.Graph, orientation));
         }
+        // The terrain plugins queue their own world areas at generator +0x1f0 as they run (step 1 of 0x14204d820, before
+        // the first record's graph is read): one Incursion past room (Incursion_Room1..10, all roomsingle_1.dgr) per
+        // IncursionPastPlugin blob the area load carries, the Ultimatum arena for the UltimatumPlugin (the server
+        // corpus: the Beach 2523510818's four past rooms under the map, the Tropical Island 1707629138's arena). The
+        // room the past-room block swaps into its room set comes from the blob (not ported: the default room stands).
+        foreach (string plugin in area.Plugins ?? [])
+            switch (plugin)
+            {
+                case "IncursionPastPlugin": Add("Incursion_Room1", area.SubArea?.Invoke("Incursion_Room1")); break;
+                case "UltimatumPlugin":
+                    string arena = area.IsMapArea ? "MapWorldsUltimatumBossArena" : "UltimatumBossArena";
+                    Add(arena, area.SubArea?.Invoke(arena));
+                    break;
+                // The Deepwater encounter's hub (hub.dgr, right of the board), queued by the DeepwaterPlugin.
+                case "DeepwaterPlugin": Add("DeepwaterHub", area.SubArea?.Invoke("DeepwaterHub")); break;
+                // The Viridian Wildwood (woods_0N.tgr) beside a map with Affliction content, queued by the AzmeriPlugin.
+                case "AzmeriPlugin": Add("AzmeriLeagueArea", area.SubArea?.Invoke("AzmeriLeagueArea")); break;
+                // A logbook's picked features' side areas (ExpeditionLogbook: the undergrounds and boss arenas beside the site).
+                case "ExpeditionPlugin":
+                    foreach (var f in features ?? [])
+                        if (f.Name == ExpeditionLogbook.SubArea) Add($"expedition side area #{f.Count}", area.SubAreaRow?.Invoke(f.Count));
+                    break;
+            }
         foreach (var id in ids) Add(id, area.SubArea?.Invoke(id));
         // 0x142047540, then: each row in the extra room pool that names a world area (+0x51) adds it the same way
         // (0x1420471f0; a row with rooms passes its first room as the topology, which names no Topologies row, so the
@@ -181,6 +216,21 @@ public static class LevelGenerator
             if (row.WorldArea < 0) continue;
             if (row.Rooms.Count > 1) throw new NotSupportedException($"{row.Name}: a sub-area feature row with several rooms (0x1420471f0) is not ported");
             Add($"{row.Name}'s world area #{row.WorldArea}", area.SubAreaRow?.Invoke(row.WorldArea));
+        }
+        // 0x142047540's end: stat 6675 (map_elder_boss_variation) names an ElderBossArenas variation (+0x10); the rows of
+        // that variation (table order) go in a list, Next(count) picks one and its world area (+0) is queued like a sub-area
+        // (the server corpus: the Cemetery 3468054408, variation 2 = Sceptre / Tower / Refinery, n(3) = 0 ->
+        // MapWorldsElder_Sceptre's sceptre_main.dgr beside the Harvest garden).
+        int variation = area.Stat(6675);
+        if (variation != 0 && area.Table?.Invoke("ElderBossArenas") is { } arenas)
+        {
+            var rows = Enumerable.Range(0, arenas.Count).Where(r => arenas.I32(r, 16) == variation).ToList();
+            if (rows.Count != 0)
+            {
+                int pick = rows[(int)rng.Next((uint)rows.Count)];
+                int worldArea = arenas.Ref(pick, 0);
+                Add($"elder boss arena (variation {variation}) world area #{worldArea}", area.SubAreaRow?.Invoke(worldArea));
+            }
         }
         return result;
     }
@@ -200,8 +250,43 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     /// <summary>The Labyrinth's graph pass, for a Labyrinth area.</summary>
     public LabyrinthPass? Labyrinth { get; init; }
 
+    /// <summary>The Incursion past rooms the server's plugin blobs name, one per past-room record.</summary>
+    public IncursionPast? Incursion { get; init; }
+
+    /// <summary>The Deepwater voyage board the server's plugin blob carried (the encounter and biome records).</summary>
+    public DeepwaterBoard? Deepwater { get; init; }
+
+    /// <summary>The AzmeriPlugin's clearing rooms, for the woods record beside the map.</summary>
+    public AzmeriWoods? Azmeri { get; init; }
+
+    /// <summary>The IncursionTemplePlugin's layout (eleven room keys and 26 door bits), for the Temple of Atzoatl's graph.</summary>
+    public IncursionTemple? Temple { get; init; }
+
+    /// <summary>The BetrayalSafehousePlugin's roster, for a Syndicate safehouse's Arena child graph.</summary>
+    public SafehouseRooms? Safehouse { get; init; }
+
+    /// <summary>The HeistPlugin's level (the intro and the wings), for a heist contract area.</summary>
+    public HeistLevel? Heist { get; init; }
+
+    /// <summary>A graph-node child's tiler (a record whose parent is another record, +0x92 ≠ its index); a sub-area's
+    /// record (its own index) is not one: it adds the VaalSideArea row as the primary does.</summary>
+    public bool Child { get; init; }
+
+    /// <summary>A world area's topologies by its WorldAreas row, for the board's biome areas.</summary>
+    public Func<int, IReadOnlyList<TopologyInfo>?>? SubAreaRow { get; init; }
+
+    /// <summary>The topology variant (world +0xd0) the level generates at.</summary>
+    public int Variant { get; init; } = 60;
+
     /// <summary>A Vaal side area rolled and no graph has kept its entrance yet (generator +0xa).</summary>
-    public bool VaalSideArea { get; set; }
+    public bool VaalSideArea { get => _vaal.Value; set => _vaal.Value = value; }
+
+    /// <summary>Generator +0xa, shared by every record's tiler: the rolled Vaal side area still looking for a place.</summary>
+    System.Runtime.CompilerServices.StrongBox<bool> _vaal = new();
+
+    /// <summary>The VaalSideArea row this record's layout added for itself (<c>0x14203c900</c>): removed again at the end
+    /// of the block when the layout did not place it, else the flag is cleared.</summary>
+    ExtraFeatureRow? _vaalRow;
 
     /// <summary>The area's TSI override (WorldAreas +0x192), the primary record's master in place of its graph's.</summary>
     public string? Master { get; init; }
@@ -250,7 +335,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     /// (+0x40 x, +0x44 y, +0x48 w, +0x4c h: (unit − overlap) × the graph's size + overlap, turned with the orientation,
     /// plus the margins), master (+0x50), parent (+0x92), orientation (+0x97).</summary>
     sealed record Subgraph(string Path, int X, int Y, int W, int H, string MasterPath, Dictionary<string, string> Master,
-        (int Top, int Right, int Bottom, int Left) Margins, int Orientation, int Parent);
+        (int Top, int Right, int Bottom, int Left) Margins, int Orientation, int Parent, object? Plugin = null);
 
     /// <summary>The master's OuterBufferSize (<c>0x142a06390</c>): up to four numbers, top (+0x170), right (+0x171, else
     /// top), bottom (+0x172, else top), left (+0x173, else right): the subgraph's margins.</summary>
@@ -264,7 +349,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     /// <summary><c>0x1420457f0</c>: the record of the graph at (x, y): a .tgr's size is its graph's (+0x40 / +0x48), a
     /// .dgr's its graph's in room units. Anchoring by the orientation's corner is ported for orientation 0 only (no
     /// offset).</summary>
-    Subgraph Record(string graphPath, int x, int y, int orientation, int parent, List<Subgraph>? records = null)
+    Subgraph Record(string graphPath, int x, int y, int orientation, int parent, List<Subgraph>? records = null, object? plugin = null)
     {
         // The game's file lookup takes backslashes too (the Escher hideout's graph nodes name "Metadata\Terrain\...").
         graphPath = graphPath.Replace('\\', '/');
@@ -283,12 +368,21 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         }
         var master = TerrainText.KeyValues(files.Text(masterPath) ?? throw new FileNotFoundException(masterPath));
         int unit = int.Parse(master.GetValueOrDefault("RoomUnitSize", "1")), overlap = int.Parse(master.GetValueOrDefault("RoomOverlap", "1"));
-        int w = (unit - overlap) * graph.Width + overlap, h = (unit - overlap) * graph.Height + overlap;
+        int gw = graph.Width, gh = graph.Height;
+        // The HeistPlugin sizes the main graph by its packed intro and wings (0x141f3eb50) and a wing's record by the
+        // wing's room bounding box (0x141f405f0).
+        if (parent < 0 && Heist is { } hl) (gw, gh) = hl.Size;
+        if (plugin is HeistWingLayout wing) (gw, gh) = (wing.W, wing.H);
+        int w = (unit - overlap) * gw + overlap, h = (unit - overlap) * gh + overlap;
+        // The Deepwater encounter's record is sized by the voyage board (N × N room units), which the plugin's hook
+        // puts in place of the graph's own 1 × 1.
+        if (Deepwater is { } board && DeepwaterBoard.IsEncounterGraph(graphPath))
+            w = h = (unit - overlap) * board.N + overlap;
         if (graphPath.EndsWith(".tgr", StringComparison.OrdinalIgnoreCase)) (w, h) = (graph.Width, graph.Height);
         if ((orientation & 1) != 0 && orientation < 8) (w, h) = (h, w);
         var m = Margins(master);
         if (parent >= 0 && orientation != 0) throw new NotSupportedException($"{graphPath}: subgraphs turned by orientation {orientation} (0x1420457f0's anchor) are not ported");
-        return new Subgraph(graphPath, x, y, w + m.Left + m.Right, h + m.Top + m.Bottom, masterPath, master, m, orientation, parent);
+        return new Subgraph(graphPath, x, y, w + m.Left + m.Right, h + m.Top + m.Bottom, masterPath, master, m, orientation, parent, plugin);
     }
 
     /// <summary><c>0x14204bfa0</c> (each subgraph whose parent is the first, before its share of the pool rows, and the
@@ -362,6 +456,8 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         var grid = new TileGrid(gw, gh) { CheckGrounds = false, GroundFlags = g => files.Ground(g)?.Flags ?? 0, Unmirrored = files.Unmirrored };
         var outers = new List<Action>();
         var roomsOf = new List<IReadOnlyList<PlacedRoom>>();
+        var cellRecords = new List<DeepwaterBoard.CellRecord>();
+        var wingRecords = new List<HeistWing.WingRecord>();
         // 0x142049d10: with rows in the pool, the weight to share them by is the sum of the subgraphs' masters' +0x152
         // (0x14204bfa0); +0x152 is taken to default to 0 (no trace drew 0x141d8bba0's remainder roll), and a master
         // that sets ExtraFeatureWeight (the key taken to be +0x152) is not ported. The walk resolves every master as a
@@ -375,14 +471,18 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
             TileStore store;
             if (r.Path.EndsWith(".tgr", StringComparison.OrdinalIgnoreCase))
             {
-                // 0x14203f890: a subgraph whose parent is the first (+0x92 = 0) takes its share of the rows. The tile
-                // graph's special nodes do not take them (not ported).
+                // 0x14203f890: a subgraph whose parent is the first (+0x92 = 0) takes its share of the rows and places
+                // them in its area unique rooms pass, as the primary tile graph does (the Harvest garden beside an
+                // outdoor map: the root keeps the pool, the garden record takes none; the server corpus).
+                // The tile graph's special nodes do not take them (not ported).
                 if (r.Parent <= 0) pool.Spread(FeatureWeight(r.Path, records, false), rng);
-                if (pool.Share != 0) throw new NotSupportedException($"{r.Path}: extra feature rooms in a tile graph subgraph are not ported");
                 // The rolled Vaal side area goes to the first graph with side area nodes (2_9_4's oasis_foothills_4.tgr).
                 var gen = new TileGraphGenerator(files, rng, notes, VaalSideArea)
-                    { Hideout = Hideout, Labyrinth = Labyrinth, Master = r.Parent < 0 ? Master : null, Town = Town, PreparePool = pool };
-                var (_, _, tgFills) = gen.Subgraph(r.Path, r.Orientation, grid, vx, vy, primary: i == 0);
+                    { Hideout = Hideout, Labyrinth = Labyrinth, Azmeri = Azmeri, Master = r.Parent < 0 ? Master : null, Town = Town, Pool = r.Parent <= 0 ? pool : null, PreparePool = pool };
+                // A tile graph that is a graph-node child of the first record (the Fellshrine Ruins' macro_ruins2.tgr under
+                // its reaper-shrine .dgr, the server corpus) runs its passes as the primary does: its walkability pass
+                // before its area unique rooms, whose openings leave out the flagged corners (1721 of 105 x 63, not 3365).
+                var (_, _, tgFills) = gen.Subgraph(r.Path, r.Orientation, grid, vx, vy, primary: i == 0 || r.Parent == 0);
                 if (gen.SideAreaKept) VaalSideArea = false;
                 var tgStore = store = gen.Store;
                 roomsOf.Add(gen.Rooms);
@@ -390,7 +490,11 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
             }
             else
             {
-                var t = i == 0 ? this : new DungeonTiler(files, rng, notes, pool) { Hideout = Hideout, Labyrinth = Labyrinth, Town = Town, _records = records, _areaMaster = _areaMaster, _fixHeights = _fixHeights };
+                // The Vaal side area flag (generator +0xa) is not handed to the records after the first: the server
+                // corpus shows a graph-node child picking in some loads (the Sceptre of God 1_3_18_2, the pyramid
+                // 1_2_14_3) and not in others with the same node shape (the Lunaris Temple 1_3_14_1, the Grand Arena
+                // 2_8_13), and the rule is not known yet; without the flag 1_3_14_1 and 2_8_13 match.
+                var t = i == 0 ? this : new DungeonTiler(files, rng, notes, pool) { Hideout = Hideout, Labyrinth = Labyrinth, Incursion = Incursion, Deepwater = Deepwater, Azmeri = Azmeri, Temple = Temple, Safehouse = Safehouse, Heist = Heist, SubAreaRow = SubAreaRow, Variant = Variant, Town = Town, Child = r.Parent != i, _records = records, _areaMaster = _areaMaster, _fixHeights = _fixHeights, _vaal = _vaal };
                 t.Tilise(r, grid, records, i);
                 store = t._store;
                 roomsOf.Add(t._placed);
@@ -398,7 +502,19 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
             }
             // 0x1420452e0 after the layout: the TileSet's post-unique tiles over the subgraph's view (0x14203ece0).
             PostUniqueTiles.Run(rng, grid, vx, vy, vw, vh, store, notes);
+            if (r.Plugin is HeistWingLayout wingLayout)
+                wingRecords.Add(new HeistWing.WingRecord(wingLayout, vx, vy, int.Parse(r.Master.GetValueOrDefault("RoomUnitSize", "1")),
+                    int.Parse(r.Master.GetValueOrDefault("RoomOverlap", "1")), store));
+            if (Deepwater is not null && DeepwaterBoard.IsBiomeGraph(r.Path))
+                cellRecords.Add(new DeepwaterBoard.CellRecord(vx, vy, vw, vh, store, r.Master, r.MasterPath));
         }
+        // The HeistPlugin's post-level hook: the wing doors' tiles and their side tiles (0x141f42a00), after every block.
+        if (Heist is { } heistLevel) HeistWing.DoorPass(heistLevel, wingRecords, grid, rng, notes);
+        // 0x14202eaf0: the late feature pass (the Betrayal forts the fill area left) on the primary record.
+        LateFeatures(records, roomsOf);
+        // The DeepwaterPlugin's post-level hook: the seams between the board's cells (an N × N voyage), after every
+        // record's pipeline call and before the AO placements and the outer buffers.
+        Deepwater?.Connections(grid, files, cellRecords, rng, notes);
         LevelGenerator.HeightStage?.Invoke("outer<", grid);
         for (int i = records.Count - 1; i >= 0; i--) outers[i]();
         LevelGenerator.HeightStage?.Invoke("outer>", grid);
@@ -422,6 +538,40 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
                 }
         Records = [.. records.Select((r, i) => new DoodadRecord(r.X, r.Y, r.W, r.H, r.Master, r.MasterPath, roomsOf[i]))];
         return grid;
+    }
+
+    /// <summary><c>0x14202eaf0</c> (after every block, before the outer buffers): every pool row with the +0x61 flag and
+    /// one room still waiting goes on an island carved beside a shore edge of the primary record (<see cref="FortPass"/>);
+    /// the named rooms of the primary and its graph-node children keep it off them.</summary>
+    void LateFeatures(List<Subgraph> records, List<IReadOnlyList<PlacedRoom>> roomsOf)
+    {
+        var rows = pool.Rows.Where(r => r.Oversize && r.Rooms.Count == 1).ToList();
+        if (rows.Count == 0 || _store is null || _fills is null) return;
+        var r0 = records[0];
+        var inner = (r0.X + r0.Margins.Left, r0.Y + r0.Margins.Top, r0.X + r0.W - r0.Margins.Right, r0.Y + r0.H - r0.Margins.Bottom);
+        var named = new List<(int X0, int Y0, int X1, int Y1)>();
+        for (int i = 0; i < records.Count && i < roomsOf.Count; i++)
+        {
+            if (records[i].Parent > 0) continue;
+            foreach (var p in roomsOf[i])
+            {
+                if (p.Room.Tag.Length == 0) continue;
+                var rect = (p.X, p.Y, p.X + p.Width, p.Y + p.Height);
+                if (rect.Item1 >= inner.Item1 && rect.Item2 >= inner.Item2 && rect.Item3 <= inner.Item3 && rect.Item4 <= inner.Item4) named.Add(rect);
+            }
+        }
+        var (vx, vy, vx1, vy1) = _view;
+        var fill = new Fill(files, rng, _grid, vx, vy, vx1 - vx, vy1 - vy, _store, _fills, _fillRooms, notes)
+            { TilePlaced = Listen, PoolHasTiles = () => pool.HasTiles, PoolStore = () => pool.HasTiles ? pool.Store(files) : null, Bound = _fillBound };
+        var pass = new FortPass(files, rng, notes, _grid, _store, _fills, fill, inner, named, (vx, vy));
+        int before = _fillRooms.Count;
+        foreach (var row in rows)
+            if (pass.Place(row)) pool.Remove(row, true);
+        // The fort is a placed room of the primary record (the fill-room routine lists it): the doodad stage runs its
+        // lines and keeps its random doodads off its objects (the Promenade's fort, whose cell the stage would otherwise
+        // try).
+        if (_fillRooms.Count > before && roomsOf.Count > 0 && roomsOf[0] is List<PlacedRoom> primaryRooms)
+            primaryRooms.AddRange(_fillRooms.Skip(before));
     }
 
     /// <summary><c>0x142047e50</c>: each secondary record (parent +0x92 = its index) goes to the corner, among those
@@ -475,7 +625,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         _fills = master.TryGetValue("FillTiles", out var gft) ? files.FillTiles(TerrainText.Resolve(masterPath, gft)) : [];
         int unit = int.Parse(master.GetValueOrDefault("RoomUnitSize", "1"));
         int raised = grid.RaisedPlacements;
-        var map = Layout(r.Path, r.Orientation, masterPath, master, unit, index == 0, r.Parent <= 0);
+        var map = Layout(r.Path, r.Orientation, masterPath, master, unit, index == 0, r.Parent <= 0, r.Plugin);
         // Room k starts at the view's corner plus (unit − overlap) × its cell.
         int step = unit - map.Overlap;
         _ox = r.X + r.Margins.Left;
@@ -483,6 +633,12 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         // The tiler's view (0x1420f3480 +8, which its fill keeps): the subgraph's rectangle inside its margins.
         _view = (_ox, _oy, r.X + r.W - r.Margins.Right, r.Y + r.H - r.Margins.Bottom);
         _record = (r.X, r.Y, r.X + r.W, r.Y + r.H);
+        // The fill's map rectangle (0x141d84ed0's bound): the record's own rectangle, which for a record after the first
+        // takes the FIRST record's master's buffer strips around it (the server corpus: the Temple of Atzoatl's
+        // _outdoor.dgr child at (1, 1) fills the level's outer ring too; the Sarn Ramparts' two stacked records do not
+        // reach into each other).
+        var m0 = records[0].Margins;
+        _fillBound = index == 0 ? _record : (r.X - m0.Left, r.Y - m0.Top, r.X + r.W + m0.Right, r.Y + r.H + m0.Bottom);
         if (_ox < 0 || _oy < 0 || _ox + step * map.Width + map.Overlap > grid.Width || _oy + step * map.Height + map.Overlap > grid.Height)
             throw new InvalidOperationException($"Subgraph {r.Path} extends outside the TileMap!");
         _overlap = map.Overlap;
@@ -549,10 +705,18 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         placed.AddRange(overlayRooms);
         placed.AddRange(_fillRooms);
         placed.AddRange(_injectedRooms);
+        // 0x14203c900's end: the VaalSideArea row added for this block leaves again unless the block placed it (0x141d8b2c0,
+        // uncounted); placed, it clears the generator's flag.
+        if (_vaalRow is { } vaalRow)
+        {
+            if (pool.Rows.Contains(vaalRow)) pool.Remove(vaalRow, false);
+            else VaalSideArea = false;
+            _vaalRow = null;
+        }
         if (grid.RaisedPlacements != raised) _fixHeights.Value = true;
         foreach (var p in map.Rooms)
             if (p.Room is null && p.Descriptions.Count != 0)
-                records.Add(Record(p.Descriptions[0], _ox + step * p.X, _oy + step * p.Y, r.Orientation, index, records));
+                records.Add(Record(p.Descriptions[0], _ox + step * p.X, _oy + step * p.Y, r.Orientation, index, records, p.Plugin));
     }
 
     /// <summary><c>0x142044f30</c> for a .tgr subgraph on the shared map: its outer ground (<c>0x14201db80</c>, a tile
@@ -598,9 +762,42 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     /// <summary><c>0x14203c900</c> for a graph of several nodes: the exist rolls (as for tile graphs), then the rooms
     /// on a grid of the graph's size in room units (<c>0x1421038d0</c>).</summary>
     DungeonMap Layout(string graphPath, int graphOrientation, string masterPath, Dictionary<string, string> master, int unit, bool primary,
-        bool share = true)
+        bool share = true, object? plugin = null)
     {
         var graph = TileGraph.Parse(files.Text(graphPath) ?? throw new FileNotFoundException(graphPath));
+        string? Ground(string g) => g.Length == 0 ? null : TerrainText.Resolve(graphPath, g);
+        _graphGrounds = (Ground(graph.TopGround), Ground(graph.BottomGround), Ground(graph.DefaultGround));
+        // The HeistPlugin's hooks: the main graph is rebuilt from the packed intro and wings (0x141f3eea0), an intro graph
+        // takes 0x141f3f650's edits, and a wing's graph is not laid out at all: its rooms come from the wing layout
+        // (0x141f41620), then the tiler runs as for any record.
+        if (Heist is { } heist)
+        {
+            if (primary) heist.MainGraph(graph);
+            else if (plugin is HeistIntroEntry entry) heist.IntroEdits(graph, entry, notes);
+            else if (plugin is HeistWingLayout wing)
+            {
+                var wingMap = new DungeonMap(wing.W, wing.H, unit, int.Parse(master.GetValueOrDefault("RoomOverlap", "1")))
+                    { Directional = t => files.Edge(t) is { } et && EdgeSplitting.IsDirectional(et, p => files.Edge(p) ?? throw new FileNotFoundException(p)) };
+                HeistWing.PlaceRooms(wingMap, RoomSetOf(master, masterPath), wing, files, rng, notes);
+                return wingMap;
+            }
+        }
+        // The IncursionPastPlugin's record: the blob's past room into the room set, the "room" node and the doors.
+        var incursion = Incursion?.Take(graphPath);
+        if (incursion is { } ip) IncursionPast.Apply(graph, files, ip.Past, ip.Slot, notes);
+        // The IncursionTemplePlugin's graph: the blob's eleven rooms and 26 doors; the rooms the set lacks join it at 1.
+        var templeRooms = Temple is { } temple && IncursionTemple.IsTempleGraph(graphPath) ? temple.Apply(graph, files, notes) : null;
+        // The BetrayalSafehousePlugin's Arena graph: the target rooms from the roster (one logged draw, a hidden shuffle);
+        // without a roster every target room drops, after the same draw.
+        (Safehouse ?? SafehouseRooms.None).Apply(graph, files, rng, notes);
+        // The DeepwaterPlugin's hook (0x141f2c180): the board in place of the encounter's graph, the cell's room in
+        // place of a biome record's.
+        if (Deepwater is { } board)
+        {
+            if (DeepwaterBoard.IsEncounterGraph(graphPath))
+                board.Board(graph, files.Raw, SubAreaRow ?? throw new InvalidOperationException("the Deepwater board needs the world areas' topologies"), Variant, rng, notes);
+            else if (DeepwaterBoard.IsBiomeGraph(graphPath)) board.Cell(graph, files, notes);
+        }
         // A Sanctum floor's .dgr is one node tagged "land"; the client rebuilds the first graph (0x141f5e790): 6 × 4
         // cells of 23 units, a node at cell (0, 0) with "default" for the server's first room and one at (4, 2) for its
         // second (0x141f5ea10: the room's .arm tag, any orientation). Without server data both are SanctumRooms row 0,
@@ -611,14 +808,22 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
             (graph.Width, graph.Height) = (6, 4);
             graph.Nodes = [new GraphNode { Tag = land, Descriptions = ["default"] }, new GraphNode { X = 4 * 23, Y = 2 * 23, Tag = land }];
         }
-        // 0x142031d10: the Vaal side area pick, as on tile graphs; the first graph that keeps an entrance clears it.
-        if (TileGraphGenerator.Prepare(graph, rng, VaalSideArea, Hideout, primary, pool, Labyrinth)) VaalSideArea = false;
+        // 0x142031d10 with the generator's +0xa (every record reads it): a graph with side area nodes picks an entrance and
+        // clears the flag; a graph without them, while the flag is set, adds the VaalSideArea row for its own layout
+        // (0x14203c900: removed again at the end of the block unless the layout placed it, which clears the flag - the
+        // server corpus: the Sceptre of God 1_3_18_2's Level2 tower and the pyramid 1_2_14_3 pick in a child record, the
+        // Lunaris Temple 1_3_14_1 and the Grand Arena 2_8_13 do not).
+        bool sideAreaNodes = graph.Nodes.Any(n => n.Descriptions.Any(d => d.Length > 7 && d.StartsWith("sidearea", StringComparison.Ordinal)));
+        if (TileGraphGenerator.Prepare(graph, rng, VaalSideArea, Hideout, primary, pool, Labyrinth, vaalRow: false)) VaalSideArea = false;
+        else if (VaalSideArea && !sideAreaNodes)
+        {
+            pool.Add("VaalSideArea", 1);
+            _vaalRow = pool.Rows.LastOrDefault(row => row.Name == "VaalSideArea");
+        }
         // Then a subgraph whose parent is the first (+0x92 = 0) takes its share of the rows, the side area's included.
         if (share) pool.Spread(FeatureWeight(graphPath, _records, false), rng);
-        string? Ground(string g) => g.Length == 0 ? null : TerrainText.Resolve(graphPath, g);
-        _graphGrounds = (Ground(graph.TopGround), Ground(graph.BottomGround), Ground(graph.DefaultGround));
         notes.Add($"dungeon graph {graphPath}: {graph.Nodes.Count} nodes, {graph.Edges.Count} edges after exist rolls");
-        var roomSet = RoomSetOf(master, masterPath);
+        var roomSet = RoomSetOf(master, masterPath, incursion?.Past, templeRooms);
         var map = new DungeonMap(graph.Width, graph.Height, unit, int.Parse(master.GetValueOrDefault("RoomOverlap", "1")));
         var swap = (master.TryGetValue("SwapDungeonDoorsFrom", out var from) ? TerrainText.Resolve(masterPath, from) : null,
             master.TryGetValue("SwapDungeonDoorsTo", out var to) ? TerrainText.Resolve(masterPath, to) : null);
@@ -633,8 +838,8 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
 
     /// <summary>The master's RoomSet; a master without one (MapOba's top master.tsi, whose graph holds only subgraph
     /// nodes) has no rooms.</summary>
-    DungeonRoomSet RoomSetOf(Dictionary<string, string> master, string masterPath) =>
-        new(files, master.TryGetValue("RoomSet", out var rs) ? TerrainText.Resolve(masterPath, rs) : null);
+    DungeonRoomSet RoomSetOf(Dictionary<string, string> master, string masterPath, string? pastRoom = null, IReadOnlyList<string>? extraRooms = null) =>
+        new(files, master.TryGetValue("RoomSet", out var rs) ? TerrainText.Resolve(masterPath, rs) : null, pastRoom, extraRooms);
 
     /// <summary>A FileGroups file (.fgp, master +0x268, <c>0x141fe83e0</c>): after the version line, a quoted group name,
     /// then its files (relative to the .fgp) until the next name.</summary>
@@ -785,6 +990,9 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
                     }
                 }
                 var list = _store.Candidates(slot.Tag, key);
+                // 0x141fe89e0's second store: the extra room pool's own tiles (the rows' .tdt / .tst: the Betrayal
+                // laboratory's entrance, the forts' towers).
+                if (list.Count == 0 && slot.Tag.Length != 0 && slot.Tag != "missiontile" && pool.HasTiles) list = pool.Store(files).Candidates(slot.Tag, key);
                 if (list.Count == 0) throw new NotSupportedException($"{room.Path}: slot ({col}, {row}) {key} tag '{slot.Tag}' has no tile (mission tiles and the pool's tiles are not ported here)");
                 if (_grid[tx, ty] is not null) continue;
                 for (int tries = 0; ; tries++)
@@ -1188,6 +1396,8 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     }
 
     readonly List<(int X, int Y, string? Ground, short Height, bool Accessible)> _fillRecords = [];
+    /// <summary>The fill's map rectangle for this record (see <see cref="Fill.Bound"/>).</summary>
+    (int X0, int Y0, int X1, int Y1) _fillBound;
     (int X0, int Y0, int X1, int Y1) _record;
     // Tiler +0x40 (0x1420f8df0): placed tiles with an edge type of the FillTiles object's +0x140 list.
     readonly List<(int X, int Y, int Index)> _edgeRecords = [];
@@ -1581,7 +1791,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         if (!master.TryGetValue("FillTiles", out var gft)) return [];
         var (vx, vy, vx1, vy1) = _view;
         var fill = new Fill(files, rng, _grid, vx, vy, vx1 - vx, vy1 - vy, _store,
-            files.FillTiles(TerrainText.Resolve(masterPath, gft)), _fillRooms, notes) { TilePlaced = Listen, PoolHasTiles = () => pool.HasTiles };
+            files.FillTiles(TerrainText.Resolve(masterPath, gft)), _fillRooms, notes) { TilePlaced = Listen, PoolHasTiles = () => pool.HasTiles, PoolStore = () => pool.HasTiles ? pool.Store(files) : null, Bound = _fillBound };
         UniqueRooms(master, masterPath, fill, primary);
         Shrines(master, masterPath, fill);
         if (_edgeRecords.Count != 0)
@@ -1595,7 +1805,8 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         // The overlays' view is the whole record, its margins included (0x1420f3480 +8 → 0x141ffe240; ExpeditionCemetery's
         // GraveWater overlay reaches into the outer buffer's margin).
         var overlays = passes.Count == 0 ? null : new Overlays(files, rng, notes, _grid, _record.X0, _record.Y0, _record.X1 - _record.X0, _record.Y1 - _record.Y0, tiler,
-            [.. layoutRooms, .. _fillRooms], int.Parse(master.GetValueOrDefault("RoomOverlap", "1")), pool.Placed, dungeon: true);
+            [.. layoutRooms, .. _fillRooms], int.Parse(master.GetValueOrDefault("RoomOverlap", "1")), pool.Placed, dungeon: true,
+            innerView: (vx - _record.X0, vy - _record.Y0, vx1 - _record.X0, vy1 - _record.Y0));
         // Both dungeon passes save the tiles under a room (0x141fff1a0 param 3).
         if (overlays is not null) overlays.FillEntry = (x, y, g, open) => fill.FillEntry(x + _record.X0 - vx, y + _record.Y0 - vy, g, open);
         foreach (var pass in passes.Where(p => (p.Passes & 1) != 0)) overlays!.Run(pass, saveTiles: true);
@@ -1618,7 +1829,11 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     void UniqueRooms(Dictionary<string, string> master, string masterPath, Fill fill, bool primary)
     {
         if (pool.Rows.Count == 0) return;
-        bool missions = RoomSetOf(master, masterPath).All.Any(r => r.Tag == "mission");
+        // Master +0x15a is the MixedMissions key: with it set, the rows the layout's mission search left (the uncovered
+        // tail) are retried here with the others (the server corpus: the Pit 433005992's MixedMissions master, seven
+        // Blight rows, five on mission tiles, the two uncovered tried in the fill area - draw(10480) then two
+        // orientations); without it a mission-room set keeps the pass to the oversize rows (the Rotting Core 780755267).
+        bool missions = RoomSetOf(master, masterPath).All.Any(r => r.Tag == "mission") && master.GetValueOrDefault("MixedMissions", "0").Trim() == "0";
         if (missions && !pool.Rows.Any(r => r.Oversize)) return;
         if (!primary) return;
         rng.Next((uint)_fillRecords.Count);
@@ -2026,6 +2241,10 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
 sealed class TileStore
 {
     readonly Dictionary<(string Tag, TileKey Key), List<(TileDef Tile, int Orientation, int Weight)>> _byKey = [];
+    /// <summary>The tiles filed again under their RELAXED keys (the heights of the corners whose ground has no flag 1
+    /// dropped), the last answer to a lookup: the Descent 2_9_2's ramp continuation in the outer buffer, where the flat
+    /// query over ascent_cliff (flag 1 clear) draws from the straight slope's four orientations (the client's n(4)).</summary>
+    readonly Dictionary<(string Tag, TileKey Key), List<(TileDef Tile, int Orientation, int Weight)>> _byRelaxed = [];
     readonly HashSet<(string Tag, string? Top, string? Right, string? Bottom, string? Left)> _edges = [];
     readonly Dictionary<(string Tag, string? Top, string? Right, string? Bottom, string? Left), List<(int W, int H)>> _sizes = [];
     readonly Dictionary<(string? Top, string? Right, string? Bottom, string? Left, int W, int H), List<(TileDef Tile, int Orientation, int Weight)>> _bySize = [];
@@ -2055,6 +2274,11 @@ sealed class TileStore
                 var key = (tile.Tag, tile.Key.Rotate(o));
                 if (!_byKey.TryGetValue(key, out var list)) _byKey[key] = list = [];
                 list.Add((tile, o, weight));
+                if (Relax(key.Item2) is { } relaxed)
+                {
+                    if (!_byRelaxed.TryGetValue((tile.Tag, relaxed), out var rl)) _byRelaxed[(tile.Tag, relaxed)] = rl = [];
+                    rl.Add((tile, o, weight));
+                }
                 var k = key.Item2.Edges;
                 _edges.Add((tile.Tag, k[0], k[1], k[2], k[3]));
                 var sizes = _sizes.TryGetValue((tile.Tag, k[0], k[1], k[2], k[3]), out var sl) ? sl : _sizes[(tile.Tag, k[0], k[1], k[2], k[3])] = [];
@@ -2081,14 +2305,24 @@ sealed class TileStore
         for (int c = 0; c < 4; c++)
             if (_files.Ground(k.Grounds[c]) is { IgnoredInKeys: true }) k.Grounds[c] = null;
         if (_byKey.TryGetValue((tag, k), out var list) && list.Count != 0) return list;
-        bool changed = false;
+        var relaxed = Relax(k);
+        if (relaxed is not null && _byKey.TryGetValue((tag, relaxed), out list) && list.Count != 0) return list;
+        // Then the tiles under their own relaxed keys (the client's second map).
+        if (_byRelaxed.TryGetValue((tag, relaxed ?? k), out list) && list.Count != 0) return list;
+        return [];
+    }
+
+    /// <summary>The key with the heights of its corners whose ground has no flag 1 dropped; null when nothing changes.</summary>
+    TileKey? Relax(TileKey key)
+    {
+        TileKey? k = null;
         for (int c = 0; c < 4; c++)
-            if (k.Heights[c] != 0 && k.Grounds[c] is { } g && ((_files.Ground(g)?.Flags ?? 0) & 1) == 0)
+            if (key.Heights[c] != 0 && key.Grounds[c] is { } g && ((_files.Ground(g)?.Flags ?? 0) & 1) == 0)
             {
+                k ??= key.Clone();
                 k.Heights[c] = 0;
-                changed = true;
             }
-        return changed ? Candidates(tag, k) : [];
+        return k;
     }
 
     /// <summary>Some tile has the tag (the tag map holds it).</summary>

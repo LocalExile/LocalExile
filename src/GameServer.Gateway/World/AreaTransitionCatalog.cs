@@ -232,7 +232,7 @@ static class AreaTransitionCatalog
             foreach (var o in level.Objects.Concat(level.TileQuestObjects).Where(o => o.Type == type).DistinctBy(o => (o.X, o.Y)))
             {
                 placed.Add(new AreaTransitionObject(o.X, o.Y, hash, o.Model, Rotation: o.Rotation, Height: float.IsNaN(o.Z) ? null : o.Z,
-                    Type: Resolve(o.Type, $"{o.Model.Split('/')[^1]} at ({o.X}, {o.Y})", notes)) { SourceType = o.Type, QuestSource = source });
+                    Type: Resolve(o.Type, $"{o.Model.Split('/')[^1]} at ({o.X}, {o.Y})", notes)) { SourceType = o.Type, QuestSource = source, Mirrored = o.Code is >= 4 and < 8 });
                 notes.Add($"{type.Split('/')[^1]} at ({o.X}, {o.Y}) → {to} (its twin's tile record, quest rule)");
             }
         }
@@ -263,9 +263,9 @@ static class AreaTransitionCatalog
     });
 
     /// <summary>The exits of a generated layout (<see cref="ServerLevels.Level.Exits"/>, <c>AreaExits</c>): "entranceN" leads
-    /// to the area's Connections[N − 1], "teleportN" within the area to its "telepadN" node; an unused object and a
-    /// disabled entrance (an arrival point only, e.g. Lioneye's Watch's Twilight Strand marker) are not created, unless a
-    /// quest gates that exit (<see cref="Gated"/>). A
+    /// to the area's Connections[N − 1], "teleportN" within the area to its "telepadN" node; an unused object is not
+    /// created; a disabled entrance is created as a plain exit (the server sends them so), and when a quest gates that
+    /// exit (<see cref="Gated"/>) it is shown by the quest's flag. A
     /// disabled teleport (an arena's way in that the real game unlocks, e.g. the Upper Prison's into Brutus's room) is
     /// created open: the encounters that would unlock it are not modelled.</summary>
     static List<AreaTransitionObject> FromLayout(AtlasArea area, ServerLevels.Level level, uint seed, List<string> notes)
@@ -274,7 +274,7 @@ static class AreaTransitionCatalog
         // Izaro's arena's way on (boss_portals.arm "entranceNdisabled") opens when he falls; the fight is not built yet, so
         // in a room of today's Labyrinth it is open from the start.
         var placed = FromExits(area.Id, area.Hash16, labyrinth ?? area.Connections ?? [], level.Exits, notes, level.Entrances,
-            openDisabled: labyrinth is not null);
+            openDisabled: labyrinth is not null, seed: seed);
         if (area.Id == LabyrinthDay.Plaza) placed.AddRange(LabyrinthEntrances(level, notes));
         return placed;
     }
@@ -292,7 +292,7 @@ static class AreaTransitionCatalog
             string what = $"{o.Model.Split('/')[^1]} at ({o.X}, {o.Y})";
             notes.Add($"{what} → {first}: the way into today's Labyrinth");
             yield return new AreaTransitionObject(o.X, o.Y, hash, o.Model, Rotation: o.Rotation, Height: float.IsNaN(o.Z) ? null : o.Z,
-                Type: Resolve(o.Type, what, notes)) { SourceType = o.Type };
+                Type: Resolve(o.Type, what, notes)) { SourceType = o.Type, Mirrored = o.Code is >= 4 and < 8 };
         }
     }
 
@@ -316,7 +316,8 @@ static class AreaTransitionCatalog
     /// Reef), or a town's exit no tile marks (Karui Shores' camp.arm "entrance1" to Oriath, as the atlas's point-only
     /// exits); a quest gate on the destination still applies (Quests.FlagToEnter).</summary>
     internal static List<AreaTransitionObject> FromExits(string areaId, ushort areaHash, IReadOnlyList<AtlasConnection> connections,
-        IReadOnlyList<PlacedExit> exits, List<string> notes, IReadOnlyList<EntrancePoint>? entrances = null, bool openDisabled = false)
+        IReadOnlyList<PlacedExit> exits, List<string> notes, IReadOnlyList<EntrancePoint>? entrances = null, bool openDisabled = false,
+        uint seed = 0)
     {
         var placed = new List<AreaTransitionObject>();
         foreach (var e in exits)
@@ -324,38 +325,63 @@ static class AreaTransitionCatalog
             var o = e.Object;
             string what = $"{o.Model.Split('/')[^1]} at ({o.X}, {o.Y})";
             float? height = float.IsNaN(o.Z) ? null : o.Z;
+            // A tile record on a mirrored tile is sent mirrored (the server's Positioned flag), or its highlight lies across it.
+            bool mirrored = o.Code is >= 4 and < 8;
             // Delve's mine entrance and exit lead to areas no graph node names (Delve_Hub's hub.arm names no exit).
             if (TryDelveEntrance(areaId, o.Model, out ushort delveDestination))
             {
-                placed.Add(new AreaTransitionObject(o.X, o.Y, delveDestination, o.Model, Rotation: o.Rotation, Height: height));
+                placed.Add(new AreaTransitionObject(o.X, o.Y, delveDestination, o.Model, Rotation: o.Rotation, Height: height) { Mirrored = mirrored });
                 notes.Add($"Delve entrance at ({o.X}, {o.Y}) → {IdOf(delveDestination)}");
                 continue;
             }
             switch (e.Kind)
             {
-                // A disabled entrance a quest gates is the game's scripted exit: created, and shown by the quest's flag.
-                case ExitKind.Entrance when !e.Enabled && !openDisabled && !(connections.FirstOrDefault(c => c.Index == e.Number) is { } gated
-                        && Gated(areaId, gated.Id)):
-                    notes.Add($"{what}: entrance{e.Number}disabled ({e.Why}), an arrival point only, not created");
-                    break;
+                // A disabled entrance is created too, as a plain exit to its connection: the server sends The Ashen Fields'
+                // "entrance2disabled" to The Den, The Submerged Passage's "entrance4disabled" to The Flooded Depths, The
+                // Control Blocks' two to Overseer's Tower (30 such layouts). One a quest gates (the game's scripted exit)
+                // is shown by the quest's flag (QuestSource).
                 case ExitKind.Entrance:
                     if (connections.FirstOrDefault(c => c.Index == e.Number) is not { } to)
                     {
                         notes.Add($"{what}: entrance{e.Number} ({e.Why}), but the area has {connections.Count} connection(s), not created");
                         break;
                     }
+                    bool gated = !e.Enabled && !openDisabled && Gated(areaId, to.Id);
                     placed.Add(new AreaTransitionObject(o.X, o.Y, to.Hash16, o.Model, Rotation: o.Rotation, Height: height,
-                        Type: Resolve(o.Type, what, notes)) { SourceType = o.Type, QuestSource = e.Enabled || openDisabled ? null : GateSourceOf(areaId, to.Id) });
-                    notes.Add($"{what} → {to.Id} (entrance{e.Number}{(e.Enabled ? "" : openDisabled ? "disabled, open: Izaro's way on" : "disabled, gated by a quest")}, {e.Why})");
+                        Type: Resolve(o.Type, what, notes)) { SourceType = o.Type, QuestSource = gated ? GateSourceOf(areaId, to.Id) : null, Mirrored = mirrored });
+                    notes.Add($"{what} → {to.Id} (entrance{e.Number}{(e.Enabled ? "" : openDisabled ? "disabled, open: Izaro's way on" : gated ? "disabled, gated by a quest" : "disabled, created as the server does")}, {e.Why})");
                     break;
                 case ExitKind.Teleport when e.Target is { } target:
-                    // A Teleport (type 1) labelled with its ClientStrings key; "%areaname%" (or no key) shows the area's name.
+                    // A Teleport (type 1) labelled with its ClientStrings key (variant 1); "%areaname%" shows the area's name
+                    // (variant 2); a gate whose node names no key shows "Stairs" (variant 0, the ClientStrings row + 1), as
+                    // the server's do.
                     placed.Add(new AreaTransitionObject(o.X, o.Y, areaHash, o.Model, Rotation: o.Rotation, Height: height,
-                        Type: Resolve(o.Type, what, notes)) { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label), SourceType = o.Type });
+                        Type: Resolve(o.Type, what, notes)) { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label),
+                        LabelRow = e.Label is null ? StairsRow.Value : null, SourceType = o.Type, Mirrored = mirrored });
                     notes.Add($"{what}: teleport{e.Number}{(e.Enabled ? "" : "disabled")}{(e.Label is null ? "" : "-" + e.Label)} to ({target.X}, {target.Y}) within the area ({e.Why})");
                     break;
                 case ExitKind.Teleport:
                     notes.Add($"{what}: teleport{e.Number} ({e.Why}), not created");
+                    break;
+                // The way into the area's Vaal side area (type 2): one of the area's WorldAreas VaalArea rows, by the seed
+                // (the server picks one; the pick is not known).
+                case ExitKind.SideArea when VaalAreas.Value.GetValueOrDefault(areaId) is { Count: > 0 } vaal:
+                {
+                    var (id, hash) = vaal[(int)(seed % (uint)vaal.Count)];
+                    placed.Add(new AreaTransitionObject(o.X, o.Y, hash, o.Model, Rotation: o.Rotation, Height: height,
+                        Type: Resolve(o.Type, what, notes)) { Kind = 2, SourceType = o.Type, Mirrored = mirrored });
+                    notes.Add($"{what} → {id} (the Vaal side area, {e.Why})");
+                    break;
+                }
+                case ExitKind.SideArea:
+                    notes.Add($"{what}: the Vaal side area's way in, but WorldAreas lists no side area for {areaId}, not created");
+                    break;
+                // The way back out of a Vaal side area (type 3): to the area it was entered from, which the connection
+                // sets when it creates the object (the layout is shared); the area itself stands in.
+                case ExitKind.SideAreaReturn:
+                    placed.Add(new AreaTransitionObject(o.X, o.Y, areaHash, o.Model, Rotation: o.Rotation, Height: height,
+                        Type: Resolve(o.Type, what, notes)) { Kind = 3, SourceType = o.Type, Mirrored = mirrored });
+                    notes.Add($"{what}: the way back out of the side area ({e.Why})");
                     break;
                 default:
                     notes.Add($"{what}: {e.Why}, not created");
@@ -364,6 +390,16 @@ static class AreaTransitionCatalog
         }
         foreach (var p in entrances ?? [])
         {
+            // The Vaal side area's room holds no transition object (the Coast's side caves): the way in stands at the
+            // room's "entrance" point, an exit without a model.
+            if (p.SideArea)
+            {
+                if (placed.Any(t => t.Kind == 2) || VaalAreas.Value.GetValueOrDefault(areaId) is not { Count: > 0 } vaal) continue;
+                var (id, hash) = vaal[(int)(seed % (uint)vaal.Count)];
+                placed.Add(new AreaTransitionObject(p.X, p.Y, hash) { Kind = 2 });
+                notes.Add($"the Vaal side area {id} at its room's point ({p.X}, {p.Y}): no object of its own, an exit without a model");
+                continue;
+            }
             if (!p.Enabled || connections.FirstOrDefault(c => c.Index == p.Number) is not { } to) continue;
             if (exits.Any(e => e.Kind == ExitKind.Entrance && e.Enabled && e.Number == p.Number)) continue;
             if (placed.Any(t => t.DestinationHash16 == to.Hash16 && t.TeleportTo is null)) continue;
@@ -373,9 +409,61 @@ static class AreaTransitionCatalog
         return placed;
     }
 
+    /// <summary>Each area's Vaal side areas (WorldAreas VaalArea, data/tables/WorldAreas.json): their ids and HASH16s.</summary>
+    static readonly Lazy<Dictionary<string, List<(string Id, ushort Hash16)>>> VaalAreas = new(() =>
+    {
+        var map = new Dictionary<string, List<(string, ushort)>>(StringComparer.Ordinal);
+        const string file = "data/tables/WorldAreas.json";
+        if (!File.Exists(file)) return map;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+            var rows = doc.RootElement;
+            foreach (var r in rows.EnumerateArray())
+            {
+                if (r.GetProperty("Id").GetString() is not { Length: > 0 } id || !r.TryGetProperty("VaalArea", out var vaal) || vaal.ValueKind != JsonValueKind.Array) continue;
+                var list = new List<(string, ushort)>();
+                foreach (var index in vaal.EnumerateArray())
+                {
+                    if (index.ValueKind != JsonValueKind.Number || index.GetInt32() is var i && (i < 0 || i >= rows.GetArrayLength())) continue;
+                    var side = rows[i];
+                    if (side.GetProperty("Id").GetString() is { Length: > 0 } sideId && side.TryGetProperty("HASH16", out var h) && h.ValueKind == JsonValueKind.Number)
+                        list.Add((sideId, (ushort)h.GetInt32()));
+                }
+                if (list.Count > 0) map[id] = list;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+        }
+        return map;
+    });
+
     /// <summary>The ClientStrings HASH32 of a gate's label key (data/tables/ClientStrings.json), null for "%areaname%",
     /// an unknown key or without the table.</summary>
     static uint? LabelHash(string? key) => key is null or "%areaname%" ? null : ClientStrings.Value?.GetValueOrDefault(key);
+
+    /// <summary>The ClientStrings row + 1 of "Stairs" (data/tables/ClientStrings.json, in row order), the label of a gate
+    /// without a key; <see cref="AreaTransitionObject.StairsRow"/> without the table.</summary>
+    static readonly Lazy<ushort> StairsRow = new(() =>
+    {
+        const string file = "data/tables/ClientStrings.json";
+        if (!File.Exists(file)) return AreaTransitionObject.StairsRow;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+            int row = 0;
+            foreach (var r in doc.RootElement.EnumerateArray())
+            {
+                row++;
+                if (r.GetProperty("Id").GetString() == "Stairs") return (ushort)row;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+        }
+        return AreaTransitionObject.StairsRow;
+    });
 
     static readonly Lazy<Dictionary<string, uint>?> ClientStrings = new(() =>
     {
@@ -576,7 +664,7 @@ sealed record TransitionEffect(string Type, string Model, int X, int Y, float Ro
     {
         var w = new BlobWriter().U8(0).U8(0);
         w.I32(X).I32(Y).F32(Rotation).U16(0).U8((byte)(Z is null ? 0 : 0x04)).U8(2);
-        if (Z is float h) w.I32((int)MathF.Round(h / 7.8125f)).F32(h);
+        if (Z is float h) w.I32(InstanceProtocol.HeightMarker(h)).F32(h);
         w.U8(0).U8(1);
         w.U8(1).WStr32(Model);
         return w.U8(State).U8(0).ToArray();

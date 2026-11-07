@@ -178,7 +178,31 @@ Part of [Status](../Status.md); what to build next in this area is in
   doodads, rooms and quest tile objects the monster points and a1 quests are fitted to, need no capture.
   Entering any other area tells the player it is generated on the client and not supported by the server yet.
   The client's stages after the doodads (mesh variation, ground clutter, critters) are client-only and not ported.
-  Code: `GameServer.Data/Terrain/Generation`, `scripts/re/levelgen`.
+  Against a corpus of 1142 recorded loads (their seeds, area stats and plugin blobs), the port
+  reproduces every one by tile hash and draw for draw through the doodad stage as well
+  (`scripts/re/levelgen/corpus_check.py`, `--doodads`, re/011 §8): the stat-driven
+  league rolls, the Labyrinth, Incursion past rooms and temples, Deepwater boards, Azmeri woods, Betrayal jobs,
+  safehouses and forts, Expedition logbooks, Heist contracts. The Gateway sends the server's topology variant
+  (0x1d +0x28 = 59) and generates with it, and generates a level with the area stats its 0x1d carries
+  (`AreaStats.cs`, composed as the server composes them: the league flag, the atlas preset's stats and league
+  blocks, the map's explicit mods each scaled by the atlas's mod effect, its implicits and quality, the fragments'
+  mods, the derived counts and the tier block; a real Jungle Valley activation of the corpus composes exactly but for
+  the account block - the atlas completion bonus and the voidstone / Maven / astrolabe / uber-map unlocks -, the
+  activated node, the boss option and the server's Beyond roll, which are not modelled).
+  The area packet's extra data carries the terrain plugin states (`AreaExtraData`: the Labyrinth node and the plugin
+  list, as the server's); of the plugins the generator consumes only the DeepwaterPlugin is decided here: a
+  Deepwater encounter area is generated from a 1 × 1 mission board drawn from the seed (one of the rooms the
+  server used, any rotation) and the same board goes to the client. Incursion, Heist, Azmeri and Betrayal states are
+  not rolled yet (their leagues' server sides).
+  A level lists every object the server creates (`AreaObjects.ServerObjects`: the tiles' records and the rooms' lines
+  whose .ot is not the client's, with whether the server sends it; checked against the server's spawns of 197 loads,
+  4863 of 5283 level objects at their type and cell). The Gateway creates the transitions, waypoints and quest objects
+  from it; the chests, spawners, markers, NPCs and league objects are listed and not placed yet. A disabled entrance
+  is created as the server does; a gate without a label key shows "Stairs" (destination variant 0); the Positioned
+  height marker is −z / 7.8125 truncated. A level's Vaal side area is playable: its room's transition tile leads
+  into a new instance of one of the area's VaalArea side areas, whose area packet names the parent area and
+  instance, and whose "sideentrance" transition leads back into that parent instance (08 §8 step 9).
+  Code: `GameServer.Data/Terrain/Generation`, `scripts/re/levelgen`, `World/AreaStats.cs`.
   Docs: [re/011](../docs/re/011-level-generation.md).
 - **The Labyrinth's day layout.** The Gateway builds the day's layout as the client does (sections, rooms,
   connections and secrets: 168 client layouts match) and gives each room one of its LabyrinthAreas areas; entering

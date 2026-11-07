@@ -27,6 +27,8 @@ sealed class DungeonPlacement
     public List<string> Descriptions = [];
     public DungeonDoor[] Exits = [];
     public string? Type40, Type48;
+    /// <summary>The plugin part of a "graph" node's placement (<see cref="GraphNode.Plugin"/>).</summary>
+    public object? Plugin;
 
     public override string ToString() => $"{(Room is null ? "blank" : Path.GetFileName(Room.Path))} ({X}, {Y}) {Width}x{Height}";
 }
@@ -440,7 +442,6 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         foreach (var row in used) pool.Remove(row, true);
         if (waiting.Count == 0 || share == 0) return;
         if (share < waiting.Count) throw new NotSupportedException("more extra feature rooms than the share (0x14212dec0's shuffle) is not ported");
-        if (waiting.Any(w => w.Row.Tiles.Count != 0)) throw new NotSupportedException("extra feature tiles (the pool's tile store, +0x90) are not ported");
 
         var saved = Save();
         int left = waiting.Count;
@@ -1378,6 +1379,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         var (ax, ay) = Anchor(graphOrientation, x, y, w, h);
         byte b10 = (byte)edges.Select(e => e.Dungeon!.ExtraDoor).DefaultIfEmpty(0).Max();
         var p = map.Place(null, 0, w, h, ax, ay, (sbyte)n.Height, descriptions, null, Accessible(n, edges), flag2, 1, b10, NodeDoorType(n));
+        p.Plugin = n.Plugin;
         notes.Add($"dungeon node {n}: subgraph {descriptions[0]} {p}");
     }
 

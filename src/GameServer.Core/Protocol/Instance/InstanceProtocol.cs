@@ -396,6 +396,12 @@ public static class InstanceProtocol
     /// object" case, Agents/docs/protocol/07 §4).</summary>
     public static byte[] RemoveObject(uint objectId) => new LoginWriter().U16(RemoveObjectId).U32(objectId).U32(0).U16(0).ToArray();
 
+    /// <summary>The Positioned fixed-height marker (+0x290) the server sends with a world z (+0x2b4, negative is up):
+    /// −z / 7.8125 truncated toward zero, not rounded (the server's objects: a z of −193.77 is marker 24, of 223.0 marker
+    /// −28; at an exact multiple the server is one off either way, and the client takes the f32 z whenever the marker is
+    /// not 0x7fffffff, so a marker near the server's is what matters).</summary>
+    public static int HeightMarker(float worldZ) => (int)(-worldZ / 7.8125f);
+
     /// <summary>
     /// S→C 0x1ba (world group, class 0x1435dd7b8, read 0x141fe0ff0; Positioned handler 0x141e30c90): move an object to a
     /// grid cell. Object header, i32 x, i32 y, u32 height marker (+0x28: 0x7fffffff = follow the terrain;
@@ -550,20 +556,30 @@ public static class InstanceProtocol
 /// "Client-Safe Instance ID = {InstanceId}" and "Generating level {Level} area "{id}" with seed {Seed}", then queues area
 /// generation. AreaHash is WorldAreas.HASH16 (unknown: "Instance sent world area that does not exist"). Level 0 means
 /// the area's own level. LeagueStats enables flag 0x21.6 and the first compact pair list (+0x100), copied to world
-/// stats at +0x120 by 0x142183130. Other optional parts remain off. Defaults follow the constructor (0x14219d940).
+/// stats at +0x120 by 0x142183130. Other optional parts remain off. Defaults follow the constructor (0x14219d940),
+/// except B28 (+0x28 → world +0xd0, the topology variant the generator picks its Topologies rows by): the constructor's
+/// default is 60, but every recorded area load carries 59 (1142 loads; the Deepwater league's Topologies rows), and
+/// the Gateway generates with 59 too (<c>ServerLevels</c>).
 /// </summary>
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
-    byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
+    byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = AreaInstance.TopologyVariant,
     IReadOnlyDictionary<uint, int>? LeagueStats = null, byte[]? TerrainData = null,
-    IReadOnlyList<byte>? AchievementSets = null)
+    IReadOnlyList<byte>? AchievementSets = null, ushort? AltArea = null)
 {
+    // AltArea: the area this one returns to (flag +0x21 bit 0x08, a WorldAreas HASH16 after +0x28; the handler keeps its row
+    // at world +0xc0): on a Vaal side area the area it was entered from, on a map the hideout whose device opened it. The
+    // server sends it on every side area, beside the parent record of the extra data (AreaExtraData).
+    /// <summary>The topology variant the server sends (0x1d +0x28) and generates with.</summary>
+    public const byte TopologyVariant = 59;
+
     public byte[] Encode()
     {
         bool hasStats = LeagueStats is { Count: > 0 };
         var writer = new LoginWriter()
             .U16(InstanceProtocol.AreaInstanceId).U32(InstanceId).U16(AreaHash).WStr(Text).U32(Seed)
-            .U8(B1e).U8(B20).U8(B1f).U8(B24).Bytes([(byte)(hasStats ? 0x40 : 0), (byte)(TerrainData is null ? 0 : 4), 0]).U8(Level).U8(B1d).U8(B28)
-            .U16(0)  // vec16<u32> +0x68
+            .U8(B1e).U8(B20).U8(B1f).U8(B24).Bytes([(byte)((hasStats ? 0x40 : 0) | (AltArea is null ? 0 : 0x08)), (byte)(TerrainData is null ? 0 : 4), 0]).U8(Level).U8(B1d).U8(B28);
+        if (AltArea is ushort alt) writer.U16(alt);
+        writer.U16(0)  // vec16<u32> +0x68
             .U16(0); // vec16<u8> +0x80
         // +0x50 becomes instance +0xc418. The shared achievements/league-upgrades TabControl
         // stays hidden when this list is empty, even when the Delve child tab exists.
@@ -588,6 +604,54 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
             writer.U16((ushort)terrain.Length).Bytes(terrain);
         }
         return writer.ToArray();
+    }
+}
+
+/// <summary>
+/// The area extra data (0x1d's terrain block, <see cref="AreaInstance.TerrainData"/>; the decoder <c>0x141ec7220</c>): two
+/// flag bytes, then the sections the flags name, in flag order. Byte 0 bit 0x08: the Labyrinth node (u32 day seed, u16
+/// LabyrinthSectionLayout row, u8 difficulty, little-endian). Byte 1 bit 0x01: the terrain plugin states - u8 count, then
+/// per plugin u16 LE TerrainPlugins HASH16, u16 LE length and the blob (DeepwaterPlugin 11572: the voyage board;
+/// AzmeriPlugin 17645; IncursionPastPlugin 32669; MarkedMapBoss 57908, empty). The other sections (ruleset states, the
+/// Syndicate record, Delve, the parent record of a side area) are not written.
+/// </summary>
+public static class AreaExtraData
+{
+    /// <param name="parent">A Vaal side area's parent (byte 1 bit 0x02, a fixed 12 bytes after the plugin list): a u64
+    /// reference to the parent instance and the u16 area code of the area it was entered from, then a u16 0. The server
+    /// sends it on every side area; the code is the packet's <see cref="AreaInstance.AltArea"/> too.</param>
+    public static byte[] Build((uint Seed, ushort Row, byte Difficulty)? labyrinth, IReadOnlyList<(ushort Hash, byte[] Blob)>? plugins,
+        (ulong Instance, ushort Area)? parent = null)
+    {
+        bool anyPlugins = plugins is { Count: > 0 };
+        if (labyrinth is null && !anyPlugins && parent is null) return [];
+        var w = new LoginWriter();
+        var bytes = new List<byte> { (byte)(labyrinth is null ? 0 : 0x08), (byte)((anyPlugins ? 0x01 : 0) | (parent is null ? 0 : 0x02)) };
+        if (labyrinth is { } node)
+        {
+            bytes.AddRange(BitConverter.GetBytes(node.Seed));
+            bytes.AddRange(BitConverter.GetBytes(node.Row));
+            bytes.Add(node.Difficulty);
+        }
+        if (anyPlugins)
+        {
+            if (plugins!.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(plugins));
+            bytes.Add((byte)plugins.Count);
+            foreach (var (hash, blob) in plugins)
+            {
+                if (blob.Length > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(plugins));
+                bytes.AddRange(BitConverter.GetBytes(hash));
+                bytes.AddRange(BitConverter.GetBytes((ushort)blob.Length));
+                bytes.AddRange(blob);
+            }
+        }
+        if (parent is { } p)
+        {
+            bytes.AddRange(BitConverter.GetBytes(p.Instance));
+            bytes.AddRange(BitConverter.GetBytes(p.Area));
+            bytes.AddRange(BitConverter.GetBytes((ushort)0));
+        }
+        return [.. bytes];
     }
 }
 

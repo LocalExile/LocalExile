@@ -14,6 +14,11 @@ public sealed record PlacedArmRoom(string Path, int X, int Y, int Width, int Hei
 /// <see cref="AreaObjects.RoomObjects"/> returns.</summary>
 public sealed record PlacedLink(int From, int To, string Name);
 
+/// <summary>An object of a generated level the server creates (<see cref="AreaObjects.ServerObjects"/>): the object, the
+/// file that placed it (a tile's .tdt or a room's .arm) and whether the server sends it in a 0x2b9 spawn (false: a
+/// server-internal spawner or marker, <see cref="ObjectTypeFlags.ServerSends"/>).</summary>
+public sealed record PlacedServerObject(PlacedTileObject Object, string Source, bool Sent);
+
 /// <summary>The area transitions and waypoints of a generated grid, placed as <see cref="DoodadStage"/>'s tile lines
 /// place tile objects (<c>0x142041200</c>): row by row, every tile origin's objects (the record master's Reskin copy
 /// when there is one; per sub-tile for a tile made of them), then the .tmd the .tdt names (+0x180), turned by the
@@ -107,6 +112,80 @@ public static class AreaObjects
     const string DoodadType = "Metadata/MiscellaneousObjects/Doodad";
 
     const string WaypointType = "Metadata/MiscellaneousObjects/Waypoint";
+
+    /// <summary>Every object of a generated level the server creates (<see cref="ObjectTypeFlags.ServerCreates"/>): the
+    /// doodad stage's serialised half. The tiles' records (each origin's mesh .tmd, or the master's Reskin copy, per
+    /// sub-tile for a tile made of them, none for a tile whose flags word has bit 3 or that inherits neither mesh nor
+    /// objects; then the .tmd the .tdt names, once when it is the mesh's own) and the rooms' object lines and typed points,
+    /// as <see cref="DoodadStage"/> places them, one per (type, cell). Heights: a tile record's z minus its cell's height
+    /// step × 7.8125; a room line's fixed height minus the room's origin cell's step × 7.8125, else minus the step of the
+    /// cell under it (a point has no fixed height). Checked against the server's spawns of 197 loads: 4863 of the 5283
+    /// level objects it sent at their type and cell, 330 more at a position the server rolls (a room's ore nodes), the
+    /// rest the chests, transitions and tiles of parts the port does not build; rotation 4798 of 4863, height step 2656
+    /// of 2747, world z 2707 of 2747. The chests, spawners, markers, NPCs and league objects the Gateway does not place
+    /// yet are listed here for it.</summary>
+    public static List<PlacedServerObject> ServerObjects(TerrainCache files, GenerationResult result, ObjectTypes types)
+    {
+        var grid = result.Grid;
+        var records = result.Records;
+        var placed = new List<PlacedServerObject>();
+        var seen = new HashSet<(string, int, int)>();
+        void Add(string type, string model, int x, int y, float angle, float z, int code, string source)
+        {
+            var flags = types.Flags(type);
+            if (!flags.ServerCreates) return;
+            if (!seen.Add((type.ToLowerInvariant(), x, y))) return;
+            placed.Add(new PlacedServerObject(new PlacedTileObject(type, model, x, y, angle, z, code), source, flags.ServerSends));
+        }
+        int StepAt(int cx, int cy) => grid[cx, cy]?.HeightOffset ?? 0;
+
+        for (int y = 0; y < grid.Height; y++)
+            for (int x = 0; x < grid.Width; x++)
+            {
+                if (grid[x, y] is not { IsOrigin: true } e) continue;
+                var tile = e.Tile;
+                int index = 0;
+                for (int k = 0; k < records.Count; k++)
+                    if (x >= records[k].X && x < records[k].X + records[k].W && y >= records[k].Y && y < records[k].Y + records[k].H) index = k;
+                string? reskin = records.Count != 0 ? records[index].Master.GetValueOrDefault("Reskin") : null;
+                string source = tile.Path[(tile.Path.LastIndexOf('/') + 1)..];
+                void Line(TileObject o, int cellX, int cellY, float angle)
+                {
+                    var (cx, cy) = Orientation.Map(e.Orientation, cellX, cellY, tile.Width * 23, tile.Height * 23);
+                    Add(o.Type, o.VirtualModel(tile.Path), x * 23 + cx, y * 23 + cy, TilePlacement.Angle(e.Orientation, angle),
+                        o.Z - e.HeightOffset * 7.8125f, e.Orientation, source);
+                }
+                var objects = tile.NoMeshObjects ? [] : files.TileObjects(tile);
+                if (objects.Count != 0 && (files.TileFlags(tile.Path) & 0x200) != 0) SubTiles(files, tile, reskin, Line);
+                else if (objects.Count != 0)
+                {
+                    if (reskin is { Length: > 0 }) objects = files.ReskinObjects(tile, reskin) ?? objects;
+                    foreach (var o in objects) Line(o, o.CellX, o.CellY, o.Angle);
+                }
+                foreach (var o in files.SecondObjects(tile)) Line(o, o.CellX, o.CellY, o.Angle);
+            }
+
+        foreach (var record in records)
+            foreach (var room in record.Rooms)
+            {
+                int code = room.Orientation, w = room.Room.Width * 23, h = room.Room.Height * 23;
+                int originStep = StepAt(room.X, room.Y);
+                string source = room.Room.Path[(room.Room.Path.LastIndexOf('/') + 1)..];
+                void Line(string type, string model, float x, float y, float rawAngle, float? fixedHeight)
+                {
+                    var (cx, cy) = Orientation.Map(code, (int)x, (int)y, w, h);
+                    float angle = code is >= 4 and < 8 ? MathF.PI * 2 - rawAngle : rawAngle;
+                    angle = (angle + (code & 3) * (MathF.PI / 2)) % (MathF.PI * 2);
+                    int px = room.X * 23 + cx, py = room.Y * 23 + cy;
+                    float z = fixedHeight is { } f ? f - originStep * 7.8125f : -StepAt(px / 23, py / 23) * 7.8125f;
+                    Add(type, model, px, py, angle, z, code, source);
+                }
+                foreach (var d in room.Room.Doodads) Line(d.Type, d.Model, d.X, d.Y, d.Angle, d.FixedHeight);
+                foreach (var p in room.Room.Points)
+                    if (p.Name.StartsWith("Metadata/", StringComparison.Ordinal)) Line(p.Name, "", p.X, p.Y, p.Angle, null);
+            }
+        return placed;
+    }
 
     /// <summary>The <see cref="QuestTypes"/> objects of a generated grid, placed as <see cref="Transitions"/>.</summary>
     public static List<PlacedTileObject> QuestObjects(TerrainCache files, GenerationResult result) =>

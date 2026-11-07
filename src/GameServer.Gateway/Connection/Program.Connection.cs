@@ -5,6 +5,7 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core.Accounts;
 using GameServer.Storage;
 using GameServer.Core.Diagnostics;
+using GameServer.Modding;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
 partial class Program
@@ -99,8 +100,11 @@ partial class Program
                 string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
                 byte areaLevel = MapDevice.OpenOf(characterName) is { } openMap && openMap.Area.Hash16 == areaHash
                     && openMap.Area.Level > 0 ? (byte)Math.Clamp(openMap.Area.Level, 1, 100) : (byte)0;
+                // The area stats the instance is played with (0x1d's list): the level is generated with them, as the
+                // client generates its own from the packet (AreaStats; ServerLevels.PlayedStats).
+                var areaStats = AreaStats.Compose(characterName, areaHash, resolved.League);
                 // The client generates the area at the seed and level of 0x1d: a seed the Gateway can generate too.
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel);
+                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats);
                 ulong instanceId = resolved.Instance;
                 var layout = AreaLayouts.For(areaHash, seed);
                 AreaLayouts.Announce(layout, seed);
@@ -111,7 +115,7 @@ partial class Program
                 Console.WriteLine($"[gateway] {remote} => 0x0011 (start encryption)");
 
                 // Anything after the opening was already encrypted by the client.
-                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring,
+                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, SideAreaParent = AreaLayouts.SideAreaParents.TryRemove(ticket, out var sideParent) ? sideParent : null, Instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring,
                     LockstepServed = LockstepLink.Confirmed(Lockstep, client.Client.RemoteEndPoint, client.Client.LocalEndPoint, opening.Address) };
                 if (conn.LockstepServed)
                 {
@@ -138,10 +142,16 @@ partial class Program
                 var labyrinthNode = moduleHeader?.Terrain is null ? LabyrinthDay.NodeFor(layout.Id, seed) : null;
                 // The plaza's door is shut whenever someone comes: each run is chosen at its device again.
                 if (layout.Id == LabyrinthDay.Plaza) conn.Instance.ClearState(LabyrinthDay.PlazaDoorOpen);
+                // A Vaal side area names the area it was entered from (the alt area) and its parent instance (the extra
+                // data's parent record), as the server does.
+                var sideAreaParent = conn.SideAreaParent;
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
-                    Text: resolved.League ?? "", LeagueStats: Logic.AreaLeagueStats(conn),
-                    TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null ? null : LabyrinthDay.ExtraData(labyrinthNode)),
-                    AchievementSets: moduleHeader?.AchievementSets);
+                    Text: resolved.League ?? "", LeagueStats: AreaStats.Merge(areaStats, Logic.AreaLeagueStats(conn)),
+                    // The extra data: the Labyrinth node, the terrain plugin states the level was generated with, the parent.
+                    TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null && layout.Level is not { Plugins.Count: > 0 } && sideAreaParent is null ? null
+                        : AreaExtraData.Build(labyrinthNode is null ? null : LabyrinthDay.Section(labyrinthNode), layout.Level?.Plugins,
+                            sideAreaParent is { } sp ? (sp.Instance, sp.Area) : null)),
+                    AchievementSets: moduleHeader?.AchievementSets, AltArea: sideAreaParent?.Area);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
                 await Logic.Entered(remote, conn, level, resolved.Level);

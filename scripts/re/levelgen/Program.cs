@@ -183,8 +183,10 @@ static int Dispatch(string[] args)
                 QuestObjectsList(args[1], args.Length > 2 && args[2] != "--rooms" ? uint.Parse(args[2]) : 1, args.Contains("--rooms"));
                 break;
             case "generate":
-                // generate <area id> <seed> [trace.gen.json]: the server's generation, compared with a client trace when given.
-                Generate(args[1], uint.Parse(args[2]), args.Length > 3 ? args[3] : null);
+                // generate <area id> <seed> [trace.gen.json] [--doodads]: the server's generation, compared with a client trace
+                // when given; --doodads runs the doodad stage after it on the same generator, so the draw comparison
+                // covers the stage (the corpus traces log through it).
+                Generate(args[1], uint.Parse(args[2]), args.Length > 3 && args[3] != "--doodads" ? args[3] : null, args.Contains("--doodads"));
                 break;
             case "walk":
                 // walk [<area id> <seed>]: the port's walkability and projectile grids against the walk-map capture
@@ -570,8 +572,10 @@ static void Doodads(string areaId, uint seed)
     // Draw by draw from the tile stage's end.
     var theirs = TraceDraws(t);
     var mine = rng.Log!;
+    if (t.TryGetProperty("kinds", out var kinds) && kinds.ValueKind == JsonValueKind.String)
+        mine = mine.Where(d => kinds.GetString()!.Contains(d.Kind)).ToList();
     int same = 0;
-    while (same < theirs.Count && same < mine.Count && theirs[same].Kind == mine[same].Kind && theirs[same].Arg == mine[same].Arg && theirs[same].Result == mine[same].Result) same++;
+    while (same < theirs.Count && same < mine.Count && SameDraw(theirs[same], mine[same])) same++;
     Console.WriteLine($"draws: {same} of {theirs.Count} match (port made {mine.Count}, {mine.Count - before} in the doodad stage)");
     // LEVELGEN_AROUND=n widens the window to n draws before and after the first difference.
     int window = int.TryParse(Environment.GetEnvironmentVariable("LEVELGEN_AROUND"), out int around) ? around : 0;
@@ -758,19 +762,74 @@ static void WalkArea(GameFileSystem fs, TerrainCache files, string root, string 
     Compare("projectile", walk.Projectile, stem + ".projectile.bin");
 }
 
-static void Generate(string areaId, uint seed, string? tracePath)
+/// <summary>A client draw and a port draw agree: same kind, bound and result, or both a bound of 0 or 1 (neither takes a
+/// generator word, so the result is 0 either way). The doodad stage's pick of an EMPTY list logs bound 0 or 1 at
+/// 0x1420437fd / 0x14204387f per load, with no property of the table deciding which (one .ddt gives both across loads).</summary>
+static bool SameDraw((char Kind, string Caller, uint Arg, uint Result) client, (char Kind, uint Arg, uint Result) port) =>
+    client.Kind == port.Kind && client.Result == port.Result && (client.Arg == port.Arg || client.Arg <= 1 && port.Arg <= 1);
+
+static void Generate(string areaId, uint seed, string? tracePath, bool doodads = false)
 {
     string root = Root();
     var fs = OpenGame();
     var files = Files();
     int level = 1;
+    Dictionary<int, int>? stats = null;
+    List<string>? plugins = null;
+    int variant = 60;
+    LabyrinthNodeKey? traceLab = null;
+    IncursionPast? incursion = null;
+    DeepwaterBoard? deepwater = null;
+    AzmeriWoods? azmeri = null;
+    IncursionTemple? temple = null;
+    SafehouseRooms? safehouse = null;
+    HeistState? heist = null;
+    int? expeditionFaction = null;
     if (tracePath is not null)
-        using (var head = JsonDocument.Parse(File.ReadAllText(tracePath))) level = head.RootElement.TryGetProperty("level", out var l) ? l.GetInt32() : 1;
+        using (var head = JsonDocument.Parse(File.ReadAllText(tracePath)))
+        {
+            level = head.RootElement.TryGetProperty("level", out var l) ? l.GetInt32() : 1;
+            // A corpus trace (corpus_check.py) carries the area stats the server sent in 0x1d.
+            if (head.RootElement.TryGetProperty("stats", out var st) && st.ValueKind == JsonValueKind.Object)
+                stats = st.EnumerateObject().ToDictionary(p => int.Parse(p.Name), p => p.Value.GetInt32());
+            if (head.RootElement.TryGetProperty("plugins", out var pl) && pl.ValueKind == JsonValueKind.Array)
+                plugins = pl.EnumerateArray().Select(p => p.GetString()!).ToList();
+            // 0x1d +40 → world +0xd0, the topology variant (the server sends 59; the client's default is 60).
+            if (head.RootElement.TryGetProperty("variant", out var tv) && tv.ValueKind == JsonValueKind.Number) variant = tv.GetInt32();
+            // The Labyrinth node the server sent in 0x1d's extra data (the day seed, the section layout row, the difficulty).
+            if (head.RootElement.TryGetProperty("lab", out var lb) && lb.ValueKind == JsonValueKind.Object)
+                traceLab = new LabyrinthNodeKey(lb.GetProperty("seed").GetUInt32(), lb.GetProperty("row").GetInt32(), lb.GetProperty("difficulty").GetInt32());
+            // The Incursion past rooms the server's IncursionPastPlugin blobs named, in blob order.
+            if (head.RootElement.TryGetProperty("incursion", out var inc) && inc.ValueKind == JsonValueKind.Array)
+                incursion = new IncursionPast(inc.EnumerateArray().Select(e => (e.GetProperty("past").GetString()!, e.GetProperty("slot").GetInt32())).ToList());
+            // The Deepwater voyage board the server's DeepwaterPlugin blob carried (BoardSize N, N × N cells).
+            if (head.RootElement.TryGetProperty("deepwater", out var dw) && dw.ValueKind == JsonValueKind.Object)
+                deepwater = new DeepwaterBoard(dw.GetProperty("n").GetInt32(),
+                    dw.GetProperty("cells").EnumerateArray().Select(c => (c.GetProperty("room").GetString()!, c.GetProperty("rotation").GetInt32())).ToList());
+            // The AzmeriPlugin blob's four AzmeriFeatureRooms rows and its flag.
+            if (head.RootElement.TryGetProperty("azmeri", out var az) && az.ValueKind == JsonValueKind.Object)
+                azmeri = new AzmeriWoods(az.GetProperty("rows").EnumerateArray().Select(e => e.GetInt32()).ToList(), az.GetProperty("flag").GetInt32());
+            // The IncursionTemplePlugin blob: eleven IncursionRooms keys and the 26 door bits.
+            if (head.RootElement.TryGetProperty("temple", out var tp) && tp.ValueKind == JsonValueKind.Object)
+                temple = new IncursionTemple(tp.GetProperty("keys").EnumerateArray().Select(e => e.GetInt32()).ToList(), tp.GetProperty("bits").GetUInt32());
+            // The BetrayalSafehousePlugin roster: the BetrayalTargets rows in slot order.
+            if (head.RootElement.TryGetProperty("safehouse", out var sh) && sh.ValueKind == JsonValueKind.Object)
+                safehouse = new SafehouseRooms(sh.GetProperty("rows").EnumerateArray().Select(e => e.GetInt32()).ToList());
+            // The HeistPlugin blob (the contract's seed, key, contract row, wings).
+            if (head.RootElement.TryGetProperty("heist", out var hs) && hs.ValueKind == JsonValueKind.Object)
+                heist = HeistState.Parse(Convert.FromHexString(hs.GetProperty("blob").GetString()!.Replace(" ", "")));
+            // An Expedition logbook's faction (ExpeditionFactions row).
+            if (head.RootElement.TryGetProperty("expedition", out var xp) && xp.ValueKind == JsonValueKind.Object)
+                expeditionFaction = xp.GetProperty("faction").GetInt32();
+        }
     // LEVELGEN_LEVEL: the area level without a trace; LEVELGEN_LAB=seed:row:difficulty: a Labyrinth room's node (0x1d extra data).
     if (int.TryParse(Environment.GetEnvironmentVariable("LEVELGEN_LEVEL"), out int levelOverride)) level = levelOverride;
     var area = AreaInfo.Load(p => fs.TryReadFile(p, out var d) ? d : null, areaId, level);
+    if (stats is not null) area = area with { Stats = stats };
+    if (plugins is not null) area = area with { Plugins = plugins };
+    if (expeditionFaction is not null) area = area with { ExpeditionFaction = expeditionFaction };
     LabyrinthNodeKey? labyrinthNode = Environment.GetEnvironmentVariable("LEVELGEN_LAB") is { } lab && lab.Split(':') is [var ls, var lr, var ld]
-        ? new LabyrinthNodeKey(uint.Parse(ls), int.Parse(lr), int.Parse(ld)) : null;
+        ? new LabyrinthNodeKey(uint.Parse(ls), int.Parse(lr), int.Parse(ld)) : traceLab;
 
     GenerationResult? result = null;
     var rng = new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
@@ -803,7 +862,7 @@ static void Generate(string areaId, uint seed, string? tracePath)
         dungeonLayouts[^1] = (dungeonLayouts[^1].Stages, rooms);
         dungeonLayouts.Add(([], null));
     };
-    try { result = LevelGenerator.Generate(files, area, seed, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode); }
+    try { result = LevelGenerator.Generate(files, area, seed, variant, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode, incursion: incursion, deepwater: deepwater, azmeri: azmeri, temple: temple, safehouse: safehouse, heist: heist); }
     catch (Exception e) when (e is NotSupportedException or InvalidOperationException)
     {
         foreach (var n in notes) Console.WriteLine("  " + n);
@@ -816,6 +875,22 @@ static void Generate(string areaId, uint seed, string? tracePath)
     {
         foreach (var n in notes) Console.WriteLine("  " + n);
         Console.WriteLine($"{areaId} seed {seed}: {result.Grid.Width}x{result.Grid.Height}, {result.Random.Draws} draws, tile hash {result.Grid.Hash()}");
+        // --doodads: the doodad stage on the same generator (as ServerLevels runs it), its draws after the generation's.
+        if (doodads)
+        {
+            int before = rng.Log!.Count;
+            var walk = Walkability.Build(result.Grid, tile => files.Walk(tile.Path));
+            var stageNotes = new List<string>();
+            var stage = new DoodadStage(files, rng, result.Grid, walk, stageNotes);
+            string stopped = "";
+            try { stage.Run(result.Records); }
+            catch (Exception e) when (e is NotSupportedException or InvalidDataException or InvalidOperationException or ArgumentException or IndexOutOfRangeException)
+            {
+                stopped = $", stopped: {e.GetType().Name}: {e.Message.Split('\n')[0]}";
+            }
+            foreach (var n in stageNotes.Distinct()) Console.WriteLine("  " + n);
+            Console.WriteLine($"doodads: {stage.Placed.Count} placed, {rng.Log!.Count - before} draws in the stage{stopped}");
+        }
     }
     if (tracePath is null) return;
 
@@ -868,8 +943,12 @@ static void Generate(string areaId, uint seed, string? tracePath)
     // Draw by draw: the client's 'n' / 'u' / 'l' entries against the port's, until the first difference.
     var theirs = TraceDraws(t);
     var mine = rng.Log!;
+    // A trace that logged only some kinds ("kinds": "n": the server corpus's hardware-breakpoint tracer sees the
+    // bounded draws alone, scripts/re/levelgen/corpus_check.py) is compared with the port's draws of those kinds.
+    if (t.TryGetProperty("kinds", out var kinds) && kinds.ValueKind == JsonValueKind.String)
+        mine = mine.Where(d => kinds.GetString()!.Contains(d.Kind)).ToList();
     int same = 0;
-    while (same < theirs.Count && same < mine.Count && theirs[same].Kind == mine[same].Kind && theirs[same].Arg == mine[same].Arg && theirs[same].Result == mine[same].Result) same++;
+    while (same < theirs.Count && same < mine.Count && SameDraw(theirs[same], mine[same])) same++;
     Console.WriteLine($"draws: {same} of {theirs.Count} match (port made {mine.Count})");
     // LEVELGEN_AROUND=n prints the draws around the first difference, both sides.
     if (int.TryParse(Environment.GetEnvironmentVariable("LEVELGEN_AROUND"), out int around))
