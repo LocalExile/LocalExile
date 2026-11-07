@@ -204,6 +204,15 @@ public static class InstanceEntities
     public static byte[] CreateObject(uint entityId, uint objectType, byte[] blob, uint headerU32 = 0, ushort headerU16 = 0) =>
         new LoginWriter().U16(CreateObjectId).U32(entityId).U32(headerU32).U16(headerU16).U32(objectType).Blob(blob).ToArray();
 
+    /// <summary>
+    /// A 0x2b9 and the 0x1a9 it needs: none when the blob's first byte has 0x02, which makes the create wake the object
+    /// itself (0x141ebe190 sets +0x8d |= 2, then the 0x2b9 handler calls ObjectInWakeZone: 0x142187480). A 0x1a9 to an
+    /// awake object only logs a [CRIT] line (0x141ec0aa0). GGG sent none of its 4 726 0x1a9 to an awake object.
+    /// </summary>
+    public static byte[] CreateInWakeZone(uint entityId, uint objectType, byte[] blob, uint headerU32 = 0) =>
+        (blob[0] & 0x02) != 0 ? CreateObject(entityId, objectType, blob, headerU32)
+            : [.. CreateObject(entityId, objectType, blob, headerU32), .. InstanceProtocol.EnterWakeZone(entityId)];
+
     public const ushort MonsterTypesId = 0x20;
 
     /// <summary>
@@ -862,6 +871,37 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
             w.U32(Parent).F32(0).F32(0).U32((uint)Bone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(Bone))
                 .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
         w.U8(0);                                                    // tasks
+        return w.ToArray();
+    }
+}
+
+/// <summary>
+/// A soul line: <c>Metadata/Effects/ServerBeamEffect</c>, as the official server's Soul Eater sends it (captured from
+/// 3.29.3c). The Beam component (0x14166e9c0) reads the MiscBeams row + 1, a 16-bit flag word and a third flag byte,
+/// then the endpoints. The official packet: row 0 (SoulEaterBeam) + 1, flags 0x0C97, start world x/y, start object id,
+/// 0, end world x/y, end object id, 0. The client follows the two objects; the positions are their snapshot.
+/// World coordinates are grid cells times ten.
+/// </summary>
+public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint StartObject, float EndWorldX, float EndWorldY,
+    uint EndObject, ushort BeamRow = 0)
+{
+    public const string TypePath = "Metadata/Effects/ServerBeamEffect";
+    /// <summary>Positioned x/y are cells; the Beam's endpoints are world units (ten per cell).</summary>
+    public const float WorldPerCell = 10;
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        w.U8(0).U8(0);                                                  // object flags, base data entries
+        // Positioned: the corpse's cell, no rotation, team 0, no extra flags or visibility bytes (19 bytes before Beam).
+        w.I32(StartGridX).I32(StartGridY).F32(0).U16(0).U8(0).U8(0);
+        w.U8(0);                                                        // Animated: the Beam row's art
+        // Beam, exactly as the official server's (3.29.3c capture): row + 1, flags A0|A1|A2|A4|A7|B2|B3, then each end's
+        // world position and object id (the client follows the objects; the positions are their snapshot).
+        w.U16((ushort)(BeamRow + 1)).U8(0x97).U8(0x0C).U8(0x00)
+            .F32(StartGridX * WorldPerCell).F32(StartGridY * WorldPerCell).U32(StartObject).U32(0)
+            .F32(EndWorldX).F32(EndWorldY).U32(EndObject).U32(0);
+        w.U8(0);                                                        // tasks
         return w.ToArray();
     }
 }

@@ -135,18 +135,18 @@ static partial class Game
     internal sealed record RagePrepared(RageState.Value Value, IReadOnlyList<GrantedSkill> Skills,
         SkillSnapshotInputs? Inputs = null);
 
-    // A Rage value alone cannot identify a skill list: gems, equipment, conditional stats, pools and art also matter.
+    // A Rage value alone cannot identify a skill list: gems, equipment, conditional stats, pools, art and client mode also matter.
     internal sealed record SkillSnapshotInputs(Dictionary<uint, int> Stats,
         InventoryItem[] Equipment, Dictionary<string, CharacterSaves.SavedCosmetic> Cosmetics,
-        CharacterStats.Pools Pools, uint Life)
+        CharacterStats.Pools Pools, uint Life, bool LockstepClient)
     {
         public static SkillSnapshotInputs Capture(ClientState conn, Dictionary<uint, int> stats) =>
             new(new(stats), [.. ItemsOf(conn).EquipmentSnapshot().Select(e => e.Item)],
-                new(CharacterSaves.SkillCosmetics(CharacterName(conn))), conn.Pools, conn.PlayerLife);
+                new(CharacterSaves.SkillCosmetics(CharacterName(conn))), conn.Pools, conn.PlayerLife, conn.LockstepClient);
 
         public bool Matches(ClientState conn, Dictionary<uint, int> stats)
         {
-            if (Pools != conn.Pools || Life != conn.PlayerLife || Stats.Count != stats.Count
+            if (LockstepClient != conn.LockstepClient || Pools != conn.Pools || Life != conn.PlayerLife || Stats.Count != stats.Count
                 || Stats.Any(kv => !stats.TryGetValue(kv.Key, out int value) || value != kv.Value)) return false;
             var equipment = ItemsOf(conn).EquipmentSnapshot().Select(e => e.Item).ToArray();
             if (equipment.Length != Equipment.Length) return false;

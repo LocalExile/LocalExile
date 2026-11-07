@@ -607,7 +607,7 @@ static partial class QuestobjectsRules
                     lock (conn.Monsters)
                         if (conn.Monsters.TryGetValue(w.Mob, out var woken)) (woken.BusyUntil, woken.Aggro) = (now + Emerges.Seconds(w.Monster) + 0.3, true);
                     if (Emerges.SkillId is ushort emerge)
-                        await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionStarted(w.Mob, w.Statue.X, w.Statue.Y, w.Statue.X, w.Statue.Y, emerge, 0xffff, 0x0408),
+                        await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionStarted(w.Mob, w.Statue.X, w.Statue.Y, w.Statue.X, w.Statue.Y, emerge, 0xffff, conn.MonsterOrderFlags),
                             .. InstanceProtocol.ActionEnded(w.Mob)], $"0x01ab statue monster 0x{w.Mob:x} {w.Monster.Name} at ({w.Statue.X}, {w.Statue.Y}) steps down");
                 }
                 await Task.Delay(200);

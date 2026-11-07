@@ -1,3 +1,15 @@
 {
-  "mode": "add"
+  "version": 1,
+  "settings": {
+    "mode": {
+      "type": "choice",
+      "default": "add",
+      "options": [
+        { "value": "add", "label": "After her progression tabs" },
+        { "value": "replace", "label": "In place of her progression tabs" }
+      ],
+      "label": "Tab layout",
+      "description": "Add puts Awakened Gems, Exceptional Gems, Maps, Originator Maps and Unique Maps after her progression tabs. Replace shows the full development layout, the custom colour tabs too, instead of them. Both bypass ordinary progression."
+    }
+  }
 }

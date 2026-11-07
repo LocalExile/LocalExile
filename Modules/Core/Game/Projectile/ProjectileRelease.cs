@@ -78,7 +78,7 @@ static partial class Game
     internal static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
-        ushort sequence = 0)
+        ushort sequence = 0, double? swingAt = null)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -86,7 +86,8 @@ static partial class Game
         bool cancelOnNewAction = !attack || ResolveProjectileDefinition(gem.Effect)?.CancelWindupOnNewAction == true;
         int? cast = attack ? 0 : CastMs(conn, gem.Effect, skillId);
         if (cast is null) return Task.CompletedTask;
-        double acceptedAt = conn.Clock.Elapsed.TotalSeconds;
+        // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
+        double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
         double? thrown = attack && SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow"
             ? SpectralThrowRelease.Delay(conn, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
@@ -133,35 +134,7 @@ static partial class Game
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
         int Get(string key) => Player(key) + Own(key);
-        // The client's range (slot 0x600, 0x141ba62d0): projectile_maximum_range_override, else 50 with the Reclaimed
-        // Malevolence notable, else 150 cells. A return (0x141bb2ae0) flies back to the caster's cell and that range on.
-        double range = Get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
-            : Get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
-        // The client's object contact uses the row's radii and the monster's size, not the server's 4-cell stand-in.
-        use = use with { Profile = use.Profile with { Range = range, ReturnOvershoot = range,
-            ContactCells = SkillsFor(conn).ProjectileContactCells(use.Profile.Id) } };
-        // 0x141bb13a0 picks parallel (0x141bb89d0) and random directions (0x141bb9280) before nova and fan.
-        // shortcut: parallel keeps the server's fan until it is ported.
-        if (use.Profile.ReturnChancePercent is > 0 and < 100)
-            use = use with { Profile = use.Profile with { ReturnRolls = ReturnRolls(sequence, use.Profile.Count, PlayerId, repeatsLeft) } };
-        if (Get("support_parallel_projectile_number_of_points_per_side") == 0)
-            use = use with
-            {
-                Profile = use.Profile with
-                {
-                    NativeVolley = Get("random_projectile_direction") != 0
-                        ? new() { Angles = RandomVolleyAngles(sequence, use.Profile.Count, PlayerId, use.Aim - use.Origin, repeatsLeft) }
-                        : new()
-                        {
-                            Width = Get("total_projectile_spread_angle_override") is > 0 and var width
-                                ? width / 10.869565 : 60 / 10.869565,
-                            FixedDegrees = Get("projectile_remove_default_spread") != 0 ? -1 : Get("fixed_projectile_spread"),
-                            SpreadPercent = Get("multiple_projectiles_projectile_spread_+%"),
-                            // 0x141bb33f0 (the Disgorge nova and the action's own flags are not tracked here).
-                            Nova = Get("projectiles_nova") != 0
-                        }
-                }
-            };
+        use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft) };
         if (SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow")
         {
             double thrown = use.Profile.Speed;
@@ -192,6 +165,26 @@ static partial class Game
                 LegLeash = 150
             }
         };
+    }
+
+    // What a projectile the client draws itself takes from the client's own rules, so a hit lands where it is drawn:
+    // its range (slot 0x600, 0x141ba62d0: projectile_maximum_range_override, else 50 with the Reclaimed Malevolence
+    // notable, else 150 cells; a return, 0x141bb2ae0, flies back to the caster's cell and that range on), its object
+    // contact from the row's radii and the target's size instead of the server's 4-cell stand-in, its return rolls, and
+    // its volley: 0x141bb13a0 picks parallel (0x141bb89d0) and random directions (0x141bb9280) before nova and fan.
+    // shortcut: parallel keeps the server's fan until it is ported.
+    internal static ProjectileProfile ClientDrawnProfile(ClientState conn, ProjectileProfile profile, Func<string, int> get,
+        ushort sequence, ProjectileVector aim, uint repeatsLeft = 0)
+    {
+        double range = get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
+            : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
+        profile = profile with { Range = range, ReturnOvershoot = range, ContactCells = SkillsFor(conn).ProjectileContactCells(profile.Id) };
+        if (profile.ReturnChancePercent is > 0 and < 100)
+            profile = profile with { ReturnRolls = ReturnRolls(sequence, profile.Count, PlayerId, repeatsLeft) };
+        if (get("support_parallel_projectile_number_of_points_per_side") == 0 && get("random_projectile_direction") != 0)
+            return profile with { NativeVolley = new() { Angles = RandomVolleyAngles(sequence, profile.Count, PlayerId, aim, repeatsLeft) } };
+        // 0x141bb33f0 (the Disgorge nova and the action's own flags are not tracked here).
+        return NativeVolley(profile, get);
     }
 
     // random_projectile_direction (static RE 2026-10-31). A volley (0x141bb0f20 → 0x141bb9280) seeds 0x141bba070 from

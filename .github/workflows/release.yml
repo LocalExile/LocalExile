@@ -1,6 +1,6 @@
-# Starts only by hand (Actions > Release > Run workflow, on main). It builds and packages, and leaves a draft release:
-# the person starting it tries the zip with the real client, then publishes the draft, which creates the tag.
-# Agents/docs/dev/releases.md
+# Starts only by hand (Actions > Release > Run workflow, on main). It builds and packages for Windows and Linux, and leaves
+# one draft release with both zips: the person starting it tries them with the real client, then publishes the draft,
+# which creates the tag. Agents/docs/dev/releases.md
 name: Release
 
 on:
@@ -16,13 +16,14 @@ permissions:
   id-token: write
   attestations: write
 
+env:
+  VERSION: ${{ inputs.version }}
+  GH_TOKEN: ${{ github.token }}
+
 jobs:
-  release:
-    runs-on: windows-latest
-    timeout-minutes: 60
-    env:
-      VERSION: ${{ inputs.version }}
-      GH_TOKEN: ${{ github.token }}
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,6 +39,21 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw "a release v$env:VERSION already exists; delete its draft to build it again" }
           $global:LASTEXITCODE = 0
 
+  # Each system's package on its own runner: build-release.ps1 builds for the system it runs on.
+  build:
+    needs: check
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            runtime: win-x64
+          - os: ubuntu-latest
+            runtime: linux-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -48,18 +64,45 @@ jobs:
 
       - name: Build the package
         shell: pwsh
-        run: .\scripts\release\build-release.ps1 -Version $env:VERSION
+        run: ./scripts/release/build-release.ps1 -Version $env:VERSION
 
       - uses: actions/attest-build-provenance@v2
         with:
-          subject-path: artifacts/release/LocalExile-v${{ inputs.version }}-win-x64.zip
+          subject-path: artifacts/release/LocalExile-v${{ inputs.version }}-${{ matrix.runtime }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.runtime }}
+          path: |
+            artifacts/release/LocalExile-v${{ inputs.version }}-${{ matrix.runtime }}.zip
+            artifacts/release/LocalExile-v${{ inputs.version }}-${{ matrix.runtime }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  # One draft with both zips, made only when both built: no release goes out for one system alone.
+  release:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/release
+          merge-multiple: true
 
       - name: Create the draft release
         shell: pwsh
         run: |
           .\scripts\release\release-notes.ps1 -Version $env:VERSION -Output artifacts\release\notes.md
-          $zip = "artifacts\release\LocalExile-v$env:VERSION-win-x64.zip"
+          $files = foreach ($runtime in 'win-x64', 'linux-x64') {
+              $zip = "artifacts\release\LocalExile-v$env:VERSION-$runtime.zip"
+              foreach ($file in $zip, "$zip.sha256") { if (-not (Test-Path $file)) { throw "$file was not built" }; $file }
+          }
           $flags = @('--draft', '--target', $env:GITHUB_SHA, '--title', "LocalExile v$env:VERSION", '--notes-file', 'artifacts\release\notes.md')
           if ($env:VERSION -match '-') { $flags += '--prerelease' }
-          gh release create "v$env:VERSION" $zip "$zip.sha256" @flags
+          gh release create "v$env:VERSION" @files @flags
           if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }

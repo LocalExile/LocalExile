@@ -3,7 +3,7 @@ using GameServer.Modding;
 namespace LocalExile.Mods.Example;
 
 /// <summary>
-/// The example mod: /example tells what it counted since it was loaded.
+/// The example mod: /example tells what it counted since it was loaded. Off by default, like every example: /mod_enable example.
 /// Build it (dotnet build Mods\Source\Example) while the Gateway runs and it reloads; its counts start over, like any
 /// mod's state on a reload.
 /// </summary>

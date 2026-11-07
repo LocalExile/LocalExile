@@ -220,7 +220,4 @@ sealed partial class Program
     // The server frame length (ms, S→C 0x2b6): a lockstep client's world advances by these frames. Game_FRAME_MS overrides.
     internal static readonly byte FrameMs =
         byte.TryParse(Environment.GetEnvironmentVariable("Game_FRAME_MS"), out var fm) && fm > 0 ? fm : (byte)33;
-
-    // Game_LOCKSTEP: serve a lockstep client on a connection confirmed as local (1) or on any connection (network).
-    internal static readonly LockstepMode Lockstep = LockstepLink.ModeOf(Environment.GetEnvironmentVariable("Game_LOCKSTEP"));
 }

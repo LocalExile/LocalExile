@@ -1201,7 +1201,12 @@ This is a research baseline, not new live skill acceptance or complete native/se
   modifiers for area of effect (per 25 kills) and Chain Hook / Shield Charge attack speed (per 10 kills) count, and a
   kill grants the extra Vaal Soul while the streak is active. `gain_soul_eater_during_flask_effect` grants Soul Eater
   while a flask effect runs: 5% increased attack and cast speed and 1% character size per soul, one soul per kill
-  within 60 cells, at most 45, and one lost every 0.5 s after 4 s without a kill. The Soul Eater icon is not sent yet.
+  within 60 cells, a base maximum of 45 plus item stack modifiers, and one lost every 0.5 s after 4 s without a kill.
+  The player gets its icon and count
+  (`soul_eater_player`, 279) and the invisible `soul_eater_aura` (277), the client's `using_flask` flag is sent, and each
+  soul draws the official `ServerBeamEffect` line from the corpse to the player (see
+  [11-skills.md](../docs/protocol/11-skills.md) §12).
+  Soulthirst's loss of eaten souls on flask use is not implemented.
   Not modelled at present: the threshold smoke cloud (no timed smoke ground), Unholy Might (no Unholy Might system),
   the frenzy charge every 50 kills (the charge session has no Rampage-count rule), starting a streak at maximum
   endurance charges and losing them when it ends, and the map/leaguestone Rampage modifiers.
@@ -1404,28 +1409,39 @@ This is a research baseline, not new live skill acceptance or complete native/se
   action sequence, flags 0x4201 plus the critical bit, code by damage type) on contact for the target's blood and
   particles; the main-hand bit follows the live capture, the skill index and header words it also fills stay zero. Projectile objects are created at their release point and their first move runs from there: the lazy
   snapshot used to create them where the simulation already had them, one to ten cells past the bow in a live log
-  (2026-10-29). A Frida trace the same day saw the client create no projectile of its own for the default attack
-  (40 arrows) nor for a monster's action, so these server objects are the only visible shots on our server.
-  On GGG's server the same shots have no objects and the client draws them; what in our answer stops it is open
-  (skill ids `0x102`/`0x103` against live `0x4000`/`0x8002`, and the `0x1af` fields, are the candidates).
+  (2026-10-29). On a lockstep client the default attack's record carries the shot's count, as GGG's do, and the
+  client draws the bolt or arrow itself with no server object; the server simulates it on the client's contact and
+  range and releases it on the client's own release frame ([07](../docs/protocol/07-latency-visibility-movement.md)
+  §6), so a hit recovery before it stops both (checked live 2026-11-05 on orders at a monster: one client
+  `WandProjectile` per shot of 41 and one `DefaultArrow` of 41, no projectile `0x2b9`, the client's release 0–7 ms
+  after the server's for the wand and 1–3 for the bow, p10–p90; it was 16–40 ms after on the first version and 66–99
+  ms before with server objects) ([11](../docs/protocol/11-skills.md) §4, §10). A shot at the ground (attack in place)
+  is released the same way but not checked live. A predictive client keeps the server's objects: its record
+  has no count, without which the release fires nothing (a native trace on 2026-10-29 saw no client arrow in 40).
   The live hit-timing fit put our arrows at 367 cells/s against live's 308, but the Gateway releases DefaultArrow at
   the table's 3260 units/s = 299.9 cells/s (logged on every release), so the fit's slope measures something else
   (the roadmap). They leave from the
   releasing clip's contact keyframe (`data/animation-contacts.json` positions, `anim_contacts.py` v3): the Ranger's
   bow 5.5 cells ahead along the aim at 16 steps up, a wand's tip 7.5 cells ahead at 12 (the 5-step default, tuned on a
   fireball, had the arrow trail start at the hip, live 2026-10-29); the keyframe's lateral part is not applied.
-  Monster projectiles: a mortar skill's shot (Sand Spitter, `monster_mortar_attack` via GrantedEffects SkillID →
-  MonsterMortar → Projectiles) is a server object on the same runtime, released at the clip the client plays for the
+  Monster projectiles: a mortar attack's shot (Sand Spitter, a Cannibal's ThrowFire: `monster_mortar_attack` via
+  GrantedEffects SkillID → MonsterMortar → Projectiles) is drawn by the client, whose record carries the MonsterMortar
+  row and the skill's count as GGG's does, with no server object (checked live 2026-11-05 on a lockstep and a
+  predictive client: one client `SandspitterMortarProjectile` per order, no server object;
+  [11](../docs/protocol/11-skills.md) §6); a spell mortar (`monster_mortar`) keeps its server object. Not measured yet:
+  where the client's mortar lands against the server's hit.
+  The server simulates it on the same runtime, released at the clip the client plays for the
   skill (MonsterMortar.Animation → the ACT's `SpellProjectile` pool, the native selector on the action's 0xffff
   sequence: attack1, contact at 37.5 % of the attack) from that clip's keyframe (4.2 cells behind the body that faces
   away, so toward the player, 9 steps up: `projectile_uses_contact_position`; `data/monster-contacts.json`,
   `scripts/re/monster_contacts.py`), lobbed at the player's cell but no closer than the skill's
   `projectile_minimum_range` (4.6 cells), team 2, and its landing splash (`Game_MONSTER_MORTAR_RADIUS`, default 10
   cells) runs the monster contact pipeline (`HostileProjectileOffense`, `Program.ProjectileHostile.cs`). Not checked
-  live yet: that the client seeds a monster's clip choice from the sequence, and the dead zone. The object plays its rig's flight
-  clip from spawn and its impact clip where it lands (`data/projectile-clips.json`, `scripts/re/projectile_clips.py`:
-  every Projectiles row's clip indexes and lengths, and its .ao default animation), without which a mortar is
-  invisible (its .ao declares no default animation, the wand bolt's does). The data loaders turn their feature off
+  live yet: that the client seeds a monster's clip choice from the sequence, and the dead zone. Another monster's
+  projectile object plays its rig's flight clip from spawn and its impact clip where it lands
+  (`data/projectile-clips.json`: every Projectiles row's clip indexes and lengths,
+  and its .ao default animation), without which an object whose .ao declares no default animation (the mortar's; the
+  wand bolt's declares one) is invisible. The data loaders turn their feature off
   with one warning on an unreadable file instead of faulting the pump, and monster ACT pools come from the root block
   only (a nested stance's entries had replaced them for 191 varieties; review 2026-10-30). Weapon-projectile monsters
   (`monster_projectile_weapon`, SkillID 0) still hit instantly with no shot; see the roadmap.

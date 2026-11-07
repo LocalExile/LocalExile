@@ -27,8 +27,12 @@ static partial class Game
             session.Packet(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
         // Native Actor TakeHit recovery (0x1d1), as the melee path sends: a rig-only clip (0x1b2) leaves the client
         // monster walking while the server's estimate has stopped (11-skills.md "Hit reaction").
+        // Built in the send gate, which places a lockstep client's recovery in its frames (TakeHitPacket).
         if (HitReaction.TryFlinch(target, stun, now, random))
-            session.Packet(InstanceProtocol.ActorAnimation(id, (float)(target.FlinchUntil - now), PlayerHitRecovery.TakeHitAnimation));
+        {
+            double until = target.FlinchUntil;
+            session.Packet(() => TakeHitPacket(conn, id, target, until, now));
+        }
         if (shot.HitPacket)
         {
             // S→C 0x1af before the life update, as the melee default attack sends it: an immediate package (kind 3) for the
@@ -78,7 +82,7 @@ static partial class Game
         monster.BusyUntil = recoveryAt / (double)ProjectileRuntime.QuantaPerSecond;
         monster.StageEffectAt = effectAt / (double)ProjectileRuntime.QuantaPerSecond;
         monster.StageActionStarted = true;
-        session.Packet(InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, 0xffff, 0x0408),
+        session.Packet(InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, 0xffff, session.Conn.MonsterOrderFlags),
             $"monster 0x{id:x} starts stage t={now:0.000000}; effect={monster.StageEffectAt:0.000000}, recovery={monster.BusyUntil:0.000000}");
         session.Runtime.Schedule(effectAt, Publish);
         session.Runtime.Schedule(recoveryAt, Publish);
@@ -109,7 +113,7 @@ static partial class Game
             RecoverOnKill(conn, monster);
             session.Enqueue(() => ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
-        SoulEaterSoul(conn, position);
+        SoulEaterSoul(conn, id, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };

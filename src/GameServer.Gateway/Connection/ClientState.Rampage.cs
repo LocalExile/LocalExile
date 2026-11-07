@@ -42,6 +42,14 @@ sealed partial class ClientState
             if (RampageBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, RampageBuff));
             RampageBuff = 0;
             SentRampage = default;
+            // Soul Eater's souls end with the area (a new one starts empty) and at death (its buff is CancelOnDeath).
+            if (SoulEater.Buff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.Buff));
+            if (SoulEater.AuraBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.AuraBuff));
+            SoulEater.Buff = 0;
+            SoulEater.AuraBuff = 0;
+            SoulEater.SentStacks = 0;
+            SoulEater.Souls.Clear();
+            SoulEater.Clear();
         }
     }
 

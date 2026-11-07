@@ -4,14 +4,21 @@ using GameServer.Modding;
 
 namespace GameServer.Modules.Ruthless;
 
-/// <summary>Ruthless's rules, for the leagues that use this module.</summary>
+/// <summary>Ruthless's rules, for the leagues that use this module. Its numbers are its settings (settings.json); a change
+/// reloads the module. <c>Game_RUTHLESS_RULES</c> names a file of the numbers alone instead, which hot-reloads.</summary>
 public sealed class RuthlessModule : IModule
 {
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        var rules = new RuthlessRulesSource(Environment.GetEnvironmentVariable("Game_RUTHLESS_RULES") ?? Path.Combine(module.Folder, "ruthless.json"), module.Log);
-        module.ProvideLeagueRules(() => rules.Rules);
+        if (Environment.GetEnvironmentVariable("Game_RUTHLESS_RULES") is { Length: > 0 } path)
+        {
+            var source = new RuthlessRulesSource(path, module.Log);
+            module.ProvideLeagueRules(() => source.Rules);
+            return;
+        }
+        var rules = RuthlessRulesSource.Of(module.Settings<RuthlessRules>());
+        module.ProvideLeagueRules(() => rules);
     }
 }
 

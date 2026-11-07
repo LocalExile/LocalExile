@@ -64,21 +64,24 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64
-  package; its launcher sets up and runs the servers natively. Not yet: `-Walkmaps`, named clients, the client from a
-  Linux release, and a Linux release job in `.github/workflows/release.yml`.
+  package; its launcher sets up and runs the servers natively. The release workflow builds it beside the Windows one. Not yet:
+  `-Walkmaps`, named clients, and the client from a Linux release.
   Code: `scripts/dev/platform-linux.ps1`.
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
   collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`).
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
   Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
+  Settings: a mod's or module's `settings.json` declares what can be tuned (ten types, defaults, limits); the user's values
+  are in `data/mods/` and `data/modules/`, checked, and a change reloads it ([modding](../docs/dev/modding.md), "Settings").
+  A user's modules per league are added and removed in `data/league-modules.json`, over the leagues' own lists.
   Leagues ([modules](../docs/dev/modules.md)) are folders in `Leagues/`, read once at start: cards and check boxes as in the real create screen, a parent to migrate to, Void, and
   modules listed per league in its `modules.json`. Characters of a deleted or ended league cannot be entered.
   Not tried in the client: a blocked character.
   Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
   Trades and parties, Atlas passives, the crafting bench, cosmetics, vendors, portals and the map device, tattoos, the campaign's quests (QuestObjects), hideout editing, chat commands and unique belts are Core modules too. The game\'s rules are the `Game` module; the Gateway keeps the framework, game data, saves and connection state. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
   without Harvest places no station. Not tried in the client after the move.
-  `Mods/Source/` has seven examples, of which only `example` is on by default.
+  `Mods/Source/` has seven examples, all off by default; five show settings.
   `FastCampaign` (experience and movement speed, `/fast`, three languages) loaded as a script in a running Gateway and read
   its `settings.txt`; not tried with the client, nor built as a project (no SDK on that PC).
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area

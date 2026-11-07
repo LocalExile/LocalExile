@@ -31,7 +31,7 @@ static partial class Game
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
-        SoulEaterSoul(conn, at);
+        SoulEaterSoul(conn, victimId, at);
         var killer = PlayerOf(conn); var modMonster = ModMonster(monster, at);
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
@@ -201,8 +201,8 @@ static partial class Game
                         PlayerMinions.OutputKind.Vaal => VaalSoulPresentation(conn),
                         PlayerMinions.OutputKind.Experience => InstanceEntities.PlayerExperienceUpdate(PlayerId, CurrentExperience(conn)),
                         PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action
-                            && output.Until > AreaTime(conn) ? InstanceProtocol.ActorAnimation(output.TargetId!.Value,
-                                (float)(output.Until - AreaTime(conn)), PlayerHitRecovery.TakeHitAnimation) : null,
+                            && output.Until > AreaTime(conn) ? TakeHitPacket(conn, output.TargetId!.Value, m, output.Until,
+                                AreaTime(conn)) : null,
                         _ => output.Packet,
                     };
                 }

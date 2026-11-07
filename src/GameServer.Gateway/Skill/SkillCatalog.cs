@@ -831,14 +831,19 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// aimed and damage an area there.</summary>
     public sealed record MonsterProjectileInfo(string Metadata, int Speed, bool Lobbed, double CollisionRadius)
     {
-        /// <summary>How many projectiles one release creates (VoodooKingBugRend's six BugSoulrends; one otherwise).</summary>
+        /// <summary>How many projectiles one release creates (VoodooKingBugRend's six BugSoulrends; a mortar's from its
+        /// skill, MonsterProjectile; one otherwise).</summary>
         public int Count { get; init; } = 1;
         /// <summary>The Animation.dat Id of the clips the client plays for the skill (MonsterMortar.Animation: the Sand
         /// Spitter mortar's <c>SpellProjectile</c>, row 20), the key of the variety's ACT pool; null when the row names none.</summary>
         public string? AnimationKey { get; init; }
-        /// <summary>The skill's <c>projectile_minimum_range</c> in world units (the Spitter's 50): a lob lands no closer
-        /// to the monster than this. 0 without the stat.</summary>
+        /// <summary>The MonsterMortar row the client draws for a <c>monster_mortar_attack</c> skill (its GrantedEffects
+        /// SkillID: 183 for the Sand Spitter's, 55 for a Cannibal's ThrowFire); 0 for any other projectile, for the spell
+        /// forms (<c>monster_mortar</c>, not traced) and for the skills whose SkillID is row 0.</summary>
+        public int Variation { get; init; }
+        /// <summary>The skill's <c>projectile_minimum_range</c> in grid cells (0x141b69ba0; the Spitter's 50).</summary>
         public int MinimumRange { get; init; }
+        public int SpreadRadius { get; init; }
         /// <summary>The spread of a multi-projectile release: a fan by default, a full turn for a ring.</summary>
         public double SpreadRadians { get; init; } = Math.PI / 6;
         /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
@@ -908,10 +913,27 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// the GrantedEffects row's SkillID is the MonsterMortar row that names it (every Sand Spitter variant: SkillID 183 →
     /// MonsterMortar 183 → <c>Metadata/Projectiles/SandspitterMortarProjectile</c>, 1170). Weapon projectile attacks
     /// (<c>monster_projectile_weapon</c>, <c>monster_snipe</c>: SkillID 0 for all) take their projectile from the monster's
-    /// weapon art, which is not resolved here: null, and such a monster keeps its instant contact.</summary>
-    public MonsterProjectileInfo? MonsterProjectile(int effectRow) =>
-        _monsterProjectiles.Value.TryGetValue(effectRow, out var projectile)
-            ? projectile with { MinimumRange = MonsterProjectileMinimumRange(effectRow) } : null;
+    /// weapon art, which is not resolved here: null, and such a monster keeps its instant contact. The count is the skill's:
+    /// <c>number_of_projectiles_override</c> when set, else <c>base_number_of_projectiles</c> (1 without) plus
+    /// <c>number_of_additional_projectiles</c> (the side-area Spitter's 3, the Elder Guardian's strafe 5).</summary>
+    public MonsterProjectileInfo? MonsterProjectile(int effectRow)
+    {
+        if (!_monsterProjectiles.Value.TryGetValue(effectRow, out var projectile)) return null;
+        // Constants of the skill's stat set, so level 1 reads them.
+        var stats = EffectStats(effectRow, 1);
+        int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
+            : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
+        return projectile with
+        {
+            MinimumRange = Get("projectile_minimum_range"), SpreadRadius = Get("projectile_spread_radius"),
+            Count = Math.Max(1, count),
+            // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
+            // (141b69ba0 -> 141bacf60) selects a straight path unless a ballistic stat requests an arc.
+            Lobbed = projectile.Variation == 0 || Get("projectile_ballistic_angle_from_reference_event") != 0
+                || Get("projectile_ballistic_angle_from_target_distance") != 0,
+        };
+    }
 
     /// <summary>What a monster's summoning skill brings: its stat set's <c>alternate_minion</c> (a SummonedSpecificMonsters
     /// Id, whose MonsterVarietiesKey is the monster), <c>number_of_monsters_to_summon</c>, <c>summon_specific_monsters_in_front_offset</c>
@@ -942,14 +964,6 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 result.TryAdd(id.GetInt32(), v.GetInt32());
         return result;
     });
-
-    /// <summary>The skill's <c>projectile_minimum_range</c> (a constant of its stat set, so level 1 reads it), 0 without.</summary>
-    private int MonsterProjectileMinimumRange(int effectRow)
-    {
-        if (_stats.Key("projectile_minimum_range") is not uint key) return 0;
-        foreach (var (statKey, value) in EffectStats(effectRow, 1)) if (statKey == key) return value;
-        return 0;
-    }
 
     private readonly Lazy<Dictionary<int, MonsterProjectileInfo>> _monsterProjectiles = new(() =>
     {
@@ -985,18 +999,22 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         var mortarSkills = active.RootElement.EnumerateArray().Select((r, i) => (r, i))
             .Where(a => a.r.TryGetProperty("Id", out var id) && id.GetString() is { } name
                 && name.StartsWith("monster_mortar", StringComparison.Ordinal))
-            .Select(a => a.i).ToHashSet();
+            .ToDictionary(a => a.i, a => a.r.GetProperty("Id").GetString() == "monster_mortar_attack");
         using var effects = GameTables.Open(TablePath("GrantedEffects"));
         int row = -1;
         foreach (var e in effects.RootElement.EnumerateArray())
         {
             row++;
-            if (!e.TryGetProperty("ActiveSkill", out var a) || a.ValueKind != JsonValueKind.Number || !mortarSkills.Contains(a.GetInt32())) continue;
+            if (!e.TryGetProperty("ActiveSkill", out var a) || a.ValueKind != JsonValueKind.Number
+                || !mortarSkills.TryGetValue(a.GetInt32(), out bool attackForm)) continue;
             if (!e.TryGetProperty("SkillID", out var k) || k.ValueKind != JsonValueKind.Number
                 || !mortarRows.TryGetValue(k.GetInt32(), out var mortar) || mortar.Projectile < 0 || mortar.Projectile >= rows.Count) continue;
             var p = rows[mortar.Projectile];
             if (p.Id.Length == 0 || p.Speed <= 0) continue;
-            result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius)) { AnimationKey = mortar.AnimationKey };
+            // Only the attack form's action (0x141b69900) is traced and checked live drawing its own; the spell forms
+            // (monster_mortar, monster_mortar_around_caster) keep the server's object.
+            result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius))
+                { AnimationKey = mortar.AnimationKey, Variation = attackForm ? k.GetInt32() : 0 };
         }
         return result;
     });

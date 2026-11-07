@@ -26,7 +26,7 @@ sealed partial class ClientState
         public readonly List<(uint Id, int X, int Y, int Size)> Bodies = [];
         public IReadOnlyList<ClientPathfinder.Blocker> FixedBlockers { get; }
 
-        internal MonsterBlockerFrame(ClientState owner, double now, MonsterBlockerFrame? outer)
+        internal MonsterBlockerFrame(ClientState owner, double now, MonsterBlockerFrame? outer, bool placement = false)
         {
             long startedAt = Stopwatch.GetTimestamp();
             this.owner = owner; this.outer = outer;
@@ -40,14 +40,18 @@ sealed partial class ClientState
                 var player = owner.Walk.Position(now);
                 playerBody = current.Add(new(player.X, player.Y, LivingCollision.PlayerSize));
             }
-            foreach (var (id, m) in owner.Monsters)
+            // Runtime collision follows native bodies. Proposed spawning deliberately retains its existing
+            // clearance policy; it is not evidence of GGG's authoritative spawn-placement algorithm.
+            IEnumerable<KeyValuePair<uint, SpawnedMonster>> actors = placement ? owner.Monsters : owner.CollisionMonsters;
+            foreach (var (id, m) in actors)
             {
-                if (!LivingCollision.Blocks(m)) continue;
+                if (placement && !LivingCollision.StepsWithBodies(m)) continue;
                 var p = m.Walk.Position(now);
                 int size = LivingCollision.Size(m);
-                var blocker = new ClientPathfinder.Blocker(p.X, p.Y, size);
+                ClientPathfinder.Blocker? selected = placement ? new(p.X, p.Y, size) : owner.MonsterBody(id, m, now);
+                if (selected is not { } blocker) continue;
                 indices.Add(id, (Bodies.Count, current.Add(blocker)));
-                Bodies.Add((id, p.X, p.Y, size));
+                Bodies.Add((id, blocker.X, blocker.Y, blocker.Size));
             }
             // Phasing (Quartz Flask): the player and the monsters pass each other.
             forPlayer = owner.IsPhasing ? FixedBlockers : playerBody >= 0 ? current.Without(playerBody) : current;
@@ -71,7 +75,8 @@ sealed partial class ClientState
 
         public void Move(uint id, int x, int y)
         {
-            var index = indices[id];
+            // A nonblocking actor still takes movement turns, but has no body entry to update.
+            if (!indices.TryGetValue(id, out var index)) return;
             var before = Bodies[index.Body];
             current.Replace(index.Current, new(x, y, before.Size));
             Bodies[index.Body] = (id, x, y, before.Size);

@@ -1,23 +1,26 @@
 # Releases
 
-A release is a zip for players: unzip, run `LocalExile.exe`, and with their own 3.29.3b client they need nothing else.
+A release is a zip for each system: unzip, run `LocalExile.exe` (`./LocalExile` on Linux), and with their own 3.29.3b
+client Windows players need nothing else; Linux players also need umu-launcher and Python 3.
 Contributors keep working from a checkout with `live.ps1` ([GettingStarted](../../GettingStarted.md)).
 
 ## Making one
 
 1. Actions > **Release** > Run workflow, on `main`, with the version (`0.2.0`, or `0.2.0-beta.1` for a pre-release).
-2. The workflow (`.github/workflows/release.yml`, a hosted Windows runner) builds the package, runs no tests,
-   attests the zip and creates a **draft** release with the notes, the zip and its `.sha256`.
-   It cannot check the real client: the runner has neither the client nor `data/`.
-3. Download the draft's zip, extract it into a new folder and play through it with the real client.
-   Use a separate folder from any checkout, and close every other client first.
+2. The workflow (`.github/workflows/release.yml`) builds each package on a hosted runner of its own system, Windows and
+   Ubuntu, runs no tests, attests each zip and creates one **draft** release with the notes, both zips and their
+   `.sha256`. If either build fails there is no draft. It cannot check the real client: the runners have neither the
+   client nor `data/`.
+3. Download the draft's zips, extract each into a new folder and play through it with the real client: the `-win-x64`
+   one on Windows, the `-linux-x64` one on Linux. Use a separate folder from any checkout, and close every other client
+   first.
 4. Write the Highlights in the notes, then publish. Publishing creates the tag `v<version>` on the built commit.
 
 To build it again, delete the draft and start the workflow again.
 The same package builds by hand in a clean checkout: `.\scripts\release\build-release.ps1 -Version 0.2.0`
 (in `artifacts\release\`; it needs the .NET SDK and npm).
 Under pwsh on Linux the same script builds `LocalExile-v<version>-linux-x64.zip`: native servers, the system's Python,
-the client under Proton through umu-run, no `LocalExileGUI`. The workflow does not build it yet.
+the client under Proton through umu-run, no `LocalExileGUI`.
 
 ## Versions
 
@@ -48,6 +51,10 @@ Merge commits stay; no history is rewritten.
 | `Tools/extract-manifest.json` | `extract-data.ps1`'s manifest, with each entry's program |
 | `scripts/re/*.py`, `scripts/re/levelgen/gate-baseline.json`, `Agents/docs/re/components.json`, `data/schema/` | what the generators and servers read at those paths |
 | `licenses/`, `README.txt`, `release.json` | licenses and the commit it was built from, the player's guide, the version |
+
+The Linux zip is the same without `.exe`: `LocalExile` and `app/` are self-contained linux-x64, `Tools/node/` holds Linux
+Node, and it has no `LocalExileGUI.exe` and no `Tools/python/`, since the system's Python runs the extraction.
+`release.json` names its `runtime`.
 
 It keeps a checkout's relative paths, so the servers and tools run unchanged, with the install as working directory.
 The zip's one folder is always `LocalExile/`, so an update extracts the new zip over the old; `data/` (saves, keys, extracted data) and `Client/` are not in it, so they stay.

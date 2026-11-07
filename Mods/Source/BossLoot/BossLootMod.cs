@@ -2,11 +2,19 @@ using GameServer.Modding;
 
 namespace LocalExile.Mods.BossLoot;
 
-/// <summary>An Exalted Orb from every unique monster. Off by default: /mod_enable bossloot.</summary>
+/// <summary>An item from every monster of a rarity: by default an Exalted Orb from every unique monster (its item and
+/// rarities settings). Off by default: /mod_enable bossloot.</summary>
 public sealed class BossLootMod : IMod
 {
-    public void Load(IModContext mod) => mod.ModifyDrops(drops =>
+    sealed record Choices(string Item, string[] Rarities);
+
+    public void Load(IModContext mod)
     {
-        if (drops.Monster.Rarity == MonsterRarity.Unique) drops.Items.Add("Exalted Orb");
-    });
+        var choices = mod.Settings<Choices>();
+        var rarities = choices.Rarities.Select(r => Enum.Parse<MonsterRarity>(r, ignoreCase: true)).ToHashSet();
+        mod.ModifyDrops(drops =>
+        {
+            if (rarities.Contains(drops.Monster.Rarity)) drops.Items.Add(choices.Item);
+        });
+    }
 }

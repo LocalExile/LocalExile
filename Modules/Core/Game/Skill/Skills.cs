@@ -37,7 +37,7 @@ static partial class Game
         try
         {
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
-            var skills = new List<GrantedSkill>([.. SkillsFor(conn).PlayerDefaults(player),
+            var skills = new List<GrantedSkill>([.. PlayerDefaultSkills(conn, player, character),
                 .. GemSkills(conn, player, character, panelSources!), .. GameEvents.ExtraSkills(conn)]);
             conn.PlayerSkillsCache = skills;
             conn.PlayerSkillsAt = now;
@@ -271,6 +271,7 @@ static partial class Game
         AddTotemAuraStats(conn, stats);
         WithRage(conn, stats);
         WithBlind(conn, stats);
+        WithUsingFlask(conn, stats);
         WithSoulEater(conn, stats);
         // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
         ActorScale.Project(stats, rawOverrides, CosmeticScaleSources(conn));

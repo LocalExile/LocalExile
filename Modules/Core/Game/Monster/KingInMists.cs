@@ -999,7 +999,7 @@ static class KingInMists
 
         // A skill that only plays an animation (the effigy summon): no contact and no damage, unlike MonsterSwing.
         async Task Cast(ushort skill, string label, uint? target = null, double seconds = 1.5,
-            ushort flags = 0x0408, ushort header = 0)
+            ushort? flags = null, ushort header = 0)
         {
             double startedAt = conn.Clock.Elapsed.TotalSeconds;
             int action;
@@ -1018,7 +1018,7 @@ static class KingInMists
                     var here = boss.Walk.Position(at);
                     boss.Walk.Order(here.X, here.Y, at);   // a cast stops the chase
                     return InstanceProtocol.ActionStarted(id, here.X, here.Y, here.X, here.Y, skill,
-                        NextSeq(), flags, targetObjectId: target, header: header);
+                        NextSeq(), flags ?? conn.MonsterOrderFlags, targetObjectId: target, header: header);
                 },
                 $"0x01ab King in the Mists {label}");
         }
@@ -1048,7 +1048,7 @@ static class KingInMists
                     var here = boss.Walk.Position(sentAt);
                     boss.Walk.Order(tx, ty, sentAt);
                     return InstanceProtocol.ActionStarted(id, here.X, here.Y, tx, ty, MoveSkill,
-                        NextSeq(), 0x0408);
+                        NextSeq(), conn.MonsterOrderFlags);
                 },
                 $"0x01ab King in the Mists moves toward the player at ({tx}, {ty})");
         }
@@ -1144,7 +1144,7 @@ static class KingInMists
                 int action;
                 lock (conn.Monsters) action = ++boss.ActionGeneration;
                 if (!await SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
-                    () => InstanceProtocol.ActionStarted(id, at.X, at.Y, x, y, K.TeleportFlee, NextSeq(), 0x0408),
+                    () => InstanceProtocol.ActionStarted(id, at.X, at.Y, x, y, K.TeleportFlee, NextSeq(), conn.MonsterOrderFlags),
                     $"0x01ab King in the Mists teleports next to Mystic Fetish {which + 1} at ({x}, {y})")) return;
                 // TeleportFlee's clip is one second (GrantedEffects CastTime 1000). End the action before moving the object:
                 // the client ignores a 0x1b7 that arrives while the actor is still in that action, which left its model at
@@ -1845,13 +1845,13 @@ static class KingInMists
             // back in the arena (RunMaze). Keep the humanoid for the full morph clip; the earlier 2.5 s swap cut the
             // animation and made the model change look instantaneous.
             await SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
-                () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, K.Slam, NextSeq(), 0x0408),
+                () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, K.Slam, NextSeq(), conn.MonsterOrderFlags),
                 "0x01ab King in the Mists slams his staff");
             await Task.Delay(1000);
             if (!Present()) return;
             lock (conn.Monsters) action = ++boss.ActionGeneration;
             await SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
-                () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, K.BecomeTreant, NextSeq(), 0x0408),
+                () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, K.BecomeTreant, NextSeq(), conn.MonsterOrderFlags),
                 "0x01ab King in the Mists becomes a treant");
             await Task.Delay(5500);
             if (!Present()) return;

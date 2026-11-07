@@ -538,6 +538,7 @@ static partial class Game
                     await SendOwnAuraChanges(remote, stream, ciphers, conn);
                 await SendAntiquarian(remote, stream, ciphers, conn);
                 await SendKillOnslaught(remote, stream, ciphers, conn);
+                await SendSoulEater(remote, stream, ciphers, conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return false;
                 await SendTotems(remote, stream, ciphers, conn);
                 await SendRecentEnemyHits(remote, stream, ciphers, conn);
@@ -1131,7 +1132,7 @@ static partial class Game
             Mana: (uint)Math.Min(conn.PlayerMana, (uint)Math.Max(0, (int)pools.Mana - reservedMana)), ManaReserved: (uint)reservedMana,
             Experience: conn.Experience, LifeReserved: conn.PlayerReservedLife,
             AnimatedObject: Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? cls.AnimatedObject,
-            Skills: [.. SkillsFor(conn).PlayerDefaults(weaponStats), .. GemSkills(conn, [.. weaponStats, .. statList], characterInputs, panelSources!)], Stats: [.. weaponStats, .. statList],
+            Skills: [.. PlayerDefaultSkills(conn, weaponStats, stats), .. GemSkills(conn, [.. weaponStats, .. statList], characterInputs, panelSources!)], Stats: [.. weaponStats, .. statList],
             Equipped: Looks(conn, PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn))),
             QuestFlags: PlayerQuestFlags(conn), Hideout: HomeHideout(conn)?.Hash16 ?? 0, LeagueQuestFlags: [.. Quests.League.Bits(conn.LeagueQuestFlags)],
             Portrait: WornPortrait(conn), PortraitFrame: conn.PortraitFrame)

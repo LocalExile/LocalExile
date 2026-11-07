@@ -5,15 +5,10 @@ using GameServer.Storage;
 
 namespace GameServer.Modules.PlayerBots;
 
-/// <summary>The module's settings (playerbots.json, beside module.json).</summary>
-sealed record BotSettings(bool Enabled = true, int MaxBots = 100, int SpawnIntervalSeconds = 60, int FirstSpawnSeconds = 60,
+/// <summary>The module's settings (settings.json, beside module.json, with the user's values).</summary>
+sealed record BotSettings(int MaxBots = 100, int SpawnIntervalSeconds = 60, int FirstSpawnSeconds = 60,
     string League = "Standard", int[]? QuestMinutes = null, int[]? TownActivities = null, int[]? IdleSeconds = null,
-    double DeathChancePerQuest = 0.15, int StatusSeconds = 10)
-{
-    public static BotSettings Load(string path) => File.Exists(path)
-        ? JsonSerializer.Deserialize<BotSettings>(File.ReadAllText(path), new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new()
-        : new();
-}
+    double DeathChancePerQuest = 0.15, int StatusSeconds = 10);
 
 /// <summary>One quest of the bots' guides (story-main.md, story-side.md).</summary>
 sealed record BotQuest(string Act, string Town, string Id, string Name, string Where, bool Side)

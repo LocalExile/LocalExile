@@ -30,7 +30,7 @@ static string ToJson(string line)
         int i = kv.IndexOf('=');
         if (i <= 0) continue;
         string k = kv[..i], v = kv[(i + 1)..];
-        obj[k] = int.TryParse(v, out var n) && k == "monster_level" ? n : v;
+        obj[k] = int.TryParse(v, out var n) && k is "monster_level" or "level" ? n : v;
     }
     return obj.ToJsonString();
 }

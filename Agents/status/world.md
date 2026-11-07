@@ -33,7 +33,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §5.
 - Server frames (S→C 0x2b6 frame length, 0x2b5 frame end every 33 ms): what a lockstep client's world runs on;
   ignored by a predictive client.
-  Code: Gateway (`RunServerFrames`).
+  Code: `Game.RunLockstepFrames`, Gateway `WindowsTimerResolution`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §6.
 - Area transitions in every area, with their destinations, models (the arch highlighted on hover), rotation and
   height.
@@ -89,6 +89,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). It
+  handles pickup/attack recovery, corpse collision and ground melee/chest approach;
+  crowd and predictive gaps remain ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
 - League isolation is enforced by full league for towns and instance selection.
   SSF wilderness instances and Gateway ground-item state additionally belong to the stable character ID.
   Another character, including one reusing a deleted name, cannot inherit or join that state.
@@ -267,20 +270,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
-- The client's lockstep network mode (also what "auto" picks on localhost): with `Game_LOCKSTEP=1` on a connection
-  confirmed as local, or `Game_LOCKSTEP=network` on any connection, the player walks, uses objects and uses skills;
-  a held default attack (bow, wand, one-hand sword) repeats once per attack time at a monster or at the ground, and a
-  Move cuts a swing short at its clip's lock_cancelling keyframe (a bow) or its contact (a wand, a sword), as on the
-  client; a melee monster's chase swings once the player is in its reach, on the way or at its walk's end, and goes on
-  after the player otherwise, as on the client; a bow's or wand's attack walks to where its line to the monster is clear on the projectile
-  grid, as on the client (an attack gem's line threshold is taken to be the bow's); the walk estimates step in the
-  client's frames and object order, a monster's order places its walk when it goes out (at the frame being sent), and
-  a walking monster is ordered again only right after its estimate's step (a client a cell off loses under a frame of
-  its step; pack fights: the client a cell from the estimate at 18 % of chase orders and 12 % of Moves, from 25 and
-  22 %, the rest unobservable from the server: [07](../docs/protocol/07-latency-visibility-movement.md) §6). Without it the player is
-  drawn but cannot move or
-  use objects, and the Gateway asks for Predictive once per connection
-  ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell
   (The Submerged Passage, seed 1); quest flags are derived from visited areas and waypoints, not from quests
   ([16](../docs/protocol/16-waypoints.md) "Open").

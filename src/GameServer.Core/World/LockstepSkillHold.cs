@@ -54,10 +54,12 @@ public sealed class LockstepSkillHold
     /// <summary>The object it was aimed at is gone: it goes on at the ground.</summary>
     public void LoseTarget() => Target = null;
 
-    /// <summary>Whether a use should start in this frame, when the player is <paramref name="free"/>.</summary>
-    public bool Due(bool free)
+    /// <summary>Whether a use should start in this frame, when the player is <paramref name="free"/>. A new click does;
+    /// the held skill's next use only once the use before it is over as well (<paramref name="repeat"/>): an attack
+    /// still walking up holds its repeat, but not a click, which only a swing holds.</summary>
+    public bool Due(bool free, bool repeat = true)
     {
-        if (!free || !(_pending || _held && _repeats && Channel is null)) return false;
+        if (!free || !(_pending || repeat && _held && _repeats && Channel is null)) return false;
         _pending = false;
         return true;
     }
