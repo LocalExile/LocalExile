@@ -17,7 +17,7 @@ public class UniqueSocketTests
             Assert.All(item.Sockets, socket => Assert.Null(socket.Gem));
         }
         // These layouts need their own implementation; the ordinary fallback must not invent two gem sockets.
-        foreach (string name in new[] { "Kaom's Heart", "Actum", "Loreweave", "Tombfist", "Malachai's Artifice", "Mageblood" })
+        foreach (string name in new[] { "Kaom's Heart", "Actum", "Tombfist", "Mageblood" })
         {
             var item = Assert.IsType<Item>(uniques.Create(name, new Random(17)));
             Assert.Empty(item.Sockets);
@@ -37,6 +37,16 @@ public class UniqueSocketTests
         Assert.All(dialla.Sockets, socket => Assert.NotEqual(SocketColour.White, socket.Colour));
         foreach (var robe in new[] { loyal, dialla })
             Assert.Equal(1, ItemModStats.Local(robe, items.Mods).GetValueOrDefault("local_sockets_cannot_be_white"));
+        // A fixed "Has X Sockets" count: Loreweave six, Crest of Desire one, Voidfletcher's one plus two make three.
+        var loreweave = Assert.IsType<Item>(uniques.Create("Loreweave", new Random(17)));
+        Assert.Equal(6, loreweave.Sockets.Count);
+        Assert.Equal(6, loreweave.Links!.Sum(link => link));
+        Assert.Single(Assert.IsType<Item>(uniques.Create("Crest of Desire", new Random(17))).Sockets);
+        var voidfletcher = Assert.IsType<Item>(uniques.Create("Voidfletcher", new Random(17)));
+        Assert.Equal(3, voidfletcher.Sockets.Count);
+        // Malachai's Artifice's Unset Ring implicit gives its socket and the unique makes it white.
+        var artifice = Assert.IsType<Item>(uniques.Create("Malachai's Artifice", new Random(17)));
+        Assert.Equal([SocketColour.White], artifice.Sockets.Select(socket => socket.Colour));
     }
 
     [Fact]
