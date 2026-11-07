@@ -77,8 +77,7 @@ An overview; each area's full list (works, partly working, not working yet) is i
   tweak the game and reload while it runs ([leagues and modules](Agents/docs/dev/modules.md),
   [mods](Agents/docs/dev/modding.md)).
 - **Chat commands:** `/commands` lists them all, from `/set_level`, `/spawn_mob` and `/goto` to `/mod` and `/module`.
-- **Releases:** a self-contained player zip with the `LocalExile.exe` launcher and a window (`LocalExileGUI.exe`),
-  for Windows and Linux.
+- **Releases:** a self-contained player zip with the `LocalExile.exe` launcher, for Windows and Linux.
 
 ## Contributing
 
@@ -99,7 +98,7 @@ how to pick up an item). The protocol reference and the notes are in
 | `GameServer.Data` | GGPK / bundle / `.dat` readers | |
 | `GameServer.Storage` | account and save storage | |
 | `GameServer.Modding` | the API that mods and modules build on | |
-| `LocalExile` + `LocalExileGui` | the player launcher (command line and window) shipped in releases | |
+| `LocalExile` | the player launcher (command line) shipped in releases | |
 | `Modules/` | game systems (NPC dialogue, Delve, Heist, Pantheon, ...), loaded by the Gateway | |
 | `Leagues/` | leagues, each a set of modules | |
 | `Mods/` | small user tweaks, reloaded while the Gateway runs | |
