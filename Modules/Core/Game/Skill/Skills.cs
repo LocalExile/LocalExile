@@ -271,6 +271,7 @@ static partial class Game
         AddTotemAuraStats(conn, stats);
         WithRage(conn, stats);
         WithBlind(conn, stats);
+        WithUsingFlask(conn, stats);
         WithSoulEater(conn, stats);
         // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
         ActorScale.Project(stats, rawOverrides, CosmeticScaleSources(conn));

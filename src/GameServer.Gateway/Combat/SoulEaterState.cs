@@ -14,6 +14,15 @@ sealed class SoulEaterState
     /// <summary>The buff's source is present (the stat and a flask effect): kept by the stat build, read by kills.</summary>
     public bool Enabled { get; set; }
 
+    /// <summary>The buff instance the client has, and the count it was last told: a change sends 0x1c2 then 0x1c1.</summary>
+    public ushort Buff { get; set; }
+    public int SentStacks { get; set; }
+    /// <summary>The "soul_eater_aura" instance (277): the EPK that draws the soul visuals, separate from the icon.</summary>
+    public ushort AuraBuff { get; set; }
+    /// <summary>The souls eaten since the last presentation (the dead object's id and its cell): the player tick sends
+    /// one beam per soul.</summary>
+    public List<(uint Id, int X, int Y)> Souls { get; } = [];
+
     public int Stacks(double now)
     {
         Decay(now);
