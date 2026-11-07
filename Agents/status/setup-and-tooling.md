@@ -64,8 +64,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64
-  package; its launcher sets up and runs the servers natively. Not yet: `-Walkmaps`, named clients, the client from a
-  Linux release, and a Linux release job in `.github/workflows/release.yml`.
+  package; its launcher sets up and runs the servers natively. The release workflow builds it beside the Windows one. Not yet:
+  `-Walkmaps`, named clients, and the client from a Linux release.
   Code: `scripts/dev/platform-linux.ps1`.
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
   collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
