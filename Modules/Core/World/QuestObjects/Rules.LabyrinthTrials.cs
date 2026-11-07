@@ -7,6 +7,9 @@ using GameServer.Data.Terrain.Generation;
 
 static partial class QuestobjectsRules
 {
+    // A Labyrinth room's glyph statue stands about 50 cells (|dx| + |dy|) from the exit it belongs to.
+    const int MapStatueReach = 100;
+
     // Whether the six Normal trials are done (Labyrinths RequiredTrials; the character's flag or the league's).
     static bool NormalTrialsDone(ClientState conn, out int done, out int count) => LabyrinthTrialsDone(conn, 1, out done, out count);
 
@@ -537,8 +540,18 @@ static partial class QuestobjectsRules
                 await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window");
                 break;
             case LabyrinthTrials.Map:
-                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthMapUi), "0x007b open the Labyrinth map");
+            {
+                // The statue stands by one of the room's exits: the room behind it is shown, the way to it in green.
+                var exit = conn.Layout.AreaTransitions.Select(t => t.Transition).Where(t => t.Entrance is not null)
+                    .MinBy(t => (t.GridX - o.X) * (t.GridX - o.X) + (t.GridY - o.Y) * (t.GridY - o.Y));
+                var shown = exit is { Entrance: int number } && Math.Abs(exit.GridX - o.X) + Math.Abs(exit.GridY - o.Y) <= MapStatueReach
+                    ? LabyrinthDay.Reveal(CharacterName(conn), conn.Layout.Id, conn.Seed, number) : null;
+                if (shown is not null)
+                    await Send(remote, stream, ciphers, shown.Progress, $"0x01cb labyrinth progress: the map shows entrance{exit!.Entrance}'s room (row {shown.Row})");
+                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthMapUi, (uint)(shown?.Row ?? 0)),
+                    $"0x007b open the Labyrinth map{(shown is null ? "" : $", the way to row {shown.Row} in green")}");
                 break;
+            }
             case LabyrinthTrials.Portal:
                 if (!conn.Instance.Transitioned(o.Type, o.X, o.Y)) break;   // closed until the plaque is used
                 if (NearestTrialObject(conn, LabyrinthTrials.IntroDoor, (o.X, o.Y), closed: false) is not { } entrance) break;

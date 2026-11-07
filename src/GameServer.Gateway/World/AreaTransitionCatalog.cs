@@ -345,7 +345,7 @@ static class AreaTransitionCatalog
                         break;
                     }
                     placed.Add(new AreaTransitionObject(o.X, o.Y, to.Hash16, o.Model, Rotation: o.Rotation, Height: height,
-                        Type: Resolve(o.Type, what, notes)) { SourceType = o.Type, QuestSource = e.Enabled || openDisabled ? null : GateSourceOf(areaId, to.Id) });
+                        Type: Resolve(o.Type, what, notes)) { SourceType = o.Type, QuestSource = e.Enabled || openDisabled ? null : GateSourceOf(areaId, to.Id), Entrance = e.Number });
                     notes.Add($"{what} → {to.Id} (entrance{e.Number}{(e.Enabled ? "" : openDisabled ? "disabled, open: Izaro's way on" : "disabled, gated by a quest")}, {e.Why})");
                     break;
                 case ExitKind.Teleport when e.Target is { } target:
@@ -367,7 +367,7 @@ static class AreaTransitionCatalog
             if (!p.Enabled || connections.FirstOrDefault(c => c.Index == p.Number) is not { } to) continue;
             if (exits.Any(e => e.Kind == ExitKind.Entrance && e.Enabled && e.Number == p.Number)) continue;
             if (placed.Any(t => t.DestinationHash16 == to.Hash16 && t.TeleportTo is null)) continue;
-            placed.Add(new AreaTransitionObject(p.X, p.Y, to.Hash16));
+            placed.Add(new AreaTransitionObject(p.X, p.Y, to.Hash16) { Entrance = p.Number });
             notes.Add($"entrance{p.Number} → {to.Id} at its point ({p.X}, {p.Y}): no object of its own, an exit without a model");
         }
         return placed;

@@ -69,6 +69,8 @@ static class LabyrinthDay
         public readonly int Difficulty = difficulty;
         public readonly Dictionary<int, (ulong Instance, uint Seed)> Rooms = [];
         public readonly HashSet<int> Visited = [];
+        // Rooms a glyph statue showed without the character having been in them (Reveal).
+        public readonly HashSet<int> Revealed = [];
         public int Node = -1;
         public long Number = Interlocked.Increment(ref runs);
     }
@@ -141,12 +143,39 @@ static class LabyrinthDay
             {
                 run.Node = index;
                 run.Visited.Add(index);
-                return Progress(run.Visited);
+                return Progress(run.Visited.Concat(run.Revealed));
             }
     }
 
     /// <summary>The map's progress outside a run (a /goto into a room of today's Labyrinth): that room alone.</summary>
     public static byte[] Visit(LabyrinthNodeKey node) => Progress([IndexOf(For(node.Seed, node.Difficulty), node.Row)]);
+
+    /// <summary>A glyph statue by a room's exit (<see cref="GameServer.Core.Protocol.Instance.AreaTransitionObject.Entrance"/> N, the room's N-th
+    /// connection): the room behind it is shown on the map from now on, and the map opens with the way to it in green
+    /// (0x7b kind 0x0f's first u32, <see cref="RevealedRoom.Row"/>). In a run the room stays shown; outside one (a /goto)
+    /// the progress is this room and that one. Null when the area is not a room of today's Labyrinth or the exit leads
+    /// out of it (the plaza, Izaro's last room's way out).</summary>
+    public static RevealedRoom? Reveal(string character, string areaId, uint instanceSeed, int entrance)
+    {
+        if (NodeFor(areaId, instanceSeed) is not { } node) return null;
+        var day = For(node.Seed, node.Difficulty);
+        int index = IndexOf(day, node.Row);
+        if (index < 0) return null;
+        var links = day.Layout.Nodes[index].Links;
+        if (entrance < 1 || entrance > links.Count || links[entrance - 1] is not (>= 0 and var neighbour)) return null;
+        int row = day.Layout.Nodes[neighbour].Row;
+        if (Runs.TryGetValue(character, out var run) && run.Seed == node.Seed && run.Difficulty == node.Difficulty)
+            lock (run)
+                if (run.Node == index)
+                {
+                    run.Revealed.Add(neighbour);
+                    return new RevealedRoom(Progress(run.Visited.Concat(run.Revealed)), row);
+                }
+        return new RevealedRoom(Progress([index, neighbour]), row);
+    }
+
+    /// <summary>A room a glyph statue showed: the progress to send and the room's LabyrinthSectionLayout row.</summary>
+    public sealed record RevealedRoom(byte[] Progress, int Row);
 
     /// <summary>S→C 0x1cb, the run's progress (dispatcher case 0x84, 96 bits, bit i in byte i / 8): the Labyrinth map
     /// (LabyrinthMapWindow, <c>0x140bcdf20</c>) shows a room whose bit 0x11 + its index is set, and Izaro's rooms (a
