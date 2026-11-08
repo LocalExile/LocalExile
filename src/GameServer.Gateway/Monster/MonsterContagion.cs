@@ -7,8 +7,10 @@ sealed class MonsterContagion
 {
     /// <summary>What a cast put on the monster: its damage per second before the monster's mitigation, its full duration, the
     /// radius it spreads in, the damage a spread keeps (Contagion of Subsiding: three quarters each time) and the caster's
-    /// skill id: the contagion buff (BuffDefinitions __col7 8, as siphon_damage) names it as its source skill.</summary>
-    public sealed record Cast(double DamagePerSecond, double Seconds, int Radius, double SpreadMore = 1, ushort SkillId = 0);
+    /// skill id: the contagion buff (BuffDefinitions __col7 8, as siphon_damage) names it as its source skill. SpreadAo is
+    /// the caster's Contagion skin art drawn at each spread (null: the default).</summary>
+    public sealed record Cast(double DamagePerSecond, double Seconds, int Radius, double SpreadMore = 1, ushort SkillId = 0,
+        string? SpreadAo = null);
 
     // owed: the damage (before mitigation) of the time up to a recast, at the damage it had then.
     double until, last, carry, owed;

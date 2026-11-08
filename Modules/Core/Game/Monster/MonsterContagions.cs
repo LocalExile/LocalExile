@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -81,10 +82,57 @@ static partial class Game
     internal const string ContagionSpreadAo = "Metadata/Effects/Spells/contagion/contagion_main.ao";
     const double ContagionSpreadArtSeconds = 1.5;
 
+    // The Contagion skins' cast circles (MiscAnimated ContagionCast<Skin>), by the word in the skin's MtxTypes Id. No art
+    // variation table links these skins to their art (SkillArtVariations has no contagion row), so the name picks it.
+    // Skins with no MiscAnimated row (Delirium, King in the Mists) keep the default.
+    static readonly (string Skin, string Ao)[] ContagionSkinArt =
+    [
+        ("Arcane", "Metadata/Effects/Microtransactions/Spells/arcane_contagion/arcane_contagion_main.ao"),
+        ("Celestial", "Metadata/Effects/Microtransactions/Spells/contagion_celestial/aoe_main.ao"),
+        ("Sunprism", "Metadata/Effects/Microtransactions/Spells/SunprismContagion/sunprism_contagion_main.ao"),
+        ("Scientist", "Metadata/Effects/Microtransactions/Spells/ScientistContagion/contagion_main.ao"),
+        ("Project", "Metadata/Effects/Microtransactions/Spells/contagion/project/contagion_main.ao"),
+    ];
+
+    // MtxTypes Ids in row order (an owned record's Id is its row + 1).
+    static readonly Lazy<string[]> MtxTypeIds = new(() =>
+    {
+        string path = Path.Combine("data", "tables", "MtxTypes.json");
+        if (!File.Exists(path)) return [];
+        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        return [.. doc.RootElement.EnumerateArray()
+            .Select(r => r.TryGetProperty("Id", out var id) ? id.GetString() ?? "" : "")];
+    });
+
+    /// <summary>The spread art of the Contagion skin worn on the gem (its Cosmetics tab slot), or null for none or a skin
+    /// without art of its own.</summary>
+    internal static string? ContagionSkinAo(ClientState conn, uint gem)
+    {
+        try
+        {
+            foreach (var (key, worn) in CharacterSaves.SkillCosmetics(CharacterName(conn)))
+            {
+                if (CharacterSaves.SkillCosmeticGem(key) != gem || Mtx.Find(worn.Record) is not { } record) continue;
+                var ids = MtxTypeIds.Value;
+                string type = record.Id >= 1 && record.Id <= ids.Length ? ids[record.Id - 1] : "";
+                if (!type.Contains("Contagion", StringComparison.Ordinal)) continue;
+                foreach (var (skin, ao) in ContagionSkinArt)
+                    if (type.Contains(skin, StringComparison.Ordinal))
+                    {
+                        Console.WriteLine($"[gateway] contagion skin {type}: spread art {ao}");
+                        return ao;
+                    }
+                Console.WriteLine($"[gateway] contagion skin {type} has no spread art; default");
+            }
+        }
+        catch (Exception e) { Console.WriteLine($"[gateway] contagion skin lookup failed: {e.Message}"); }
+        return null;
+    }
+
     /// <summary>A monster died: if it was affected by Contagion, a fresh Contagion goes on every other live hostile monster
     /// within the cast's radius of where it fell (Subsiding's at three quarters of the damage). Returns where it spread
-    /// from and the radius, for its art; null when the monster was not affected.</summary>
-    internal static ((int X, int Y) At, int Radius)? SpreadContagion(ClientState conn, uint id, SpawnedMonster m)
+    /// from, the radius and the art; null when the monster was not affected.</summary>
+    internal static ((int X, int Y) At, int Radius, string Ao)? SpreadContagion(ClientState conn, uint id, SpawnedMonster m)
     {
         int spread = 0;
         (int X, int Y) at;
@@ -105,19 +153,20 @@ static partial class Game
                 }
         }
         Console.WriteLine($"[gateway] contagion spread from 0x{id:x} to {spread} monster(s)");
-        return (at, cast.Radius);
+        return (at, cast.Radius, cast.SpreadAo ?? ContagionSpreadAo);
     }
 
-    /// <summary>Plays the Contagion circle at a spread, sized to its radius, for <see cref="ContagionSpreadArtSeconds"/>.</summary>
+    /// <summary>Plays the Contagion circle (<paramref name="ao"/>: the caster's skin's, else the default) at a spread, sized
+    /// to its radius, for <see cref="ContagionSpreadArtSeconds"/>.</summary>
     internal static async Task ShowContagionSpread(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        (int X, int Y) at, int radius)
+        (int X, int Y) at, int radius, string ao)
     {
         uint effect;
         lock (conn.Monsters) effect = conn.NextObjectId++;
-        float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ContagionSpreadAo) ?? 180));
+        float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ao) ?? 180));
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            new EffectObject(at.X, at.Y, ContagionSpreadAo) { Scale = scale }.Blob()),
-            $"0x02b9 create effect 0x{effect:x} contagion spread at ({at.X}, {at.Y}), radius {radius}");
+            new EffectObject(at.X, at.Y, ao) { Scale = scale }.Blob()),
+            $"0x02b9 create effect 0x{effect:x} contagion spread at ({at.X}, {at.Y}), radius {radius}, art {ao}");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
         SendAfter(ContagionSpreadArtSeconds, async () =>
         {
