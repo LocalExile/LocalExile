@@ -523,6 +523,14 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     public string? QuestSource { get; init; }
     public bool QuestReplaced { get; init; }
 
+    /// <summary>The N of the "entranceN" this exit was placed for: it leads to the area's N-th connection (a Labyrinth
+    /// room's N-th neighbour in the day's layout). Server side only.</summary>
+    public int? Entrance { get; init; }
+
+    /// <summary>The layout disables this exit (its graph's "entranceNdisabled" / "teleportNdisabled") and it was created
+    /// open for a script to gate (Izaro's arena's ways out until he falls). Server side only.</summary>
+    public bool LayoutDisabled { get; init; }
+
     /// <summary>Whether the exit stands in a town. Only then does the client read the compact int (<see cref="Index"/>)
     /// after the destination: 0x141e5fdc0 reads it when the state is 0 and the byte at +0x14 of the current area's
     /// WorldAreas row (entity +8 → world +0x78 → +0xb0) is set, which is IsTown; the server-side writer 0x141e5fcf0

@@ -920,8 +920,9 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
 - **A monster's spell skills carry cast-time stats, not the attack duration.** `MonsterAttack.Spell` sends
   `base_spell_cast_time_ms` (0x2a9), `virtual_base_spell_cast_time_ms` (0x24b9), `hundred_times_casts_per_second`
   (0x2aa) and `casting_spell` (0x1b6); only attacks send `main_hand_attack_duration_ms`. The client's cast-duration
-  path reads the virtual base when the action starts; a utility spell sent with only attack stats crashed the client in
-  that path (`0xc0000005` at `0x19e0daf`, live 2026-10-31, the King's hex/teleport actions).
+  path reads the virtual base when the action starts. (The King crash first put down to this, `0xc0000005` at
+  `0x19e37bf`, is `GeometryChannelBase::StartChannelling` reading a missing GeometryChannel row:
+  [king-in-the-mists](../game/king-in-the-mists.md).)
 - **AI** (`RunMonsterAi`, `MonsterAiCadence`): decisions run at 50 ms intervals of elapsed game time.
   A late wake runs one decision and schedules the next from the current time; it never replays missed steps.
   Pause freezes game time, and disabled AI or a dead player does not accumulate work to replay afterward.
@@ -1445,6 +1446,17 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   action (+0x1b0, flag +0x218 bit 0x02), and the queued-action gate `0x141e941a0` refused every other skill (only
   Move passes it) until a move replaced it (Frida, live 2026-10-21). With the stat the client sends the skill as 0x191
   (above) instead. The 0x1ab handler skips a remote actor's action of a skill with 0x2064.
+- **Bladefall of Trarthus** (`BladefallAltZ`, an instant toggle) times its volleys by the virtual
+  **`bladefall_volley_frequency_ms`**, which the client reads from the skill record and does not derive itself. Without
+  it (0) the client hung on the first use, the connection still open (#584). The record now carries it
+  (`BladefallVolleys`: 700 ms / (1 + 2% per whole 100 maximum mana)). The original server, 2026-11-07, answers the use
+  with 0x1ce, `skill_cost_over_time` (its list one 0) and `righteous_blades` (BuffVisuals: the blades raining), both with
+  the skill bar's icon, and the player's `mana_spent_per_minute` (0x1b3: 300% of maximum mana, 2073 at 691); every
+  volley (625 ms at 691 mana) it creates five `GroundBlade`s in the area (`GroundBladeObject`: Animated by MiscAnimated
+  row, `BladefallGroundBladeAudio`, playing animation 2; a 0x2bc back to the type's own about a second later), each gone
+  after the skill's duration; when the mana runs out it removes the buffs, sets the rate back to 0 and sends 0x2ca for
+  the use. The Gateway does the same (`BladefallTrarthus.cs`) without the 0x2ca and the blob's one base-data entry
+  (raw u32 `0x4ac375a4`), whose meaning is unknown; a second use while it runs is answered with nothing, as there.
 - **Cooldowns.** The client keeps a skill's cooldown itself (manager +0x170 records, cooldown group from the data, 36 =
   per skill; entries `{remaining s, total s, recovery rate, -NaN}` added by `0x141ef2840` when the skill is used), but
   only when the skill's stats have **`virtual_total_cooldown_count`** (0x4806; `0x141ef0ca0` returns no cooldown

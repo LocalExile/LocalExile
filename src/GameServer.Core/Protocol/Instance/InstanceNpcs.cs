@@ -220,6 +220,17 @@ public static class InstanceNpcs
     /// </summary>
     public static byte[] Talk(uint npcObjectId, byte mode = OpenDialogue) =>
         new LoginWriter().U16(TalkId).U32(npcObjectId).U32(0).U16(0).U8(mode).ToArray();
+
+    public const ushort TextAudioId = 0x1c7;
+
+    /// <summary>
+    /// S→C 0x1c7 (world group, class 0x1435e82d8, read 0x1421cbf20; world handler 0x14218ddf0): object header (u32 BE
+    /// object id → +0x10), u16 BE NPCs row (+0x20, the speaker), u16 BE NPCTextAudio row (+0x22), u32 BE delay in ms
+    /// (+0x24), u8 (+0x28), u8 bool (+0x2c): the speaker says the line (its text and voice). Object id 0 plays it globally
+    /// (the world's vtable +0x208); else at that object, queued for the delay while the client does not know it yet.
+    /// </summary>
+    public static byte[] TextAudio(uint objectId, ushort npcRow, ushort textAudioRow, uint delayMs = 0) =>
+        new LoginWriter().U16(TextAudioId).U32(objectId).U32(0).U16(0).U16(npcRow).U16(textAudioRow).U32(delayMs).U8(0).U8(0).ToArray();
 }
 
 /// <summary>

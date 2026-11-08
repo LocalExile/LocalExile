@@ -847,6 +847,8 @@ static partial class Game
             return true;
         }
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
+        if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
+            return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else

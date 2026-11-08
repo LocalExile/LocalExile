@@ -94,16 +94,17 @@ sealed class Act2 : Act
             },
             // a2q6 "Intruders in Black": in The Chamber of Sins Level 2 (Unique/boss_1a.arm) Helena hangs below the ledge
             // (HelenaSins, Transitionable 1: not targetable); Piety runs off. Fidelitas' death sets KilledDemon and Helena
-            // climbs up (state 2). Her "Rescued" (NPCTalk 457) sets RescuedHelena, after which the Strange Device (PoisonCart,
-            // Transitionable 1 → 2) can be opened: it drops the Baleful Gem (grant a2q6-HaveSkillGem, extra
-            // a2q6-HelenaInTown). Greust's "Blackguard Reward" is offer 13 (gems).
+            // climbs up (state 2), and the Strange Device (PoisonCart, Transitionable 1 → 2) can be opened: it drops the
+            // Baleful Gem (grant a2q6-HaveSkillGem, extra a2q6-HelenaInTown). Talking to her first is not needed (#578): her
+            // "Rescued" has a row for each order (NPCTalk 457 without the gem, 456 with it) and sets RescuedHelena; picking the
+            // gem up first sends her to town. Greust's "Blackguard Reward" is offer 13 (gems).
             new Quest("a2q6")
             {
                 On.Near(ChamberOfSins2, Act2Objects.HelenaSins, "a2q6-SeenHelena"),
                 On.Near(ChamberOfSins2, Act2Objects.PietySins, "a2q6-SeenPiety"),
                 On.Killed(ChamberOfSins2, Act2Monsters.Fidelitas, "a2q6-KilledDemon"),
                 On.Npc(ChamberOfSins2, Act2Objects.HelenaSins, goneWith: "a2q6-HelenaInTown", transitionedBy: "a2q6-KilledDemon"),
-                On.Chest(ChamberOfSins2, Act2Objects.StrangeDevice, Act2Items.BalefulGem, opensWith: "a2q6-RescuedHelena"),
+                On.Chest(ChamberOfSins2, Act2Objects.StrangeDevice, Act2Items.BalefulGem, opensWith: "a2q6-KilledDemon"),
             },
             // a2q4 "Sharp and Cruel": the Weaver (mapboss of SpiderGrove/Rooms/Unique/treasure.arm) drops Maligaro's Spike
             // (grant a2q4-HavePoisonSpear, remove a2q9-PoisonedTree). Silk's "Maligaro's Spike" does not take it (a2q9 needs

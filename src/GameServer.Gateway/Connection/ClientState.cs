@@ -156,8 +156,10 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public bool FetishGrace;
     /// <summary>Pending life thresholds and immunity owned by an encounter controller.</summary>
     public LifePhaseGate? LifePhases;
+    /// <summary>An encounter's own entrance: hits do nothing until its script clears it (Izaro rising on his elevator).</summary>
+    public bool EntranceGrace;
     // No damage, ailments, impale or hit reaction while a scripted grace runs.
-    public bool Invulnerable => KingGrace || RitualGrace || FetishGrace || LifePhases?.Active == true;
+    public bool Invulnerable => KingGrace || RitualGrace || FetishGrace || EntranceGrace || LifePhases?.Active == true;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
@@ -361,6 +363,17 @@ sealed record RighteousFireState(ushort Buff, ushort SelfAura, uint? Ring, ushor
     public readonly Dictionary<uint, ushort> Auras = [];
     /// <summary>The worn skill effect's righteous_fire_aura visual (BuffVisuals row; null: the row's own), on the enemies too.</summary>
     public ushort? AuraVisual { get; init; }
+}
+
+// A running Bladefall of Trarthus (BladefallVolleys): its two buff instances (skill_cost_over_time, righteous_blades),
+// the skill, the game time of its next volley and the mana it spends per minute (mana_spent_per_minute, as set on the
+// player). Blades: the ground blades still standing, oldest first, with the game time each falls quiet and goes.
+sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, ushort Skill)
+{
+    public double NextVolley;
+    public int ManaPerMinute;
+    public bool Ended;
+    public readonly Queue<(uint Id, double Landed, double Gone)> Blades = new();
 }
 
 // The last instance list shown (0xae); 0xaf picks a row of it.
@@ -628,7 +641,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     uint ownNextObjectId = 0x3000;
     // Every 0x1ab action on this connection gets a fresh sequence. The official server increments it per action (the
     // King's first actions are 0x8011, 0x8012, …); reusing 0xffff for several actors left the client's channel object
-    // without a current action and crashed StartChannelling (0xc0000005 at 0x19e0daf, live 2026-10-31).
+    // without a current action and crashed StartChannelling (0xc0000005 at 0x19e37bf, live 2026-10-31).
     int _nextActionSequence = 0x8000;
     public ushort NextActionSequence() => (ushort)Interlocked.Increment(ref _nextActionSequence);
     // The flags of a server order to a monster (0x1ab → action +0x122; ActionStarted adds 0x80 with a target id). GGG's
@@ -769,6 +782,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool Immune;
     public readonly GracePeriod EntryProtection = new();
     public RighteousFireState? RighteousFire;
+    public BladefallTrarthusState? BladefallTrarthus;
     /// <summary>The hands' part of the player model last sent (Program.HandsKey): null until the area's first model.</summary>
     public string? ModelHands;
     /// <summary>The flasks recovering life and mana (C→S 0x70), applied by the player tick.</summary>

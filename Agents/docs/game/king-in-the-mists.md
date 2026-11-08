@@ -229,8 +229,8 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
   `Metadata/Projectiles/BugSoulrend` (six projectiles), matching the official capture; the earlier
   `PlayAnimation failed [SpellProjectileChaos]` was a stale Debug build, not the skill.
 - The hex, teleport, effigy, ritual and maze actions are **spells** and send their own cast-time stats
-  (`MonsterAttack.Spell`); with only the melee attack duration the client crashed in its cast-duration path
-  (`0xc0000005` at `0x19e0daf`, live 2026-10-31).
+  (`MonsterAttack.Spell`). The crash first put down to the missing cast time (`0xc0000005` at `0x19e37bf`, live
+  2026-10-31) is inside `GeometryChannelBase::StartChannelling`: the ritual's missing GeometryChannel row (below).
 - Skips both forms, the Mystic Fetishes and the Guiding Lights in the ordinary `PlanMonsterAi` loop; the controller
   serializes one action at a time. The current AI stage (`Game_KING_BASIC`, default on) makes only the humanoid's default
   attack decision after the intro: `0x1ab` with skill `0x4001` (`MeleeAtAnimationSpeedUnique`), the actor's attack
@@ -306,9 +306,8 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
   action with those fields. The base-data links and the staff are still open: the humanoid's Inventories component is
   empty, so `VoodooKingBossWeapon.ao` is never created.
 - Every King action carries a **fresh sequence** (`0x8000+`), as the official server does (`0x8011`, `0x8012`, …). Reusing
-  `0xffff` for every action left the client's channel object without a current action (`0xc0000005` at `0x19e0daf`, live
-  2026-10-31). The ritual's `0x400e` channel start and the fetish/shrine StateMachine `active` update are currently
-  withheld; the ritual plays the official rig clips and runs server-side (see below).
+  `0xffff` for every action was blamed for the `0x19e37bf` crash (live 2026-10-31); its cause was the channel's missing
+  GeometryChannel row (below). The ritual is the client's own `0x400e` channel.
 - Phase 1: creates the three `VoodooKingBoss2RitualPillar` Mystic Fetishes at the official create positions
   (mapboss-relative `(-68, -52)`, `(68, -51)` and `(-2, 64)`; world `(232, 490)`, `(368, 491)` and `(298, 606)` at
   seed 1) with the official Positioned rotations `5.23599`, `1.0472` and `3.14159` rad. The cells are blocked on the
@@ -316,19 +315,25 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
   platforms). Each fetish spawns immune (`FetishGrace`, the invisible BuffDefinitions row 350 and a hidden overhead
   bar); while it is immune it also refuses ailments, impale, leech and hit reactions, not only life damage. The fetish the
   King channels into stays immune through the whole ritual animation and becomes hostile, attackable and bar-visible
-  when `call_end_01` has finished (the StateMachine activation that would normally do this is still withheld); a fetish
+  when `call_end_01` has finished (its StateMachine `active` state is not sent yet); a fetish
   destroyed after its ritual is skipped by the next `NearestFetish` pick. Rituals are
   life-gated at 92%, 73% and 55% (a single hit starts only the first crossed gate and consumes the others it crossed);
   the King is invulnerable from the start of the teleport through the whole channel (`RitualGrace` plus visible row 7),
   about 4–6.5 s in the captures. The
-  client `GSVoodooKingRitual` (`0x400e`) channel start is not sent: as an ordinary `0x1ab` action it makes the client
-  enter `GeometryChannelBase::StartChannelling` without a current action and dereference a null pointer (`0xc0000005` at
-  `0x19e0daf`, live 2026-10-31 and 2026-11-01). The fetish/shrine StateMachine `active` update enters the same path, so
-  it is withheld too. The ritual instead plays the official `call_start_01` (clip 4), `call_loop_01` (3) and
-  `call_end_01` (2) rig clips and runs server-side. The King is immune to damage for the whole sequence, so no ordinary
+  ritual is `GSVoodooKingRitual` (`0x400e`) as an ordinary `0x1ab` action aimed at the fetish (its object and cell); the
+  King's `.act` plays `call_start_01` and `call_loop_01`, and the action's end (`0x1ac`, about 3.4 s on) `call_end_01`
+  (live 2026-11-07: all three rituals, no crash). The client builds the action's channel from a GeometryAttack row: the
+  action's constructor (`0x141514b10`) reads the record's `skill_behaviour_variation` (`0x1921`), and `0x141967050` takes
+  the GeometryAttack row with that Id and its GeometryChannel. The value is the GrantedEffects row's `SkillID` (1116 →
+  GeometryAttack 1116 → GeometryChannel 29 `GSVoodooKingRitual`), which the client's own skill-stat builder adds but a
+  record from the server must carry (`SkillCatalog.BehaviourVariation`, sent on every monster record without a
+  projectile). Without it the client took Id 0, a row with no GeometryChannel, and `StartChannelling` (`0x1419e3680`)
+  read the null row's `+0x28` (`0xc0000005` at `0x1419e37bf`). The King is immune to damage for the whole sequence, so no ordinary
   damage can interrupt the cast; the controller still checks the fetish, but it cannot be destroyed before the
-  vulnerability window. A completed ritual spawns that fetish's hazard actors (rats or toads); its `active` state and the central
-  shrine's `active_pillars` state are not advanced until the channel action contract is known. It does not send a raw
+  vulnerability window. A completed ritual spawns that fetish's hazard actors (rats or toads); its `active` state (RitualPillarTrio: the
+  activation pulse and `effigybeam.ao`) and the central shrine's `active_pillars` (its `idle_active_01`–`_03` clips) are
+  not sent yet. Neither `.ot` touches a channel, so the old "same crash path" note no longer holds, but neither is
+  checked live. It does not send a raw
   `0x1ab` hazard action to the fetish: `RitualPillar.act` does not carry the `SpellAreaOfEffect` animation in its
   default stance. The fetishes are hostile, stationary and destructible; breaking one gives no experience or loot and
   removes it from the King's rotation. The humanoid adds Portent Vapors stacks, uses Vine Slam and Vine Cascade, and
@@ -509,8 +514,8 @@ The same fight as the dialogue table has 30,966 messages. The humanoid (actor 15
 7 cascades, 2 slams, 5 `TeleportFlee`, 6 `DashLeft`, 3 `DashBackward`/`DashRight`/`ReturnFromEdge`, 2 rituals, 1 each
 of effigy, Meditation, Dance, `MazePhase`, `BecomeATree` and Move, plus 3 unidentified `0x21a9` actions; `0x4008` never
 appears. The treant (actor 609) makes 42 actions. The client calls `StartChannelling` exactly twice, at the two
-`0x400e` actions (11:45:24.420 and 11:45:50.495): the raw channel needs a real action, which is the contract the
-gateway does not have yet. The trace also contains 1,293 `exception` records, all access violations inside
+`0x400e` actions (11:45:24.420 and 11:45:50.495); the Gateway's channel reaches it the same way since its records
+carry `skill_behaviour_variation` (above). The trace also contains 1,293 `exception` records, all access violations inside
 `frida-agent.dll` from the hooks themselves; they do not interrupt the captured messages.
 
 ### Official phase 2 (maze)
@@ -559,7 +564,7 @@ VineSlam -> Meditation -> Melee -> VineSlam -> Melee -> SummonDeathAuraEffigy
 
 | Area | Official 3.29.3b | This branch (`KingInMists.cs`) | Remaining |
 |---|---|---|---|
-| Fetish activation | `GSVoodooKingRitual` **targeted at the player first, then the fetish**, then `EASVoodooKingReturnFromEdge` self | Implemented: `VoodooKingTeleportFlee` approach, official `call_start_01`/`call_loop_01`/`call_end_01` rig clips and a server-side ritual; the fetish stays immune through the animation and becomes attackable at `call_end_01`, and the King is immune throughout; `0x1b7` return to the centre. The raw `0x400e` channel and the fetish/shrine `active` state are withheld because they crash `StartChannelling` (`0xc0000005` at `0x19e0daf`) | The action contract that lets the client channel without a null action; the exact dash movement sequence |
+| Fetish activation | `GSVoodooKingRitual` **targeted at the player first, then the fetish**, then `EASVoodooKingReturnFromEdge` self | Implemented: `VoodooKingTeleportFlee` approach, the `0x400e` channel aimed at the fetish and ended with `0x1ac`, a server-side ritual; the fetish stays immune through the animation and becomes attackable at `call_end_01`, and the King is immune throughout; `0x1b7` return to the centre | The channel's first target (the player); the fetish/shrine `active` states; the exact dash movement sequence |
 | Fetish hazards | Fetish actors cast `RatSwarm`, `CorruptedBloodDegen`, `SummonFrogSwamps`; toads/swamp/blood objects | Implemented: state-machine activation + rats/toads; no raw hazard `0x1ab` (the ACT lacks the default-stance `SpellAreaOfEffect` clip) | `VoodooKingSwampGround` and blood/caustic ground objects; hazard DoT |
 | Central shrine | `RitualPillar2` actor and `HugeRitualShrine01_01.ao`; `active_pillars` 0–3 | Implemented: server object at the `arena.arm` point, state update per completed ritual (`idle_inactive` → `idle_active_01`–`_03`) | Exact official state timing (capture logged actor creation, not 0x2bc) |
 | Phase 1 hexes | Meditation `0x4006` on the player | Implemented as `hex_01` (clip 11) + BuffDefinitions 2358/2359 for 8 s, alternating every 25 s | Imprisonment/maim rule and the actual action/channel contract |

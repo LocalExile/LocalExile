@@ -7,6 +7,9 @@ using GameServer.Data.Terrain.Generation;
 
 static partial class QuestobjectsRules
 {
+    // A Labyrinth room's glyph statue stands about 50 cells (|dx| + |dy|) from the exit it belongs to.
+    const int MapStatueReach = 100;
+
     // Whether the six Normal trials are done (Labyrinths RequiredTrials; the character's flag or the league's).
     static bool NormalTrialsDone(ClientState conn, out int done, out int count) => LabyrinthTrialsDone(conn, 1, out done, out count);
 
@@ -77,6 +80,7 @@ static partial class QuestobjectsRules
         int tilesFrom = ServerLevels.For(conn.Layout.Id, conn.Seed)?.RoomObjects.Count ?? all.Count;
         if (all.Count == 0 && !labyrinth) all = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes);
         var wiring = WireRoomObjects(conn, all, links);
+        Wirings.AddOrUpdate(conn, wiring);
         SetSwapLevers(conn, all, links);
         await SpawnTrialTraps(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsSpikeTrap(o.Type))],
             [.. all.Where(o => o.Type == LabyrinthTrials.Lever).Select(o => (o.X, o.Y))],
@@ -109,6 +113,8 @@ static partial class QuestobjectsRules
                 await SpawnNpc(remote, stream, ciphers, conn, npc, glyph.X, glyph.Y, glyph.Angle);
             else Console.WriteLine($"[gateway] {remote} trial monograph {glyph.Type}: unknown or unsupported NPC");
         }
+        // Izaro's arena (Rules.Izaro.cs): his elevator, its doors and his trial.
+        if (labyrinth) await RunIzaroArena(remote, stream, ciphers, conn, all);
         // The statues wake only in the Labyrinth's own rooms (a trial's tiles keep theirs as they were).
         if (!labyrinth) all = [.. all.Where(o => !LabyrinthTrials.IsStatueSpawner(o.Type))];
         var objects = all.Where(o => LabyrinthTrials.Handles(o.Type)).ToList();
@@ -242,8 +248,34 @@ static partial class QuestobjectsRules
         for (int i = 0; i < all.Count; i++)
             if (LabyrinthWiring.IsCrank(all[i].Type) && wiring.Graph.IsOn(i) && !wiring.Graph.IsSpent(i))
                 foreach (var (k, _) in wiring.Graph.Turn(i, false)) conn.Instance.SetTransitioned(all[k].Type, all[k].X, all[k].Y, false);
-        Wirings.AddOrUpdate(conn, wiring);
         return wiring;
+    }
+
+    // The connection's room wiring. A hot reload of this module starts Wirings over while the player stays in the room
+    // (a lever then did nothing until the next area): it is built again from what the connection keeps, the room's
+    // objects and links, what this instance turned on, and the ids its placed objects have. A crank still down comes
+    // up here as on a new entry; the old module's timer brings it up on the client.
+    static bool TryWiring(ClientState conn, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out RoomWiring? wiring)
+    {
+        if (Wirings.TryGetValue(conn, out wiring)) return true;
+        List<KeyValuePair<uint, AreaPopulation.RoomObject>> placed;
+        lock (conn.Monsters) placed = [.. conn.TrialObjects];
+        if (placed.Count == 0 || conn.Closed) return false;
+        wiring = Wirings.GetValue(conn, _ =>
+        {
+            var links = new List<PlacedLink>();
+            var all = LabyrinthRoomObjects(conn, [], links);
+            // A trial the Gateway does not generate has room-points.json's objects, unlinked.
+            if (all.Count == 0) all = [.. placed.OrderBy(p => p.Key).Select(p => p.Value)];
+            var rebuilt = WireRoomObjects(conn, all, links);
+            var taken = new HashSet<int>();
+            foreach (var (id, o) in placed)
+                for (int i = 0; i < all.Count; i++)
+                    if (all[i] == o && taken.Add(i)) { rebuilt.Ids[i] = id; break; }
+            Console.WriteLine($"[gateway] {conn.Layout.Id}: room wiring built again after a reload ({links.Count} link(s), {rebuilt.Ids.Count} of {placed.Count} placed object(s))");
+            return rebuilt;
+        });
+        return true;
     }
 
     // The room objects one links to by these names (its indexes in the room's objects); none when it has no links.
@@ -381,7 +413,7 @@ static partial class QuestobjectsRules
             LabyrinthTrials.SwapClientState(swap.Mirrored, other)), $"0x02bc swap piece 0x{swapId:x} at ({swap.X}, {swap.Y}) to its {(other ? "other" : "first")} arm");
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> placed;
         lock (conn.Monsters) placed = [.. conn.TrialObjects];
-        var levers = Wirings.TryGetValue(conn, out var wiring) ? SwapLevers(wiring.All, swap, wiring.Links) : SwapLevers([.. placed.Select(p => p.Value)], swap);
+        var levers = TryWiring(conn, out var wiring) ? SwapLevers(wiring.All, swap, wiring.Links) : SwapLevers([.. placed.Select(p => p.Value)], swap);
         foreach (var (l, gears) in levers)
         {
             bool pulled = LabyrinthTrials.OnFirstArm((l.X, l.Y), (swap.X, swap.Y), swap.Angle, swap.Mirrored) == other;
@@ -470,10 +502,13 @@ static partial class QuestobjectsRules
         if (!GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (o.X, o.Y), size))
             Console.WriteLine($"[gateway] {remote} trial object 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
         else if ((o.Type is LabyrinthTrials.Lever or LabyrinthWiring.OnceMultiSwitch || LabyrinthWiring.IsCrank(o.Type))
-                 && Wirings.TryGetValue(conn, out var wiring) && wiring.IndexOf(use.TargetId) is int wired && wiring.Graph.Wired(wired))
+                 && TryWiring(conn, out var wiring) && wiring.IndexOf(use.TargetId) is int wired && wiring.Graph.Wired(wired))
             await PullWired(remote, stream, ciphers, conn, wiring, wired);
         else switch (o.Type)
         {
+            case IzaroFights.Gate:
+                await OpenIzaroGate(remote, stream, ciphers, conn, use.TargetId, o);
+                break;
             case LabyrinthTrials.IntroDoor or LabyrinthTrials.BarDoor:
                 await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o);
                 break;
@@ -537,8 +572,18 @@ static partial class QuestobjectsRules
                 await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window");
                 break;
             case LabyrinthTrials.Map:
-                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthMapUi), "0x007b open the Labyrinth map");
+            {
+                // The statue stands by one of the room's exits: the room behind it is shown, the way to it in green.
+                var exit = conn.Layout.AreaTransitions.Select(t => t.Transition).Where(t => t.Entrance is not null)
+                    .MinBy(t => (t.GridX - o.X) * (t.GridX - o.X) + (t.GridY - o.Y) * (t.GridY - o.Y));
+                var shown = exit is { Entrance: int number } && Math.Abs(exit.GridX - o.X) + Math.Abs(exit.GridY - o.Y) <= MapStatueReach
+                    ? LabyrinthDay.Reveal(CharacterName(conn), conn.Layout.Id, conn.Seed, number) : null;
+                if (shown is not null)
+                    await Send(remote, stream, ciphers, shown.Progress, $"0x01cb labyrinth progress: the map shows entrance{exit!.Entrance}'s room (row {shown.Row})");
+                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthMapUi, (uint)(shown?.Row ?? 0)),
+                    $"0x007b open the Labyrinth map{(shown is null ? "" : $", the way to row {shown.Row} in green")}");
                 break;
+            }
             case LabyrinthTrials.Portal:
                 if (!conn.Instance.Transitioned(o.Type, o.X, o.Y)) break;   // closed until the plaque is used
                 if (NearestTrialObject(conn, LabyrinthTrials.IntroDoor, (o.X, o.Y), closed: false) is not { } entrance) break;
@@ -674,7 +719,7 @@ static partial class QuestobjectsRules
         AreaPopulation.RoomObject o)
     {
         // With the room links, what the lever drives is theirs (its next, transitionN and pause links); without, the nearest.
-        var wiring = Wirings.TryGetValue(conn, out var w) && HasLinks(w, o) ? w : null;
+        var wiring = TryWiring(conn, out var w) && HasLinks(w, o) ? w : null;
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> railSwitches;
         lock (conn.Monsters) railSwitches = [.. conn.TrialObjects.Where(t => LabyrinthTrials.IsRailSwitch(t.Value.Type))];
         if (wiring is not null && o.Type == LabyrinthTrials.Switch)
@@ -1465,7 +1510,7 @@ static partial class QuestobjectsRules
                         {
                             (down, at, left) = (true, now, false);
                             int room = RoomOf(plate.X, plate.Y);
-                            var fired = Wirings.TryGetValue(conn, out var wiring) && LinkedDarts(wiring, plate) is { Count: > 0 } linked
+                            var fired = TryWiring(conn, out var wiring) && LinkedDarts(wiring, plate) is { Count: > 0 } linked
                                 ? triggered.Where(t => linked.Contains(wiring.All.IndexOf(t.Trap))).ToList()
                                 : triggered.Where(t => RoomOf(t.Trap.X, t.Trap.Y) == room).ToList();
                             await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Open),
@@ -1693,7 +1738,7 @@ static partial class QuestobjectsRules
                 if (roombas[i].Type is LabyrinthTrials.Roomba or LabyrinthTrials.FlyingRoomba) paths[i] = scratched[i];
         }
         var saws = Enumerable.Range(0, roombas.Count).Where(i => LabyrinthTrials.IsSawblade(roombas[i].Type)).ToList();
-        var halted = Wirings.TryGetValue(conn, out var wiring) && links.Any(l => l.Name == "pause")
+        var halted = TryWiring(conn, out var wiring) && links.Any(l => l.Name == "pause")
             ? PausedSaws(conn, wiring).Select(i => roombas.IndexOf(all[i])).Where(i => i >= 0).ToHashSet()
             : Enumerable.Range(0, switches.Count)
                 .Where(k => conn.Instance.Transitioned(LabyrinthTrials.Switch, switches[k].X, switches[k].Y))

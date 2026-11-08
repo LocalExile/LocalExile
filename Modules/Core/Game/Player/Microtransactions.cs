@@ -241,6 +241,12 @@ sealed class SkillArt(string folder = "data")
     readonly Lazy<(Dictionary<(string, int), string> Animated, Dictionary<(string, int), ushort> BuffVisuals,
         Dictionary<(string, int), string> Projectiles)> _data = new(() => Load(folder));
     readonly Lazy<Dictionary<string, int>> _radii = new(() => Radii(folder));
+    readonly Lazy<Dictionary<string, int>> _miscRows = new(() => Rows(Path.Combine(folder, "tables", "MiscAnimated.json"))
+        .Select((row, i) => (Id: row.TryGetProperty("Id", out var id) ? id.GetString() : null, Row: i))
+        .Where(r => r.Id is { Length: > 0 }).GroupBy(r => r.Id!).ToDictionary(g => g.Key, g => g.First().Row));
+
+    /// <summary>The MiscAnimated row of this Id, or null: what an Animated component sends in place of an .ao path.</summary>
+    public int? MiscAnimatedRow(string id) => _miscRows.Value.TryGetValue(id, out int row) ? row : null;
 
     /// <summary>
     /// The radius an area art is drawn at, at scale 1, in world units: MiscAnimated <c>__col4</c> of the rows drawing

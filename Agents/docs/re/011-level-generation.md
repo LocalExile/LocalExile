@@ -723,7 +723,12 @@ Strand seed 1: the first 83 draws match the trace, including all 21 cell-area to
    its tier range +0x18..+0x1c holds the tier, and it is not picked already (no exclusion group +8) or shares no
    picked row's group. A TinyMT seeded from seed + 0x11 + (tier + 4 × slot) × 0x13d picks among the candidates. Each
    section's LabyrinthSectionLayout rows become nodes, sorted by +0x10 (`0x1424ecf50`). With a server layout (seed,
-   node index and difficulty, read by `0x141ecdad0`) the seed is the day's. `LabyrinthLayout` ports all of
+   node index and difficulty, read by `0x141ecdad0`) the seed is the day's: the official server's is the UTC day's
+   number since 1970, one for all four tiers, and its pick of a node's area among its LabyrinthAreas row's areas for the
+   tier (+8 + 0x10 × (tier − 1)) is a TinyMT seeded as the boss pick's, with the node's own row (`LabyrinthLayout.AreaPick`).
+   Neither is in the client; poelab.com's daily layout files (rooms, exits, secrets, Izaro's phases, some areacodes)
+   show both: of all 2³² seeds only the day's number gives 2026-11-07's Eternal layout, it gives the other tiers' and
+   five archived 2026 days' too, and the area rule picked all 91 rooms with a choice. `LabyrinthLayout` ports all of
    `0x1424e9d80` (connections and secrets too: 168 client layouts match, `scripts/re/frida/lab-layout.py` and
    `lg.ps1 lablayout`), and the three boss-end traces match. Any other area whose id contains "_quad_door" or "_branch_door" gets the gold door: the collected nodes are
    shuffled when all are plain "secret" (one `Next(count)`, then `Uniform(count − i)` per place, swap with the front)

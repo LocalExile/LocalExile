@@ -426,7 +426,8 @@ connection drops, each reason once, and tries again at an area change after 60 s
 To host one: `dotnet run -c Release --project src/GameServer.Chat` (solution `GameServer.Chat.slnx`), with
 `Game_CHAT_BIND` and `Game_CHAT_PORT` (default 0.0.0.0:6113). It needs an open TCP port, so a VM, not an HTTP-only host.
 Nothing is encrypted, stored or authenticated. Separate Gateways can have characters of one name, so a later one gets the
-first free `Name[n]` for that connection; `@Name[n]` whispers to it.
+first free `Name_n` for that connection; `@Name_n` whispers to it. Not `Name[n]`: the client drew `#Build[1]: hey` all
+white, without the global colour (live 2026-11-07).
 
 Each frame is a big-endian u16 length and that many bytes of JSON, at most 8192 (`ChatWire`):
 

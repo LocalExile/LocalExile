@@ -740,6 +740,13 @@ static partial class Game
             // Native CanStart reads final limits, not the base inputs in the gem's stat set.
             // Network stat snapshots do not run the client's stat calculators.
             void Publish(string stat, int value) { if (Stats.Key(stat) is uint key) stats[key] = value; }
+            // A cost of a share of maximum mana over time (Bladefall of Trarthus): its final, virtual per-minute amount.
+            if (Get("base_mana_cost_%_per_minute") is int costPct and > 0)
+                Publish("mana_cost_per_minute", BladefallVolleys.ManaPerMinute(costPct, conn.Pools.Mana));
+            // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
+            if (Get("bladefall_base_volley_frequency_ms") is int volleyMs and > 0)
+                Publish("bladefall_volley_frequency_ms", BladefallVolleys.FrequencyMs(volleyMs,
+                    Get("bladefall_volley_frequency_+%_per_100_maximum_mana"), conn.Pools.Mana));
             if (SummonData.Find(SkillsFor(conn).EffectId(effect)) is { LimitStat.Length: > 0 } summon)
                 Publish(summon.LimitStat.Replace("base_", "", StringComparison.Ordinal), SummonLimit(conn, summon, supported));
             if (GolemData.Find(SkillsFor(conn).EffectId(effect)) is { IsGolem: true })

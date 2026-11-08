@@ -111,8 +111,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   The day's layout is sent with each room in it, and a Normal run works ([status](../status/world.md), "A Labyrinth run").
   The Aspirants' Plaza (`Labyrinth_Airlock`, `WaypointCatalog.LabyrinthPlaza`) is a waypoint the World panel's
   Labyrinth pin always shows.
-  The Ascendancy Chamber's font chooses the ascendancy and gives the tier's two points without Izaro's fight
-  ([status](../status/world.md), "A Labyrinth run").
+  The Ascendancy Chamber's font chooses the ascendancy and gives the tier's two points, and Izaro's three trials are
+  fought ([status](../status/world.md), "A Labyrinth run";
+  [labyrinth-trials](../docs/game/labyrinth-trials.md), "Izaro's arenas").
   The tables are extracted (`data/tables/Labyrinth*.json`): 4 tiers with their required trials, quest flag and area
   level, 18 trials, 47 sections, 223 section layout rows, 58 secrets and the Izaro chests.
   AreaTransition type 5 is Labyrinth ([08](../docs/protocol/08-area-transitions.md) §7), and
@@ -126,11 +127,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. Izaro: three Aspirant's Trials, each ending when he loses a third of his life (the boss stages of
-     `BossFights.cs`); the third opens the Ascendancy Chamber and its Izaro chests (LabyrinthIzaroChests).
-  2. The Ascendancy Chamber: the font (`QuestobjectsRules.UseAscendancyFont`) waits for Izaro's third trial and sets the
-     tier's quest flag (Labyrinths `QuestFlag`, `LabyrinthComplete1` …: it also moves the quest tracker on and unlocks
-     the next tier's row).
+  1. Izaro's arenas' mechanics (the day's LabyrinthSecrets on his rooms: their objects at the BossObjectiveMarkers,
+     LabyrinthSecretEffects, carried to the later trials), one at a time, and the Goddess of Justice.
+  2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
   3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
      Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type

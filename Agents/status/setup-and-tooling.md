@@ -5,6 +5,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- The 3.29.3c client: login, characters, town, inventory and stash, cosmetics, kills, items, flasks and skills,
+  waypoints and transitions, NPCs and shops, the hideout, chat and relog (live run, 2026-11-08).
+  Port tools: `scripts/re/port`, `PortMap.java`; docs: [tooling](../docs/re/tooling.md) §11.
 - Game data extracted from the GGPK in one step: `scripts/dev/extract-data.ps1` (run by `live.ps1` on every start,
   `-NoExtract` to skip) regenerates each data file that is missing or whose manifest version changed (stamps in
   `data/extract-stamps.json`), and the Gateway warns once at startup about any missing file.
@@ -29,7 +32,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `live.ps1 -ClientOnly -Walkmaps` (the client and its walk-map recorder against running servers), the
   Gateway's `commands` and `values <kind>` modes (its chat commands, their argument kinds and values, as JSON lines),
   its `crafter` mode with `/item_give` (an item crafter's bases, mod pools and English stat descriptions, and the item
-  it composed: [item-crafter.md](../docs/dev/item-crafter.md)), and the dev host's `accounts`.
+  it composed: [item-crafter.md](../docs/dev/item-crafter.md)), its `labyrinth [yyyy-mm-dd | seed]` mode (a day's four
+  Labyrinths: rooms with their map positions, connections and secrets, `LabyrinthDay.Listing`), and the dev host's `accounts`.
   Checked on a real setup: `-Stop` ending a watched Gateway with its `dotnet watch`, every argument kind's values, and
   the account list from the real save database.
   Code: `scripts/dev/live.ps1`, `Program.Completions.cs`, `ChatCommands.cs`, `GameSession.cs`.

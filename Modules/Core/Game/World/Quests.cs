@@ -141,6 +141,10 @@ static partial class Game
     internal static string? TransitionFlag(ClientState conn, AreaTransitionObject transition) =>
         // The plaza's way into the Labyrinth leads to the day's first room: shown once its door is open (ChooseLabyrinth).
         conn.Layout.Id == LabyrinthDay.Plaza && transition.SourceType == LabyrinthDay.Entrance ? LabyrinthDay.PlazaDoorOpen
+        // Izaro's arena's ways out (the layout's disabled ones): shown once his trial in this instance is won; the way in
+        // once the corridor's gate is open.
+        : transition.LayoutDisabled && LabyrinthDay.IzaroRoom(conn.Layout.Id, conn.Seed) is not null ? IzaroFights.Beaten
+        : transition.SourceType == IzaroFights.ArenaTransition && LabyrinthDay.IzaroRoom(conn.Layout.Id, conn.Seed) is not null ? IzaroFights.GateOpen
         : AreaTransitionCatalog.IdOf(transition.DestinationHash16) is { } dest ? QuestsOf(conn).FlagToEnter(conn.Layout.Id, dest) : null;
 
     // Whether a Labyrinth tier's trials are done (Labyrinths RequiredTrials: Normal's six, …; the character's flag or the

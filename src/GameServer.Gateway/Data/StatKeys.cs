@@ -40,7 +40,7 @@ static class StatKeys
     public const uint TotalProjectilesToFire = 0x2d5, TotalArrowsToFire = 0x2d6, VirtualTotalProjectiles = 0x4b4b,
         VirtualTotalArrows = 0x4b4c, SkillBehaviourVariation = 0x1921;
     // A spell action's own timing: the client's cast-duration function reads the virtual base milliseconds, and a draft
-    // spell skill without it dereferenced a missing value (0xc0000005 at 0x19e0daf, live 2026-10-31).
+    // spell skill without it dereferenced a missing value (0xc0000005 at 0x19e37bf, live 2026-10-31).
     public const uint BaseSpellCastTimeMs = 0x2a9, VirtualBaseSpellCastTimeMs = 0x24b9,
         HundredTimesCastsPerSecond = 0x2aa, CastingSpell = 0x1b6;
     // "Increased attack speed" stats that apply to an unarmed melee attack (attack time = base / (1 + sum / 100)).

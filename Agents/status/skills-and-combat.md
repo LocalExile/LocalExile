@@ -1139,6 +1139,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - **Instant skills and cooldowns (verified live 2026-10-21).** Haste, the Purities and Righteous Fire carry
   `skill_is_instant`, so the client sends them as C→S 0x191 and keeps walking;
   the server applies them and answers S→C 0x1ce, which starts the skill bar's cooldown.
+  Bladefall of Trarthus no longer hangs the client (its volley interval is in the record) and runs as its toggle: a
+  volley hitting the area around the player every interval, ground blades, the mana spent per second until it runs out
+  (live 2026-11-07: volleys and hits checked; the end at no mana not seen yet).
   Skill records retain GEPL Cooldown as the native base and carry the cooldown count.
   Ordinary one-use spells/attacks now resolve player and skill generic recovery once, and the server keeps remaining
   base-time budget through stat changes and pause.

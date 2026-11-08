@@ -779,10 +779,10 @@ static class LabyrinthTrials
     /// <remarks><c>/trial_spike_step</c> (dev) changes it from the next wave on.</remarks>
     public static double SpikeStepSeconds = 0.45;
 
-    /// <summary>A checkerboard chain's step: its two halves fire two seconds apart, every four (our reading of the room's
-    /// <c>Trigger_Delay_4_0WG</c> / <c>Trigger_Delay_4_2WG</c> lines; live 2026-10-31: they rise together, as a
-    /// checkerboard).</summary>
-    public const double SpikeCheckerSeconds = 2;
+    /// <summary>A checkerboard chain's step: its two halves fire 2.5 s apart, every 5 s, the timers of the room's
+    /// <c>Trigger_Delay_4_0WG</c> / <c>Trigger_Delay_4_2WG</c> lines (<see cref="Triggers"/>; the Lower Prison trial's
+    /// <c>axiom_intro_end.arm</c>, #576; live 2026-10-31: they rise together, as a checkerboard).</summary>
+    public const double SpikeCheckerSeconds = 2.5;
 
     /// <summary>A chain's step: <see cref="SpikeCheckerSeconds"/> for a checkerboard, else <see cref="SpikeStepSeconds"/>.</summary>
     public static double SpikeStep(bool checker) => checker ? SpikeCheckerSeconds : SpikeStepSeconds;
@@ -1431,7 +1431,7 @@ static class LabyrinthTrials
 
     /// <summary>Positioned sizes (object_size − 1): the doors and the lever 4, the plaque and the portal 6, a smashable
     /// wall 6, a hidden switch 8.</summary>
-    public static int Size(string type) => type switch { Plaque or Portal or SmashableWall => 5, HiddenSwitch => 7, _ => 3 };
+    public static int Size(string type) => type switch { Plaque or Portal or SmashableWall => 5, HiddenSwitch => 7, IzaroFights.Gate => IzaroFights.GateSize, _ => 3 };
 
     public static bool Handles(string type) => Components.ContainsKey(Kind(type));
 
@@ -1527,10 +1527,18 @@ static class LabyrinthTrials
     /// they glow through; on the terrain they stood above it). Only the plates are sent theirs: the doors and levers,
     /// checked live on the terrain, keep standing on it. TriggerableBlockage (0x141e47880) is blocked with no
     /// sections while closed.</summary>
-    public static byte[] Blob(string type, string model, int x, int y, float angle, float scale, byte state, float? height = null)
+    public static byte[] Blob(string type, string model, int x, int y, float angle, float scale, byte state, float? height = null) =>
+        Blob(Components[Kind(type)], model, x, y, angle, scale, state, height,
+            blockage: Components[Kind(type)].Contains("TriggerableBlockage") && type != SmashableWall, blocked: Blocks(type, state));
+
+    /// <summary>The blob of an object with these components (in the client's order), as <see cref="Blob(string, string,
+    /// int, int, float, float, byte, float?)"/> writes a trial object's: <paramref name="blockage"/> gives Positioned a
+    /// dynamic position, so only the TriggerableBlockage (<paramref name="blocked"/>) closes its cells.</summary>
+    public static byte[] Blob(IReadOnlyList<string> components, string model, int x, int y, float angle, float scale, byte state,
+        float? height, bool blockage, bool blocked)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        foreach (string c in Components[Kind(type)])
+        foreach (string c in components)
             switch (c)
             {
                 // x, y, rotation, u16, flags0 (0x20: uniform scale, then the x / y stretches), flags1 0x02 (shown). A door
@@ -1542,7 +1550,7 @@ static class LabyrinthTrials
                 case "Positioned":
                     // A smashable wall keeps its static position: the client stamps its Hull (walking and projectiles) and
                     // its transition removes it (RemoveCollidability).
-                    bool scaled = scale != 1, blockage = Components[Kind(type)].Contains("TriggerableBlockage") && type != SmashableWall;
+                    bool scaled = scale != 1;
                     w.I32(x).I32(y).F32(angle).U16(0).U8((byte)((scaled ? 0x20 : 0) | (height is null ? 0 : 0x04))).U8((byte)(blockage ? 0x2a : 0x02));
                     if (scaled) w.F32(scale).F32(1).F32(1);
                     if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
@@ -1552,7 +1560,7 @@ static class LabyrinthTrials
                 case "Animated": if (model.EndsWith(".ao", StringComparison.OrdinalIgnoreCase)) w.U8(1).WStr32(model); else w.U8(0); break;
                 case "InteractionAction": w.U8(0); break;
                 case "Transitionable": w.U8(state); break;
-                case "TriggerableBlockage": if (Blocks(type, state)) w.U8(1).U8(0); else w.U8(0); break;
+                case "TriggerableBlockage": if (blocked) w.U8(1).U8(0); else w.U8(0); break;
                 case "MinimapIcon": w.U8(0); break;
                 case "Stats": w.Stats(null).U32(0).U32(0).U8(0); break;
                 case "Buffs": w.U16(0); break;

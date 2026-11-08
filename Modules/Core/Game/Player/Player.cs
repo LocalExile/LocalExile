@@ -573,9 +573,15 @@ static partial class Game
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
                 if (rf is not null) await EndRighteousFire(remote, stream, ciphers, conn, "death");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
+                await EndBladefallTrarthus(remote, stream, ciphers, conn, "death");
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
                 continue;
             }
             if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
+            // Bladefall of Trarthus stops when its mana is spent (RunResourceRecovery takes it).
+            if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
+                await EndBladefallTrarthus(remote, stream, ciphers, conn, "out of mana");
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // The character panel's Spell Suppression chance again (0x1b3 with only its stats) when a condition changed
             // it: full life lost or regained, a walk started or ended, an enemy hit 4 s ago.
@@ -785,7 +791,7 @@ static partial class Game
                         RecordHardcoreDeath(conn);
                     }
                     bool survived = CompleteResourceRecoveryLocked(conn, recoveryFrom, now, recoveryStats,
-                        mana + manaRate * seconds + leeched.Mana, manaBefore, manaCap, ref manaCarry);
+                        mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(conn, seconds), manaBefore, manaCap, ref manaCarry);
                     lifeAfter = conn.PlayerLife;
                     if (!survived)
                     {

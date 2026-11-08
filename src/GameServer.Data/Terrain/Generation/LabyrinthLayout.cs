@@ -69,6 +69,13 @@ public sealed class LabyrinthLayout
     /// <summary>The layout the client builds for this seed and difficulty (1 Normal … 4 Eternal).</summary>
     public static LabyrinthLayout Build(Func<string, byte[]?> read, uint seed, int difficulty) => new(read, seed, difficulty);
 
+    /// <summary>The official server's pick of a node's area among the <paramref name="count"/> of its LabyrinthAreas row
+    /// for the tier: a TinyMT seeded from (difficulty + 4 × the node's LabyrinthSectionLayout row) × 0x13d + seed, as the
+    /// client's boss override pick (<see cref="LabyrinthPass"/>). Not in the client; it matched every room with a choice
+    /// in poelab.com's layouts of six days (the day's seed being the day's number since 1970).</summary>
+    public int AreaPick(Node node, int count) =>
+        (int)new TinyMt((uint)((Difficulty + 4 * node.Row) * 0x13d + Seed)).Pick((uint)count);
+
     /// <summary><c>0x1424e98a0</c>: one LabyrinthSection per slot. From row 1 on, the rows whose slot range (+0x20, +0x24)
     /// holds slot + 1 and whose tier range (+0x18, +0x1c) holds the tier, without one already picked (no exclusion
     /// group, +8) or one of a picked row's group; a TinyMT seeded from seed + 0x11 + (tier + 4 × slot) × 0x13d picks.</summary>

@@ -151,7 +151,7 @@ static partial class Game
         }
         // A Labyrinth run's ways (the plaza's way in, its rooms' exits): each room its own instance (LabyrinthDay.Transfer).
         var transfer = LabyrinthDay.Transfer(CharacterName(conn), conn.Layout.Id, conn.Seed, transition.SourceType, dest,
-            AreaTransitionCatalog.IdOf(dest)) ?? new PendingTransfer(dest, 0, false);
+            AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false);
         await ChangeArea(remote, stream, ciphers, conn, transfer, use.ToString());
     }
 

@@ -186,10 +186,13 @@ objects with no model whose `.ot` (BaseEvents `server_only`, `no_serialise`) has
 Where a room has them the Gateway uses them (`LabyrinthTrials.TriggeredSpikes`): a trigger fires the traps joined to
 its nearest trap, one step a tile from it; two triggers on the same traps share them as a checkerboard of the traps'
 own tiles (live 2026-11-01, the original: a diagonal line of four rises from its `Trigger_CascadeFast` end).
-The Normal trials' rooms have none, so their pattern is fitted by eye against the original (live 2026-10-31):
+The Normal trials' rooms reach the Gateway without them (`room-points.json` has no trigger lines), so their pattern is
+fitted by eye against the original (live 2026-10-31):
 - a ring (every trap side by side with two others) cascades from its trap nearest the trial's lever, straight towards
   its trap nearest the trial's doors and on round, 450 ms a trap, starting again at once;
-- any other chain fires as a checkerboard: the tiles of the start's colour, then the others 2 s later, every 4 s.
+- any other chain fires as a checkerboard: the tiles of the start's colour, then the others 2.5 s later, every 5 s.
+  These are the timers of the `Trigger_Delay_4_0WG` / `_4_2WG` lines the Lower Prison plaque room
+  (`Prison/Rooms/Unique/axiom_intro_end.arm`) places at (46, 46) and (69, 46), on two of its traps (#576).
 
 **What it does.** The cascade traps do not answer a step (the spikes that do are another trap, in Izaro's rooms).
 - A player on the tile while the spikes are up is hit once: `LbRetractableTrap`'s stat set (GrantedEffectStatSets
@@ -607,10 +610,38 @@ In a trial's area the first matching row gives:
 The Cruel and Merciless rows go on with `LabyrinthComplete1` / `LabyrinthComplete2` and the tiers' trials.
 The Gateway sets `LabyrinthQuestReceived` (`Quests.LabyrinthQuestReceived`) when the character enters an area with a
 trial, before the player object is sent; which event sets it in the real game is not known.
-`LabyrinthAccess` (every Labyrinth area's `EndQuestFlags`) and `LabyrinthComplete1`–`3` come with the runs, not built yet.
+`LabyrinthAccess` comes with the plaza's waypoint; Izaro's last trial sets `LabyrinthKilledIzaro` and the tier's
+`LabyrinthComplete` flag (below).
+
+## Izaro's arenas
+
+Each section of the day's layout ends in an Aspirant's Trial: the node with `SectionEnd` (slot + 1; the Normal layout
+has three). Its area (`N_Labyrinth_boss_K`, the last section's `…_end`) is the corridor (`boss_entry_*`, from the
+LabyrinthNodeOverrides) and its "secret" node, which the node's first secret turns into the day's mechanic room
+(LabyrinthSecrets `Id2`: `boss_statues`, `boss_gargoyles`, …; the "…2" rows add the mechanic again later and have no
+room); the last area's arena is `labyrinth_final_boss`, with the Ascendancy Chamber behind it.
+The server places, from the tiles: the corridor's gate `LabyrinthIzaroDoor` in front of the way into the arena
+(`LabyrinthIzaroArenaTransition`), `Elevator_Izaro` in the arena's middle, two `LabyrinthIzaroArenaDoor` at its ways in
+and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, in the last arena, the ten
+`IzaroChestMarker`.
+
+- The arena doors' states are the other way round from the gate's: LargeDoor.ao's clips are 0 `closed`, 1 `open`;
+  the arena door's state 1 pauses `closed` at its start (open), 2 plays it (shut), back to 1 plays `open`; the gate's
+  1 pauses `open` at its start (shut), 2 opens it.
+- The elevator: 1 lowered, 2 raising (10.666 s), 3 raised, 4 lowering (3.333 s), 5 lowered. Izaro (LabyrinthBoss.ot,
+  5 states) is made in 5 (down, untargetable); his Emerge is `lift_raise_*` (10.733 s), state 2 makes him targetable,
+  4 untargetable; his Hide `lift_lower_*` (rig clips 40–42) is what the server's `on_transition_to_4` plays.
+- The original (live, the user): he rises on the elevator as the player comes in; his life bar is split in thirds
+  carried from trial to trial (2/3, 1/3, death); at a trial's end he speaks, walks to the elevator's middle, stands and
+  goes down on it, and the doors open as he goes. His weapon is the day's and the tier's (wiki); the client does not
+  have the pick. A move order sent during his swing was lost on the client.
+- His lines are NPCTextAudio rows of NPCs 147 (S→C 0x1c7, [17](../protocol/17-npcs.md)): `Izaro<n>_Prefight` as the
+  gate opens, `IzaroStart<mechanic>` as he rises, `IzaroFlee1`–`6` (trial 1) and `7`–`8` (trial 2), `IzaroDeath1`–`6`.
+  The plaza door's line (`IzaroSpeechOpenDoor*`) the client says itself.
 
 ## Not built yet
 
-- The step-triggered spikes of Izaro's rooms, and the hot plates' Cruel and Merciless rooms.
+- The step-triggered spikes of Izaro's rooms, his arenas' mechanics and the Goddess of Justice, and the hot plates'
+  Cruel and Merciless rooms.
 - The Labyrinth's `Door_Counter` puzzles and its rooms' monsters (the ElegantHouse rooms' Immolators among them).
 - The Eternal trials' plaques drop an Offering to the Goddess.
