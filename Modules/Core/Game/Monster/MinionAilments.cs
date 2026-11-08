@@ -12,6 +12,16 @@ static partial class Game
         uint id, SpawnedMonster target, bool critical, double now)
     {
         if (!MinionAilmentProfiles.TryGetValue(ability, out var profile)) return;
+        double factor = DoedreSewers.MinionDamageFactor(conn);
+        if (factor != 1)
+        {
+            MonsterIgnites.Settings Scale(MonsterIgnites.Settings s) => s with
+            { Min = s.Min * factor, Max = s.Max * factor, CriticalMin = s.CriticalMin * factor, CriticalMax = s.CriticalMax * factor };
+            var poison = profile.Poison;
+            profile = profile with { Ignite = Scale(profile.Ignite), Bleed = Scale(profile.Bleed),
+                Poison = poison with { Min = poison.Min * factor, Max = poison.Max * factor,
+                    CriticalMin = poison.CriticalMin * factor, CriticalMax = poison.CriticalMax * factor } };
+        }
         var packets = new List<byte[]>();
         if (target.Ignites.TryApply(profile.Ignite with { Seconds = profile.Ignite.Seconds * MonsterIgnites.SelfDuration(n => target.Effects[n]) }, critical, now,
             target.Effects["avoid_ignite_%"],

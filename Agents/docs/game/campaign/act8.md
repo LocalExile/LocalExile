@@ -79,9 +79,9 @@ WorldAreas boss would need; the server only uses points named `mapboss`.
 ### Objects, NPCs and bosses
 | What | Type / MV / item | Where it comes from | Server today | Needed |
 |---|---|---|---|---|
-| Doedre the Vile | MV 5536 `Metadata/Monsters/Doedre/DoedreSewers` | WorldAreas Bosses; `mapboss` of `doedre_boss_room_1.arm` | placed (spawnable, `mapboss`) | kill/seen flags |
-| Cauldron valve | `Metadata/Monsters/Doedre/DoedreSewer/DoedreCauldronValve` (Positioned, Animated, BaseEvents, InteractionAction, Transitionable) | room line, room (115, 101) | not created | optional (fight start in the real game; the driver kills directly) |
-| SinDoedre | `Metadata/NPC/Act8/SinDoedre` (NPCs row 238) | spawned at the kill (not in any room) | not created | optional out-of-town NPC (no reward) |
+| Doedre the Vile | MV 5536 `Metadata/Monsters/Doedre/DoedreSewers` | WorldAreas Bosses; `mapboss` of `doedre_boss_room_1.arm` | valve-controlled encounter | kill/seen flags |
+| Cauldron valve | `Metadata/Monsters/Doedre/DoedreSewer/DoedreCauldronValve` (Positioned, Animated, BaseEvents, InteractionAction, Transitionable) | room line, room (115, 101) | starts the fight and cycles effluent | required to start; subsequent turns clear stacks |
+| SinDoedre | `Metadata/NPC/Act8/SinDoedre` (NPCs row 238) | spawned at the kill (not in any room) | appears after the kill | optional out-of-town NPC (no reward) |
 | Toxic sewage | `Metadata/QuestObjects/Act8/ToxicDoodad` / `NonToxicDoodad` | room lines; `client_only`, Transitionable `per_player_quest_state_flag = a8q1-KilledBoss` | client-side | nothing (the flag swaps them) |
 
 ### Gates
@@ -114,8 +114,21 @@ the Sewers · 4 `QuestReceived`+`Visited-8_2` · 3 `a8q1-SeenBoss` → Kill Doed
 
 ### Risks
 - Offer 54's rare rings / magic gloves cannot be built: the reward step fails until rare/magic item construction lands.
-- Doedre's fight in the real game starts at the valve; placing her at `mapboss` directly skips that (acceptable).
+- Official AI decision weights/cooldowns and boss-side colour bonuses are not shipped in the client;
+  encounter tuning remains provisional.
 - `a8q1-SeenBoss` / `a8q1-KilledBoss` have no client-side setter: both are server script.
+
+### Native cauldron details
+
+The valve's Transitionable states are 1 spinning/disabled, 2 idle/clickable, 3 paused/disabled.
+The cauldron and face door come from tile records, unlike the room-line valve.
+Their virtual models and heights are needed for correct placement.
+The valve's room-line Z is negative (up); falling back to terrain height puts its wheel below the floor.
+Liquid types use `empty` (6333 ms), `fill` (3000 ms), `loop`;
+their Animated component index differs from PermanentServerEffect.
+Doedre's `teleport_cauldron` is 6333 ms, `teleport` contacts at 1533/2500 ms,
+wand release at 466/1166 ms and bloodbomb at 1000/2000 ms.
+BuffDefinitions 832/833/834 carry stack counts (max 10); they are not IsRecovery and carry no stat-value tail in 0x1c1.
 
 ## a8q2 "Lunar Eclipse" and a8q3 "Solar Eclipse" (Quest rows 87 and 88, main)
 
