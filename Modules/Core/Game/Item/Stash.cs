@@ -24,6 +24,8 @@ static partial class Game
         "1_2_town" => (new(192, 283, 0), new(182, 283, 0)),
         "1_4_town" or "2_9_town" => (new(214, 512, 310 * MathF.PI / 180), new(213, 485, 210 * MathF.PI / 180)),
         "1_5_town" => (new(337, 336, 282 * MathF.PI / 180), new(335, 347, 282 * MathF.PI / 180)),
+        "2_7_town" => (new(598, 628, 0), new(598, 588, MathF.PI)),
+        "2_8_town" => (new(296, 423, 31 * MathF.PI / 180), new(287, 418, 31 * MathF.PI / 180)),
         _ => null,
     };
 

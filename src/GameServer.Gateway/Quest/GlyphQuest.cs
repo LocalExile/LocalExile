@@ -121,7 +121,9 @@ static class GlyphQuest
 
     /// <summary>A nest's 0x2bb blob: Positioned (the record's height), Animated (the tile's virtual model), Chest (opened
     /// bit 0, 0x141e16f10), Stats, ObjectMagicProperties, InteractionAction, MinimapIcon (u8 flags), tasks.</summary>
-    public static byte[] NestBlob(Placement p, bool opened)
+    public static byte[] NestBlob(Placement p, bool opened) => NestBlob(p, opened, false);
+
+    public static byte[] NestBlob(Placement p, bool opened, bool hideMinimapIcon)
     {
         var w = new BlobWriter().U8(0).U8(0);
         Positioned(w, p.X, p.Y, p.Rotation, p.Z);
@@ -129,7 +131,7 @@ static class GlyphQuest
         w.U8((byte)(opened ? 1 : 0)).U8(0).U8(0);
         w.U8(0).U32(0).U32(0).U8(0);
         w.U16(0).U8(0).U8(0);
-        return w.U8(0).U8(0).U8(0).ToArray();
+        return w.U8(0).U8((byte)(hideMinimapIcon ? 0x06 : 0)).U8(0).ToArray();
     }
 
     /// <summary>The Glyph Wall's 0x2bb blob: Positioned, Animated, Transitionable (u8 state), MinimapIcon, InteractionAction,
