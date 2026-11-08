@@ -846,10 +846,10 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
             return mod.Lifetime.Own(ChatRoutes.Use(host, port));
         }
 
-        public IDisposable UseExchangeRates(string url, ExchangeRatesLeague league)
+        public IDisposable UseExchangeRates(string url, ExchangeOptions options)
         {
             if (mod.Unloaded) throw new InvalidOperationException($"mod {mod.Manifest.Id} is unloaded");
-            return mod.Lifetime.Own(ExchangeRateFeed.Use(url, league));
+            return mod.Lifetime.Own(ExchangeRateFeed.Use(url, options));
         }
 
         string ValuesPath => Path.Combine(host.SettingsFolder, mod.Manifest.Id + ".json");

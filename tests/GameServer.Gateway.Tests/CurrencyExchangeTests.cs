@@ -85,16 +85,32 @@ public sealed class CurrencyExchangeTests
             State = InstanceCurrencyExchange.OrderState.Listed, LastHour = 495 * 3600 };
         var book = new ExchangeBook { Orders = [order] };
 
-        Assert.Equal([order], book.Settle(market));
+        Assert.Equal([order], book.Settle(market, Now));
         Assert.Equal(InstanceCurrencyExchange.OrderState.Listed, order.State);
         Assert.Equal(Now, order.LastHour);
         // Hours 497 and 498, down the steps a card's worth each from 180 chaos a card (200 less the 10% of a thin item), as far as the order's 150 allows: three
         // of them, to 162. Each hour that is 600 chaos, for 200/180 + 200/172 + 200/162 = 3.5 cards.
         Assert.Equal((uint)(2 * 600), order.ClaimWant);
         Assert.Equal(10u - 8, order.Remaining);
-        Assert.Empty(book.Settle(market)); // the same hour again changes nothing
+        Assert.Empty(book.Settle(market, Now)); // the same hour again changes nothing
         Assert.Equal(6, market.Levels(Card, Chaos).Count);
         Assert.Empty(market.Levels(Chaos, Card, used: new() { [Card] = 1e6 })); // nothing left of the hour: no stock until the next
+
+        // Between the market's 111 chaos and the other side's 90, an order offering 100 waits, and then is taken at its own price.
+        var patient = new ExchangeOrder { Id = 2, Want = Card, Have = Chaos, WantCount = 1, HaveCount = 100, Remaining = 100, RatioWant = 1, RatioHave = 100,
+            State = InstanceCurrencyExchange.OrderState.Listed, LastHour = Now, PlacedAt = Now };
+        var waiting = new ExchangeBook { Orders = [patient], UsedHour = Now };
+        Assert.False(waiting.SettleDue(market, Now));
+        Assert.Empty(waiting.Settle(market, Now));
+        Assert.True(waiting.SettleDue(market, Now + 12 * 3600));
+        Assert.Equal([patient], waiting.Settle(market, Now + 12 * 3600));
+        Assert.Equal(InstanceCurrencyExchange.OrderState.Completed, patient.State);
+        Assert.Equal((1u, 0u), (patient.ClaimWant, patient.ClaimHave));
+        var low = new ExchangeOrder { Id = 3, Want = Card, Have = Chaos, WantCount = 1, HaveCount = 80, Remaining = 80, RatioWant = 1, RatioHave = 80,
+            State = InstanceCurrencyExchange.OrderState.Listed, LastHour = Now, PlacedAt = Now };
+        Assert.Empty(new ExchangeBook { Orders = [low], UsedHour = Now }.Settle(market, Now + 999 * 3600)); // below the other side: only the price moving fills it
+        Assert.Null(new ExchangeMarket(new(Now, "L", [], Hours: 100), new() { [ExchangeRates.Chaos] = new(1, 1e9), ["card"] = card },
+            hash => hash == Chaos ? ExchangeRates.Chaos : "card", 1, .1, patientRange: 0).PatientWait(Card, Chaos, 1, 100, 2));
 
         // A trade's spread is the thinner item's, and a busy pair's is tight.
         Assert.Equal(.01, ExchangeMarket.SpreadFor(100_000));

@@ -10,8 +10,16 @@ namespace GameServer.Core.Trade;
 /// <param name="idOf">An item's <c>BaseItemTypes</c> id by its type hash.</param>
 /// <param name="spreadScale">Multiplies <see cref="SpreadFor"/>.</param>
 /// <param name="volumeShare">The share of an item's hourly volume an hour can trade; 0 for no limit.</param>
-public sealed class ExchangeMarket(ExchangeRates rates, Dictionary<string, ExchangePrice> prices, Func<uint, string?> idOf, double spreadScale, double volumeShare)
+/// <param name="patientRange">How much of the way from the market's price to the other side's a patient order fills: 1 all of it, as a live market does, which
+/// lets a player earn the spread; about 0.5 only up to the price itself, which does not; 0 none.</param>
+/// <param name="patientSpeed">Divides how long a patient order waits.</param>
+/// <param name="catchUpHours">How many missed hours an order catches up on.</param>
+public sealed class ExchangeMarket(ExchangeRates rates, Dictionary<string, ExchangePrice> prices, Func<uint, string?> idOf, double spreadScale, double volumeShare,
+    double patientRange = 1, double patientSpeed = 1, int catchUpHours = 168)
 {
+    /// <summary>How many missed hours an order catches up on; 0 is the current hour alone.</summary>
+    public int CatchUpHours => catchUpHours;
+
     /// <summary>What the window shows as stock when nothing limits it.</summary>
     public const ulong Unlimited = 1_000_000;
 
@@ -88,6 +96,24 @@ public sealed class ExchangeMarket(ExchangeRates rates, Dictionary<string, Excha
         return levels;
     }
 
+    /// <summary>How long someone takes to come to an order at the far end of the spread, by how much of the thinner item trades. A judgement: the digests do not
+    /// say how long orders wait.</summary>
+    public static double PatientHoursFor(double weekVolume) => weekVolume >= 100_000 ? 5.0 / 60 : weekVolume >= 10_000 ? .5 : weekVolume >= 1_000 ? 2 : 12;
+
+    /// <summary>The seconds until an order asking more than the market gives, but no more than the other side asks, is taken as it stands: nothing at the market's
+    /// price, the most at the other side's. Null for an order outside that, which waits for the price to move.</summary>
+    public double? PatientWait(uint want, uint have, uint wantCount, uint haveCount, uint seed)
+    {
+        if (patientRange <= 0 || Trade(want, have) is not var (give, get) || Trade(have, want) is not var (otherGive, otherGet)) return null;
+        if (PriceOf(want) is not { } w || PriceOf(have) is not { } h) return null;
+        double market = (double)give / get, other = (double)otherGet / otherGive, asked = (double)wantCount / haveCount;
+        if (asked <= market || asked > other) return null;
+        double position = (asked - market) / (other - market);
+        if (position > patientRange) return null;
+        double jitter = .7 + new Random((int)(seed & int.MaxValue)).NextDouble() * .6;
+        return PatientHoursFor(Math.Min(w.Volume, h.Volume)) * 3600 * position * jitter / Math.Max(patientSpeed, .01);
+    }
+
     /// <summary>Takes from an hour's room what an order bought, in chaos.</summary>
     internal void Take(uint want, uint have, double chaos, Dictionary<uint, double> used)
     {
@@ -122,6 +148,9 @@ public sealed class ExchangeOrder
     /// <summary>The last hour it was offered to the market, unix seconds.</summary>
     public long LastHour { get; set; }
 
+    /// <summary>When it was placed, unix seconds.</summary>
+    public long PlacedAt { get; set; }
+
     /// <summary>Buys down an hour's steps, best first, as far as the order's ratio allows: "market orders can only ever trade at or above your chosen ratio".
     /// True when anything filled.</summary>
     internal bool Advance(ExchangeMarket market, long hour, Dictionary<uint, double> used)
@@ -138,6 +167,30 @@ public sealed class ExchangeOrder
         }
         if (fill <= 0) return false;
         market.Take(Want, Have, fill * chaos, used);
+        Record(fill);
+        return true;
+    }
+
+    /// <summary>Whether someone has come to this order by now, and the hour's market has room for it.</summary>
+    internal bool PatientDue(ExchangeMarket market, long now, Dictionary<uint, double> used) =>
+        State == InstanceCurrencyExchange.OrderState.Listed && PlacedAt > 0 && market.PatientWait(Want, Have, WantCount, HaveCount, Id) is { } wait && now - PlacedAt >= wait
+        && market.Levels(Want, Have, used: used).Count > 0;
+
+    /// <summary>Fills what the hour has room for at the order's own price: it is what the other side came to.</summary>
+    internal bool AdvancePatient(ExchangeMarket market, long now, Dictionary<uint, double> used)
+    {
+        if (!PatientDue(market, now, used)) return false;
+        ulong room = market.Levels(Want, Have, used: used).Aggregate(0UL, (sum, level) => sum + level.Stock);
+        long fill = (long)Math.Min(room, WantCount - Bought);
+        if (fill <= 0) return false;
+        Paid += (double)fill * HaveCount / WantCount;
+        market.Take(Want, Have, fill * market.ChaosOf(Want, market.Hour), used);
+        Record(fill);
+        return true;
+    }
+
+    void Record(long fill)
+    {
         // A whole item is held back as soon as a fraction of it is spent; what the order did not spend comes back when it ends.
         Remaining = HaveCount - (uint)Math.Min(HaveCount, (long)Math.Ceiling(Paid - 1e-9));
         Bought += (uint)fill;
@@ -148,16 +201,12 @@ public sealed class ExchangeOrder
             Remaining = 0;
             State = InstanceCurrencyExchange.OrderState.Completed;
         }
-        return true;
     }
 }
 
 /// <summary>A player's orders in a league, and what they have used of this hour's market.</summary>
 public sealed class ExchangeBook
 {
-    /// <summary>How far back an order catches up: the history the rates have.</summary>
-    const int MaxCatchUpHours = 168;
-
     public uint NextId { get; set; } = 1;
     public List<ExchangeOrder> Orders { get; set; } = [];
     public long UsedHour { get; set; }
@@ -172,16 +221,24 @@ public sealed class ExchangeBook
     /// <summary>Whether an order has anything waiting to be claimed.</summary>
     public bool HasClaims => Orders.Exists(o => o.State != InstanceCurrencyExchange.OrderState.Listed && o.ClaimWant + o.ClaimHave > 0);
 
+    /// <summary>Whether <see cref="Settle"/> has anything to do: a new hour, or a patient order someone has come to.</summary>
+    public bool SettleDue(ExchangeMarket market, long now) => Orders.Exists(o => o.State == InstanceCurrencyExchange.OrderState.Listed
+        && (o.LastHour < market.Hour || o.PlacedAt == 0 || o.PatientDue(market, now, UsedAt(market.Hour) ?? [])));
+
     /// <summary>Runs every hour since each listed order last saw the market, as if the player had been there: only hours after it was placed, so an
-    /// order cannot be placed at a peak already past. The orders that filled anything.</summary>
-    public List<ExchangeOrder> Settle(ExchangeMarket market)
+    /// order cannot be placed at a peak already past. Then the patient orders someone has come to by <paramref name="now"/> (unix seconds). The orders that
+    /// filled anything.</summary>
+    public List<ExchangeOrder> Settle(ExchangeMarket market, long now)
     {
         var listed = Orders.Where(o => o.State == InstanceCurrencyExchange.OrderState.Listed).ToList();
         var changed = new List<ExchangeOrder>();
         if (listed.Count == 0) return changed;
         foreach (var order in listed)
+        {
             if (order.LastHour == 0) order.LastHour = market.Hour - 3600;
-        long first = Math.Max(listed.Min(o => o.LastHour) + 3600, market.Hour - (MaxCatchUpHours - 1) * 3600L);
+            if (order.PlacedAt == 0) order.PlacedAt = now;
+        }
+        long first = Math.Max(listed.Min(o => o.LastHour) + 3600, market.Hour - Math.Max(market.CatchUpHours - 1, 0) * 3600L);
         for (long hour = first; hour <= market.Hour; hour += 3600)
         {
             if (UsedHour != hour)
@@ -195,6 +252,13 @@ public sealed class ExchangeBook
                 order.LastHour = hour;
             }
         }
+        if (UsedHour != market.Hour)
+        {
+            UsedHour = market.Hour;
+            Used.Clear();
+        }
+        foreach (var order in listed)
+            if (order.AdvancePatient(market, now, Used) && !changed.Contains(order)) changed.Add(order);
         return changed;
     }
 }

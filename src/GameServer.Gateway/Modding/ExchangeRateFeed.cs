@@ -16,26 +16,25 @@ static class ExchangeRateFeed
         public void Dispose() => Interlocked.Exchange(ref _undo, null)?.Invoke();
     }
 
-    static readonly List<object> Asked = [];
+    static readonly List<GameServer.Modding.ExchangeOptions> Asked = [];
+    static readonly GameServer.Modding.ExchangeOptions Defaults = new();
 
-    /// <summary>The official league whose prices the mod chose; the last one asked wins, so a reloading mod's new choice stands. With none,
-    /// the current challenge league's.</summary>
-    public static GameServer.Modding.ExchangeRatesLeague League
+    /// <summary>How the exchange trades, as the mod chose; the last one asked wins, so a reloading mod's new choice stands.</summary>
+    public static GameServer.Modding.ExchangeOptions Options
     {
-        get { lock (Asked) return Asked.Count == 0 ? default : (GameServer.Modding.ExchangeRatesLeague)Asked[^1]; }
+        get { lock (Asked) return Asked.Count == 0 ? Defaults : Asked[^1]; }
     }
 
-    public static IDisposable Use(string url, GameServer.Modding.ExchangeRatesLeague league)
+    public static IDisposable Use(string url, GameServer.Modding.ExchangeOptions options)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var address) || address.Scheme is not ("http" or "https"))
             throw new ArgumentException($"not an http address: {url}");
-        object ask = league;
-        lock (Asked) Asked.Add(ask);
+        lock (Asked) Asked.Add(options);
         var stop = new CancellationTokenSource();
         _ = KeepUpdated(address, stop.Token);
         return new Undo(() =>
         {
-            lock (Asked) Asked.RemoveAll(a => ReferenceEquals(a, ask));
+            lock (Asked) Asked.RemoveAll(a => ReferenceEquals(a, options));
             stop.Cancel();
             stop.Dispose();
         });

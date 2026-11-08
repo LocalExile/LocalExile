@@ -69,5 +69,8 @@ the market within a day when any trade touching the price counted, because stray
 An hour offers about 10% of the item's average hourly volume on 6 steps, each worse than the last and each with room for at least one of the dearer item, and an order buys down them as far as its ratio allows. Every hour after an order was placed counts, whether or not the player was there: the file
 has each hour's price, and the server replays the hours it missed when the player returns.
 
-Nothing in the Gateway contacts GGG: `src/GameServer.Rates` runs elsewhere, and a mod names it with `UseExchangeRates`, with the official league to trade at:
+An order between the two sides' prices fills at its own price after a wait, as someone comes to it: none at the market's price, up to 5 minutes for a busy item at the other side's, 12 hours for
+a rare one. A player can earn the spread that way, as in a live market; gold pays for it (a round of a divine, about 9 chaos, costs some 7000 gold).
+
+Nothing in the Gateway contacts GGG: `src/GameServer.Rates` runs elsewhere, and a mod names it with `UseExchangeRates`, with how to trade (`ExchangeOptions`), among it the official league:
 Standard or the current challenge league, the one with the most priced items among the others. Hardcore leagues have too few markets to price on their own.

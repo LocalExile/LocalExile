@@ -63,8 +63,8 @@ public interface IModContext
     IDisposable UseChatServer(string host, int port);
 
     /// <summary>The Gateway keeps the Currency Exchange's rates up to date from this rates service until the handle is disposed or the mod
-    /// unloads, and every league trades at this official league's prices; the mod itself contacts nothing.</summary>
-    IDisposable UseExchangeRates(string url, ExchangeRatesLeague league);
+    /// unloads, and the exchange trades by these options; the mod itself contacts nothing.</summary>
+    IDisposable UseExchangeRates(string url, ExchangeOptions options);
 
     /// <summary>The settings its <c>settings.json</c> declares, with the user's values (<c>data/mods/&lt;id&gt;.json</c>, for a
     /// module <c>data/modules/&lt;id&gt;.json</c>) over the defaults, read into <typeparamref name="T"/> by name (case does not
@@ -87,6 +87,21 @@ public enum ExchangeRatesLeague
     /// <summary>Standard.</summary>
     Standard,
 }
+
+/// <summary>How the Currency Exchange trades; these are its values without a mod.</summary>
+/// <param name="League">The official league whose prices every league here trades at.</param>
+/// <param name="SpreadScale">Multiplies how far from the price Faustus trades: 1% for the busiest items, up to 10% for the rarest.</param>
+/// <param name="VolumeShare">How much of an item's official hourly trade an hour offers; 0: no limit.</param>
+/// <param name="PatientRange">How much of the way from the market's price to the other side's an order fills with time; 1 as a live market, about 0.5 no profit
+/// from the spread, 0 none.</param>
+/// <param name="PatientSpeed">Divides how long such an order waits.</param>
+/// <param name="OrderSlots">How many orders a player can have.</param>
+/// <param name="CatchUpHours">How many hours away an order catches up on; 0: only the current hour.</param>
+/// <param name="GoldFee">Multiplies the gold an order pays.</param>
+/// <param name="MaxRateAgeDays">Older rates are not traded at.</param>
+/// <param name="FaustusSpeaks">He speaks when an order is placed or filled.</param>
+public sealed record ExchangeOptions(ExchangeRatesLeague League = ExchangeRatesLeague.Current, double SpreadScale = 1, double VolumeShare = .1, double PatientRange = 1,
+    double PatientSpeed = 1, int OrderSlots = 10, int CatchUpHours = 168, double GoldFee = 1, double MaxRateAgeDays = 7, bool FaustusSpeaks = true);
 
 /// <summary>What a module (or a league's own code) can do: everything a mod can, and overhauls. It runs only for the players of
 /// leagues that list it. The hooks of the league run first, then its modules', then mods'.</summary>

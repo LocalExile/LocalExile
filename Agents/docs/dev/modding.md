@@ -158,7 +158,7 @@ Each `IModContext` call returns a handle; disposing it removes that hook, and un
 | `ModifyExperience(modify)` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
 | `ModifyStats(modify)` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like `/god`'s: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
 | `UseChatServer(host, port)` | until it unloads: global, trade and whisper chat go through this [chat server](../protocol/10-chat-and-commands.md) instead of the local one | |
-| `UseExchangeRates(url, league)` | until it unloads: the Gateway keeps the [Currency Exchange](../protocol/29-currency-exchange.md)'s rates up to date from this rates service, at Standard's or the current challenge league's prices | |
+| `UseExchangeRates(url, options)` | until it unloads: the Gateway keeps the [Currency Exchange](../protocol/29-currency-exchange.md)'s rates up to date from this rates service, and it trades by these options | |
 
 A player (`IPlayer`) is one connection: character, account, league, its modes and the league it plays by, level, area id and seed, position,
 `Tell` (chat lines) and `Send` (a raw S→C message). An area change is a new connection.

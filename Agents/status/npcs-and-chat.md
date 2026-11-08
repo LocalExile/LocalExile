@@ -71,7 +71,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Faustus's Currency Exchange at official prices works through `/exchange` (orders, claims, cancelling; live 2026-11-08).
-  Spreads by volume, fills limited per hour and orders filling while away are written and not yet played.
+  Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written and not yet played.
   Faustus stands in every hideout; his dialogue option there is not yet played.
   See [29](../docs/protocol/29-currency-exchange.md).
 - Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.

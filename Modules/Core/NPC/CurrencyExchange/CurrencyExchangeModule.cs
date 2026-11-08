@@ -14,7 +14,8 @@ public sealed class CurrencyExchangeModule : IModule
     const string SaveKey = "currency-exchange", Window = "currency-exchange", RatesFile = ExchangeRateFeed.File;
     const double SettleEverySeconds = 30;
 
-    sealed record Choices(double SpreadScale, double VolumeShare, int OrderSlots, double MaxRateAgeDays);
+    static ExchangeOptions Options => ExchangeRateFeed.Options;
+    static long Now => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
     /// <summary>Starts full: the first tick in an area settles, so what filled while the player was away shows as they arrive.</summary>
     sealed class Timer { public double Seconds = SettleEverySeconds; public bool Arrived; }
@@ -23,14 +24,12 @@ public sealed class CurrencyExchangeModule : IModule
     readonly object _ratesLock = new();
     ExchangeRates? _rates;
     DateTime _ratesWritten;
-    Choices _choices = new(1, 0.1, 10, 7);
     IModuleContext _module = null!;
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
         _module = module;
-        _choices = module.Settings<Choices>();
         module.OnNpcOption(async talk =>
         {
             if (!talk.Script.Contains("CurrencyExchangeWindow", StringComparison.Ordinal)) return false;
@@ -97,10 +96,12 @@ public sealed class CurrencyExchangeModule : IModule
     ExchangeMarket? MarketOf(IPlayer player)
     {
         if (Rates() is not { } rates) return null;
-        if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - rates.SourceHour > _choices.MaxRateAgeDays * 86400) return null;
+        var options = Options;
+        if (Now - rates.SourceHour > options.MaxRateAgeDays * 86400) return null;
         var items = ItemsOf(player);
-        return rates.Prices(ExchangeRateFeed.League == ExchangeRatesLeague.Standard) is { } prices
-            ? new(rates, prices, hash => items.ByHash.TryGetValue(hash, out var row) ? row.Id : null, _choices.SpreadScale, _choices.VolumeShare) : null;
+        return rates.Prices(options.League == ExchangeRatesLeague.Standard) is { } prices
+            ? new(rates, prices, hash => items.ByHash.TryGetValue(hash, out var row) ? row.Id : null, options.SpreadScale, options.VolumeShare,
+                options.PatientRange, options.PatientSpeed, options.CatchUpHours) : null;
     }
 
     ExchangeBook BookOf(IPlayer player) => ExchangeBook.Parse(_module.World(player).AccountData.Get(SaveKey));
@@ -126,12 +127,16 @@ public sealed class CurrencyExchangeModule : IModule
     {
         var market = MarketOf(player);
         var orders = BookOf(player).Orders;
-        return player.Send(Wire.Orders([.. orders.Select(o => ToWire(o, player.League, market))], (byte)_choices.OrderSlots),
+        return player.Send(Wire.Orders([.. orders.Select(o => ToWire(o, player.League, market))], (byte)Math.Clamp(Options.OrderSlots, 1, 255)),
             $"0x02e9 {orders.Count} Currency Exchange orders");
     }
 
+    /// <summary>The table's fee by the option: gold per item, or for a cheap item items per gold, which a dearer fee makes fewer.</summary>
+    static uint FeeOf(ExchangeItems.Row row) =>
+        (uint)Math.Max(1, Math.Round(row.ItemsPerGold ? row.Fee / Math.Max(Options.GoldFee, .01) : row.Fee * Options.GoldFee));
+
     Task SendFee(IPlayer player, uint item) => ItemsOf(player).ByHash.TryGetValue(item, out var row)
-        ? player.Send(Wire.Fee(item, row.Fee, row.ItemsPerGold), $"0x02f7 gold fee of {row.Id}: {row.Fee}") : Task.CompletedTask;
+        ? player.Send(Wire.Fee(item, FeeOf(row), row.ItemsPerGold), $"0x02f7 gold fee of {row.Id}: {FeeOf(row)}") : Task.CompletedTask;
 
     Task SendPartners(IPlayer player, uint item)
     {
@@ -161,8 +166,8 @@ public sealed class CurrencyExchangeModule : IModule
         uint divisor = (uint)BigInteger.GreatestCommonDivisor(request.WantCount, request.HaveCount);
         uint ratioWant = request.WantCount / divisor, ratioHave = request.HaveCount / divisor;
         if (ratioWant > ExchangeRatio.Max || ratioHave > ExchangeRatio.Max) return;
-        if (BookOf(player).Orders.Count >= _choices.OrderSlots) return;
-        ulong gold = want.ItemsPerGold ? (request.WantCount + (ulong)want.Fee - 1) / Math.Max(want.Fee, 1) : request.WantCount * (ulong)want.Fee;
+        if (BookOf(player).Orders.Count >= Options.OrderSlots) return;
+        ulong fee = FeeOf(want), gold = want.ItemsPerGold ? (request.WantCount + fee - 1) / fee : request.WantCount * fee;
         if (gold > uint.MaxValue) return;
 
         ExchangeOrder? placed = null;
@@ -174,10 +179,10 @@ public sealed class CurrencyExchangeModule : IModule
             {
                 Id = book.NextId++, Want = request.Want, Have = request.Have, WantCount = request.WantCount, HaveCount = request.HaveCount,
                 Remaining = request.HaveCount, RatioWant = (ushort)ratioWant, RatioHave = (ushort)ratioHave, State = Wire.OrderState.Listed,
-                LastHour = market.Hour - 3600,
+                LastHour = market.Hour - 3600, PlacedAt = Now,
             };
             book.Orders.Add(placed);
-            filled = book.Settle(market);
+            filled = book.Settle(market, Now);
         }), $"Currency Exchange order, {gold} gold");
         if (!paid)
         {
@@ -185,7 +190,7 @@ public sealed class CurrencyExchangeModule : IModule
             return;
         }
         // He is already speaking, of the placing: what completed now only has its notification.
-        await SendOrder(player, placed!, "placed", placed: true);
+        await SendOrder(player, placed!, "placed", placed: Options.FaustusSpeaks);
         await SendFilled(player, filled.Where(o => o != placed), speak: false);
         if (placed!.State == Wire.OrderState.Completed) await player.Send(Wire.OrderCompleted(), "0x02f8 an order completed");
     }
@@ -201,7 +206,7 @@ public sealed class CurrencyExchangeModule : IModule
         }
         if (!completed) return;
         await player.Send(Wire.OrderCompleted(), "0x02f8 an order completed");
-        if (speak && FaustusLine.Value is var (npc, line))
+        if (speak && Options.FaustusSpeaks && FaustusLine.Value is var (npc, line))
             await player.Send(InstanceNpcs.TextAudio(0, npc, line), "0x01c7 Faustus: an order is filled");
     }
 
@@ -272,10 +277,9 @@ public sealed class CurrencyExchangeModule : IModule
     async Task Settle(IPlayer player)
     {
         if (!_module.World(player).PlayerReady || MarketOf(player) is not { } market) return;
-        var book = BookOf(player);
-        if (!book.Orders.Exists(o => o.State == Wire.OrderState.Listed && o.LastHour < market.Hour)) return;
+        if (!BookOf(player).SettleDue(market, Now)) return;
         var filled = new List<ExchangeOrder>();
-        Save(player, saved => filled = saved.Settle(market));
+        Save(player, saved => filled = saved.Settle(market, Now));
         await SendFilled(player, filled, speak: true);
     }
 }
