@@ -6,7 +6,7 @@ public class HncTests
 {
     public HncTests() => HncSender.UseMaskForTests([.. Enumerable.Range(0, 64).Select(i => (byte)(i * 37 + 11))]);
 
-    // Replays the client's 0x1c reader (0x141fa0720): bits 9..31, then 0..8 of the u32, LSB first into 8-bit bytes.
+    // Replays the client's 0x1c reader (0x141fa7150): bits 9..31, then 0..8 of the u32, LSB first into 8-bit bytes.
     private static List<byte> ClientBits(IEnumerable<uint> carriers)
     {
         var bytes = new List<byte>();

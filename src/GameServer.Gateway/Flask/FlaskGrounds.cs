@@ -48,7 +48,7 @@ static class FlaskGrounds
         : [.. ConsecratedStats.Select(s => (s.Stat, (int)((long)s.Value * (100 + effectPct) / 100)))];
 
     /// <summary>The radius of the consecrated ground around a stationary player, as the client derives
-    /// virtual_consecrated_ground_while_stationary_radius (0x1428d43a0): the plain stat, the Strength variant while Strength
+    /// virtual_consecrated_ground_while_stationary_radius (0x1428db1d0): the plain stat, the Strength variant while Strength
     /// is the highest attribute (ties count), the Crusader variant with 2 or more Crusader items; the largest wins.</summary>
     public static int StationaryRadius(Func<string, int> get)
     {

@@ -34,7 +34,7 @@ static partial class Game
             uint id = conn.NextObjectId++;
             var obj = new HideoutObject(x, y, rotation, components, new HideoutDoodad(0, 0));
             await Send(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(metadataPath), obj.Blob()),
-                $"0x02b9 create {name} 0x{id:x} at ({x}, {y})");
+                $"0x02bb create {name} 0x{id:x} at ({x}, {y})");
             await Send(InstanceProtocol.EnterWakeZone(id), null);
             await RegisterStationaryCollision(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, id, metadataPath, x, y, rotation, editorKey);
             return id;
@@ -121,6 +121,31 @@ static partial class Game
                 await SendStashPayment(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, stash, payment.Stash);
             }
             return result.Changed;
+        }
+
+        public async Task<bool> PayCurrency(uint currency, int amount, uint gold, Func<bool> commit, string log)
+        {
+            var items = ItemsOf(conn);
+            var stash = PersonalStashOf(conn);
+            if (ItemMoves.PayCurrency(items, stash, currency, amount, gold, commit) is not { } paid) return false;
+            if (paid.Inventory is { } inventory)
+                await Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+                    items.NextRevision(PlayerInventories.MainInventory), [.. inventory.Removed, .. inventory.Changed.Select(c => c.Id)], inventory.Changed),
+                    $"{log}: paid from inventory");
+            await SendStashPayment(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, stash, paid.Stash);
+            if (gold > 0) await Send(InstanceEntities.Gold(stash.Gold), $"0x02a9 gold: {stash.Gold} ({log})");
+            return true;
+        }
+
+        public async Task<int> ReceiveCurrency(uint currency, int amount, Func<int, bool> commit, string log)
+        {
+            if (ItemsFor(conn).ByHash(currency) is not { } type) return 0;
+            var items = ItemsOf(conn);
+            var (placed, stacks) = ItemMoves.ReceiveCurrency(items, ItemCatalog.Create(type), amount, ShapeOf, commit);
+            foreach (var stack in stacks)
+                await Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+                    items.NextRevision(PlayerInventories.MainInventory), stack.RemovedIds, stack.AddedItems), $"{log}: {placed} {type.Name}");
+            return placed;
         }
     }
 }

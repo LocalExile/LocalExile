@@ -1,12 +1,12 @@
 // Usage: -postScript ComponentRegistry.java <out.json>
-// Walks every caller of the pool registration 0x140e33c20 (static initializers in 0x14006xxxx:
+// Walks every caller of the pool registration 0x140e35f40 (static initializers in 0x14006xxxx:
 // `lea rdx,"Name"; lea rcx,pool; call`) and, for each registration, writes
 //   name -> pool -> pool vtable -> pool users (the factory allocates from the pool) -> every vtable each user installs
 //   (directly or through callees up to depth 2) -> subclass vtables (installed by functions that also install, or call
 //   a function that installs, a found vtable) -> slot 17 (+0x88, the deserializer) and slot 20 (+0xa0).
-// The component type id is the index of the name in the client's component-name table 0x142fdcdf0 (read by
-// 0x142474660, the id -> name lookup of the "Error: Dependency" message).
-// Live objects can use a subclass vtable (the player's Stats is 0x1435dd4e8, the factory installs 0x1435a0af8), so
+// The component type id is the index of the name in the client's component-name table 0x142fe6f10 (read by
+// 0x14247b130, the id -> name lookup of the "Error: Dependency" message).
+// Live objects can use a subclass vtable (the player's Stats is 0x1435e7f88, the factory installs 0x1435ab340), so
 // every vtable is recorded; scripts/re/frida/check-components.js and the Frida traces say which one is live.
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.*;
@@ -18,8 +18,8 @@ import java.io.*;
 import java.util.*;
 
 public class ComponentRegistry extends GhidraScript {
-    static final long REGISTER = 0x140e33c20L;
-    static final long NAME_TABLE = 0x142fdcdf0L;
+    static final long REGISTER = 0x140e35f40L;
+    static final long NAME_TABLE = 0x142fe6f10L;
     Memory mem;
     Map<Address, Address> subBase = new HashMap<>();
 
@@ -128,7 +128,7 @@ public class ComponentRegistry extends GhidraScript {
             entries.add(e.toString());
         }
         PrintWriter out = new PrintWriter(new OutputStreamWriter(new FileOutputStream(a[0]), "UTF-8"));
-        out.println("{\"generator\":\"scripts/re/ghidra/ComponentRegistry.java\",\"register\":\"0x140e33c20\",");
+        out.println("{\"generator\":\"scripts/re/ghidra/ComponentRegistry.java\",\"register\":\"0x140e35f40\",");
         out.println("\"typeTable\":" + tableJson(typeIds) + ",");
         out.println("\"registrations\":[");
         for (int i = 0; i < entries.size(); i++) out.println(entries.get(i) + (i + 1 < entries.size() ? "," : ""));

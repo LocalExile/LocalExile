@@ -1,6 +1,6 @@
 # Releases
 
-A release is a zip for each system: unzip, run `LocalExile.exe` (`./LocalExile` on Linux), and with their own 3.29.3b
+A release is a zip for each system: unzip, run `LocalExile.exe` (`./LocalExile` on Linux), and with their own 3.29.3c
 client Windows players need nothing else; Linux players also need umu-launcher and Python 3.
 Contributors keep working from a checkout with `live.ps1` ([GettingStarted](../../GettingStarted.md)).
 
@@ -26,7 +26,7 @@ the client under Proton through umu-run.
 
 SemVer, `0.x` for now: the minor for a release with features or anything that breaks, the patch for fixes.
 The workflow prints the bump the commits suggest; the version used is always the one typed.
-The client it supports (3.29.3b) is in the notes and `release.json`.
+The client it supports (3.29.3c) is in the notes and `release.json`.
 Dev builds keep the default version and no commit, so a commit does not restart a watched Gateway.
 
 ## Commits and notes
@@ -75,7 +75,7 @@ Any other start can update it. The version check needs both the login key blobs 
 
 The login list is the one client archive write, the same as `live.ps1`'s: only when it does not already name the local
 server, with the original kept in `data/gateway_list.original.txt`. That is why copying is the default: with
-`--client-mode link` it writes to the player's only copy of 3.29.3b.
+`--client-mode link` it writes to the player's only copy of 3.29.3c.
 
 `LocalExile.exe --help` lists the commands. `setup` does everything before the servers, `stop` ends this install's
 processes, `--no-client --port-base <n>` runs just the servers on other ports. It asks GitHub once per run whether a newer

@@ -1,5 +1,5 @@
 // Load after common.js. What the client reads while it creates and starts a skill action (issue #167): every stat getter
-// call 0x1424cfa40(stats, key) that runs inside 0x141941c90 (create the action for a skill id) or 0x141e8cf10 (start the
+// call 0x1424d6510(stats, key) that runs inside 0x1419473e0 (create the action for a skill id) or 0x141e937b0 (start the
 // action on an Actor), with its value and caller. The first time one of Holy Strike's animation stats is read, the stats
 // object it came from is dumped (the vector of 8-byte {u32 key, i32 value} at stats+0xf0/+0xf8, see dump-stats-object.js),
 // so it shows whether the server sent a stat or the client fell back to a default.
@@ -11,14 +11,14 @@
 //   0x5730 holy_strike_animates_owners_main_hand_weapon
 const INTERESTING = new Set([0x572c, 0x572d, 0x572e, 0x572f, 0x5730]);
 const depth = {};
-for (const f of ['0x141941c90', '0x141e8cf10']) {
+for (const f of ['0x1419473e0', '0x141e937b0']) {
   Interceptor.attach(at(f), {
     onEnter() { depth[this.threadId] = (depth[this.threadId] || 0) + 1; send({enter: f, t: Date.now()}); },
     onLeave() { depth[this.threadId]--; }
   });
 }
 const dumped = {};
-Interceptor.attach(at('0x1424cfa40'), {
+Interceptor.attach(at('0x1424d6510'), {
   onEnter(args) {
     this.on = (depth[this.threadId] || 0) > 0;
     if (!this.on) return;

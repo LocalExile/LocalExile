@@ -26,11 +26,12 @@ static class QuestObjectTypes
     public static bool IsTileQuestObject(string type) =>
         type.StartsWith("Metadata/QuestObjects/", StringComparison.Ordinal) || type.StartsWith("Metadata/Chests/QuestChests/", StringComparison.Ordinal)
         || type.StartsWith("Metadata/Monsters/IncaShadowBoss/", StringComparison.Ordinal)
+        || type.StartsWith("Metadata/Monsters/Doedre/DoedreSewer/", StringComparison.Ordinal)
         || type.StartsWith("Metadata/Terrain/", StringComparison.Ordinal) && type.Contains("/Objects/", StringComparison.Ordinal);
 
     public static Info? Find(string type) => Catalog.Value.GetValueOrDefault(type);
 
-    /// <summary>Quest doors that open in place (0x2ba Transitionable plays their .ot's on_transition, 0x1c6 lifts their
+    /// <summary>Quest doors that open in place (0x2bc Transitionable plays their .ot's on_transition, 0x1c6 lifts their
     /// TriggerableBlockage) instead of being created again open: the Aspirants' Plaza's door, whose opening the user
     /// missed (live 2026-11-03).</summary>
     public static bool OpensInPlace(string type) => type == "Metadata/Terrain/Labyrinth/Objects/LabyrinthAirlockDoor";

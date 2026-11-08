@@ -80,7 +80,7 @@ static partial class Game
         return (byte)((int)Math.Round(a * 256.0 / (2 * Math.PI)) & 0xff);
     }
 
-    // The 0x1af presentation type (code & 7; 3.29.3b table 0x1435d2110: 0 Physical, 1 Cold, 2 Fire, 3 Lightning,
+    // The 0x1af presentation type (code & 7; 3.29.3c table 0x1435d7520: 0 Physical, 1 Cold, 2 Fire, 3 Lightning,
     // 4 Chaos): the hit's largest damage component, Physical on a tie or an empty packet. One type, not the amounts.
     internal static byte HitCode(GameServer.Core.World.DamagePacket packet)
     {
@@ -175,12 +175,12 @@ static partial class Game
     }
 
     // How often a predictive client's walk-up estimate paths again, and when it stops following. Neither is the client's
-    // (its actor paths again every 0.05 s for the player, 0x141e8eb60, run again by 0x141e8ef50 only in that mode, and gives
+    // (its actor paths again every 0.05 s for the player, 0x141e95400, run again by 0x141e957f0 only in that mode, and gives
     // a walk-up no time limit): the Gateway's guesses, not yet sourced. A lockstep walk-up runs on its frames (StepWalkUp).
     const double SwingFollowSeconds = .1, SwingFollowLimitSeconds = 3;
 
     // The projectile grid value a ranged attack's line to its target must hold, the action's precision for the walk-up and
-    // the swing (0x141e8eb60 → MoveTo +0x528): 3 for the bow's and the wand's default attack, 1 for a one-hand sword's
+    // the swing (0x141e95400 → MoveTo +0x528): 3 for the bow's and the wand's default attack, 1 for a one-hand sword's
     // and for a Move (live 2026-11-03, the client's searches). Attack gems' are taken to be the bow's.
     const int RangedPrecision = 3;
 
@@ -192,14 +192,14 @@ static partial class Game
     static bool SwingInReach(ClientState conn, SpawnedMonster m, (int X, int Y) from, (int X, int Y) target, double reach) =>
         conn.Walk.InReachOf(from, target, (int)reach, m.StopRange - 2);
 
-    // The walk-up's max range: the weapon's range less one, as the client's action gives its MoveTo (0x141e8eb60: max
+    // The walk-up's max range: the weapon's range less one, as the client's action gives its MoveTo (0x141e95400: max
     // range +0x168() − 1, min range +0x158() − 1, each from 1 when 0; tolerance +0x180, precision +0x170; live
     // 2026-11-03: max range 10 for the Rusted Sword's 11, 119 for a bow's 120), as a monster's chase walk-up takes it.
     // The swing's hit still tests the whole range (+ 2).
     static int WalkUpRange(SkillCatalog.Unarmed weapon) => Math.Max(weapon.Range, 1) - 1;
 
     // A predictive client's walk-up to a monster for a swing at it, from where the estimate has the player at `now`. Swing:
-    // the swing starts at once, when MoveTo finds its goal where the player stands (0x141e7b530 → 0x141e7b260). A walk-up
+    // the swing starts at once, when MoveTo finds its goal where the player stands (0x141e81c20 → 0x141e81950). A walk-up
     // with steps swings once it is over at a cell in reach. A lockstep client's is PlaceLockstepAttack's.
     internal static ((int X, int Y) Here, (int X, int Y) Stop, double At, bool Swing) WalkUpToSwing(ClientState conn,
         SpawnedMonster m, (int X, int Y) target, SkillCatalog.Unarmed weapon, double now, int precision)
@@ -488,7 +488,7 @@ static partial class Game
             ChargesOnHit(conn, m, critical, spell: false);
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
             if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, target);
-            // At 0 the client's Life tick (0x141e6a190) stops notifying its listeners, so the mini life bar would keep the last
+            // At 0 the client's Life tick (0x141e70730) stops notifying its listeners, so the mini life bar would keep the last
             // value: hide it with the stat its listener watches (hide_mini_life_bar).
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(targetId, [(StatKeys.HideMiniLifeBar, 1)]),
@@ -767,6 +767,7 @@ static partial class Game
         {
             uint cost, lifeCost;
             bool paid;
+            int? channelWalk = ChannelWalkPercent(conn, skillId, gem.Effect);
             lock (conn.Monsters)
             {
                 if (!Current()) return false;
@@ -776,6 +777,9 @@ static partial class Game
                 {
                     channelGeneration = ++conn.ChannelGeneration;
                     conn.ChannelSkill = skillId;
+                    bool walkChanges = channelWalk is not null || conn.ChannelMovement.Skill != 0;
+                    conn.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
+                    if (walkChanges) conn.ApplyMovementSpeed();
                     conn.ChannelSkillSequence = sequence;
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
                     conn.PaidChannel = CombatLifetime is { IsActive: true } rules
@@ -847,6 +851,8 @@ static partial class Game
             return true;
         }
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
+        if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
+            return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
@@ -1234,6 +1240,37 @@ static partial class Game
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
     }
 
+    // Cyclone moves while it is channelled: its final movement modifier (cyclone_movement_speed_+%_final, from the gem's
+    // stats with its supports); null for a channel that stands (Blade Flurry …).
+    internal static int? ChannelWalkPercent(ClientState conn, ushort skillId, int effect) =>
+        SkillArea.IsCyclone(SkillsFor(conn).EffectId(effect))
+            ? GolemStat(SupportedSkill(conn, skillId).Stats, "cyclone_movement_speed_+%_final") : null;
+
+    // C→S 0x197: the point the held channel is aimed at now (the cursor's cell), not the player's cell: it can be the
+    // whole screen away the moment the channel starts. The client walks Cyclone's player toward it at the movement speed
+    // with the skill's final modifier, as an order re-aimed on every update; the sweeps follow that walk (RunChannel).
+    // A channel that stands keeps the player where it is.
+    internal static void ChannelAimedAt(ClientState conn, int x, int y, double at)
+    {
+        if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill) conn.Walk.Order(x, y, at);
+    }
+
+    // C→S 0x199: the button let go. The channel ends, and a walking one stops where the player is (it was walking only
+    // as part of the channel); the walk gets its usual speed back.
+    internal static void ChannelReleased(ClientState conn, double at)
+    {
+        lock (conn.Monsters)
+        {
+            if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill)
+            {
+                var (x, y) = conn.Walk.Position(at);
+                conn.Walk.Order(x, y, at);
+            }
+            conn.ChannelSkill = 0;
+            conn.ChannelGeneration++;
+        }
+    }
+
     internal static bool ChannelCurrent(ClientState conn, ushort skill, int action, int generation)
     {
         lock (conn.Monsters)
@@ -1268,7 +1305,7 @@ static partial class Game
     }
 
     // An area spell's centre: the aimed point, but a self-targeted spell (Ice Nova, Discharge, Vaal Cold Snap) goes off
-    // around the caster wherever it was aimed, as the client's action does (FUN_14193e290). A Nova among them goes off at
+    // around the caster wherever it was aimed, as the client's action does (FUN_1419439e0). A Nova among them goes off at
     // the aim when the caster has nova_spells_cast_at_target_location (Devout of Lunaris: "Nova Spells Cast at the
     // targeted location instead of around you"; the client's 0x2a6e).
     internal static (int X, int Y) SpellCentre(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) to) =>
@@ -1339,9 +1376,11 @@ static partial class Game
         double waveHalfAngle = wave ? GroundSlamWave.HalfAngle(Stat) : 0;
         (double X, double Y) waveDir = wave ? GroundSlamWave.Direction(from, to) : (0, 0);
         // A wave starts where the player stands and only takes its direction from the aim; a melee skill aimed far away
-        // still lands in front of the player; a self-targeted spell goes off around the caster.
-        var centre = wave || VaalExecutor(conn, gem.Effect) || !spell && Dist(from, to) > radius + weapon.Range ? from
-            : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
+        // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
+        // around the caster.
+        var centre = wave || VaalExecutor(conn, gem.Effect) ? from
+            : spell ? SpellCentre(conn, gem.Effect, from, to)
+            : MeleeAreaCentre.Of(SkillsFor(conn).ActionHash(gem.Effect), from, to, radius + weapon.Range);
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         // A later action (a Move, another use) replaces the swing; nothing of it lands from then on. The ordinary attack
         // says so at its own contact (Attack's HitTarget); this says so for a gem skill's sweep, whose drop was otherwise
@@ -1896,7 +1935,7 @@ static partial class Game
     }
 
     // A boss's stage (BossFights): it stops and uses its stage skill in place (0x1ab, the skill's animation: Hillock pulls
-    // out his sword), then its Transitionable steps to the stage's state (0x2ba: the sword in his hand) and its life fills
+    // out his sword), then its Transitionable steps to the stage's state (0x2bc: the sword in his hand) and its life fills
     // up (0x1b1).
     internal static async Task RunBossStage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
     {
@@ -1937,7 +1976,7 @@ static partial class Game
         states = states.Set("boss_life_bar", 1).Set("aggro", 1);
         lock (conn.Monsters) m.States = states;
         await Send(remote, stream, ciphers, InstanceEntities.StateMachineUpdate(id, (byte)index, states),
-            $"0x02ba monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1");
+            $"0x02bc monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1");
     }
 
     const double CorpseBlockDelaySeconds = .165;
@@ -1947,7 +1986,7 @@ static partial class Game
     internal static void StopCorpseBlocking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
     {
         lock (conn.Monsters) conn.RetainCorpseBody(id, m, conn.LockstepFrame?.Start ?? ProjectileWorldTime(conn));
-        SendAfter(CorpseBlockDelaySeconds, () => Send(remote, stream, ciphers, [], $"0x02b0 corpse of 0x{id:x} stops blocking", atGate: () =>
+        SendAfter(CorpseBlockDelaySeconds, () => Send(remote, stream, ciphers, [], $"0x02b2 corpse of 0x{id:x} stops blocking", atGate: () =>
         {
             using (ProjectileMutation(conn, phase: "send"))
             {
@@ -2008,15 +2047,20 @@ static partial class Game
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(conn, id, at);
         await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
-        ShareKill(conn, id, m, variety, at);
+        // The party's kill: every living player within the experience range takes their share
+        // (Progression.PartyMultiplier), the killer included. The presence of a private area is the party (an area is
+        // entered as the party's instance).
+        var partyShares = PartyExperienceShares(conn, at);
+        ShareKill(conn, id, m, variety, at, partyShares);
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });
         // A summoned monster whose skill says so gives neither experience nor items.
         if (!m.NoRewards && alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
-            uint xp = Program.ServerHooks.Experience(killer, monster,
-                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, m.Rarity, conn.Pools.Level, m.Level));
-            // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too.
-            await GainGemExperience(remote, stream, ciphers, conn, xp);
+            var (xp, gemXp) = KillExperience(killer, monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
+                conn.Pools.Level, m.Level, PartyExperienceShareOf(partyShares, conn));
+            // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too:
+            // 10% of the kill's experience before the level penalty.
+            await GainGemExperience(remote, stream, ciphers, conn, gemXp);
             await GainExperience(remote, stream, ciphers, conn, xp, $"{m.Rarity} {m.Label} 0x{id:x}");
         }
         // A quest kill that levels the character up (a1q1: Hillock → at least level 2), wherever the player stands.
@@ -2047,17 +2091,18 @@ static partial class Game
             drops.AddRange(DropsFor(conn).KingInMists(m.Level, Random.Shared));
         if (modded is not { Cancel: true })
         {
-            drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
-            drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign.
+            // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign. The same
+            // tier lets the rolls add their base card/scarab drops in a map.
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
                 ? openMap.Area.Tier : 0;
+            drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
+            drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
-            drops.AddRange(ExtraDropsFromMap(conn, m.Rarity, Random.Shared));
+            drops.AddRange(ExtraDropsFromMap(conn, m.Level, m.Rarity, Random.Shared));
         }
         foreach (string query in modded?.Items ?? [])
         {
@@ -2073,7 +2118,7 @@ static partial class Game
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-                $"0x02b9 create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})");
+                $"0x02bb create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
         }
     }

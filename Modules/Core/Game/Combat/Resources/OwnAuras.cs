@@ -25,7 +25,7 @@ static partial class Game
     }
 
     // your_spells_are_disabled (Devout of Gruthkul) from the same raw caster sources; a developer value replaces them.
-    // The client greys such a skill itself: skill_disabled_by_stat is 0x1520 AND casting_spell (FUN_1428cf770).
+    // The client greys such a skill itself: skill_disabled_by_stat is 0x1520 AND casting_spell (FUN_1428d6330).
     static bool SpellsDisabled(ClientState conn, Dictionary<uint, int>? sources = null)
     {
         if (Stats.Key("your_spells_are_disabled") is not uint key) return false;

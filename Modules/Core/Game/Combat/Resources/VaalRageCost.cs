@@ -1,7 +1,7 @@
-/// <summary>3.29.3b's self-used Vaal attack cost conversion. Native 0x1428a8660 adds raw soul cost after the
+/// <summary>3.29.3c's self-used Vaal attack cost conversion. Native 0x1428af220 adds raw soul cost after the
 /// ordinary base Rage cost, then applies generic/Rage increases, the final cost modifier and efficiency.
 /// The converted portion therefore receives neither support cost multipliers nor soul-cost reductions.
-/// 0x1428c3380 derives no-souls eligibility from the same Vaal, attack, self and conversion flags.</summary>
+/// 0x1428c9f40 derives no-souls eligibility from the same Vaal, attack, self and conversion flags.</summary>
 static class VaalRageCost
 {
     public readonly record struct Modifiers(int GenericIncreasedPercent = 0, int RageIncreasedPercent = 0,

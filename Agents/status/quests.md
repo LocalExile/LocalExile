@@ -8,7 +8,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Quests: a1q1: new characters
   start on The Twilight Strand's beach and log in there until they reach a town;
   coming within 60 cells of Hillock sets `a1q1-SeenHillock` ("Kill Hillock");
-  Hillock has the boss life bar at the top of the screen once he aggroes (StateMachine `boss_life_bar`, 0x2ba), unique
+  Hillock has the boss life bar at the top of the screen once he aggroes (StateMachine `boss_life_bar`, 0x2bc), unique
   life (311 at level 1) and a second stage: at half life he pulls out his sword (ZombieBossExtract, Transitionable → 2)
   and heals at its extracted contact (~750 ms), with separate 3 s recovery; the force wall stands across the
   way to the gate until he dies, and the server closes the way on its own walk map too (`QuestBarriers`), so its
@@ -22,7 +22,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   tile records and each drops its glyph once per instance while the character still needs it.
   Picking a glyph up sets `a1q4-KnowsAboutGlyphs` and `a1q4-HaveGlyphN`; coming near the Glyph Wall sets
   `a1q4-SeenGlyphWall`.
-  Using the wall with all three glyphs takes them, sets `a1q4-PlacedGlyphs` and plays the wall's transition (0x2ba to
+  Using the wall with all three glyphs takes them, sets `a1q4-PlacedGlyphs` and plays the wall's transition (0x2bc to
   Transitionable).
   The client's invisible wall then opens, and the exit into The Submerged Passage appears; until then the server's
   walk estimate stops at the same invisible wall as the client.
@@ -54,6 +54,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Kills, sightings, room objects come near, exits, cleared areas, quest chests, room NPCs, NPCs that turn into
   monsters, second forms and mirrored blockers are rules; quest items (their `.it` Quest flags: held, picked up,
   handed in, removed, used), dialogue flags and scripts, session flags and the rewards come from the client's data.
+  Quest chest and Rhoa Nest markers disappear for the character once their item is collected or handed in.
   Quest passive points (QuestStaticRewards) are counted from the flags into the tree's `extra_skill_points` and stay
   after a relog; refund points are credited once (the Book of Regrets: 54 → 56); QuestStaticRewards' stats are stat
   sources. `QuestSimulator` plays an act's events through the engine; `QuestEngineTests` checks Acts 1–6 against
@@ -140,9 +141,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   `InstancePantheon.cs`. Docs: [pantheon](../docs/game/campaign/pantheon.md).
 - Acts 7–10 and the Epilogue (live 2026-10-31, seed 1, on the engine before the modules: one Witch from
   `/quest_preset E3StartOfAct7`, the runner unattended per act, no `/goto`; on the modules checked by the oracle and
-  the offline exit audit, not yet with the client): a7q5, a7q2 (Maligaro's Map, the Reverie Device's portal into the
+  the offline exit audit; firefly pickup and Arakaali entry checked in the client): a7q5, a7q2 (Maligaro's Map, the Reverie Device's portal into the
   Sanctum, Black Death's venom), a7q3 (Silk's Obsidian Key, the Sins barrier, the passage into The Den), a7q1
-  (Greust), a7q8, a7q9, a7q7 (seven scattered Fireflies, Yeena burns the webs), a7q6, a7q4 (Arakaali, the bridge into
+  (Greust), a7q8, a7q9, a7q7 (seven scattered Fireflies, unopened chests remain targetable;
+  Yeena burns the webs), a7q6, a7q4 (Arakaali's entrance lands inside the arena, the bridge into
+  the offline exit audit; Reverie device also checked in the client): a7q5, a7q2 (Maligaro's Map, the Reverie Device's
+  native inventory and six consumable portals into one Sanctum instance with return to the same device;
+  Black Death's venom), a7q3 (Silk's Obsidian Key, the Sins barrier, the passage into The Den), a7q1
+  (Greust), a7q8, a7q9, a7q7 (seven scattered Fireflies, unopened chests remain targetable; native pickup checked;
+  Yeena burns the webs), a7q6, a7q4 (Arakaali's entrance lands inside the arena, the bridge into
   Act 8); a8q1, a8q5, a8q4, a8q6, a8q7 (the legion's multi-kill), a8q3 and a8q2 (both orbs at the fight starter,
   Solaris and Lunaris, the bridge exit into Act 9); a9q3 (the mummy event), a9q5 (the Bottled Storm carried to the
   barrier, both Shakaris), a9q4, a9q2 (the feather to Irasha), a9q1 (both ingredients in one click, the membrane, the

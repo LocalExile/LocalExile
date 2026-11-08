@@ -24,7 +24,7 @@ static partial class Game
         }
     }
 
-    // An area transition click. Plain: change area (0x2b2 now, the move itself once the client acknowledges with 0x2cb).
+    // An area transition click. Plain: change area (0x2b4 now, the move itself once the client acknowledges with 0x2cd).
     // With Ctrl: list the destination's instances (0xae) for the client's instance chooser.
     internal static async Task OnUseObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
@@ -133,14 +133,14 @@ static partial class Game
         // A gate within the area (a map's boss arena): next to its pair, in the same instance.
         if (transition.TeleportTo is { } pair)
         {
-            var (tx, ty) = conn.Layout.Near(pair);
+            var (tx, ty) = GateArrival(conn.Layout, transition);
             using (ProjectileMutation(conn))
             {
                 if (!PlayerActionCurrent(conn, action)) return;
                 conn.Walk.Teleport(tx, ty, ProjectileWorldTime(conn));
             }
             await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, tx, ty),
-                $"0x01b7 player through the gate 0x{use.TargetId:x} to ({tx}, {ty}), next to its pair at ({pair.X}, {pair.Y})",
+                $"0x01b7 player through the gate 0x{use.TargetId:x} to ({tx}, {ty}), destination gate at ({pair.X}, {pair.Y})",
                 still: () => PlayerActionCurrent(conn, action));
             return;
         }
@@ -151,8 +151,29 @@ static partial class Game
         }
         // A Labyrinth run's ways (the plaza's way in, its rooms' exits): each room its own instance (LabyrinthDay.Transfer).
         var transfer = LabyrinthDay.Transfer(CharacterName(conn), conn.Layout.Id, conn.Seed, transition.SourceType, dest,
-            AreaTransitionCatalog.IdOf(dest)) ?? new PendingTransfer(dest, 0, false);
+            AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false);
         await ChangeArea(remote, stream, ciphers, conn, transfer, use.ToString());
+    }
+
+    // Arakaali's return gate and telepad are on the balcony outside her closed web. Until the encounter's scripted
+    // entrance is modelled, the arena entrance must land on the boss room's floor, rather than beside that return gate.
+    // Use the placed room's footprint so every seed and orientation supplies its own coordinates.
+    internal static (int X, int Y) GateArrival(AreaLayout layout, AreaTransitionObject transition)
+    {
+        if (transition.TeleportTo is not { } pair) throw new ArgumentException("The transition is not an intra-area gate.", nameof(transition));
+        if (layout.Id == "2_7_12_2" && transition.SourceType == "Metadata/QuestObjects/BossArenaEntranceTransition"
+            && layout.Level?.Records.SelectMany(r => r.Rooms).LastOrDefault(r =>
+                r.Room.Path.EndsWith("/boss.arm", StringComparison.OrdinalIgnoreCase)
+                && pair.X >= r.X * 23 && pair.X < (r.X + r.Width) * 23
+                && pair.Y >= r.Y * 23 && pair.Y < (r.Y + r.Height) * 23) is { } room)
+        {
+            var centre = (X: room.X * 23 + room.Width * 23 / 2, Y: room.Y * 23 + room.Height * 23 / 2);
+            if (layout.WalkableFor(centre.X, centre.Y, 1)) return centre;
+            var near = layout.Near(centre);
+            if (near.X >= room.X * 23 && near.X < (room.X + room.Width) * 23
+                && near.Y >= room.Y * 23 && near.Y < (room.Y + room.Height) * 23 && layout.WalkableFor(near.X, near.Y, 1)) return near;
+        }
+        return layout.Near(pair);
     }
 
     // The destination's instances (0xae) for the client's instance chooser; its pick (0xaf) changes area.
@@ -229,7 +250,7 @@ static partial class Game
         // The pins need their areas' access quest flags first (the player object carried the ones known at creation).
         if (conn.PlayerSent)
         {
-            await Send(remote, stream, ciphers, [], "0x02ba player quest flags (waypoints, current)", atGate: () => QuestFlagPresentation(conn));
+            await Send(remote, stream, ciphers, [], "0x02bc player quest flags (waypoints, current)", atGate: () => QuestFlagPresentation(conn));
         }
         await Send(remote, stream, ciphers, InstanceWaypoints.Waypoints(bits), $"0x004c waypoints: {bits.Count} activated ({why})");
     }
@@ -314,12 +335,12 @@ static partial class Game
         conn.InNpcTalk = false;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 close hideout dialogue");
         await Send(remote, stream, ciphers, InstanceEntities.PlayerHideoutsUpdate(PlayerId, hideout.Hash16, 0),
-            $"0x02ba selected personal hideout: {hideout.Name}");
+            $"0x02bc selected personal hideout: {hideout.Name}");
         Console.WriteLine($"[gateway] {CharacterName(conn)} selected hideout row {hideout.Row}: {hideout.AreaId}");
         await WarpToHideout(remote, stream, ciphers, conn, "Helena: Select Hideout");
     }
 
-    // 0x2b2 now; the move itself (0x27) once the client acknowledges with 0x2cb.
+    // 0x2b4 now; the move itself (0x27) once the client acknowledges with 0x2cd.
     internal static async Task ChangeArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PendingTransfer t, string why)
     {
         foreach (var check in GameEvents.TravelRefusal.For(conn))
@@ -330,12 +351,12 @@ static partial class Game
             }
         if (!conn.TryBeginAreaChange(t, out var projectiles)) return;
         await Program.ServerHooks.PlayerLeaving(PlayerOf(conn), "left the area");
-        // Remove outstanding visuals while the old world still exists, before 0x2b2. If Auth refuses the transfer,
+        // Remove outstanding visuals while the old world still exists, before 0x2b4. If Auth refuses the transfer,
         // their canceled tasks must not leave permanent projectile/explosion objects in the retained world.
         foreach (uint id in projectiles)
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove projectile 0x{id:x} (leaving area)",
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove projectile 0x{id:x} (leaving area)",
                 still: () => !conn.Closed);
-        await Send(remote, stream, ciphers, InstanceTransfer.ChangeArea(t.Area), $"0x02b2 change area to 0x{t.Area:x4} ({why})");
+        await Send(remote, stream, ciphers, InstanceTransfer.ChangeArea(t.Area), $"0x02b4 change area to 0x{t.Area:x4} ({why})");
         // If the client never acknowledges, move it anyway after a moment.
         _ = Task.Delay(2000).ContinueWith(async _ => { if (conn.PendingTransfer is { } p) await Transfer(remote, stream, ciphers, conn, p); });
     }

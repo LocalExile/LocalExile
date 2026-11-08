@@ -99,20 +99,20 @@ public static partial class TileObjectFile
     }
 }
 
-/// <summary>How the client places tile-local cells and angles (0x14202f1c0, verified live on Lioneye's Watch). A
+/// <summary>How the client places tile-local cells and angles (0x142035a10, verified live on Lioneye's Watch). A
 /// placement code 0..7 is a rotation (code &amp; 3) quarter turns, after a mirror of x for codes 4..7.</summary>
 public static class TilePlacement
 {
     public const int CellsPerTile = 23;
     public const float WorldPerCell = 250f / 23f;
 
-    // The client's 3-byte rows per code (0x142fa04b0).
+    // The client's 3-byte rows per code (0x142faa4d8).
     private static readonly byte[] Table = [0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1, 1];
 
     /// <summary>Whether the code swaps width and height.</summary>
     public static bool Swaps(int code) => Table[code * 3] == 1;
 
-    /// <summary>The code's row of the table (the same bytes at <c>0x142fb7f78</c>, used for sub-tile objects).</summary>
+    /// <summary>The code's row of the table (the same bytes at <c>0x142fc2008</c>, used for sub-tile objects).</summary>
     public static (int T0, int T1, int T2) Row(int code) => (Table[code * 3], Table[code * 3 + 1], Table[code * 3 + 2]);
 
     /// <summary>A cell (x, y) of a w × h cell area placed with <paramref name="code"/>, relative to the placed origin:

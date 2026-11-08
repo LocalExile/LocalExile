@@ -1,6 +1,6 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary><c>0x14204a570</c>: before the layout, the generator rolls which extra terrain features (league encounters,
+/// <summary><c>0x142050dc0</c>: before the layout, the generator rolls which extra terrain features (league encounters,
 /// trials, the discoverable hideout …) the area gets. The rolls draw from the level RNG, so they shift everything after
 /// them. Ported for an area without area stats (map mods, atlas passives: every stat the client reads is 0).</summary>
 public static class ExtraTerrainFeatures
@@ -55,17 +55,17 @@ public static class ExtraTerrainFeatures
         return features;
     }
 
-    // 0x141ea1f50: per CoreLeagues row, the WorldAreaLeagueChances offsets of its chance and its repeat chance (0 = none).
+    // 0x141ea8800: per CoreLeagues row, the WorldAreaLeagueChances offsets of its chance and its repeat chance (0 = none).
     static readonly Dictionary<int, (int Chance, int Repeat)> CategoryChance = new()
     {
         [1] = (0x24, 0x28), [3] = (0x64, 0x68), [5] = (0xc, 0x10), [6] = (0x38, 0x3c), [7] = (0x40, 0), [0xf] = (0x2c, 0),
         [0x10] = (0x48, 0), [0x12] = (0x34, 0), [0x1b] = (0x9c, 0xa0),
     };
 
-    /// <summary><c>0x14204a310</c> → <c>0x141ea1f50</c> / <c>0x141ea1c80</c>, then <c>0x141ea2400</c>, without area stats
+    /// <summary><c>0x142050b60</c> → <c>0x141ea8800</c> / <c>0x141ea8530</c>, then <c>0x141ea8cb0</c>, without area stats
     /// (every stat 0, world +0xd7 off): how many of a league mechanic the area gets. A CoreLeagues row with +0xa0 set
     /// or a most-per-area of 0 gives none; +0x8e set needs a chance. One roll at the chance, then rolls at the repeat
-    /// chance while they succeed, up to the most; each roll is <c>0x142054a50</c>: chance ≥ 1 and (≥ 100 or
+    /// chance while they succeed, up to the most; each roll is <c>0x14205b2a0</c>: chance ≥ 1 and (≥ 100 or
     /// <c>Next(100)</c> below it).</summary>
     static int Category(AreaInfo area, LevelRandom rng, int category)
     {

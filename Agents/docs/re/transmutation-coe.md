@@ -85,7 +85,7 @@ This is framed bridge evidence, not a mouse/tooltip or native currency-writer/UI
   Transmutation was refused and the stack stayed 3.
 - Return to character selection and Play preserved the wand, flask and remaining three orbs.
 
-A read-only Frida probe observed `0x142201d70` completing each upgrade's magic-properties read.
+A read-only Frida probe observed `0x142208700` completing each upgrade's magic-properties read.
 The wand's wire flags were 57, the flask's 41, and the stored native rarity at ObjectMagicProperties +0x7c was 1.
 The client remained in an active area after the checks and relog.
 Shift and stash combinations have automated production-dispatch coverage; they were not rechecked natively here.

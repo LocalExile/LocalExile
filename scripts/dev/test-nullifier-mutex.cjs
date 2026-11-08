@@ -18,8 +18,8 @@ const hooks = {};
 const replaced = {};
 const originals = [];
 const sent = [];
-// The code nullifier.js checks before it hooks (the always-on hooks only), as 3.29.3b has it.
-const code = {0x140e67380: '4883ec38488bc1488b0d926376034885'};
+// The code nullifier.js checks before it hooks (the always-on hooks only), as 3.29.3c has it.
+const code = {0x140e696a0: '4883ec38488bc1488b0de2f176034885'};
 const number = v => (typeof v === 'object' && v !== null ? v.value : Number(v));
 const pointer = v => ({value: number(v), toInt32: () => number(v) | 0, toUInt32: () => number(v) >>> 0,
   isNull: () => !number(v), add: x => pointer(number(v) + number(x)), sub: x => pointer(number(v) - number(x)),
@@ -80,10 +80,10 @@ hooks['user32.dll!CreateWindowExW'].onEnter(child);
 assert.strictEqual(child[0].value, 0);
 // The engine is never told its window was minimized (WM_SIZE / SIZE_MINIMIZED becomes WM_NULL); other sizes pass.
 const minimized = [pointer(0x10), pointer(5), pointer(1), pointer(0)];
-hooks['0x140e67380'].onEnter(minimized);
+hooks['0x140e696a0'].onEnter(minimized);
 assert.strictEqual(minimized[1].value, 0);
 const restored = [pointer(0x10), pointer(5), pointer(0), pointer(0x02580320)];
-hooks['0x140e67380'].onEnter(restored);
+hooks['0x140e696a0'].onEnter(restored);
 assert.strictEqual(restored[1].value, 5);
 
 // The user's mouse and keyboard stay the user's: these do nothing and never reach user32.

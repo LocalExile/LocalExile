@@ -5,7 +5,7 @@ using DamageType = GameServer.Core.World.DamageType;
 /// The monsters the player owns: relics, Spirit chieftains and gem golems (whose lifecycle is in GolemState).
 /// A minion is
 /// a monster on his team (Positioned team 0) that the client knows as his by its own stats is_player_minion and
-/// is_semantic_minion (the link-target filter 0x141bf8490 reads 0x48a and 0x3cf8). It follows him (the monster AI walks
+/// is_semantic_minion (the link-target filter 0x141bfaf20 reads 0x48a and 0x3cf8). It follows him (the monster AI walks
 /// friendly monsters into the player's surround; one with a teleport jumps back to him from beyond its aggro range),
 /// may fight his enemies, cast an aura and explode when it ends. Timed relics and chieftains leave with the connection;
 /// golems keep their activation separately across areas and can take hostile damage. Never kept by the instance.

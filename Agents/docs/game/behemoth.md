@@ -129,7 +129,7 @@ Ordinary Vaal Ground Slam can pay its souls without a Phrecia capability.
 Fueled by Hate adds raw GEPL souls to support-scaled ordinary base Rage cost, then applies generic/Rage increases,
 final cost and efficiency with truncation and final half-away rounding.
 Soul reductions and support multipliers do not reduce the converted portion.
-Primary native cost references are `0x1428a8660` and `0x1428c3380`.
+Primary native cost references are `0x1428af220` and `0x1428c9f40`.
 
 The admission critical section checks requirements, every resource and the shared attack deadline before action,
 movement, cooldown reservation or payment.

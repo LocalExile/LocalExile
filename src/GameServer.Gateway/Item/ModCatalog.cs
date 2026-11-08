@@ -139,7 +139,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
         {
             bool alternate = hardMode && r.TryGetProperty("HasHardmodeStatValues", out var hardmode) && hardmode.GetBoolean();
             string suffix = alternate ? "Hardmode" : "";
-            // The client's stat iterator (0x142430710) stops at the first empty key, so the count does too.
+            // The client's stat iterator (0x1424371e0) stops at the first empty key, so the count does too.
             var modStats = new List<ModStat>();
             for (int i = 1; i <= 8; i++)
             {

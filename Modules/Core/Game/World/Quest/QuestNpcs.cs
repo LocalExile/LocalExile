@@ -93,7 +93,7 @@ static partial class Game
                 lock (conn.Npcs) conn.Npcs.Remove(id);
                 conn.RemoveBlocker(id);
                 if (conn.TalkingTo == id) { conn.TalkingTo = 0; conn.InNpcTalk = false; }
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb quest npc 0x{id:x} {c.Npc.Name} goes: {why}");
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd quest npc 0x{id:x} {c.Npc.Name} goes: {why}");
             }
             else if (want && transitioned && transitionable)
             {
@@ -105,7 +105,7 @@ static partial class Game
                     spawned.State = last;
                     int component = c.Npc.Components!.ToList().IndexOf("Transitionable");
                     await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(c.Id, (byte)component, last),
-                        $"0x02ba quest npc 0x{c.Id:x} {c.Npc.Name} transitions to state {last}: {why}");
+                        $"0x02bc quest npc 0x{c.Id:x} {c.Npc.Name} transitions to state {last}: {why}");
                 }
             }
         }

@@ -26,7 +26,7 @@ readonly record struct SingleUseCooldown(int BaseMilliseconds, int RecoveryPerce
         // The player's virtual total already includes its base input. Skill inputs are separate, including quality.
         long recovery = (long)Get(player, "virtual_cooldown_speed_+%")
             + Get(own, "base_cooldown_speed_+%") + Get(own, "virtual_cooldown_speed_+%");
-        // Warcry recovery is an increase for the Warcry type (PoB ModParser); the client adds it when is_warcry (0x14281dfa0).
+        // Warcry recovery is an increase for the Warcry type (PoB ModParser); the client adds it when is_warcry (0x142824b50).
         if (skills.IsWarcry(effect))
             recovery += (long)Get(player, "warcry_cooldown_speed_+%") + Get(own, "warcry_cooldown_speed_+%");
         if (skills.EffectId(effect) is { } id && id.StartsWith("Summon", StringComparison.Ordinal) && id.Contains("Golem", StringComparison.Ordinal))

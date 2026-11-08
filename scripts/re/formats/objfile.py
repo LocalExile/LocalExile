@@ -1,5 +1,5 @@
 # Object files: .ot .otc .ao .aoc .it (version, extends, sections of key = value, GEAL events).
-# The client's reader is 0x142475bd0; "client"/"server" hold more sections (0x142476580 skips them in its first pass).
+# The client's reader is 0x14247c6a0; "client"/"server" hold more sections (0x14247d050 skips them in its first pass).
 import re
 
 import geal
@@ -84,7 +84,7 @@ class Reader:
 
     def section(self, name):
         if name == "GEAL":
-            # Top-level GEAL block: named events, each = { script } (0x142475bd0 "expected '{' after 'GEAL'").
+            # Top-level GEAL block: named events, each = { script } (0x14247c6a0 "expected '{' after 'GEAL'").
             self.i += 1
             sec = {"section": name, "entries": []}
             self.entries(sec["entries"])

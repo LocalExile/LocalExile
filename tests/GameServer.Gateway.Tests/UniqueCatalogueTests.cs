@@ -2,7 +2,7 @@ using GameServer.Modules.Survivors;
 namespace GameServer.Gateway.Tests;
 
 // The survivors mode offers real uniques: every definition must resolve its Mods.dat rows, every equipment entry must
-// create, and every one but a blank unique (Tabula Rasa) must leave at least one recognizable stat.
+// create, and every equipment entry must leave at least one recognizable stat, including hidden overrides.
 public sealed class UniqueCatalogueTests
 {
     public void Every_unique_resolves_its_mods_and_every_equipment_unique_has_a_stat()
@@ -31,7 +31,7 @@ public sealed class UniqueCatalogueTests
         Assert.Equal(uniques.All.Count, created);
         Assert.All(uniques.All, definition => Assert.NotNull(uniques.NameWord(definition)));
         Assert.True(equipment > 1000, $"only {equipment} equipment uniques");
-        // Tabula Rasa is the one unique whose identity is its white sockets, not a stat.
-        Assert.Equal(["Tabula Rasa"], noStats.Order());
+        // Tabula's hidden requirements/defence override counts even though its tooltip has no explicit stats.
+        Assert.Empty(noStats);
     }
 }

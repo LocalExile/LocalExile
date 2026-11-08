@@ -257,14 +257,14 @@ sealed class ItemCatalog
 
         public int MaxLevel => Thresholds.Count;
 
-        /// <summary>The level as the client derives it (0x14246f900): the levels whose threshold the experience reaches, up
-        /// to the cap. Experience -1 is the cap + 1 (0x14246eb00; a guess: the corrupted gems over their cap).</summary>
+        /// <summary>The level as the client derives it (0x1424763d0): the levels whose threshold the experience reaches, up
+        /// to the cap. Experience -1 is the cap + 1 (0x1424755d0; a guess: the corrupted gems over their cap).</summary>
         public int Level(int experience) => experience == -1 ? MaxLevel + 1 : Thresholds.Count(t => t <= experience);
 
         /// <summary>The experience a gem of this level starts with (the level clamped to 1 … the cap).</summary>
         public int ExperienceFor(int level) => Thresholds.Count == 0 ? 0 : Thresholds[Math.Clamp(level, 1, MaxLevel) - 1];
 
-        /// <summary>The variant the client uses: an index outside the list is the normal gem (0x14246fa50 resets it).</summary>
+        /// <summary>The variant the client uses: an index outside the list is the normal gem (0x142476520 resets it).</summary>
         public GemVariant Variant(int index) => index > 0 && index < Variants.Count ? Variants[index] : Variants[0];
     }
 
@@ -312,7 +312,7 @@ sealed class ItemCatalog
 
     /// <summary>The GrantedEffects rows a gem item grants as skills: its variant's effect and, for a Vaal gem, the base
     /// skill. Support gems grant none: they modify the linked active skills (granting one as a skill crashed the client in
-    /// the Actor skill reader, 0x141ee795a).</summary>
+    /// the Actor skill reader, 0x141eee1ba).</summary>
     public IEnumerable<int> GemEffects(Item gem)
     {
         if (ByHash(gem.TypeHash) is not { } t || Gem(t) is not { IsSupport: false } g || g.Variants.Count == 0) yield break;
@@ -370,7 +370,7 @@ sealed class ItemCatalog
         public bool HasVariableRange => ArmourMin != ArmourMax || EvasionMin != EvasionMax
             || EnergyShieldMin != EnergyShieldMax || WardMin != WardMax || HasAdditionalVariableRange;
 
-        /// <summary>Native 3.29.3b base getters (0x1424af890/910/990): one shared roll over 31,
+        /// <summary>Native 3.29.3c base getters (0x1424b6360/910/990): one shared roll over 31,
         /// rounded halfway up before local modifiers. Wire 32 is the special minimum-base state.</summary>
         public (int Armour, int Evasion, int EnergyShield) AtRoll(byte roll)
         {
@@ -568,9 +568,10 @@ sealed class ItemCatalog
 
     /// <summary>Two linked sockets for a type with a Sockets component: 3.29 white by default, each with the item-level
     /// chance to roll a colour proportional to its attribute requirements (ComponentAttributeRequirements:
-    /// strength red, dexterity green, intelligence blue; SocketColours); no sockets for other types.</summary>
+    /// strength red, dexterity green, intelligence blue; SocketColours); no sockets for other types.
+    /// <paramref name="noWhite"/> is the hidden 3.29 property that forbids white sockets.</summary>
     public (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) DefaultSockets(
-        BaseType t, int itemLevel = 1, int quality = 0, Random? random = null)
+        BaseType t, int itemLevel = 1, int quality = 0, Random? random = null, bool noWhite = false)
     {
         if (!t.Components.Contains("Sockets")) return ([], null);
         if (ResonatorSockets(t) > 0) return (ResonatorSocketList(t), null);
@@ -578,8 +579,8 @@ sealed class ItemCatalog
         // (SocketColours). Both sockets of a new item still start linked.
         var requirements = Requirements(t);
         random ??= Random.Shared;
-        return ([new(SocketColours.Roll(requirements, itemLevel, quality, random)),
-                 new(SocketColours.Roll(requirements, itemLevel, quality, random))], [2]);
+        return ([new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite)),
+                 new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite))], [2]);
     }
 
     private Lazy<Dictionary<string, (int Str, int Dex, int Int)>> _requirements = null!;

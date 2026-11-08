@@ -41,7 +41,7 @@ sealed class ChatChannels
         return current;
     }
 
-    /// <summary>The names of 0x134's language byte (the client's names to numbers: 0x1422ed4f0).</summary>
+    /// <summary>The names of 0x134's language byte (the client's names to numbers: 0x1422f3e80).</summary>
     static readonly string[] Languages = ["English", "French", "German", "Portuguese", "Russian", "Thai", "Traditional Chinese", "Simplified Chinese", "Spanish", "Korean", "Japanese"];
 
     /// <summary>The line the chat panel prints after a join (BackendErrors JoinedGlobalChannel / JoinedTradeChannel).</summary>

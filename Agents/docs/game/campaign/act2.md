@@ -252,7 +252,7 @@ needed for the rest of the quest; the quest log starts at `a2q6-ReceivedQuest`.
 | 4 | Kill Fidelitas | 1_2_6_2 | kill MV 154 `Metadata/Monsters/DemonFourLegged/BossFourLeggedDemon` | `a2q6-KilledDemon` | server `OnMonsterKilled` |
 | 5 | Helena climbs up | 1_2_6_2 | `HelenaSins` Transitionable 1 → 2 (`halyna_climbUp`, becomes targetable) | - | after the kill (inferred from her .ot) |
 | 6 | Talk to Helena | 1_2_6_2 | NPCTalk 457 "Rescued" (not HaveSkillGem, not RescuedHelena), Script `triggerer.FinishNPCChat();` | `a2q6-RescuedHelena` | row 456 is the same with the gem carried |
-| 7 | The Strange Device opens | 1_2_6_2 | `Metadata/Chests/QuestChests/Helena/PoisonCart` (Chests 188) state 2 (targetable) → open (state 3) | drops `PoisonSkillGem` | state 2 after the rescue (assumed) |
+| 7 | The Strange Device opens | 1_2_6_2 | `Metadata/Chests/QuestChests/Helena/PoisonCart` (Chests 188) state 2 (targetable) → open (state 3) | drops `PoisonSkillGem` | state 2 once Fidelitas is dead (#578: Helena's row 456 is the "Rescued" for a player already carrying the gem, so the device does not wait for her; the real trigger is unverified) |
 | 8 | Pick up the Baleful Gem | 1_2_6_2 | pick up `Metadata/Items/QuestItems/PoisonSkillGem` (BIT 1543) | `a2q6-HaveSkillGem` (grant), `a2q6-HelenaInTown` (extra) | `remove_flag a2q9-PoisonedTree` |
 | 9 | Helena in town | 1_2_town | NPCTalk 462 "Rescued" (`HelenaTown`, no conditions) | `HelenaIntroduced` | QS Order 1 |
 | 10 | Greust | 1_2_town | NPCTalk 153 "Helena" (needs HelenaInTown, not QuestRewardTaken) | `a2q6-Congratulated` | |
@@ -701,7 +701,7 @@ opens the Caverns door.
 |---|---|---|---|---|
 | Ancient Seal | `Metadata/QuestObjects/Inca/IncaDarknessRelease` (`object_size 6`; Animated, InteractionAction, Transitionable, MinimapIcon `hide_flag a2q8minusUnleashedDarkness`; client Render "ObjectDisplayTextAncientSeal", Targetable, SoundParameterDistance) | tile `Metadata/Terrain/Dungeon/Features/dungeon_bossrelease_v01_01.tdt` record `dungeon_bossrelease_v01_01_ball_replacement`, cell (46, 11) | not created; not in `object-types.json` | tile quest object. Use → `UnleashedDarkness` + Transitionable 1→2 (glyph wall pattern). SoundParameterDistance is client-only |
 | Seal blockers | `IncaDarknessReleaseBlocker` x8 (`unblock_quest_flag a2q8minusUnleashedDarkness`) | room `releaseblack.arm` (144, 141) | client-side | `QuestBarriers` |
-| Apex door | `Metadata/QuestObjects/Inca/ApexDoor` (Animated, Transitionable, InteractionAction; no `.ao` of its own, no `on_transition`) | room `sewer_connection.arm` (149, 57), model `IncaDungeon/door.ao` | closed in every instance; used with `a2b-SeenApexReward` | the room line's model (the type has none); `On.Door`: used, removed: the client's step check (`0x141e61540`) stops at every sized Positioned body, so the door shown open still blocked (live 2026-11-04) |
+| Apex door | `Metadata/QuestObjects/Inca/ApexDoor` (Animated, Transitionable, InteractionAction; no `.ao` of its own, no `on_transition`) | room `sewer_connection.arm` (149, 57), model `IncaDungeon/door.ao` | closed in every instance; used with `a2b-SeenApexReward` | the room line's model (the type has none); `On.Door`: used, removed: the client's step check (`0x141e65ae0`) stops at every sized Positioned body, so the door shown open still blocked (live 2026-11-04) |
 | Apex door blockers | `ApexDoorBlocker` x4 (`unblock_quest_flag a2bminusSeenApexReward`) | same room (138, 60) | client-side | `QuestBarriers` until `a2b-SeenApexReward` |
 | Dark Altar | `Metadata/Monsters/IncaShadowBoss/IncaBossSpawner` (Positioned, BaseEvents, Animated `inca_boss_emerge_incabossemerge_setpiece.ao` with `serialise_animation_progress`, InteractionAction, Transitionable `num_states 3`, TriggerableBlockage `start_blocked`, MinimapIcon `hide_flag a2q8minusKilledShadowMonster`; Render "ObjectDisplayTextDarkAltar") | tile `Metadata/Terrain/Dungeon/Features/inca_boss_emerge.tdt` record `inca_boss_emerge_incabossemerge_setpiece`, cell (23, 23) (seed 1 at (2208, 414)) | not created | create it at the tile record. Use with The Apex → `PlacedApex`, state 2, spawn MV 158 at it; state 3 after the kill. `serialise_animation_progress` may change the Animated blob (check) |
 | Vaal Oversoul | MV 158 `Metadata/Monsters/IncaShadowBoss/BossIncaShadow` (type `IncaShadowBoss`: Monster + StateMachine + Transitionable, extends `ActBoss`) | spawned by the altar, not a WorldAreas boss (1_2_14_3 has none) | NOT placed | spawn from the altar; Transitionable 1→2 (`EnableTargetable`); the `Emerge` action; kill → flags. Its components are the Hillock set (StateMachine needs the type's data) |
@@ -756,6 +756,20 @@ STEPS = [
     {"verb": "goto", "area": "1_3_1", "via": "transition"},
 ]
 ```
+
+### Oversoul client findings (3.29.3c)
+
+`IncaShadowBoss.act` and `IncaShadowMonster/rig.amd` give a 27 s initial `emerge`, 1.133 s hand turns,
+0.8 s burrow/rise clips and 20 s death clips. `stance2` is the meat hand, `stance3` the claw; the default is bone.
+The spray contacts are in the actor's `.ao`, not only the rig's `.amd`. Ice projectile animation 1 is flight,
+0 is impact; the summon projectile uses 0 for flight and 1 for impact.
+
+Live, the travel action left Positioned x/y stretches at zero: the actor executed attacks but its body was invisible.
+S→C `0x2bc` to component 0, LE mask `0x20` plus three f32 values `(1,1,1)`, restores the ordinary model.
+The scale needs restoration on resurfacing as well as the clip; an initial update alone does not survive the burrow.
+The actions also need their `0x1ac` acknowledgement; without it, a pending action could remain behind an idle clip.
+Campaign level 23 uses effect level 1, not 23 (`MaxLevelAt(effect, monsterLevel)`).
+The `.ais` is absent from the archive; exact official decision weights and cooldowns are not recoverable from these assets.
 
 ### Risks
 - **The Vaal Oversoul is scripted:**

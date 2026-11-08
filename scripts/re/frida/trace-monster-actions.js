@@ -4,8 +4,8 @@
 // Records (q = QPC ticks; id = the server object id; the local player is left out):
 // - order: an S→C 0x1ab, before the handler ran: skill, sequence, flags, target object, the position pair.
 // - ack: an S→C 0x1ac, with the pending (+0x1b8) and current (+0x1b0) action's skill.
-// - start: the action became current (0x141e94c60), with its skill and the actor's cell.
-// - stop: the current action stopped (0x141e8f780).
+// - start: the action became current (0x141e9b500), with its skill and the actor's cell.
+// - stop: the current action stopped (0x141e96020).
 const m = Process.getModuleByName('Game.patched.exe');
 const at = va => m.base.add(ptr(va).sub(ptr('0x140000000')));
 const k32 = Process.getModuleByName('kernel32.dll');
@@ -24,7 +24,7 @@ const skill = (actor, offset) => {
   return action.isNull() ? 0 : action.add(0x118).readU16();
 };
 
-Interceptor.attach(at('0x1421940a0'), {
+Interceptor.attach(at('0x14219aa10'), {
   onEnter(a) {
     const actor = a[0], msg = a[1], type = msg.add(8).readU16();
     if (local(actor)) return;
@@ -36,12 +36,12 @@ Interceptor.attach(at('0x1421940a0'), {
       send({q: q(), ack: idOf(actor), pending: skill(actor, 0x1b8), current: skill(actor, 0x1b0), at: cell(actor)});
   }
 });
-Interceptor.attach(at('0x141e94c60'), {
+Interceptor.attach(at('0x141e9b500'), {
   onEnter(a) {
     if (!local(a[0])) send({q: q(), start: idOf(a[0]), skill: skill(a[0], 0x1b0), at: cell(a[0])});
   }
 });
-Interceptor.attach(at('0x141e8f780'), {
+Interceptor.attach(at('0x141e96020'), {
   onEnter(a) {
     if (!local(a[0]) && !a[0].add(0x1b0).readPointer().isNull())
       send({q: q(), stop: idOf(a[0]), skill: skill(a[0], 0x1b0), at: cell(a[0])});

@@ -262,7 +262,7 @@ public sealed partial class DelveModule : IModule
         state.Crawler = id;
         state.CrawlerCell = (x, y);
         await player.Send(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(DelveMapViewerObject.MetadataPath),
-            new DelveMapViewerObject(x, y, CrawlerRotation).Blob()), $"0x02b9 create the Delve Crawler map viewer 0x{id:x} at ({x}, {y})");
+            new DelveMapViewerObject(x, y, CrawlerRotation).Blob()), $"0x02bb create the Delve Crawler map viewer 0x{id:x} at ({x}, {y})");
         await player.Send(InstanceProtocol.EnterWakeZone(id), $"0x01a9 Delve Crawler 0x{id:x} enters wake zone");
         // DelveMapViewer's own transition callbacks select clips for its waypoint model, not this two-clip rig.
         // Explicitly select idle_01 (rig index 0), which loops the running engine's shake and sound.
@@ -299,7 +299,7 @@ public sealed partial class DelveModule : IModule
         foreach (uint old in state.Blockers)
         {
             world.RemoveBlocker(old);
-            await player.Send(InstanceProtocol.RemoveObject(old), $"0x02bb remove the Crawler blocker 0x{old:x}");
+            await player.Send(InstanceProtocol.RemoveObject(old), $"0x02bd remove the Crawler blocker 0x{old:x}");
         }
         state.Blockers.Clear();
         foreach (int along in new[] { -CrawlerHalfLength, 0, CrawlerHalfLength })
@@ -309,7 +309,7 @@ public sealed partial class DelveModule : IModule
             state.Blockers.Add(id);
             world.SetBlocker(id, bx, by, ObjectReach);
             await player.Send(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WalkBlockerObject.MetadataPath),
-                new WalkBlockerObject(bx, by).Blob()), $"0x02b9 create the Crawler blocker 0x{id:x} at ({bx}, {by})");
+                new WalkBlockerObject(bx, by).Blob()), $"0x02bb create the Crawler blocker 0x{id:x} at ({bx}, {by})");
             await player.Send(InstanceProtocol.EnterWakeZone(id));
         }
         await world.PushOutOfCollision();

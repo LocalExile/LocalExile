@@ -7,15 +7,45 @@ using Progression = GameServer.Core.World.Progression;
 // (and their gems'), the kill's quest flags and a quest kill's level, sent on their own connection by their own loop.
 static partial class Game
 {
-    internal static void ShareKill(ClientState host, uint id, SpawnedMonster m, MonsterCatalog.Variety variety, (int X, int Y) at)
+    /// <summary>One member's share of a party kill's experience (<see cref="Progression.PartyMultiplier"/>).</summary>
+    internal sealed record PartyExperienceShare(ClientState Conn, double Multiplier);
+
+    /// <summary>
+    /// The living players in the instance near enough to the kill (the presence: a private area is entered as the
+    /// party's instance) and their shares of its experience. A dead, leaving or too distant player takes no share, as
+    /// the game's experience range does. The wiki's Experience page: the monster's experience is multiplied by the
+    /// party size and split by (level + 10)^2.71, capped at each player's solo experience.
+    /// </summary>
+    internal static IReadOnlyList<PartyExperienceShare> PartyExperienceShares(ClientState host, (int X, int Y) at)
     {
-        var presence = host.Instance.Presence;
+        var members = new List<ClientState>();
+        if (host.PlayerLife > 0 && Dist(at, host.Walk.Position(host.Clock.Elapsed.TotalSeconds)) <= ExperienceRange)
+            members.Add(host);
+        var seen = new HashSet<ClientState> { host };
+        foreach (var peer in host.Instance?.Presence.PlayersExcept(host.PeerId) ?? [])
+        {
+            if (peer.Owner is not { } other || !seen.Add(other) || other.Closed || other.LeavingArea || !other.PlayerSent
+                || peer.Life == 0 || Dist(at, (peer.X, peer.Y)) > ExperienceRange) continue;
+            members.Add(other);
+        }
+        if (members.Count == 0) return [];
+        if (members.Count == 1) return [new(members[0], 1)];
+        var levels = members.Select(m => m.Pools.Level).ToList();
+        return [.. members.Select((m, i) => new PartyExperienceShare(m, Progression.PartyMultiplier(levels, i)))];
+    }
+
+    internal static double PartyExperienceShareOf(IReadOnlyList<PartyExperienceShare> shares, ClientState conn) =>
+        shares.FirstOrDefault(s => ReferenceEquals(s.Conn, conn))?.Multiplier ?? 1;
+
+    internal static void ShareKill(ClientState host, uint id, SpawnedMonster m, MonsterCatalog.Variety variety,
+        (int X, int Y) at, IReadOnlyList<PartyExperienceShare> shares)
+    {
         if (!host.Instance.World.MonsterOrigins.ContainsKey(id)) return; // a player's minion or ally
         var monster = ModMonster(m, at);
-        foreach (var peer in presence.PlayersExcept(host.PeerId))
+        foreach (var share in shares)
         {
-            if (peer.Owner is not { } other || other.Closed || other.LeavingArea || peer.Life == 0
-                || Dist(at, (peer.X, peer.Y)) > ExperienceRange) continue;
+            if (ReferenceEquals(share.Conn, host)) continue;
+            var other = share.Conn;
             other.KillShares.Enqueue(async (remote, stream, ciphers) =>
             {
                 if (HardcoreProgressBlocked(other)) return;
@@ -24,9 +54,9 @@ static partial class Game
                 await DropQuestItemsForKill(remote, stream, ciphers, other, variety.Id, at, $"{m.Label} (party kill)");
                 if (!m.NoRewards && Monsters.BaseExperience(variety, m.Level) is int baseXp)
                 {
-                    uint xp = Program.ServerHooks.Experience(PlayerOf(other), monster,
-                        Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, m.Rarity, other.Pools.Level, m.Level));
-                    await GainGemExperience(remote, stream, ciphers, other, xp);
+                    var (xp, gemXp) = KillExperience(PlayerOf(other), monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
+                        other.Pools.Level, m.Level, share.Multiplier);
+                    await GainGemExperience(remote, stream, ciphers, other, gemXp);
                     await GainExperience(remote, stream, ciphers, other, xp, $"party kill: {m.Rarity} {m.Label} (by {CharacterName(host)})");
                 }
                 if (QuestsOf(other).LevelAfterKill(other.Layout.Id, variety.Id) is int level and > 1 && level <= CharacterStats.LevelStarts.Count)
@@ -53,8 +83,8 @@ static partial class Game
     }
 
     // To every other client in the instance that has the object (and has it awake), through its own send gate. A
-    // client without it cannot read a message about it: an object's component update (0x2ba) is read by the object's
-    // components, and a buried Gravel Eater's rise (0x2ba Transitionable) sent to a client it was never created on broke
+    // client without it cannot read a message about it: an object's component update (0x2bc) is read by the object's
+    // components, and a buried Gravel Eater's rise (0x2bc Transitionable) sent to a client it was never created on broke
     // its stream ("Unable to deserialise packet", live 2026-11-05 01:15:27). SyncInstanceMonsters creates it there.
     internal static void ToOthers(ClientState conn, uint id, byte[] bytes)
     {

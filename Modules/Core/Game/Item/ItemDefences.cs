@@ -30,7 +30,7 @@ static class ItemDefences
             Get("local_physical_damage_reduction_rating_+%") + Get("local_armour_and_energy_shield_+%") + shared);
         int evasion = Rating(basis.Evasion, Get("local_base_evasion_rating") + Get("local_evasion_rating_and_energy_shield"),
             Get("local_evasion_rating_+%") + Get("local_evasion_and_energy_shield_+%") + shared);
-        // Native 3.29.3b ES getter 0x1424af430: either prohibition wins over base, flat mods, increases and quality.
+        // Native 3.29.3c ES getter 0x1424b5f00: either prohibition wins over base, flat mods, increases and quality.
         int energyShield = Get("local_no_energy_shield") != 0
             || Get("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0 ? 0
             : Rating(basis.EnergyShield, Get("local_energy_shield") + Get("local_evasion_rating_and_energy_shield"),

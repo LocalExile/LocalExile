@@ -25,7 +25,7 @@ public static class WeaponTypeStats
     public static int Of(string? activeClass) =>
         activeClass is not null && ByClass.TryGetValue(activeClass, out int type) ? type : EmptyHand;
 
-    // The client's is_dual_wielding calculator (0x142521190): a weapon in each hand (its table 0x142fdd728 is set for
+    // The client's is_dual_wielding calculator (0x142527d40): a weapon in each hand (its table 0x142fe77c0 is set for
     // every weapon value, not for the shield or an empty hand), or both hands empty with unarmed_counts_as_dual_wielding.
     public static bool IsDualWielding(int main, int off, bool unarmedCountsAsDualWielding) =>
         unarmedCountsAsDualWielding && main == EmptyHand && off == EmptyHand

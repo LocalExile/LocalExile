@@ -1,23 +1,23 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>Room tilising (<c>0x141fea780</c>) on a view of the map: the tile graph's special nodes and overlays, and a
+/// <summary>Room tilising (<c>0x141ff0fa0</c>) on a view of the map: the tile graph's special nodes and overlays, and a
 /// dungeon's overlays.</summary>
 sealed class RoomTiler(LevelRandom rng, TileGrid grid, int offsetX, int offsetY, TileStore store)
 {
     /// <summary>The rooms tilised, in order (the layout context's +0x58 list), in map entries.</summary>
     public readonly List<PlacedRoom> Rooms = [];
-    /// <summary>The map vertices that took a room's own inner vertex ground (<c>0x141ffbd70</c>); the seams leave tiles
+    /// <summary>The map vertices that took a room's own inner vertex ground (<c>0x1420025c0</c>); the seams leave tiles
     /// touching them alone.</summary>
     public readonly HashSet<(int X, int Y)> RoomVertices = [];
 
-    /// <summary>The listeners <c>0x141fea780</c> calls after each slot tile (tile, orientation, view x, y).</summary>
+    /// <summary>The listeners <c>0x141ff0fa0</c> calls after each slot tile (tile, orientation, view x, y).</summary>
     public Action<TileDef, int, int, int>? TilePlaced;
 
-    // 0x141fea780's per-orientation offset of a slot's tile by (1 − w, 1 − h): x += a·(1 − w) + c·(1 − h),
+    // 0x141ff0fa0's per-orientation offset of a slot's tile by (1 − w, 1 − h): x += a·(1 − w) + c·(1 − h),
     // y += b·(1 − w) + d·(1 − h).
     static readonly int[] SlotShift = [0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0];
 
-    /// <summary><c>0x141fea780</c>: every 'k' and 'f' slot, column by column. A slot without tag or edges whose corners share
+    /// <summary><c>0x141ff0fa0</c>: every 'k' and 'f' slot, column by column. A slot without tag or edges whose corners share
     /// one ground is left for the fill (its entries remember the ground); any other picks a tile from the store:
     /// <c>Next(total weight)</c>.</summary>
     public void Tilise(RoomDef room, int x0, int y0, int o, bool fillGrounds, IReadOnlyList<string> descriptions, int height = 0)
@@ -26,7 +26,7 @@ sealed class RoomTiler(LevelRandom rng, TileGrid grid, int offsetX, int offsetY,
         bool check = grid.CheckGrounds;
         grid.CheckGrounds = false;
         TiliseSlots(room, x0, y0, o, fillGrounds, height);
-        // 0x141ffbd70: the room's own inner vertex grounds go in unchecked (0x141d85840), turned like a tile's.
+        // 0x1420025c0: the room's own inner vertex grounds go in unchecked (0x141d88ed0), turned like a tile's.
         if (room.VertexGrounds.Length > 0)
             for (int v = 1; v < room.Height; v++)
                 for (int u = 1; u < room.Width; u++)

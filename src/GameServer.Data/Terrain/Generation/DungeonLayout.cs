@@ -9,7 +9,7 @@ sealed class DungeonDoor
     public bool Chirality;
 }
 
-/// <summary>A room the dungeon layout placed (the layout's 0x60-byte entries, <c>0x1420fe780</c> / <c>0x1420fe360</c>):
+/// <summary>A room the dungeon layout placed (the layout's 0x60-byte entries, <c>0x142105080</c> / <c>0x142104c60</c>):
 /// the room (+0; null = a blank the fill made, to get a room at the end), position and size in room units (+8, +0xc,
 /// +0x20, +0x24), +0x10, height level (+0x12), orientation (+0x13), kind (+0x14: 1 a graph node's room, 3 a blank),
 /// flags (+0x15: 1 accessible, 2, 4 kept by the prune, 8 blank when the fill started, 0x10 teleport or entrance),
@@ -19,7 +19,7 @@ sealed class DungeonPlacement
     public DungeonRoom? Room;
     public int X, Y, Width, Height;
     public byte B10;
-    /// <summary>+0x11: how many doors the entry had when its room was picked (<c>0x1420fe360</c>).</summary>
+    /// <summary>+0x11: how many doors the entry had when its room was picked (<c>0x142104c60</c>).</summary>
     public byte Doors;
     public sbyte Level;
     public int Orientation;
@@ -31,7 +31,7 @@ sealed class DungeonPlacement
     public override string ToString() => $"{(Room is null ? "blank" : Path.GetFileName(Room.Path))} ({X}, {Y}) {Width}x{Height}";
 }
 
-/// <summary>The layout's room-unit map (<c>0x14203c900</c>'s 0x70-byte object): size (+0x28 / +0x2c), cells (+0x40: 0
+/// <summary>The layout's room-unit map (<c>0x142043150</c>'s 0x70-byte object): size (+0x28 / +0x2c), cells (+0x40: 0
 /// free, 1 reserved, k ≥ 2 = room k − 2) and rooms (+0x58).</summary>
 sealed class DungeonMap(int width, int height, int unit, int overlap)
 {
@@ -53,8 +53,8 @@ sealed class DungeonMap(int width, int height, int unit, int overlap)
 
     public DungeonPlacement RoomAt(int cell) => Rooms[cell - 2];
 
-    /// <summary><c>0x1420fe780</c>: a room at (x, y) over free or reserved cells (else "Room overlap detected"), its
-    /// cells set to its number; then <c>0x1420fe360</c> fills the entry.</summary>
+    /// <summary><c>0x142105080</c>: a room at (x, y) over free or reserved cells (else "Room overlap detected"), its
+    /// cells set to its number; then <c>0x142104c60</c> fills the entry.</summary>
     public DungeonPlacement Place(DungeonRoom? room, int orientation, int w, int h, int x, int y, sbyte level, List<string> descriptions,
         string? type40, bool accessible, bool flag2, byte kind, byte b10, string? type48)
     {
@@ -72,7 +72,7 @@ sealed class DungeonMap(int width, int height, int unit, int overlap)
         if (room is not null)
         {
             if (room.Unit != Unit) throw new InvalidOperationException($"Cannot place room '{room.Path}': it has the wrong unit size");
-            // 0x141d75a50 with the table at 0x142fbe348 maps a turned exit to the room's own.
+            // 0x141d790e0 with the table at 0x142fc83e0 maps a turned exit to the room's own.
             var turned = DungeonRoomSet.TurnExits(room.Exits, room.Width, room.Height, orientation, Directional);
             for (int i = 0; i < p.Exits.Length; i++)
                 p.Exits[i] = new DungeonDoor { Type = turned[i].Type, Height = turned[i].Height, Chirality = turned[i].Chirality };
@@ -85,7 +85,7 @@ sealed class DungeonMap(int width, int height, int unit, int overlap)
         return p;
     }
 
-    /// <summary><c>0x1420fdf60</c>: the cells again from the rooms (reserved cells stay).</summary>
+    /// <summary><c>0x142104860</c>: the cells again from the rooms (reserved cells stay).</summary>
     public void Rebuild()
     {
         for (int i = 0; i < Cells.Length; i++)
@@ -100,7 +100,7 @@ sealed class DungeonMap(int width, int height, int unit, int overlap)
     }
 }
 
-/// <summary>The dungeon layout (<c>0x1421038d0</c>): a .dgr graph's rooms on a grid of room units. Its graph nodes'
+/// <summary>The dungeon layout (<c>0x14210a1d0</c>): a .dgr graph's rooms on a grid of room units. Its graph nodes'
 /// rooms go first; then, edge group by edge group, the free cells fill with blank rooms, each edge's two rooms are
 /// joined by a path of rooms and doors, and the blanks off every path go again; the blanks get rooms at the end.
 /// Ported in client order; the next part that is not ported throws <see cref="NotSupportedException"/>.</summary>
@@ -109,10 +109,10 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
     Func<string, IReadOnlyList<string>?>? fileGroup = null, string? outerGround = null, ExtraRoomPool? pool = null,
     sbyte? fillLevel = null)
 {
-    /// <summary>The layout's +0x40: per file group, the files its graph nodes took (<c>0x1421052e0</c>).</summary>
+    /// <summary>The layout's +0x40: per file group, the files its graph nodes took (<c>0x14210bbe0</c>).</summary>
     readonly Dictionary<string, List<string>> _groupsUsed = [];
 
-    /// <summary>The fill's per-room state (0x30 bytes, <c>0x1420fb310</c>): impenetrable (+0), on a path (+1), the path
+    /// <summary>The fill's per-room state (0x30 bytes, <c>0x142101c10</c>): impenetrable (+0), on a path (+1), the path
     /// search's predecessor (+4), extra door bias (+8), random number (+0xc, <c>Next(128)</c>), cost so far (+0x10) and
     /// estimate (+0x14), and the levels of the paths through it (+0x18, sorted).</summary>
     sealed class Info
@@ -129,7 +129,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
     readonly Dictionary<string, List<PathRecord>> _paths = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The void edges and the other edges by priority (three slots each, each slot's edges in lists by key
-    /// in key order), as <see cref="Run"/> sorts them (<c>0x142002b50</c>); a template node takes its edges out of
+    /// in key order), as <see cref="Run"/> sorts them (<c>0x1420093a0</c>); a template node takes its edges out of
     /// them, leaving its key's list (empty, it still draws).</summary>
     readonly List<GraphEdge> _voids = [];
     readonly SortedDictionary<sbyte, List<List<GraphEdge>>[]> _groups = [];
@@ -152,7 +152,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
     public void Run()
     {
         map.Directional = t => Directional(t);
-        // 0x1420127e0 → 0x142002b50: void edges to their own list, every other edge into the group of its priority:
+        // 0x142019030 → 0x1420093a0: void edges to their own list, every other edge into the group of its priority:
         // rooms.et edges in its third slot, edges whose type has one room size in the first, the rest in the second.
         var voids = _voids;
         var groups = _groups;
@@ -168,14 +168,14 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             else if (CompareKeys(ListKey(slots[slot][at][0]), k) == 0) slots[slot][at].Add(e);
             else slots[slot].Insert(at, [e]);
         }
-        if (groups.Count > 1) throw new NotSupportedException("dungeon edges of several priorities (0x1420039e0's order) are not ported");
-        // 0x142002790: the void edges by priority (a stable insertion sort).
+        if (groups.Count > 1) throw new NotSupportedException("dungeon edges of several priorities (0x14200a230's order) are not ported");
+        // 0x142008fe0: the void edges by priority (a stable insertion sort).
         var byPriority = voids.OrderBy(e => (sbyte)e.Priority).ToList();
         voids.Clear();
         voids.AddRange(byPriority);
-        // 0x142104710 → 0x142002460: each void edge's line through its points reserves its cells.
+        // 0x14210b010 → 0x142008cb0: each void edge's line through its points reserves its cells.
         foreach (var e in voids) Reserve(e);
-        // 0x142101890: the tagged nodes, then the untagged ones, each by priority (highest first), take their rooms.
+        // 0x142108190: the tagged nodes, then the untagged ones, each by priority (highest first), take their rooms.
         foreach (var n in graph.Nodes.Where(n => n.Tag.Length != 0).OrderByDescending(n => n.Priority)
                      .Concat(graph.Nodes.Where(n => n.Tag.Length == 0).OrderByDescending(n => n.Priority)).ToList())
             PlaceNode(n);
@@ -184,9 +184,9 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         Finish();
     }
 
-    /// <summary><c>0x1420014a0</c> (<c>0x142002ca0</c>): a slot keys its edges by impenetrable (I) first, then the bias
+    /// <summary><c>0x142007cf0</c> (<c>0x1420094f0</c>): a slot keys its edges by impenetrable (I) first, then the bias
     /// (+0x5c, the number before I/P; descending, unsigned), then the door type's n0 (.et +0x4c; descending), then the
-    /// type's path (<c>0x142006570</c>, ordinal); edges with the same key share a list, lists in key order.</summary>
+    /// type's path (<c>0x14200cdc0</c>, ordinal); edges with the same key share a list, lists in key order.</summary>
     (bool Impenetrable, uint Bias, byte N0, string Type) ListKey(GraphEdge e) =>
         (e.Dungeon!.Impenetrable, (uint)e.Dungeon.Bias, (byte)Edge(e.Type).N0, e.Type);
 
@@ -198,19 +198,19 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return string.CompareOrdinal(a.Type, b.Type);
     }
 
-    /// <summary><c>0x1421038d0</c> from the fill's state to the room picks (skipped when no edge is left to join).</summary>
+    /// <summary><c>0x14210a1d0</c> from the fill's state to the room picks (skipped when no edge is left to join).</summary>
     void Connections(SortedDictionary<sbyte, List<List<GraphEdge>>[]> groups)
     {
 
-        // 0x1420fb310: the fill's state for the rooms so far, all of them on a path; their blanks get flag 8.
+        // 0x142101c10: the fill's state for the rooms so far, all of them on a path; their blanks get flag 8.
         Resize();
         for (int k = 0; k < map.Rooms.Count; k++)
         {
             _info[k].Used = true;
             if ((map.Rooms[k].Flags & 4) == 0 && map.Rooms[k].Room is null) map.Rooms[k].Flags |= 8;
         }
-        // 0x1420028c0: every edge list (per group, slot and key; an emptied one too) shuffled, then by priority
-        // (0x142012820).
+        // 0x142009110: every edge list (per group, slot and key; an emptied one too) shuffled, then by priority
+        // (0x142019070).
         var lists = new List<List<GraphEdge>>();
         foreach (var slots in groups.Values)
             foreach (var slot in slots)
@@ -220,7 +220,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
                     rng.Shuffle(list);
                     lists.Add([.. list.OrderBy(e => (sbyte)e.Priority)]);
                 }
-        // 0x1420f9f00 → 0x1421040c0 per list.
+        // 0x142100800 → 0x14210a9c0 per list.
         foreach (var list in lists) Group(list);
         Branches();
         Cells("100d60<");
@@ -241,10 +241,10 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             }
     }
 
-    /// <summary><c>0x1421038d0</c>'s end (0x142103f31).</summary>
+    /// <summary><c>0x14210a1d0</c>'s end (0x14210a831).</summary>
     void Finish()
     {
-        // 0x142100910: entries without doors counted (+0x11 still 0) count the rooms they are joined to.
+        // 0x142107210: entries without doors counted (+0x11 still 0) count the rooms they are joined to.
         for (int k = 0; k < map.Rooms.Count; k++)
         {
             var r = map.Rooms[k];
@@ -257,14 +257,14 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         Cells("108dc0<");
         FillRooms();
         Cells("108dc0>");
-        // 0x142101aa0, 0x142101e50, 0x142102170, 0x142103490: the special rooms. Only 0x142101aa0's unnumbered
+        // 0x1421083a0, 0x142108750, 0x142108a70, 0x142109d90: the special rooms. Only 0x1421083a0's unnumbered
         // "special" rooms are ported; the others drew nothing in the 1_1_9a and 1_1_7_1 traces.
         SpecialRooms();
         if (pool is not null)
         {
-            // 0x142101e50: oversize rows go into the room set's telepad injector rooms (+0x190), not ported.
+            // 0x142108750: oversize rows go into the room set's telepad injector rooms (+0x190), not ported.
             if (pool.Rows.Any(r => r.Oversize) && roomSet.All.Any(r => r.Tag.StartsWith("telepad_injector", StringComparison.Ordinal)))
-                throw new NotSupportedException("oversize extra features in telepad injector rooms (0x142101e50) are not ported");
+                throw new NotSupportedException("oversize extra features in telepad injector rooms (0x142108750) are not ported");
             Inject();
             ShrineRooms();
         }
@@ -276,8 +276,8 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         LevelGenerator.DungeonRooms?.Invoke(map.Rooms.Select(RoomText).ToList());
     }
 
-    /// <summary><c>0x142108dc0</c>: <c>0x142108f70</c> while it places a room, for the grounds with .gt flag 2 first,
-    /// then for the others. (Master +0x238 / +0x240 ground overrides over a flooded region, <c>0x142108a40</c>, are
+    /// <summary><c>0x14210f6c0</c>: <c>0x14210f870</c> while it places a room, for the grounds with .gt flag 2 first,
+    /// then for the others. (Master +0x238 / +0x240 ground overrides over a flooded region, <c>0x14210f340</c>, are
     /// not ported.)</summary>
     void FillRooms()
     {
@@ -285,7 +285,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         while (FillRoomPass(false)) { }
     }
 
-    /// <summary><c>0x142108f70</c>: every placed room (rooms placed during the pass included) whose two corner grounds
+    /// <summary><c>0x14210f870</c>: every placed room (rooms placed during the pass included) whose two corner grounds
     /// on a side are the same (room data +0x13a, the room key's corners turned by the orientation) offers each cell
     /// across that side, at the level of the exit there (the master's DungeonFillRoomHeightOverride instead when it
     /// has one: +0x159 set, the level at +0x14d), to <see cref="FillCell"/> with that ground, when the ground's .gt
@@ -318,9 +318,9 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return placed;
     }
 
-    /// <summary><c>0x1421096f0</c>: a free cell takes a fill room of the ground (room set +0x98: per ground the sizes
-    /// of the rooms filed under it, <c>0x141ff5760</c>). <c>Next(total)</c> picks a size; when it fits nowhere around the
-    /// cell (<c>0x142109e90</c>) that entry goes and <c>Next(total)</c> picks again until one fits or none is left.</summary>
+    /// <summary><c>0x14210fff0</c>: a free cell takes a fill room of the ground (room set +0x98: per ground the sizes
+    /// of the rooms filed under it, <c>0x141ffbfb0</c>). <c>Next(total)</c> picks a size; when it fits nowhere around the
+    /// cell (<c>0x142110790</c>) that entry goes and <c>Next(total)</c> picks again until one fits or none is left.</summary>
     bool FillCell(int x, int y, string? ground, sbyte level)
     {
         if (map[x, y] != 0) return false;
@@ -349,7 +349,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary><c>0x142109e90</c>: the size placed with the cell at its top left, then (for a width or height over 1)
+    /// <summary><c>0x142110790</c>: the size placed with the cell at its top left, then (for a width or height over 1)
     /// at its top right, bottom left, bottom right.</summary>
     bool FillAround(int x, int y, int w, int h, string? ground, sbyte level, bool accessible)
     {
@@ -361,9 +361,9 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             PlaceFill(left, top, w, h, ground, level, accessible);
     }
 
-    /// <summary><c>0x142109c10</c>: inside the map on free cells (<c>0x1420fe050</c>), <c>Next(total)</c> picks a room
-    /// of the ground and size (room set +0xd8, <c>0x141ff9110</c>) and <c>Next(840)</c> one of its orientations; it is
-    /// placed (<c>0x1420fe780</c>) at the level as kind 6.</summary>
+    /// <summary><c>0x142110510</c>: inside the map on free cells (<c>0x142104950</c>), <c>Next(total)</c> picks a room
+    /// of the ground and size (room set +0xd8, <c>0x141fff960</c>) and <c>Next(840)</c> one of its orientations; it is
+    /// placed (<c>0x142105080</c>) at the level as kind 6.</summary>
     bool PlaceFill(int x, int y, int w, int h, string? ground, sbyte level, bool accessible)
     {
         if (x < 0 || y < 0 || x + w > map.Width || y + h > map.Height) return false;
@@ -381,10 +381,10 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return true;
     }
 
-    /// <summary><c>0x142101aa0</c>: room set +0x1c0 holds the special rooms by number (room data +4, <c>0x141ff6960</c>),
-    /// one list per number from 0 up to the largest, then the unnumbered rooms as the last list (<c>0x141ff7930</c>).
+    /// <summary><c>0x1421083a0</c>: room set +0x1c0 holds the special rooms by number (room data +4, <c>0x141ffd1b0</c>),
+    /// one list per number from 0 up to the largest, then the unnumbered rooms as the last list (<c>0x141ffe180</c>).
     /// Each list but the last that has rooms places one of them: a copy, <c>Next(count)</c> (unused), a shuffle
-    /// (<c>0x142129610</c>), then the first room that places, else "Failed to place special room" (one room) or
+    /// (<c>0x14212ff10</c>), then the first room that places, else "Failed to place special room" (one room) or
     /// "Failed to place a special&lt;n&gt; room". The last places each room whose chance (room data +5) passes
     /// (<c>Next(100)</c> below 100), else "Failed to place special room".</summary>
     void SpecialRooms()
@@ -405,8 +405,8 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary><c>0x142102170</c>: the pool's rows (not oversize) while the subgraph's share lasts. A row's room (one of
-    /// its rooms: <c>Next(count)</c> and a shuffle when it has several, the first that goes, <c>0x142102ed0</c>) of 3 × 3
+    /// <summary><c>0x142108a70</c>: the pool's rows (not oversize) while the subgraph's share lasts. A row's room (one of
+    /// its rooms: <c>Next(count)</c> and a shuffle when it has several, the first that goes, <c>0x1421097d0</c>) of 3 × 3
     /// tiles waits for a mission room when the room set has some (+0x130: "mission" rooms by their count of
     /// "missiontile" slots, ascending, those of the layout's unit size); any other room of the unit size replaces a
     /// placed room as a special room. Then the waiting rooms (at most the share; more is not ported) need mission rooms:
@@ -439,7 +439,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
         foreach (var row in used) pool.Remove(row, true);
         if (waiting.Count == 0 || share == 0) return;
-        if (share < waiting.Count) throw new NotSupportedException("more extra feature rooms than the share (0x14212dec0's shuffle) is not ported");
+        if (share < waiting.Count) throw new NotSupportedException("more extra feature rooms than the share (0x1421347c0's shuffle) is not ported");
         if (waiting.Any(w => w.Row.Tiles.Count != 0)) throw new NotSupportedException("extra feature tiles (the pool's tile store, +0x90) are not ported");
 
         var saved = Save();
@@ -496,7 +496,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             }
         }
 
-        // 0x142102ed0.
+        // 0x1421097d0.
         bool Feature(string arm, ExtraFeatureRow row)
         {
             var room = DungeonRoomSet.Parse(files, arm, 1, row.Mask) ?? throw new FileNotFoundException(arm);
@@ -507,17 +507,17 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             }
             if (room.Unit != map.Unit) return false;
             if (PlaceSpecial([(room, row.Mask)]) is null) return false;
-            // 0x141d8abb0 (the pool's placed rooms, by position) is left out: nothing in the layout reads it.
+            // 0x141d8e240 (the pool's placed rooms, by position) is left out: nothing in the layout reads it.
             used.Add(row);
             share--;
             return true;
         }
     }
 
-    /// <summary><c>0x142103490</c>: with shrines rolled (pool +0x148), as many tries as the count: the room set's
+    /// <summary><c>0x142109d90</c>: with shrines rolled (pool +0x148), as many tries as the count: the room set's
     /// "shrine" rooms (+0x118) of the layout's unit size (master +0x149), any orientation, go to
     /// <see cref="PlaceSpecial"/>; a placed room with a shrine object (room data +0x70, the object type taken to be
-    /// Metadata/Shrines/Shrine) counts a shrine placed (<c>0x141d8b9a0</c>).</summary>
+    /// Metadata/Shrines/Shrine) counts a shrine placed (<c>0x141d8f030</c>).</summary>
     void ShrineRooms()
     {
         var rooms = roomSet.All.Where(r => r.Tag == "shrine").ToList();
@@ -533,7 +533,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         TerrainText.Lines(files.Text(path) ?? "").Select(TerrainText.Tokenize)
             .Any(l => l.Count > 2 && l[^1].Text == "Metadata/Shrines/Shrine");
 
-    /// <summary><c>0x141ff6960</c>'s count for a "mission" room: its 'k' slots tagged "missiontile".</summary>
+    /// <summary><c>0x141ffd1b0</c>'s count for a "mission" room: its 'k' slots tagged "missiontile".</summary>
     static int MissionTiles(RoomDef def)
     {
         int n = 0;
@@ -542,7 +542,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return n;
     }
 
-    /// <summary>The layout as <c>0x142102170</c> copies it before each try (the entries' room, orientation and kind, the
+    /// <summary>The layout as <c>0x142108a70</c> copies it before each try (the entries' room, orientation and kind, the
     /// entry count and cells).</summary>
     (List<(DungeonRoom? Room, int Orientation, byte Kind)> Entries, int[] Cells) Save() =>
         (map.Rooms.Select(p => (p.Room, p.Orientation, p.Kind)).ToList(), (int[])map.Cells.Clone());
@@ -555,9 +555,9 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         saved.Cells.CopyTo(map.Cells, 0);
     }
 
-    /// <summary><c>0x1420ff140</c> for a list of rooms (with their orientation masks, 0 = any): an accessible placed
+    /// <summary><c>0x142105a40</c> for a list of rooms (with their orientation masks, 0 = any): an accessible placed
     /// room of no tag whose room is not special can take one when one of its orientations has the same size and exits
-    /// (<c>0x1420ffb90</c>, the first such orientation). The candidates are kept by entry index (each entry with the
+    /// (<c>0x142106490</c>, the first such orientation). The candidates are kept by entry index (each entry with the
     /// rooms that fit it, in list order); <c>Next(entries)</c>, then <c>Next(its rooms)</c>; the entry takes the room
     /// and orientation, kind 8. Without one, the room goes over several rooms (<see cref="PlaceOver"/>). Room data +9
     /// (rooms paired by +0x13a) is taken to be clear.</summary>
@@ -594,13 +594,13 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return q;
     }
 
-    /// <summary><c>0x1420ff140</c> when no room fits one entry: the room over several, each listed room against each
+    /// <summary><c>0x142105a40</c> when no room fits one entry: the room over several, each listed room against each
     /// accessible placed room of no tag whose room is not special, in each allowed orientation with a corner on that
     /// room's same corner (top left; top right for a width over 1; bottom left and bottom right for a height over 1;
-    /// <c>0x1420ffcf0</c>), where <see cref="Covers"/> allows it. The spots are kept by position (x · 0x10000 + y,
-    /// <c>0x1421277e0</c>), each with every room and orientation that went there; <c>Next(spots)</c>, then
+    /// <c>0x1421065f0</c>), where <see cref="Covers"/> allows it. The spots are kept by position (x · 0x10000 + y,
+    /// <c>0x14212e0e0</c>), each with every room and orientation that went there; <c>Next(spots)</c>, then
     /// <c>Next(its rooms)</c>. The rooms under it leave the list (from the last; the level is the first's), the cells
-    /// are rebuilt (<c>0x1420fdf60</c>) and the room is placed there (<c>0x1420fe780</c>): accessible, kind 8.</summary>
+    /// are rebuilt (<c>0x142104860</c>) and the room is placed there (<c>0x142105080</c>): accessible, kind 8.</summary>
     DungeonPlacement? PlaceOver(IReadOnlyList<(DungeonRoom Room, int Mask)> rooms)
     {
         var spots = new SortedDictionary<int, (int X, int Y, List<(DungeonRoom Room, int Orientation, int W, int H)> Rooms)>();
@@ -651,9 +651,9 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return q;
     }
 
-    /// <summary><c>0x1420fff20</c>: the turned room (w × h, its exits) at (x, y) inside the map over free cells and
+    /// <summary><c>0x142106820</c>: the turned room (w × h, its exits) at (x, y) inside the map over free cells and
     /// whole placed rooms (no reserved cell; each with no room, or a room not special of no tag; all at one level). On
-    /// the rectangle's border each such room's exits, or a free cell's (none), must equal the room's (<c>0x142100350</c>),
+    /// the rectangle's border each such room's exits, or a free cell's (none), must equal the room's (<c>0x142106c50</c>),
     /// except that a rooms.et exit of the room may face no door; and when the room has rooms.et exits, not all of them
     /// may face none.</summary>
     bool Covers(RoomExit[] exits, int w, int h, int x0, int y0)
@@ -709,7 +709,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary><c>0x1420feff0</c>: every exit of the room equals the entry's, except that where the room's door type
+    /// <summary><c>0x1421058f0</c>: every exit of the room equals the entry's, except that where the room's door type
     /// can end the entry may have no door; when the room has such an exit, some exit of the entry must have a door
     /// type that can end.</summary>
     bool ExitsFit(DungeonDoor[] placed, RoomExit[] room)
@@ -734,8 +734,8 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return !endable || ends != 0;
     }
 
-    /// <summary><c>0x1420fd3d0</c>: states for the new rooms; rooms with a room, and blanks with descriptions, are on a
-    /// path (the second also impenetrable). Its list at +0x58 (<c>0x1420fa120</c> per cell) is not ported.</summary>
+    /// <summary><c>0x142103cd0</c>: states for the new rooms; rooms with a room, and blanks with descriptions, are on a
+    /// path (the second also impenetrable). Its list at +0x58 (<c>0x142100a20</c> per cell) is not ported.</summary>
     void PrepareInfo()
     {
         Resize();
@@ -747,16 +747,16 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary>A room a branch may grow into (<c>0x1420fbfe0</c>'s 0x18-byte entries): the room (+0), the room it
+    /// <summary>A room a branch may grow into (<c>0x1421028e0</c>'s 0x18-byte entries): the room (+0), the room it
     /// grows from (+4), the edge's second branching chance (+8), the depth left (+9), impenetrability (+0xa), level
     /// (+0xb), accessible (+0xc), impenetrable (+0xd) and extra door type (+0x10).</summary>
     sealed record Candidate(int Room, int From, int Chance, sbyte Depth, int ExtraDoor, sbyte Level, bool Accessible,
         bool Impenetrable, string? Type);
 
-    /// <summary><c>0x1420fc690</c>: the door types of the paths, sorted, then <c>Next(count)</c> and shuffled; rooms.et
+    /// <summary><c>0x142102f90</c>: the door types of the paths, sorted, then <c>Next(count)</c> and shuffled; rooms.et
     /// last and, before it, types with one room size first (both stable). For each type with a path whose edge has a
     /// first branching chance, the free cells fill again with blanks of the type, and branches grow from its paths
-    /// (<c>0x1420fca30</c>); then the prune.</summary>
+    /// (<c>0x142103330</c>); then the prune.</summary>
     void Branches()
     {
         Cells("fc690<");
@@ -766,7 +766,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         rng.Next((uint)keys.Count);
         rng.Shuffle(keys);
         bool IsRooms(string k) => k.Equals(DungeonRoomSet.Rooms, StringComparison.OrdinalIgnoreCase);
-        // 0x142134760 then 0x14212db40 (on the part before rooms.et).
+        // 0x14213b060 then 0x142134440 (on the part before rooms.et).
         keys = [.. keys.Where(k => !IsRooms(k)).OrderBy(k => roomSet.Sizes(k).Count == 1 ? 0 : 1), .. keys.Where(IsRooms)];
         foreach (var key in keys)
         {
@@ -785,16 +785,16 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         Cells("fc690>");
     }
 
-    /// <summary><c>0x1420fca30</c>: next to the end rooms of nodes that branch, the blanks learn the path's level
-    /// (<c>0x1420fa120</c>); the paths' rooms offer their neighbours (<c>0x1420fc240</c>) and each is taken
-    /// (<c>0x1420fcf40</c>). Then, round by round, the rooms the last ones offered are shuffled (<c>Next(count)</c> and
-    /// <c>0x142129230</c>), grouped by chance (lowest first), and of each group of n the first
+    /// <summary><c>0x142103330</c>: next to the end rooms of nodes that branch, the blanks learn the path's level
+    /// (<c>0x142100a20</c>); the paths' rooms offer their neighbours (<c>0x142102b40</c>) and each is taken
+    /// (<c>0x142103840</c>). Then, round by round, the rooms the last ones offered are shuffled (<c>Next(count)</c> and
+    /// <c>0x14212fb30</c>), grouped by chance (lowest first), and of each group of n the first
     /// <see cref="Share"/>(chance, n) are taken, offering theirs.</summary>
     void Grow(string key)
     {
         foreach (var rec in _paths[key])
         {
-            // 0x1420fa240 for every three rooms in a row (its type and chirality arguments are taken to be the edge's).
+            // 0x142100b40 for every three rooms in a row (its type and chirality arguments are taken to be the edge's).
             for (int i = 1; i + 1 < rec.Rooms.Count; i++)
                 MiddleRoom(rec.Edge.Type, rec.Rooms[i + 1], rec.Rooms[i], rec.Rooms[i - 1], rec.Edge.Chirality != 0);
             if (rec.Edge.B.Branching != 0) Around(rec.Rooms[0], (x, y) => AddLevel(x, y, rec.Level));
@@ -824,7 +824,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return Math.Min(share, n);
     }
 
-    /// <summary><c>0x1420fee60</c> with <c>0x1421293c0</c> / <c>0x142129490</c>: the cells along the room's top, bottom,
+    /// <summary><c>0x142105760</c> with <c>0x14212fcc0</c> / <c>0x14212fd90</c>: the cells along the room's top, bottom,
     /// left and right sides; past a cell of a room the walk jumps to that room's far end.</summary>
     void Around(int room, Action<int, int> visit)
     {
@@ -853,14 +853,14 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         if (r.X + r.Width < map.Width) Column(r.X + r.Width, r.Y, r.Height);
     }
 
-    /// <summary><c>0x1420fa240</c> for the middle of three rooms on a path (<paramref name="next"/> is the room the walk
+    /// <summary><c>0x142100b40</c> for the middle of three rooms on a path (<paramref name="next"/> is the room the walk
     /// reached after it, <paramref name="before"/> the one before): with the master's RoomOverlap, the blanks across its
     /// exits without a door learn the level of that exit (its height plus the room's level), side by side: top, bottom,
     /// left, right. For a door type with a direction (RoomOverlap not tested): the sides of its first doors to
-    /// <paramref name="next"/> (chirality flipped) and to <paramref name="before"/> (<c>0x1420017a0</c>); for each of
+    /// <paramref name="next"/> (chirality flipped) and to <paramref name="before"/> (<c>0x142007ff0</c>); for each of
     /// the type's two grounds that is null or has .gt flag 1 (+0x24 bit 0), the side one or three steps clockwise from
     /// each door's side (ground 1: 1 + 2 × flipped chirality, ground 2: 1 + 2 × chirality) goes to
-    /// <c>0x1420fa750</c>.</summary>
+    /// <c>0x142101050</c>.</summary>
     void MiddleRoom(string? type, int next, int middle, int before, bool chirality)
     {
         if (type is null) return;
@@ -884,7 +884,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             return;
         }
         int SideOf(int e) => e < w ? 0 : e < w + h ? 1 : e < 2 * w + h ? 2 : 3;
-        // 0x1420fa240 reads the first door of each list without testing it is there.
+        // 0x142100b40 reads the first door of each list without testing it is there.
         int toNext = SideOf(DoorCandidates(m, map.RoomAt(next), type, !chirality)[0]);
         int toBefore = SideOf(DoorCandidates(m, map.RoomAt(before), type, chirality)[0]);
         var et = Edge(type);
@@ -902,7 +902,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             Side((c + toBefore) & 3);
         }
 
-        // 0x1420fa750: when side s (top, right, bottom, left) has no door, the blanks across the next side in the order
+        // 0x142101050: when side s (top, right, bottom, left) has no door, the blanks across the next side in the order
         // top, bottom, left, right learn their levels (side 0 → top, 1 → bottom, 2 → left, 3 → right, as the client).
         void Side(int s)
         {
@@ -919,7 +919,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary><c>0x1420fec10</c>'s corners: each diagonal cell off the room's corners whose number differs from both
+    /// <summary><c>0x142105510</c>'s corners: each diagonal cell off the room's corners whose number differs from both
     /// cells it touches along the room's sides (top left, top right, bottom right, bottom left).</summary>
     void Corners(int room, Action<int, int> visit)
     {
@@ -932,7 +932,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         if (x0 >= 0 && y1 < map.Height && Cell(x0, y1) != Cell(r.X, y1) && Cell(x0, y1) != Cell(x0, y1 - 1)) visit(x0, y1);
     }
 
-    /// <summary><c>0x1420fa120</c>: a blank off every path at the cell learns the level (its sorted level list).</summary>
+    /// <summary><c>0x142100a20</c>: a blank off every path at the cell learns the level (its sorted level list).</summary>
     void AddLevel(int x, int y, sbyte level)
     {
         int k = map[x, y];
@@ -949,7 +949,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return levels.Count == 0 ? level == 0 : levels.Count == 1 && levels[0] == level;
     }
 
-    /// <summary><c>0x1420fc240</c>: for each path of the type whose edge has a first branching chance, its rooms (the
+    /// <summary><c>0x142102b40</c>: for each path of the type whose edge has a first branching chance, its rooms (the
     /// end rooms only for nodes that branch) offer their neighbours with the edge's fields. Below 100 % the offers of a
     /// path are cut to <see cref="Share"/>(chance, n) after <c>Next(n)</c> and a shuffle.</summary>
     List<Candidate> Offered(string key)
@@ -970,13 +970,13 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             rng.Shuffle(target);
             list.AddRange(target.Take(take));
         }
-        // 0x1420fc240 sets every offer accessible when a flag at the fill state's +0x38 object (+0xc0) is set; not
+        // 0x142102b40 sets every offer accessible when a flag at the fill state's +0x38 object (+0xc0) is set; not
         // identified, so not ported.
         return list;
     }
 
-    /// <summary><c>0x1420fbee0</c> → <c>0x1420fbfe0</c> per neighbouring cell: a room off every path and not
-    /// impenetrable, whose levels fit, that a door of the type could join to the room (<c>0x1420fb480</c>).</summary>
+    /// <summary><c>0x1421027e0</c> → <c>0x1421028e0</c> per neighbouring cell: a room off every path and not
+    /// impenetrable, whose levels fit, that a door of the type could join to the room (<c>0x142101d80</c>).</summary>
     void Offer(List<Candidate> list, int from, sbyte depth, int chance, sbyte level, bool accessible, bool impenetrable, string key,
         int impenetrability, string? type)
     {
@@ -989,8 +989,8 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         });
     }
 
-    /// <summary><c>0x1420fb480</c>: among the doors between the rooms (<c>0x1420017a0</c>), an empty exit of a blank
-    /// that some untagged room in some orientation of the blank's size could have with that door (<c>0x141ff89d0</c>),
+    /// <summary><c>0x142101d80</c>: among the doors between the rooms (<c>0x142007ff0</c>), an empty exit of a blank
+    /// that some untagged room in some orientation of the blank's size could have with that door (<c>0x141fff220</c>),
     /// or an exit of the type at the level.</summary>
     bool CanBranch(DungeonPlacement a, sbyte level, string key, DungeonPlacement b)
     {
@@ -1008,14 +1008,14 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return false;
     }
 
-    /// <summary>Some untagged room in some orientation (<c>0x141ff5760</c>'s "" list) has the size and every exit
-    /// given (type, height and chirality; an exit without a type matches any, <c>0x141ff89d0</c>).</summary>
+    /// <summary>Some untagged room in some orientation (<c>0x141ffbfb0</c>'s "" list) has the size and every exit
+    /// given (type, height and chirality; an exit without a type matches any, <c>0x141fff220</c>).</summary>
     bool SomeRoomFits(int w, int h, (string? Type, sbyte Height, bool Chirality)[] exits) =>
         roomSet.Variants("", Directional).Any(v => v.W == w && v.H == h && exits.Select((x, i) => x.Type is null ||
             (string.Equals(v.Exits[i].Type, x.Type, StringComparison.OrdinalIgnoreCase) && v.Exits[i].Height == x.Height &&
              v.Exits[i].Chirality == x.Chirality)).All(ok => ok));
 
-    /// <summary><c>0x1420fe170</c>: the room across exit e of room k (top, right, bottom, left side), if any.</summary>
+    /// <summary><c>0x142104a70</c>: the room across exit e of room k (top, right, bottom, left side), if any.</summary>
     DungeonPlacement? Across(int k, int e)
     {
         var r = map.RoomAt(k);
@@ -1027,16 +1027,16 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return map.Inside(x, y) && map[x, y] > 1 ? map.RoomAt(map[x, y]) : null;
     }
 
-    /// <summary><c>0x142002070</c>: some exit of room a on the side it shares with room b has a type the facing exit of
+    /// <summary><c>0x1420088c0</c>: some exit of room a on the side it shares with room b has a type the facing exit of
     /// b has too.</summary>
     static bool Joined(DungeonPlacement a, DungeonPlacement b) =>
         SharedExits(a, b).Any(e => a.Exits[e].Type is { } t && string.Equals(b.Exits[Facing(a, b, e)].Type, t, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary><c>0x142100d60</c>: each room with an extra door chance (+0x10) lists its exits without a door or with
+    /// <summary><c>0x142107660</c>: each room with an extra door chance (+0x10) lists its exits without a door or with
     /// its extra door type (+0x48) that face a room not yet joined to it (not impenetrable, unless the graph's
     /// open_extra_doors_into_impenetrable_rooms, and one of the two accessible); <c>Next(count)</c> and shuffled. Down
-    /// the list, where a door of the extra door type could join both at the higher level (<c>0x1420fb480</c> both
-    /// ways), <c>Next(100)</c> under the chance opens it (<c>0x142001e80</c>, blank heights); a chance over 100 goes on
+    /// the list, where a door of the extra door type could join both at the higher level (<c>0x142101d80</c> both
+    /// ways), <c>Next(100)</c> under the chance opens it (<c>0x1420086d0</c>, blank heights); a chance over 100 goes on
     /// with 100 less. Rooms joined so with an accessible one become accessible.</summary>
     void ExtraDoors()
     {
@@ -1050,7 +1050,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             {
                 var t = r.Exits[e].Type;
                 if (t is not null && !string.Equals(t, r.Type48, StringComparison.OrdinalIgnoreCase)) continue;
-                // +0xc1 of the object 0x142100d60 gets as its second argument, taken to be the graph's flag.
+                // +0xc1 of the object 0x142107660 gets as its second argument, taken to be the graph's flag.
                 if (Across(i + 2, e) is not { } n || (!graph.ExtraDoorsIntoImpenetrable && (n.Flags & 2) != 0) ||
                     ((r.Flags & 1) == 0 && (n.Flags & 1) == 0) || Joined(r, n))
                     continue;
@@ -1078,7 +1078,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         foreach (int i in accessible) map.Rooms[i].Flags |= 1;
     }
 
-    /// <summary><c>0x1421012c0</c>: with the master's SwapDungeonDoorsFrom / To (taken to be the room set's +0x258 /
+    /// <summary><c>0x142107bc0</c>: with the master's SwapDungeonDoorsFrom / To (taken to be the room set's +0x258 /
     /// +0x260), each room's doors of the first type (<c>Next(count)</c>, shuffled) facing a door of the same type take
     /// the second on both sides, where some untagged room could still have each side's exits.</summary>
     void SwapDoors()
@@ -1107,17 +1107,17 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary>A room the pick may give a blank (<c>0x141ff84e0</c>'s 0x18-byte entries): the room, the orientations
+    /// <summary>A room the pick may give a blank (<c>0x141ffed30</c>'s 0x18-byte entries): the room, the orientations
     /// that fit (a mask) and its weight.</summary>
     sealed record Choice(DungeonRoom Room, int Mask, int Weight);
 
     bool CanEnd(string? type) => type is not null && Edge(type).CanEnd;
 
-    /// <summary><c>0x1421083e0</c>: a blank with a door type (+0x40), no flag 8 and no descriptions takes a room of its
+    /// <summary><c>0x14210ece0</c>: a blank with a door type (+0x40), no flag 8 and no descriptions takes a room of its
     /// size whose exits fit (<see cref="Choices"/>; strict unless the blank has neither flag 4 nor a chance at +0x10 and
     /// its type can end: then strict first, else loose). <c>Next(total)</c> picks one, <c>Next(840)</c> the orientation
-    /// among those that fit (<c>0x14299da50</c>); with more than one choice and a neighbour holding the same room
-    /// (<c>0x142108920</c>) both draws again. <c>0x1420fe360</c> fills the entry.</summary>
+    /// among those that fit (<c>0x1429a6db0</c>); with more than one choice and a neighbour holding the same room
+    /// (<c>0x14210f220</c>) both draws again. <c>0x142104c60</c> fills the entry.</summary>
     void Pick(int k)
     {
         var p = map.RoomAt(k);
@@ -1141,7 +1141,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         notes.Add($"dungeon pick ({p.X}, {p.Y}) {p.Width}x{p.Height}: {Path.GetFileName(room.Path)} o{orientation}");
     }
 
-    /// <summary><c>0x14299da50</c>: the r-th (mod count) orientation of the mask, or r &amp; 7 for none or all.</summary>
+    /// <summary><c>0x1429a6db0</c>: the r-th (mod count) orientation of the mask, or r &amp; 7 for none or all.</summary>
     static int OrientationOf(int mask, uint r)
     {
         if (mask is 0 or 0xff) return (int)(r & 7);
@@ -1149,7 +1149,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return bits[(int)(r % (uint)bits.Count)];
     }
 
-    /// <summary><c>0x141ff8300</c> → <c>0x141ff84e0</c>: the rooms of the blank's size (<see cref="DungeonRoomSet.BySize"/>)
+    /// <summary><c>0x141ffeb50</c> → <c>0x141ffed30</c>: the rooms of the blank's size (<see cref="DungeonRoomSet.BySize"/>)
     /// whose exits have each of the blank's doors (type, height, and chirality for a type with a direction); a room exit
     /// where the blank has none is allowed only when not strict, and on the first pass only for a type that can end
     /// (the loose search makes a second pass that allows any when the first finds nothing). Fitting entries of the same
@@ -1201,7 +1201,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return result;
     }
 
-    /// <summary><c>0x142108920</c>: a room along the sides of the blank (anchored as a node room is) holds the same room.</summary>
+    /// <summary><c>0x14210f220</c>: a room along the sides of the blank (anchored as a node room is) holds the same room.</summary>
     /// <summary>The client compares rooms by their .arm resource, one per path: a room the .rs lists twice is the same
     /// room (the second entry keeps its own weight).</summary>
     static bool SameRoom(DungeonRoom? a, DungeonRoom? b) =>
@@ -1243,8 +1243,8 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return same;
     }
 
-    /// <summary><c>0x1420fe360</c> for a picked room: the entry takes the room and orientation; +0x11 counts its doors so
-    /// far; its exits become the room's own, turned (<c>0x141d75a50</c>, table 0x142fbe348); flags 4 and 8 clear.</summary>
+    /// <summary><c>0x142104c60</c> for a picked room: the entry takes the room and orientation; +0x11 counts its doors so
+    /// far; its exits become the room's own, turned (<c>0x141d790e0</c>, table 0x142fc83e0); flags 4 and 8 clear.</summary>
     void FillRoom(DungeonPlacement p, DungeonRoom room, int orientation)
     {
         if (room.Unit != map.Unit) throw new InvalidOperationException($"Cannot place room '{room.Path}': it has the wrong unit size");
@@ -1257,7 +1257,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             p.Exits[i] = new DungeonDoor { Type = turned[i].Type, Height = turned[i].Height, Chirality = turned[i].Chirality };
     }
 
-    /// <summary><c>0x1420fcf40</c>: a room off every path whose levels fit joins the branch: it takes the level, the
+    /// <summary><c>0x142103840</c>: a room off every path whose levels fit joins the branch: it takes the level, the
     /// type, the flags and the extra door type, kind 5 (the room it grew from, if kind 5, becomes 4), a door to the room
     /// it grew from, and offers its own neighbours while depth is left.</summary>
     void Take(Candidate c, string key, List<Candidate> pending)
@@ -1276,7 +1276,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         info.Used = true;
         info.Impenetrable = c.Impenetrable;
         OpenDoor(p, from, key, false, false);
-        // 0x1420fec10 with 0x1420fa120 for RoomOverlap: the blanks around it and across its corners learn the level.
+        // 0x142105510 with 0x142100a20 for RoomOverlap: the blanks around it and across its corners learn the level.
         if (map.Overlap != 0)
         {
             Around(c.Room, (x, y) => AddLevel(x, y, c.Level));
@@ -1286,8 +1286,8 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             Offer(pending, c.Room, (sbyte)(c.Depth - 1), c.Chance, c.Level, c.Accessible, c.Impenetrable, key, c.ExtraDoor, c.Type);
     }
 
-    /// <summary><c>0x142002460</c>: the edge's line (its void ends, then its points, scaled to cells) drawn cell by cell
-    /// (<c>0x1420fe2e0</c>: free cells become reserved).</summary>
+    /// <summary><c>0x142008cb0</c>: the edge's line (its void ends, then its points, scaled to cells) drawn cell by cell
+    /// (<c>0x142104be0</c>: free cells become reserved).</summary>
     void Reserve(GraphEdge e)
     {
         var points = new List<(int X, int Y)>();
@@ -1316,7 +1316,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary><c>0x142106b00</c>: a node that is not void takes a room of its tag at its cell.</summary>
+    /// <summary><c>0x14210d400</c>: a node that is not void takes a room of its tag at its cell.</summary>
     void PlaceNode(GraphNode n)
     {
         if (n.Placed) return;
@@ -1345,12 +1345,12 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         notes.Add($"dungeon node {n}: {p}");
     }
 
-    /// <summary><c>0x142105a70</c> → <c>0x1421052e0</c> for a "graph" node: its descriptions are a graph (.dgr / .tgr) or
+    /// <summary><c>0x14210c370</c> → <c>0x14210bbe0</c> for a "graph" node: its descriptions are a graph (.dgr / .tgr) or
     /// a FileGroups group, a width and a height (each at most 1000, swapped for an odd graph orientation). For a group,
     /// <c>Next(count)</c> picks one of its files; when the group already gave files in this layout, those are left out
     /// and, if any are left, <c>Next(left)</c> picks again; the file replaces the first description. The node then
-    /// takes a w × h entry without a room (kind 1) at its anchor (<c>0x1421062e0</c>); the subgraph comes later
-    /// (<c>0x14204f030</c>).</summary>
+    /// takes a w × h entry without a room (kind 1) at its anchor (<c>0x14210cbe0</c>); the subgraph comes later
+    /// (<c>0x142055880</c>).</summary>
     void PlaceSubgraphNode(GraphNode n, List<GraphEdge> edges, bool flag2)
     {
         var d = n.Descriptions;
@@ -1381,20 +1381,20 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         notes.Add($"dungeon node {n}: subgraph {descriptions[0]} {p}");
     }
 
-    /// <summary><c>0x142107840</c>: a "template" node takes a blank of a room's size with that room's exits. Each slot
+    /// <summary><c>0x14210e140</c>: a "template" node takes a blank of a room's size with that room's exits. Each slot
     /// edge goes to a side (<see cref="TemplateSides"/>); a side's exit is its edge's type at height 0, with the
-    /// direction of <see cref="NodeExits"/> (<c>0x141ff2ee0</c>), or no door. An edge whose type is not the default
+    /// direction of <see cref="NodeExits"/> (<c>0x141ff9730</c>), or no door. An edge whose type is not the default
     /// (rooms.et, layout +0x20) leaves the void and connection lists (the room stands for it) and its type joins the
-    /// layout's types (<c>0x142127400</c>, ordered by the handle's address; slot order here). The node's
-    /// tag's room-set entries with that exit on every side (<c>0x141ff81b0</c> → <c>0x142012ab0</c>), kept to a
+    /// layout's types (<c>0x14212dd00</c>, ordered by the handle's address; slot order here). The node's
+    /// tag's room-set entries with that exit on every side (<c>0x141ffea00</c> → <c>0x142019300</c>), kept to a
     /// "size:" description's size, else all of one size ("Multiple room sizes found for template node");
-    /// <c>Next(total weight)</c> picks one, anchored as a room (<c>0x1421062e0</c>), then the node door type. The blank
-    /// (<c>0x142100650</c>: no room, orientation 8, kind 0, type +0x40 the first such type or rooms.et, flag 4) takes
+    /// <c>Next(total weight)</c> picks one, anchored as a room (<c>0x14210cbe0</c>), then the node door type. The blank
+    /// (<c>0x142106f50</c>: no room, orientation 8, kind 0, type +0x40 the first such type or rooms.et, flag 4) takes
     /// the picked room's exits whose being rooms.et matches the type's. A node without edges (a fixed-size blank at
-    /// its clamped corner, <c>0x1421069d0</c>) is not ported.</summary>
+    /// its clamped corner, <c>0x14210d2d0</c>) is not ported.</summary>
     void PlaceTemplate(GraphNode n, List<GraphEdge> edges, bool flag2)
     {
-        if (edges.Count == 0) throw new NotSupportedException($"{n}: template nodes without edges (0x142107840) are not ported");
+        if (edges.Count == 0) throw new NotSupportedException($"{n}: template nodes without edges (0x14210e140) are not ported");
         var sides = TemplateSides(n) ?? throw new InvalidOperationException($"Failed to calculate edge layout for template node at location {n}");
         var template = new RoomExit[4];
         var types = new List<string>();
@@ -1439,7 +1439,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         notes.Add($"dungeon node {n}: template {Path.GetFileName(chosen.Room.Path)} o{chosen.Orientation} {p}");
     }
 
-    /// <summary><c>0x142012ab0</c>: every side (top w exits, right h, bottom w, left h) has an exit equal to the
+    /// <summary><c>0x142019300</c>: every side (top w exits, right h, bottom w, left h) has an exit equal to the
     /// template's for that side (type, height and direction; no door where the template has none).</summary>
     static bool SidesHold(RoomExit[] exits, int w, int h, RoomExit[] template)
     {
@@ -1455,12 +1455,12 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return true;
     }
 
-    /// <summary><c>0x1421299f0</c>: the side (0 top, 1 right, 2 bottom, 3 left) of each edge slot, 4 for none. A slot's
+    /// <summary><c>0x1421302f0</c>: the side (0 top, 1 right, 2 bottom, 3 left) of each edge slot, 4 for none. A slot's
     /// edge, unless its type is a wildcard (.et flag 0x80), goes to the side its direction leans to: towards its first
     /// internal point from this end (the other node without points), the larger of |dx| and |dy| deciding, a tie
     /// vertical. While a side holds two or more, a slot of it may move to a neighbouring side holding none
-    /// (<c>0x142129d80</c> with 0), else one (with 1): of all such moves the one whose direction is nearest the new
-    /// side's (<c>0x14299d730</c>, the first of equals; the side before then the side after, slots in side order).
+    /// (<c>0x142130680</c> with 0), else one (with 1): of all such moves the one whose direction is nearest the new
+    /// side's (<c>0x1429a6a90</c>, the first of equals; the side before then the side after, slots in side order).
     /// Null when a side is still shared.</summary>
     int[]? TemplateSides(GraphNode n)
     {
@@ -1513,7 +1513,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             return moves;
         }
 
-        // 0x14299d730: the index into its arc-cosine table (255 steps, 0 = opposite, 254 = the same direction); the
+        // 0x1429a6a90: the index into its arc-cosine table (255 steps, 0 = opposite, 254 = the same direction); the
         // table falls with the index, so the smallest angle is the largest index.
         static int Closeness(int ax, int ay, (int X, int Y) b)
         {
@@ -1526,10 +1526,10 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary><c>0x142107130</c>: an untagged node takes a blank (kind 3, no room yet) of one of its door type's room
-    /// sizes (<c>0x142106db0</c>: the first edge's type, kept to a "size:" description's size). <c>Next(total)</c> picks
+    /// <summary><c>0x14210da30</c>: an untagged node takes a blank (kind 3, no room yet) of one of its door type's room
+    /// sizes (<c>0x14210d6b0</c>: the first edge's type, kept to a "size:" description's size). <c>Next(total)</c> picks
     /// a size; it must fit on free cells at the node's anchor (graph orientation, not kept inside the map) and hold no
-    /// other node's cell (<c>0x1421069d0</c>), else that size is dropped and the next one drawn.</summary>
+    /// other node's cell (<c>0x14210d2d0</c>), else that size is dropped and the next one drawn.</summary>
     void PlaceBlank(GraphNode n, List<GraphEdge> edges, bool flag2)
     {
         var (x, y) = Cell(n.X, n.Y);
@@ -1537,7 +1537,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             throw new InvalidOperationException($"Non-feature node out-of-bounds at room ({x}, {y})");
         if (map[x, y] == 1) map[x, y] = 0;
         if (map[x, y] != 0) throw new InvalidOperationException($"Non-feature node overlapping another node at room ({x}, {y})");
-        // 0x142106db0: the first slot edge whose type is not the default (layout +0x20, rooms.et), else the default.
+        // 0x14210d6b0: the first slot edge whose type is not the default (layout +0x20, rooms.et), else the default.
         string type = n.Slots.FirstOrDefault(e => e is not null && !e.Type.Equals(DungeonRoomSet.Rooms, StringComparison.OrdinalIgnoreCase))?.Type ??
             DungeonRoomSet.Rooms;
         var sizes = roomSet.Sizes(type).ToList();
@@ -1566,7 +1566,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary><c>0x142127f90</c>: a "size:WxH" or "size:N" (N × N) description.</summary>
+    /// <summary><c>0x14212e890</c>: a "size:WxH" or "size:N" (N × N) description.</summary>
     static (int W, int H)? SizeDescription(GraphNode n)
     {
         foreach (var d in n.Descriptions)
@@ -1579,13 +1579,13 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return null;
     }
 
-    /// <summary><c>0x1420f9d50</c>: one of the node's edges is accessible, or a description says "accessible",
+    /// <summary><c>0x142100650</c>: one of the node's edges is accessible, or a description says "accessible",
     /// "default", "entrance…" or "sideentrance…".</summary>
     static bool Accessible(GraphNode n, List<GraphEdge> edges) =>
         edges.Any(e => e.Dungeon!.Accessible) || n.Descriptions.Any(d => d is "accessible" or "default" ||
             d.StartsWith("entrance", StringComparison.Ordinal) || d.StartsWith("sideentrance", StringComparison.Ordinal));
 
-    /// <summary><c>0x142003740</c> (the node room's +0x48 door type): the node's edge slots (+0x58) with an extra door
+    /// <summary><c>0x142009f90</c> (the node room's +0x48 door type): the node's edge slots (+0x58) with an extra door
     /// chance (+0x54), weighted by it, <c>Next(total)</c> picks one's extra door type (+0x70). With none, no draw and
     /// the default (the client's global string, taken as rooms.et).</summary>
     string NodeDoorType(GraphNode n)
@@ -1601,12 +1601,12 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return slots[^1].ExtraDoorType;
     }
 
-    /// <summary><c>0x142105a70</c>: the room set's (room, orientation) entries of the node's tag whose exits hold the
-    /// node's edges (<c>0x142104990</c> → <c>0x141ff8ff0</c>); of those, the ones in the node's orientation (any for
-    /// orientation 8) that fit at its anchor with enough doors into the map (<c>0x1421298e0</c> →
-    /// <c>0x1421065a0</c>). Entries with a door a placed neighbour room does not answer go only when every entry has
-    /// one. <c>Next(total weight)</c> picks one, anchored by <c>0x1421062e0</c>; when a side neighbour already holds
-    /// that room, <c>Next(total)</c> once more (<c>0x142108920</c>).</summary>
+    /// <summary><c>0x14210c370</c>: the room set's (room, orientation) entries of the node's tag whose exits hold the
+    /// node's edges (<c>0x14210b290</c> → <c>0x141fff840</c>); of those, the ones in the node's orientation (any for
+    /// orientation 8) that fit at its anchor with enough doors into the map (<c>0x1421301e0</c> →
+    /// <c>0x14210cea0</c>). Entries with a door a placed neighbour room does not answer go only when every entry has
+    /// one. <c>Next(total weight)</c> picks one, anchored by <c>0x14210cbe0</c>; when a side neighbour already holds
+    /// that room, <c>Next(total)</c> once more (<c>0x14210f220</c>).</summary>
     (DungeonRoom Room, int Orientation, int W, int H) PickRoom(GraphNode n, ref int x, ref int y)
     {
         var wanted = NodeExits(n);
@@ -1614,8 +1614,8 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         List<(DungeonRoom Room, int Orientation, int W, int H, RoomExit[] Exits)> candidates;
         if (n.Orientation == 9)
         {
-            // 0x142104990's "(best)" branch: one wanted exit per side (BestExits); rooms with exactly those on their sides
-            // (0x141ff81b0, callback 0x142012ab0), else rooms whose other sides only end (callback 0x142012bc0).
+            // 0x14210b290's "(best)" branch: one wanted exit per side (BestExits); rooms with exactly those on their sides
+            // (0x141ffea00, callback 0x142019300), else rooms whose other sides only end (callback 0x142019410).
             var sides = BestExits(n) ?? throw new NotSupportedException($"{n}: two edges of a \"(best)\" node want one side; the room lookup comes back empty (not ported)");
             var all = variants.ToList();
             candidates = all.Where(v => SidesHold(v.Exits, v.W, v.H, sides, endOk: false)).ToList();
@@ -1624,19 +1624,19 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         else candidates = variants.Where(v => Holds(v.Exits, wanted)).ToList();
         if (candidates.Count == 0)
         {
-            // 0x141d8b750: the generator's extra room pool (+0x40, filled per graph by 0x14204bfa0 / 0x141d8bba0;
+            // 0x141d8ede0: the generator's extra room pool (+0x40, filled per graph by 0x1420527f0 / 0x141d8f230;
             // the Labyrinth's "secret" rooms), every orientation at weight 1. With nothing in it the client gives up
             // (the Delve cells' "north", the Sanctum floors' "land", AbyssLeague's "entrance").
             if (pool is null || pool.Rows.Count == 0 && pool.Injected.Count == 0)
                 throw new InvalidOperationException($"No possible rooms found for room at ({x}, {y}) with type \"{n.Tag}\".");
-            throw new NotSupportedException($"{n}: no room of tag '{n.Tag}' holds the node's exits; the extra room pool (0x141d8b750) is not ported");
+            throw new NotSupportedException($"{n}: no room of tag '{n.Tag}' holds the node's exits; the extra room pool (0x141d8ede0) is not ported");
         }
         int nx = x, ny = y;
         var fits = new List<(DungeonRoom Room, int Orientation, int W, int H, int X, int Y, bool Mismatch)>();
         foreach (var (r, o, w, h, _) in candidates)
         {
             if (n.Orientation < 8 && o != n.Orientation) continue;
-            // 0x1421062e0 reads the graph's orientation (+0x58), not the node's.
+            // 0x14210cbe0 reads the graph's orientation (+0x58), not the node's.
             var (ax, ay) = Anchor(graphOrientation, nx, ny, w, h);
             if (RoomFits(r, o, w, h, ax, ay, wanted.Count, out bool mismatch)) fits.Add((r, o, w, h, ax, ay, mismatch));
         }
@@ -1649,7 +1649,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         y = chosen.Y;
         return (chosen.Room, chosen.Orientation, chosen.W, chosen.H);
 
-        // 0x141f4f970: the entry the pick falls in, else the last.
+        // 0x141f56260: the entry the pick falls in, else the last.
         (DungeonRoom Room, int Orientation, int W, int H, int X, int Y, bool Mismatch) Weighted(int pick)
         {
             int i = 0;
@@ -1658,9 +1658,9 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary><c>0x142104990</c> for a node of a fixed orientation: one exit per edge slot in slot order (type,
+    /// <summary><c>0x14210b290</c> for a node of a fixed orientation: one exit per edge slot in slot order (type,
     /// the higher of the edge's two nodes' heights less the node's, and for a door type with a direction, whether the
-    /// node is the edge's first end, flipped by the edge's chirality; <c>0x141ff2ee0</c>).</summary>
+    /// node is the edge's first end, flipped by the edge's chirality; <c>0x141ff9730</c>).</summary>
     List<RoomExit> NodeExits(GraphNode n)
     {
         var exits = new List<RoomExit>();
@@ -1673,10 +1673,10 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return exits;
     }
 
-    /// <summary><c>0x142104990</c> for a "(best)" node (orientation 9): every slot edge offers the sides its first step
+    /// <summary><c>0x14210b290</c> for a "(best)" node (orientation 9): every slot edge offers the sides its first step
     /// leaves by (from the node to the edge's next point: left or right by x, up or down by y), each with the angle to
-    /// that axis (<c>0x14299d730</c> against (±100, 0) / (0, ±100)). Sorted by angle, largest first (a stable insertion
-    /// sort, <c>0x14212e040</c>), they are taken from the back: an edge whose side is still free takes it (type,
+    /// that axis (<c>0x1429a6a90</c> against (±100, 0) / (0, ±100)). Sorted by angle, largest first (a stable insertion
+    /// sort, <c>0x142134940</c>), they are taken from the back: an edge whose side is still free takes it (type,
     /// chirality as for a fixed node, height the higher of its two nodes', the node's own not taken off) and its other
     /// offers go. Null when an edge finds no free side.</summary>
     RoomExit?[]? BestExits(GraphNode n)
@@ -1707,7 +1707,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return sides.Count(x => x is not null) == n.Slots.Count(x => x is not null) ? sides : null;
     }
 
-    /// <summary><c>0x142012ab0</c> / <c>0x142012bc0</c>: on each side of the turned room (top [0, w), right [w, w + h),
+    /// <summary><c>0x142019300</c> / <c>0x142019410</c>: on each side of the turned room (top [0, w), right [w, w + h),
     /// bottom, left) an exit equal to that side's wanted one (an empty side wants an exit without a type). With
     /// <paramref name="endOk"/> a side without a wanted exit passes when its exits have no type or one that can end
     /// (.et flag 0x10).</summary>
@@ -1728,7 +1728,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return true;
     }
 
-    /// <summary><c>0x141ff8900</c>: every wanted exit takes one of the room's exits with the same type, height and
+    /// <summary><c>0x141fff150</c>: every wanted exit takes one of the room's exits with the same type, height and
     /// chirality.</summary>
     static bool Holds(RoomExit[] exits, List<RoomExit> wanted)
     {
@@ -1744,7 +1744,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         static (string?, sbyte, bool) Key(RoomExit x) => (x.Type?.ToLowerInvariant(), x.Height, x.Chirality);
     }
 
-    /// <summary><c>0x1421065a0</c>: the room's cells are free or reserved (<c>0x1420fe0e0</c>); unless it is the size of
+    /// <summary><c>0x14210cea0</c>: the room's cells are free or reserved (<c>0x1421049e0</c>); unless it is the size of
     /// the map, its doors that lead to a cell inside the map must be at least the node's edges. A door into a placed
     /// room whose exit facing it has another type (rooms.et and door types with flag 0x10 aside) is a mismatch.</summary>
     bool RoomFits(DungeonRoom room, int orientation, int w, int h, int ax, int ay, int edges, out bool mismatch)
@@ -1763,7 +1763,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
             var exit = room.Exits[i];
             if (exit.Type is null) continue;
             doors = true;
-            // 0x141d75a50: the room's exit i in the turned room.
+            // 0x141d790e0: the room's exit i in the turned room.
             int o = Math.Min(orientation, 8);
             int j = (o is >= 4 and < 8 ? n - i - 1 : i);
             j = (j + a[o] * room.Width + b[o] * room.Height) % n;
@@ -1782,8 +1782,8 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return !doors || inside >= edges;
     }
 
-    /// <summary><c>0x1421062e0</c>: the cell the node's room starts at: the node's cell less the corner the orientation
-    /// puts there (table 0x142fa04b0), kept inside the map.</summary>
+    /// <summary><c>0x14210cbe0</c>: the cell the node's room starts at: the node's cell less the corner the orientation
+    /// puts there (table 0x142faa4d8), kept inside the map.</summary>
     (int X, int Y) Anchor(int orientation, int x, int y, int w, int h)
     {
         if (w > map.Width || h > map.Height) throw new InvalidOperationException($"a {w}x{h} room is bigger than the graph");
@@ -1791,7 +1791,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return (Math.Min(Math.Max(0, cx), map.Width - w), Math.Min(Math.Max(0, cy), map.Height - h));
     }
 
-    /// <summary>The node's cell less the corner the orientation puts there (table 0x142fa04b0).</summary>
+    /// <summary>The node's cell less the corner the orientation puts there (table 0x142faa4d8).</summary>
     static (int X, int Y) Corner(int orientation, int x, int y, int w, int h)
     {
         ReadOnlySpan<byte> table = [0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1];
@@ -1804,7 +1804,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return (x - ox, y - oy);
     }
 
-    /// <summary><c>0x142100be0</c>: node rooms whose descriptions say "default" or hold "telepad", "teleport" or
+    /// <summary><c>0x1421074e0</c>: node rooms whose descriptions say "default" or hold "telepad", "teleport" or
     /// "entrance" get flag 0x10.</summary>
     void Teleports()
     {
@@ -1816,7 +1816,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary><c>0x1420fd1f0</c>: one fill state per room; each new one draws its random number (<c>Next(128)</c>).
+    /// <summary><c>0x142103af0</c>: one fill state per room; each new one draws its random number (<c>Next(128)</c>).
     /// Every predecessor is cleared.</summary>
     void Resize()
     {
@@ -1825,7 +1825,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         foreach (var i in _info) i.Pred = 0;
     }
 
-    /// <summary><c>0x1421040c0</c>: the free cells fill with blanks for the first edge's type, then each edge is
+    /// <summary><c>0x14210a9c0</c>: the free cells fill with blanks for the first edge's type, then each edge is
     /// connected (else "Failed to connect edge"), then the prune.</summary>
     void Group(List<GraphEdge> edges)
     {
@@ -1843,7 +1843,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         Cells("prune>");
     }
 
-    /// <summary><c>0x1420fd4e0</c>: row by row, each free cell gets a blank of one of the type's room sizes: up to five
+    /// <summary><c>0x142103de0</c>: row by row, each free cell gets a blank of one of the type's room sizes: up to five
     /// <c>Next(total weight)</c> picks until one fits, else the first size, else 1 × 1 (with flag 2). The column then
     /// moves on by the size's width, the first size's for the 1 × 1 (so the cell after it stays free).</summary>
     void Fill(string type)
@@ -1883,16 +1883,16 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return true;
     }
 
-    /// <summary><c>0x1420facb0</c>: the path search from the edge's first node's room to the second's; along the path
+    /// <summary><c>0x1421015b0</c>: the path search from the edge's first node's room to the second's; along the path
     /// found, from the far end back, every room is marked as on a path at the edge's level, blanks take the edge's
-    /// fields, and each step opens a door (<c>0x142001e80</c>).</summary>
+    /// fields, and each step opens a door (<c>0x1420086d0</c>).</summary>
     bool Connect(GraphEdge e)
     {
         var (ax, ay) = Cell(e.A.X, e.A.Y);
         var (bx, by) = Cell(e.B.X, e.B.Y);
         bool inA = map.Inside(ax, ay), inB = map.Inside(bx, by);
         if (!inA && !inB) return true;
-        if (!inA || !inB) throw new NotSupportedException($"{e}: dungeon edges leaving the map (0x1420faa00) are not ported");
+        if (!inA || !inB) throw new NotSupportedException($"{e}: dungeon edges leaving the map (0x142101300) are not ported");
         int start = map[ax, ay], target = map[bx, by];
         if (start == 1 || target == 1) throw new InvalidOperationException("Tried to connect from a void room");
         var level = Math.Max(map.RoomAt(target).Level, map.RoomAt(start).Level);
@@ -1944,8 +1944,8 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return true;
     }
 
-    /// <summary><c>0x1420fb720</c>: A* over the rooms. A step costs half the distance between the rooms' centres (in
-    /// half units, <c>0x141937840</c>); a room's estimate, set when it is first reached, is its half distance to the
+    /// <summary><c>0x142102020</c>: A* over the rooms. A step costs half the distance between the rooms' centres (in
+    /// half units, <c>0x14193d050</c>); a room's estimate, set when it is first reached, is its half distance to the
     /// target × (100 − fuzzy) + bias × 128 / 100 + fuzzy × its random number. The open set is ordered by cost plus
     /// estimate, then room number. A room already on a path can only be passed when neither it nor the edge is
     /// impenetrable.</summary>
@@ -1995,7 +1995,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return false;
     }
 
-    /// <summary><c>0x1420fee60</c> with the search's filter: the rooms along the room's top, bottom, left and right
+    /// <summary><c>0x142105760</c> with the search's filter: the rooms along the room's top, bottom, left and right
     /// sides, cell by cell (a room as often as it touches), that a door could join to it.</summary>
     IEnumerable<int> Neighbours(int cur, sbyte level, string type, bool chirality)
     {
@@ -2009,13 +2009,13 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         foreach (var (x, y) in cells)
         {
             int k = map[x, y];
-            // 0x1421337a0: the door from this room to the neighbour (0x1420fb650(cur, k, …, chirality)).
+            // 0x14213a0a0: the door from this room to the neighbour (0x142101f50(cur, k, …, chirality)).
             if (k > 1 && DoorPossible(cur, k, level, type, chirality)) list.Add(k);
         }
         return list;
     }
 
-    /// <summary><c>0x1420fb650</c>: some door between room a and room b would serve the level: an empty exit of a blank,
+    /// <summary><c>0x142101f50</c>: some door between room a and room b would serve the level: an empty exit of a blank,
     /// or an exit of the type at that level.</summary>
     bool DoorPossible(int a, int b, sbyte level, string type, bool chirality)
     {
@@ -2030,8 +2030,8 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return false;
     }
 
-    /// <summary><c>0x142001e80</c>: the possible doors between two rooms (else "Could not open doors!?"):
-    /// <c>Next(count)</c>, shuffled, the first opened (<c>0x142001d10</c>).</summary>
+    /// <summary><c>0x1420086d0</c>: the possible doors between two rooms (else "Could not open doors!?"):
+    /// <c>Next(count)</c>, shuffled, the first opened (<c>0x142008560</c>).</summary>
     void OpenDoor(DungeonPlacement a, DungeonPlacement b, string type, bool chirality, bool blank)
     {
         var doors = DoorCandidates(a, b, type, chirality);
@@ -2048,15 +2048,15 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary><c>0x141ff2ee0</c>: the exit takes the type; its chirality only counts for a type with a direction.</summary>
+    /// <summary><c>0x141ff9730</c>: the exit takes the type; its chirality only counts for a type with a direction.</summary>
     void SetDoor(DungeonDoor d, string? type, bool chirality)
     {
         d.Type = type;
         d.Chirality = Directional(type) && chirality;
     }
 
-    /// <summary><c>0x1420017a0</c>: the exits of room a on the side it shares with room b, unit by unit, where both
-    /// rooms could take a door of the type (<c>0x142001640</c>); an exit of another type with a direction rules out
+    /// <summary><c>0x142007ff0</c>: the exits of room a on the side it shares with room b, unit by unit, where both
+    /// rooms could take a door of the type (<c>0x142007e90</c>); an exit of another type with a direction rules out
     /// every door.</summary>
     List<int> DoorCandidates(DungeonPlacement a, DungeonPlacement b, string type, bool chirality)
     {
@@ -2101,7 +2101,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
     }
 
-    /// <summary><c>0x142001560</c>: the exit of room b that faces exit e of room a.</summary>
+    /// <summary><c>0x142007db0</c>: the exit of room b that faces exit e of room a.</summary>
     static int Facing(DungeonPlacement a, DungeonPlacement b, int e)
     {
         int w = a.Width, h = a.Height;
@@ -2111,7 +2111,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         return a.Y - 1 + 2 * (w + h) - e - b.Y + b.Width;                          // a's left: b's right
     }
 
-    /// <summary><c>0x1420fd9c0</c>: rooms off every path (and without flag 4) swap with the last kept ones and go; the
+    /// <summary><c>0x1421042c0</c>: rooms off every path (and without flag 4) swap with the last kept ones and go; the
     /// paths' room numbers follow, and the cells are made again.</summary>
     void Prune()
     {

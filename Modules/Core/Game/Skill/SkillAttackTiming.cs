@@ -13,7 +13,7 @@ static class SkillAttackTiming
         if (skills.IsAttack(effect)) Apply(stats, skills.AttackSpeedMultiplier(effect, level));
     }
 
-    // Native 0x14270347b..0x1427034f3: float multiply, round halves away from zero, then floor at -99 percent.
+    // Native 0x14270a02b..0x14270a0a3: float multiply, round halves away from zero, then floor at -99 percent.
     // Both the action's final speed and its attack-rate row must use this quantized value.
     public static int FinalSpeedPercent(int increased, double more) =>
         Math.Max(-99, (int)MathF.Round((increased + 100) * (float)more - 100, MidpointRounding.AwayFromZero));

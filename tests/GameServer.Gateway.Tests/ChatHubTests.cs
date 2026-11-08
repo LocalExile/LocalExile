@@ -26,11 +26,11 @@ public class ChatHubTests
         var (bob, bobHeard) = Enter(hub, "Bob");
         var (cid, cidHeard) = Enter(hub, "Cid");
         var (twin, twinHeard) = Enter(hub, "ANN");
-        Assert.Equal("ANN[1]", twin.Name);
-        Assert.Equal("Ann[2]", hub.Enter("Ann", _ => { })!.Name);
+        Assert.Equal("ANN_1", twin.Name);
+        Assert.Equal("Ann_2", hub.Enter("Ann", _ => { })!.Name);
         Assert.Null(hub.Enter("#Dan", _ => { }));
         Assert.Null(hub.Enter("Dan[1]", _ => { }));
-        hub.Handle(bob, new ChatFrame(ChatFrame.Whisper, "Ann[1]", Text: "which?"));
+        hub.Handle(bob, new ChatFrame(ChatFrame.Whisper, "Ann_1", Text: "which?"));
         Assert.Equal([new ChatFrame(ChatFrame.Whisper, "Bob", Text: "which?")], twinHeard);
         bobHeard.Clear();
         hub.Handle(ann, new ChatFrame(ChatFrame.Join, Kind: ChatChannelKind.Global, Channel: 1));

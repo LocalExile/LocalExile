@@ -25,14 +25,14 @@ public sealed class ChatHub(TimeProvider? time = null)
     readonly Dictionary<(ChatChannelKind, ushort, byte), HashSet<ChatMember>> _channels = [];
 
     /// <summary>The new member, or null when the name is invalid. Characters of separate Gateways can share a name: the later
-    /// ones get the first free "Name[n]", which only the hub gives.</summary>
+    /// ones get the first free "Name_n".</summary>
     public ChatMember? Enter(string? name, Action<ChatFrame> send)
     {
         if (!ChatWire.ValidName(name)) return null;
         lock (_gate)
         {
             string free = name!;
-            for (int n = 1; _members.ContainsKey(free); n++) free = $"{name}[{n}]";
+            for (int n = 1; _members.ContainsKey(free); n++) free = $"{name}_{n}";
             var member = new ChatMember(free, send, Burst, _time.GetUtcNow());
             _members.Add(free, member);
             return member;

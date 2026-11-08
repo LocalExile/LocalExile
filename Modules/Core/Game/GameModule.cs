@@ -13,7 +13,15 @@ public sealed class GameModule : IModule
     {
         Rules.CombatLifetime = module.Lifetime;
         Program.SetGameLogic(new GameLogic(module.Lifetime));
+        module.OnTick((player, _) => global::DoedreSewers.Tick(Program.ConnOf(player)));
+        module.Lifetime.Own(GameEvents.ObjectUse.Add("Game", global::DoedreSewers.Use));
+        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game", global::DoedreSewers.PlayerStats));
+        module.Lifetime.Own(global::DoedreSewers.CleanupOnUnload());
+        module.OnPlayerLeaving((player, _) => global::DoedreSewers.Leaving(Program.ConnOf(player)));
         module.OnTick((player, _) => global::BrineKing.Tick(Program.ConnOf(player)));
+        module.OnTick((player, _) => global::VaalOversoul.Tick(Program.ConnOf(player)));
+        module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
+        module.OnPlayerLeaving((player, _) => global::VaalOversoul.Leaving(Program.ConnOf(player)));
         module.Lifetime.Own(GameEvents.PlayerStatSources.Add("BrineKing", global::BrineKing.PlayerStats));
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
         module.Lifetime.Own(GameEvents.Kill.Add("Game", Rules.ReservationKill));

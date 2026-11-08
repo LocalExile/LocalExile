@@ -48,28 +48,28 @@ Three legal eight-point builds cover all 18 non-start nodes:
   Any cannot-crit stat still wins (wiki).
   As the wiki describes, `main_hand_critical_strike_chance`, the pooled `spell_critical_strike_chance` and each
   skill's chance show 100% where the base chance is not 0, and stay 0 for a 0% base.
-  Native: `virtual_always_crit` (key 0x2549, calculator `0x14275ba00`) is `always_crit`, Pressure Points, this stat with
+  Native: `virtual_always_crit` (key 0x2549, calculator `0x1427625b0`) is `always_crit`, Pressure Points, this stat with
   `main_hand_weapon_type` 15, or the non-channelling attack flag.
-  `scripts/re/statkeys.py` places that read in `~0x14275b560`, but that function is the `virtual_global_cannot_crit`
+  `scripts/re/statkeys.py` places that read in `~0x142762110`, but that function is the `virtual_global_cannot_crit`
   (0xb34) calculator before it.
   Bow shots resolve at projectile contact like other projectiles, so they reach `RollCriticalStrike` and the ailment
   consumers too; Baited Breath never applies to them only because a bow and a rod cannot be held together.
 - **Screaming Reels.** `FinalCastSpeedPct` applies the 60% more to the summed increases, the skill's own
-  `base_cast_speed_+%` included, the way the client's `cast_speed_+%` calculator `0x142709610` does it:
+  `base_cast_speed_+%` included, the way the client's `cast_speed_+%` calculator `0x1427101c0` does it:
   `round((increased + 100) × (1 + more / 100) − 100)`, at least −99.
-  Its combined final (`combined_cast_speed_+%_final`, `0x142708190`) reads key 0x529f only for weapon type 15.
+  Its combined final (`combined_cast_speed_+%_final`, `0x14270ed40`) reads key 0x529f only for weapon type 15.
   The server cast wait (`CastMs`) and the skill record use that total.
   The skill record now carries the total as its `cast_speed_+%`, because the native action divides the base cast time
-  by that stat (`0x1419e7500`).
-  The client's stat getter `0x1424fc1e0` is a plain lookup and runs no calculator, so the client uses the value the
+  by that stat (`0x1419e9f10`).
+  The client's stat getter `0x142502d90` is a plain lookup and runs no calculator, so the client uses the value the
   server sends.
   Example: 16% increased with a rod is 86%, so a 750 ms Fireball takes 403 ms.
   Sending the total also adds a support's own cast speed (Faster Casting) to the record's `cast_speed_+%`, which the
   native clip had left out before.
 - **Corrupted fish and fish rarity.** Fishing is not a gameplay feature in 3.29.3b (wiki: no confirmed fishing
   gameplay); there is no fishing skill or table, so `can_catch_corrupted_fish` and `fish_rarity_+%` have no consumer.
-  No client code reads key 0x8e6 as a stat. Its two uses (`0x14017ae7c`, `0x140183a45`) pass 0x8e6 to the
-  ClientStrings getter `0x1421fdc40` for the whisper "From"/"To" labels.
+  No client code reads key 0x8e6 as a stat. Its two uses (`0x14017b1f8`, `0x140183de5`) pass 0x8e6 to the
+  ClientStrings getter `0x1422045d0` for the whisper "From"/"To" labels.
 - **Ghost of the Deep.** Its PassiveSkills row lists BuffTemplates 671 (`CustomAscendancyIllegalFisherman`,
   AuraRadius 0), which puts BuffDefinitions 2550 (`Torment Touched`, BuffVisuals 1875, CancelOnDeath false) on the
   player with 23 each to `base_movement_velocity_+%`, `attack_speed_+%`, `base_cast_speed_+%` and `damage_+%`, and 1
@@ -95,7 +95,7 @@ Three legal eight-point builds cover all 18 non-start nodes:
   `not_affected_by_action_speed_modifiers` cancels the speed-up as well.
   The server walk, attack and cast timers and the sent action-speed stats follow `PlayerElementalAilments.ActionFactor`:
   a 30% chill gives 1.3, with `virtual_action_speed_+%` +30, `action_speed_-%` −30 and the intermediary +30.
-  The client's `virtual_chill_effect_is_reversed` (0x1e46) is only a calculator (`0x14277bcd0`: key 0x1e44, or 0x1e45
+  The client's `virtual_chill_effect_is_reversed` (0x1e46) is only a calculator (`0x142782880`: key 0x1e44, or 0x1e45
   on chilled ground), network stats run none ([04](../protocol/04-player-entity.md) §4.1a), and its other uses are
   ClientStrings lookups, so the sent action speed carries the reversal.
   Chilled ground is not modelled, so `chill_effect_is_reversed_when_on_chilled_ground` has no source.
@@ -103,7 +103,7 @@ Three legal eight-point builds cover all 18 non-start nodes:
   hit freezes and chills but cannot shock. `cold_damage_can_shock` lets the shock use the cold damage, on the general
   monster ailment engine ([20](../protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)): threshold the
   monster's maximum life, at most 50% increased damage taken for 2 s.
-  The client's `virtual_cold_damage_can_shock` calculator (`0x1426f2660`) is its only reader, so nothing is sent for it.
+  The client's `virtual_cold_damage_can_shock` calculator (`0x1426f9210`) is its only reader, so nothing is sent for it.
 - **Glacial Wave.** A chill from your hit keeps the node's two stats as they were when it landed. While it lasts,
   the monster takes increased damage by its strongest chill, added to shock and its mods' damage taken, on your hits and
   Righteous Fire's burn, and its swings deal less by half of it (PoB `CalcPerform`: DamageTaken INC, Damage MORE
@@ -137,7 +137,7 @@ Three legal eight-point builds cover all 18 non-start nodes:
   Those modifiers change this: with 20% increased shock effect a hit of 3.7% shocks 16%, and its 0.22 s freeze is
   discarded, so the monster does not shatter and spreads the 16%.
   `shock_proliferation_radius_is_at_least_15` gives every shock you inflict, the kill's included, a proliferation
-  radius of at least 15 cells: the client's `virtual_shock_proliferation_radius` calculator (`0x142828340`) takes the
+  radius of at least 15 cells: the client's `virtual_shock_proliferation_radius` calculator (`0x14282eef0`) takes the
   largest of five radius stats and 15 with this flag, and does not scale it.
   The server grows that radius by area of effect like a skill's area (wiki Elemental proliferation: modifiers to area
   of effect affect it): a hit's shock by the hitting skill's area stats over yours, a kill's shock by yours, so 100%
@@ -153,7 +153,7 @@ Three legal eight-point builds cover all 18 non-start nodes:
   The cast speed reaches the panel's `cast_speed_+%` like any increase, so four of them give 16%.
 - **Monster flee** (`MonsterFlee`, wiki Fleeing). Every player hit that leaves a monster alive rolls once in
   `AilmentsOnHitLocked`, so the default attack, area skills and projectiles all count.
-  An attack's chance is `main_hand_hit_causes_monster_flee_%`; the client's calculator `0x1427906b0` sums it from the
+  An attack's chance is `main_hand_hit_causes_monster_flee_%`; the client's calculator `0x142797260` sums it from the
   global stat and the main hand's `main_hand_local_hit_causes_monster_flee_%`.
   No 3.29.3b weapon mod grants the local stat, so the server's panel row sums the global one only.
   A spell uses `global_hit_causes_monster_flee_%`; the skill's own stat (Chance to Flee Support) adds to both.
@@ -170,7 +170,7 @@ Three legal eight-point builds cover all 18 non-start nodes:
   The rolls use their own random, so the projectile reaction draws stay in order.
   Not verified: the distance, which the real server picks, and whether a hit during a swing cancels the swing.
   The real server may walk the monster with Monster.ot's `Flee` basic action (ActionTypes `HASH16` 0xe1a9).
-  Its factory `0x14199aba0` builds the same move-action base (`0x141937cc0`) as Move's `0x141989180`, with its own
+  Its factory `0x14199f5b0` builds the same move-action base (`0x14193d410`) as Move's `0x14198db90`, with its own
   vtable; the server sends Move, which the client is known to walk.
   Stun would also end a flee (wiki), but monsters are not stunned in this engine.
   Monsters that flee when ignited (wiki) are not modelled: monsters are not ignited.

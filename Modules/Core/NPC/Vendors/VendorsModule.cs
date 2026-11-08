@@ -74,7 +74,7 @@ public sealed class VendorsModule : IModule, IDisposable
             // A trade between players has these messages first.
             if (conn.Trade is not null) return false;
             var offer = InstanceNpcs.ReadTradeOffer(bytes);
-            // Ctrl + click on an inventory item sends x = y = 0xff (0x14030e3e0 → 0x142166660): any free offer cell.
+            // Ctrl + click on an inventory item sends x = y = 0xff (0x14030e970 → 0x14216d010): any free offer cell.
             if (conn.Sale is { } sale && offer.X == 0xff && offer.Y == 0xff) await OfferFromInventory(remote, stream, ciphers, conn, sale, offer.InventoryId, offer.ItemId);
             else if (conn.Sale is { } open) await OfferForSale(remote, stream, ciphers, conn, open, offer.InventoryId, offer.ItemId, offer.X, offer.Y);
             else Console.WriteLine($"[gateway] {remote} <= 0x00b2 trade offer {offer}: no sale open");

@@ -4,7 +4,7 @@ using System.Text;
 namespace GameServer.Core.Protocol.Login;
 
 /// <summary>
-/// Writes login-connection fields the way the client's stream (send 0x140dfb760) does: integers big-endian through
+/// Writes login-connection fields the way the client's stream (send 0x140dfa000) does: integers big-endian through
 /// htons/htonl, except where a serializer copies memory as-is (<see cref="RawU32"/>, <see cref="RawU64"/>).
 /// </summary>
 public sealed class LoginWriter
@@ -34,14 +34,14 @@ public sealed class LoginWriter
         return Bytes(v);
     }
 
-    /// <summary>u16 length + bytes (client 0x1408402a0 / 0x141fa44f0).</summary>
+    /// <summary>u16 length + bytes (client 0x14083f460 / 0x141faaf20).</summary>
     public LoginWriter Blob(byte[] v) => U16(checked((ushort)v.Length)).Bytes(v);
 
     /// <summary>A narrow std::string as u16 length + bytes; the client converts with UTF-8.</summary>
     public LoginWriter Str(string v) => Blob(Encoding.UTF8.GetBytes(v));
 
     /// <summary>
-    /// A wide string in the compact form of client 0x140e0c9b0: u16 count of code points, then per code point either
+    /// A wide string in the compact form of client 0x140e0b250: u16 count of code points, then per code point either
     /// one byte (&lt; 0x80), 0x80 + the UTF-16 unit little-endian, or 0xC0 + the code point as u32 little-endian.
     /// Lone surrogates go out as 0x80 + U+FFFD, as the client does.
     /// </summary>
@@ -66,7 +66,7 @@ public sealed class LoginWriter
 }
 
 /// <summary>
-/// Reads login-connection fields. Like the client's receive stream (0x140dfb630, flag +0x252), running out of data
+/// Reads login-connection fields. Like the client's receive stream (0x140df9ed0, flag +0x252), running out of data
 /// does not throw: <see cref="Short"/> is set and defaults are returned, so the caller can wait for more bytes.
 /// Malformed data (bad wide-string markers) throws <see cref="InvalidDataException"/>.
 /// </summary>
@@ -95,7 +95,7 @@ public ref struct LoginReader(ReadOnlySpan<byte> buf)
     public byte[] Blob() { int n = U16(); return Short ? [] : Fixed(n); }
     public string Str() => Encoding.UTF8.GetString(Blob());
 
-    /// <summary>Inverse of <see cref="LoginWriter.WStr"/>, with the client's checks from 0x140e0cbe0.</summary>
+    /// <summary>Inverse of <see cref="LoginWriter.WStr"/>, with the client's checks from 0x140e0b480.</summary>
     public string WStr()
     {
         int count = U16();

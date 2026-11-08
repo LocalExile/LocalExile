@@ -119,9 +119,11 @@ static class GlyphQuest
         return (x, y, (wall.Code & 3) * MathF.PI / 2);   // the room's angle 0 through the code
     }
 
-    /// <summary>A nest's 0x2b9 blob: Positioned (the record's height), Animated (the tile's virtual model), Chest (opened
-    /// bit 0, 0x141e138b0), Stats, ObjectMagicProperties, InteractionAction, MinimapIcon (u8 flags), tasks.</summary>
-    public static byte[] NestBlob(Placement p, bool opened)
+    /// <summary>A nest's 0x2bb blob: Positioned (the record's height), Animated (the tile's virtual model), Chest (opened
+    /// bit 0, 0x141e16f10), Stats, ObjectMagicProperties, InteractionAction, MinimapIcon (u8 flags), tasks.</summary>
+    public static byte[] NestBlob(Placement p, bool opened) => NestBlob(p, opened, false);
+
+    public static byte[] NestBlob(Placement p, bool opened, bool hideMinimapIcon)
     {
         var w = new BlobWriter().U8(0).U8(0);
         Positioned(w, p.X, p.Y, p.Rotation, p.Z);
@@ -129,10 +131,10 @@ static class GlyphQuest
         w.U8((byte)(opened ? 1 : 0)).U8(0).U8(0);
         w.U8(0).U32(0).U32(0).U8(0);
         w.U16(0).U8(0).U8(0);
-        return w.U8(0).U8(0).U8(0).ToArray();
+        return w.U8(0).U8((byte)(hideMinimapIcon ? 0x06 : 0)).U8(0).ToArray();
     }
 
-    /// <summary>The Glyph Wall's 0x2b9 blob: Positioned, Animated, Transitionable (u8 state), MinimapIcon, InteractionAction,
+    /// <summary>The Glyph Wall's 0x2bb blob: Positioned, Animated, Transitionable (u8 state), MinimapIcon, InteractionAction,
     /// tasks.</summary>
     public static byte[] WallBlob(Placement p, bool placed)
     {
@@ -142,7 +144,7 @@ static class GlyphQuest
         return w.U8(placed ? Transitioned : Untransitioned).U8(0).U8(0).U8(0).ToArray();
     }
 
-    /// <summary>The waterfall's 0x2b9 blob: Positioned (terrain height), Animated (waterdrop.ao), Transitionable, tasks.</summary>
+    /// <summary>The waterfall's 0x2bb blob: Positioned (terrain height), Animated (waterdrop.ao), Transitionable, tasks.</summary>
     public static byte[] WaterBlob(int x, int y, float rotation, bool placed)
     {
         var w = new BlobWriter().U8(0).U8(0);

@@ -50,10 +50,10 @@ static partial class Game
     /// player's <paramref name="selfCriticalReduction"/>, base_self_critical_strike_multiplier_-%, read only on a crit)
     /// and the increased damage per 10% of the player's missing life (Executioner's). Call under the Monsters lock.</summary>
     internal static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
-        out bool critical, Func<int>? selfCriticalReduction = null)
+        out bool critical, Func<int>? selfCriticalReduction = null, bool cannotCrit = false)
     {
         var e = m.Effects;
-        critical = e.CriticalChance > 0 && random.Next(10_000) < e.CriticalChance;
+        critical = !cannotCrit && e.CriticalChance > 0 && random.Next(10_000) < e.CriticalChance;
         double factor = critical ? MonsterModEffects.CriticalMultiplierOnPlayer(selfCriticalReduction?.Invoke() ?? 0) / 100.0 : 1;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
             ? "enfeeble_damage_+%_vs_rare_or_unique_final" : "enfeeble_damage_+%_final"] / 100.0);

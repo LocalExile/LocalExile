@@ -86,7 +86,7 @@ public static class AtlasProgress
     }
 
     /// <summary>S→C 0x1a3: u8 → +0x71 (socketed count), u8 → +0x72, u8 → +0x70 (Voidstone T16 bits), u8 sections
-    /// (bit 0: first mask, bit 1: second mask), then always 0x141fa4050 (u8 count of u16 pairs, 0 here) and the
+    /// (bit 0: first mask, bit 1: second mask), then always 0x141faaa80 (u8 count of u16 pairs, 0 here) and the
     /// selected 22-byte masks (bit r of byte r / 8 = AtlasNode row r). The first mask is every on-Atlas row
     /// (voidstone sockets, Ziggurat, Abomination, Eater / Exarch) so the client keeps the bottom of the panel;
     /// the second is completed maps plus those same rows so their Connections open.</summary>

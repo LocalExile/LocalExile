@@ -1,15 +1,15 @@
 namespace GameServer.Data.Terrain.Generation;
 
 /// <summary>The ground height of every cell of a generated map (23 cells per tile), in the client's height units
-/// (× 7.8125 for world units; <c>0x141d84be0</c> interpolates between the four cells around a point).
-/// <c>0x141d84a10</c>: the highest of the map's height rectangles (+0x130) that holds the cell, else
-/// <c>0x141d84b00</c>: the entry's sub-tile height (<see cref="SubTileWalk.HeightAt"/>) at the cell turned back into the
-/// tile's frame (<c>0x141d7d100</c>) plus map +0x104 × the entry's height (+0x30). Ported without height rectangles
+/// (× 7.8125 for world units; <c>0x141d88270</c> interpolates between the four cells around a point).
+/// <c>0x141d880a0</c>: the highest of the map's height rectangles (+0x130) that holds the cell, else
+/// <c>0x141d88190</c>: the entry's sub-tile height (<see cref="SubTileWalk.HeightAt"/>) at the cell turned back into the
+/// tile's frame (<c>0x141d80790</c>) plus map +0x104 × the entry's height (+0x30). Ported without height rectangles
 /// and with +0x104 = 1 (the port's heights already carry StoreyHeight); the recorder logs both per load. An empty
 /// entry, or one without walkability data, is 0.</summary>
 public static class CellHeights
 {
-    // 0x142fb7f98: the code that turns an entry of each orientation back (1 and 3 swap); 0x142fa04b0: per code, which
+    // 0x142fc2028: the code that turns an entry of each orientation back (1 and 3 swap); 0x142faa4d8: per code, which
     // of (22 − x, x, 22 − y, y) give the tile-frame column and row.
     static readonly byte[] Back = [0, 3, 2, 1, 4, 5, 6, 7, 8];
     static readonly byte[] Codes = [0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1];

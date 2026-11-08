@@ -43,7 +43,7 @@ public class VaalSkillRecordFlagTests
         if (creation) { Assert.Equal(0u, r.ReadUInt32()); Assert.Equal(0, r.ReadByte()); }
         Assert.Equal(r.BaseStream.Length, r.BaseStream.Position);
 
-        // Literal primary model, NOT a native witness: 0x1421975f0..610 / 6e8..6f6 and 0x141ee7571..75ba.
+        // Literal primary model, NOT a native witness: 0x14219df60..610 / 6e8..6f6 and 0x141eeddd1..75ba.
         Assert.Equal((0, 0, 0), PrimaryConstructorSoulInputs(0, 30, 1, 100));
         Assert.Equal((30, 1, 100), PrimaryConstructorSoulInputs(actualFlag, 30, 1, 100));
     }

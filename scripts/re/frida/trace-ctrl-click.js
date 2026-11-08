@@ -1,3 +1,5 @@
+// Written for the 3.29.3b client and not ported: 3.29.3c changed this handler (virtual calls added and removed, UI
+// vtable slots moved, e.g. 0x9b8 -> 0x9c8), so its call sites and slots need finding again before it runs on 3.29.3c.
 // Ctrl + click on an inventory item (0x14030e3e0, reached from the grid click handler 0x1402ddbc0 through the grid's
 // vtable +0x4d0): which "is this panel open" checks it makes on its UI state object (session +0x88 → +0x978) and what
 // they return, so the branch it takes is visible (with a sell window open it should end in 0x142166660, 0xb2 with

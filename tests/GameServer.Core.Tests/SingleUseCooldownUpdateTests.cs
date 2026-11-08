@@ -11,7 +11,7 @@ public class SingleUseCooldownUpdateTests
         // Object header/blob length BE; Actor flags, counts, skill id and four entry fields LE.
         string body = "09" + "4000" + "00" + "00" + "01000000" + "0301" + "01000000"
             + "00000040" + "00002040" + "00000040" + "FFFFFFFF";
-        Assert.Equal("02BA00001000000000000000" + "001F" + body, Convert.ToHexString(bytes));
+        Assert.Equal("02BC00001000000000000000" + "001F" + body, Convert.ToHexString(bytes));
     }
 
 }

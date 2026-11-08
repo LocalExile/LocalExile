@@ -30,25 +30,25 @@ was created without "Unknown object type"). Its `.ot` file:
 | InteractionAction | |
 | client: Render, Targetable | `display_text = "ObjectDisplayTextAreaTransition"` (the label is the destination's name) |
 
-Sent like the player: **0x2b9** (object id 0x2000 for the first exit) before 0x21, which queues it until the world
+Sent like the player: **0x2bb** (object id 0x2000 for the first exit) before 0x21, which queues it until the world
 activates, then **0x1a9** (wake zone) after 0x21.
 
 ## 2. The component blob (traced with Frida, 41 bytes, consumed exactly)
 
-The live object's components, in deserialize order: Positioned `0x1435a0f18`, BaseEvents `0x1435a55e8` (no data),
-Animated `0x1435a5030`, AreaTransition `0x14346de00` (a client subclass, slot 17 `0x14166bb80` → base `0x141e5b870`),
-Stats `0x1435dd4e8`, ObjectMagicProperties `0x1435a6ae0` (slot 17 → slot 20 `0x141e77990`), MinimapIcon
-`0x1435a7018` (slot 20 `0x141e6f5d0`), InteractionAction `0x14359f7d0` (`0x141e1e240`), then two the loop does not reach
-(`0x143468920`, `0x14346c238`).
+The live object's components, in deserialize order: Positioned `0x1435ab608`, BaseEvents `0x1435afee8` (no data),
+Animated `0x1435af9c0`, AreaTransition `0x143479f98` (a client subclass, slot 17 `0x14166e280` → base `0x141e5fdc0`),
+Stats `0x1435e7f88`, ObjectMagicProperties `0x1435b3740` (slot 17 → slot 20 `0x141e7e080`), MinimapIcon
+`0x1435b0828` (slot 20 `0x141e75c60`), InteractionAction `0x1435a7c28` (`0x141e218a0`), then two the loop does not reach
+(`0x1434730b8`, `0x143476978`).
 
 | Part | Bytes | Fields |
 |---|---|---|
 | object flags, base data | `00 00` | as the player |
 | Positioned | 16 | i32 x, i32 y (grid), f32 rotation, u16, 2 flag bytes; + 8 with the fixed height (§5) |
 | Animated | `00` | flags; bit0 + u32-counted UTF-16 `.ao` path for a model (§5) |
-| **AreaTransition** | 5 | u8 flags (low nibble = state `+0xb2`, bit4/5/6 → `+0xb5/+0xb6/+0xb7`, bit7 → extra record `0x141e62df0`); **destination variant** (`0x141e62490`): u8 index + value, index 0 → u16, 1 → u32, **2 → u16 WorldAreas.HASH16** (resolved by `0x141e5be60` through `0x1422d9920`, the same lookup as 0x14/0x1d); then a compact int `+0xa4`, read only when the state is 0 and **the current area is a town** (`0x141e5b98e`: entity +8 → world +0x78 → +0xb0, the current WorldAreas row, byte +0x14 = IsTown; the server-side writer `0x141e5b7a0` has the same test). Nothing but the debug dump `0x141e5bf20` reads it (for type 1 it prints it as the telepad index). The Gateway writes it only in towns (`AreaTransitionObject.InTown`): before, every exit outside a town had one byte left over at the blob's end, harmless because every byte after it was 0 |
+| **AreaTransition** | 5 | u8 flags (low nibble = state `+0xb2`, bit4/5/6 → `+0xb5/+0xb6/+0xb7`, bit7 → extra record `0x141e67390`); **destination variant** (`0x141e66a30`): u8 index + value, index 0 → u16, 1 → u32, **2 → u16 WorldAreas.HASH16** (resolved by `0x141e603b0` through `0x1422e02b0`, the same lookup as 0x14/0x1d); then a compact int `+0xa4`, read only when the state is 0 and **the current area is a town** (`0x141e5fede`: entity +8 → world +0x78 → +0xb0, the current WorldAreas row, byte +0x14 = IsTown; the server-side writer `0x141e5fcf0` has the same test). Nothing but the debug dump `0x141e60470` reads it (for type 1 it prints it as the telepad index). The Gateway writes it only in towns (`AreaTransitionObject.InTown`): before, every exit outside a town had one byte left over at the blob's end, harmless because every byte after it was 0 |
 | Stats | 10 | as the player's comp1: compact-int n pairs, u32, u32, u8 |
-| ObjectMagicProperties | 4 | **base magic properties first** (`0x142201d70`, called with the reader still in `rdx`: u16 flags, rarity = low 3 bits, u8 `+0x7a`, sections behind flag bits 0x10/0x40/0x200/0x400/0x800 and, with bit3, 0x80/0x100/0x20), then the component's own u8 flags (bit1 → u16 flavour text key, bit2 → string) |
+| ObjectMagicProperties | 4 | **base magic properties first** (`0x142208700`, called with the reader still in `rdx`: u16 flags, rarity = low 3 bits, u8 `+0x7a`, sections behind flag bits 0x10/0x40/0x200/0x400/0x800 and, with bit3, 0x80/0x100/0x20), then the component's own u8 flags (bit1 → u16 flavour text key, bit2 → string) |
 | MinimapIcon | `00` | u8 flags (bit1 hidden/shown, bit0 → u16 icon override, bit3 → variant) |
 | InteractionAction | `00` | u8 flags (bit2 → u8 [+ u16 action]) |
 | tasks | `00` | |
@@ -56,9 +56,9 @@ Stats `0x1435dd4e8`, ObjectMagicProperties `0x1435a6ae0` (slot 17 → slot 20 `0
 The Coast exit: `00 00 | 80010000 D9000000 00000000 0000 0000 | 00 | 00 02 D27A 00 | 00 00000000 00000000 00 | 0000 00 00 | 00 | 00 | 00`.
 
 How the deserializers were found: name string (`strexact.py`) → static initializer (`0x14006xxxx`: AreaTransition
-`0x140067c60`, MinimapIcon `0x140068870`, InteractionAction `0x1400667c0`, ObjectMagicProperties `0x140068d00`,
-BaseEvents `0x140067cd0`) → pool (`0x1445bb800`, `0x1445bc1b0`, `0x1445ba6c0`, `0x1445bbea0`, `0x1445bb7b0`) → factory
-(`0x141e5b1d0`, `0x141e6e5e0`, `0x141e1c9e0`, `0x141e775c0`, `0x141e5e220`) → vtable → slot 17 (+0x88). Then three Frida
+`0x140067cd0`, MinimapIcon `0x1400688e0`, InteractionAction `0x140066830`, ObjectMagicProperties `0x140068d70`,
+BaseEvents `0x140067d40`) → pool (`0x1445c6970`, `0x1445c7320`, `0x1445c5830`, `0x1445c7010`, `0x1445c6920`) → factory
+(`0x141e5f720`, `0x141e74b80`, `0x141e20040`, `0x141e7dcb0`, `0x141e627c0`) → vtable → slot 17 (+0x88). Then three Frida
 rounds fixed the byte counts: AreaTransition needed the compact int, and ObjectMagicProperties needed the 3-byte base
 part that the decompiler hid (a call that reuses `rdx`).
 
@@ -131,7 +131,7 @@ centre of the arch, and it is only visible when highlighted.
 each record the client registers a **virtual `.ao`** named `<.tdt folder>/<record name>.ao`, here
 `Metadata/Terrain/Beach/Town_v2/beachencampment_v01_01_area_transition2.ao`. It is not in the bundle index. The server
 sends that path in the exit's Animated component. Animated accepts only `.ao` (the `.fmt` path itself throws "Filename
-must end with .ao", `0x141da7d80`); its bit1 form is a `Data/MiscAnimated.dat` row, not used here.
+must end with .ao", `0x141dab410`); its bit1 form is a `Data/MiscAnimated.dat` row, not used here.
 
 **Placement**, all from the files:
 - position: tile cell (113.5, 319.5) + the tile's slot in the room (`k 15 18 …` at tile column 3, row 3 of
@@ -141,7 +141,7 @@ must end with .ao", `0x141da7d80`); its bit1 form is a `Data/MiscAnimated.dat` r
 - rotation: Positioned's float `+0x29c`. The plane must face across the gate, so 90° or 270° (the room's R270); live,
   **π/2** matches the real game. The sign convention is not derived yet.
 - **height:** Positioned flags0 bit2 (`0x04`) adds i32 `+0x290` (steps of 7.8125) and f32 `+0x2b4` (world z); when
-  `+0x290` ≠ `0x7fffffff` the client uses that z instead of the terrain height (`0x141e331e0`, `0x141e35800`). Sent as
+  `+0x290` ≠ `0x7fffffff` the client uses that z instead of the terrain height (`0x141e36520`, `0x141e38b40`). Sent as
   −45 and **−351.04**. Without it the arch's base sat on the terrain and the beam hid its top.
 
 The server's blob: Positioned `84010000 E6000000 DB0FC93F 0000 04 00 D3FFFFFF 1F85AFC3`, Animated `01 49000000` + the
@@ -292,10 +292,10 @@ capture, or the atlas's fixed placement). A layout the Gateway generates takes i
 (§8); nothing below about matching models applies to it.
 
 **Where they are.** Generated layouts exist only in the client, so `scripts/walkmaps` (started by
-`live.ps1 -Walkmaps`) also hooks the per-record callback `0x1420415e0` of the tile-object loop (`0x141d7f700` walks each
+`live.ps1 -Walkmaps`) also hooks the per-record callback `0x142047e30` of the tile-object loop (`0x141d82d90` walks each
 placed tile's `.tmd` records). For records of AreaTransition, Waypoint or quest town entrance types
 (`…TownEntrance`, e.g. The Twilight Strand's `SouthBeachTownEntrance`) it computes the placement the way
-`0x14202f1c0` does and writes `data/walkability/<area>_seed<seed>.transitions.json` next to the walk map:
+`0x142035a10` does and writes `data/walkability/<area>_seed<seed>.transitions.json` next to the walk map:
 
 | From the client | Meaning |
 |---|---|
@@ -303,8 +303,8 @@ placed tile's `.tmd` records). For records of AreaTransition, Waypoint or quest 
 | `ctx[2]` | i32 x, i32 y: the tile's grid origin |
 | `ctx[3]` → handle, `*handle + 0x28` | `+0x60` / `+0x61` u8 tile size (tiles of 23 cells) |
 | record | i32 x, i32 y (tile-local cell), f32 z `+0x10` (+∞ = none), f32 angle `+0x14`, type handle `+0x30`, `.ao` handle `+0x38` (handle `+8` → UTF-16 path) |
-| code table `0x142fa04b0` | 8 × 3 bytes T: a = [w·23 − x − 1, x, h·23 − y − 1, y]; gx = a[T1 + 2·T0] + ox, gy = a[(T0 == 0 ? 2 : 0) + T2] + oy |
-| angle | 2π − angle for codes ≥ 4, then + (code & 3) · π/2 (`0x1436a3318`), wrapped to [0, 2π] |
+| code table `0x142faa4d8` | 8 × 3 bytes T: a = [w·23 − x − 1, x, h·23 − y − 1, y]; gx = a[T1 + 2·T0] + ox, gy = a[(T0 == 0 ? 2 : 0) + T2] + oy |
+| angle | 2π − angle for codes ≥ 4, then + (code & 3) · π/2 (`0x1436ae110`), wrapped to [0, 2π] |
 | z | record z − height offset · 7.8125 |
 
 The client spawns only its own doodads from these records; server types (AreaTransition, Waypoint …) fail its type
@@ -329,7 +329,7 @@ an area without area transitions re-reads the capture (the recorder writes it wh
 created as plain `AreaTransition`, with the same model, place and destination. Live 2026-10-18, The Mud Flats' cave
 entrance: sent as its own type with the AreaTransition blob, the client read only the parent's components (Frida
 `check-components.js`: 8 components, blob consumed exactly), kept Transitionable at state 0 and crashed in its
-post-create event (`0x141ded7b9`); a Transitionable byte appended to the blob was read as the task count (Buffer
+post-create event (`0x141df0e19`); a Transitionable byte appended to the blob was read as the task count (Buffer
 Underflow). `data/object-types.json` now also lists the atlas's tile-object types (`ot_components.py --all`). The quest
 behind that cave is in [12](12-quests.md).
 
@@ -346,25 +346,25 @@ nothing about which in-area gate leads to which arrival (the Warden's Quarters, 
 
 **What the client does** (static reading, addresses in Game.exe 3.29.3b):
 - It never maps a transition to a destination, a graph node or a room point. Node descriptions are read only while
-  generating (`0x142100be0`, `0x1420f9d50` mark the "important" ones: default, telepad, teleport, entrance, accessible,
-  sideentrance; `0x14204f590` "subarea="); `%areaname%` and the "-label" split do not occur in the binary.
-- The generator's object-created hook (`0x142044b60`, slot +0x30 of the generator vtable `0x1435c6988`) disables every
+  generating (`0x1421074e0`, `0x142100650` mark the "important" ones: default, telepad, teleport, entrance, accessible,
+  sideentrance; `0x142055de0` "subarea="); `%areaname%` and the "-label" split do not occur in the binary.
+- The generator's object-created hook (`0x14204b3b0`, slot +0x30 of the generator vtable `0x1435d1408`) disables every
   AreaTransition it is given and files it in a map at generator +0x220, keyed by the placed room's node descriptions
   (room record +0x20) for room lines and by a per-tile value (tile map +0xa0) for tile records. It runs only when slot
-  +0x10 returns true, which in the client is `0x1400ed4a0` (false): this is the real server's path. So the server
+  +0x10 returns true, which in the client is `0x1400ed720` (false): this is the real server's path. So the server
   derives each exit from the generated layout's nodes.
-- The client creates no server type itself (`0x14152d680`: BaseEvents `server_only`), and AreaTransition is
+- The client creates no server type itself (`0x14152f9a0`: BaseEvents `server_only`), and AreaTransition is
   `server_only`: the server creates every tile `.tmd` record and every `.arm` object line whose type has the
   AreaTransition component (also e.g. `DepthsReturnTransition`, a room line). A master's Reskin swaps the tile's
-  `.tmd` for `alttiles/<reskin>/<reskin>_<name>.tmd` (`0x141d7f700`, path `0x141d88810`); the virtual `.ao` name rule is
-  `0x1429fc0a0` (the record's own `.ao`, else `<folder>/<name>.ao` if it exists, else the name without the Reskin
+  `.tmd` for `alttiles/<reskin>/<reskin>_<name>.tmd` (`0x141d82d90`, path `0x141d8bea0`); the virtual `.ao` name rule is
+  `0x142a05400` (the record's own `.ao`, else `<folder>/<name>.ao` if it exists, else the name without the Reskin
   prefix if that exists, else the reskinned name).
-- The AreaTransition component (debug dump `0x141e5bf20`): the flags' low nibble +0xb2 is the transition type (0
+- The AreaTransition component (debug dump `0x141e60470`): the flags' low nibble +0xb2 is the transition type (0
   Normal, 1 Teleport, 2 SideArea, 3 SideAreaReturn, 4 LastTownReturn, 5 Labyrinth, 6 Menagerie, 7 SynthesisVoid, 8
-  Respawn; table `0x1435a5460`), bit 4 +0xb5 disabled (`0x141e5bd30`; enabled later by the delta `0x141e5bac0`), bit 6
-  +0xb7 and bit 7 +0xb8 Necropolis data (`0x1424d3070`). The destination variant: 0 = ClientStrings row + 1, 1 =
+  Respawn; table `0x1435afbf0`), bit 4 +0xb5 disabled (`0x141e60280`; enabled later by the delta `0x141e60010`), bit 6
+  +0xb7 and bit 7 +0xb8 Necropolis data (`0x1424d9b40`). The destination variant: 0 = ClientStrings row + 1, 1 =
   ClientStrings HASH32, 2 = WorldAreas HASH16; the label is the area's name, or the ClientStrings text
-  (`0x14166c790`), "Area Transition" without one. For type 1 the dump calls +0xa4 the telepad index.
+  (`0x14166ee90`), "Area Transition" without one. For type 1 the dump calls +0xa4 the telepad index.
 
 **What the server does** (`AreaExits` in `GameServer.Data/Terrain/Generation`, used by `ServerLevels` and
 `AreaTransitionCatalog.FromLayout`, for every area the Gateway generates):

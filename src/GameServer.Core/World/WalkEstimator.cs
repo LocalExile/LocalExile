@@ -3,7 +3,7 @@ namespace GameServer.Core.World;
 /// <summary>
 /// Server-side estimate of where a client-predicted walker is. The client walks on its own after a 0x1ab echo, but the
 /// echo carries the server's idea of the actor's position, and the client snaps to it when it is ~92+ units off
-/// (Actor handler 0x1421940a0). So the server follows each order along an A* path over the walkability grid (8
+/// (Actor handler 0x14219aa10). So the server follows each order along an A* path over the walkability grid (8
 /// neighbours) at the client's walking speed, ending at the closest reachable cell when the target itself is blocked,
 /// and reports that position with the next order.
 /// </summary>

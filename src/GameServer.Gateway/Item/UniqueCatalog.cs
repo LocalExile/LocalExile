@@ -69,6 +69,10 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         ["Blackheart|Metadata/Items/Rings/Ring1"] = ["LevelRequirementOverrideUnique__1"],
         ["Cragfall|Metadata/Items/Quivers/Quiver6"] = ["LevelRequirementOverrideUnique__4"],
         ["Craghead|Metadata/Items/Quivers/Quiver6"] = ["LevelRequirementOverrideUnique__4"],
+        // 3.29.0: these three uniques have a hidden property forbidding white sockets (PoEDB version history).
+        // Existing items keep their sockets; only newly generated ones are affected.
+        ["Dialla's Malefaction|Metadata/Items/Armours/BodyArmours/BodyInt8"] = ["LocalNoWhiteSocketsUnique__1"],
+        ["Skin of the Loyal|Metadata/Items/Armours/BodyArmours/BodyInt1"] = ["LocalNoWhiteSocketsUnique__1"],
         ["Doedre's Damning|Metadata/Items/Rings/Ring3"] = ["LevelRequirementOverrideUnique__1"],
         ["Kalandra's Touch|Metadata/Items/Rings/MirrorRing"] = ["LevelRequirementOverrideUnique__1"],
         ["Kaom's Sign|Metadata/Items/Rings/Ring2"] = ["LevelRequirementOverrideUnique__1"],
@@ -82,6 +86,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         ["Sidhebreath|Metadata/Items/Amulets/Amulet1"] = ["LevelRequirementOverrideUnique__1"],
         ["Stone of Lazhwar|Metadata/Items/Amulets/Amulet5"] = ["LevelRequirementOverrideUnique__5"],
         ["Sudden Dawn|Metadata/Items/Armours/Helmets/HelmetInt7"] = ["LevelRequirementOverrideUnique__3"],
+        ["Tabula Rasa|Metadata/Items/Armours/BodyArmours/BodyInt1"] = ["RemoveStatsFromTabulaRasa", "LevelRequirementOverrideUnique__1"],
         ["Tear of Purity|Metadata/Items/Amulets/Amulet5"] = ["LevelRequirementOverrideUnique__5"],
     };
 
@@ -166,7 +171,66 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
-        return item with { Mods = mods };
+        item = item with { Mods = mods };
+        if (definition.Name.Equals("Tabula Rasa", StringComparison.OrdinalIgnoreCase)
+            && definition.BaseTypeId == "Metadata/Items/Armours/BodyArmours/BodyInt1")
+            return item with
+            {
+                Sockets = Enumerable.Range(0, 6).Select(_ => new ItemSocket(SocketColour.White)).ToArray(),
+                Links = [6],
+            };
+        // The seed omits layout metadata, so the layout comes from the modifiers the client itself reads.
+        var local = ItemModStats.Local(item, items.Mods);
+        bool noWhite = local.ContainsKey("local_sockets_cannot_be_white");
+        bool abyss = local.Keys.Any(id => id is "local_has_X_abyss_sockets" or "local_cannot_have_non_abyssal_sockets");
+        if (local.ContainsKey("local_has_no_sockets")) return item;
+        if (!abyss && local.ContainsKey("local_six_linked_random_sockets"))
+        {
+            int count = Math.Min(6, CurrencyEffects.SocketCapacity(item, type));
+            if (count == 0) return item;
+            var requirements = items.Requirements(type);
+            return item with
+            {
+                Sockets = [.. Enumerable.Range(0, count).Select(_ =>
+                    new ItemSocket(SocketColours.Roll(requirements, item.ItemLevel, item.Quality, random, noWhite: noWhite)))],
+                Links = [(byte)count],
+            };
+        }
+        // "Has X Sockets" rows add up: Voidfletcher's implicit gives one and its own mod two more (3.29, three sockets).
+        // The same row can be both the base's implicit and one of the unique's mods; count each row once.
+        int FixedSockets(ItemMod mod)
+        {
+            if (items.Mods.ByHash(mod.Hash) is not { } row) return 0;
+            int total = 0;
+            for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+                if (row.Stats[s].Id == "local_has_X_sockets") total += mod.Values[s];
+            return total;
+        }
+        int fixedSockets = item.Mods.GroupBy(mod => mod.Hash).Sum(group => FixedSockets(group.First()));
+        bool allWhite = local.ContainsKey("local_all_sockets_are_white");
+        if (!abyss && fixedSockets > 0 && type.Components.Contains("Sockets"))
+        {
+            // A fixed count overrides the class cap (rings and quivers are not in the socket settings but can carry
+            // sockets); 6 is the client's own maximum. Link groups use the same approximation as Jeweller's Orb: the
+            // exact unique link distribution is not known.
+            int count = Math.Clamp(fixedSockets, 0, SocketLayout.MaximumSockets);
+            var requirements = items.Requirements(type);
+            var fixedList = new List<ItemSocket>(count);
+            var fixedLinks = new List<byte> { 1 };
+            for (int i = 0; i < count; i++)
+            {
+                fixedList.Add(new(allWhite ? SocketColour.White
+                    : SocketColours.Roll(requirements, item.ItemLevel, item.Quality, random, noWhite: noWhite)));
+                if (i == 0) continue;
+                if (random.Next(2) == 0) fixedLinks[^1]++;
+                else fixedLinks.Add(1);
+            }
+            return item with { Sockets = fixedList, Links = count > 0 ? fixedLinks : null };
+        }
+        if (local.Keys.Any(id => id is "local_has_X_sockets" or "local_all_sockets_are_white"
+            or "local_has_X_abyss_sockets" or "local_cannot_have_non_abyssal_sockets")) return item;
+        var (sockets, links) = items.DefaultSockets(type, item.ItemLevel, item.Quality, random, noWhite);
+        return item with { Sockets = sockets, Links = links };
     }
 
     IEnumerable<ItemMod> Rolled(Definition definition, string[] ids, ModSection section, Random random)

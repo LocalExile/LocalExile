@@ -24,8 +24,8 @@ Each support contains a full granted-effect reference followed by a u32 source f
 The reference contains a flagged GEPL row, a flagged GESSPL row and any extra stat-set references.
 A normal support therefore occupies 14 bytes, including the source field, which is currently zero.
 Omitting the stat-set reference desynchronizes the Actor record and crashes the client.
-The native reader is `0x142196ce0`, calling `0x1424a0dc0` and `0x1424a0990`.
-The constructor at `0x141ee73d0` receives a support vector with stride 0x78.
+The native reader is `0x14219d650`, calling `0x1424a7890` and `0x1424a7460`.
+The constructor at `0x141eedc30` receives a support vector with stride 0x78.
 GrantedEffects supplies the native skill-bar letter and attribute colour; no client assets are changed.
 Item supports use those same references, including the white `d` of the Delve socketed attack/spell damage effects.
 Effects with an empty native letter do not acquire an invented badge.
@@ -42,6 +42,9 @@ its 300% cost multiplier), counts the Life paid against `support_lifetap_spent_l
 buff (BuffDefinitions 1846) for the support's 4000 ms base plus 100 ms per 1% quality. While it runs, supported hits
 take `support_lifetap_damage_+%_final_while_buffed` and flasks recover 20% increased Life. A paid Vaal use follows the
 same Life cost.
+The Blood Magic keystone (the passive tree node or an item's `keystone_blood_magic`, for example Malachai's Awakening)
+converts every skill's whole Mana cost to Life the same way, without Lifetap's multiplier, counter or buff; a skill is
+refused when its Life cost is not below current Life. Mana reservation is unchanged.
 Physical more damage is applied before conversion; elemental and chaos modifiers apply to their resulting damage.
 Conditional modifiers are not treated as unconditional bonuses.
 Skill panel values and ordinary hit execution use the same supported-skill calculation.

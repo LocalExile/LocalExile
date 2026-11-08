@@ -1,7 +1,7 @@
 """Join native price tables to captured items; keep static derivations distinct from observed quotes.
 
-Static evidence: Base price resolver 0x1421e8f80; best level row 0x1421e8d70;
-rarity column 0x1421ea0b0; amount/stack handling 0x1421e9fd0.
+Static evidence: Base price resolver 0x1421ef8f0; best level row 0x1421ef6e0;
+rarity column 0x1421f0a20; amount/stack handling 0x1421f0940.
 """
 import argparse
 import json

@@ -10,9 +10,9 @@ Native verification is pending; this change has automated model, parsed-dispatch
 30 base maximum, 1% more attack damage per Rage, shared half-second hit-gain interval and two-second loss delay.
 It also removes inherent attack/movement speed and distinguishes loss speed from the delay.
 Extracted `BuffDefinitions` row 1060 (`rage`) describes individual losses every 0.1 seconds.
-The supplied 3.29.3b client analysis identifies `0x142877ac0` as dividing the loss delay by its recovery rate;
+The supplied 3.29.3c client analysis identifies `0x14287e680` as dividing the loss delay by its recovery rate;
 it does not multiply the loss speed.
-`0x142878250` checks cannot-gain key 14363 with soul-gain-prevention key 8855.
+`0x14287ee10` checks cannot-gain key 14363 with soul-gain-prevention key 8855.
 Those native findings were provided with this task; this child did not run a client or reverse-engineering tools.
 
 - Maximum is `max(0, 30 + maximum_rage)`, then integer-halved by `maximum_rage_is_halved`.
@@ -93,7 +93,7 @@ Unclaimed carry expires after five minutes; a failed Auth transfer retains the o
 Refreshes are assembled inside the real connection send gate under `Monsters`.
 They replace an old buff with `0x1c2`, then add `0x1c1` row 1060 with stacks equal to held Rage and no duration.
 At zero only the removal remains.
-`0x1b3` and `0x2ba` refresh player/skill damage stats, including `current_rage` (7594),
+`0x1b3` and `0x2bc` refresh player/skill damage stats, including `current_rage` (7594),
 `virtual_maximum_rage` (12139), `effective_rage_for_per_rage_effects` (20860),
 `attack_damage_+%_final_from_rage` (20817), `is_at_maximum_rage` and the final delay.
 The count never grants inherent attack speed.

@@ -505,6 +505,7 @@ server process edits the same file later, add a `revision` check or a file-watch
    a time.
 9. **Remaining content catalogues.** NPC shops and placements, drop tables, then the gem/utility/monster mapping lists.
    Each move keeps the current numbers as the seed and adds a live comparison test against the old code path.
+   The drop tables and their seed are in [drop-data-schema.md](drop-data-schema.md).
 
 ## Acceptance checks
 

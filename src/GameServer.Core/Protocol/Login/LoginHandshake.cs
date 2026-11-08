@@ -5,7 +5,7 @@ using System.Security.Cryptography;
 namespace GameServer.Core.Protocol.Login;
 
 /// <summary>
-/// Message 0x0002 (one class both ways, vtable 0x1435c0038, (de)serializer 0x141f9d7f0), big-endian:
+/// Message 0x0002 (one class both ways, vtable 0x1435caa70, (de)serializer 0x141fa4220), big-endian:
 /// u16 id=2, u16 n, n bytes "key", u16 m, m bytes "signature". Client→server: its ephemeral DH public value and an
 /// empty signature. Server→client: the server's ephemeral public value and DSA/SHA-1(key) as r||s. Both are plaintext;
 /// every byte after them is Salsa20-encrypted.
@@ -44,7 +44,7 @@ public sealed record KeyExchange(byte[] Key, byte[] Signature) : ILoginMessage
     }
 }
 
-/// <summary>Server side of the login key exchange (inverse of client 0x14213e610 / 0x140e03630).</summary>
+/// <summary>Server side of the login key exchange (inverse of client 0x142144f60 / 0x140e01ed0).</summary>
 public sealed class ServerHandshake(LoginServerKeys keys)
 {
     /// <summary>Answers a client's 0x0002; returns the reply to send in plaintext and the ciphers for everything after it.</summary>

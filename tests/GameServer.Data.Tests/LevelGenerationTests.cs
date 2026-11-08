@@ -70,7 +70,7 @@ public class LevelGenerationTests
     public void FirstDrawsMatchLionsEyeWatchTrace()
     {
         // Client trace of 1_1_town seed 1 (live 2026-10-22): the topology pick's MT draw, then 10 LCG bits for the
-        // orientation (0x142046a70); one topology with orientations [0] gives orientation 0.
+        // orientation (0x14204d2c0); one topology with orientations [0] gives orientation 0.
         var r = new LevelRandom(1);
         var (index, orientation) = r.PickIndexAndOrientation(1, LevelRandom.OrientationMask([0]));
         Assert.Equal(0, index);
@@ -140,7 +140,7 @@ public class LevelGenerationTests
     [Fact]
     public void SymmetricTileMatchesInTwoOrientations()
     {
-        // Lioneye's Watch: the client lists this tile under one key in orientations 0 and 4 (live probe of 0x141d902d0).
+        // Lioneye's Watch: the client lists this tile under one key in orientations 0 and 4 (live probe of 0x141d93960).
         var t = Straight();
         Assert.Equal(t, t.Rotate(4));
         Assert.NotEqual(t, t.Rotate(2));
@@ -177,7 +177,7 @@ public class LevelGenerationTests
     [Fact]
     public void TurnedVertexLookupUndoesThePlacement()
     {
-        // 0x141d7ff50 reads a placed tile's vertex through the inverse code (0x142fb7f98): every vertex a 3 × 2 tile
+        // 0x141d835e0 reads a placed tile's vertex through the inverse code (0x142fc2028): every vertex a 3 × 2 tile
         // writes at a turned position reads back from that position.
         var key = new TileKey { Width = 3, Height = 2 };
         var tile = new TileDef("t.tdt", "", key) { VertexHeights = [.. Enumerable.Range(0, 12).Select(i => (sbyte)i)] };
@@ -193,7 +193,7 @@ public class LevelGenerationTests
     [Fact]
     public void EdgeAngleUsesTheClientsAcosTable()
     {
-        // 0x14299d730 with the table at 0x142fe0b10 (32768 = π): same, perpendicular and opposite directions, and one
+        // 0x1429a6a90 with the table at 0x142feac40 (32768 = π): same, perpendicular and opposite directions, and one
         // entry between (2 · dot = 20, root 22 → index 57 + 127 = 184 → 11529, as Game.exe holds it).
         Assert.Equal(0, GraphGeometry.Angle(0, -10, 0, -5));
         Assert.Equal(16384, GraphGeometry.Angle(0, -10, 7, 0));
@@ -205,7 +205,7 @@ public class LevelGenerationTests
     [Fact]
     public void PolarUsesTheClientsSineInterpolation()
     {
-        // 0x14299d820 weighs the two table entries the other way round, so angle 0 reads the entry after it: sin 0 = 3/127.
+        // 0x1429a6b80 weighs the two table entries the other way round, so angle 0 reads the entry after it: sin 0 = 3/127.
         Assert.Equal((49, 1), GraphGeometry.Polar(100, 0));
         Assert.Equal((1, 49), GraphGeometry.Polar(100, 0x4000));
     }

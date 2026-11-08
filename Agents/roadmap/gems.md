@@ -41,7 +41,7 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   their skills, the variant is the SkillGem data's u32, and `/gem` makes any gem ([19](../docs/protocol/19-gems.md)
   §1, §3); not yet checked with the real client.
   Part (c), the requirements, is in: the level is `PlayerLevelReq` (Haste 24 at gem level 1 … 70 at 20, as the
-  client's tooltips) and the attributes are the client's own formula, fitted from `0x14246fc40` and checked against
+  client's tooltips) and the attributes are the client's own formula, fitted from `0x142476710` and checked against
   570 poedb tooltip cells with no mismatch (`trunc((3·level_req + 11)·(percent/100)^0.9·k + 0.5)`, `k` 0.5 for
   supports and 0.7 for skills, none below 14).
   The level stops a gem's experience at the first one the character does not meet;

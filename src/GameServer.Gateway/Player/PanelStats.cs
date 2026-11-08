@@ -454,7 +454,7 @@ static class PanelStats
     /// (<see cref="LifePerMinute"/>) and mana (<see cref="ManaPerMinute"/>). The same formulas feed the player tick, so
     /// the panel shows the regeneration the server actually applies. A character with no life regeneration gets no life
     /// row; mana always has its base rate. The client also needs life_recovery_per_minute / mana_recovery_per_minute
-    /// for its own pool stepping: the Life constructor (0x141e678d0) binds these keys to the pools, and 0x141e6b320
+    /// for its own pool stepping: the Life constructor (0x141e6de70) binds these keys to the pools, and 0x141e718c0
     /// applies the rate / 60 times the client tick duration. The display totals alone do not drive that stepping.
     /// </summary>
     public static List<(string Stat, int Value)> Recovery(Func<string, int> get, uint maxLife, uint maxMana)

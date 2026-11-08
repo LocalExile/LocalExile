@@ -262,7 +262,7 @@ partial class Program
                     Console.WriteLine($"[move-trace] qpc={readAt} recv 0x{id:x4} {Convert.ToHexString(bytes)}");
         foreach (var bytes in inbox.Post(messages, unknown, readAt))
         {
-            // Only a lockstep client's world counts frames behind (0x142183930), so only it reports any.
+            // Only a lockstep client's world counts frames behind (0x14218a2a0), so only it reports any.
             if (bytes[2] != 0) conn.NoteLockstepClient(remote);
             if (conn.Ticks++ % 50 == 0 && ServerTrace.Ticks) Console.WriteLine($"[gateway] {remote} <= 0x001b tick #{conn.Ticks}: {Convert.ToHexString(bytes)} (answered with 0x001c)");
             // Answered after the input read before it (ClientInbox.DeferTick); the ack index and the side channel are taken

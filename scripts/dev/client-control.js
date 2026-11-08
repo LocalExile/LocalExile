@@ -1,37 +1,37 @@
-// Local development RPC for the copied standalone 3.29.3b client. Loaded by client_control.py.
+// Local development RPC for the copied standalone 3.29.3c client. Loaded by client_control.py.
 // Commands run inside the existing state-stack update, after its transition guard is entered.
 // No input simulation, screen coordinates, credential persistence, or executable patching.
 'use strict';
 const module = Process.getModuleByName('Game.patched.exe');
 const at = va => module.base.add(ptr(va).sub(ptr('0x140000000')));
 const specs = {
-  frame: ['0x141526cbf', '488b5d284883eb10483b5d200f848800'],
-  connect: ['0x14213d9f0', '48895c2408488974241055574156488d'],
-  login: ['0x14213ea10', '48895c24084889742410555741544156'],
-  play: ['0x1421406f0', '48895c240848896c2410488974241857'],
-  write: ['0x140dfb760', '48895c240848896c2410488974241857'],
-  flush: ['0x140dfb8c0', '48895c24104889742418555741544156'],
-  logout: ['0x140d0f740', '48895c24104889742418555741554156'],
-  push: ['0x1415261c0', '48895c240848896c2410488974241857'],
-  dispatch: ['0x14213f190', '48895c24084c89442418555657415441'],
-  loginWriter: ['0x14213c660', '48895c241048896c2418488974242057'],
-  assignText: ['0x1401346d0', '48895c241048896c2418565741574883'],
-  lifeTick: ['0x141e6a190', '40534883ec3083b9a801000000488bd9'],
-  poolUpdate: ['0x141e69fb0', '405341574883ec288b42204c8bfa448b'],
+  frame: ['0x141528fbf', '488b5d284883eb10483b5d200f848800'],
+  connect: ['0x142144340', '48895c2408488974241055574156488d'],
+  login: ['0x142145360', '48895c24084889742410555741544156'],
+  play: ['0x142147040', '48895c240848896c2410488974241857'],
+  write: ['0x140dfa000', '48895c240848896c2410488974241857'],
+  flush: ['0x140dfa160', '48895c24104889742418555741544156'],
+  logout: ['0x140d0f770', '48895c24104889742418555741554156'],
+  push: ['0x1415284c0', '48895c240848896c2410488974241857'],
+  dispatch: ['0x142145ae0', '48895c24084c89442418555657415441'],
+  loginWriter: ['0x142142fb0', '48895c241048896c2418488974242057'],
+  assignText: ['0x140134a00', '48895c241048896c2418565741574883'],
+  lifeTick: ['0x141e70730', '40534883ec3083b9a801000000488bd9'],
+  poolUpdate: ['0x141e70550', '405341574883ec288b42204c8bfa448b'],
   // C->S 0x12 sender (login, name view, league view, unused r9, password view, start-state view); called by the
-  // create screen's 0x140cf5ef0 after it pushes state 11. Needs only the login object and its socket +0xdd0.
-  createCharacter: ['0x142140490', '48895c240848897c241044894c242055'],
-  // C->S 0x0c class 0x1435bfcd8 vtable slot 1 (message, socket): u16 id (+8), wstr (+0x10), u8 (+0x30); no flush.
-  deleteWriter: ['0x141f950c0', '48895c2410574883ec20488bf9488bda'],
+  // create screen's 0x140cf5e60 after it pushes state 11. Needs only the login object and its socket +0xdd0.
+  createCharacter: ['0x142146de0', '48895c240848897c241044894c242055'],
+  // C->S 0x0c class 0x1435ca710 vtable slot 1 (message, socket): u16 id (+8), wstr (+0x10), u8 (+0x30); no flush.
+  deleteWriter: ['0x141f9baf0', '48895c2410574883ec20488bf9488bda'],
   // The client's own instance send: guards the socket offsets lockedWrite copies from it (+0x240, +0x242, +0x248).
-  instanceSend: ['0x14216e940', '48895c241048896c2418488974242057'],
+  instanceSend: ['0x1421752b0', '48895c241048896c2418488974242057'],
 };
 const addresses = {};
 for (const [name, [va, expected]] of Object.entries(specs)) {
   const p = at(va);
   const actual = Array.from(new Uint8Array(p.readByteArray(expected.length / 2)))
     .map(x => x.toString(16).padStart(2, '0')).join('');
-  if (actual !== expected) throw new Error(`Unsupported client: ${name} code differs from 3.29.3b`);
+  if (actual !== expected) throw new Error(`Unsupported client: ${name} code differs from 3.29.3c`);
   addresses[name] = p;
 }
 const native = (name, args, returns = 'void') => new NativeFunction(addresses[name], returns, args,
@@ -49,9 +49,9 @@ const deleteWriter = native('deleteWriter', ['pointer', 'pointer']);
 const kernel32 = Process.getModuleByName('kernel32.dll');
 const acquireLock = new NativeFunction(kernel32.getExportByName('AcquireSRWLockExclusive'), 'void', ['pointer']);
 const releaseLock = new NativeFunction(kernel32.getExportByName('ReleaseSRWLockExclusive'), 'void', ['pointer']);
-// Writes to a socket's send buffer as the client's own instance send (0x14216e940) does: it marks the socket as being
+// Writes to a socket's send buffer as the client's own instance send (0x1421752b0) does: it marks the socket as being
 // written (+0x240) and, while another thread services the socket (+0x242), writes under the socket's SRW lock (+0x248),
-// which the flush (0x140dfb8c0) takes too. The writer (0x140dfb760) itself does not lock: written without the lock, a
+// which the flush (0x140dfa160) takes too. The writer (0x140dfa000) itself does not lock: written without the lock, a
 // message raced the network thread's flush and the client's cipher fell out of step with the server's for good (live
 // 2026-10-30: right after the client's own 0x020a, every later message reached the Gateway as garbage).
 function lockedWrite(socket, writeIt) {
@@ -60,11 +60,11 @@ function lockedWrite(socket, writeIt) {
   if (threaded) acquireLock(lock);
   try { writeIt(); } finally { if (threaded) releaseLock(lock); socket.add(0x240).writeU8(0); }
 }
-const app = () => at('0x1445cbe68').readPointer();
-const stack = () => at('0x1445cbe40').readPointer();
+const app = () => at('0x1445d6fd8').readPointer();
+const stack = () => at('0x1445d6fb0').readPointer();
 const loginObject = () => app().add(0x358).readPointer();
 const instance = () => app().add(0x348).readPointer();
-rpc.exports.identity = () => ({pid: Process.id, path: module.path, build: '3.29.3b'});
+rpc.exports.identity = () => ({pid: Process.id, path: module.path, build: '3.29.3c'});
 let lastLoginResult = null, lastCreateResult = null, lastDeleteResult = null;
 // The bridge's own create is waiting for its 0x13 result (createSent), then for the Play its successful create needs
 // (createdAwaitingPlay): only that loading state is the one after a create.
@@ -124,8 +124,8 @@ function loginSocket() {
   return socket;
 }
 // The current area's WorldAreas row is the world object's +0xb0 (world = instance +0xc278). Static evidence:
-// the map overlay 0x1406b2030 loads [[ui+0x328]+0xc278]+0xb0, shows its +0x8 (Name) as the area title and tests
-// +0x14 (IsTown) and +0x1e4 (__col51); the delve gauge 0x1404301f0 tests the same row's +0x1e4 == 27. A WorldAreas row
+// the map overlay 0x1406b25f0 loads [[ui+0x328]+0xc278]+0xb0, shows its +0x8 (Name) as the area title and tests
+// +0x14 (IsTown) and +0x1e4 (__col51); the delve gauge 0x140430780 tests the same row's +0x1e4 == 27. A WorldAreas row
 // starts with the Id string pointer (+0x0) and has HASH16 at +0x2a (schema; 16-waypoints s.3 pin row +0x2a).
 function currentArea(i) {
   try {
@@ -149,7 +149,7 @@ function characters() {
 }
 function status() {
   const a=app(),sm=stack();
-  if(a.isNull() || sm.isNull()) return {pid:Process.id,build:'3.29.3b',screen:'starting',states:[],loginState:0,instanceState:0};
+  if(a.isNull() || sm.isNull()) return {pid:Process.id,build:'3.29.3c',screen:'starting',states:[],loginState:0,instanceState:0};
   const l=a.add(0x358).readPointer(),i=a.add(0x348).readPointer();
   const begin = sm.add(0x20).readPointer(), end = sm.add(0x28).readPointer();
   const count = end.sub(begin).toInt32() / 16;
@@ -157,7 +157,7 @@ function status() {
   const states = Array.from({length: count}, (_, n) => begin.add(n * 16).readPointer().add(0x209).readU8());
   const loginState = l.isNull() ? 0 : l.add(0xde8).readU32();
   const instanceState = i.isNull() ? 0 : i.add(0xc3a0).readU32();
-  return {pid: Process.id, build: '3.29.3b', states, screen: ({4:'game',6:'login',7:'login',9:'characters',11:'loading'})[states.at(-1)] || 'other',
+  return {pid: Process.id, build: '3.29.3c', states, screen: ({4:'game',6:'login',7:'login',9:'characters',11:'loading'})[states.at(-1)] || 'other',
     loginState, instanceState,
     account: loginState === 3 ? text(l.add(0xe10)) : null,
     character: instanceState !== 3 ? null : text(l.add(0xdf0)),
@@ -235,12 +235,12 @@ function execute(request) {
       return {submitted: true};
     }
     case 'delete': {
-      // The delete screen's sender (0x140cfafa0) needs that screen; its message class writer does not.
+      // The delete screen's sender (0x140cfaf60) needs that screen; its message class writer does not.
       if (current.screen !== 'characters' || current.loginState !== 3)
         throw new Error('Delete requires character selection');
       const name = loginText(request.name, 'character name'), socket = loginSocket();
       const message = Memory.alloc(0x38); keep.push(message);
-      message.writePointer(at('0x1435bfcd8')); message.add(8).writeU16(0x0c);
+      message.writePointer(at('0x1435ca710')); message.add(8).writeU16(0x0c);
       Memory.copy(message.add(0x10), string(name, true, keep), 0x20); message.add(0x30).writeU8(0);
       lastDeleteResult = null;
       lockedWrite(socket, () => deleteWriter(message, socket)); flush(socket, 0x15180, 0);  // as the delete screen's sender flushes
@@ -285,8 +285,8 @@ Interceptor.attach(addresses.dispatch, {onEnter(args) {
   try {
     const message = args[2].readPointer();
     if (message.isNull()) return;
-    // 0x04 (as before) and 0x0d (class 0x1435bf7e8, reader 0x141f928d0) keep the u16 result at +0x10;
-    // 0x13's reader 0x14219b8d0 stores its u16 result at +0x12 and the tracking bool at +0x10.
+    // 0x04 (as before) and 0x0d (class 0x1435ca200, reader 0x141f991c0) keep the u16 result at +0x10;
+    // 0x13's reader 0x1421a2240 stores its u16 result at +0x12 and the tracking bool at +0x10.
     const id = message.add(8).readU16();
     if (id === 0x04) lastLoginResult = message.add(0x10).readU16();
     else if (id === 0x13) {
