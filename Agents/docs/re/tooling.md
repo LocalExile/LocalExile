@@ -328,13 +328,23 @@ How 3.29.3b → 3.29.3c was ported; every step maps from evidence, nothing by of
    `NightSwitches.java` on both programs (auto-analysis left the instance dispatcher's jump table unrecovered in
    3.29.3c only, so the two bodies did not align). Then `PortMap.java <session> <out dir> <addresses.txt>`: it aligns
    every accepted function pair instruction by instruction, pairs the functions Version Tracking left (unanimous call
-   targets and vtable slots, each checked by alignment), and resolves each listed address with how it was proven.
-   3.29.3b → 3.29.3c: 75,880 accepted + 17,119 propagated functions; 9,641 of 10,321 repository addresses.
+   targets, vtable slots, and bodies found once in each program, each checked by alignment), and resolves each listed
+   address with how it was proven. 3.29.3b → 3.29.3c: 75,880 accepted + 26,282 propagated functions; 9,819 of 10,321
+   repository addresses. A vtable slot is weaker evidence than a call target: 3.29.3c swapped two near-identical
+   slots of one class (3.29.3b 0x141dcbae0 and 0x141dceda0), and only the callers and the bodies told them apart.
 2. **Message ids.** Run `ComponentRegistry.java`, `ReadSchema.java` and `SendSites.java` (addresses rewritten through
    the map) on the new program, then `compare_messages.py`: S→C factory cases pair by mapped class, C→S sends by
    mapped function and class. Classless ids routed by a handler's own byte table (the world group's Positioned
    `0x2b0`) are checked in that table.
 3. **Tables.** `compare_tables.py` on both decoded table folders: row moves by key and reordered columns. A saved
    row index needs a migration (`mtx_remap.py` made `CosmeticMigration`).
-4. **Rewrite.** `rewrite_addresses.py <resolved.tsv> <report.tsv> [--apply]` replaces mapped address tokens in tracked
-   files and lists the rest; generated docs (section 7) are regenerated on the new build instead.
+4. **The rest by hand.** Code outside any function or in an unmatched one: a masked byte signature found once in each
+   build is only a candidate (a 4-instruction match landed on another string's `lea`); it needs a second proof, such as
+   both mapped neighbours' shift, the same string or pool reference, or every mapped data reference. Data: equal bytes,
+   or words whose pointers map, found once. Add the proven pairs to `resolved.tsv`; what has no proof stays unported
+   and is labelled with the old build.
+5. **Rewrite.** `rewrite_addresses.py <resolved.tsv> <report.tsv> [--apply]` replaces mapped address tokens in tracked
+   files and lists the rest; generated docs (section 7) are regenerated on the new build instead. A token glued to a
+   name (`byte_table_0x…`) is not matched. `rewrite_message_ids.py <report.tsv> --shift first:last:delta …` moves
+   message ids; its report needs reading line by line, since stat keys, offsets after another id (`0x22 + 0x2b9`) and
+   ClientStrings rows share the range. Re-check every script's code signature against the new executable.

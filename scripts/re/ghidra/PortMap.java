@@ -100,11 +100,14 @@ public class PortMap extends GhidraScript {
 
     // Functions Version Tracking left unmatched, paired by evidence from what is already mapped, then checked by
     // alignment. Evidence: a unanimous reference target that is a function entry on both sides (a call or a function
-    // pointer), or a slot of two vtables that a unanimous reference pairs (see vtable()). A pair is taken when its old
-    // and new function have no other candidate and at least half of the larger function aligns; its references then
-    // vote, and the rounds repeat until none is taken.
+    // pointer), a slot of two vtables that a unanimous reference pairs (see vtable()), or a body (instruction keys, at
+    // least 5 instructions) that no other function of either program has. A pair is taken when its old and new
+    // function have no other candidate and at least half of the larger function aligns; its references then vote, and
+    // the rounds repeat until none is taken.
     void propagate(Path out) throws Exception {
         FunctionManager fa = a.getFunctionManager(), fb = b.getFunctionManager();
+        HashMap<Long, Long> bodies = uniqueBodies();
+        println("PORTMAP bodies unique in both programs " + bodies.size());
         int round = 0, total = 0;
         try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(out.resolve("propagated.tsv")))) {
             while (true) {
@@ -116,6 +119,9 @@ public class PortMap extends GhidraScript {
                         cand.computeIfAbsent(x, k -> new HashMap<>()).putIfAbsent(y, "ref");
                     vtable(x, y, cand);
                 }
+                for (var e : bodies.entrySet())
+                    if (!fn.containsKey(e.getKey()) && !fnNew.contains(e.getValue()))
+                        cand.computeIfAbsent(e.getKey(), k -> new HashMap<>()).putIfAbsent(e.getValue(), "unique body");
                 // One candidate each way.
                 HashMap<Long, Integer> wanted = new HashMap<>();
                 for (var m : cand.values()) for (long y : m.keySet()) wanted.merge(y, 1, Integer::sum);
@@ -151,6 +157,27 @@ public class PortMap extends GhidraScript {
             }
         }
         println("PORTMAP functions propagated " + total + ", instructions mapped " + insn.size());
+    }
+
+    // Old entry -> new entry for every function body (its instruction keys) found exactly once in each program.
+    HashMap<Long, Long> uniqueBodies() throws Exception {
+        HashMap<String, long[]> seen = new HashMap<>();             // body -> {old entry, old count, new entry, new count}
+        for (int side = 0; side < 2; side++) {
+            Program p = side == 0 ? a : b;
+            for (Function f : p.getFunctionManager().getFunctions(true)) {
+                monitor.checkCancelled();
+                String[] k = keys(instructions(p, f));
+                if (k.length < 5) continue;
+                byte[] h = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(String.join("\n", k).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                long[] v = seen.computeIfAbsent(HexFormat.of().formatHex(h), x -> new long[4]);
+                v[2 * side] = f.getEntryPoint().getOffset();
+                v[2 * side + 1]++;
+            }
+        }
+        HashMap<Long, Long> out = new HashMap<>();
+        for (long[] v : seen.values()) if (v[1] == 1 && v[3] == 1) out.put(v[0], v[2]);
+        return out;
     }
 
     // x -> y pairs two vtables (runs of function pointers in data). Slot 0 pairs through the reference itself; a later
