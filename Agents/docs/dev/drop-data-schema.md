@@ -1,6 +1,6 @@
-# Drop data schema (draft)
+# Drop data schema
 
-Draft, 2026-11-08, for the drop research in
+2026-11-08, for the drop research in
 [currency-drops.md](../game/currency-drops.md), [boss-drops.md](../game/boss-drops.md)
 and [drop-research-roadmap.md](../game/drop-research-roadmap.md). The database is
 the same SQLite overlay as [editable-game-data.md](editable-game-data.md)
@@ -119,11 +119,10 @@ comma or point (`0,15` or `0.15`).
 
 ## Load and edit rules
 
-- On startup, if the drop seed has not run, seed every table from the CSV in one
-  transaction and record `drop_seeded` in `game_data_meta`. A later extract
-  replaces the reference rows only when they are empty or when the schema
-  version changes; edits are kept in the table (there is no separate override
-  table for the first slice).
+- On startup, if `game_data_meta` has no `drop_seeded`, seed every table from the
+  CSV in one transaction and record `drop_seeded`. Later starts keep the rows as
+  they are, so an edit survives; a new schema version or an explicit reset can
+  re-seed.
 - Load the tables once into immutable dictionaries on
   `DropDataProvider.Snapshot`: `CurrencyWeights`, `CurrencySources`, `Bosses`,
   `BossItems`, `CardAreas`, `CardSources`. Swap the snapshot reference; a roll
@@ -145,8 +144,8 @@ comma or point (`0,15` or `0.15`).
 
 ## Commands and tests
 
-The first implementation needs only loading and the existing `/game_data` list
-counts; editing commands can follow the `unique_weight` pattern:
+This slice implements loading; the Gateway logs the seeded counts at startup.
+Editing commands can follow the `unique_weight` pattern:
 
 ```
 /game_data currency_weight <id> <weight>
