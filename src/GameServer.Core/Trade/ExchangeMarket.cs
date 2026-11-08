@@ -58,29 +58,44 @@ public sealed class ExchangeMarket(ExchangeRates rates, Dictionary<string, Excha
     double RoomOf(uint item) => IsChaos(item) || volumeShare <= 0 || PriceOf(item) is not { } price
         ? double.PositiveInfinity : volumeShare * price.Volume / Math.Max(rates.Hours, 1);
 
-    public IReadOnlyList<InstanceCurrencyExchange.MarketLevel> Levels(uint give, uint get)
+    /// <summary>The steps of a market, as many as the window shows (<c>0x140b94550</c>): how far each is from the price, in spreads past the first, and
+    /// its share of the hour's room. The digests hold no order book, so the shape is a judgement: more, further from the price.</summary>
+    static readonly (double Steps, double Share)[] Ladder = [(0, .10), (.4, .12), (.9, .15), (1.6, .18), (2.4, .20), (3.5, .25)];
+
+    /// <summary>What Faustus has for sale of an item against another at an hour (now, by default), best first, without what this hour's orders took of it.
+    /// Each step has room for at least one of the dearer item, or a rare one would never trade. Same hour, same steps: the stock only looks alive.</summary>
+    public IReadOnlyList<InstanceCurrencyExchange.MarketLevel> Levels(uint give, uint get, long? hour = null, Dictionary<uint, double>? used = null)
     {
-        if (Trade(give, get) is not var (a, b)) return [];
-        double room = Math.Min(RoomOf(give), RoomOf(get));
-        ulong stock = double.IsInfinity(room) || ChaosAt(give, Hour) is not { } chaos ? Unlimited : (ulong)Math.Clamp(room / chaos, 1, Unlimited);
-        return [new(a, b, stock)];
+        long at = hour ?? Hour;
+        if (PriceOf(give) is not { } g || PriceOf(get) is not { } p || ChaosAt(give, at) is not { } giveChaos || ChaosAt(get, at) is not { } getChaos) return [];
+        double spread = Math.Min(.5, Math.Max(SpreadFor(g.Volume), SpreadFor(p.Volume)) * spreadScale), step = Math.Max(spread, .005);
+        double room = Math.Min(RoomOf(give), RoomOf(get)), dearer = Math.Max(giveChaos, getChaos);
+        double taken = Math.Max(used?.GetValueOrDefault(give) ?? 0, used?.GetValueOrDefault(get) ?? 0);
+        var levels = new List<InstanceCurrencyExchange.MarketLevel>();
+        // Not HashCode: it changes with every run of the server, and the same hour must have the same steps.
+        var rng = new Random((int)(((give * 31 + get) * 31 + (ulong)(at / 3600)) % int.MaxValue));
+        foreach (var (steps, share) in Ladder)
+        {
+            double value = double.IsInfinity(room) ? Unlimited * giveChaos : Math.Max(dearer, room * share * (.7 + rng.NextDouble() * .6));
+            double left = Math.Min(value, taken);
+            taken -= left;
+            ulong stock = (ulong)Math.Min(Unlimited, Math.Floor((value - left) / giveChaos + 1e-9));
+            if (stock == 0) continue;
+            if (ExchangeRatio.Below(getChaos / giveChaos * (1 - Math.Min(.6, spread + step * steps))) is not var (a, b)) continue;
+            if (levels.Count > 0 && levels[^1] is var last && last.Give == a && last.Get == b) levels[^1] = last with { Stock = last.Stock + stock };
+            else levels.Add(new(a, b, stock));
+        }
+        return levels;
     }
 
-    /// <summary>How many of what an order wants this hour can fill, and that much of its room used. An hour always has room for one of the dearer item,
-    /// or a rare one would never trade.</summary>
-    internal long Fill(uint want, uint have, long wanted, long hour, Dictionary<uint, double> used)
+    /// <summary>Takes from an hour's room what an order bought, in chaos.</summary>
+    internal void Take(uint want, uint have, double chaos, Dictionary<uint, double> used)
     {
-        if (ChaosAt(want, hour) is not { } wantChaos || ChaosAt(have, hour) is not { } haveChaos) return 0;
-        if (volumeShare <= 0) return wanted;
-        double usedWant = used.GetValueOrDefault(want), usedHave = used.GetValueOrDefault(have);
-        double room = Math.Min(RoomOf(want) - usedWant, RoomOf(have) - usedHave);
-        if (usedWant == 0 && usedHave == 0) room = Math.Max(room, Math.Max(wantChaos, haveChaos));
-        long fill = Math.Min(wanted, (long)Math.Floor(Math.Min(room / wantChaos, wanted)));
-        if (fill <= 0) return 0;
-        if (!IsChaos(want)) used[want] = usedWant + fill * wantChaos;
-        if (!IsChaos(have)) used[have] = usedHave + fill * wantChaos;
-        return fill;
+        if (!IsChaos(want)) used[want] = used.GetValueOrDefault(want) + chaos;
+        if (!IsChaos(have)) used[have] = used.GetValueOrDefault(have) + chaos;
     }
+
+    internal double ChaosOf(uint item, long hour) => ChaosAt(item, hour) ?? 0;
 }
 
 /// <summary>An order as it is saved. What it pays comes off <see cref="Remaining"/> as it fills, and what it bought waits in <see cref="ClaimWant"/>.</summary>
@@ -107,15 +122,22 @@ public sealed class ExchangeOrder
     /// <summary>The last hour it was offered to the market, unix seconds.</summary>
     public long LastHour { get; set; }
 
-    /// <summary>Fills what it can at an hour's prices, when they pay what the order asks for the rest. True when anything filled.</summary>
+    /// <summary>Buys down an hour's steps, best first, as far as the order's ratio allows: "market orders can only ever trade at or above your chosen ratio".
+    /// True when anything filled.</summary>
     internal bool Advance(ExchangeMarket market, long hour, Dictionary<uint, double> used)
     {
-        if (State != InstanceCurrencyExchange.OrderState.Listed || market.Trade(Want, Have, hour) is not var (give, get)) return false;
-        long wanted = WantCount - Bought;
-        if (wanted <= 0 || wanted * get > (long)Remaining * give) return false;
-        long fill = market.Fill(Want, Have, wanted, hour, used);
+        if (State != InstanceCurrencyExchange.OrderState.Listed) return false;
+        long fill = 0, wanted = WantCount - Bought;
+        double chaos = market.ChaosOf(Want, hour);
+        foreach (var level in market.Levels(Want, Have, hour, used))
+        {
+            if (wanted <= fill || (long)WantCount * level.Get > (long)HaveCount * level.Give) break;
+            long bought = Math.Min(wanted - fill, (long)Math.Min(level.Stock, long.MaxValue));
+            Paid += (double)bought * level.Get / level.Give;
+            fill += bought;
+        }
         if (fill <= 0) return false;
-        Paid += (double)fill * get / give;
+        market.Take(Want, Have, fill * chaos, used);
         // A whole item is held back as soon as a fraction of it is spent; what the order did not spend comes back when it ends.
         Remaining = HaveCount - (uint)Math.Min(HaveCount, (long)Math.Ceiling(Paid - 1e-9));
         Bought += (uint)fill;
@@ -143,6 +165,12 @@ public sealed class ExchangeBook
 
     public static ExchangeBook Parse(string? json) => json is null ? new() : JsonSerializer.Deserialize<ExchangeBook>(json) ?? new();
     public string Serialize() => JsonSerializer.Serialize(this);
+
+    /// <summary>What this hour's orders took from the market, for showing it.</summary>
+    public Dictionary<uint, double>? UsedAt(long hour) => UsedHour == hour ? Used : null;
+
+    /// <summary>Whether an order has anything waiting to be claimed.</summary>
+    public bool HasClaims => Orders.Exists(o => o.State != InstanceCurrencyExchange.OrderState.Listed && o.ClaimWant + o.ClaimHave > 0);
 
     /// <summary>Runs every hour since each listed order last saw the market, as if the player had been there: only hours after it was placed, so an
     /// order cannot be placed at a peak already past. The orders that filled anything.</summary>

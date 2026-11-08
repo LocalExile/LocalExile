@@ -23,7 +23,7 @@ All u32 are big-endian, and items are `BaseItemTypes` hashes. Counts are under 1
 | 0x2e9 | 0xf2 | compact count, orders, **u8 order slots** (0 reads "No Order Slots Left") |
 | 0x2f3 | 0xf5 | order, bool just placed (Faustus says `FaustusSettlersPlaceOrder_Random`, `0x141628180`) |
 | 0x2f8 | 0xf9 | empty: an order completed, the notification and its sound (`0x140d96cf0`) |
-| 0x2fa | 0xfb | empty: sets a state on an object of the area (`0x1416280e0`), not mapped and not sent |
+| 0x2fa | 0xfb | empty: the flag 0x2f8 sets (`+0xd6ca`), with no notification; also a state on an object of the area (`0x1416280e0`). Sent on arriving with orders to claim, for Faustus's bag |
 | 0x2f2 | 0xf4 | u32 item, compact count, u32 items **little-endian** (copied from memory) |
 | 0x2f4 | 0xf6 | u32 low, u32 high, levels of those selling low, levels of those selling high |
 | 0x2f5 | 0xf7 | u8: the order slots again |
@@ -33,7 +33,7 @@ All u32 are big-endian, and items are `BaseItemTypes` hashes. Counts are under 1
 
 Until 0x2e9 arrives the window reads "The Currency Exchange is closed" (`+0x570`, `0x140b92550`).
 
-A **level** (`0x1421c23c0`) is u16 give, u16 get, u64 little-endian stock, best first: those selling low give that many low for that many high. The
+A **level** (`0x1421c23c0`) is u16 give, u16 get, u64 little-endian stock, best first, of which the window shows 6: those selling low give that many low for that many high. The
 window's market ratio is the first level of those selling "I Want", as want : have (`0x140b94550`). A chosen ratio above it is dimmed: it would not fill.
 
 An **order** (`0x1429adaf0`, 0x58 bytes in memory; offsets are the row's):
@@ -66,7 +66,7 @@ week; the rest show no stock.
 
 Faustus trades at those prices less a spread by the item's weekly volume, 1% to 10%. Hourly prices cannot drive the orders: a week's replay filled 75% of orders to sell a divine at 20% above
 the market within a day when any trade touching the price counted, because stray trades reach every price, so buying low and selling high would pay for nothing. Against the 24-hour median, none did.
-An hour fills at most 10% of the item's average hourly volume, and always one item of the dearer side. Every hour after an order was placed counts, whether or not the player was there: the file
+An hour offers about 10% of the item's average hourly volume on 6 steps, each worse than the last and each with room for at least one of the dearer item, and an order buys down them as far as its ratio allows. Every hour after an order was placed counts, whether or not the player was there: the file
 has each hour's price, and the server replays the hours it missed when the player returns.
 
 Nothing in the Gateway contacts GGG: `src/GameServer.Rates` runs elsewhere, and a mod names it with `UseExchangeRates`, with the official league to trade at:

@@ -78,7 +78,7 @@ public sealed class CurrencyExchangeTests
         // in those hours and no others, one card an hour, at those hours' prices. Above all, the peak before it was placed does not count.
         const long Now = 500 * 3600;
         const uint Chaos = 1, Card = 2;
-        var card = new ExchangePrice(100, 1000, [[490, 300], [496, 100], [497, 200], [499, 100]]);
+        var card = new ExchangePrice(100, 999, [[490, 300], [496, 100], [497, 200], [499, 100]]);
         var market = new ExchangeMarket(new(Now, "L", [], Hours: 100), new() { [ExchangeRates.Chaos] = new(1, 1e9), ["card"] = card },
             hash => hash == Chaos ? ExchangeRates.Chaos : hash == Card ? "card" : null, spreadScale: 1, volumeShare: .1);
         var order = new ExchangeOrder { Id = 1, Want = Chaos, Have = Card, WantCount = 1500, HaveCount = 10, Remaining = 10, RatioWant = 150, RatioHave = 1,
@@ -88,10 +88,13 @@ public sealed class CurrencyExchangeTests
         Assert.Equal([order], book.Settle(market));
         Assert.Equal(InstanceCurrencyExchange.OrderState.Listed, order.State);
         Assert.Equal(Now, order.LastHour);
-        // Hours 497 and 498, 180 chaos a card (200 less the 10% of a thin item), and the room of one card's worth an hour.
-        Assert.Equal((uint)(2 * 200), order.ClaimWant);
-        Assert.Equal(10u - 3, order.Remaining); // 400 chaos at 180 is 2.2 cards, so a third is spoken for
+        // Hours 497 and 498, down the steps a card's worth each from 180 chaos a card (200 less the 10% of a thin item), as far as the order's 150 allows: three
+        // of them, to 162. Each hour that is 600 chaos, for 200/180 + 200/172 + 200/162 = 3.5 cards.
+        Assert.Equal((uint)(2 * 600), order.ClaimWant);
+        Assert.Equal(10u - 8, order.Remaining);
         Assert.Empty(book.Settle(market)); // the same hour again changes nothing
+        Assert.Equal(6, market.Levels(Card, Chaos).Count);
+        Assert.Empty(market.Levels(Chaos, Card, used: new() { [Card] = 1e6 })); // nothing left of the hour: no stock until the next
 
         // A trade's spread is the thinner item's, and a busy pair's is tight.
         Assert.Equal(.01, ExchangeMarket.SpreadFor(100_000));

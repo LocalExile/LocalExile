@@ -17,7 +17,7 @@ public sealed class CurrencyExchangeModule : IModule
     sealed record Choices(double SpreadScale, double VolumeShare, int OrderSlots, double MaxRateAgeDays);
 
     /// <summary>Starts full: the first tick in an area settles, so what filled while the player was away shows as they arrive.</summary>
-    sealed class Timer { public double Seconds = SettleEverySeconds; }
+    sealed class Timer { public double Seconds = SettleEverySeconds; public bool Arrived; }
 
     readonly ConditionalWeakTable<IPlayer, Timer> _timers = new();
     readonly object _ratesLock = new();
@@ -52,6 +52,12 @@ public sealed class CurrencyExchangeModule : IModule
             if ((timer.Seconds += seconds) < SettleEverySeconds) return;
             timer.Seconds = 0;
             await Settle(player);
+            // Faustus's bag does not outlast an area: it is lit again on arriving, if anything waits.
+            if (timer.Arrived || !_module.World(player).PlayerReady) return;
+            timer.Arrived = true;
+            if (!BookOf(player).HasClaims) return;
+            await SendOrders(player);
+            await Light(player);
         });
     }
 
@@ -60,6 +66,8 @@ public sealed class CurrencyExchangeModule : IModule
         await run(packet.Player, packet.Bytes);
         return true;
     });
+
+    Task Light(IPlayer player) => player.Send(Wire.OrdersWaiting(), "0x02fa orders wait to be claimed");
 
     Task Open(IPlayer player) => _module.World(player).OpenWindow(Window, Wire.WindowUi, "0x007b open the Currency Exchange");
 
@@ -135,7 +143,8 @@ public sealed class CurrencyExchangeModule : IModule
     Task SendMarket(IPlayer player, (uint Low, uint High) pair)
     {
         var market = MarketOf(player);
-        return player.Send(Wire.Market(pair.Low, pair.High, market?.Levels(pair.Low, pair.High) ?? [], market?.Levels(pair.High, pair.Low) ?? []),
+        var used = market is null ? null : BookOf(player).UsedAt(market.Hour);
+        return player.Send(Wire.Market(pair.Low, pair.High, market?.Levels(pair.Low, pair.High, used: used) ?? [], market?.Levels(pair.High, pair.Low, used: used) ?? []),
             $"0x02f4 market {pair.Low:x8} / {pair.High:x8}");
     }
 
@@ -226,7 +235,9 @@ public sealed class CurrencyExchangeModule : IModule
             }
             Forget(book, order);
         });
-        if (closed is not null) await SendOrder(player, closed, "closed");
+        if (closed is null) return;
+        await SendOrder(player, closed, "closed");
+        if (BookOf(player).HasClaims) await Light(player);
     }
 
     /// <summary>An order with nothing left to claim leaves the book and the window.</summary>

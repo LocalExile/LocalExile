@@ -19,6 +19,11 @@ public static class InstanceCurrencyExchange
     /// <summary>S→C 0x2f8, empty: "Faustus has completed one of your Currency Exchange orders", as a notification with its sound (0x140d96cf0).</summary>
     public static byte[] OrderCompleted() => new LoginWriter().U16(OrderCompletedId).ToArray();
 
+    public const ushort OrdersWaitingId = 0x2fa;
+
+    /// <summary>S→C 0x2fa, empty: sets the flag 0x2f8 sets, with no notification.</summary>
+    public static byte[] OrdersWaiting() => new LoginWriter().U16(OrdersWaitingId).ToArray();
+
     /// <summary>What an order's row shows; <see cref="Removed"/> with nothing left to claim takes the row away.</summary>
     public enum OrderState : byte { Listed = 0, Completed = 1, Cancelled = 3, Removed = 4 }
 
