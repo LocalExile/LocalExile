@@ -34,12 +34,13 @@ public static class ChatWire
     public static bool ValidName(string? name) =>
         name is { Length: > 0 and <= MaxName } && name.All(c => char.IsLetterOrDigit(c) || c is '_' or '-');
 
-    /// <summary>A name on a chat server: a character's, or one with the number the hub gave it ("Name[1]").</summary>
+    /// <summary>A name on a chat server: a character's, or one with the number the hub gave it ("Name_1"). Not "Name[1]": the
+    /// client does not colour a line from such a sender.</summary>
     public static bool ValidMember(string? name)
     {
-        if (name is null || !name.EndsWith(']')) return ValidName(name);
-        int open = name.LastIndexOf('[');
-        return open > 0 && open < name.Length - 2 && name[(open + 1)..^1].All(char.IsAsciiDigit) && ValidName(name[..open]);
+        if (ValidName(name)) return true;
+        int mark = name?.LastIndexOf('_') ?? -1;
+        return mark > 0 && mark < name!.Length - 1 && name[(mark + 1)..].All(char.IsAsciiDigit) && ValidName(name[..mark]);
     }
 
     /// <summary>The text of a line without control characters, at most <see cref="MaxText"/> long.</summary>

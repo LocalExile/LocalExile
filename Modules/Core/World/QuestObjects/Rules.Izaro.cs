@@ -32,7 +32,7 @@ static partial class QuestobjectsRules
         uint lift = conn.NextObjectId++;
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(lift, InstanceEntities.ObjectTypeHash(elevator.Type),
             IzaroFights.Blob(elevator.Type, elevator.Model, elevator.X, elevator.Y, elevator.Angle, beaten ? IzaroFights.Down : IzaroFights.Lowered)),
-            $"0x02b9 Izaro's elevator 0x{lift:x} at ({elevator.X}, {elevator.Y})");
+            $"0x02bb Izaro's elevator 0x{lift:x} at ({elevator.X}, {elevator.Y})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(lift), null);
         var doors = new List<(uint Id, AreaPopulation.RoomObject Door)>();
         foreach (var door in all.Where(o => o.Type == IzaroFights.ArenaDoor))
@@ -40,7 +40,7 @@ static partial class QuestobjectsRules
             uint id = conn.NextObjectId++;
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(door.Type),
                 IzaroFights.Blob(door.Type, door.Model, door.X, door.Y, door.Angle, IzaroFights.DoorOpen)),
-                $"0x02b9 Izaro's arena door 0x{id:x} at ({door.X}, {door.Y}), open");
+                $"0x02bb Izaro's arena door 0x{id:x} at ({door.X}, {door.Y}), open");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             doors.Add((id, door));
         }
@@ -51,7 +51,7 @@ static partial class QuestobjectsRules
             uint id = conn.NextObjectId++;
             await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(railing.Type),
                 IzaroFights.Blob(railing.Type, railing.Model, railing.X, railing.Y, railing.Angle, IzaroFights.RailingUp)),
-                .. InstanceProtocol.EnterWakeZone(id)], $"0x02b9 alcove railing 0x{id:x} at ({railing.X}, {railing.Y})");
+                .. InstanceProtocol.EnterWakeZone(id)], $"0x02bb alcove railing 0x{id:x} at ({railing.X}, {railing.Y})");
             CloseIzaroDoor(conn, id, railing);
             railings.Add((id, railing));
         }
@@ -61,7 +61,7 @@ static partial class QuestobjectsRules
             uint id = conn.NextObjectId++;
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(gate.Type),
                 IzaroFights.Blob(gate.Type, gate.Model, gate.X, gate.Y, gate.Angle, open ? IzaroFights.GateOpened : IzaroFights.GateShut)),
-                $"0x02b9 Izaro's gate 0x{id:x} at ({gate.X}, {gate.Y}), {(open ? "open" : "shut")}");
+                $"0x02bb Izaro's gate 0x{id:x} at ({gate.X}, {gate.Y}), {(open ? "open" : "shut")}");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             if (!open)
             {
@@ -84,7 +84,7 @@ static partial class QuestobjectsRules
     {
         if (!conn.Instance.SetState(IzaroFights.GateOpen)) return;
         await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(id, IzaroFights.TransitionableIndex, IzaroFights.GateOpened),
-            .. InstanceEntities.BlockageUpdate(id, false)], $"0x02ba Izaro's gate 0x{id:x} at ({gate.X}, {gate.Y}) opens");
+            .. InstanceEntities.BlockageUpdate(id, false)], $"0x02bc Izaro's gate 0x{id:x} at ({gate.X}, {gate.Y}) opens");
         OpenIzaroDoor(conn, id);
         lock (conn.Monsters) conn.TrialObjects.Remove(id);
         await UpdateShownTransitions(remote, stream, ciphers, conn, "Izaro's gate opens");
@@ -172,7 +172,7 @@ static partial class QuestobjectsRules
     }
 
     // His life's floor in a trial before the last (cannot_drop_below_%_life, S→C 0x1b3; the server's own floor is
-    // LifePhaseGate): the boss bar draws UniqueBossFrameImmuneOverlay once his life is at it (0x14028ec50 on each life
+    // LifePhaseGate): the boss bar draws UniqueBossFrameImmuneOverlay once his life is at it (3.29.3b: 0x14028ec50 on each life
     // change, key 0xca8), as the original dims it while he leaves (live). is_hidden_monster (0x14028ed50's other way to
     // the overlay), cannot_be_damaged, base_cannot_be_damaged and the invisible cannot_be_damaged buff did not change the
     // bar (live 2026-11-08).
@@ -237,7 +237,7 @@ static partial class QuestobjectsRules
             // (EntranceGrace holds the AI's), the mini bar over him is hidden.
             await Send(remote, stream, ciphers, [.. LiftState(conn, lift, elevator, IzaroFights.Raising), .. IzaroLifeFloor(izaro, trial),
                 .. InstanceEntities.StatsUpdate(izaro, [(StatKeys.HideMiniLifeBar, 1)])],
-                $"0x02ba Izaro's elevator 0x{lift:x} rises, his life's floor {(trial.Last ? 0 : trial.LeavesAtPercent)}%");
+                $"0x02bc Izaro's elevator 0x{lift:x} rises, his life's floor {(trial.Last ? 0 : trial.LeavesAtPercent)}%");
             if (Emerges.SkillId is ushort emerge)
                 await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionStarted(izaro, elevator.X, elevator.Y, elevator.X, elevator.Y, emerge, 0xffff, conn.MonsterOrderFlags),
                     .. InstanceProtocol.ActionEnded(izaro)], $"0x01ab Izaro 0x{izaro:x} rises on the elevator");
@@ -246,14 +246,14 @@ static partial class QuestobjectsRules
             foreach (var (id, door) in doors)
             {
                 await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(id, IzaroFights.TransitionableIndex, IzaroFights.DoorShut),
-                    .. InstanceEntities.BlockageUpdate(id, true)], $"0x02ba Izaro's arena door 0x{id:x} at ({door.X}, {door.Y}) shuts");
+                    .. InstanceEntities.BlockageUpdate(id, true)], $"0x02bc Izaro's arena door 0x{id:x} at ({door.X}, {door.Y}) shuts");
                 CloseIzaroDoor(conn, id, door);
             }
             await Task.Delay(TimeSpan.FromSeconds(IzaroFights.RiseSeconds));
             if (!Here()) return;
             await Send(remote, stream, ciphers, [.. LiftState(conn, lift, elevator, IzaroFights.Raised),
                 .. InstanceEntities.TransitionableUpdate(izaro, transitionable, IzaroFights.Fighting),
-                .. InstanceEntities.StatsUpdate(izaro, [(StatKeys.HideMiniLifeBar, 0)])], $"0x02ba Izaro 0x{izaro:x} fights");
+                .. InstanceEntities.StatsUpdate(izaro, [(StatKeys.HideMiniLifeBar, 0)])], $"0x02bc Izaro 0x{izaro:x} fights");
             lock (conn.Monsters)
             {
                 (boss.BusyUntil, boss.Aggro, boss.EntranceGrace, boss.BossBarShown) = (conn.Clock.Elapsed.TotalSeconds, true, false, true);
@@ -333,7 +333,7 @@ static partial class QuestobjectsRules
         await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(izaro, transitionable, IzaroFights.Defeated),
             .. InstanceProtocol.AnimationUpdate(izaro, 0, IzaroFights.LowerClip(trial.Weapon), 1),
             .. LiftState(conn, lift, elevator, IzaroFights.Lowering)],
-            $"0x02ba Izaro 0x{izaro:x} goes down, the elevator lowers");
+            $"0x02bc Izaro 0x{izaro:x} goes down, the elevator lowers");
         await WinIzaroTrial(remote, stream, ciphers, conn, trial, doors);
         await Task.Delay(TimeSpan.FromSeconds(IzaroFights.LowerSeconds));
         lock (conn.Monsters)
@@ -343,7 +343,7 @@ static partial class QuestobjectsRules
         }
         if (!here()) return;
         await Send(remote, stream, ciphers, [.. LiftState(conn, lift, elevator, IzaroFights.Down),
-            .. InstanceProtocol.RemoveObject(izaro)], $"0x02bb Izaro 0x{izaro:x} is gone");
+            .. InstanceProtocol.RemoveObject(izaro)], $"0x02bd Izaro 0x{izaro:x} is gone");
     }
 
     // The trial won: the instance keeps it, the doors open, the ways out show, the run's map loses his icon there, and the
@@ -355,7 +355,7 @@ static partial class QuestobjectsRules
         foreach (var (id, door) in doors)
         {
             await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(id, IzaroFights.TransitionableIndex, IzaroFights.DoorOpen),
-                .. InstanceEntities.BlockageUpdate(id, false)], $"0x02ba Izaro's arena door 0x{id:x} at ({door.X}, {door.Y}) opens");
+                .. InstanceEntities.BlockageUpdate(id, false)], $"0x02bc Izaro's arena door 0x{id:x} at ({door.X}, {door.Y}) opens");
             OpenIzaroDoor(conn, id);
         }
         await UpdateShownTransitions(remote, stream, ciphers, conn, "Izaro's trial is won");

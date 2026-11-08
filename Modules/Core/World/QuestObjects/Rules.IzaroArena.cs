@@ -38,7 +38,7 @@ static partial class QuestobjectsRules
             uint lift = conn.NextObjectId++;
             await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(lift, InstanceEntities.ObjectTypeHash(at.Type),
                 IzaroFights.Blob(at.Type, at.Model, at.X, at.Y, at.Angle, IzaroFights.Lowered)), .. InstanceProtocol.EnterWakeZone(lift)],
-                $"0x02b9 small elevator 0x{lift:x} at ({at.X}, {at.Y})");
+                $"0x02bb small elevator 0x{lift:x} at ({at.X}, {at.Y})");
             arena.Lifts.Add((lift, at));
         }
         if (!beaten && IzaroEffects.InArena(trial, IzaroStatues.Mechanic)) await PlaceIzaroStatues(remote, stream, ciphers, conn, arena);
@@ -78,7 +78,7 @@ static partial class QuestobjectsRules
                     uint doodad = conn.NextObjectId++;
                     await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(doodad, InstanceEntities.ObjectTypeHash(effect.Type),
                         IzaroStatues.Blob(effect, at.X, at.Y, at.Angle, IzaroStatues.DoodadOn)), .. InstanceProtocol.EnterWakeZone(doodad)],
-                        $"0x02b9 {effect.Id} 0x{doodad:x} at ({at.X}, {at.Y}), left by trial {from}");
+                        $"0x02bb {effect.Id} 0x{doodad:x} at ({at.X}, {at.Y}), left by trial {from}");
                 }
                 if (inAlcove is not null) arena.Returned.Add((effect, 0));
             }

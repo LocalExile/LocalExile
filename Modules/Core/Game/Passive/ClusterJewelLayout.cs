@@ -6,7 +6,7 @@ using System.Text.Json;
 /// The client's cluster jewel layout: which node sits on each position of the id block it numbers for a pane cell.
 ///
 /// Built from <c>PassiveTreeExpansionJewels.dat</c> (the template lists of smalls, notables and sockets per size),
-/// <c>PassiveJewelSlots.dat</c>'s <c>StartIndices</c> and the client's own node-id function (Ghidra <c>FUN_141f0e770</c>,
+/// <c>PassiveJewelSlots.dat</c>'s <c>StartIndices</c> and the client's own node-id function (Ghidra <c>FUN_141f15060</c>,
 /// hooked live with Frida):
 /// <list type="bullet">
 /// <item>the block base is <c>39 * ClusterIndex</c> for a jewel in a tree socket (cell 20, index 5, uses 195), a child

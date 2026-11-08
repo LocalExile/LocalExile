@@ -13,9 +13,9 @@ sequenceDiagram
     participant C as Client
     participant G as Gateway
     C->>G: 0x16 command 45 (/hideout) or 0x17a (World panel Hideout button)
-    G->>C: 0x2b2 change area to the hideout (0xff63), then 0x27 (its instance, seed 1)
-    G->>C: 0x2b9 Player (quest flags, league quest flags, Hideouts key)
-    G->>C: 0x2b9 Waypoint, Stash, Nessa, map device (HideoutDoodad data), 0x1a9 wake zone
+    G->>C: 0x2b4 change area to the hideout (0xff63), then 0x27 (its instance, seed 1)
+    G->>C: 0x2bb Player (quest flags, league quest flags, Hideouts key)
+    G->>C: 0x2bb Waypoint, Stash, Nessa, map device (HideoutDoodad data), 0x1a9 wake zone
     C->>G: 0x24 on the map device
     G->>C: 0x7b kind 5 (map device window)
 ```
@@ -31,12 +31,12 @@ remains unimplemented. Guild ownership is unchanged.
 
 ### Campaign unlock mask required by the picker (2026-10-25)
 
-S→C **0x1f6** (class 0x1435c0758, writer 0x141f9e5c0) is exactly 16 raw bytes after the
+S→C **0x1f6** (class 0x1435cb190, writer 0x141fa4ff0) is exactly 16 raw bytes after the
 message id: bit `row` unlocks that Hideouts.dat row (LSB first, zero-based). It is separate from
-0x1f5's purchased-hideout list. Dispatcher case 0x95 at 0x142151d47 allocates a bit vector of
+0x1f5's purchased-hideout list. Dispatcher case 0x95 at 0x142158697 allocates a bit vector of
 the Hideouts table's size, copies the corresponding mask bits and marks it initialized.
-Without this packet the picker calls `0x14216d800` with a null vector at session +0xcdf0;
-Windows recorded access violation **0x14216d8b7** on opening Helena's selector.
+Without this packet the picker calls `0x1421741b0` with a null vector at session +0xcdf0;
+Windows recorded access violation **0x142174267** on opening Helena's selector.
 SendPlayer now sends the fixed mask before the player object, in every area, with the default
 hideout unlocked. This also covers client-side opens that do not send an NPC option request.
 The mask encoder tests cover empty input, byte/word boundaries, the highest bit and invalid rows.
@@ -45,26 +45,26 @@ Live picker confirmation is pending; choosing/persisting another template remain
 | What | Where | Value |
 |---|---|---|
 | quest flag `HideoutUnlocked` | QuestFlags row 2030, Player +0x1b8 | every character (`Quests.EveryCharacter`, added on login, not saved) |
-| quest flag HASH32 `0x2f1b9c25` | QuestFlags row 718 (the schema names it `HideoutJukeboxEnabled`) | the HUD's hideout panel checks it (`0x14216c840` → `0x1401ff190`) |
+| quest flag HASH32 `0x2f1b9c25` | QuestFlags row 718 (the schema names it `HideoutJukeboxEnabled`) | the HUD's hideout panel checks it (`0x1421731f0` → `0x1401ff540`) |
 | quest flag `CanEditHideout` | row 2593 | tested before the Edit button shows (live flag trace); with it the button shows |
 | quest flag `MapDeviceActive` | row 2582 | the map device's per-player "active" state (its `.ot`: `per_player_quest_flag_state_active_1`) |
 | league quest flags `UnlockedHideouts` 3, `HaveHideout` 200, `UnlockedMapDevice` 350 | Player +0x1d0 | every character (`Quests.League`); the map device's Targetable needs `UnlockedMapDevice` |
 | Hideouts keys | Player, two u16 after the 9 raw bytes (→ +0x1f8, +0x208) | the first is the Lush Hideout's Hideouts HASH16 `0xff63`; the second stays 0 |
 
 **League quest flags** are a set of their own, not a table: the client has their names built in, sorted, with ids
-(`0x142fca900`, 0x776 entries of {UTF-16 name, length, u32 id}; binary search `0x1423f1fb0`, wrapper `0x141de7f60`,
+(`0x142fcb390`, 0x776 entries of {UTF-16 name, length, u32 id}; binary search `0x1423f8a70`, wrapper `0x141deb5c0`,
 0x777 = unknown). They live in the Player component's **second flag set** (+0x1d0; same layout as the quest flags,
-04 §4.6; update bit 0x08, `PlayerLeagueQuestFlagsUpdate`). **The client tests bit id − 1** (`0x14155cdf0`, and the map
-device's Targetable at `0x141e65563`, which tested bit 349 for `UnlockedMapDevice` 350): `Quests.League.Bits`. Quest
+04 §4.6; update bit 0x08, `PlayerLeagueQuestFlagsUpdate`). **The client tests bit id − 1** (`0x14155f120`, and the map
+device's Targetable at `0x141e6bb03`, which tested bit 349 for `UnlockedMapDevice` 350): `Quests.League.Bits`. Quest
 flags (QuestFlags rows) are tested by row, without the shift. `/league_flag [<id> [off]]` (dev) sets them by id.
 The ones a character sets (a trial's plaque, `/league_flag`) are saved with the account's stash of its league
 (`AccountStash.LeagueQuestFlags`) and given to every character of the account in that league at login.
 
-**How these were found:** a Frida hook on the flag-set test `0x14012aae0(set, bit)` logged each (caller, bit, result)
+**How these were found:** a Frida hook on the flag-set test `0x14012ae40(set, bit)` logged each (caller, bit, result)
 while hovering the map device and opening the HUD; the failing tests named the missing flags. The Player component
 holds both sets (+0x1b8, +0x1d0); a copy of them sits in another object (+0x3c0 further on).
 
-**The Hideouts keys** (reader `0x141e7dc10`, update bit 0x10 `0x141e7ee30`, `PlayerHideoutsUpdate`) are looked up by
+**The Hideouts keys** (reader `0x141e84300`, update bit 0x10 `0x141e85520`, `PlayerHideoutsUpdate`) are looked up by
 HASH16 in Hideouts.dat (a failed lookup gives null). An update calls the component's vtable +0x130. Which UI reads
 which key is not known; `/hideout_keys <a> <b>` (dev) sends both.
 
@@ -94,7 +94,7 @@ A `.hideout` file is JSON (UTF-8 with BOM) whose `doodads` object **repeats keys
 hashes. The Lush Hideout's: Stash (230, 364), Waypoint (218, 335, `waypointcore_forest.ao`), Crafting Bench (251, 351),
 Map Device (449, 460; moved to (257, 283), the user's pick), lockers, the masters' spot (218..223, 325), and decorations.
 
-**The HideoutDoodad component** (`0x141e1c550`) reads `u32` MtxTypeGameSpecific HASH32, `u8` variation and `u8` flag
+**The HideoutDoodad component** (`0x141e1fbb0`) reads `u32` MtxTypeGameSpecific HASH32, `u8` variation and `u8` flag
 (0 seen) **only when the object's data has +0x14e set**: never in town, always in a hideout. The Waypoint has the
 component, so in a hideout it needs the 6 bytes (without them: "Buffer Underflow" on entry, live 2026-10-20).
 `HideoutDoodad` record, `WaypointObject.Hideout`.
@@ -119,29 +119,29 @@ appears next to the hideout's waypoint. The hideout's waypoint opens the World p
 | Waypoint | `Metadata/MiscellaneousObjects/Waypoint` | as in town (16 §2) plus HideoutDoodad after Animated |
 | Stash | `Metadata/MiscellaneousObjects/Stash` | as in town (18 §1); no HideoutDoodad component |
 | Nessa | `Metadata/NPC/Act1/Nessa` at (256, 351) | as in town (17); the real game has no town NPCs in hideouts |
-| Niko | `Metadata/NPC/League/Delve/DelveMinerHideout` at (263, 344), Nessa's right on screen | its Delve options need quest flag ThisIsMyHideout (row 717) in NPCTalk QuestFlag1; rows with 717 in QuestFlag2 are the "not my hideout" variants (verified: without it only one Talk to Niko and Sell Items show). Every character has it; it is sent only in a hideout or the Mine Encampment (`PlayerQuestFlags`). Sell Items does not depend on it: the client shows Sell only in towns and hideouts (verified live: Niko in the encampment never lists it). They also need league quest flag 68 DelveEncounterComplete: NPCTalk columns 15-18 are league quest flag ids from the client's built-in table (`0x142fca900`, 24-byte entries of name, length, id; column 16 required, 18 refused; also 18 NikoDestroyedWall, 65 NikoCongrats, 1272 NikoOnKirac), given to every character (`Quests.League.EveryCharacter`). View Subterranean Chart: S→C 0x7b kind 0x1c (`DelveMapScreen` in the client's screen table at `0x142fc5920`: 24-byte entries of UTF-16 name, length, 0x7b kind). The chart then asks for its data with C→S 0x23f (just the id); S→C 0x240 answers (`InstanceDelve`, layout from the schema: u32, u16, u16 n × (u16, u16, u64, u8, u32)); an empty one is sent while the fields are worked out (verified live: the chart stops loading and shows its frame, the Mine Encampment entry, the resources column and the depth bar). One entry (0, 0, 0, 0, 0) makes the client draw a whole first section of the mine (passages, azurite, armour, weapon, ring and chest nodes, darkness below): it builds the section's contents itself, so an entry stands for a section the player has (verified live 2026-10-21; the other fields are still being worked out with `/delve_chart`). Visit Mine Encampment: to `Delve_Hub` as /goto (verified live: the encampment loads). There the tile's waypoint (333, 402) is created though WorldAreas gives the area no waypoint bit (`WaypointCatalog.DelveHub`), its StateMachine "active" is sent as 1 because no 0x4c bit can light it (being tested); Niko stands at (342, 410) as the hideout row (`DelveMinerHideout`): the hub's own row shows no Sell Items. The encampment also has a stash at (322, 412) and the guild stash next to it (`StashCatalog`). The mine's mechanics are not implemented |
+| Niko | `Metadata/NPC/League/Delve/DelveMinerHideout` at (263, 344), Nessa's right on screen | its Delve options need quest flag ThisIsMyHideout (row 717) in NPCTalk QuestFlag1; rows with 717 in QuestFlag2 are the "not my hideout" variants (verified: without it only one Talk to Niko and Sell Items show). Every character has it; it is sent only in a hideout or the Mine Encampment (`PlayerQuestFlags`). Sell Items does not depend on it: the client shows Sell only in towns and hideouts (verified live: Niko in the encampment never lists it). They also need league quest flag 68 DelveEncounterComplete: NPCTalk columns 15-18 are league quest flag ids from the client's built-in table (`0x142fcb390`, 24-byte entries of name, length, id; column 16 required, 18 refused; also 18 NikoDestroyedWall, 65 NikoCongrats, 1272 NikoOnKirac), given to every character (`Quests.League.EveryCharacter`). View Subterranean Chart: S→C 0x7b kind 0x1c (`DelveMapScreen` in the client's screen table at `0x142fd89f0`: 24-byte entries of UTF-16 name, length, 0x7b kind). The chart then asks for its data with C→S 0x23f (just the id); S→C 0x240 answers (`InstanceDelve`, layout from the schema: u32, u16, u16 n × (u16, u16, u64, u8, u32)); an empty one is sent while the fields are worked out (verified live: the chart stops loading and shows its frame, the Mine Encampment entry, the resources column and the depth bar). One entry (0, 0, 0, 0, 0) makes the client draw a whole first section of the mine (passages, azurite, armour, weapon, ring and chest nodes, darkness below): it builds the section's contents itself, so an entry stands for a section the player has (verified live 2026-10-21; the other fields are still being worked out with `/delve_chart`). Visit Mine Encampment: to `Delve_Hub` as /goto (verified live: the encampment loads). There the tile's waypoint (333, 402) is created though WorldAreas gives the area no waypoint bit (`WaypointCatalog.DelveHub`), its StateMachine "active" is sent as 1 because no 0x4c bit can light it (being tested); Niko stands at (342, 410) as the hideout row (`DelveMinerHideout`): the hub's own row shows no Sell Items. The encampment also has a stash at (322, 412) and the guild stash next to it (`StashCatalog`). The mine's mechanics are not implemented |
 | Kirac | `Metadata/NPC/Epilogue/KiracHideout` at (249, 358), Nessa's left on screen | has no NPCTalk rows of his own: his options and shop are the main Kirac's (row 410, `NpcCatalog.TalkSource`); Purchase Items sells maps (`NpcShops`). Being tested |
 | Map device | `Metadata/Terrain/Missions/Hideouts/Objects/StrDexIntMappingDevice` | `HideoutObject`: Positioned (stash style), Animated `00`, InteractionAction `00`, HideoutDoodad, StateMachine (opening 0, active 1), MinimapIcon `00`, tasks |
 
 The map device's `.ot`: Targetable `is_map_device = true`, `required_league_quest_flag = "UnlockedMapDevice"`;
 StateMachine `define_shared_state = "opening; active;"` with `per_player_quest_flag_state_opening_1 = "MapDeviceOpening"`
-and `…_active_1 = "MapDeviceActive"`. Clicking it sends C→S 0x24; the server walks there and sends **S→C 0x7b kind 0x2b** (`HideoutMapDeviceScreen` in the screen table at `0x142fc5920`), which opens the Atlas map device with its four starting map nodes. Kind 5 (`MapDeviceScreen`) opens the older, non-Atlas window; it has no node selection and opens the default layout. The hideout window's slots are Inventories row 13 `Map1` (3 × 2), already registered on login.
+and `…_active_1 = "MapDeviceActive"`. Clicking it sends C→S 0x24; the server walks there and sends **S→C 0x7b kind 0x2b** (`HideoutMapDeviceScreen` in the screen table at `0x142fd89f0`), which opens the Atlas map device with its four starting map nodes. Kind 5 (`MapDeviceScreen`) opens the older, non-Atlas window; it has no node selection and opens the default layout. The hideout window's slots are Inventories row 13 `Map1` (3 × 2), already registered on login.
 
 **Atlas node selection.** A click on a node sends **C→S 0x00e7** (5 bytes: u16 BE WorldAreas HASH16, u8 0x0d). The Gateway maps the HASH16 to an `AtlasCatalog.Layout` and stores it per character; the next generic map key opens that layout. The client refuses to activate an Atlas map unless the normal quest flag **EndGameAvailable** is set ("You do not have the required Quest State to access this area"; live 2026-10-29), so every character gets it, and every map area has it in its WorldAreas EndQuestFlags. It is also the Epilogue's gate and Kitava's Act 10 penalty (QuestStaticRewards 39), so until a character earns it (Kitava) the client gets it only in a hideout and in a map area (`Quests.EndgameOnly`, Game `PlayerQuestFlags`, like ThisIsMyHideout); there, before Kitava, the character panel shows the second −30% that the server's resistances do not count yet.
 
-**Atlas progress (completed maps).** The client keeps three sets of the instance (constructor `0x142144b50`, rebuilt
+**Atlas progress (completed maps).** The client keeps three sets of the instance (constructor `0x14214b4a0`, rebuilt
 with every area): +0xcff0 (WorldAreas rows), +0xd030 and +0xd070 (AtlasNode rows; MSVC `unordered_set` of the row
-reference, lookup `0x14078fc90`). The node state updater `0x140786d90` marks a node completed (+0x9cb/+0x9ce, drawn
-with `AtlasMapCompletedFrame` by `0x14079e680`) when it is in +0xd070, and that opens its AtlasNode `Connections`
+reference, lookup `0x14077bc30`). The node state updater `0x14078c0c0` marks a node completed (+0x9cb/+0x9ce, drawn
+with `AtlasMapCompletedFrame` by `0x14079a890`) when it is in +0xd070, and that opens its AtlasNode `Connections`
 (live 2026-11-01: Chateau completed lit Springs and Arachnid Nest). Two messages fill them; the dispatcher's r13 is the
 instance + 8, so its +0xd068 is +0xd070:
 
-- **S→C 0x1a3** (case 0x7f `0x142150ab1`, read `0x1421a9970`), the whole state: u8 → +0xc400, u8 → +0xc401, u8 → +0xd0f0
+- **S→C 0x1a3** (case 0x7f `0x142157401`, read `0x1421b02e0`), the whole state: u8 → +0xc400, u8 → +0xc401, u8 → +0xd0f0
   (unknown, 0), u8 sections, u8 n × (u16, u16) (→ +0xd0a8, unknown; 0), then by section bit: 0x1 22 bytes → +0xd030,
-  0x2 22 bytes → +0xd070 (`0x1421560b0`: bit r of byte r / 8 is AtlasNode row r; rows from 170 are ignored, the
+  0x2 22 bytes → +0xd070 (`0x14215ca00`: bit r of byte r / 8 is AtlasNode row r; rows from 170 are ignored, the
   RandomContent nodes), 0x4 a WorldAreas list → +0xcff0, 0x8 and 0x10 further lists (see the schema). A section that is
   sent replaces its set.
-- **S→C 0x1a4** (case 0x80 `0x142150d5c`, read `0x141f96560`), one node: u16 BE AtlasNode HASH16 (looked up in the
+- **S→C 0x1a4** (case 0x80 `0x1421576ac`, read `0x141f9cf90`), one node: u16 BE AtlasNode HASH16 (looked up in the
   AtlasNode table's HASH16 index), u8 → +0xc400, u8 → +0xc401, u8 flags. The node is added to +0xd030, with bit 0x2 also
   to +0xd070, with bit 0x4 its area to +0xcff0.
 
@@ -164,30 +164,30 @@ sequenceDiagram
     C->>G: 0x28 / 0x2a a map into inventory 14 (row 13 Map1)
     C->>G: 0x00d8 Activate
     G->>C: 0xbf inventory 14: the slots consumed
-    G->>C: 0x2b9 x 6 MultiplexPortal, 0x1a9
+    G->>C: 0x2bb x 6 MultiplexPortal, 0x1a9
     G->>C: 0x008f the device's portals and their area (1 s later)
     C->>G: 0x24 on a portal
-    G->>C: 0x008f that portal with area 0, 0x2bb, 0x2b2 / 0x27 into the map
+    G->>C: 0x008f that portal with area 0, 0x2bd, 0x2b4 / 0x27 into the map
 ```
 
 **Slots.** Inventories row 13 `Map1` (3 × 2, inventory id 14) is an ordinary grid: items go in and out with the usual
 item messages (13-items.md). The server takes the ItemClasses `Map`, `MapKey` and `MapFragment` there
-(`PlayerInventories.Accepts`). Area-named maps need the item **Map** component (read `0x1423f3f10`, write
-`0x1423f3e60`: u8 +0x19, u8 +0x18, u8 flag, then a u32 HASH32 when the flag is set; the server sends three zeros).
+(`PlayerInventories.Accepts`). Area-named maps need the item **Map** component (read `0x1423fa9d0`, write
+`0x1423fa920`: u8 +0x19, u8 +0x18, u8 flag, then a u32 HASH32 when the flag is set; the server sends three zeros).
 `/item Beach Map` makes one (`MapAtlasBeach`, tier 2). Generic 3.29 maps need the **MapKey** component (read
-`0x1424ae7c0`: u8 flags, then optional u32/u16/u8; zeros are enough because `MapKeyTierN` names the tier, and the server
+`0x1424b5290`: u8 flags, then optional u32/u16/u8; zeros are enough because `MapKeyTierN` names the tier, and the server
 sends one zero byte). `/item Map (Tier 5)` makes a tier-5 map.
 
-**Activate** is **C→S 0x00d8** (5 bytes): u16 BE, u8. The window's button handler `0x140c2a1c0` (window mode 0xd)
-calls `0x142166480`, which writes a u16 from the target its slots name (+0x7b; 0 seen with a map in the slots) and a
-u8 (0 seen); the writer class is `0x1435bff20`, as C→S 0xc7. Mode 0x5e (another device) sends C→S 0x296 instead.
+**Activate** is **C→S 0x00d8** (5 bytes): u16 BE, u8. The window's button handler `0x140c284f0` (window mode 0xd)
+calls `0x14216ce30`, which writes a u16 from the target its slots name (+0x7b; 0 seen with a map in the slots) and a
+u8 (0 seen); the writer class is `0x1435ca958`, as C→S 0xc7. Mode 0x5e (another device) sends C→S 0x297 instead.
 The server checks the slots itself (`MapDevice.Check`): only maps and map fragments, and exactly one map. Otherwise
 nothing is consumed and a chat line (S→C 0x17) gives the reason. Then the slots are emptied (0xbf), the map's area
 opens (Maps.dat `BaseItemTypesKey` → `Regular_WorldAreasKey`), and six portals appear on a ring of 16 cells around
 the device. Fragments are consumed with the map; `An Audience With The King` (`Metadata/Items/MapFragments/RitualBossFragment`)
 may also be used alone, opening the Crux of Nothingness.
 
-Generic 3.29 maps use the **MapKey** component (read `0x1424ae7c0`: u8 flags, then optional u32/u16/u8; zero is enough
+Generic 3.29 maps use the **MapKey** component (read `0x1424b5290`: u8 flags, then optional u32/u16/u8; zero is enough
 because `MapKeyTierN` names the tier). `/item Map (Tier 5)` makes one. `MapKeys.dat` supplies its tier and the map opens
 the Atlas layout selected for the character in the native panel; `/atlas <layout id or name>` is a dev fallback. The
 first starting node (Cells) is the default. The selection is saved per character and restored on login. A generic
@@ -198,11 +198,11 @@ level. The client generates the layout at the 0x1d level, so the Gateway generat
 **Portals** are `Metadata/MiscellaneousObjects/MultiplexPortal` (`MapPortalObject`): Positioned, BaseEvents, StateMachine,
 Animated, Portal, Transitionable, MinimapIcon, InteractionAction, all read except BaseEvents (Frida
 `check-components.js`: 36 bytes, nothing left). StateMachine holds PortalBase.ot's shared states (standard_portal 1,
-portal, map_device_index, map_device_large). The Portal component (`0x141e2cee0`) reads one u8, the multiplex portal
-type (`0x141e2cf40` stores it in the "portal" state; MultiplexPortal.ot: 1 player, 2 town, 3 map device, 4 map return).
+portal, map_device_index, map_device_large). The Portal component (`0x141e30220`) reads one u8, the multiplex portal
+type (`0x141e30280` stores it in the "portal" state; MultiplexPortal.ot: 1 player, 2 town, 3 map device, 4 map return).
 
-**A portal object alone is never drawn.** **S→C 0x008f** (class `0x1435dcc00`, read `0x1421a0a00`; dispatcher case
-0x21 → `0x142186070`) lists the device's portals:
+**A portal object alone is never drawn.** **S→C 0x008f** (class `0x1435e6648`, read `0x1421a7370`; dispatcher case
+0x21 → `0x14218c9e0`) lists the device's portals:
 
 | Field | Meaning |
 |---|---|
@@ -210,15 +210,15 @@ type (`0x141e2cf40` stores it in the "portal" state; MultiplexPortal.ot: 1 playe
 | u8, u8 | +0x2e, +0x31 (0) |
 | u32 BE | the map device object (looked up; its Functions get `on_map_portal_opened` / `on_map_portal_closed`) |
 | u16 BE, u8, u8 | +0x2c, +0x2f, +0x30 (0) |
-| u8 n, n × entry | `0x1421b9af0`: u32 BE portal object, u16 BE area HASH16; when the area is not 0: u16 BE portal variation (MicrotransactionPortalVariations; 0 the default), u8, u8, u8 model (`0x141e2d240`: 0, 1, 2 pick three built-in models), wstr (the owner's name) |
+| u8 n, n × entry | `0x1421c0460`: u32 BE portal object, u16 BE area HASH16; when the area is not 0: u16 BE portal variation (MicrotransactionPortalVariations; 0 the default), u8, u8, u8 model (`0x141e30580`: 0, 1, 2 pick three built-in models), wstr (the owner's name) |
 
-For each listed portal object the client already has, PortalClient vtable +0xb8 (`0x14161a020`) gives it its area, its
+For each listed portal object the client already has, PortalClient vtable +0xb8 (`0x14161c0e0`) gives it its area, its
 model and rendering, and the device runs `on_map_portal_opened` (index, object). A portal that was listed before and
 is now missing or has area 0 closes (+0xc0) and runs `on_map_portal_closed`. Seen live:
-- 0x008f in the same burst as the portals' 0x2b9 reaches none of them (they are not created yet); on entering an area
+- 0x008f in the same burst as the portals' 0x2bb reaches none of them (they are not created yet); on entering an area
   the objects also wait for the world to activate. The Gateway sends it 1 s after creating them (2 s on entry).
 - Type 3 (map device) gets its nametag but no model: MultiplexPortal.ot enables its rendering only `on_transition`.
-  Created untransitioned and opened with S→C 0x2ba to Transitionable (component 5, u8 1), the client hung, or
+  Created untransitioned and opened with S→C 0x2bc to Transitionable (component 5, u8 1), the client hung, or
   crashed with the update 2 s later; that was before 0x008f had given the portal its area. **Type 1 (player) renders**,
   so the Gateway uses it (`Game_MAP_PORTAL_TYPE` overrides).
 
@@ -242,7 +242,7 @@ ship as whole portal objects (`Metadata/Effects/Microtransactions/Town_Portals/�
 Positioned, BaseEvents, StateMachine, Animated, Portal, Transitionable, MinimapIcon, InteractionAction, ControlZone);
 the variation route above covers the ones that are effect rigs only.
 
-**Taking a portal** (C→S 0x24): the player walks there, the portal is sent with area 0 in 0x008f and removed (0x2bb),
+**Taking a portal** (C→S 0x24): the player walks there, the portal is sent with area 0 in 0x008f and removed (0x2bd),
 and the player changes area into the map: the first portal makes a new instance (Auth "transfer" New), the others enter
 that one (`MapDevice.Entered`). The open map is kept per character in the Gateway (`MapDevice.OpenOf`; lost on a Gateway
 restart), so the portals left stand at the device again when the player comes back. A new Activate replaces them.
@@ -264,7 +264,7 @@ Maps. Beach's walk map is a `-Walkmaps` capture (2484 × 1656; spawn the deepest
 
 **Portal Scroll** (C→S 0x58, `UsePortalScroll`). Outside towns and hideouts one scroll is spent and the same portal object
 opens 3 cells beside the player, listed in 0x8f with device 0. There is one per player: a new scroll closes the old portal
-(0x8f with area 0, then 0x2bb) and moves it, the map's own portal back included. From a map area it leads to the hideout,
+(0x8f with area 0, then 0x2bd) and moves it, the map's own portal back included. From a map area it leads to the hideout,
 anywhere else to the character's last town (`ClientState.ReturnPortalTo`), at its spawn. In a town or a hideout
 nothing happens and nothing is spent. Live 2026-10-21: in a map and in the acts. Not yet: the portal's other end in the
 town (the way back), and the portal staying after the player leaves the area.
@@ -275,7 +275,7 @@ Helena (2026-10-25, client verification pending) is placed at (270,337), screen-
 using `Metadata/NPC/Missions/Hideout/Helena` (NPCs row 342). Her own NPCTalk option 2,
 category `SelectHideout`, requires ThisIsMyHideout and HaveHideout, already supplied in hideouts.
 The handler closes dialogue with 0x84 object 0 and opens UI 0x7b kind **0x22**, argument 0
-(HideoutSelectionWindow in the native screen table 0x142fc5920; argument 1 is guild mode).
+(HideoutSelectionWindow in the native screen table 0x142fd89f0; argument 1 is guild mode).
 The owned-hideouts response 0x1f5 now lists the default Lush Hideout rather than an empty list.
 The owned list now includes all exported personal templates, including MTX.
 Selection is implemented as described below.
@@ -296,7 +296,7 @@ Selection is implemented as described below.
 After spawning a hideout's guild stash, the Gateway creates the standard HideoutCraftingBench
 from that hideout's existing decoration template. The original Mtx hash, variation and rotation
 are preserved. Placement is relative to the guild stash: grid offset (-12,+12), with nearby
-screen-left alternatives if its 5x5 footprint is blocked. It receives 0x2b9, 0x1a9 and a walk blocker.
+screen-left alternatives if its 5x5 footprint is blocked. It receives 0x2bb, 0x1a9 and a walk blocker.
 The bench is deliberately separate from the map-device dictionary, so portal creation and map
 activation still target only the map device. Towns and the Mine Encampment do not get this bench.
 No generated game-data format changes are needed. Placement was confirmed in the real client.
@@ -307,12 +307,12 @@ or an unreachable stopping point prevents opening. Once in range, S→C 0x7b **k
 u32 = 0**, remaining u32s zero, opens the ordinary crafting window. The first u32 is a
 CraftingBenchTypes row, **not the object's id** (row 1 selects runesmithing).
 
-Client trace: `0x142163420` case 0x33 dispatches to instance +0x22f8; HUD registration
-`0x140dbcd40` uses thunk `0x140dae898`, which calls virtual +0x8e0, `0x140ddb5c0`.
-That forwards the bench type to `0x140c3e600`, opening the window at HUD +0x880
-(constructor `0x140c3b650`). Its item control binds to inventory row 16 in `0x140c3e1c0`;
+Client trace: `0x142169dd0` case 0x33 dispatches to instance +0x22f8; HUD registration
+`0x140dba5d0` uses thunk `0x140dac054`, which calls virtual +0x8e0, `0x140dd8e80`.
+That forwards the bench type to `0x140c3e780`, opening the window at HUD +0x880
+(constructor `0x140c3b7d0`). Its item control binds to inventory row 16 in `0x140c3e340`;
 the Gateway already registers this row with the other player inventories on entry.
-`0x140c45830` selects the bench's visual skin from the placed hideout decoration, falling back
+`0x140c45a00` selects the bench's visual skin from the placed hideout decoration, falling back
 to Default. UI kind 0x65 is for dynamic benches and is not the ordinary hideout bench.
 
 The opening packet is covered by an automated test; live window opening awaits a reconnect.
@@ -325,22 +325,22 @@ disabled and area/map-device rows. Class eligibility comes from explicit ItemCla
 CraftingItemClassCategories union. Exact crafted Mods.dat keys (domain 9), enchantments and
 multi-currency costs come directly from the client tables. No hand-written list of craft values
 is used. The recipe rows' 130 distinct RecipeIds are league quest flags: unlock tests in
-0x140c4c720 read the local Player component +0x1d0 with flag id minus one. Every connection
+0x140c4c8f0 read the local Player component +0x1d0 with flag id minus one. Every connection
 publishes those flags with the player, making all active recipes available on this local server.
 
-The craft button (0x140c40720) sends **C→S 0x15d**, exactly four bytes. Serializer
-0x141f9b2e0 writes u16 message id and u16 recipe row, both big-endian. Bit 15 of the row is set
+The craft button (0x140c408a0) sends **C→S 0x15d**, exactly four bytes. Serializer
+0x141fa1d10 writes u16 message id and u16 recipe row, both big-endian. Bit 15 of the row is set
 only by the window's second button (+0x308), which first shows the Tencent "Bound Currency
 Crafting" confirmation (TencentBoundCurrencyCraftingConfirmationTitle); the local server ignores it. The target is the one item in Inventories row
 16, StrMasterCrafting (inventory id 17). Requests are served after opening the bench in a hideout.
 
-Ctrl + click with the bench open sends **C→S 0xe9** (7 bytes; 0x14030e3e0 → 0x142167ed0, serializer
-0x141f98e80): u16 id, u32 item id, then a flag byte. 0x80 is set when the clicked item is in the
+Ctrl + click with the bench open sends **C→S 0xe9** (7 bytes; 0x14030e970 → 0x14216e880, serializer
+0x141f9f8b0): u16 id, u32 item id, then a flag byte. 0x80 is set when the clicked item is in the
 player's inventory (move it onto the bench), clear when it is the bench's item (row 16, move it back);
 0x40 marks an item in ExpandedMainInventory1 (row 84). The server moves the item, keeping its id, onto
 the empty bench slot or into the main inventory's first free cell, and answers with two 0xbf changes;
-a taken slot or a full inventory leaves it where it is. The same handler shape (0x142167f20,
-0x142167f70, 0x142167fc0) covers other crafting panels (rows 0x1b, 0x1f, 0x10 with class checks).
+a taken slot or a full inventory leaves it where it is. The same handler shape (0x14216e8d0,
+0x14216e920, 0x14216e970) covers other crafting panels (rows 0x1b, 0x1f, 0x10 with class checks).
 
 Supported operations: add/replace crafted prefixes and suffixes; the three-crafted-modifier
 metamod and additional-crafted-mod enchantments; remove crafted mods; add/remove flask
@@ -378,16 +378,16 @@ the wallet/item result; automated tests do not substitute for that live UI check
 ### Bench affordability: personal stash balance (2026-10-25)
 
 Live report: recipe costs stayed red despite sufficient stash currency, and no 0x15d request
-was sent. The bench uses its own currency counter: 0x140c3aa80 checks cached counts at
-counter +0x110; inventory filter 0x140c3b490 rejects equipment/read-only inventories and
+was sent. The bench uses its own currency counter: 0x140c3ac00 checks cached counts at
+counter +0x110; inventory filter 0x140c3b610 rejects equipment/read-only inventories and
 ordinary stash kind **0x11**, while accepting currency-count kind **0x12**. Thus loading
 real stash inventories for vendors did not initialize the bench's balance.
 
 `BenchBalance` builds a client-only view of current personal stash totals for every recipe
 currency, including corrupted-socket Vaal costs. It is sent before
 opening the bench using 0xc0, inventory id 0xfffffe00, kind 0x12, row 26. Row 26 deliberately
-does not overwrite the native manager's fixed inventory-slot lookup (0x141d625f0). The
-ordinary 0x1421f4cc0 reader/0x1421edc10 constructor supports this kind; no client files change.
+does not overwrite the native manager's fixed inventory-slot lookup (0x141d65c80). The
+ordinary 0x1421fb650 reader/0x1421f45a0 constructor supports this kind; no client files change.
 The view includes **stash only**: the native counter already counts actual main-inventory
 currency. Large totals are split into 16-bit stacks without changing their sum.
 
@@ -406,7 +406,7 @@ still needs a live reconnect/open/craft check.
 ## Selecting and retaining a personal hideout (2026-10-25)
 
 The Choose button sends C→S **0x254**, followed by one big-endian u16: low 15 bits are the
-Hideouts row index, bit 15 is guild mode. Native sender: 0x140bbae90; serializer: 0x141f9d070.
+Hideouts row index, bit 15 is guild mode. Native sender: 0x140bbbb20; serializer: 0x141fa3aa0.
 Captured personal selection `0254001D` selects row 29. The Gateway frames all four bytes,
 rejects unknown rows and guild requests, saves `SelectedHideout` as a stable WorldAreas Id,
 updates the player's Hideouts component and uses the normal acknowledged area-transfer path.
@@ -428,8 +428,8 @@ a different template and reconnecting after restarting both Auth and Gateway.
 ### Moving installed furniture and NPCs
 
 The native Edit UI sends C→S **0x5b**, 15 bytes, when a selected object is dropped or rotated.
-Sender `0x142160100` is called by editor callbacks `0x140204880` and `0x140204ae0`.
-Serializer `0x141f93820` and reader `0x141f93920` agree on this layout:
+Sender `0x142166ab0` is called by editor callbacks `0x140204bf0` and `0x140204e50`.
+Serializer `0x141f9a110` and reader `0x141f9a210` agree on this layout:
 
 | Field | Encoding |
 |---|---|
@@ -454,13 +454,13 @@ This implementation applies translation and rotation; variation and mirroring ch
 
 Save first, then update the runtime interaction coordinates, path blockers, NPC lookup and device placement.
 S→C 0x1b7 moves the existing object with terrain-height marker 0x7fffffff.
-S→C 0x2ba updates Positioned (component 0): LE u16 mask 8 followed by LE f32 radians.
-The update reader is `0x141e30910`; ordinary furniture/NPC edits preserve the existing object.
+S→C 0x2bc updates Positioned (component 0): LE u16 mask 8 followed by LE f32 radians.
+The update reader is `0x141e33c50`; ordinary furniture/NPC edits preserve the existing object.
 Map devices declare `static = true`, `object_size = 4` and `blocking = false` in CraftingBenchBase.ot;
 client collision comes from their AO Hull, rather than that small Positioned footprint.
 After position and rotation updates, send S→C **0x161**, followed by its unused zero object header
-(u32 object id, u32, u16; all zero). World handler `0x142187480` calls `0x142185500`, which restores
-the two baseline hideout walk grids saved at world +0x998, then `0x141d88690` reapplies all current model hulls.
+(u32 object id, u32, u16; all zero). World handler `0x14218ddf0` calls `0x14218be70`, which restores
+the two baseline hideout walk grids saved at world +0x998, then `0x141d8bd20` reapplies all current model hulls.
 A teleport, remove/recreate or HideoutDoodad component refresh alone leaves stale blocked cells in hideouts.
 The object id, device state and portal list are preserved; no object recreation is needed.
 The server replaces its blocker by id and restores it at the saved position on entry.
@@ -470,7 +470,7 @@ Positioned object_size/blocking/static/block_league_flag plus Animated's model. 
 When local guild storage is spawned, its block_league_flag HaveGuild (native id 2) is included in the player's
 league flags through the ordinary Player component update. GuildStash's native collision predicate checks this
 flag even though the local storage is per-account and no real guild membership is implemented. Disabling the
-Positioned blocking flag through 0x2b0 is incorrect: it also removes the stash from blocking spatial buckets.
+Positioned blocking flag through 0x2b2 is incorrect: it also removes the stash from blocking spatial buckets.
 Blocking objects use object_size minus one (Heist Locker 2, Harvest station 7); static nonblocking objects use
 their model hull (ordinary crafting bench about 9.273 cells). Interaction approaches use the registered clearance.
 A nonblocking object has editor size -1, distinct from a blocking object whose size is 0.
@@ -520,8 +520,8 @@ Movement/rotation updates interaction coordinates and persists with the template
 
 C→S 0x24 interaction approaches the locker, validates arrival, then sends S→C 0x7b kind **0x37**.
 The four u32 arguments are zero; this is distinct from ordinary stash kind 1 and guild stash kind 2.
-Native dispatch: `0x142163420` case 0x37 -> instance +0x5278 -> `LAB_140dae778` -> HUD virtual +0xcf8.
-PC handler `0x140dcf150` opens HUD +0x8d8 and raises HeistStashOpen.
+Native dispatch: `0x142169dd0` case 0x37 -> instance +0x5278 -> `LAB_140dabf28` -> HUD virtual +0xcf8.
+PC handler `0x140dcc9e0` opens HUD +0x8d8 and raises HeistStashOpen.
 HeistStorage1 (Inventories row 56, kind 0x24) is already included in the player's default inventories.
 This change adds placement and the native window entry point; Heist storage transfers are not newly implemented.
 
@@ -533,13 +533,13 @@ Tests cover placement across exported templates, editor restoration, native comp
 
 HideoutScene places `Metadata/MiscellaneousObjects/Harvest/CraftingSilo_Hideout` beside the ordinary bench on clear floor in every selected hideout. The object has Positioned (blocking size 8), BaseEvents, Animated, MinimapIcon and InteractionAction, with no HideoutDoodad or StateMachine payload. Its built-in Animated model is harvest_workbench.ao. The Gateway registers a blocker and handles its 0x24 interaction separately from the ordinary bench.
 
-After walking within range, send `0x7b` kind **0x39**, four zero u32s. Native dispatcher 0x142163420 uses instance +0x4ef8; HUD callback LAB_140dae88c invokes virtual +0xcc0, PC 0x140dcee40 (window +0x8b0) / controller 0x140d8d750 (window +0x4a8). This differs from 0x33 ordinary crafting and 0x45 Sanctum.
+After walking within range, send `0x7b` kind **0x39**, four zero u32s. Native dispatcher 0x142169dd0 uses instance +0x4ef8; HUD callback LAB_140dac048 invokes virtual +0xcc0, PC 0x140dcc6d0 (window +0x8b0) / controller 0x140d8aec0 (window +0x4a8). This differs from 0x33 ordinary crafting and 0x45 Sanctum.
 
-The native Harvest panel builds the complete recipe list from HarvestCraftOptions.dat (0x14048dd00), with its own search/filter, current game-mode filtering and localized descriptions/costs. No ordinary bench unlock flags or server-manufactured recipe list are needed. HarvestCraftingItem (Inventories row 43, inventory id 44) is already registered with the player's defaults.
+The native Harvest panel builds the complete recipe list from HarvestCraftOptions.dat (0x14048e2c0), with its own search/filter, current game-mode filtering and localized descriptions/costs. No ordinary bench unlock flags or server-manufactured recipe list are needed. HarvestCraftingItem (Inventories row 43, inventory id 44) is already registered with the player's defaults.
 
-The panel's craft button sends **C→S 0x274**, exactly four bytes: u16 message id and u16 **HASH16 of the selected HarvestCraftOptions row** (for example ReforgeFire 0xa3e5). Serializer 0x141f92870 writes the two big-endian words; the PC callback is at 0x140491622 (the second send at 0x1404916e5 is the same request). The live capture was `0274A3E5`. The target is the one item in HarvestCraftingItem; there is no item id in the request. A station craft is served only after its browser was opened in a hideout.
+The panel's craft button sends **C→S 0x274**, exactly four bytes: u16 message id and u16 **HASH16 of the selected HarvestCraftOptions row** (for example ReforgeFire 0xa3e5). Serializer 0x141f99160 writes the two big-endian words; the PC callback is at 0x140491be2 (the second send at 0x140491ca5 is the same request). The live capture was `0274A3E5`. The target is the one item in HarvestCraftingItem; there is no item id in the request. A station craft is served only after its browser was opened in a hideout.
 
-After a request the client sets the panel's pending flag and ignores slot/item changes until it gets **S→C 0x276**, six bytes: u16 message id, u16 crafted item id, then two unused bytes. Dispatcher case 0xce (`0x142153bd2`) reads four raw payload bytes and dispatches the first u16 to the local event list at instance +0x4e70; the Harvest panel looks that item up in HarvestCraftingItem, clears the pending flag and refreshes the slot. The server sends the slot's item removed and re-added as separate 0xbf changes, then the payments, then this event. Without 0x276 the Craft button locks after one use (live); a short packet desynchronises the reader and can show an unrelated result string.
+After a request the client sets the panel's pending flag and ignores slot/item changes until it gets **S→C 0x276**, six bytes: u16 message id, u16 crafted item id, then two unused bytes. Dispatcher case 0xce (`0x14215a522`) reads four raw payload bytes and dispatches the first u16 to the local event list at instance +0x4e70; the Harvest panel looks that item up in HarvestCraftingItem, clears the pending flag and refreshes the slot. The server sends the slot's item removed and re-added as separate 0xbf changes, then the payments, then this event. Without 0x276 the Craft button locks after one use (live); a short packet desynchronises the reader and can show an unrelated result string.
 
 `HarvestCrafting` loads all 74 rows and their exact costs: `LifeforceType` 1/2/3 is Wild/Vivid/Primal Crystallised Lifeforce (`HarvestSeedRed`/`Green`/`Blue`), plus `SacredCost` of Sacred Crystallised Lifeforce (`HarvestSeedBoss`). `ItemMoves.HarvestAtStation` validates the item and every cost before the first write, pays from the main inventory first and the rest from the personal stash, and commits the item and payments in one Saves transaction. A refusal spends nothing. Inventory/stash changes and the changed item in row 43 go out as 0xbf updates, like the ordinary bench.
 
@@ -576,9 +576,9 @@ hideout, and each gets S→C 0x1a9 and 0x1b2 (kind 0, index 0, speed 1) so the r
 
 The native **Monster Statue Creator** item path is DNT-gated and not used. Its confirmation panel sends
 **C→S 0x0209**, 10 bytes: u16 BE 0x0209, u32 BE action 911988280, u32 BE target entity id. The native
-panel only offers a dead monster (`0x1400f4930` checks life < 1); the server handler instead accepts a
+panel only offers a dead monster (`0x1400f4bc0` checks life < 1); the server handler instead accepts a
 known monster in the character's own hideout, creates its stone statue at the monster's position, removes
-the monster (0x2bb) and saves the statue. Live capture: `0209 365BD638 00003040` created statue 0x3041 and
+the monster (0x2bd) and saves the statue. Live capture: `0209 365BD638 00003040` created statue 0x3041 and
 removed monster 0x3040.
 
 ### Arrival on the saved waypoint
@@ -596,30 +596,30 @@ After a full-state capacity refresh, an unchanged-value `0x226` refreshes the fi
 The paused chart does not advance the progress bar's interpolation normally.
 Two unchanged-value events synchronize previous/target while retaining the old current value until the next UI tick.
 That tick raises the fill-change event and moves the numeric label to the fill edge even while paused. A third event
-overwrites current too and suppresses this invalidation (0x14042ff40, 0x1418c58f0). Verified with 300 -> 301 -> 300.
+overwrites current too and suppresses this invalidation (0x1404304d0, 0x1418cb100). Verified with 300 -> 301 -> 300.
 Area entry, chart opening and `/sulphite` synchronize this way; travelling resource changes can use single deltas.
 
-- **S→C 0x228** (class `0x1435dc940`, read `0x1421ad670`, dispatcher case 0xa9 at `0x142152f98`): u8, 20 raw bytes, 14
+- **S→C 0x228** (class `0x1435e77c0`, read `0x1421b3fe0`, dispatcher case 0xa9 at `0x1421598e8`): u8, 20 raw bytes, 14
   raw bytes. The handler builds a 34-byte record at instance `+0xd874`: the 14 bytes first, then the 20. It sets
   `+0xd896` = 0x101 and raises the event at `+0x2878`.
   - Record `+0x1e` (bytes 16..18 of the 20, little-endian) is the current Voltaxic Sulphite.
-  - Its capacity comes from bytes 0..16 (`0x14246e390`, the upgrade levels).
+  - Its capacity comes from bytes 0..16 (`0x142474e60`, the upgrade levels).
   - S→C 0x226 (u16 old, u16 new) changes the current value. 0x227 (u32) changes the record's `+0xe`.
   - `InstanceDelve.DelveData` writes it.
-- **The gauge** (`delve_energy_bar`, `0x14042e790`, built with the HUD by `0x140db0150`). It is updated on area entry
-  (S→C 0x21, `0x14042fff0`) and shown when both of these hold:
+- **The gauge** (`delve_energy_bar`, `0x14042ed20`, built with the HUD by `0x140dad910`). It is updated on area entry
+  (S→C 0x21, `0x140430580`) and shown when both of these hold:
   - the area is not of kind 0x25 (`(+0xc278)+0xd0`);
   - the area's WorldAreas type (`(+0xc278)+0xb0` → `+0x1e4`, column `__col51`) is 27 (every `Delve_*` mine area), or
-    the gauge's own flag `+0x2f1` is set. Only the Subterranean Chart's windows (`0x14044fd80`, `0x1404586f0`) set it.
+    the gauge's own flag `+0x2f1` is set. Only the Subterranean Chart's windows (`0x140450310`, `0x140458c80`) set it.
 
   Delve_Hub is type 15, so in the encampment the sulphite shows in the chart (live: 300 after `/sulphite 300`).
 - **The Crawler**, `Metadata/Terrain/Leagues/Delve/Objects/DelveRobot`, deserializes 11 components (`read` 11; Render and
   Wheels are client-only). `DelveRobotObject` writes them:
   - Positioned, Animated (`DelveRobot.ao`) and Transitionable (state 1);
   - Stats, Buffs and Life as a monster's, with 1 life;
-  - **DelveLight** (`0x1415d88d0`): u32, u32 n, u8, u8; then, for a type whose `+0xa7` is set (the Crawler), a u32
-    variation; then n × u32. The variation indexes `DelveRobotVariations.dat` (0 Default, 1 DelveBear) in `0x1415d75d0`.
-    Without it, the client read the next bytes as the index and crashed at `0x1415d7671` (live);
+  - **DelveLight** (`0x1415dab80`): u32, u32 n, u8, u8; then, for a type whose `+0xa7` is set (the Crawler), a u32
+    variation; then n × u32. The variation indexes `DelveRobotVariations.dat` (0 Default, 1 DelveBear) in `0x1415d9880`.
+    Without it, the client read the next bytes as the index and crashed at `0x1415d9921` (live);
   - MinimapIcon, then StateMachine with the shared states `sector` and `mtx_variation`, each sent with flag 0x02.
 
   The roaming `DelveRobot` type has no Targetable component.
@@ -635,7 +635,7 @@ Area entry, chart opening and `/sulphite` synchronize this way; travelling resou
   The interactive type does not inherit the robot's client-only Wheels component.
   Two PermanentServerEffect objects attach the original wheel art to `aux_L_wheel_attachment` and
   `aux_R_wheel_attachment` through Animated bit 2; an attached powered DelveLight carries the torch. Its first serialized field is an f32 radius, not an object id:
-  0x1415d88d0 stores it at +0x58 and 0x141e189e0 scales it for the player/depth. A zero radius leaves only the torch
+  0x1415dab80 stores it at +0x58 and 0x141e1c040 scales it for the player/depth. A zero radius leaves only the torch
   effect visible; radius 60 lights the surrounding passage (verified both stationary and moving).
   Explicit 0x1b2 clip 0 selects the rig's looping idle engine animation; the waypoint type's default clips are invalid
   for this two-clip robot rig.
@@ -673,7 +673,7 @@ Area entry, chart opening and `/sulphite` synchronize this way; travelling resou
   The initial route resolves authored room objects (`DelvePathNode`, `DelvePathEndpoint`, `DelveNode`) and their
   `next` links from `data/delve-paths.json` (read-only `atlas delve-paths`, registered in extract-data.ps1).
   Captured room placements transform the graph; offset cell sleeves are joined only over captured walkable ground.
-  The first destination is depth 2, monster level 35, base cost 24. Native `0x141ea3300` excludes the origin from the
+  The first destination is depth 2, monster level 35, base cost 24. Native `0x141ea9bb0` excludes the origin from the
   cost sum and applies a length discount only beyond a two-point path; arbitrary routes are not priced here.
   Admission checks the complete balance without an upfront debit. Progress debits the difference between cumulative
   floor(cost * distance / totalDistance) values; the endpoint commits the exact residual. A failed save does not move
@@ -685,7 +685,7 @@ Area entry, chart opening and `/sulphite` synchronize this way; travelling resou
   competing movement updates. Pack creation runs in a single separate worker so it cannot block the motion clock.
   The Crawler's light determines darkness exposure; leaving a guessed player-centred circle is not a route request.
   S→C 0x1ba moves the body and attached lamp/wheels with terrain height marker 0x7fffffff; 0x1b9 carries its
-  float-radian orientation and lock byte (writer 0x141fdf370, Positioned handler 0x141e30c90).
+  float-radian orientation and lock byte (writer 0x141fe5b90, Positioned handler 0x141e33fd0).
   The first quest's authored spawn points activate within the base Crawler light radius. Its Weta/Spider packs supply
   the initial quest's unnamed route spawns too; ordinary WorldAreas pack weights are absent for Delve_Mines.
   General biome population, exact encounter wave scripting, darkness and the persistent mine graph remain unfinished.
@@ -710,8 +710,8 @@ Area entry, chart opening and `/sulphite` synchronize this way; travelling resou
   and received one 22-item reward after the final enemy died. A reward item was picked up into the saved inventory;
   completed depth 2 persisted. Server teleports assisted the escort; a continuous walking run remains unverified.
   Powered native `DelveLight` lamps remain every 30 cells of travelled arc length (radius 25). Each new lamp carries
-  the previous lamp's object id in its DelveLight link list. Client 0x1415d77c0 resolves that list; 0x1415d7b70 creates
-  the connector beam and 0x1415d8320 powers its original lightRope glow. Native checks confirmed lamps, cables and
+  the previous lamp's object id in its DelveLight link list. Client 0x1415d9a70 resolves that list; 0x1415d9e20 creates
+  the connector beam and 0x1415da5d0 powers its original lightRope glow. Native checks confirmed lamps, cables and
   continuing illumination behind the moving Crawler. The trail is scoped to the current visit; reload persistence
   remains separate work.
 - **First mine entrance.** Delve_Hub's upper `DelveEntrance01_area_transition.ao` leads to `Delve_Main` (HASH16 64840).

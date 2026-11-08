@@ -193,7 +193,7 @@ static class IzaroFights
         return (npc, lines, secrets);
     });
 
-    /// <summary>The 0x2b9 blob of the elevator or a door (<see cref="LabyrinthTrials.Blob(IReadOnlyList{string}, string, int,
+    /// <summary>The 0x2bb blob of the elevator or a door (<see cref="LabyrinthTrials.Blob(IReadOnlyList{string}, string, int,
     /// int, float, float, byte, float?, bool, bool)"/>): a shut door blocks; the elevator never does.</summary>
     public static byte[] Blob(string type, string model, int x, int y, float angle, byte state) =>
         LabyrinthTrials.Blob(type == Gate ? GateComponents : Components, model, x, y, angle, 1, state, null, blockage: true,

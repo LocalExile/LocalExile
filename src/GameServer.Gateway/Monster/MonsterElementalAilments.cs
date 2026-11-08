@@ -79,10 +79,10 @@ sealed class MonsterElementalAilments
 
     /// <summary>
     /// virtual_{kind}_proliferation_radius as the client's calculators build it, the largest of its sources. Shock
-    /// (0x142828340): the gloves', Elemental Proliferation's (virtual_elemental_status_effect_aura_radius, itself the larger
+    /// (0x14282eef0): the gloves', Elemental Proliferation's (virtual_elemental_status_effect_aura_radius, itself the larger
     /// of its two sources), Vinktar's flask's, the ascendancy's and the mastery's radius, and 15 with
-    /// shock_proliferation_radius_is_at_least_15 (Within the Tempest). Freeze (0x142828810): Elemental Proliferation's, 12
-    /// with spread_freeze_to_nearby_enemies, the gloves', the ascendancy's and the amulet's. Chill (0x142828c00): Elemental
+    /// shock_proliferation_radius_is_at_least_15 (Within the Tempest). Freeze (0x14282f3c0): Elemental Proliferation's, 12
+    /// with spread_freeze_to_nearby_enemies, the gloves', the ascendancy's and the amulet's. Chill (0x14282f7b0): Elemental
     /// Proliferation's and the ascendancy's. The calculators scale none of them by area of effect; <see cref="SpreadRadius"/>
     /// does.
     /// </summary>

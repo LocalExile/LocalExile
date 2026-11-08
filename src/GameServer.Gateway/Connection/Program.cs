@@ -39,6 +39,23 @@ if (args is ["crafter"])
     foreach (string line in lines) Console.WriteLine(line);
     return 0;
 }
+// `labyrinth [yyyy-mm-dd | seed]`: the day's four Labyrinths, rooms with their map positions, connections and secrets
+// (LabyrinthDay.Listing; today's by default, Game_LAB_SEED's when set). /lab_layout's date came with it.
+if (args is ["labyrinth"] or ["labyrinth", _])
+{
+    bool dated = true;
+    uint seed;
+    if (args.Length == 1) { seed = LabyrinthDay.Seed; dated = !uint.TryParse(Environment.GetEnvironmentVariable("Game_LAB_SEED"), out _); }
+    else if (DateOnly.TryParseExact(args[1], "yyyy-MM-dd", out var date)) seed = LabyrinthDay.SeedOf(date);
+    else if (uint.TryParse(args[1], out seed)) dated = false;
+    else { Console.Error.WriteLine($"[gateway] labyrinth: {args[1]} is neither a yyyy-mm-dd date nor a seed"); return 1; }
+    var stdout = Console.Out;
+    Console.SetOut(TextWriter.Null);
+    var lines = LabyrinthDay.Listing(seed, dated).Select(l => l.ToJsonString()).ToList();
+    Console.SetOut(stdout);
+    foreach (string line in lines) Console.WriteLine(line);
+    return 0;
+}
 if (args is ["commands"] or ["values", _])
 {
     // The modules give the commands and the values: their load lines would break the JSON.
@@ -217,7 +234,7 @@ sealed partial class Program
     // the same clock).
     internal static readonly bool MoveTrace = ServerTrace.Move;
 
-    // The server frame length (ms, S→C 0x2b6): a lockstep client's world advances by these frames. Game_FRAME_MS overrides.
+    // The server frame length (ms, S→C 0x2b8): a lockstep client's world advances by these frames. Game_FRAME_MS overrides.
     internal static readonly byte FrameMs =
         byte.TryParse(Environment.GetEnvironmentVariable("Game_FRAME_MS"), out var fm) && fm > 0 ? fm : (byte)33;
 }

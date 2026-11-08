@@ -28,7 +28,7 @@ static partial class QuestobjectsRules
             uint id = conn.NextObjectId++;
             await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(statue.Type),
                 IzaroStatues.Blob(statue, lift.At.X, lift.At.Y, lift.At.Angle, IzaroStatues.Lowered)), .. InstanceProtocol.EnterWakeZone(id)],
-                $"0x02b9 {statue.Id} 0x{id:x} under ({lift.At.X}, {lift.At.Y})");
+                $"0x02bb {statue.Id} 0x{id:x} under ({lift.At.X}, {lift.At.Y})");
             arena.Statues.Add(new StatueSlot(statue, id, lift));
             lock (conn.Monsters) conn.TrialObjects[id] = lift.At with { Type = statue.Type };
         }
@@ -51,7 +51,7 @@ static partial class QuestobjectsRules
                 }
                 await Send(remote, stream, ciphers, [.. LiftState(conn, slot.Lift, slot.At, IzaroFights.Raising),
                     .. InstanceEntities.TransitionableUpdate(slot.Id, IzaroStatues.StatueTransitionable, IzaroStatues.Raising)],
-                    $"0x02ba {slot.Statue.Id} 0x{slot.Id:x} rises");
+                    $"0x02bc {slot.Statue.Id} 0x{slot.Id:x} rises");
                 _ = StatueRisen(remote, stream, ciphers, conn, arena, slot, here);
             }
         }
@@ -65,7 +65,7 @@ static partial class QuestobjectsRules
         await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseSeconds));
         lock (conn.Monsters) if (arena.Over || !here() || slot.State != IzaroStatues.Raising) return;
         await Send(remote, stream, ciphers, LiftState(conn, slot.Lift, slot.At, IzaroFights.Raised),
-            $"0x02ba small elevator 0x{slot.Lift:x} up");
+            $"0x02bc small elevator 0x{slot.Lift:x} up");
         await TurnIzaroStatue(remote, stream, ciphers, conn, arena, slot, on: true);
     }
 
@@ -87,7 +87,7 @@ static partial class QuestobjectsRules
         List<byte> bytes = [.. InstanceEntities.TransitionableUpdate(slot.Id, IzaroStatues.StatueTransitionable, on ? IzaroStatues.On : IzaroStatues.Off)];
         if (on) bytes.AddRange(InstanceEntities.AddBuff(arena.Izaro, buff, slot.Statue.Buff, slot.Id));
         else if (old != 0) bytes.AddRange(InstanceEntities.RemoveBuff(arena.Izaro, old));
-        await Send(remote, stream, ciphers, [.. bytes], $"0x02ba {slot.Statue.Id} 0x{slot.Id:x} {(on ? "on" : "off")}");
+        await Send(remote, stream, ciphers, [.. bytes], $"0x02bc {slot.Statue.Id} 0x{slot.Id:x} {(on ? "on" : "off")}");
     }
 
     // A click on a statue (UseTrialObject): on, it goes off for IzaroStatues.OffSeconds, then on again while the trial lasts.
@@ -112,7 +112,7 @@ static partial class QuestobjectsRules
     {
         foreach (var s in risen)
             await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(s.Id, IzaroStatues.StatueTransitionable, IzaroStatues.Lowering),
-                .. LiftState(conn, s.Lift, s.At, IzaroFights.Lowering)], $"0x02ba {s.Statue.Id} 0x{s.Id:x} goes down");
+                .. LiftState(conn, s.Lift, s.At, IzaroFights.Lowering)], $"0x02bc {s.Statue.Id} 0x{s.Id:x} goes down");
         if (risen.Count == 0) return;
         var layout = conn.Layout;
         _ = Task.Run(async () =>

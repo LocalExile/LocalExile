@@ -105,7 +105,7 @@ static partial class Game
 
     /// <summary>
     /// The chieftain minions, after a trigger and from the player tick. One whose time is up, or whose owner died, dies (0x1b1
-    /// at 0) and its body goes a second later (0x2bb); a queued summon then rises next to the living player: the chieftain's
+    /// at 0) and its body goes a second later (0x2bd); a queued summon then rises next to the living player: the chieftain's
     /// MonsterVarieties row (AncestralEmbraceVariations) at its level, on his team, as his minion (is_player_minion), with
     /// his minion modifiers (minion_damage_+%, minion_attack_speed_+%, minion_attack_and_cast_speed_+%,
     /// minion_movement_speed_+%) as its own, until its Leadership ends. It is immortal: nothing on the server damages it.
@@ -139,7 +139,7 @@ static partial class Game
                 Console.WriteLine($"[gateway] {CharacterName(conn)}: chieftain 0x{minion.Id:x} ({m.Label}) ends");
             }
         }
-        if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], "0x01b1/0x02bb chieftain minion ends");
+        if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], "0x01b1/0x02bd chieftain minion ends");
         if (!CurrentGameWork || summon is null || now >= summon.Until) return;
         if (Monsters.Find(summon.Variety.ToString()) is not { Supported: true } variety)
         {

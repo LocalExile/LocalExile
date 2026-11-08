@@ -121,13 +121,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - The King in the Mists' Crux of Nothingness encounter: `An Audience With The King` alone opens the area in the map
   device; the humanoid form fights with the default attack, spell projectile, Vine Slam and Vine Cascade, spawns the three
-  Mystic Fetishes as visible shrines, teleports next to them and runs the ritual server-side (the fetish is immune
-  through the whole ritual animation and becomes attackable at `call_end_01`; the King is immune throughout) with the
-  official `call_start_01`/`call_loop_01`/`call_end_01`
-  rig clips, then returns to the centre (Portent Vapors stacks), summons Plagued Rats and an effigy. The client
-  `0x400e` channel and the fetish/shrine StateMachine `active` update are withheld until their StartChannelling action
-  contract is known (`0xc0000005` at `0x19e0daf`); the central `RitualPillar2` shrine is created but its
-  `active_pillars` animation is not advanced yet.
+  Mystic Fetishes as visible shrines, teleports next to them and channels its `0x400e` ritual into one (the fetish is
+  immune through the whole ritual animation and becomes attackable at `call_end_01`; the King is immune throughout;
+  live 2026-11-07: three rituals, no crash), then returns to the centre (Portent Vapors stacks), summons Plagued Rats
+  and an effigy. The fetish/shrine StateMachine `active` states are not sent yet; the central `RitualPillar2` shrine
+  is created but its `active_pillars` animation is not advanced.
   Fetish rituals are life-gated at 92/73/55% (one ritual per hit, immunity for the channel); the humanoid is
   phase-locked at 50%, slams its staff and teleports the player into the same-area hedge maze (wisps, exit portal and
   Branching Affliction). On the return the husk is set to the official 25% life and becomes the treant
@@ -136,9 +134,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   rolls the guaranteed unique (with That Which Was Taken paired with The Light of Meaning), Hextoad/Hexpass and The
   Endless Darkness.
   The 2026-10-31 official 3.29.3b capture (docs, "Official 3.29.3b capture") showed the real fight differs. The
-  fetish ritual now uses the official `call_start_01`/`call_loop_01`/`call_end_01` rig clips and server-side hazards;
-  the raw `GSVoodooKingRitual` `0x400e` channel and the fetish/shrine StateMachine `active` update are withheld because
-  they enter the `StartChannelling` crash path. The fetishes are hostile and destructible (no experience or loot); the
+  fetish ritual is the client's `GSVoodooKingRitual` `0x400e` channel with server-side hazards (its crash was the
+  record's missing `skill_behaviour_variation`, [king-in-the-mists](../docs/game/king-in-the-mists.md)). The fetishes are hostile and destructible (no experience or loot); the
   central shrine object exists but its `active_pillars` animation is not advanced yet; the maze uses a room-graph route
   with real `GuidingLightDaemonMaze_` actors plus a werewolf and spider; the treant uses Meditation/Dance/Punishment;
   BugRend is the official `VoodooKingBugRend`/`BugRendSingle` + `BugSoulrend` with six projectiles; the emergence grace
@@ -181,7 +178,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Deathrattle's warcry explosion is the first consumer: a dead zero-Life eligible monster explodes once and is marked
   `SpawnedMonster.CorpseConsumed` and removed ([11](../docs/protocol/11-skills.md) section 10i).
   Code: `MonsterLifeData.cs`, `MonsterObject`, `MonsterCatalog.cs`, `Program.Monsters.cs`, `ot_components.py`.
-  Docs: [04](../docs/protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).
+  Docs: [04](../docs/protocol/04-player-entity.md#44-life-0x141e72890-55-bytes).
 - Player hits on monsters: each one records the time on the monster (`PlayerHitAt`), and the player's death clears it.
   `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` (Devout of Ryslatha) scales a monster's regeneration for 4 s
   after a hit.
@@ -200,7 +197,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   none) from a TinyMT32 state keyed by the object id and its type, and the walk estimate, swing range and contact
   checks use that speed; equal bounds retain their fixed percent rather than defaulting to zero.
   The range, the generator and the key order come from the decompile and pass the tests; whether the key's type word
-  is the 0x2b9 type hash, and so whether the exact value matches the client's, is not checked live yet
+  is the 0x2bb type hash, and so whether the exact value matches the client's, is not checked live yet
   (`scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier).
   Code: `MonsterSpeedRoll.cs`, `AnimationVariantSelector.cs`, `MonsterCatalog.cs`, Gateway (`SpawnMonster`).
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §5 ("Monsters on the client").

@@ -36,8 +36,8 @@ The objects are `server_only` (BaseEvents): the client creates none of them, so 
 
 ## The objects
 
-Each type's 0x2b9 blob follows its own component order (`scripts/re/ot_components.py`); BaseEvents reads nothing
-but counts for the 0x2ba component index.
+Each type's 0x2bb blob follows its own component order (`scripts/re/ot_components.py`); BaseEvents reads nothing
+but counts for the 0x2bc component index.
 
 | Type | Components read | Transitionable index |
 |---|---|---|
@@ -64,7 +64,7 @@ TriggerableBlockage is u8 blocked, then while blocked a u8 count of sections (no
 **What the Gateway does** (`LabyrinthTrials` in the Gateway, `Rules.LabyrinthTrials.cs` in QuestObjects):
 - on entering a trial's area it creates these objects; a door also closes its line across the way between the
   area's spawn and the plaque on the server's walk estimate (`QuestBarriers`, `ClientState.DoorBarriers`);
-- using the trial's door opens it (0x2ba state 2, then 0x1c6 unblocked);
+- using the trial's door opens it (0x2bc state 2, then 0x1c6 unblocked);
 - a lever opens itself and what its room links turn on (below); unlinked (room-points.json's objects), the nearest
   Locked Door that is still closed;
 - the plaque sets the trial's quest flag, opens the portal and opens the Trial Plaque window; a done trial's plaque
@@ -82,7 +82,7 @@ closed (`on_transition_to_2` lowers them, `on_untransition_to_1` lifts them), an
 opens and they run on (live 2026-11-01, the original: as the links say). Without links (`room-points.json`'s objects)
 `LabyrinthTrials.SwitchedSaws` fits it by distance.
 The Gateway pulls the lever both ways (`InstanceState.SetTransitioned`), shuts or opens the nearest `Door_Open` with
-it (0x2ba state 2 or 1, 0x1c6, and its Hull `doorbar_ruinedtemple.ao` ±2.2 × ±8 cells on the server's walk estimate)
+it (0x2bc state 2 or 1, 0x1c6, and its Hull `doorbar_ruinedtemple.ao` ±2.2 × ±8 cells on the server's walk estimate)
 and stops or starts its sawblades; a later entry of the instance finds them as they were left.
 The Crypt's `Switch_Multi` (`num_states = 3`: `create_state_1` and `on_untransition_to_1` play clip 3, state 2 clip 1,
 state 3 disables it) goes both ways as `Switch` does, state 3 unused. Both levers there move the rail switches nearest
@@ -115,30 +115,30 @@ their `next` reaches (`RT_branch_bottleneck_2`: Switch → TimerGears → Door_C
 
 ## Unblocking a door
 
-TriggerableBlockage has no 0x2ba reader (its vtables' slot 20 is `ret`).
-Its own world message is **S→C 0x1c6** (read `0x141fe14b0`, world handler `0x142187480`): the world header, u8
+TriggerableBlockage has no 0x2bc reader (its vtables' slot 20 is `ret`).
+Its own world message is **S→C 0x1c6** (read `0x141fe7cd0`, world handler `0x14218ddf0`): the world header, u8
 blocked, and while blocked a u8 count and that many u8 sections.
-Unblocked calls the component's +0xb8 (`0x141e43b60`), which writes back the cells it saved when it blocked unless
+Unblocked calls the component's +0xb8 (`0x141e47150`), which writes back the cells it saved when it blocked unless
 the type's `disable_save` (+0x11) is set; blocked calls +0xb0 with the sections.
-Of the `.ot` keys (`0x141e43200`) `start_blocked` is +0x10, `disable_save` +0x11, `shunt_objects_away` +0x12;
+Of the `.ot` keys (`0x141e467f0`) `start_blocked` is +0x10, `disable_save` +0x11, `shunt_objects_away` +0x12;
 `save_as_diff` is accepted and not kept.
 
-Blocking (`0x141e43520`) saves the grid under the object, stamps its Hull (`0x141d876e0`) and keeps the difference;
+Blocking (`0x141e46b10`) saves the grid under the object, stamps its Hull (`0x141d8ad70`) and keeps the difference;
 the unblock adds that difference back (nibbles, clamped at 5). Both do nothing while a byte of the world (entity +0x78
 → +0x111, not identified) is set, and keep no cells in a hideout (the area's WorldAreas row, world +0xb0, byte +0x14e
 IsHideout).
 
 An object with a **static position** (the type's +0x158 → +0x19 set and Positioned +0x1e7 bit 1 clear; "Has Static
-Position" in the info dump `0x141e33310`) has its Hull stamped by the client's object pass `0x141d88690` (and the
-placement paths `0x141d84520`, `0x141d83fb0`) whatever its TriggerableBlockage says; for any other object the pass
+Position" in the info dump `0x141e36650`) has its Hull stamped by the client's object pass `0x141d8bd20` (and the
+placement paths `0x141d87bb0`, `0x141d87640`) whatever its TriggerableBlockage says; for any other object the pass
 stamps it only while the blockage is blocked. A static door stamped so before it blocked keeps a zero difference, and
 its unblock frees nothing. Live 2026-10-31 the Locked Door (`doorbar_prison.ao`) stayed closed to walking after 0x1c6,
 and also when created again open and unblocked (a movement skill still crossed it), and so did the trial's door in The
 Catacombs, though The Lower Prison's opened. So the Gateway sends the trial doors' Positioned with flags1 0x20
-(+0x1e7 bit 1: no static position; the client's own Positioned writer `0x141e2fdc0` carries the bit too)
+(+0x1e7 bit 1: no static position; the client's own Positioned writer `0x141e33100` carries the bit too)
 and 0x08 with 1 (+0x1e6 bit 0x40: a dynamic object that blocks no walker; [04](../protocol/04-player-entity.md)), so
 only the blockage closes their cells.
-The Gateway still removes an opened Locked Door (0x2bb) 1.5 s after its opening, when the bars have lifted, and does
+The Gateway still removes an opened Locked Door (0x2bd) 1.5 s after its opening, when the bars have lifted, and does
 not create it again in that instance.
 
 Where a door's line parts nothing on the server's walk map (the Catacombs: the arrival reached the plaque round some
@@ -188,10 +188,13 @@ objects with no model whose `.ot` (BaseEvents `server_only`, `no_serialise`) has
 Where a room has them the Gateway uses them (`LabyrinthTrials.TriggeredSpikes`): a trigger fires the traps joined to
 its nearest trap, one step a tile from it; two triggers on the same traps share them as a checkerboard of the traps'
 own tiles (live 2026-11-01, the original: a diagonal line of four rises from its `Trigger_CascadeFast` end).
-The Normal trials' rooms have none, so their pattern is fitted by eye against the original (live 2026-10-31):
+The Normal trials' rooms reach the Gateway without them (`room-points.json` has no trigger lines), so their pattern is
+fitted by eye against the original (live 2026-10-31):
 - a ring (every trap side by side with two others) cascades from its trap nearest the trial's lever, straight towards
   its trap nearest the trial's doors and on round, 450 ms a trap, starting again at once;
-- any other chain fires as a checkerboard: the tiles of the start's colour, then the others 2 s later, every 4 s.
+- any other chain fires as a checkerboard: the tiles of the start's colour, then the others 2.5 s later, every 5 s.
+  These are the timers of the `Trigger_Delay_4_0WG` / `_4_2WG` lines the Lower Prison plaque room
+  (`Prison/Rooms/Unique/axiom_intro_end.arm`) places at (46, 46) and (69, 46), on two of its traps (#576).
 
 **What it does.** The cascade traps do not answer a step (the spikes that do are another trap, in Izaro's rooms).
 - A player on the tile while the spikes are up is hit once: `LbRetractableTrap`'s stat set (GrantedEffectStatSets
@@ -207,7 +210,7 @@ The Normal trials' rooms have none, so their pattern is fitted by eye against th
   estimate, from the rise until the clip ends. A player already on the tile is not walled in: closing the cells under
   them made the collision escape throw them off the tile.
 - No stun or pin: the original shows no buff, and neither BuffDefinitions `pinned` (`no_movement_speed`, not read by
-  the client's walk speed, `0x141e7c0b0`) nor native TakeHit recovery was right.
+  the client's walk speed, `0x141e827a0`) nor native TakeHit recovery was right.
 
 The timings are dev-tunable for a live check: `/trial_spike_hit <from> <to>` (the hit window, ms after firing),
 `/trial_spike_step <ms>` (the ring's step) and `/trial_spike_anim <ms>` (the stretched clip).
@@ -268,9 +271,9 @@ flying one 25, `flying = 1`), turned to where they go; the ground one's Transiti
 in the trial turns it: live 2026-10-31, the lever only opens its door).
 
 **The blob.** LabyrinthRoomba reads Positioned, Animated, BaseEvents, Stats, Buffs, Movement and Transitionable; the
-flying one Positioned, BaseEvents, Animated, Stats, Buffs and Movement. Movement's reader (`0x141e741e0`) takes u8
-(+0x30), i32 x, i32 y (a cell it sets Positioned to, `0x141e31200`), four u32 (+0x3c, +0x40, +0x4c, +0x50), u8 +0x76
-(non-zero starts its own movement, `0x141e74970`) and u8 +0x77; its 0x2ba slot is `ret`.
+flying one Positioned, BaseEvents, Animated, Stats, Buffs and Movement. Movement's reader (`0x141e7a870`) takes u8
+(+0x30), i32 x, i32 y (a cell it sets Positioned to, `0x141e34540`), four u32 (+0x3c, +0x40, +0x4c, +0x50), u8 +0x76
+(non-zero starts its own movement, `0x141e7b000`) and u8 +0x77; its 0x2bc slot is `ret`.
 The Gateway sends Movement idle at the roomba's cell and moves it itself with **S→C 0x1ba** (rail to rail, following the
 terrain) and 0x1b9 to turn it.
 
@@ -297,7 +300,7 @@ or die. A roomba glides at 35 cells a second, so one that passes a player standi
 half a second.
 
 In the original the pools fall smoothly in it (live 2026-10-31/11-01). The client cannot drain a pool itself: its
-pool step (`0x141e6b320`) adds the pool's native recovery rate only when it is above 0, so a negative
+pool step (`0x141e718c0`) adds the pool's native recovery rate only when it is above 0, so a negative
 `energy_shield_recovery_per_minute` or `life_recovery_per_minute` is ignored (tried 2026-10-31, reverted). So the
 degeneration (`ClientState.TrapDegenPerSecond`) is dealt by the player's 16 ms recovery loop (`RunResourceRecovery`,
 beside regeneration, so one pool update carries both), and while it runs the player's stat updates carry both rates
@@ -331,8 +334,8 @@ running sawblade cuts as a roomba does: a player within 5 cells (a lane) of its 
 life plus 50% of maximum energy shield a second (our numbers, the roomba's) with that buff on them;
 `/trial_saw_damage <life %> <energy shield %> [<radius>]` (dev) changes them. A stopped one cuts nothing.
 
-**Stopping and starting.** A lever stops a sawblade where it is: 0x2ba Transitionable 2 (its spin winds down) and a
-0x1ba to its own cell. Its `.ot` plays nothing on the way back to state 1, so started again it is removed (0x2bb) and
+**Stopping and starting.** A lever stops a sawblade where it is: 0x2bc Transitionable 2 (its spin winds down) and a
+0x1ba to its own cell. Its `.ot` plays nothing on the way back to state 1, so started again it is removed (0x2bd) and
 created anew there, spinning, and goes on to the rail it was heading for.
 
 ## Spinners
@@ -571,10 +574,10 @@ passage of a trial can still have one (the original: a Diabolist with a few skel
 
 ## A completed trial
 
-The client counts a trial done (`0x141f69230`, for each of a Labyrinths row's `RequiredTrials`) when the player has
+The client counts a trial done (`0x141f6fb00`, for each of a Labyrinths row's `RequiredTrials`) when the player has
 **the row's quest flag** (column 7, a QuestFlags row: `NormalLabyrinthCompletedPrison` …
-`MapLabyrinthCompletedCatacombs`, rows 2564–2581, tested by `0x1400f42b0`) or **the league quest flag** of column 1
-(263–286; Player +0x1d0, bit id − 1, `0x14012aae0`).
+`MapLabyrinthCompletedCatacombs`, rows 2564–2581, tested by `0x1400f4540`) or **the league quest flag** of column 1
+(263–286; Player +0x1d0, bit id − 1, `0x14012ae40`).
 The real game shares trials across a league's characters; the league flags are how.
 The plaque sets both: the character's quest flag and the trial's league quest flag, which the Gateway saves with the
 account's stash of that league (`Game.SetLeagueQuestFlags`, [saves](../saves.md)), so every character of the account
@@ -585,11 +588,11 @@ Trial Plaque window.
 Columns 2 and 3 are not read.
 A Labyrinths row is unlocked by its own `QuestFlag` (`LabyrinthComplete1` …).
 
-**The Trial Plaque window** (`AscendancyMapWindowTitle`, built by `0x140b75b90`) is **S→C 0x7b kind 9**: instance
-+0x19f8 → `0x140dcda40`, which shows the live HUD's +0x7e8.
-It lights each trial from the flags above (`0x140b76170` → `0x141f69230`); the message carries nothing for it.
+**The Trial Plaque window** (`AscendancyMapWindowTitle`, built by `0x140b71170`) is **S→C 0x7b kind 9**: instance
++0x19f8 → `0x140dcb2d0`, which shows the live HUD's +0x7e8.
+It lights each trial from the flags above (`0x140b71750` → `0x141f6fb00`); the message carries nothing for it.
 Kind 0x66 (HUD virtual +0x1028) shows the live HUD's +0xa30, Mirage's Wishes window, not this one: the other HUD class
-(`0x140d65b50`) keeps the plaque window at +0xa30.
+(`0x140d632c0`) keeps the plaque window at +0xa30.
 
 ## The Lord's Labyrinth quest
 
@@ -635,7 +638,7 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
   goes down on it, and the doors open as he goes. His weapon is the day's and the tier's (wiki); the client does not
   have the pick. A move order sent during his swing was lost on the client. At his trial's floor his boss bar is
   dimmed (live, as Malachai's): the bar draws `UniqueBossFrameImmuneOverlay` once the life is at the
-  `cannot_drop_below_%_life` stat (client key 0xca8, checked on each life change, 0x14028ec50), sent with 0x1b3.
+  `cannot_drop_below_%_life` stat (3.29.3b: client key 0xca8, checked on each life change, 0x14028ec50), sent with 0x1b3.
   `is_hidden_monster`, `cannot_be_damaged`, `base_cannot_be_damaged` and the invisible `cannot_be_damaged` buff did not
   change the bar. No boss bar while he rises (live): `boss_life_bar` 1 goes only as he starts to fight.
   `disable_life_bar` does not hold it: BossLifeBar.ot's `on_state_boss_life_bar_1` shows the bar whatever

@@ -18,7 +18,7 @@ static partial class QuestobjectsRules
         {
             uint id = conn.NextObjectId++;
             await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(StashObject.MetadataPath),
-                new StashObject(at.X, at.Y, at.Angle).Blob()), .. InstanceProtocol.EnterWakeZone(id)], $"0x02b9 create stash 0x{id:x} at ({at.X}, {at.Y})");
+                new StashObject(at.X, at.Y, at.Angle).Blob()), .. InstanceProtocol.EnterWakeZone(id)], $"0x02bb create stash 0x{id:x} at ({at.X}, {at.Y})");
             await RegisterStationaryCollision(remote, stream, ciphers, conn, id, StashObject.MetadataPath, at.X, at.Y, at.Angle);
             placed[id] = (at.X, at.Y);
             if (conn.StashObject == 0) (conn.StashObject, conn.StashAt) = (id, (at.X, at.Y));

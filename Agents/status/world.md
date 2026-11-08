@@ -11,7 +11,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Entering Lioneye's Watch: area (0x1d), local player id, world activation, HUD.
   Code: Gateway.
   Docs: [03](../docs/protocol/03-area-and-world.md).
-- Player object (0x2b9) with its component blob; the character's name and class model.
+- Player object (0x2bb) with its component blob; the character's name and class model.
   Code: `InstanceEntities.cs`.
   Docs: [04](../docs/protocol/04-player-entity.md).
 - Inventories and passive slots the UI needs (empty).
@@ -31,7 +31,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   clicks are timed by their socket read; monster paths port 1:1 too (1,235 of 1,235, 100 expansions + coarse pass).
   Code: `GameServer.Core/World/ClientPathfinder.cs`, `PlayerWalk.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §5.
-- Server frames (S→C 0x2b6 frame length, 0x2b5 frame end every 33 ms): what a lockstep client's world runs on;
+- Server frames (S→C 0x2b8 frame length, 0x2b7 frame end every 33 ms): what a lockstep client's world runs on;
   ignored by a predictive client.
   Code: `Game.RunLockstepFrames`, Gateway `WindowsTimerResolution`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §6.
@@ -72,7 +72,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Waypoints: the Waypoint object where the area's layout is captured (Lioneye's Watch built in), activated on entry
   (towns), within 25 cells or on click (the client plays the activation), saved per character;
   clicking opens the World panel in travel mode (S→C 0x7b), its pins and connection lines show from the character's
-  visited areas and activated waypoints (S→C 0x4c, quest flags in the Player component via 0x2ba), and picking a pin
+  visited areas and activated waypoints (S→C 0x4c, quest flags in the Player component via 0x2bc), and picking a pin
   (C→S 0x4d, Ctrl → instance chooser) takes the player next to the destination's waypoint; `/waypoints [all | reset]`.
   Code: `InstanceWaypoints.cs`, `WaypointCatalog.cs`, `AreaVisitFlags.cs`, Gateway.
   Docs: [16](../docs/protocol/16-waypoints.md).
@@ -184,10 +184,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `GameServer.Data/Terrain/Generation`, `scripts/re/levelgen`.
   Docs: [re/011](../docs/re/011-level-generation.md).
 - **The Labyrinth's day layout.** The Gateway builds the day's layout as the client does (sections, rooms,
-  connections and secrets: 168 client layouts match) and gives each room one of its LabyrinthAreas areas; entering
-  one of those areas sends the room's node in 0x1d's extra data, and the client and the server's generation then
-  apply the room's overrides and secret rooms alike (live: `1_Labyrinth_OH_quad_#` with its Gauntlet room, 2026-11-02).
-  The day's seed (the UTC day number, `Game_LAB_SEED`) and the area pick are ours. `/lab_layout [tier]` lists the day.
+  connections and secrets: 168 client layouts match) and gives each room its LabyrinthAreas area as the official
+  server does; entering one of those areas sends the room's node in 0x1d's extra data, and the client and the server's
+  generation then apply the room's overrides and secret rooms alike (live: `1_Labyrinth_OH_quad_#` with its Gauntlet
+  room, 2026-11-02). The day is the official one: the seed (the UTC day number, `Game_LAB_SEED`) and the room areas
+  match poelab.com's layouts (re/011). A room's tile seed is ours. `/lab_layout [tier] [yyyy-mm-dd]` lists a day.
   The secret rooms' objects (hidden doors, the Gauntlet's end) are not created yet.
   Code: `LabyrinthLayout.cs`, `LabyrinthPass.cs`, `LabyrinthDay.cs`, `ServerLevels.cs`.
   Docs: [03](../docs/protocol/03-area-and-world.md), [re/011](../docs/re/011-level-generation.md) ("Labyrinth pass").
@@ -196,7 +197,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   device opens the select window (0x7b kind 0x10); choosing Normal (C→S 0x212 = 1) opens the door with its animation
   and shows the way into the day's first room; the portal goes back to town. Each room is its own instance (the run
   picks its seed, so the server knows its node), its "entranceN" exits lead to its neighbours, the glyph statues open
-  the Labyrinth map (0x7b kind 0x0f) with the run's rooms (S→C 0x1cb);
+  the Labyrinth map (0x7b kind 0x0f) with the run's rooms (S→C 0x1cb),
+  and a statue by an exit also shows the room behind it, the way there in green (checked live 2026-11-07);
   being anywhere else ends the run, and the plaza's door shuts again. Checked live 2026-11-03.
   In the last room's Ascendancy Chamber the font gives the tier's two ascendancy points and opens the class selector
   (0x7b kind 0x0a; the choice, C→S 0x39, is saved and the area reloads), and its portal goes back to town.

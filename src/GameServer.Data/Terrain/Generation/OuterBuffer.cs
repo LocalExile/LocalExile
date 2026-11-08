@@ -1,21 +1,21 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The outer buffer of a tile graph layout (<c>0x142044f30</c> → <c>0x14201ffa0</c>, after all subgraphs): the
+/// <summary>The outer buffer of a tile graph layout (<c>0x14204b780</c> → <c>0x1420267f0</c>, after all subgraphs): the
 /// map around the graph's area (inner rectangle left/top = the buffer, right/bottom = buffer + graph size). The vertex
 /// grounds and heights on the inner rectangle's border spread outwards (vertical first, then horizontal; vertex flag 2
 /// marks vertices that have a ground here), then four passes (top, bottom, left, right) walk the border: where a tile's
 /// edge crosses outwards, an edge tile of that type with its point continued is drawn (<c>Next(total)</c>) and repeated
 /// out to the map's edge; elsewhere, where the two border vertices of the step agree, the first fill tile of the
-/// ground (<c>0x141feffb0</c>, orientation 8 taken as 0) is repeated outwards where it fits, at the height of the
+/// ground (<c>0x141ff67d0</c>, orientation 8 taken as 0) is repeated outwards where it fits, at the height of the
 /// step's vertex read before the walk outwards over tiles already there: on the view's top or bottom row for the top
 /// and bottom passes (the spread values), on the inner rectangle's left or right column for the side passes (an edge
 /// tile: the lower of its two border vertices).
-/// The view is the subgraph record's rectangle (<c>0x141ffb7f0</c>: record +0x40 … +0x4c), the whole map for a tile
+/// The view is the subgraph record's rectangle (<c>0x142002040</c>: record +0x40 … +0x4c), the whole map for a tile
 /// graph and a one-record dungeon; <paramref name="left"/> … <paramref name="bottom"/> are in the view.</summary>
 sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View grid, int left, int top, int right, int bottom,
     TileStore store, Dictionary<string, List<(int Weight, string Path, int Orientation)>> fills, List<string> notes)
 {
-    /// <summary>A rectangle of the map (<c>0x141ffb6c0</c>), read and written in its own coordinates.</summary>
+    /// <summary>A rectangle of the map (<c>0x142001f10</c>), read and written in its own coordinates.</summary>
     public sealed class View(TileGrid map, int x, int y, int width, int height)
     {
         public View(TileGrid map) : this(map, 0, 0, map.Width, map.Height) { }
@@ -56,7 +56,7 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
 
     bool Marked(int x, int y) => (grid.Corner(x, y).Flags & 2) != 0;
 
-    // 0x141ffbd30: vertex flag 8 (unwalkable).
+    // 0x142002580: vertex flag 8 (unwalkable).
     void Flag(int x, int y) => grid.Corner(x, y).Flags |= 8;
 
     // Spreads the ground and height of vertex (fx, fy) to every vertex in the list without a ground.
@@ -112,14 +112,14 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
         }
     }
 
-    // 0x142025000: a ground with flag 8 counts as none.
+    // 0x14202b850: a ground with flag 8 counts as none.
     string? Ground(int x, int y)
     {
         string? g = grid.Corner(x, y).Ground;
         return g is not null && (Flags(g) & 8) != 0 ? null : g;
     }
 
-    /// <summary><c>0x141d77670</c> negated: the two grounds agree (equal, both none-or-flag-8, or both without flags 1
+    /// <summary><c>0x141d7ad00</c> negated: the two grounds agree (equal, both none-or-flag-8, or both without flags 1
     /// and 4).</summary>
     bool Agree(string? a, string? b)
     {
@@ -129,11 +129,11 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
         return a is not null && b is not null && (Flags(a) & 5) == 0 && (Flags(b) & 5) == 0;
     }
 
-    /// <summary><c>0x141feffb0</c>: the first tile of the ground's fill list (no ground: "default").</summary>
+    /// <summary><c>0x141ff67d0</c>: the first tile of the ground's fill list (no ground: "default").</summary>
     TileDef FirstFill(string? ground)
     {
         string name = ground is null ? "default" : files.Ground(ground)?.Name ?? "default";
-        // 0x141fefeb0: a ground without a group of its own takes the default ones (SanctumLycia2's LyciaAbyss).
+        // 0x141ff66d0: a ground without a group of its own takes the default ones (SanctumLycia2's LyciaAbyss).
         if ((!fills.TryGetValue(name, out var list) || list.Count == 0) && (!fills.TryGetValue("default", out list) || list.Count == 0))
             throw new InvalidOperationException($"No fill tiles found for {name}");
         var path = list[0].Path;
@@ -141,7 +141,7 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
         return files.Tile(path) ?? throw new FileNotFoundException(path);
     }
 
-    /// <summary><c>0x141ffbbe0</c> on the whole map: within it give or take one entry, on free entries.</summary>
+    /// <summary><c>0x142002430</c> on the whole map: within it give or take one entry, on free entries.</summary>
     bool Fits(TileDef tile, int x, int y)
     {
         if (x < -1 || y < -1 || x + tile.Width > W + 1 || y + tile.Height > H + 1) return false;
@@ -152,7 +152,7 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
         return true;
     }
 
-    /// <summary><c>0x14201d890</c>: the (non-wildcard) edge type of entry e's tile on side s when its edge point lies
+    /// <summary><c>0x1420240e0</c>: the (non-wildcard) edge type of entry e's tile on side s when its edge point lies
     /// in the size-wide span starting at the entry (a virtual edge gives the sub-edge of the point that does).</summary>
     EdgeType? Crossing(TileEntry e, int s)
     {
@@ -207,7 +207,7 @@ sealed class OuterBuffer(TerrainCache files, LevelRandom rng, OuterBuffer.View g
         return (list[^1].Tile, list[^1].Orientation, low);
     }
 
-    // 0x141ffb870 (not forced).
+    // 0x1420020c0 (not forced).
     void Place(TileDef tile, int o, int x, int y, int height)
     {
         grid.Place(tile, o, x, y, (short)height);

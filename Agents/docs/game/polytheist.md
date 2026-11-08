@@ -58,9 +58,9 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   increases (PoB's "Defences" applies to all four), so the final pools the hit and recharge code read grow with it.
 - **Light Radius** (`light_radius_+%`) is the client's own effect: the player stats (0x1b3) carry the summed stat
   and the client sizes the player's light from it. The server has nothing to do with light radius.
-  `FUN_1400b97b0` registers `virtual_light_radius_+%` (key 0x1e59) with `FUN_14273e960`, which returns
+  `FUN_1400b9870` registers `virtual_light_radius_+%` (key 0x1e59) with `FUN_142745510`, which returns
   `light_radius_+%` (0x4c1) plus `light_radius_+%_while_phased` (0xce7) while `phase_through_objects` (0x76a) is set.
-  `FUN_1416574c0` reads 0x1e59 at `0x14165762a` (checked in capstone) and passes it into the light it attaches to
+  `FUN_141659b80` reads 0x1e59 at `0x141659cea` (checked in capstone) and passes it into the light it attaches to
   `hip_jntBnd`.
 - **Devout of the Brine King**: `base_maximum_cold_damage_resistance_%` raises the cold maximum the mitigation uses.
   `base_cannot_be_frozen` and `base_cannot_be_chilled` become the panel's `cannot_be_frozen` and `cannot_be_chilled`
@@ -84,17 +84,17 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   - The client derives none of these finals from the raw stats: it steps its pools from `life/mana_recovery_per_minute`
     ([recovery timing](../re/recovery-timing.md)). So the player tick sends the five finals again (one small 0x1b3,
     `SendWhileMovingStats`) when a walk starts or ends, for a character with a while-moving stat.
-    The client also has while-moving derivations of its own: `virtual_track_movement` (0x14aa, `FUN_142839330`) is set
-    by any of 0x1af7-0x1af9, and `combined_evasion_rating_+%` (`FUN_142726680`) and `combined_mana_regeneration_rate_+%`
-    (`FUN_14253a170`) add 0x1af7 / 0x1af8 under `virtual_is_moving` (0x4fb8). The server still sends the finals, as
+    The client also has while-moving derivations of its own: `virtual_track_movement` (0x14aa, `FUN_14283fef0`) is set
+    by any of 0x1af7-0x1af9, and `combined_evasion_rating_+%` (`FUN_14272d230`) and `combined_mana_regeneration_rate_+%`
+    (`FUN_142540d20`) add 0x1af7 / 0x1af8 under `virtual_is_moving` (0x4fb8). The server still sends the finals, as
     for every other stat ([11](../protocol/11-skills.md) §4), and leaves the raw inputs unchanged so nothing can count
     twice.
 - **Devout of Garukhan, Unaffected by Shock** (PoB: SelfShockEffect 100% less; wiki: you can still be shocked, it has
   no effect): `PlayerElementalAilments.Reconcile` reads `unaffected_by_shock`, and `DamageTakenFactor` is then 1. The
   shock itself stays, with its duration and `is_shocked`. Monster hits, ignite ticks, the dev enemy-hit commands and
   Righteous Fire's self-burn all read that factor.
-  The client derives `virtual_unaffected_by_shock` (0x380e, `FUN_14277f740`), which only stops a shock counting in
-  `num_different_ailments_affecting_you` (`FUN_1428c50f0`).
+  The client derives `virtual_unaffected_by_shock` (0x380e, `FUN_1427862f0`), which only stops a shock counting in
+  `num_different_ailments_affecting_you` (`FUN_1428cbcb0`).
 - **Devout of Ryslatha, 30% more Maximum Attack Damage** (`maximum_attack_damage_+%_final_from_ascendancy`):
   `MaximumAttackDamage.Apply` scales the maximum of every final component of an attack hit, after conversion, next to
   Rage's final multiplier: the default attack and its panel rows (`AttackHitConverted`), the native main/off-hand
@@ -105,8 +105,8 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   no damaging ailments on the server yet; when they do, their flat ailment packet goes through
   `MaximumAttackDamage.Apply` after conversion, before `IgniteFromHit` (roadmap, skills and combat). The client
   multiplies its three sources
-  (`combined_maximum_attack_damage_+%_final` = Π max(0, 1 + x/100) × 100 − 100, rounded: `FUN_1425d25b0`, checked
-  in capstone at `0x1425d292e`); only the ascendancy source exists on the server.
+  (`combined_maximum_attack_damage_+%_final` = Π max(0, 1 + x/100) × 100 − 100, rounded: `FUN_1425d9160`, checked
+  in capstone at `0x1425d94de`); only the ascendancy source exists on the server.
 - **Devout of Ryslatha, Enemies you've Hit Recently have 100% reduced Life Regeneration rate**
   (`enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` −100): every player hit on a monster (the default attack and
   `ApplyMonsterHitLocked`: gems, areas, projectiles; Righteous Fire's burn is not a hit) records `PlayerHitAt`. The
@@ -121,7 +121,7 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   ([11](../protocol/11-skills.md) §10j). Spells are the skills the client marks `casting_spell`: auras, Heralds,
   Righteous Fire, Portal and movement spells included; attacks and warcries stay usable (the wiki: spells cannot be cast
   or triggered; auras, heralds, stances and banners are spells, warcries are not). The client greys them itself
-  (`skill_disabled_by_stat` = 0x1520 AND `casting_spell`, `FUN_1428cf770`); the skill record also carries it.
+  (`skill_disabled_by_stat` = 0x1520 AND `casting_spell`, `FUN_1428d6330`); the skill record also carries it.
   Running spell auras are suspended with their saved intent, as for "Your Aura Skills are disabled", and come back after
   a refund. A Righteous Fire already burning keeps burning the player and deals the enemies nothing. Both are local
   policy: how the real game ends (or keeps) an aura that runs when the restriction starts is unverified.
@@ -169,10 +169,10 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   (`enemies_you_blind_have_critical_strike_chance_+%`): no monster here has a chance it could reduce. Monster attacks
   have no base critical chance in the server ([14](../protocol/14-monster-packs.md) §5); they crit only through
   `always_crit` (of Deadliness), and that is an override. The client's
-  `main_hand_effective_total_chance_permyriad_for_hit_to_be_critical` (0x5ac7, `FUN_14275c050`; the off-hand and spell
-  ones `FUN_14275c6a0` and `FUN_14275ccf0` alike) returns 0 for `virtual_global_cannot_crit`, then 10000 for
-  `virtual_always_crit` (0x2549, derived from `always_crit` by `FUN_14275ba00`) before it reads any chance or increase
-  (checked in capstone: `0x14275c24c` jumps to `0x14275c694: mov eax, 0x2710`). PoB agrees: an always-crit enemy
+  `main_hand_effective_total_chance_permyriad_for_hit_to_be_critical` (0x5ac7, `FUN_142762c00`; the off-hand and spell
+  ones `FUN_142763250` and `FUN_1427638a0` alike) returns 0 for `virtual_global_cannot_crit`, then 10000 for
+  `virtual_always_crit` (0x2549, derived from `always_crit` by `FUN_1427625b0`) before it reads any chance or increase
+  (checked in capstone: `0x142762dfc` jumps to `0x142763244: mov eax, 0x2710`). PoB agrees: an always-crit enemy
   ignores increases (CalcDefence's `AlwaysCrit`). A blinded Deadliness monster therefore still crits. Whether
   ordinary 3.29 monster attacks carry a base critical chance is unverified: of the 9 901 monster varieties with a
   granted effect, none has a first effect whose stat sets (GrantedEffectStatSetsPerLevel) give an `AttackCritChance`
@@ -182,11 +182,11 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 - **Devout of Lunaris, Nova Spells Cast at the targeted location instead of around you**
   (`nova_spells_cast_at_target_location`): a self-targeted spell (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge,
   Shock Nova) is centred on the caster, and with the stat a self-targeted Nova spell (ActiveSkillType Nova) is centred
-  on the aimed point (`SpellCentre` in `AreaSkillHit`, the client's rule in `FUN_14193e290`). Totem, mine and trap
+  on the aimed point (`SpellCentre` in `AreaSkillHit`, the client's rule in `FUN_1419439e0`). Totem, mine and trap
   skills and Novas without a self target (Shockwave Totem, Stormblast Mine, Dark Pact) keep the aimed point either
   way. The client derives
   `virtual_self_targeted_skills_target_location_instead` from this stat, `casting_spell` and `skill_is_nova_skill`
-  (`FUN_142896650`), but network stats run no calculators ([04](../protocol/04-player-entity.md) §4.1a), so the Gateway
+  (`FUN_14289d210`), but network stats run no calculators ([04](../protocol/04-player-entity.md) §4.1a), so the Gateway
   publishes `skill_is_nova_skill` and the derived flag itself in the Nova's record when all three hold. Without the flag
   the client sent Ice Nova as a cast on the player (live 2026-10-30); with it, a cast at the cursor, which the server
   centres there ([11](../protocol/11-skills.md) §9a).
@@ -231,13 +231,13 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   same, a `shortcut:` in the code). Projectile hits add to the same ignites; the default
   attack and melee or area gems do not ignite yet ([20](../protocol/20-damage.md) §3).
 - **Devout of Abberath, Burning Hoofprints** (`goat_footprints_from_item`) is the client's: the player stats carry it,
-  and `FUN_141ebd630` turns it into the goat footprint variation that `FUN_14166a840` draws on each footstep event
+  and `FUN_141ec3ee0` turns it into the goat footprint variation that `FUN_14166cf30` draws on each footstep event
   ([11](../protocol/11-skills.md) §12). The server sends nothing else.
 - **Devout of Abberath, Unaffected by Ignite** (PoB: SelfIgniteEffect 100% less): `PlayerElementalAilments.Reconcile`
   reads `unaffected_by_ignite`, and `Advance` then deals no ignite damage. The ignite itself stays, with its duration
-  and `is_ignited`. The client derives `virtual_unaffected_by_ignite` (0x380d: `FUN_1400c0320` registers it with
-  `FUN_14277a080`, from `unaffected_by_ignite` 0x1de6 and other sources); only `num_different_ailments_affecting_you`
-  (`FUN_1428c50f0`) reads it.
+  and `is_ignited`. The client derives `virtual_unaffected_by_ignite` (0x380d: `FUN_1400c03e0` registers it with
+  `FUN_142780c30`, from `unaffected_by_ignite` 0x1de6 and other sources); only `num_different_ailments_affecting_you`
+  (`FUN_1428cbcb0`) reads it.
 - **Devout of Lunaris, Spell Skills have 30% increased Area of Effect** (`spell_area_of_effect_+%`): `SkillArea.Increased`
   adds it for spells only, so a spell's radius grows by √1.3 (PoB calcRadius) and attacks keep theirs.
 
@@ -248,7 +248,7 @@ These effects are not faked. Each waits for an engine system that does not exist
 - **Hex Reflection, Hexes affect Hexproof enemies, Unaffected by Curses** (Yugul): there are no curses or hexes.
   Monsters never curse the player, and no curse the player casts is applied to monsters.
   `MonsterModCatalog.Vacuous` lists `hexproof` and `reflect_hexes_chance_%` for this reason.
-  The client derives `virtual_unaffected_by_curses` (0x4030: `FUN_1400e53c0` registers it, `FUN_1428d1880` sets it
+  The client derives `virtual_unaffected_by_curses` (0x4030: `FUN_1400e5490` registers it, `FUN_1428d8440` sets it
   from `unaffected_by_curses` 0x1d7d); no other literal read of 0x4030 was found, so it is display only.
 - **Immune to Reflected Damage** (Yugul): nothing reflects damage. Monster reflect mods never roll (`SupportOf` None),
   and the map device applies no map modifiers. The client has no literal read of `immune_to_reflected_damage`

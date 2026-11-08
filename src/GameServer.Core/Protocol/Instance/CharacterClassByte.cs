@@ -2,7 +2,7 @@ namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// The 3.29.3b Player/0x33 class byte. The base class is Characters.IntegerId; ClassNo is Ascendancy.ClassNo,
-/// zero when unascended. This is not a contiguous three-bit shift: native 0x142156f24 decodes bit 5 as bit 2.
+/// zero when unascended. This is not a contiguous three-bit shift: native 0x14215d894 decodes bit 5 as bit 2.
 /// </summary>
 public static class CharacterClassByte
 {

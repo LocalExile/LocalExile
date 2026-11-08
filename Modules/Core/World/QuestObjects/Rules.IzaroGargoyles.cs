@@ -96,7 +96,7 @@ static partial class QuestobjectsRules
         foreach (uint railing in carried.Select(g => g.Railing).OfType<uint>().Distinct())
         {
             await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(railing, IzaroFights.TransitionableIndex, IzaroFights.RailingDown),
-                .. InstanceEntities.BlockageUpdate(railing, false)], $"0x02ba alcove railing 0x{railing:x} lowers");
+                .. InstanceEntities.BlockageUpdate(railing, false)], $"0x02bc alcove railing 0x{railing:x} lowers");
             OpenIzaroDoor(conn, railing);
         }
         foreach (var g in carried)
@@ -121,7 +121,7 @@ static partial class QuestobjectsRules
                         .. InstanceEntities.TransitionableUpdate(g.Id, g.Transitionable, GargoyleRaising),
                         .. InstanceProtocol.AnimationUpdate(g.Id, 0, AscendingClip, 1)]);
             }
-            await Send(remote, stream, ciphers, [.. bytes], $"0x02ba Izaro's {own.Count} gargoyles rise");
+            await Send(remote, stream, ciphers, [.. bytes], $"0x02bc Izaro's {own.Count} gargoyles rise");
             await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseSeconds));
             bytes = [];
             lock (conn.Monsters)
@@ -131,7 +131,7 @@ static partial class QuestobjectsRules
                     bytes.AddRange([.. LiftState(conn, g.Lift!.Value.Id, g.Lift.Value.At, IzaroFights.Raised),
                         .. InstanceEntities.TransitionableUpdate(g.Id, g.Transitionable, GargoyleRaised)]);
             }
-            await Send(remote, stream, ciphers, [.. bytes], "0x02ba Izaro's gargoyles up");
+            await Send(remote, stream, ciphers, [.. bytes], "0x02bc Izaro's gargoyles up");
             await Task.Delay(TimeSpan.FromSeconds(IzaroGargoyles.StandSeconds));
             foreach (var g in own.OrderBy(_ => Random.Shared.Next()))
             {
@@ -153,7 +153,7 @@ static partial class QuestobjectsRules
                     new BeamEffectObject(from.X, from.Y, g.Id, to.X * BeamEffectObject.WorldPerCell, to.Y * BeamEffectObject.WorldPerCell,
                         arena.Izaro, IzaroGargoyles.BeamRow, IzaroGargoyles.MouthBone).Blob()), .. InstanceProtocol.EnterWakeZone(beam)];
                 if (IzaroGargoyles.AwakenBuff is ushort row) start.AddRange(InstanceEntities.AddBuff(g.Id, awaken, row, arena.Izaro));
-                await Send(remote, stream, ciphers, [.. start], $"0x02b9 beam 0x{beam:x} from gargoyle 0x{g.Id:x} ({g.Effect.Id}) to Izaro");
+                await Send(remote, stream, ciphers, [.. start], $"0x02bb beam 0x{beam:x} from gargoyle 0x{g.Id:x} ({g.Effect.Id}) to Izaro");
                 // The beam runs its time, or until the gargoyle dies or Izaro leaves (live: it goes with the gargoyle).
                 for (double waited = 0; waited < IzaroGargoyles.BeamSeconds; waited += 0.2)
                 {
@@ -168,7 +168,7 @@ static partial class QuestobjectsRules
                 if (!over && !dead && Emerges.SkillId is ushort emerge)
                     end.AddRange([.. InstanceProtocol.ActionStarted(g.Id, from.X, from.Y, from.X, from.Y, emerge, 0xffff, conn.MonsterOrderFlags),
                         .. InstanceProtocol.ActionEnded(g.Id)]);
-                await Send(remote, stream, ciphers, [.. end], $"0x02bb beam 0x{beam:x} ends{(over || dead ? "" : $", gargoyle 0x{g.Id:x} awakens")}");
+                await Send(remote, stream, ciphers, [.. end], $"0x02bd beam 0x{beam:x} ends{(over || dead ? "" : $", gargoyle 0x{g.Id:x} awakens")}");
                 if (over) return;
                 if (!dead) await WakeIzaroGargoyle(remote, stream, ciphers, conn, arena, g, g.AwakenSeconds, "awakens");
             }

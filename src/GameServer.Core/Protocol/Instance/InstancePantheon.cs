@@ -1,7 +1,7 @@
 namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
-/// The Pantheon (Agents/docs/game/campaign/pantheon.md §4–5). C→S 0x1ee (3 bytes, sender 0x14097dfc0, the panel's select
+/// The Pantheon (Agents/docs/game/campaign/pantheon.md §4–5). C→S 0x1ee (3 bytes, sender 0x14097fb20, the panel's select
 /// handler): u16 id, u8 = PantheonPanelLayout row + 1; the row's IsMajorGod says whether it replaces the major or the
 /// minor god. The client sends it only in a town, a hideout, the Rogue Harbour or while a session condition holds
 /// (CanChangePantheon). The choice is shown by the Player component's +0x1ae / +0x1ad

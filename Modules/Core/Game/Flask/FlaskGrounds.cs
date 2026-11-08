@@ -53,7 +53,7 @@ static partial class Game
         var effect = new EffectObject(at.X, at.Y, art.Ao) { Flags0 = EffectObject.FixedRotation, Scale = scale };
         var packets = Automation(conn).Packets;
         packets.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()),
-            $"0x02b9 create effect 0x{obj:x} {art.Ao} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {radius}"));
+            $"0x02bb create effect 0x{obj:x} {art.Ao} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {radius}"));
         packets.Add(InstanceProtocol.EnterWakeZone(obj));
         return obj;
     }
@@ -71,7 +71,7 @@ static partial class Game
             var pending = Automation(conn);
             foreach (var ground in state.Expire(now))
                 if (ground.Object is uint obj) pending.Packets.Add(new(InstanceProtocol.RemoveObject(obj),
-                    $"0x02bb remove effect 0x{obj:x} ({ground.Kind} ends)"));
+                    $"0x02bd remove effect 0x{obj:x} ({ground.Kind} ends)"));
             foreach (uint gone in state.BlindedMonsters().Except(conn.Monsters.Keys)) state.SetBlinded(gone, false, () => 0);
             foreach (uint gone in state.ProfaneMonsters().Except(conn.Monsters.Keys))
                 state.SetProfane(gone, false, false, now, () => 0);
@@ -96,7 +96,7 @@ static partial class Game
             var here = conn.Walk.Position(now);
             var (stale, make) = state.Stationary(alive && !conn.Walk.Moving(now) && !InTown(conn), here);
             if (stale?.Object is uint old) pending.Packets.Add(new(InstanceProtocol.RemoveObject(old),
-                $"0x02bb remove effect 0x{old:x} (stationary consecrated ground)"));
+                $"0x02bd remove effect 0x{old:x} (stationary consecrated ground)"));
             if (make > 0) state.PlaceStationary(new(FlaskGrounds.Kind.ConsecratedGround, here.X, here.Y, make,
                 double.PositiveInfinity, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, here, make)));
             if (state.SetConsecrated(state.OnConsecrated(alive, here, now), () => conn.NextBuff++) is { } consecrated)

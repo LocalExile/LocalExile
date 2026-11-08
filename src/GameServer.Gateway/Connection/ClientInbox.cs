@@ -28,11 +28,11 @@ sealed class ClientInbox(ConnectionPerformance? performance = null)
     /// <summary>The run of reads that framed nothing, after one more read: back to 0 when anything framed.</summary>
     public static int UnframedRun(int run, int framed, int unknownBytes) => framed > 0 ? 0 : unknownBytes > 0 ? run + 1 : run;
 
-    /// <summary>0x1c's index that clears the client's whole send-time queue (≥ its size, 0x142155930).</summary>
+    /// <summary>0x1c's index that clears the client's whole send-time queue (≥ its size, 0x14215c280).</summary>
     public const ushort ClearQueue = ushort.MaxValue;
 
     /// <summary>
-    /// 0x1c's server delay: 0. The client's 0x1c handler (0x14214b8dc) clamps its shown latency (+0xc490, F1 NETWORK and
+    /// 0x1c's server delay: 0. The client's 0x1c handler (0x14215222c) clamps its shown latency (+0xc490, F1 NETWORK and
     /// the latency graph) into [sample − delay, rtt − delay], each floored at 0. Each tick is answered only once the input
     /// read before it has been handled (DeferTick), so with no delay subtracted the meter shows the whole wait: the
     /// network, the client's next update and the server's input queue in a busy fight. 0xFFFF here (issue #49) zeroed

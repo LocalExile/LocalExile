@@ -1,4 +1,4 @@
-// Arrow Nova rain-rig animation probe (read-only). Hooks the Animated component deserializer (0x141e56a80) and dumps
+// Arrow Nova rain-rig animation probe (read-only). Hooks the Animated component deserializer (0x141e5afd0) and dumps
 // the component's fields at creation, so the official server's animation selection (cast-up vs landing) can be read.
 // Run: python scripts/re/frida/run.py <pid> --seconds 0 --log logs/arrow-nova-anim-detail.jsonl ^
 //      scripts/re/frida/sniff-arrow-nova-anim.js
@@ -14,7 +14,7 @@ const stamp = () => Date.now();
 let until = 0;
 
 // A use of Split Arrow (ActionTypes 13732) marks a 4 s window.
-Interceptor.attach(at('0x142166300'), {
+Interceptor.attach(at('0x14216ccb0'), {
   onEnter(args) {
     try {
       const a = args[2];
@@ -26,7 +26,7 @@ Interceptor.attach(at('0x142166300'), {
 });
 
 // The Animated component's deserializer: args[0] is the component, args[1] the blob reader.
-Interceptor.attach(at('0x141e56a80'), {
+Interceptor.attach(at('0x141e5afd0'), {
   onEnter(args) { this.c = args[0]; this.r = args[1]; },
   onLeave() {
     if (stamp() > until) return;

@@ -25,7 +25,7 @@ function checked(name, va, expected) {
   const p = at(va);
   const actual = Array.from(new Uint8Array(p.readByteArray(expected.length / 2)))
     .map(x => x.toString(16).padStart(2, '0')).join('');
-  if (actual !== expected) throw new Error(`Unsupported client: ${name} code differs from 3.29.3b`);
+  if (actual !== expected) throw new Error(`Unsupported client: ${name} code differs from 3.29.3c`);
   return p;
 }
 const log = message => send({type: 'log', message});
@@ -43,13 +43,13 @@ function whenLoaded(name, install) {
   keep.push(observer);
 }
 
-// The client allows two copies per PC: at startup (0x140101d85) it creates Global\PoERunMutexA, takes it with a zero
+// The client allows two copies per PC: at startup (0x1401020d5) it creates Global\PoERunMutexA, takes it with a zero
 // wait, else Global\PoERunMutexB, else throws "You may only run up to two copies of Path of Exile at a time." The
 // handles are never used again. Our clients get session-local names instead (OPTIONS.runMutexPrefix + "PoERunMutexA"
 // / "B", e.g. Local\LocalExile-pr-x-bot1-PoERunMutexA), so they never take one of the two Global slots the user's and
 // other sessions' clients need. Only these two exact names are renamed: PathOfExileSingleInstance (file-association
 // hand-off), Global\PoERunMutexCrashUpload and LMDB's Global\MDB… locks (the shared shader cache) stay as they are.
-// The client imports CreateMutexW (this check) and CreateMutexA / OpenMutexA (LMDB, 0x1411c0a40); all six name-taking
+// The client imports CreateMutexW (this check) and CreateMutexA / OpenMutexA (LMDB, 0x1411c2e00); all six name-taking
 // variants are watched, so the names are renamed whichever path asks for them. nullifier.py waits for the "run mutex
 // ->" line and fails the launch without it.
 if (OPTIONS.runMutexPrefix) {
@@ -99,24 +99,24 @@ whenLoaded('user32.dll', user32 => {
 // The user's mouse and keyboard stay the user's (live 2026-10-31: a new session client locked the user's mouse inside
 // its window). The bridge drives the client through its own calls and packets, never through input, so a session
 // client needs none of these; they become no-ops whatever the settings say:
-// - ClipCursor (window procedure 0x140e67df0 / 0x140e68220, the confine_mouse_to_window option): never confines, and
+// - ClipCursor (window procedure 0x140e6a110 / 0x140e6a540, the confine_mouse_to_window option): never confines, and
 //   never frees either (ClipCursor(NULL) would free the user's own client's confinement): returns success, does nothing;
-// - SetCursorPos / SetPhysicalCursorPos (not imported by 3.29.3b, but cheap to close): do nothing;
+// - SetCursorPos / SetPhysicalCursorPos (not imported by 3.29.3c, but cheap to close): do nothing;
 // - SetCapture (41 call sites): does nothing, returns no previous window;
 // - ShowCursor: does nothing, but keeps the display count the client expects (it may loop until the count is < 0);
 //   SetCursor(NULL) (hiding the cursor): does nothing;
-// - SetWindowsHookExW/A: global input hooks are refused (NULL, which the client tolerates). 3.29.3b installs a
-//   low-level keyboard hook (WH_KEYBOARD_LL, proc 0x140e68f40, 0x140e6905c) that sees every key the user presses;
+// - SetWindowsHookExW/A: global input hooks are refused (NULL, which the client tolerates). 3.29.3c installs a
+//   low-level keyboard hook (WH_KEYBOARD_LL, proc 0x140e6b260, 0x140e6b37c) that sees every key the user presses;
 //   WH_MOUSE_LL and thread-less WH_KEYBOARD / WH_MOUSE are refused too. Thread-local hooks of other kinds pass;
-// - RegisterRawInputDevices (0x14103b998): RIDEV_INPUTSINK / RIDEV_EXINPUTSINK (input while in the background),
+// - RegisterRawInputDevices (0x14103dd58): RIDEV_INPUTSINK / RIDEV_EXINPUTSINK (input while in the background),
 //   RIDEV_CAPTUREMOUSE / RIDEV_NOHOTKEYS (0x200), RIDEV_APPKEYS and RIDEV_NOLEGACY are removed from every device, so
 //   the client never receives, captures or swallows the user's input. Removals (RIDEV_REMOVE) pass unchanged.
 // - SystemParametersInfoW/A SPI_SETFILTERKEYS (0x33), SPI_SETTOGGLEKEYS (0x35), SPI_SETSTICKYKEYS (0x3b): the client
-//   changes these accessibility keys session-wide (0x140e68fb0, 0x140e68939; fWinIni 0) and restores them only when it
+//   changes these accessibility keys session-wide (0x140e6b2d0, 0x140e6ac59; fWinIni 0) and restores them only when it
 //   exits normally, which a client its job ends never does. They return success and change nothing; the GET calls pass;
 // - ChangeDisplaySettingsExW/A, ChangeDisplaySettingsW/A: a seeded fullscreen=true must not change the user's display
 //   mode: they return DISP_CHANGE_SUCCESSFUL and change nothing.
-// No DirectInput: 3.29.3b imports none (no dinput8, no DirectInput8Create).
+// No DirectInput: 3.29.3c imports none (no dinput8, no DirectInput8Create).
 const inputFlags = flags => {
   if (flags & 0x1) return flags;  // RIDEV_REMOVE
   let out = flags & ~(0x100 | 0x200 | 0x400 | 0x1000);
@@ -188,13 +188,13 @@ whenLoaded('user32.dll', user32 => {
   }
 });
 
-// A minimized client runs no frames: its window procedure (0x140e67380 → 0x140e68220) logs "[WINDOW] Minimized" on
+// A minimized client runs no frames: its window procedure (0x140e696a0 → 0x140e6a540) logs "[WINDOW] Minimized" on
 // WM_SIZE / SIZE_MINIMIZED and the main loop then waits (live 2026-10-31: a Null client someone minimized stopped
 // answering the bridge, and a DirectX 11 client started minimized never reached the login screen). An agent client
 // must keep running whoever minimizes its window, so that message becomes WM_NULL (0) before the engine sees it; the
 // window itself still minimizes. The engine keeps its last size and runs at its background frame rate.
 {
-  const windowProc = checked('windowProc', '0x140e67380', '4883ec38488bc1488b0d926376034885');
+  const windowProc = checked('windowProc', '0x140e696a0', '4883ec38488bc1488b0de2f176034885');
   let reported = false;
   Interceptor.attach(windowProc, {onEnter(args) {
     if (args[1].toInt32() === 5 /* WM_SIZE */ && args[2].toInt32() === 1 /* SIZE_MINIMIZED */) {
@@ -204,13 +204,13 @@ whenLoaded('user32.dll', user32 => {
   }});
 }
 
-// Engine::Init(engine, options) (0x1410048f0) copies the options' switches into the engine, renderer and texture
+// Engine::Init(engine, options) (0x141006cb0) copies the options' switches into the engine, renderer and texture
 // manager and logs each ("[RENDER] Render: ON", "[TEXTURE] Upload: ON", ...). Options offsets, from that function:
-// +0x2d5 Render (passed to the renderer's init 0x140faf1e0 as its 4th argument; OFF makes the device start
-// 0x140fadb20 select device type 6, the Null device, whatever device_type the settings name), +0x2bf texture
+// +0x2d5 Render (passed to the renderer's init 0x140fb1500 as its 4th argument; OFF makes the device start
+// 0x140fafe40 select device type 6, the Null device, whatever device_type the settings name), +0x2bf texture
 // Upload, +0x2bc texture Streaming (also the renderer's Async), +0x306 Test Disable Frame Render Jobs.
 if (OPTIONS.nullRenderer || OPTIONS.noRenderJobs || OPTIONS.noTextureUpload || OPTIONS.noTextureStreaming) {
-  const engineInit = checked('engineInit', '0x1410048f0', '488954241048894c2408555356574154');
+  const engineInit = checked('engineInit', '0x141006cb0', '488954241048894c2408555356574154');
   Interceptor.attach(engineInit, {onEnter(args) {
     const options = args[1], set = [];
     const write = (offset, value, name) => { options.add(offset).writeU8(value); set.push(`${name}=${value}`); };
@@ -222,18 +222,18 @@ if (OPTIONS.nullRenderer || OPTIONS.noRenderJobs || OPTIONS.noTextureUpload || O
   }});
 }
 
-// The Null device's index buffer (vtable 0x14320e140, built in 0x140e939b0) keeps a zero-filled byte vector of the
+// The Null device's index buffer (vtable 0x143218858, built in 0x140e95cd0) keeps a zero-filled byte vector of the
 // buffer's size at +0x130 (Map, slot 2, returns its start) and the index kind at +0x148 (1: 16-bit, 2: 32-bit, as the
 // DirectX 12 buffer keeps it at +0x318), but its slot 4, "describe" (out: u32 format 0x65 = 16-bit / 0x66 = 32-bit,
-// u32), is the shared no-op `ret`. Callers then read an uninitialised format: the mesh ray test 0x142be7270 took a
+// u32), is the shared no-op `ret`. Callers then read an uninitialised format: the mesh ray test 0x142bf06f0 took a
 // 16-bit buffer for a 32-bit one, read past its end and computed vertex pointers gigabytes away (the crash at
-// 0x142be6be4 on entering any area). Slot 4 of that vtable gets the DirectX 12 buffer's answer, from the Null
+// 0x142bf0064 on entering any area). Slot 4 of that vtable gets the DirectX 12 buffer's answer, from the Null
 // buffer's own fields; the second u32 (the DirectX 12 buffer's +0x228) is given the index count.
 if (OPTIONS.nullRenderer) {
-  const vtable = at('0x14320e140');
-  const map = checked('nullBufferMap', '0x140ee81b0', '488b8130010000498901c3');
-  if (!vtable.add(0x10).readPointer().equals(map) || !vtable.add(0x20).readPointer().equals(at('0x1400f0f00'))) {
-    throw new Error('Unsupported client: Null index buffer vtable differs from 3.29.3b');
+  const vtable = at('0x143218858');
+  const map = checked('nullBufferMap', '0x140eea4d0', '488b8130010000498901c3');
+  if (!vtable.add(0x10).readPointer().equals(map) || !vtable.add(0x20).readPointer().equals(at('0x1400f1180'))) {
+    throw new Error('Unsupported client: Null index buffer vtable differs from 3.29.3c');
   }
   const describe = Memory.alloc(Process.pageSize);
   keep.push(describe);
@@ -270,10 +270,10 @@ if (OPTIONS.nullRenderer) {
 }
 
 // Null buffers' CPU copies, committed on first touch (lazyNullBuffersKb, with the Null renderer only). Each Null device
-// buffer (the index buffer 0x14320e140 and the buffers 0x143212bc0 / 0x143212be0 / 0x143212c00 / 0x14369c088, built in
-// 0x140e939b0, 0x142bb4730, 0x142bb4a00, 0x142bb4cd0 and 0x142bb5110) keeps a byte vector of its full size, zero-filled
-// by vector<u8>::resize (0x140898aa0) right after the object is made; Map returns it, and nothing else of the class
-// touches it until its destructor (0x140ee8150, 0x140f74000, 0x140f740c0, 0x140f74060, 0x142bbb6b0: the vector at
+// buffer (the index buffer 0x143218858 and the buffers 0x14321d2e0 / 0x14321d300 / 0x14321d2c0 / 0x1436a6e28, built in
+// 0x140e95cd0, 0x142bbda90, 0x142bbdd60, 0x142bbe030 and 0x142bbe470) keeps a byte vector of its full size, zero-filled
+// by vector<u8>::resize (0x140899c10) right after the object is made; Map returns it, and nothing else of the class
+// touches it until its destructor (0x140eea470, 0x140f76320, 0x140f763e0, 0x140f76380, 0x142bc4a10: the vector at
 // +0x130, +0x130, +0x140, +0x130, +0x1a0) frees it. Most are never written: the GPU particle ring buffers alone
 // ("Particle bone buffer", "Particle instance buffer", "Particle Index Buffer") are tens of MB each, all zero.
 // With the option (all native code, compiled by Frida's CModule; no JavaScript runs per call):
@@ -289,14 +289,14 @@ if (OPTIONS.nullRenderer) {
 // call reading into or writing from an untouched page of such a buffer would fail instead of faulting; nothing passes
 // a Null buffer's memory to the system: only Map exposes it, for the engine's own copies and the mesh ray test.)
 if (OPTIONS.nullRenderer && OPTIONS.lazyNullBuffersKb > 0) {
-  const resize = checked('vectorResize', '0x140898aa0', '48895c24084889742410574883ec2048');
-  const siteVas = ['0x140e93cc1', '0x142bb496a', '0x142bb4c34', '0x142bb4f58', '0x142bb547b'];
+  const resize = checked('vectorResize', '0x140899c10', '48895c24084889742410574883ec2048');
+  const siteVas = ['0x140e95fe1', '0x142bbdcca', '0x142bbdf94', '0x142bbe2b8', '0x142bbe7db'];
   for (const va of siteVas) checked(`resize call before ${va}`, ptr(va).sub(5), 'e8');
-  const destructors = [['0x140ee8150', '48895c2408574883ec20488d05df5f32', 0x130],
-    ['0x140f74000', '48895c2408574883ec20488bf98bda48', 0x130],
-    ['0x140f740c0', '48895c2408574883ec20488bf98bda48', 0x140],
-    ['0x140f74060', '48895c2408574883ec20488bf98bda48', 0x130],
-    ['0x142bbb6b0', '48895c2408574883ec20488d05c709ae', 0x1a0]];
+  const destructors = [['0x140eea470', '48895c2408574883ec20488d05d7e332', 0x130],
+    ['0x140f76320', '48895c2408574883ec20488bf98bda48', 0x130],
+    ['0x140f763e0', '48895c2408574883ec20488bf98bda48', 0x140],
+    ['0x140f76380', '48895c2408574883ec20488bf98bda48', 0x130],
+    ['0x142bc4a10', '48895c2408574883ec20488d050724ae', 0x1a0]];
   const MAX = 1 << 16;
   const ranges = Memory.alloc(MAX * 24), sites = Memory.alloc(8 * siteVas.length), settings = Memory.alloc(16);
   const stats = Memory.alloc(8 * 8), lock = Memory.alloc(8);
@@ -438,11 +438,11 @@ if (OPTIONS.nullRenderer && OPTIONS.lazyNullBuffersKb > 0) {
   log(`lazy Null buffers: vectors of ${OPTIONS.lazyNullBuffersKb} KiB or more`);
 }
 
-// The state-stack update (0x141526c40), on the main thread once per frame: with frameSleepMs, a per-frame sleep. Its
-// entry, not client-control.js's point 0x7f bytes in (0x141526cbf), so the bridge's code check there still sees the
+// The state-stack update (0x141528f40), on the main thread once per frame: with frameSleepMs, a per-frame sleep. Its
+// entry, not client-control.js's point 0x7f bytes in (0x141528fbf), so the bridge's code check there still sees the
 // original. (The frame rate itself: client_control.py game:frames.)
 if (OPTIONS.frameSleepMs > 0) {
-  const frame = checked('stateStackUpdate', '0x141526c40', '48895c241048896c2418488974242057');
+  const frame = checked('stateStackUpdate', '0x141528f40', '48895c241048896c2418488974242057');
   let sleep = null;
   Interceptor.attach(frame, function () {
     sleep ??= new NativeFunction(Process.getModuleByName('kernel32.dll').getExportByName('Sleep'), 'void', ['uint32']);
@@ -511,14 +511,14 @@ if (OPTIONS.crashLog) {
   });
 }
 
-// The client's allocator is mimalloc 2.2 (built Aug 15 2025, linked in; the engine's aligned allocation 0x142c839f0 is
+// The client's allocator is mimalloc 2.2 (built Aug 15 2025, linked in; the engine's aligned allocation 0x142c8cf60 is
 // mi_heap_malloc_aligned). It reads each option from MIMALLOC_<NAME> the first time it needs it. Its option table
-// (0x143a5ab90, 37 entries of 0x20 bytes: i32 value, i32 initialised, i32 option, pad, char *name, char *legacy name)
+// (0x143a65b90, 37 entries of 0x20 bytes: i32 value, i32 initialised, i32 option, pad, char *name, char *legacy name)
 // is read 20 s after the start, when the allocator has read them, and the asked-for options are logged.
 if (OPTIONS.mimalloc && Object.keys(OPTIONS.mimalloc).length) {
-  const table = at('0x143a5ab90');
+  const table = at('0x143a65b90');
   if (table.add(0x10).readPointer().readCString() !== 'show_errors') {
-    throw new Error('Unsupported client: mimalloc option table differs from 3.29.3b');
+    throw new Error('Unsupported client: mimalloc option table differs from 3.29.3c');
   }
   setTimeout(() => {
     const seen = {};

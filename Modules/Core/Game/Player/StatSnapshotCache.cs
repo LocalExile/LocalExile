@@ -274,8 +274,8 @@ static partial class Game
                 if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
             return stats;
         }
-        // The native walk (0x141e7c0b0), action clip (0x1419fad20) and animation rate (0x141e9deb0) read the final
-        // virtual_action_speed_+%, derived natively from the intermediary (0x14281c2d0) only in a calculator; network
+        // The native walk (0x141e827a0), action clip (0x1419fd730) and animation rate (0x141ea4760) read the final
+        // virtual_action_speed_+%, derived natively from the intermediary (0x142822e80) only in a calculator; network
         // stats hold what is sent (04 §4.1a), so it is sent too. Only a clamp to -100 applies, so a reversed chill's
         // positive value goes through. A freeze stays on is_frozen: -100 there would divide the native clip by zero.
         foreach (var (name, value) in new[] { "is_ignited", "is_chilled", "is_frozen", "is_shocked" }.Zip(inputs.Ailments))

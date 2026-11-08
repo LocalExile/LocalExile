@@ -190,7 +190,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ward conversions, ring-slot and jewel-radius mechanics remain separate work.
   Code: `ItemDefences.cs`, `Program.Equipment.cs`, `Program.Progression.cs`, `PathOfBuildingItems.cs`.
   Docs: [13](../docs/protocol/13-items.md) §2, [20](../docs/protocol/20-damage.md), "Player energy shield".
-- Gold: shared by the account's characters of one league (S→C 0x2a9), saved with that league's stash, sent on area
+- Gold: shared by the account's characters of one league (S→C 0x2aa), saved with that league's stash, sent on area
   entry; every league has its own stash and gold, Standard keeps the account's stash from before (`AccountStash.Key`);
   monsters drop piles of gold (normal 40%, magic 75%, rare and unique always;
   (3 + 1.2 × level) × 1/2/5/15, our own numbers, `ItemDrops.Gold`), and picking one up adds it to the gold;
@@ -224,7 +224,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   maximum life as physical damage to every hostile monster within 25 cells, mitigated by each target's resistances,
   and a kill by the explosion can trigger another one. The radius is a fixed 25 cells: measured with the official
   3.29.3b client, one explosion killed at 22.85 and 24.35 cells, and increased area of effect does not extend it.
-  The explosion consumes the corpse (0x2bb at once) and plays the native `HolyExplosion` art (MiscAnimated 2877,
+  The explosion consumes the corpse (0x2bd at once) and plays the native `HolyExplosion` art (MiscAnimated 2877,
   `Metadata/Effects/Spells/holy_explode/holy_explode.ao`) for two seconds; its corpse was removed 0-6 ms after the
   death. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
 - Conditional item gates feed live pools and stat publication; Kintsugi incoming hits, expiry and lifecycle verified.
@@ -487,7 +487,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
 - **Hinekora's Lock (server rules verified live, 2026-10-31):** applying the Lock through C→S 0x71 to a rare item
   sets the Mods flag bit 8 (0x0100) and a non-zero seed; the client shows the purple glow and the Lock tooltip text. When a currency is
-  used on the item the client sends C→S 0x29c (u16 key, currency/target ids) and S→C 0x29f answers with the preview
+  used on the item the client sends C→S 0x29d (u16 key, currency/target ids) and S→C 0x2a0 answers with the preview
   item (keyA = request key, status 0 = preview, 0x04FA = failure); the next 0x71 commits exactly that preview,
   consumes the currency and clears the state. Normal, magic, gem, corrupted, mirrored, unmodifiable and
   already-foreseeing targets are refused without spending; bench/Harvest/essence and every successful currency clear

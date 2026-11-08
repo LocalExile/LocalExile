@@ -6,7 +6,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Works (verified with the real client)
 
 - Experience and levels: kills within 150 cells give DefaultMonsterStats experience × the variety's multiplier ×
-  rarity, with the level penalty (S→C 0x2ba Player experience; the client derives the level);
+  rarity, with the level penalty (S→C 0x2bc Player experience; the client derives the level);
   a new level sends its stats, full life and mana, the passive points and the account's level;
   experience is saved per character; `/add_xp`.
   Code: `Progression.cs`, Gateway (`GainExperience`, `ApplyLevel`).

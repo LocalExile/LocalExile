@@ -22,7 +22,7 @@ function snapshot(controller) {
       animationType: actor.add(0x274).readU32(), animationRemaining: actor.add(0x26c).readFloat() };
   return result;
 }
-Interceptor.attach(at('0x1421940a0'), { onEnter(args) {
+Interceptor.attach(at('0x14219aa10'), { onEnter(args) {
   try {
     if (args[1].add(0x10).readU32() !== 0x1000) return;
     actor = args[0]; positioned = actor.add(8).readPointer().add(0x98).readPointer();
@@ -35,7 +35,7 @@ Interceptor.attach(at('0x1421940a0'), { onEnter(args) {
     }
   } catch (error) { send({ hitProbeError: String(error) }); }
 } });
-Interceptor.attach(at('0x141e58ef0'), { onEnter(args) {
+Interceptor.attach(at('0x141e5d440'), { onEnter(args) {
   try {
     const message = args[1];
     if (message.add(8).readU16() !== 0x1b2 || message.add(0x10).readU32() !== 0x1000) return;
@@ -46,14 +46,14 @@ Interceptor.attach(at('0x141e58ef0'), { onEnter(args) {
       speed: message.add(0x28).readFloat(), model: args[0].add(0x260).readPointer().toString() } });
   } catch (error) { send({ hitProbeError: String(error) }); }
 } });
-Interceptor.attach(at('0x141dba530'), {
+Interceptor.attach(at('0x141dbdbc0'), {
   onEnter(args) {
     if (Date.now() >= until) return;
     try {
       // The second argument is a resource pair; the integer index is the THIRD argument (r8d).
       this.controller = args[0]; this.index = args[2].toUInt32();
       // Only the server-message call establishes the player body; later calls show what replaces its clip.
-      if (this.returnAddress.equals(at('0x141e59351'))) body = this.controller;
+      if (this.returnAddress.equals(at('0x141e5d8a1'))) body = this.controller;
       if (body === null || !this.controller.equals(body)) { this.controller = null; return; }
       send({ hitProbePlay: { requested: this.index, caller: this.returnAddress.toString(), before: snapshot(body) } });
     } catch (error) { this.controller = null; send({ hitProbeError: String(error) }); }
@@ -64,13 +64,13 @@ Interceptor.attach(at('0x141dba530'), {
     catch (error) { send({ hitProbeError: String(error) }); }
   }
 });
-Interceptor.attach(at('0x141dbc010'), { onEnter(args) {
+Interceptor.attach(at('0x141dbf670'), { onEnter(args) {
   if (body === null || Date.now() >= until || !args[0].equals(body.add(0x180)) || Date.now() - last < 50) return;
   last = Date.now();
   try { send({ hitProbeTick: snapshot(body) }); }
   catch (error) { send({ hitProbeError: String(error) }); }
 } });
-Interceptor.attach(at('0x141e934b0'), {
+Interceptor.attach(at('0x141e99d50'), {
   onEnter(args) {
     this.local = actor !== null && args[0].equals(actor) && body !== null && Date.now() < until;
     if (!this.local) return;

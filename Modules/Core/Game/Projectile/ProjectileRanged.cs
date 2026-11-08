@@ -104,9 +104,9 @@ static partial class Game
 
     /// <summary>
     /// The default attack's record stats that let a lockstep client draw its own wand bolt or arrow: its release
-    /// (<c>0x141ba51a0</c>) fires nothing without a count, which <c>0x141ba6070</c> reads from
+    /// (<c>0x141ba7c30</c>) fires nothing without a count, which <c>0x141ba8b00</c> reads from
     /// virtual_total_number_of_arrows for a bow with skill_can_fire_arrows and from virtual_total_number_of_projectiles
-    /// otherwise, and the flight resource (<c>0x141ac9e70</c>) is the bow's arrow or WandProjectile. The count is the one
+    /// otherwise, and the flight resource (<c>0x141acc8d0</c>) is the bow's arrow or WandProjectile. The count is the one
     /// the server simulates; a bow's record also carries the arrow totals, as GGG's bow records do. Empty for melee and on
     /// a predictive client (its release is not traced: a predictive Burning Arrow with a count drew no arrow, 2026-10-31).
     /// </summary>

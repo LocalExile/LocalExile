@@ -13,12 +13,12 @@ static class TutorialObjects
     // TalkToWoundedExile(8.2,22.8) supplies the two voice lengths, not two stages of one scene.
     // NPCTalk options 2/3 play DBG_03 (22.763 s) / DBG_02 (7.951 s). The rig's bite clip lasts 3.1 s.
     public const double BiteSeconds = 3.1;
-    // Interaction's MoveTo uses max range 6 and tolerance 3 (0x141e8eb60 -> 0x141e7b530),
+    // Interaction's MoveTo uses max range 6 and tolerance 3 (0x141e95400 -> 0x141e81c20),
     // distinct from this chest's blocking footprint of 1. WalkUpTo adds 3 to this interaction size.
     public const int ChestInteractionSize = 3;
     // ActionTypes WashedUp HASH16 47065, masked to its basic-action skill id.
     public const ushort WashedUpSkillId = 0x37d9;
-    // An action the server starts itself has the sequence's top bit set (0x141e94fc0); this is the character's first.
+    // An action the server starts itself has the sequence's top bit set (0x141e9b860); this is the character's first.
     public const ushort GetUpSequence = 0x8001;
     public static (byte Option, double? BiteAt) Dialogue(bool armed, bool weaponPromptHeard) =>
         !armed ? ((byte)1, null) : weaponPromptHeard ? ((byte)3, 8.2) : ((byte)2, 22.8);
@@ -117,7 +117,7 @@ static class TutorialObjects
         return null;
     }
 
-    // Chest reader 0x141e138b0 consumes three bytes: four flags, u8 +0x16c, u8 +0x16d.
+    // Chest reader 0x141e16f10 consumes three bytes: four flags, u8 +0x16c, u8 +0x16d.
     public static byte[] ChestBlob(Placement p, bool opened)
     {
         var w = new BlobWriter().U8(0).U8(0);

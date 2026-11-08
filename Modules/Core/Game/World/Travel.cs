@@ -24,7 +24,7 @@ static partial class Game
         }
     }
 
-    // An area transition click. Plain: change area (0x2b2 now, the move itself once the client acknowledges with 0x2cb).
+    // An area transition click. Plain: change area (0x2b4 now, the move itself once the client acknowledges with 0x2cd).
     // With Ctrl: list the destination's instances (0xae) for the client's instance chooser.
     internal static async Task OnUseObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
@@ -151,7 +151,7 @@ static partial class Game
         }
         // A Labyrinth run's ways (the plaza's way in, its rooms' exits): each room its own instance (LabyrinthDay.Transfer).
         var transfer = LabyrinthDay.Transfer(CharacterName(conn), conn.Layout.Id, conn.Seed, transition.SourceType, dest,
-            AreaTransitionCatalog.IdOf(dest)) ?? new PendingTransfer(dest, 0, false);
+            AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false);
         await ChangeArea(remote, stream, ciphers, conn, transfer, use.ToString());
     }
 
@@ -229,7 +229,7 @@ static partial class Game
         // The pins need their areas' access quest flags first (the player object carried the ones known at creation).
         if (conn.PlayerSent)
         {
-            await Send(remote, stream, ciphers, [], "0x02ba player quest flags (waypoints, current)", atGate: () => QuestFlagPresentation(conn));
+            await Send(remote, stream, ciphers, [], "0x02bc player quest flags (waypoints, current)", atGate: () => QuestFlagPresentation(conn));
         }
         await Send(remote, stream, ciphers, InstanceWaypoints.Waypoints(bits), $"0x004c waypoints: {bits.Count} activated ({why})");
     }
@@ -314,12 +314,12 @@ static partial class Game
         conn.InNpcTalk = false;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 close hideout dialogue");
         await Send(remote, stream, ciphers, InstanceEntities.PlayerHideoutsUpdate(PlayerId, hideout.Hash16, 0),
-            $"0x02ba selected personal hideout: {hideout.Name}");
+            $"0x02bc selected personal hideout: {hideout.Name}");
         Console.WriteLine($"[gateway] {CharacterName(conn)} selected hideout row {hideout.Row}: {hideout.AreaId}");
         await WarpToHideout(remote, stream, ciphers, conn, "Helena: Select Hideout");
     }
 
-    // 0x2b2 now; the move itself (0x27) once the client acknowledges with 0x2cb.
+    // 0x2b4 now; the move itself (0x27) once the client acknowledges with 0x2cd.
     internal static async Task ChangeArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PendingTransfer t, string why)
     {
         foreach (var check in GameEvents.TravelRefusal.For(conn))
@@ -330,12 +330,12 @@ static partial class Game
             }
         if (!conn.TryBeginAreaChange(t, out var projectiles)) return;
         await Program.ServerHooks.PlayerLeaving(PlayerOf(conn), "left the area");
-        // Remove outstanding visuals while the old world still exists, before 0x2b2. If Auth refuses the transfer,
+        // Remove outstanding visuals while the old world still exists, before 0x2b4. If Auth refuses the transfer,
         // their canceled tasks must not leave permanent projectile/explosion objects in the retained world.
         foreach (uint id in projectiles)
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove projectile 0x{id:x} (leaving area)",
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove projectile 0x{id:x} (leaving area)",
                 still: () => !conn.Closed);
-        await Send(remote, stream, ciphers, InstanceTransfer.ChangeArea(t.Area), $"0x02b2 change area to 0x{t.Area:x4} ({why})");
+        await Send(remote, stream, ciphers, InstanceTransfer.ChangeArea(t.Area), $"0x02b4 change area to 0x{t.Area:x4} ({why})");
         // If the client never acknowledges, move it anyway after a moment.
         _ = Task.Delay(2000).ContinueWith(async _ => { if (conn.PendingTransfer is { } p) await Transfer(remote, stream, ciphers, conn, p); });
     }

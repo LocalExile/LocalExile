@@ -9,8 +9,8 @@ using System.Text.Json;
 sealed class RampageCatalog(string folder = "data")
 {
     public const ushort BuffDefinitionRow = 328;
-    // Native Game.exe: HUD constructor 0x14024b480, row328 observer 0x14024c320 (ID 0x149),
-    // count/threshold selector 0x14024ce60 (Buff+0x40), HUD update 0x14024c760 (duration +0x1c/+0x18).
+    // Native Game.exe: HUD constructor 0x14024b810, row328 observer 0x14024c6c0 (ID 0x149),
+    // count/threshold selector 0x14024d3f0 (Buff+0x40), HUD update 0x14024cb00 (duration +0x1c/+0x18).
     // Existing 0x1c1's stacks and duration fields feed that HUD; this catalog sends no packets.
     public static readonly IReadOnlyList<string> RequiredTables = Array.AsReadOnly(new[]
     {

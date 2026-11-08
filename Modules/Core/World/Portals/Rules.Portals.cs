@@ -31,7 +31,7 @@ static partial class PortalsRules
                 var (x, y) = MapDevice.PortalCell(device.X, device.Y, index);
                 await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, type,
                         new MapPortalObject(x, y, index, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
-                    $"0x02b9 create map portal 0x{id:x} (place {index}, {n}/{open.PortalsLeft}) to {open.Area.Name} at ({x}, {y})");
+                    $"0x02bb create map portal 0x{id:x} (place {index}, {n}/{open.PortalsLeft}) to {open.Area.Name} at ({x}, {y})");
                 await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
                 lock (conn.MapPortals) conn.MapPortals[id] = (x, y, index);
                 await Task.Delay(MapPortalListMs);

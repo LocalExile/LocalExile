@@ -13,30 +13,30 @@ public static class InstanceStash
     public const ushort TabListId = 0x136, TabLoadedId = 0xc8, RequestTabId = 0xc7, ReorderTabsId = 0xcc, MoveTabId = 0xd1,
         RenameTabId = 0xcd, ColourTabId = 0xce;
 
-    /// <summary>S→C 0x7b kind that opens the personal stash (0x142163420 case 1 → listeners at instance +0x1178 →
-    /// 0x140dcd5e0): u32 a = the Stash object, u32 b = an affinity (StashTabAffinityId row): the panel selects the first tab
+    /// <summary>S→C 0x7b kind that opens the personal stash (0x142169dd0 case 1 → listeners at instance +0x1178 →
+    /// 0x140dcae70): u32 a = the Stash object, u32 b = an affinity (StashTabAffinityId row): the panel selects the first tab
     /// with that affinity bit; <see cref="NoAffinity"/> selects nothing. Kind 2 is the guild stash.</summary>
     public const byte OpenStashUi = 1;
 
     public const uint NoAffinity = 0x16;
 
     /// <summary>The 0x136 / 0xc7 / 0xc8 stash kind: the personal stash (0), the guild stash (1), trade tabs (2); instance
-    /// +0xc498 / +0xc4b0 / +0xc4c8 (0x14216cf60).</summary>
+    /// +0xc498 / +0xc4b0 / +0xc4c8 (0x142173910).</summary>
     public const byte Personal = 0;
-    /// <summary>The guild stash: 0x136 / 0xc8 kind 1; S→C 0x7b kind 2 opens its panel (listener 0x140dcd780, tabs at instance +0xc4b0).</summary>
+    /// <summary>The guild stash: 0x136 / 0xc8 kind 1; S→C 0x7b kind 2 opens its panel (listener 0x140dcb010, tabs at instance +0xc4b0).</summary>
     public const byte Guild = 1, OpenGuildStashUi = 2;
 
     /// <summary>The guild stash tabs' inventory manager in S→C 0xc0 (instance +0xcb90); the personal stash uses 0.</summary>
     public const byte GuildManager = 2;
 
     /// <summary>Inventories.dat row 26 (StashInventoryId, kind 0x11): the row of every stash tab inventory. The register
-    /// (0x141d625f0) files every row but this one under the row, so any number of tabs can share it.</summary>
+    /// (0x141d65c80) files every row but this one under the row, so any number of tabs can share it.</summary>
     public const byte TabRow = 26, TabKind = 0x11;
 
     public static InstanceInventories.Slot TabSlot(byte width, byte height) => new(TabRow, TabKind, width, height);
 
-    /// <summary>Tab record +0x3d flag bits (read by 0x141d4d1f0; meaning from the panel 0x140a88710 and the tab settings
-    /// 0x14025b420).</summary>
+    /// <summary>Tab record +0x3d flag bits (read by 0x141d50880; meaning from the panel 0x140a88d70 and the tab settings
+    /// 0x14025b9b0).</summary>
     [Flags]
     public enum TabFlags : byte
     {
@@ -55,7 +55,7 @@ public static class InstanceStash
         Affinities = 0x40,
     }
 
-    /// <summary>One stash tab (a 0x68-byte record, 0x141d4d1f0). Index: its place in the list, which C→S 0xc7 and S→C 0xc8
+    /// <summary>One stash tab (a 0x68-byte record, 0x141d50880). Index: its place in the list, which C→S 0xc7 and S→C 0xc8
     /// name. Inventory: its inventory id in manager 0 (+0x28). Type: a StashType row (+0x34: 0 NormalStash, 1
     /// PremiumStash, 3 CurrencyStash, 7 QuadStash, 16 Folder …). Position: its place among the tab buttons (+0x38; the
     /// panel sends C→S 0xcc when it differs from the button order). Parent: the folder tab's index, 0xffff none (+0x3a).
@@ -64,7 +64,7 @@ public static class InstanceStash
         TabFlags Flags = TabFlags.None, ushort Position = 0, ushort Parent = 0xffff, uint Affinities = 0, bool Loaded = false,
         string Id = "", uint U2c = 0, ulong HiddenKey = 0);
 
-    /// <summary>A tab record (0x141d4d1f0): u32 BE inventory id (+0x28), u32 BE (+0x2c, copied to the panel tab's +0x30),
+    /// <summary>A tab record (0x141d50880): u32 BE inventory id (+0x28), u32 BE (+0x2c, copied to the panel tab's +0x30),
     /// wstr name (+0x08), str id (+0x48), u16 BE position (+0x38), two flag bytes (+0x3d, +0x3e), u16 BE parent (+0x3a),
     /// u8 R, G, B (+0x30..+0x32), u8 type (+0x34); then by flags: u64 (0x20), u8 (0x10), 4 affinity bytes (0x40).</summary>
     public static LoginWriter WriteTab(LoginWriter w, Tab t)
@@ -81,7 +81,7 @@ public static class InstanceStash
         return w;
     }
 
-    /// <summary>A tab list (0x1421ba150): u16 BE count, then the records.</summary>
+    /// <summary>A tab list (0x1421c0ac0): u16 BE count, then the records.</summary>
     public static LoginWriter WriteTabs(LoginWriter w, IReadOnlyList<Tab> tabs)
     {
         w.U16((ushort)tabs.Count);
@@ -89,7 +89,7 @@ public static class InstanceStash
         return w;
     }
 
-    /// <summary>The narrow string of 0x1408402a0: u16 BE length, then the bytes.</summary>
+    /// <summary>The narrow string of 0x14083f460: u16 BE length, then the bytes.</summary>
     static void StrNarrow(LoginWriter w, string s)
     {
         var bytes = System.Text.Encoding.UTF8.GetBytes(s);
@@ -97,7 +97,7 @@ public static class InstanceStash
     }
 
     /// <summary>
-    /// S→C 0x136 (class 0x1435dc7a0, read 0x1421a3350; dispatcher case 0x57): one stash list again. u8 kind (+0x28: 0
+    /// S→C 0x136 (class 0x1435e76a0, read 0x1421a9cc0; dispatcher case 0x57): one stash list again. u8 kind (+0x28: 0
     /// personal, 1 guild, 2 trade), u8 (+0x29: which listener is told, instance +0x8478 when set, else +0x83f8), the tab
     /// list. The panel rebuilds its tabs.
     /// </summary>
@@ -105,28 +105,28 @@ public static class InstanceStash
         WriteTabs(new LoginWriter().U16(TabListId).U8(kind).U8(u29), tabs).ToArray();
 
     /// <summary>
-    /// S→C 0xc8 (class 0x1435dc680, read 0x1421a45b0; dispatcher case 0x3b): a tab's contents arrived. u16 BE tab index,
+    /// S→C 0xc8 (class 0x1435e7540, read 0x1421aaf20; dispatcher case 0x3b): a tab's contents arrived. u16 BE tab index,
     /// u32 BE its inventory id (→ tab +0x28), u8 kind. The handler sets the tab's loaded bit and tells the panel
-    /// (instance +0x8378 → 0x140a87740), which builds the tab's page on the inventory.
+    /// (instance +0x8378 → 0x140a87da0), which builds the tab's page on the inventory.
     /// </summary>
     public static byte[] TabLoaded(ushort index, uint inventoryId, byte kind = Personal) =>
         new LoginWriter().U16(TabLoadedId).U16(index).U32(inventoryId).U8(kind).ToArray();
 
     /// <summary>
-    /// C→S 0xc7 (5 bytes, vtable 0x1435bff20, write 0x141f95fa0): u16 BE tab index, u8 kind. Queued by 0x142167010 when a
-    /// tab is selected whose page is not built, and when the panel opens (0x140a8d1b0), and sent one per 200 ms by the tick
-    /// 0x142148880.
+    /// C→S 0xc7 (5 bytes, vtable 0x1435ca958, write 0x141f9c9d0): u16 BE tab index, u8 kind. Queued by 0x14216d9c0 when a
+    /// tab is selected whose page is not built, and when the panel opens (0x140a8d810), and sent one per 200 ms by the tick
+    /// 0x14214f1d0.
     /// </summary>
     public static (ushort Index, byte Kind) ReadRequestTab(ReadOnlySpan<byte> m) =>
         ((ushort)(m[2] << 8 | m[3]), m[4]);
 
     public const int RequestTabLength = 5;
 
-    /// <summary>C→S 0xcc (vtable 0x1435c0438, write 0x141f96130; 0x1421670f0): the tab buttons' order. u8 kind, u8 n, n ×
+    /// <summary>C→S 0xcc (vtable 0x1435cae70, write 0x141f9cb60; 0x14216daa0): the tab buttons' order. u8 kind, u8 n, n ×
     /// (u16 BE tab index, u16 BE position). Length 4 + 4n, or null while the count byte has not arrived.</summary>
     public static int? ReorderTabsLength(ReadOnlySpan<byte> m) => m.Length < 4 ? null : 4 + 4 * m[3];
 
-    /// <summary>C→S 0xcd (vtable 0x1435c00d8, write 0x141f962a0; built by the tab settings 0x14025b420): a premium tab
+    /// <summary>C→S 0xcd (vtable 0x1435cab10, write 0x141f9ccd0; built by the tab settings 0x14025b9b0): a premium tab
     /// renamed. u8 kind, u16 BE tab, u64 (0), wstr name.</summary>
     public static int? RenameTabLength(ReadOnlySpan<byte> m)
     {
@@ -146,7 +146,7 @@ public static class InstanceStash
         return (kind, tab, r.WStr());
     }
 
-    /// <summary>C→S 0xce (17 bytes, vtable 0x1435bf9a8, write 0x141f96670; the tab settings 0x14025b420): a premium tab's
+    /// <summary>C→S 0xce (17 bytes, vtable 0x1435ca3c0, write 0x141f9d0a0; the tab settings 0x14025b9b0): a premium tab's
     /// colour. u8 kind, u16 BE tab, u64 (0), u32 BE colour, which the client keeps in the tab record's +0x2c (sent back
     /// as <see cref="Tab.U2c"/>).</summary>
     public const int ColourTabLength = 17;
@@ -161,7 +161,7 @@ public static class InstanceStash
         return (m[2], order);
     }
 
-    /// <summary>C→S 0xd1 (7 bytes, vtable 0x1435c0198, write 0x141f96c50; 0x142167370): a tab into a folder. u16 BE tab,
+    /// <summary>C→S 0xd1 (7 bytes, vtable 0x1435cabd0, write 0x141f9d680; 0x14216dd20): a tab into a folder. u16 BE tab,
     /// u16 BE folder (0xffff: out of it), u8 kind.</summary>
     public const int MoveTabLength = 7;
 
@@ -173,8 +173,8 @@ public static class InstanceStash
     public sealed record MoveToTab(ushort Tab, uint ItemId, byte Flags, byte Kind, ushort Token, ulong U64);
 
     /// <summary>
-    /// C→S 0xe0 (20 bytes, vtable 0x1435c0878, write 0x141f97560; built by 0x142168ab0, called from the stash page
-    /// 0x140b1e6d0 / 0x140b617e0 and the inventory grid's Ctrl + click 0x140313ba0): u16 BE tab, u32 BE item id, u8 flags,
+    /// C→S 0xe0 (20 bytes, vtable 0x1435cb2b0, write 0x141f9df90; built by 0x14216f460, called from the stash page
+    /// 0x140b1dc20 / 0x140b5cd70 and the inventory grid's Ctrl + click 0x140314130): u16 BE tab, u32 BE item id, u8 flags,
     /// u8 kind, u16 token (two raw bytes), u64 raw. The item's inventory is not sent: the server knows where it is.
     /// Live 2026-10-19: <c>00E0 0000 000000F8 00 00 694F 0000000000000000</c>.
     /// </summary>
@@ -188,11 +188,11 @@ public static class InstanceStash
     public const int MoveToTabLength = 20;
 
     /// <summary>
-    /// C→S 0xe3 (12 bytes, vtable 0x1435c0500, write 0x141f97e40; built by 0x142168e20): an item out of a stash tab. u16
+    /// C→S 0xe3 (12 bytes, vtable 0x1435caf38, write 0x141f9e870; built by 0x14216f7d0): an item out of a stash tab. u16
     /// BE tab, u32 BE item id, u8 kind, u16 raw token (low byte first), u8 bulk (0: one stack; 1: Ctrl + right click).
-    /// The builder copies its 6th argument to the last byte; 0x140312810 forwards the click's bulk boolean there.
+    /// The builder copies its 6th argument to the last byte; 0x140312da0 forwards the click's bulk boolean there.
     /// The special tabs'
-    /// pages (0x140b3c040, 0x140b57810) and 0x14031b950 send it; whether a normal tab's Ctrl + click does is not checked.
+    /// pages (0x140b45150, 0x140b52da0) and 0x14031bee0 send it; whether a normal tab's Ctrl + click does is not checked.
     /// </summary>
     public static (ushort Tab, uint ItemId, byte Kind, byte TokenLo, byte TokenHi, byte Bulk) ReadTakeFromTab(ReadOnlySpan<byte> m)
     {
@@ -209,7 +209,7 @@ public static class InstanceStash
     public sealed record MoveToAffinityTab(uint ItemId, byte Flags, byte U8, ushort Token, IReadOnlyList<(ushort Tab, byte Affinity)> Tabs);
 
     /// <summary>
-    /// C→S 0xe1 (vtable 0x1435c00f8, write 0x141f97810): u32 BE item id, u8 flags, u8, u16 token (raw, changes per
+    /// C→S 0xe1 (vtable 0x1435cab30, write 0x141f9e240): u32 BE item id, u8 flags, u8, u16 token (raw, changes per
     /// request), u8 n, n × (u16 BE tab, u8 affinity). The layout is read from live bytes (2026-10-20, Ctrl + click on a
     /// Scroll of Wisdom, an Armourer's Scrap, Orbs of Alteration and Transmutation with the Currency tab at index 5):
     /// <c>00E1 00000008 00 00 225E 01 0005 03</c>, always 14 bytes with one entry.
@@ -236,7 +236,7 @@ public static class InstanceStash
     public sealed record SetAffinities(ushort Tab, byte Kind, IReadOnlyList<(byte Affinity, bool On)> Changes);
 
     /// <summary>
-    /// C→S 0xd3 (class 0x1435c0338, read 0x141f96f70, write 0x141f96da0; built by 0x1421674c0): u16 BE tab, u8 kind, u8 n,
+    /// C→S 0xd3 (class 0x1435cad70, read 0x141f9d9a0, write 0x141f9d7d0; built by 0x14216de70): u16 BE tab, u8 kind, u8 n,
     /// n × (u8 affinity, u8 on). Live 2026-10-20 on the Currency tab (index 5): <c>00D3 0005 00 01 03 01</c> (Currency on).
     /// </summary>
     public static SetAffinities ReadSetAffinities(ReadOnlySpan<byte> m)

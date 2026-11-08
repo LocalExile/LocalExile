@@ -79,8 +79,7 @@ sealed class AscendancyRules(AscendancyCatalog catalog)
     {
         progress ??= new();
         Validate(baseClass, progress);
-        bool same = progress.Selection is not null && progress.Selection.Family == identity.Family &&
-                    progress.Selection.Id == identity.Id && progress.Selection.Revision == identity.Revision;
+        bool same = AscendancyCatalog.SameChoice(progress.Selection, identity);
         if (progress.Selection is not null && progress.Allocated.Count > 0 && !same)
             throw new AscendancyRuleException("Refund the current ascendancy's points before choosing another");
         var next = progress with { Selection = same ? progress.Selection : identity, Nodes = progress.Allocated.ToArray(), Awards = progress.EarnedAwards.ToArray() };

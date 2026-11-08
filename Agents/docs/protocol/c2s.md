@@ -5,23 +5,23 @@ The S→C side is in [schema.md](schema.md).
 
 ## How the list is complete
 
-Every message the client sends goes through the stream flush `0x140dfb8c0` (Winsock `send`). Its callers are the
-senders: instance messages go through `0x14216e940` (it calls the message's vtable slot 1, the writer, on
+Every message the client sends goes through the stream flush `0x140dfa160` (Winsock `send`). Its callers are the
+senders: instance messages go through `0x1421752b0` (it calls the message's vtable slot 1, the writer, on
 `instance+0xc288`); a few senders write the id inline or call a writer directly. `SendSites.java` resolves every
-`0x14216e940` call over the control-flow graph (Ghidra's resolved jump tables included): from the call it walks
+`0x1421752b0` call over the control-flow graph (Ghidra's resolved jump tables included): from the call it walks
 backwards path by path to the stores of the message's vtable (`[slot]`) and u16 id (`[slot+8]`), so ids set in
 different branches or switch cases before one shared send each keep their own path's vtable. Constructor-built
-messages are read from the constructor's stores. The remaining senders (no `0x14216e940` call, or a site the
+messages are read from the constructor's stores. The remaining senders (no `0x1421752b0` call, or a site the
 script cannot resolve) were read by hand and are listed in `HAND` in `scripts/re/c2s_md.py`.
 
-`0x14216e940` call sites: 581, resolved 578. Unresolved, covered by `HAND` or noted:
+`0x1421752b0` call sites: 585, resolved 582. Unresolved, covered by `HAND` or noted:
 
-- `0x140a925a7` in `0x140a92540`: message is not a stack object
-- `0x14215cfc2` in `0x14215c3b0`: reached the function entry
-- `0x140d4a1ce` in no Ghidra function: message is not a stack object
+- `0x140a92c07` in `0x140a92ba0`: message is not a stack object
+- `0x142163932` in `0x142162d20`: reached the function entry
+- `0x140d4ae4e` in `0x140d4adc0`: message is not a stack object
 
 A class shared with an S→C message (same vtable) is named in the S→C column: the client also builds some
-S→C classes locally (S→C instance 0xc0 is fed to the client's own handler through `0x141d625f0`; that is not a
+S→C classes locally (S→C instance 0xc0 is fed to the client's own handler through `0x141d65c80`; that is not a
 send and is not listed here).
 
 **Length** is the whole message in bytes, id included, when the writer is exact (only fixed-size stream writes,
@@ -29,366 +29,368 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 
 ## Validation against the Gateway
 
-`InstanceProtocol.KnownClientLength` has 66 fixed lengths: 61 agree with an exact extracted length, 0 disagree; 5 have no exact extracted length (branching or variable writers): 0x1b, 0x28, 0x4a, 0x99, 0x15d.
+`InstanceProtocol.KnownClientLength` has 93 fixed lengths: 87 agree with an exact extracted length, 0 disagree; 6 have no exact extracted length (branching or variable writers): 0x1b, 0x28, 0x4a, 0x99, 0xe7, 0x15d.
 
 ## Instance connection (u16 id, `instance+0xc288`)
 
-352 ids.
+354 ids.
 
 | Id | Class / writer | Length | S→C class | Senders | Notes |
 |---|---|---|---|---|---|
-| 0x000e | `0x1435bf9e8` / `0x141f90c60` | 24 |  | `0x142148500` |  |
-| 0x000f | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x142148500` |  |
-| 0x0012 | `0x1435bffc0` / `0x141f90f40` | 12 |  | `0x14018f700` |  |
-| 0x0013 | `0x1435c0058` / `0x141f92b00` | 8 |  | `0x14018f700` |  |
-| 0x0014 | `0x1435bf570` / `0x141f90560` | 7 | instance 0xaa, instance 0x8d | `0x14018f700` |  |
-| 0x0015 | `0x1435c0650` / `0x141f91120` | ≥ 7 |  | `0x14215ddd0` |  |
-| 0x0016 | `0x1435bff00` / `0x141f91480` | ≥ 3 |  | `0x1401e9c60`, `0x1406c1f80`, `0x14215c3b0` |  |
-| 0x001a | `0x1435bf670` / `0x140e29080` | 3 | generic (4 S→C ids) | `0x140cf1650`, `0x140cf1b40`, `0x140d58f50` +4 |  |
-| 0x001b | `0x1435c0358` / `0x141fa01b0` | ≥ 7 |  | `0x142148880` |  |
-| 0x0024 | `0x1435bfb78` / `0x141f91b00` | 12 |  | `0x142166300` |  |
-| 0x0025 | `0x1435bfbd8` / `0x141f91d10` | 16 |  | `0x142166300` |  |
-| 0x0028 | `0x1435bf5f0` / `0x141fa0d00` | ≥ 13 |  | `0x14215f300` |  |
-| 0x0029 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140117b80`, `0x1401512a0` |  |
-| 0x002a | `0x1435bf710` / `0x141f8feb0` | 18 |  | `0x14215f400` |  |
-| 0x002b | `0x1435c0858` / `0x141f8fc80` | 21 |  | `0x140b46210`, `0x140b81420` |  |
-| 0x002c | `0x1435c0498` / `0x141f90120` | 13 |  | `0x1402e1670`, `0x1402e43a0`, `0x140305c40` +1 |  |
-| 0x002d | `0x1435c02b8` / `0x141f90340` | 8 |  | `0x14215f520`, `0x14215f570` |  |
-| 0x002e | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x1402e43a0` |  |
-| 0x002f | `0x1435bfe58` / `0x141f90870` | 17 |  | `0x1421657d0` |  |
-| 0x0030 | `0x1435c0838` / `0x141f90650` | 16 |  | `0x140316530` |  |
-| 0x0031 | `0x1435bfb38` / `0x141f90ac0` | 14 |  | `0x140216160`, `0x140216340`, `0x142148880` |  |
-| 0x0032 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1401f4750` |  |
-| 0x0034 | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x1403cc410` |  |
-| 0x0035 | `0x1435bfee0` / `0x141f92980` | 6 | instance 0x2b2, instance 0x226 | `0x1403cc410` |  |
-| 0x0036 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x1403cc410` |  |
-| 0x0037 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1409d0310`, `0x1409da470` |  |
-| 0x0038 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1409d0190`, `0x140a16560` |  |
-| 0x0039 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x140b742b0` |  |
-| 0x003a | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x140b74490` |  |
-| 0x003e | `0x1435c0898` / `0x141f92c90` | 7 | instance 0xc1 | `0x1403cc410` |  |
-| 0x003f | `0x1435c0478` / `0x141f90340` | 8 |  | `0x1403cc410` |  |
-| 0x0040 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x1409d0310`, `0x1409da470` |  |
-| 0x0041 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x1409d0190`, `0x140a16560` |  |
-| 0x004a | `0x1435bf6d0` / `0x141fa08d0` | ≥ 14 |  | `0x14215f5c0` |  |
-| 0x004b | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140283ee0` |  |
-| 0x004d | `0x1435c08b8` / `0x141f92e60` | 9 |  | `0x140a980a0`, `0x140a9b580` |  |
-| 0x004e | `0x1435bfc58` / `0x141f93010` | 5 |  | `0x140ade430`, `0x140aecab0` |  |
-| 0x004f | `0x1435bf968` / `0x141f93160` | 4 |  | `0x140aed580` |  |
-| 0x0052 | `0x1435bf968` / `0x141f93160` | 4 |  | `0x140ade430`, `0x142165750` |  |
-| 0x0054 | `0x1435bffa0` / `0x141f932b0` | 3 |  | `0x140290bf0`, `0x14063f360` |  |
-| 0x0057 | `0x1435c0458` / `0x141f93480` | 11 | instance 0x174 | `0x1403124b0` |  |
-| 0x0058 | `0x1435bf8a8` / `0x141f926a0` | 10 | generic (7 S→C ids) | `0x142162140` |  |
-| 0x0059 | `0x1435bfe78` / `0x141f935a0` | 16 |  | `0x142160020` |  |
-| 0x005a | `0x1435bfe78` / `0x141f935a0` | 16 |  | `0x142160090` |  |
-| 0x005b | `0x1435bfcb8` / `0x141f93820` | 15 |  | `0x142160100` |  |
-| 0x005c | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x14011a9f0`, `0x140203ea0` |  |
-| 0x005d | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140917dc0`, `0x140918370` |  |
-| 0x005e | `0x1435bf670` / `0x140e29080` | 3 | generic (4 S→C ids) | `0x140213b70`, `0x140213c20`, `0x140dab880` +1 |  |
-| 0x005f | `0x1435bfbb8` / `0x141f93b20` | 12 |  | `0x140cdb0f0`, `0x140cdbaa0` |  |
-| 0x0060 | `0x1435c0458` / `0x141f93480` | 11 | instance 0x174 | `0x140cdba30` |  |
-| 0x0061 | `0x1435c03f8` / `0x141f93ce0` | 10 | instance 0x162, instance 0x6d | `0x140cdbb20` |  |
-| 0x0062 | `0x1435bfb98` / `0x141f92b00` | 8 |  | `0x140cdb170` |  |
-| 0x0063 | `0x1435c06b0` / `0x141f93f30` | 11 |  | `0x140cdb1e0` |  |
-| 0x0064 | `0x1435bfa88` / `0x141f93f30` | 11 |  | `0x140cdbe00` |  |
-| 0x0065 | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x140cdb8e0` |  |
-| 0x0066 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140cdbd90` |  |
-| 0x0067 | `0x1435bfb38` / `0x141f90ac0` | 14 |  | `0x140706f00`, `0x14216d5a0` |  |
-| 0x0068 | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x140706e00`, `0x140706e80` |  |
-| 0x0069 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140704a30` |  |
-| 0x0070 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x142162400` |  |
-| 0x0071 | `0x1435bfa48` / `0x141f94140` | 18 |  | `0x142162510` |  |
-| 0x0072 | `0x1435bf848` / `0x141f9a470` | 23 |  | `0x142162370` |  |
-| 0x0073 | `0x1435c0238` / `0x141f94b40` | 26 |  | `0x140316450` |  |
-| 0x0074 | `0x1435c01d8` / `0x141f94330` | 14 |  | `0x14011b9c0`, `0x1402ea9c0`, `0x140c95fb0` +3 |  |
-| 0x0075 | `0x1435c02f8` / `0x141f944d0` | 12 |  | `0x1407a07c0`, `0x1407dbf60` |  |
-| 0x0076 | `0x1435c03b8` / `0x141f94680` | 17 |  | `0x1407a07c0` |  |
-| 0x0077 | `0x1435c02f8` / `0x141f944d0` | 12 |  | `0x1409d1330` |  |
-| 0x0078 | `0x1435c03b8` / `0x141f94680` | 17 |  | `0x1409d1330`, `0x1421625b0` |  |
-| 0x0079 | `0x1435c0560` / `0x141f94900` | 18 |  | `0x14011b9c0` |  |
-| 0x007c | `0x1435bfdd8` / `0x141f90870` | 17 |  | `0x142165640` |  |
-| 0x007d | `0x1435bf8a8` / `0x141f926a0` | 10 | generic (7 S→C ids) | `0x142148880` |  |
-| 0x0080 | `0x1435c05f0` / `0x141f94db0` | ≥ 4 |  | `0x140aba290`, `0x14215c3b0`, `0x142162990` +4 |  |
-| 0x0081 | `0x1435bf7a0` / `0x141f94f20` | ≥ 2 |  | `0x140bb47e0` |  |
-| 0x0082 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x1403a8d30`, `0x140722960`, `0x14072da10` |  |
-| 0x0083 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x1404f7d20`, `0x1404f7f10`, `0x1404f7f90` |  |
-| 0x0085 | inline | 2 |  | `0x1403a8d30` | inline id only, from about 21 functions (htons(0x85) to instance+0xc288) |
-| 0x0088 | `0x1435c0778` / `0x141f95380` | ≥ 14 |  | `0x140314320` |  |
-| 0x0089 | `0x1435c0378` / `0x141f958d0` | 20 |  | `0x140314500` |  |
-| 0x008a | `0x1435bfaa8` / `0x141f95610` | ≥ 10 |  | `0x142165d50` |  |
-| 0x008b | `0x1435c07b8` / `0x140e29080` | 3 |  | `0x140778310`, `0x140c2f880` |  |
-| 0x0092 | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x142162d90` |  |
-| 0x0093 | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x140a67a50`, `0x140aba350`, `0x14215c3b0` |  |
-| 0x0094 | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x140a65e30`, `0x140aba4c0`, `0x14215c3b0` |  |
-| 0x0095 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140283c50`, `0x140a641e0`, `0x140aa6e10` +1 |  |
-| 0x0096 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140283bc0`, `0x140a64150`, `0x140a65ed0` +3 |  |
-| 0x0097 | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x140aba410`, `0x14215ddd0` |  |
-| 0x0098 | `0x1435bfcd8` / `0x141f950c0` | ≥ 3 | instance 0x157 | `0x142169030` |  |
-| 0x0099 | `0x1435c0258` / `0x141f95200` | ≥ 2 |  | `0x140a582e0`, `0x140a66050`, `0x142163190` |  |
-| 0x00a2 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140a6d2b0`, `0x140a6d370` |  |
-| 0x00ac | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x140a6d3d0`, `0x140a6f3d0`, `0x140a73380` +1 |  |
-| 0x00af | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x140bbf300`, `0x140bf6dd0` |  |
-| 0x00b0 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140afbfc0`, `0x140c328f0`, `0x140c39210` +1 |  |
-| 0x00b1 | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x14076a550`, `0x140940600`, `0x140afc5d0` +16 |  |
-| 0x00b2 | `0x1435bfc78` / `0x141f95b40` | 16 |  | `0x142166560`, `0x142166660` |  |
-| 0x00b3 | `0x1435bf828` / `0x141f95e50` | 12 |  | `0x1403177b0`, `0x142166750` |  |
-| 0x00b4 | `0x1435bf828` / `0x141f95e50` | 12 |  | `0x140311440` |  |
-| 0x00b5 | `0x1435bf828` / `0x141f95e50` | 12 |  | `0x1403178a0`, `0x142166830` |  |
-| 0x00b6 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140c378d0` |  |
-| 0x00b7 | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x140c378d0` |  |
-| 0x00ba | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140abaf20`, `0x14215c3b0` |  |
-| 0x00bd | `0x1435bf670` / `0x140e29080` | 3 | generic (4 S→C ids) | `0x14026f980` |  |
-| 0x00c7 | `0x1435bff20` / `0x141f95fa0` | 5 |  | `0x142148880` |  |
-| 0x00ca | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x142166d40` |  |
-| 0x00cc | `0x1435c0438` / `0x141f96130` | ≥ 3 | instance 0xcc | `0x1421670f0` | calls the class writer directly |
-| 0x00cd | `0x1435c00d8` / `0x141f962a0` | ≥ 13 |  | `0x14025b420` |  |
-| 0x00ce | `0x1435bf9a8` / `0x141f96670` | 17 |  | `0x14025b420` |  |
-| 0x00cf | `0x1435c0298` / `0x141f96860` | 14 |  | `0x1421676c0` | calls the class writer directly |
-| 0x00d0 | `0x1435bf6b0` / `0x141f96a40` | 6 | instance 0x231 | `0x14025b420` |  |
-| 0x00d1 | `0x1435c0198` / `0x141f96c50` | 7 |  | `0x142167370` |  |
-| 0x00d2 | `0x1435bff20` / `0x141f95fa0` | 5 |  | `0x14025c030` |  |
-| 0x00d3 | `0x1435c0338` / `0x141f96da0` | ≥ 8 | instance 0xd3 | `0x140251a00`, `0x1421674c0` |  |
-| 0x00d7 | `0x1435bfae8` / `0x141f971d0` | 15 |  | `0x142168f10` |  |
-| 0x00d8 | `0x1435bff20` / `0x141f95fa0` | 5 |  | `0x142166480` |  |
-| 0x00d9 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x140486240` |  |
-| 0x00da | `0x1435bf8c8` / `0x141f9ddc0` | 3 |  | `0x14074f150`, `0x14074f270`, `0x14074f380` |  |
-| 0x00dd | `0x1435bf670` / `0x140e29080` | 3 | generic (4 S→C ids) | `0x1421690f0` |  |
-| 0x00e0 | `0x1435c0878` / `0x141f97560` | 20 |  | `0x142168ab0` |  |
-| 0x00e1 | `0x1435c00f8` / `0x141f97810` | ≥ 14 |  | `0x142168bc0` |  |
-| 0x00e2 | `0x1435bf7c8` / `0x141f97ca0` | 9 |  | `0x140b1e9d0`, `0x140b3bcc0`, `0x140b574a0` +1 |  |
-| 0x00e3 | `0x1435c0500` / `0x141f97e40` | 12 |  | `0x142168e20` |  |
-| 0x00e4 | `0x1435c0630` / `0x141f98090` | ≥ 12 |  | `0x142167950` |  |
-| 0x00e5 | `0x1435c0610` / `0x141f984c0` | ≥ 12 |  | `0x142167c20` |  |
-| 0x00e6 | `0x1435c0098` / `0x141f987c0` | ≥ 6 |  | `0x142167ad0` |  |
-| 0x00e7 | `0x1435bfe98` / `0x141f98ab0` | ≥ 5 |  | `0x1407aff00` |  |
-| 0x00e8 | `0x1435bf928` / `0x141f98c30` | 11 |  | `0x142167da0` |  |
-| 0x00e9 | `0x1435c0158` / `0x141f98e80` | 7 | Ctrl + click with the crafting bench open: u32 item id, flags (0x80 into the bench, 0x40 from ExpandedMainInventory1) | `0x142167ed0` | handled |
-| 0x00ea | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x140763510`, `0x142167f20` |  |
-| 0x00ef | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142167f70` |  |
-| 0x00f0 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142167fc0` |  |
-| 0x00f1 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142168010` |  |
-| 0x00f2 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x140316ee0`, `0x140c20100`, `0x140c205c0` +1 |  |
-| 0x00f4 | `0x1435bff60` / `0x141f99000` | 9 |  | `0x1421680b0` |  |
-| 0x00f5 | `0x1435c00b8` / `0x141f93b20` | 12 |  | `0x1402ef8c0`, `0x140312810` |  |
-| 0x00f6 | `0x1435bff80` / `0x141f92b00` | 8 |  | `0x1407c2e60`, `0x142168110` |  |
-| 0x00f7 | `0x1435c0138` / `0x141f99420` | 12 |  | `0x142168160` |  |
-| 0x00f8 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x1421681c0` |  |
-| 0x00f9 | `0x1435bff40` / `0x141f99610` | 10 |  | `0x140312810` |  |
-| 0x00fa | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142168210` |  |
-| 0x00fb | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x1404ad420`, `0x142168260` |  |
-| 0x00fc | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x1421682b0` |  |
-| 0x00fd | `0x1435c0278` / `0x141f99800` | 9 |  | `0x142168300` |  |
-| 0x00fe | `0x1435c00b8` / `0x141f93b20` | 12 |  | `0x142168360` |  |
-| 0x00ff | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x1404716e0`, `0x1421688b0` |  |
-| 0x0100 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142168900` |  |
-| 0x0101 | `0x1435c00b8` / `0x141f93b20` | 12 |  | `0x142168950` |  |
-| 0x0102 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142168860` |  |
-| 0x0104 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x1421689b0` |  |
-| 0x0105 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142168a00` |  |
-| 0x0106 | `0x1435c0540` / `0x141f99000` | 9 |  | `0x142168a50` |  |
-| 0x0107 | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x1421683c0` |  |
-| 0x0108 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142168410` |  |
-| 0x0109 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x140311210`, `0x14032aa90`, `0x142168460` |  |
-| 0x010a | `0x1435c0418` / `0x141f99000` | 9 |  | `0x1421684b0` |  |
-| 0x010b | `0x1435bff60` / `0x141f99000` | 9 |  | `0x14064f680`, `0x1406552a0` |  |
-| 0x010c | `0x1435c0418` / `0x141f99000` | 9 |  | `0x142168520` |  |
-| 0x010d | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142168580` |  |
-| 0x010e | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x1421685d0` |  |
-| 0x010f | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x140316b10`, `0x142168620` |  |
-| 0x0110 | `0x1435bf988` / `0x141f99cb0` | 12 |  | `0x142168670` |  |
-| 0x0111 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x1421686d0` |  |
-| 0x0112 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142168720` |  |
-| 0x0113 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x142168770` |  |
-| 0x0114 | `0x1435bf808` / `0x141f99e90` | 16 |  | `0x140312810` |  |
-| 0x0115 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x1421687c0`, `0x142168810` |  |
-| 0x0116 | `0x1435bfac8` / `0x141f99fb0` | 26 |  | `0x1403f80e0`, `0x14040a6a0` |  |
-| 0x011a | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1408edf30`, `0x140ac1770` |  |
-| 0x011d | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x1408edeb0` |  |
-| 0x0121 | `0x1435bfd98` / `0x141f9a220` | ≥ 36 |  | `0x140c1b090` |  |
-| 0x0122 | `0x1435bf8a8` / `0x141f926a0` | 10 | generic (7 S→C ids) | `0x1402d8a40`, `0x14032abe0` |  |
-| 0x0123 | `0x1435bf670` / `0x140e29080` | 3 | generic (4 S→C ids) | `0x1403c2ad0`, `0x1407fc1b0`, `0x140805b10` +2 |  |
-| 0x0129 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1406c2680`, `0x1407aaf60`, `0x1407b6c90` +1 |  |
-| 0x012c | `0x1435bfb58` / `0x141f9a730` | ≥ 7 |  | `0x142169480` |  |
-| 0x012e | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1406c77e0`, `0x140a23660`, `0x140a282a0` +2 |  |
-| 0x012f | `0x1435c0218` / `0x141f9a9e0` | ≥ 2 |  | `0x140a02440` |  |
-| 0x0130 | `0x1435c0318` / `0x141f9abd0` | ≥ 10 |  | `0x1421695f0` |  |
-| 0x0134 | `0x1435bf730` / `0x141f9ae30` | 7 |  | `0x142169250` |  |
-| 0x0138 | `0x1435c0318` / `0x141f9abd0` | ≥ 10 |  | `0x142169890` |  |
-| 0x013a | `0x1435bf690` / `0x141f9b080` | 10 |  | `0x140d5e330` |  |
-| 0x013c | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x142169bb0` |  |
-| 0x013e | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140a36150` |  |
-| 0x0140 | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x140a41d50` |  |
-| 0x0141 | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x14216a2d0` |  |
-| 0x0142 | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x140af2220` |  |
-| 0x0143 | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x140af2290` |  |
-| 0x0144 | `0x1435bfcd8` / `0x141f950c0` | ≥ 3 | instance 0x157 | `0x14216a380` |  |
-| 0x0145 | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x14216a440` |  |
-| 0x014d | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x140a46c20` |  |
-| 0x014e | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x140a41d50` |  |
-| 0x014f | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x140a46c20` |  |
-| 0x0152 | `0x1435bfbf8` / `0x141f964c0` | 7 |  | `0x14025b420` |  |
-| 0x0153 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140290bf0`, `0x14063f360`, `0x1408ead30` +3 |  |
-| 0x0155 | `0x1435bf650` / `0x141f91850` | ≥ 2 | generic (11 S→C ids) | `0x140abb440` |  |
-| 0x0156 | `0x1435bf670` / `0x140e29080` | 3 | generic (4 S→C ids) | `0x140b15d60`, `0x140b15dd0`, `0x140d81a10` |  |
-| 0x0158 | `0x1435bfc98` / `0x141f9b100` | ≥ 7 |  | `0x14010fdd0`, `0x140110bd0`, `0x140110c60` +4 |  |
-| 0x0159 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x142169150` |  |
-| 0x015a | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1421691b0` |  |
-| 0x015d | `0x1435bf590` / `0x141f9b2e0` | ≥ 4 |  | `0x140c40720`, `0x140c43500`, `0x140c65120` |  |
-| 0x0168 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x14061b530`, `0x14066d7d0` |  |
-| 0x0169 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x14216c2b0` |  |
-| 0x016a | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1406ac6c0` |  |
-| 0x016b | `0x1435c0818` / `0x141f9c280` | 4 |  | `0x141762ae0` |  |
-| 0x016c | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140cc3a90` |  |
-| 0x0171 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140754b50` |  |
-| 0x0177 | `0x1435bf8e8` / `0x141f9dbe0` | 11 |  | `0x14074b330` |  |
-| 0x0179 | `0x1435c0078` / `0x141f950c0` | ≥ 3 | instance 0xa5 | `0x14216acb0` |  |
-| 0x017a | `0x1435bf868` / `0x141f9b580` | ≥ 7 |  | `0x14216ad90` |  |
-| 0x017b | `0x1435bf868` / `0x141f9b580` | ≥ 7 |  | `0x14216ae50` |  |
-| 0x017c | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x140a980a0` |  |
-| 0x017d | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x1404850b0`, `0x140485190`, `0x140485280` +1 |  |
-| 0x017e | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x140a980a0` |  |
-| 0x017f | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x140a980a0` |  |
-| 0x0180 | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x140a980a0` |  |
-| 0x0181 | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x140a980a0` |  |
-| 0x0182 | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x140a980a0` |  |
-| 0x0183 | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x140a980a0` |  |
-| 0x0184 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140a980a0` |  |
-| 0x0185 | `0x1435bf6f0` / `0x141f90560` | 7 | instance 0xb9 | `0x140a980a0` |  |
-| 0x0186 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140485130` |  |
-| 0x0187 | `0x1435bfdb8` / `0x141f9b690` | 3 |  | `0x14216af10` |  |
-| 0x018a | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140dadb90`, `0x140df05e0` |  |
-| 0x018d | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140ac1720` |  |
-| 0x018e | `0x1435c0520` / `0x141f92280` | 15 |  | `0x14215f700` |  |
-| 0x018f | `0x1435c05a0` / `0x141f924b0` | 11 |  | `0x14215f700` |  |
-| 0x0190 | `0x1435c0718` / `0x141f91f60` | 12 |  | `0x1401232e0` |  |
-| 0x0191 | `0x1435c08d8` / `0x141f92110` | 8 | instance 0x1cc, instance 0x25c, instance 0x26d | `0x1401232e0` |  |
-| 0x0192 | `0x1435bf8a8` / `0x141f926a0` | 10 | generic (7 S→C ids) | `0x14215fb10` |  |
-| 0x0193 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x14011e950` |  |
-| 0x0195 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x14215fcb0` |  |
-| 0x0196 | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x14215fe50` |  |
-| 0x0197 | `0x1435bf8a8` / `0x141f926a0` | 10 | generic (7 S→C ids) | `0x14215fb10` |  |
-| 0x0198 | `0x1435bf8a8` / `0x141f926a0` | 10 | generic (7 S→C ids) | `0x14215fb10` |  |
-| 0x0199 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x14215f700`, `0x14215fcb0`, `0x14215fe50` |  |
-| 0x019a | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140bb1cf0` |  |
-| 0x019b | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140ab2b40`, `0x140ab4530`, `0x140ac1860` |  |
-| 0x01a1 | `0x1435c05c0` / `0x141f9b840` | ≥ 10 |  | `0x14021da60`, `0x1402fb660`, `0x140b15b30` |  |
-| 0x01a2 | `0x1435c0928` / `0x141f9bae0` | ≥ 13 |  | `0x140b04e00` |  |
-| 0x01a7 | `0x1435bf9c8` / `0x141f9f650` | 10 |  | `0x140783040` |  |
-| 0x01d4 | `0x1435bf670` / `0x140e29080` | 3 | generic (4 S→C ids) | `0x1415a4760`, `0x142162cb0`, `0x142162d20` |  |
-| 0x01d8 | `0x1435bf8a8` / `0x141f926a0` | 10 | generic (7 S→C ids) | `0x1402e1670`, `0x140302550` |  |
-| 0x01d9 | `0x1435bf8a8` / `0x141f926a0` | 10 | generic (7 S→C ids) | `0x1402ef810`, `0x1402ef8c0` |  |
-| 0x01da | `0x143161470` / `0x14085def0` | 7 |  | `0x1408c1340` |  |
-| 0x01dc | `0x143161470` / `0x14085def0` | 7 |  | `0x1408c13b0` |  |
-| 0x01e0 | `0x143161470` / `0x14085def0` | 7 |  | `0x1408c1420` |  |
-| 0x01e2 | `0x1431618e8` / `0x14085dfc0` | ≥ 0 |  | `0x1408c1490` |  |
-| 0x01e4 | `0x143161490` / `0x1408bf280` | ≥ 2 |  | `0x1408c1530` |  |
-| 0x01e6 | `0x143165300` / `0x1408bf3b0` | ≥ 2 |  | `0x1408c1ce0` |  |
-| 0x01e8 | `0x143162128` / `0x1408bf570` | ≥ 3 |  | `0x1408c1da0` |  |
-| 0x01ea | `0x143162128` / `0x1408bf570` | ≥ 3 |  | `0x1408c1b80` |  |
-| 0x01ec | `0x143162148` / `0x1408bf760` | 8 |  | `0x1408c1c60` |  |
-| 0x01ee | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x14097dfc0` | Pantheon: choose a god, u8 = PantheonPanelLayout row + 1 (`InstancePantheon`, the Pantheon module; [pantheon](../game/campaign/pantheon.md) §4) |
-| 0x01ef | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x14216cbf0` |  |
-| 0x01f2 | `0x1435c0000` / `0x141f9bd10` | 3 |  | `0x140a23a40`, `0x140bba230`, `0x14216d470` +1 |  |
-| 0x01f7 | `0x1435bf670` / `0x140e29080` | 3 | generic (4 S→C ids) | `0x140cdf970` |  |
-| 0x01f8 | `0x1435bf670` / `0x140e29080` | 3 | generic (4 S→C ids) | `0x140cdfa00` |  |
-| 0x01f9 | `0x1435c0690` / `0x141f90340` | 8 |  | `0x140cdc2b0`, `0x140cdef80`, `0x140ce8210` +1 |  |
-| 0x01fa | `0x1435bf908` / `0x141f9bf70` | 10 |  | `0x140cdea70`, `0x140cdeff0` |  |
-| 0x01fb | `0x1435bf570` / `0x141f90560` | 7 | instance 0xaa, instance 0x8d | `0x140cdead0`, `0x140ce8150` |  |
-| 0x01fc | `0x1435c07d8` / `0x141f9c180` | 6 | instance 0x201, instance 0x203, instance 0x175 | `0x140cdf060` |  |
-| 0x01fd | `0x1435bf780` / `0x141f9c280` | 4 |  | `0x140cdf280` |  |
-| 0x01fe | `0x1435c04b8` / `0x141f9c3b0` | 7 |  | `0x140cdf2e0` |  |
-| 0x0206 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140918370`, `0x140935d10`, `0x140c0d750` |  |
-| 0x0207 | `0x1435c02d8` / `0x141f9c650` | 22 |  | `0x1402fc2e0` |  |
-| 0x0208 | `0x1435c0118` / `0x141f9c470` | ≥ 14 |  | `0x1402fc650` |  |
-| 0x0209 | `0x1435bf8a8` / `0x141f926a0` | 10 | generic (7 S→C ids) | `0x140150fc0` |  |
-| 0x020a | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x1402788a0`, `0x1408f67d0`, `0x1408fd5d0` +41 | site 0x140a925a7: rdx merges 0 with a heap message; site 0x140d4a1ce, in a .pdata chunk outside any Ghidra function |
-| 0x020b | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140c13460` |  |
-| 0x020d | `0x1435bf760` / `0x141f9c920` | ≥ 7 |  | `0x14216d6c0` |  |
-| 0x020e | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1409359f0` |  |
-| 0x020f | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140935960` |  |
-| 0x0212 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x140bd2ce0` |  |
-| 0x0213 | `0x1435bfd38` / `0x141f9cc00` | ≥ 7 | instance 0x213 | `0x142160550` |  |
-| 0x0216 | `0x1435bfc38` / `0x141f92c90` | 7 | instance 0x120 | `0x140cdb980`, `0x140cdfa90` |  |
-| 0x0217 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140cdfb00` |  |
-| 0x0218 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140bda290` |  |
-| 0x021d | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x14075eee0`, `0x140b7ac50` |  |
-| 0x021e | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x14075fa30`, `0x1407f1b70`, `0x14080c780` +1 |  |
-| 0x021f | `0x1435c0580` / `0x141f9fe60` | ≥ 2 |  | `0x14216d770` |  |
-| 0x0221 | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x140d5f400` |  |
-| 0x0222 | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x140815bc0`, `0x140815e00` |  |
-| 0x0224 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1404e6640`, `0x1404e79d0` |  |
-| 0x0229 | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x140465360` |  |
-| 0x022a | `0x1435c0398` / `0x141f9c280` | 4 |  | `0x140465360` |  |
-| 0x023e | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140465160` |  |
-| 0x023f | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140455100` |  |
-| 0x0241 | `0x1435c07f8` / `0x141f9ff90` | ≥ 2 | instance 0x242 | `0x14216da00` |  |
-| 0x0243 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140c1fb10` |  |
-| 0x0245 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x140c1fb10` |  |
-| 0x0247 | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x140bca3a0` |  |
-| 0x0249 | `0x1435c01f8` / `0x141f9d4b0` | 5 |  | `0x140383f40`, `0x1403842b0`, `0x1403a4ad0` |  |
-| 0x024c | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140383e00`, `0x1403a8d30`, `0x140c51030` |  |
-| 0x024f | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x1403b3d10` |  |
-| 0x0254 | `0x1435c0738` / `0x141f9d070` | 4 |  | `0x140bbae90` |  |
-| 0x0255 | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x140bb7380` |  |
-| 0x0257 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1403b3d10` |  |
-| 0x0259 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140390630`, `0x140392230`, `0x140398180` +3 |  |
-| 0x025d | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1403a8d30` |  |
-| 0x0260 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140dede00`, `0x14216c190` |  |
-| 0x0264 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140dedd90`, `0x14216c010` |  |
-| 0x0265 | `0x1435bf8a8` / `0x141f926a0` | 10 | generic (7 S→C ids) | `0x140c81450` |  |
-| 0x026b | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x1403b1ff0`, `0x1403b3bc0`, `0x140b24b40` +1 |  |
-| 0x026e | `0x1435bfdf8` / `0x141f9d1c0` | ≥ 6 |  | `0x14216ca20` | calls the class writer directly |
-| 0x0274 | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x140491210`, `0x1404916b0` |  |
-| 0x0275 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140c8b290` |  |
-| 0x0279 | `0x1435bfc18` / `0x141f9d300` | ≥ 2 |  | `0x14216e840` |  |
-| 0x027a | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140c91a30`, `0x14216e8f0` |  |
-| 0x027d | `0x1435bfe18` / `0x141f9d4b0` | 5 | instance 0x23b | `0x1404a12f0`, `0x1404a14b0` |  |
-| 0x027e | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1404b1eb0` |  |
-| 0x027f | `0x1435bfa08` / `0x141f9d590` | ≥ 3 |  | `0x1404b1c50` |  |
-| 0x0280 | `0x1435bf7a0` / `0x141f94f20` | ≥ 2 |  | `0x140a2df60` |  |
-| 0x0281 | `0x1435c0038` / `0x141f9d710` | ≥ 6 | login 0x2 | `0x142162f90` |  |
-| 0x0283 | `0x1435bf5b0` / `0x141f9d9b0` | 18 | instance 0x131 | `0x140316b10`, `0x1403217c0` |  |
-| 0x0284 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x14061c7d0` |  |
-| 0x0288 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x14092d720` |  |
-| 0x0289 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x1402e43a0` |  |
-| 0x028e | `0x1435bf570` / `0x141f90560` | 7 | instance 0xaa, instance 0x8d | `0x140c7a220`, `0x140c95bb0`, `0x140c95ce0` +1 |  |
-| 0x028f | `0x1435bf888` / `0x141f9dfb0` | ≥ 6 |  | `0x14216c2f0` |  |
-| 0x0290 | `0x1435bffe0` / `0x141f9e2b0` | ≥ 16 |  | `0x140c25820` |  |
-| 0x0294 | `0x1435c0758` / `0x141f9e5c0` | 18 | instance 0x1f6, instance 0x294 | `0x14216c410` |  |
-| 0x0296 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x140c2a1c0` |  |
-| 0x0297 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x140c2a1c0` |  |
-| 0x0298 | `0x1435bfa68` / `0x141f9d9b0` | 18 |  | `0x1403e1f00` |  |
-| 0x029a | `0x1435c0670` / `0x141f926a0` | 10 | instance 0x29b | `0x1403d77e0` |  |
-| 0x029c | `0x1435c04e0` / `0x141f9e8a0` | 20 | S→C 0x29f (Hinekora preview) | `0x14216d5f0` |  |
-| 0x029d | `0x1435bfd58` / `0x141f9eae0` | 28 |  | `0x1402cfe60` |  |
-| 0x029e | `0x1435bfa28` / `0x141f9edb0` | 25 |  | `0x1402cfe60` |  |
-| 0x02a0 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x14011b530`, `0x14011b9c0` |  |
-| 0x02a2 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x140bc9700` |  |
-| 0x02a3 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x1415b34d0` |  |
-| 0x02a4 | `0x1435bf5d0` / `0x141f9f1e0` | ≥ 20 |  | `0x1405dccb0` |  |
-| 0x02a5 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140dab500` |  |
-| 0x02a6 | `0x1435bf630` / `0x141f9f430` | ≥ 3 | login 0x43 | `0x1407ca1b0` |  |
-| 0x02a7 | `0x14345ef10` / `0x140e29080` | 3 | generic (9 S→C ids) | `0x1407cb380`, `0x1407ceb70` |  |
-| 0x02ab | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140aff450` |  |
-| 0x02af | `0x1435bf828` / `0x141f95e50` | 12 |  | `0x140b4a930` |  |
-| 0x02c2 | `0x1435c03d8` / `0x141fa2280` | ≥ 8 |  | `0x14216e540` |  |
-| 0x02c8 | `0x1435c0798` / `0x141fa11e0` | ≥ 3 |  | `0x14219aff0` |  |
-| 0x02cb | `0x1435c0178` / `0x141f9fa50` | ≥ 4 |  | `0x142148690` |  |
-| 0x02cc | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x1400f5350` |  |
-| 0x02ce | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x1403cc410` |  |
-| 0x02cf | `0x1435bf7e8` / `0x141f92870` | 4 | generic (14 S→C ids) | `0x1403cc410` |  |
-| 0x02d1 | `0x1435bf8a8` / `0x141f926a0` | 10 | generic (7 S→C ids) | `0x1403ca760` |  |
-| 0x02d3 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140754b50` |  |
-| 0x02d4 | `0x1435bfe38` / `0x141f92c90` | 7 | instance 0x1f, instance 0x163 | `0x140c95e80` |  |
-| 0x02e6 | `0x14316c930` / `0x140912f40` | 2 | generic (15 S→C ids) | `0x140b90770` |  |
-| 0x02e8 | `0x1435bf5b0` / `0x141f9d9b0` | 18 | instance 0x131 | `0x140b922c0`, `0x140b92770` |  |
-| 0x02e9 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140b929c0` |  |
-| 0x02eb | `0x1435bf550` / `0x141f98c30` | 11 |  | `0x140b92ad0` |  |
-| 0x02ee | `0x1435c0670` / `0x141f926a0` | 10 | instance 0x29b | `0x140b908f0` |  |
-| 0x02ef | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140b8c720`, `0x140b8cad0`, `0x140b908f0` |  |
-| 0x02f4 | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x140b908f0` |  |
-| 0x02fa | `0x1435c01b8` / `0x141f9f890` | ≥ 4 | instance 0x282, login 0x41 | `0x1400f50f0` |  |
-| 0x02fb | `0x14316c420` / `0x140912ff0` | 6 | generic (19 S→C ids) | `0x1413f7030` |  |
+| 0x000e | `0x1435ca400` / `0x141f97550` | 24 |  | `0x14214ee50` |  |
+| 0x000f | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14214ee50` |  |
+| 0x0012 | `0x1435ca9f8` / `0x141f97830` | 12 |  | `0x14018faa0` |  |
+| 0x0013 | `0x1435caa90` / `0x141f993f0` | 8 |  | `0x14018faa0` |  |
+| 0x0014 | `0x1435c9f88` / `0x141f96e50` | 7 | instance 0xaa, instance 0x8d | `0x14018faa0` |  |
+| 0x0015 | `0x1435cb088` / `0x141f97a10` | ≥ 7 |  | `0x142164740` |  |
+| 0x0016 | `0x1435ca938` / `0x141f97d70` | ≥ 3 |  | `0x1401ea010`, `0x1406c2540`, `0x142162d20` |  |
+| 0x001a | `0x1435ca088` / `0x140e27920` | 3 | generic (4 S→C ids) | `0x140cf15c0`, `0x140cf1ab0`, `0x140d56470` +4 |  |
+| 0x001b | `0x1435cad90` / `0x141fa6be0` | ≥ 7 |  | `0x14214f1d0` |  |
+| 0x0024 | `0x1435ca590` / `0x141f983f0` | 12 |  | `0x14216ccb0` |  |
+| 0x0025 | `0x1435ca5f0` / `0x141f98600` | 16 |  | `0x14216ccb0` |  |
+| 0x0028 | `0x1435ca008` / `0x141fa7730` | ≥ 13 |  | `0x142165c70` |  |
+| 0x0029 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140117ee0`, `0x1401515d0` |  |
+| 0x002a | `0x1435ca128` / `0x141f967a0` | 18 |  | `0x142165d70` |  |
+| 0x002b | `0x1435cb290` / `0x141f96570` | 21 |  | `0x140b3b770`, `0x140b7fae0` |  |
+| 0x002c | `0x1435caed0` / `0x141f96a10` | 13 |  | `0x1402e1c00`, `0x1402e4930`, `0x1403061d0` +1 |  |
+| 0x002d | `0x1435cacf0` / `0x141f96c30` | 8 |  | `0x142165e90`, `0x142165ee0` |  |
+| 0x002e | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x1402e4930` |  |
+| 0x002f | `0x1435ca890` / `0x141f97160` | 17 |  | `0x14216c180` |  |
+| 0x0030 | `0x1435cb270` / `0x141f96f40` | 16 |  | `0x140316ac0` |  |
+| 0x0031 | `0x1435ca550` / `0x141f973b0` | 14 |  | `0x140216500`, `0x1402166e0`, `0x14214f1d0` |  |
+| 0x0032 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1401f4b00` |  |
+| 0x0034 | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x1403cc9a0` |  |
+| 0x0035 | `0x1435ca918` / `0x141f99270` | 6 | instance 0x2b4, instance 0x226 | `0x1403cc9a0` |  |
+| 0x0036 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x1403cc9a0` |  |
+| 0x0037 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1409db680`, `0x140a11c30` |  |
+| 0x0038 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140a11930`, `0x140a11ab0` |  |
+| 0x0039 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140b6f890` |  |
+| 0x003a | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140b6fa70` |  |
+| 0x003e | `0x1435cb2d0` / `0x141f99580` | 7 | instance 0xc1 | `0x1403cc9a0` |  |
+| 0x003f | `0x1435caeb0` / `0x141f96c30` | 8 |  | `0x1403cc9a0` |  |
+| 0x0040 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x1409db680`, `0x140a11c30` |  |
+| 0x0041 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140a11930`, `0x140a11ab0` |  |
+| 0x004a | `0x1435ca0e8` / `0x141fa7300` | ≥ 14 |  | `0x142165f30` |  |
+| 0x004b | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140284470` |  |
+| 0x004d | `0x1435cb2f0` / `0x141f99750` | 9 |  | `0x140aa3880`, `0x140aa6d60` |  |
+| 0x004e | `0x1435ca670` / `0x141f99900` | 5 |  | `0x140adf180`, `0x140aec430` |  |
+| 0x004f | `0x1435ca380` / `0x141f99a50` | 4 |  | `0x140aecf00` |  |
+| 0x0052 | `0x1435ca380` / `0x141f99a50` | 4 |  | `0x140adf180`, `0x14216c100` |  |
+| 0x0054 | `0x1435ca9d8` / `0x141f99ba0` | 3 |  | `0x140291180`, `0x14063f920` |  |
+| 0x0057 | `0x1435cae90` / `0x141f99d70` | 11 | instance 0x174 | `0x140312a40` |  |
+| 0x0058 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x142168af0` |  |
+| 0x0059 | `0x1435ca8b0` / `0x141f99e90` | 16 |  | `0x1421669d0` |  |
+| 0x005a | `0x1435ca8b0` / `0x141f99e90` | 16 |  | `0x142166a40` |  |
+| 0x005b | `0x1435ca6f0` / `0x141f9a110` | 15 |  | `0x142166ab0` |  |
+| 0x005c | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14011ad50`, `0x140204210` |  |
+| 0x005d | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140915fe0`, `0x140916590` |  |
+| 0x005e | `0x1435ca088` / `0x140e27920` | 3 | generic (4 S→C ids) | `0x140213f10`, `0x140213fc0`, `0x140da9030` +1 |  |
+| 0x005f | `0x1435ca5d0` / `0x141f9a550` | 12 |  | `0x140cdbc40`, `0x140cdc5f0` |  |
+| 0x0060 | `0x1435cae90` / `0x141f99d70` | 11 | instance 0x174 | `0x140cdc580` |  |
+| 0x0061 | `0x1435cae30` / `0x141f9a710` | 10 | instance 0x162, instance 0x6d | `0x140cdc670` |  |
+| 0x0062 | `0x1435ca5b0` / `0x141f993f0` | 8 |  | `0x140cdbcc0` |  |
+| 0x0063 | `0x1435cb0e8` / `0x141f9a960` | 11 |  | `0x140cdbd30` |  |
+| 0x0064 | `0x1435ca4a0` / `0x141f9a960` | 11 |  | `0x140cdc950` |  |
+| 0x0065 | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x140cdc430` |  |
+| 0x0066 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140cdc8e0` |  |
+| 0x0067 | `0x1435ca550` / `0x141f973b0` | 14 |  | `0x140705a40`, `0x142173f50` |  |
+| 0x0068 | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x140705940`, `0x1407059c0` |  |
+| 0x0069 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140703830` |  |
+| 0x0070 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x142168db0` |  |
+| 0x0071 | `0x1435ca460` / `0x141f9ab70` | 18 |  | `0x142168ec0` |  |
+| 0x0072 | `0x1435ca260` / `0x141fa0ea0` | 23 |  | `0x142168d20` |  |
+| 0x0073 | `0x1435cac70` / `0x141f9b570` | 26 |  | `0x1403169e0` |  |
+| 0x0074 | `0x1435cac10` / `0x141f9ad60` | 14 |  | `0x14011bd20`, `0x1402eaf50`, `0x140c93740` +3 |  |
+| 0x0075 | `0x1435cad30` / `0x141f9af00` | 12 |  | `0x14079c9d0`, `0x1407db3e0` |  |
+| 0x0076 | `0x1435cadf0` / `0x141f9b0b0` | 17 |  | `0x14079c9d0` |  |
+| 0x0077 | `0x1435cad30` / `0x141f9af00` | 12 |  | `0x1409c9040` |  |
+| 0x0078 | `0x1435cadf0` / `0x141f9b0b0` | 17 |  | `0x1409c9040`, `0x142168f60` |  |
+| 0x0079 | `0x1435caf98` / `0x141f9b330` | 18 |  | `0x14011bd20` |  |
+| 0x007c | `0x1435ca810` / `0x141f97160` | 17 |  | `0x14216bff0` |  |
+| 0x007d | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x14214f1d0` |  |
+| 0x0080 | `0x1435cb028` / `0x141f9b7e0` | ≥ 4 |  | `0x140ab8ca0`, `0x142162d20`, `0x142169340` +4 |  |
+| 0x0081 | `0x1435ca1b8` / `0x141f9b950` | ≥ 2 |  | `0x140bb5470` |  |
+| 0x0082 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x1403a92c0`, `0x140723fa0`, `0x1407354f0` |  |
+| 0x0083 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x1404f82e0`, `0x1404f84d0`, `0x1404f8550` |  |
+| 0x0085 | inline | 2 |  | `0x1403a92c0` | inline id only, from about 21 functions (htons(0x85) to instance+0xc288) |
+| 0x0088 | `0x1435cb1b0` / `0x141f9bdb0` | ≥ 14 |  | `0x1403148b0` |  |
+| 0x0089 | `0x1435cadb0` / `0x141f9c300` | 20 |  | `0x140314a90` |  |
+| 0x008a | `0x1435ca4c0` / `0x141f9c040` | ≥ 10 |  | `0x14216c700` |  |
+| 0x008b | `0x1435cb1f0` / `0x140e27920` | 3 |  | `0x140779d60`, `0x140c661a0` |  |
+| 0x0092 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x142169740` |  |
+| 0x0093 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140a9ef70`, `0x140ab8d60`, `0x142162d20` |  |
+| 0x0094 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140a9cfa0`, `0x140ab8ed0`, `0x142162d20` |  |
+| 0x0095 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x1402841e0`, `0x140a9a810`, `0x140a9cd40` +1 |  |
+| 0x0096 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140284150`, `0x140a9a780`, `0x140a9d040` +3 |  |
+| 0x0097 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140ab8e20`, `0x142164740` |  |
+| 0x0098 | `0x1435ca710` / `0x141f9baf0` | ≥ 3 | instance 0x157 | `0x14216f9e0` |  |
+| 0x0099 | `0x1435cac90` / `0x141f9bc30` | ≥ 2 |  | `0x140a58870`, `0x140a62860`, `0x142169b40` |  |
+| 0x00a2 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140a6d910`, `0x140a6d9d0` |  |
+| 0x00ac | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140a6da30`, `0x140a6fa30`, `0x140a739e0` +1 |  |
+| 0x00af | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140bbff90`, `0x140be7b70` |  |
+| 0x00b0 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140afcd10`, `0x140c32a70`, `0x140c39390` +1 |  |
+| 0x00b1 | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x14076b8a0`, `0x140942350`, `0x140afd320` +16 |  |
+| 0x00b2 | `0x1435ca6b0` / `0x141f9c570` | 16 |  | `0x14216cf10`, `0x14216d010` |  |
+| 0x00b3 | `0x1435ca240` / `0x141f9c880` | 12 |  | `0x140317d40`, `0x14216d100` |  |
+| 0x00b4 | `0x1435ca240` / `0x141f9c880` | 12 |  | `0x1403119d0` |  |
+| 0x00b5 | `0x1435ca240` / `0x141f9c880` | 12 |  | `0x140317e30`, `0x14216d1e0` |  |
+| 0x00b6 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140c37a50` |  |
+| 0x00b7 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x140c37a50` |  |
+| 0x00ba | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140ab9930`, `0x142162d20` |  |
+| 0x00bd | `0x1435ca088` / `0x140e27920` | 3 | generic (4 S→C ids) | `0x14026ff10` |  |
+| 0x00c7 | `0x1435ca958` / `0x141f9c9d0` | 5 |  | `0x14214f1d0` |  |
+| 0x00ca | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x14216d6f0` |  |
+| 0x00cc | `0x1435cae70` / `0x141f9cb60` | ≥ 3 | instance 0xcc | `0x14216daa0` | calls the class writer directly |
+| 0x00cd | `0x1435cab10` / `0x141f9ccd0` | ≥ 13 |  | `0x14025b9b0` |  |
+| 0x00ce | `0x1435ca3c0` / `0x141f9d0a0` | 17 |  | `0x14025b9b0` |  |
+| 0x00cf | `0x1435cacd0` / `0x141f9d290` | 14 |  | `0x14216e070` | calls the class writer directly |
+| 0x00d0 | `0x1435ca0c8` / `0x141f9d470` | 6 | instance 0x231 | `0x14025b9b0` |  |
+| 0x00d1 | `0x1435cabd0` / `0x141f9d680` | 7 |  | `0x14216dd20` |  |
+| 0x00d2 | `0x1435ca958` / `0x141f9c9d0` | 5 |  | `0x14025c5c0` |  |
+| 0x00d3 | `0x1435cad70` / `0x141f9d7d0` | ≥ 8 | instance 0xd3 | `0x140251f90`, `0x14216de70` |  |
+| 0x00d7 | `0x1435ca500` / `0x141f9dc00` | 15 |  | `0x14216f8c0` |  |
+| 0x00d8 | `0x1435ca958` / `0x141f9c9d0` | 5 |  | `0x14216ce30` |  |
+| 0x00d9 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140486800` |  |
+| 0x00da | `0x1435ca2e0` / `0x141fa47f0` | 3 |  | `0x140750b30`, `0x140750c50`, `0x140750d60` |  |
+| 0x00dd | `0x1435ca088` / `0x140e27920` | 3 | generic (4 S→C ids) | `0x14216faa0` |  |
+| 0x00e0 | `0x1435cb2b0` / `0x141f9df90` | 20 |  | `0x14216f460` |  |
+| 0x00e1 | `0x1435cab30` / `0x141f9e240` | ≥ 14 |  | `0x14216f570` |  |
+| 0x00e2 | `0x1435ca1e0` / `0x141f9e6d0` | 9 |  | `0x140b1df20`, `0x140b44dd0`, `0x140b52a30` +1 |  |
+| 0x00e3 | `0x1435caf38` / `0x141f9e870` | 12 |  | `0x14216f7d0` |  |
+| 0x00e4 | `0x1435cb068` / `0x141f9eac0` | ≥ 12 |  | `0x14216e300` |  |
+| 0x00e5 | `0x1435cb048` / `0x141f9eef0` | ≥ 12 |  | `0x14216e5d0` |  |
+| 0x00e6 | `0x1435caad0` / `0x141f9f1f0` | ≥ 6 |  | `0x14216e480` |  |
+| 0x00e7 | `0x1435ca8d0` / `0x141f9f4e0` | ≥ 5 |  | `0x1407ac110` |  |
+| 0x00e8 | `0x1435ca340` / `0x141f9f660` | 11 |  | `0x14216e750` |  |
+| 0x00e9 | `0x1435cab90` / `0x141f9f8b0` | 7 | Ctrl + click with the crafting bench open: u32 item id, flags (0x80 into the bench, 0x40 from ExpandedMainInventory1) | `0x14216e880` | handled |
+| 0x00ea | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x140764f20`, `0x14216e8d0` |  |
+| 0x00ef | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216e920` |  |
+| 0x00f0 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216e970` |  |
+| 0x00f1 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216e9c0` |  |
+| 0x00f2 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x140317470`, `0x140c1e430`, `0x140c1e8f0` +1 |  |
+| 0x00f4 | `0x1435ca998` / `0x141f9fa30` | 9 |  | `0x14216ea60` |  |
+| 0x00f5 | `0x1435caaf0` / `0x141f9a550` | 12 |  | `0x1402efe50`, `0x140312da0` |  |
+| 0x00f6 | `0x1435ca9b8` / `0x141f993f0` | 8 |  | `0x1407bf070`, `0x14216eac0` |  |
+| 0x00f7 | `0x1435cab70` / `0x141f9fe50` | 12 |  | `0x14216eb10` |  |
+| 0x00f8 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216eb70` |  |
+| 0x00f9 | `0x1435ca978` / `0x141fa0040` | 10 |  | `0x140312da0` |  |
+| 0x00fa | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ebc0` |  |
+| 0x00fb | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x1404ad9e0`, `0x14216ec10` |  |
+| 0x00fc | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ec60` |  |
+| 0x00fd | `0x1435cacb0` / `0x141fa0230` | 9 |  | `0x14216ecb0` |  |
+| 0x00fe | `0x1435caaf0` / `0x141f9a550` | 12 |  | `0x14216ed10` |  |
+| 0x00ff | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x140471ca0`, `0x14216f260` |  |
+| 0x0100 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f2b0` |  |
+| 0x0101 | `0x1435caaf0` / `0x141f9a550` | 12 |  | `0x14216f300` |  |
+| 0x0102 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f210` |  |
+| 0x0104 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f360` |  |
+| 0x0105 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f3b0` |  |
+| 0x0106 | `0x1435caf78` / `0x141f9fa30` | 9 |  | `0x14216f400` |  |
+| 0x0107 | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x14216ed70` |  |
+| 0x0108 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216edc0` |  |
+| 0x0109 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x1403117a0`, `0x14032b020`, `0x14216ee10` |  |
+| 0x010a | `0x1435cae50` / `0x141f9fa30` | 9 |  | `0x14216ee60` |  |
+| 0x010b | `0x1435ca998` / `0x141f9fa30` | 9 |  | `0x14064fc40`, `0x140655860` |  |
+| 0x010c | `0x1435cae50` / `0x141f9fa30` | 9 |  | `0x14216eed0` |  |
+| 0x010d | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ef30` |  |
+| 0x010e | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ef80` |  |
+| 0x010f | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x1403170a0`, `0x14216efd0` |  |
+| 0x0110 | `0x1435ca3a0` / `0x141fa06e0` | 12 |  | `0x14216f020` |  |
+| 0x0111 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f080` |  |
+| 0x0112 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f0d0` |  |
+| 0x0113 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14216f120` |  |
+| 0x0114 | `0x1435ca220` / `0x141fa08c0` | 16 |  | `0x140312da0` |  |
+| 0x0115 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f170`, `0x14216f1c0` |  |
+| 0x0116 | `0x1435ca4e0` / `0x141fa09e0` | 26 |  | `0x1403f8670`, `0x14040ac30` |  |
+| 0x011a | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1408e7070`, `0x140ac1750` |  |
+| 0x011d | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x1408e6ff0` |  |
+| 0x0121 | `0x1435ca7d0` / `0x141fa0c50` | ≥ 36 |  | `0x140c193c0` |  |
+| 0x0122 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1402d8fd0`, `0x14032b170` |  |
+| 0x0123 | `0x1435ca088` / `0x140e27920` | 3 | generic (4 S→C ids) | `0x1403c3060`, `0x1407fdbf0`, `0x140807550` +2 |  |
+| 0x0129 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1406c2c40`, `0x1407a7170`, `0x1407b2ea0` +1 |  |
+| 0x012c | `0x1435ca570` / `0x141fa1160` | ≥ 7 |  | `0x14216fe30` |  |
+| 0x012e | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1406c7da0`, `0x140a23d50`, `0x140a28900` +2 |  |
+| 0x012f | `0x1435cac50` / `0x141fa1410` | ≥ 2 |  | `0x140a02f40` |  |
+| 0x0130 | `0x1435cad50` / `0x141fa1600` | ≥ 10 |  | `0x14216ffa0` |  |
+| 0x0134 | `0x1435ca148` / `0x141fa1860` | 7 |  | `0x14216fc00` |  |
+| 0x0138 | `0x1435cad50` / `0x141fa1600` | ≥ 10 |  | `0x142170240` |  |
+| 0x013a | `0x1435ca0a8` / `0x141fa1ab0` | 10 |  | `0x140d5ba80` |  |
+| 0x013c | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x142170560` |  |
+| 0x013e | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140a366e0` |  |
+| 0x0140 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140a422e0` |  |
+| 0x0141 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x142170c80` |  |
+| 0x0142 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x140af2f70` |  |
+| 0x0143 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x140af2fe0` |  |
+| 0x0144 | `0x1435ca710` / `0x141f9baf0` | ≥ 3 | instance 0x157 | `0x142170d30` |  |
+| 0x0145 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x142170df0` |  |
+| 0x014d | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140a471b0` |  |
+| 0x014e | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140a422e0` |  |
+| 0x014f | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140a471b0` |  |
+| 0x0152 | `0x1435ca610` / `0x141f9cef0` | 7 |  | `0x14025b9b0` |  |
+| 0x0153 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140291180`, `0x14063f920`, `0x1408e4c60` +3 |  |
+| 0x0155 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140ab9e50` |  |
+| 0x0156 | `0x1435ca088` / `0x140e27920` | 3 | generic (4 S→C ids) | `0x140b10ed0`, `0x140b10f40`, `0x140d7f180` |  |
+| 0x0158 | `0x1435ca6d0` / `0x141fa1b30` | ≥ 7 |  | `0x140110130`, `0x140110f30`, `0x140110fc0` +4 |  |
+| 0x0159 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x14216fb00` |  |
+| 0x015a | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x14216fb60` |  |
+| 0x015d | `0x1435c9fa8` / `0x141fa1d10` | ≥ 4 |  | `0x140c408a0`, `0x140c436d0`, `0x140c62f40` |  |
+| 0x0168 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x14061baf0`, `0x14066dd90` |  |
+| 0x0169 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x142172c60` |  |
+| 0x016a | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1406acc80` |  |
+| 0x016b | `0x1435cb250` / `0x141fa2cb0` | 4 |  | `0x1417609e0` |  |
+| 0x016c | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140cc33f0` |  |
+| 0x0171 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140756560` |  |
+| 0x0177 | `0x1435ca300` / `0x141fa4610` | 11 |  | `0x14074cd10` |  |
+| 0x0179 | `0x1435caab0` / `0x141f9baf0` | ≥ 3 | instance 0xa5 | `0x142171660` |  |
+| 0x017a | `0x1435ca280` / `0x141fa1fb0` | ≥ 7 |  | `0x142171740` |  |
+| 0x017b | `0x1435ca280` / `0x141fa1fb0` | ≥ 7 |  | `0x142171800` |  |
+| 0x017c | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x140aa3880` |  |
+| 0x017d | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140485670`, `0x140485750`, `0x140485840` +1 |  |
+| 0x017e | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x140aa3880` |  |
+| 0x017f | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x140aa3880` |  |
+| 0x0180 | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x140aa3880` |  |
+| 0x0181 | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x140aa3880` |  |
+| 0x0182 | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x140aa3880` |  |
+| 0x0183 | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x140aa3880` |  |
+| 0x0184 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140aa3880` |  |
+| 0x0185 | `0x1435ca108` / `0x141f96e50` | 7 | instance 0xb9 | `0x140aa3880` |  |
+| 0x0186 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1404856f0` |  |
+| 0x0187 | `0x1435ca7f0` / `0x141fa20c0` | 3 |  | `0x1421718c0` |  |
+| 0x018a | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140dab340`, `0x140dedfe0` |  |
+| 0x018d | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140ac1700` |  |
+| 0x018e | `0x1435caf58` / `0x141f98b70` | 15 |  | `0x1421660b0` |  |
+| 0x018f | `0x1435cafd8` / `0x141f98da0` | 11 |  | `0x1421660b0` |  |
+| 0x0190 | `0x1435cb150` / `0x141f98850` | 12 |  | `0x140123640` |  |
+| 0x0191 | `0x1435cb310` / `0x141f98a00` | 8 | instance 0x1cc, instance 0x25c, instance 0x26d | `0x140123640` |  |
+| 0x0192 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1421664c0` |  |
+| 0x0193 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14011ecb0` |  |
+| 0x0195 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x142166660` |  |
+| 0x0196 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x142166800` |  |
+| 0x0197 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1421664c0` |  |
+| 0x0198 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1421664c0` |  |
+| 0x0199 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1421660b0`, `0x142166660`, `0x142166800` |  |
+| 0x019a | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140bb2980` |  |
+| 0x019b | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140ab1550`, `0x140ab2f40`, `0x140ac1840` |  |
+| 0x01a1 | `0x1435caff8` / `0x141fa2270` | ≥ 10 |  | `0x14021de00`, `0x1402fbbf0`, `0x140b10ca0` |  |
+| 0x01a2 | `0x1435cb360` / `0x141fa2510` | ≥ 13 |  | `0x140b05b50` |  |
+| 0x01a7 | `0x1435ca3e0` / `0x141fa6080` | 10 |  | `0x140788370` |  |
+| 0x01d4 | `0x1435ca088` / `0x140e27920` | 3 | generic (4 S→C ids) | `0x1415a6a90`, `0x142169660`, `0x1421696d0` |  |
+| 0x01d8 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1402e1c00`, `0x140302ae0` |  |
+| 0x01d9 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1402efda0`, `0x1402efe50` |  |
+| 0x01da | `0x14316ba50` / `0x14085f290` | 7 |  | `0x1408c3000` |  |
+| 0x01dc | `0x14316ba50` / `0x14085f290` | 7 |  | `0x1408c3070` |  |
+| 0x01e0 | `0x14316ba50` / `0x14085f290` | 7 |  | `0x1408c30e0` |  |
+| 0x01e2 | `0x14316baa0` / `0x14085f360` | ≥ 0 |  | `0x1408c3150` |  |
+| 0x01e4 | `0x14316ba30` / `0x1408c0f40` | ≥ 2 |  | `0x1408c31f0` |  |
+| 0x01e6 | `0x14316f528` / `0x1408c1070` | ≥ 2 |  | `0x1408c39a0` |  |
+| 0x01e8 | `0x14316c328` / `0x1408c1230` | ≥ 3 |  | `0x1408c3a60` |  |
+| 0x01ea | `0x14316c328` / `0x1408c1230` | ≥ 3 |  | `0x1408c3840` |  |
+| 0x01ec | `0x14316c2e8` / `0x1408c1420` | 8 |  | `0x1408c3920` |  |
+| 0x01ee | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x14097fb20` | Pantheon: choose a god, u8 = PantheonPanelLayout row + 1 (`InstancePantheon`, the Pantheon module; [pantheon](../game/campaign/pantheon.md) §4) |
+| 0x01ef | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1421735a0` |  |
+| 0x01f2 | `0x1435caa38` / `0x141fa2740` | 3 |  | `0x140a24130`, `0x140bbaec0`, `0x142173e20` +1 |  |
+| 0x01f7 | `0x1435ca088` / `0x140e27920` | 3 | generic (4 S→C ids) | `0x140ce04f0` |  |
+| 0x01f8 | `0x1435ca088` / `0x140e27920` | 3 | generic (4 S→C ids) | `0x140ce0580` |  |
+| 0x01f9 | `0x1435cb0c8` / `0x141f96c30` | 8 |  | `0x140cdce00`, `0x140cdfb00`, `0x140ce6b10` +1 |  |
+| 0x01fa | `0x1435ca320` / `0x141fa29a0` | 10 |  | `0x140cdf5f0`, `0x140cdfb70` |  |
+| 0x01fb | `0x1435c9f88` / `0x141f96e50` | 7 | instance 0xaa, instance 0x8d | `0x140cdf650`, `0x140ce6a50` |  |
+| 0x01fc | `0x1435cb210` / `0x141fa2bb0` | 6 | instance 0x201, instance 0x203, instance 0x175 | `0x140cdfbe0` |  |
+| 0x01fd | `0x1435ca198` / `0x141fa2cb0` | 4 |  | `0x140cdfe00` |  |
+| 0x01fe | `0x1435caef0` / `0x141fa2de0` | 7 |  | `0x140cdfe60` |  |
+| 0x0206 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140916590`, `0x140934120`, `0x140c0ba80` |  |
+| 0x0207 | `0x1435cad10` / `0x141fa3080` | 22 |  | `0x1402fc870` |  |
+| 0x0208 | `0x1435cab50` / `0x141fa2ea0` | ≥ 14 |  | `0x1402fcbe0` |  |
+| 0x0209 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1401512f0` |  |
+| 0x020a | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140278e30`, `0x1408f4a10`, `0x1408fb810` +41 | site 0x140a92c07: rdx merges 0 with a heap message; site 0x140d4ae4e, in a .pdata chunk outside any Ghidra function |
+| 0x020b | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140c11790` |  |
+| 0x020d | `0x1435ca178` / `0x141fa3350` | ≥ 7 |  | `0x142174070` |  |
+| 0x020e | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140933e00` |  |
+| 0x020f | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140933d70` |  |
+| 0x0212 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140bd3970` |  |
+| 0x0213 | `0x1435ca770` / `0x141fa3630` | ≥ 7 | instance 0x213 | `0x142166f00` |  |
+| 0x0216 | `0x1435ca650` / `0x141f99580` | 7 | instance 0x120 | `0x140cdc4d0`, `0x140ce0610` |  |
+| 0x0217 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140ce0680` |  |
+| 0x0218 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140bdaf20` |  |
+| 0x021d | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x1407608f0`, `0x140b76230` |  |
+| 0x021e | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140761440`, `0x1407f35b0`, `0x14080e1c0` +1 |  |
+| 0x021f | `0x1435cafb8` / `0x141fa6890` | ≥ 2 |  | `0x142174120` |  |
+| 0x0221 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x140d5cb70` |  |
+| 0x0222 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x140817600`, `0x140817840` |  |
+| 0x0224 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1404e6c00`, `0x1404e7f90` |  |
+| 0x0229 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x1404658f0` |  |
+| 0x022a | `0x1435cadd0` / `0x141fa2cb0` | 4 |  | `0x1404658f0` |  |
+| 0x023e | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1404656f0` |  |
+| 0x023f | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140455690` |  |
+| 0x0241 | `0x1435cb230` / `0x141fa69c0` | ≥ 2 | instance 0x242 | `0x1421743b0` |  |
+| 0x0243 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140c1de40` |  |
+| 0x0245 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140c1de40` |  |
+| 0x0247 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x140bcb030` |  |
+| 0x0249 | `0x1435cac30` / `0x141fa3ee0` | 5 |  | `0x1403844d0`, `0x140384840`, `0x1403a5060` |  |
+| 0x024c | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140384390`, `0x1403a92c0`, `0x140c51200` |  |
+| 0x024f | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x1403b42a0` |  |
+| 0x0254 | `0x1435cb170` / `0x141fa3aa0` | 4 |  | `0x140bbbb20` |  |
+| 0x0255 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x140bb8010` |  |
+| 0x0257 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1403b42a0` |  |
+| 0x0259 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140390bc0`, `0x1403927c0`, `0x140398710` +3 |  |
+| 0x025d | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1403a92c0` |  |
+| 0x0260 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140deb800`, `0x142172b40` |  |
+| 0x0264 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140deb790`, `0x1421729c0` |  |
+| 0x0265 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x140c82230` |  |
+| 0x026b | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x1403b2580`, `0x1403b4150`, `0x140b24090` +1 |  |
+| 0x026e | `0x1435ca830` / `0x141fa3bf0` | ≥ 6 |  | `0x1421733d0` | calls the class writer directly |
+| 0x0274 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x1404917d0`, `0x140491c70` |  |
+| 0x0275 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140c8c070` |  |
+| 0x0279 | `0x1435ca630` / `0x141fa3d30` | ≥ 2 |  | `0x1421751b0` |  |
+| 0x027a | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140c96270`, `0x142175260` |  |
+| 0x027d | `0x1435ca850` / `0x141fa3ee0` | 5 | instance 0x23b | `0x1404a18b0`, `0x1404a1a70` |  |
+| 0x027e | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1404b2470` |  |
+| 0x027f | `0x1435ca420` / `0x141fa3fc0` | ≥ 3 |  | `0x1404b2210` |  |
+| 0x0280 | `0x1435ca1b8` / `0x141f9b950` | ≥ 2 |  | `0x140a2e580`, `0x140d59480` |  |
+| 0x0281 | `0x1435caa70` / `0x141fa4140` | ≥ 6 | login 0x2 | `0x142169940` |  |
+| 0x0283 | `0x1435c9fc8` / `0x141fa43e0` | 18 | instance 0x131 | `0x1403170a0`, `0x140321d50` |  |
+| 0x0284 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14061cd90` |  |
+| 0x0288 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14092b940` |  |
+| 0x0289 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x1402e4930` |  |
+| 0x028e | `0x1435c9f88` / `0x141f96e50` | 7 | instance 0xaa, instance 0x8d | `0x140c7b000`, `0x140c93340`, `0x140c93470` +1 |  |
+| 0x028f | `0x1435ca2a0` / `0x141fa49e0` | ≥ 6 |  | `0x142172ca0` |  |
+| 0x0290 | `0x1435caa18` / `0x141fa4ce0` | ≥ 16 |  | `0x140c23b50` |  |
+| 0x0294 | `0x1435cb190` / `0x141fa4ff0` | 18 | instance 0x1f6, instance 0x294 | `0x142172dc0` |  |
+| 0x0296 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140deb6e0`, `0x142166040` |  |
+| 0x0297 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140c284f0` |  |
+| 0x0298 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140c284f0` |  |
+| 0x0299 | `0x1435ca480` / `0x141fa43e0` | 18 |  | `0x1403e2490` |  |
+| 0x029b | `0x1435cb0a8` / `0x141f98f90` | 10 | instance 0x29c | `0x1403d7d70` |  |
+| 0x029d | `0x1435caf18` / `0x141fa52d0` | 20 |  | `0x142173fa0` |  |
+| 0x029e | `0x1435ca790` / `0x141fa5510` | 28 |  | `0x1402d03f0` |  |
+| 0x029f | `0x1435ca440` / `0x141fa57e0` | 25 |  | `0x1402d03f0` |  |
+| 0x02a1 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14011b890`, `0x14011bd20` |  |
+| 0x02a3 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140bca390` |  |
+| 0x02a4 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x1415b5800` |  |
+| 0x02a5 | `0x1435c9fe8` / `0x141fa5c10` | ≥ 20 |  | `0x1405dd270` |  |
+| 0x02a6 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140da8cb0` |  |
+| 0x02a7 | `0x1435ca048` / `0x141fa5e60` | ≥ 3 | login 0x43 | `0x1407c6330` |  |
+| 0x02a8 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x1407c7500`, `0x1407cacf0` |  |
+| 0x02ac | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140b001a0` |  |
+| 0x02b0 | `0x1435ca240` / `0x141f9c880` | 12 |  | `0x140b3eb00` |  |
+| 0x02b1 | `0x1435ca690` / `0x141f9a380` | 4 |  | `0x140c40b80` |  |
+| 0x02c4 | `0x1435cae10` / `0x141fa8cb0` | ≥ 8 |  | `0x142174eb0` |  |
+| 0x02ca | `0x1435cb1d0` / `0x141fa7c10` | ≥ 3 |  | `0x1421a1960` |  |
+| 0x02cd | `0x1435cabb0` / `0x141fa6480` | ≥ 4 |  | `0x14214efe0` |  |
+| 0x02ce | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1400f55e0` |  |
+| 0x02d0 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x1403cc9a0` |  |
+| 0x02d1 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x1403cc9a0` |  |
+| 0x02d3 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1403cacf0` |  |
+| 0x02d5 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140756560` |  |
+| 0x02d6 | `0x1435ca870` / `0x141f99580` | 7 | instance 0x1f, instance 0x163 | `0x140c93610` |  |
+| 0x02e8 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140b91400` |  |
+| 0x02ea | `0x1435c9fc8` / `0x141fa43e0` | 18 | instance 0x131 | `0x140b92f50`, `0x140b93400` |  |
+| 0x02eb | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140b93650` |  |
+| 0x02ed | `0x1435c9f68` / `0x141f9f660` | 11 |  | `0x140b93760` |  |
+| 0x02f0 | `0x1435cb0a8` / `0x141f98f90` | 10 | instance 0x29c | `0x140b91580` |  |
+| 0x02f1 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140b8d3b0`, `0x140b8d760`, `0x140b91580` |  |
+| 0x02f6 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140b91580` |  |
+| 0x02fc | `0x1435cabf0` / `0x141fa62c0` | ≥ 4 | instance 0x282, login 0x41 | `0x1400f5380` |  |
+| 0x02fd | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x1413f9440` |  |
 
 ## Login connection (u16 id, `login+0xdd0`; fields in [../re/009-login-messages.md](../re/009-login-messages.md))
 
@@ -396,34 +398,34 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 
 | Id | Class / writer | Length | S→C class | Senders | Notes |
 |---|---|---|---|---|---|
-| 0x01 | inline |  |  | `0x14213e210` | keepalive, id only, every 10 s (its this is the login object's +8 base, so the stream is +0xdc8) |
-| 0x02 | `0x1435c0038` / `0x141f9d710` | ≥ 6 | login 0x2 | `0x14213e610` |  |
-| 0x03 | `0x1435d8b88` / `0x14213c660` | ≥ 108 |  | `0x14213ea10` | also 0x140d05f70 |
-| 0x05 | `0x1435d8b30` / `0x14213c1c0` | ≥ 70 |  | `0x14213eda0` |  |
-| 0x06 | `0x1435d8ae8` / `0x14213bf60` | ≥ 70 |  | `0x14213eba0` |  |
-| 0x07 | `0x1435d8ae8` / `0x14213bf60` | ≥ 70 |  | `0x14213ef90` |  |
-| 0x08 | inline |  |  | `0x140d60410` | u32, raw64; through *(global+0x350)+0xdd0, not the login object *(global+0x358) |
-| 0x0a | `0x1435d8aa0` / `0x14213c9f0` | 66 |  | `0x140cf3150` |  |
-| 0x0c | `0x1435bfcd8` / `0x141f950c0` | ≥ 3 | instance 0x157 | `0x140cfafa0` |  |
-| 0x0e | `0x1435c0898` / `0x141f92c90` | 7 | instance 0xc1 | `0x1421406f0` |  |
-| 0x12 | `0x1435d8b10` / `0x14213cb50` | ≥ 42 |  | `0x142140490` |  |
-| 0x18 | inline |  |  | `0x140d13060` |  |
-| 0x19 | inline |  |  | `0x140d166a0` |  |
-| 0x1c | inline |  |  | `0x142140a80` | u16, u16 |
-| 0x21 | inline |  |  | `0x140d285d0` |  |
-| 0x22 | `0x1435d8ac8` / `0x14213ce00` | 7 |  | `0x142140b40` |  |
-| 0x23 | inline |  |  | `0x140d268b0` |  |
-| 0x2a | inline |  |  | `0x140d26780` | wstr, u8 |
-| 0x2b | inline |  |  | `0x140d26650` | wstr, u8 |
-| 0x2c | `0x1435d8a80` / `0x14213c4e0` | ≥ 5 |  | `0x140d01a60` |  |
-| 0x39 | inline |  |  | `0x140d264b0` |  |
-| 0x3a | inline |  |  | `0x140d08c80` | u8; also 0x140d08de0 |
-| 0x3d | `0x1435d8b68` / `0x14213cee0` | ≥ 3 |  | `0x142140890` |  |
-| 0x3f | inline |  |  | `0x142140d70` | wstr |
-| 0x40 | inline |  |  | `0x142140e60` | wstr |
-| 0x42 | inline |  |  | `0x142140810` | u8 |
-| 0x45 | inline |  |  | `0x1400f50f0` | blob16 string; the same function sends instance 0x2fa when in an instance |
-| 0x46 | inline |  |  | `0x140d14690` | u32 (0) |
+| 0x01 | inline |  |  | `0x142144b60` | keepalive, id only, every 10 s (its this is the login object's +8 base, so the stream is +0xdc8) |
+| 0x02 | `0x1435caa70` / `0x141fa4140` | ≥ 6 | login 0x2 | `0x142144f60` |  |
+| 0x03 | `0x1435e3658` / `0x142142fb0` | ≥ 108 |  | `0x142145360` | also 0x140d060a0 |
+| 0x05 | `0x1435e3568` / `0x142142b10` | ≥ 70 |  | `0x1421456f0` |  |
+| 0x06 | `0x1435e3540` / `0x1421428b0` | ≥ 70 |  | `0x1421454f0` |  |
+| 0x07 | `0x1435e3540` / `0x1421428b0` | ≥ 70 |  | `0x1421458e0` |  |
+| 0x08 | inline |  |  | `0x140d5db80` | u32, raw64; through *(global+0x350)+0xdd0, not the login object *(global+0x358) |
+| 0x0a | `0x1435e3630` / `0x142143340` | 66 |  | `0x140cf30c0` |  |
+| 0x0c | `0x1435ca710` / `0x141f9baf0` | ≥ 3 | instance 0x157 | `0x140cfaf60` |  |
+| 0x0e | `0x1435cb2d0` / `0x141f99580` | 7 | instance 0xc1 | `0x142147040` |  |
+| 0x12 | `0x1435e35c0` / `0x1421434a0` | ≥ 42 |  | `0x142146de0` |  |
+| 0x18 | inline |  |  | `0x140d13090` |  |
+| 0x19 | inline |  |  | `0x140d166d0` |  |
+| 0x1c | inline |  |  | `0x1421473d0` | u16, u16 |
+| 0x21 | inline |  |  | `0x140d291c0` |  |
+| 0x22 | `0x1435e3520` / `0x142143750` | 7 |  | `0x142147490` |  |
+| 0x23 | inline |  |  | `0x140d27220` |  |
+| 0x2a | inline |  |  | `0x140d270f0` | wstr, u8 |
+| 0x2b | inline |  |  | `0x140d26fc0` | wstr, u8 |
+| 0x2c | `0x1435e3610` / `0x142142e30` | ≥ 5 |  | `0x140d01b40` |  |
+| 0x39 | inline |  |  | `0x140d26e20` |  |
+| 0x3a | inline |  |  | `0x140d08cb0` | u8; also 0x140d08e10 |
+| 0x3d | `0x1435e35a0` / `0x142143830` | ≥ 3 |  | `0x1421471e0` |  |
+| 0x3f | inline |  |  | `0x1421476c0` | wstr |
+| 0x40 | inline |  |  | `0x1421477b0` | wstr |
+| 0x42 | inline |  |  | `0x142147160` | u8 |
+| 0x45 | inline |  |  | `0x1400f5380` | blob16 string; the same function sends instance 0x2fc when in an instance |
+| 0x46 | inline |  |  | `0x140d146c0` | u32 (0) |
 
 ## Patch connection (u8 id, `patch+0x60`)
 
@@ -431,7 +433,7 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 
 | Id | Class / writer | Length | S→C class | Senders | Notes |
 |---|---|---|---|---|---|
-| 0x01 | `0x14363ea68` / `0x1429a4e50` | 2 |  | `0x1428e9f40` | u8 id, u8 (7) |
-| 0x03 | `0x14363eae8` / `0x1429a4f80` | ≥ 1 | patch 0x6 | `0x1428ea9d0` | u8 id, wstr; also 0x1428eade0 (ctor 0x1428e8320). The class is S→C 0x6's |
-| 0x05 | `0x14363eb08` / `0x1429a4e20` | 1 |  | `0x1428eade0` | u8 id only, sent from two places |
-| 0x08 | `0x14363e9e0` / `0x1429a54a0` | ≥ 3 | patch 0xa | `0x1428eade0` | u8 id, u16 length, bytes. The class is S→C 0xa's |
+| 0x01 | `0x143649780` / `0x1429ae1b0` | 2 |  | `0x1428f2390` | u8 id, u8 (7) |
+| 0x03 | `0x1436495e0` / `0x1429ae2e0` | ≥ 1 | patch 0x6 | `0x1428f2e20` | u8 id, wstr; also 0x1428f3230 (ctor 0x1428f0770). The class is S→C 0x6's |
+| 0x05 | `0x143649630` / `0x1429ae180` | 1 |  | `0x1428f3230` | u8 id only, sent from two places |
+| 0x08 | `0x1436496f8` / `0x1429ae800` | ≥ 3 | patch 0xa | `0x1428f3230` | u8 id, u16 length, bytes. The class is S→C 0xa's |

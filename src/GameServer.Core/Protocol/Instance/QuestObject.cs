@@ -9,9 +9,9 @@ namespace GameServer.Core.Protocol.Instance;
 /// <item>Positioned: x, y, rotation, u16, flags0 (0x04: a fixed height, i32 steps of 7.8125 and f32 z, as a tile record
 /// gives it), flags1 0x02 with hidden 0 / shown 1 (the Glyph Wall, the Rhoa Nests);</item>
 /// <item>Animated: 0 (the type's own model) or 1 and a u32-counted UTF-16 .ao path (a tile record's virtual model);</item>
-/// <item>Transitionable (0x1421c24b0): u8 state, 1 … num_states (0 is invalid: it crashed the client);</item>
-/// <item>Chest (0x141e138b0): u8 opened (bit 0), u8, u8; Stats and ObjectMagicProperties as an area transition's;</item>
-/// <item>TriggerableBlockage (0x141e44290): u8 blocked, and only while blocked a u8 count (0 here);</item>
+/// <item>Transitionable (0x1421c8e20): u8 state, 1 … num_states (0 is invalid: it crashed the client);</item>
+/// <item>Chest (0x141e16f10): u8 opened (bit 0), u8, u8; Stats and ObjectMagicProperties as an area transition's;</item>
+/// <item>TriggerableBlockage (0x141e47880): u8 blocked, and only while blocked a u8 count (0 here);</item>
 /// <item>NPC: has dialogue 0, no component that must be alive (0xff), as a boss that speaks;</item>
 /// <item>InteractionAction, MinimapIcon: one flags byte, 0; BaseEvents: nothing.</item>
 /// </list>
@@ -27,7 +27,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     public static bool CanSerialize(IReadOnlyList<string> components) =>
         components.Count > 0 && components[0] == "Positioned" && components.All(Supported.Contains);
 
-    /// <summary>The index of the Transitionable component (for 0x2ba updates), or −1.</summary>
+    /// <summary>The index of the Transitionable component (for 0x2bc updates), or −1.</summary>
     public static int TransitionableIndex(IReadOnlyList<string> components) => components.ToList().IndexOf("Transitionable");
 
     public byte[] Blob()

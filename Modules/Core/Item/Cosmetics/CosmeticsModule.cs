@@ -81,7 +81,7 @@ static class CosmeticsFeature
         }
         Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key} (gem 0x{slot.GemHash:x8}, slot type {slot.SlotType}), " +
             $"record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}, stats {string.Join(", ", (record is null ? null : MtxEffects.Of(record.MtxTypeHash))?.Stats.Select(st => $"{Stats.Name(st.Stat)} {st.Value}") ?? [])})");
-        CharacterSaves.SetSkillCosmetic(CharacterName(conn), slot.GemHash, slot.SlotType, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, 0));
+        CharacterSaves.SetSkillCosmetic(CharacterName(conn), slot.GemHash, slot.SlotType, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, 0, record.MtxTypeHash));
         await SendWornCosmetics(remote, stream, ciphers, conn, "after the skill pick");
         await SendSkills(remote, stream, ciphers, conn);
         // A Righteous Fire already burning from this gem takes the new art at once: casting again while it burns does
@@ -102,7 +102,7 @@ static class CosmeticsFeature
         }
         Console.WriteLine($"[gateway] {remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}), option {pick.Option}");
         string character = CharacterName(conn);
-        CharacterSaves.SetCosmetic(character, pick.Slot, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, pick.Option));
+        CharacterSaves.SetCosmetic(character, pick.Slot, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, pick.Option, record.MtxTypeHash));
         conn.WornCosmetics = null;
         if (pick.Slot == InstanceMicrotransactions.PortalSlot)
         {
@@ -119,7 +119,7 @@ static class CosmeticsFeature
         if (pick.Slot == PortraitSlot)
         {
             ushort portrait = WornPortrait(conn);
-            await Send(remote, stream, ciphers, InstanceEntities.PlayerPortraitUpdate(PlayerId, portrait), $"0x02ba player portrait {portrait}");
+            await Send(remote, stream, ciphers, InstanceEntities.PlayerPortraitUpdate(PlayerId, portrait), $"0x02bc player portrait {portrait}");
             // The character screen's list comes from Auth's account store.
             var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait", Ticket = conn.Ticket, Portrait = portrait });
             if (!told.Ok) Console.WriteLine($"[gateway] {remote} set_portrait {portrait}: {told.Error}");
@@ -127,7 +127,7 @@ static class CosmeticsFeature
         if (pick.Slot == SocialFrameSlot)
         {
             // Unlike the portrait this is not sent to the client now: the frame applies at the next login, as the line the
-            // client prints for the pick says (0x140cdc9c0).
+            // client prints for the pick says (0x140cdd510).
             ushort frame = WornFrame(conn);
             var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait_frame", Ticket = conn.Ticket, PortraitFrame = frame });
             if (!told.Ok) Console.WriteLine($"[gateway] {remote} set_portrait_frame {frame}: {told.Error}");
@@ -156,7 +156,7 @@ static class CosmeticsFeature
             uint id = conn.NextObjectId++;
             var pet = new PetObject(x, y, PlayerId, fx.PetComponents, fx.PetStates);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
-                $"0x02b9 create pet 0x{id:x} {type} at ({x}, {y})");
+                $"0x02bb create pet 0x{id:x} {type} at ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
             lock (conn.Pets) conn.Pets[id] = new SpawnedPet(conn.NewWalk(x, y, conn.Walk.Speed), worn.Slot == 18 ? 1 : -1);
         }

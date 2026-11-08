@@ -348,9 +348,9 @@ static class AreaTransitionCatalog
                         Type: Resolve(o.Type, what, notes))
                     {
                         SourceType = o.Type, QuestSource = e.Enabled || openDisabled ? null : GateSourceOf(areaId, to.Id),
-                        LayoutDisabled = !e.Enabled && openDisabled,
+                        LayoutDisabled = !e.Enabled && openDisabled, Entrance = e.Number,
                     });
-                    notes.Add($"{what} → {to.Id} (entrance{e.Number}{(e.Enabled ? "" : openDisabled ? "disabled, open: Izaro's way on" : "disabled, gated by a quest")}, {e.Why})");
+                    notes.Add($"{what} → {to.Id} (entrance{e.Number}{(e.Enabled ? "" : openDisabled ? "disabled, shown once Izaro's trial is won" : "disabled, gated by a quest")}, {e.Why})");
                     break;
                 case ExitKind.Teleport when e.Target is { } target:
                     // A Teleport (type 1) labelled with its ClientStrings key; "%areaname%" (or no key) shows the area's name.
@@ -372,7 +372,7 @@ static class AreaTransitionCatalog
             if (!p.Enabled || connections.FirstOrDefault(c => c.Index == p.Number) is not { } to) continue;
             if (exits.Any(e => e.Kind == ExitKind.Entrance && e.Enabled && e.Number == p.Number)) continue;
             if (placed.Any(t => t.DestinationHash16 == to.Hash16 && t.TeleportTo is null)) continue;
-            placed.Add(new AreaTransitionObject(p.X, p.Y, to.Hash16));
+            placed.Add(new AreaTransitionObject(p.X, p.Y, to.Hash16) { Entrance = p.Number });
             notes.Add($"entrance{p.Number} → {to.Id} at its point ({p.X}, {p.Y}): no object of its own, an exit without a model");
         }
         return placed;
@@ -430,7 +430,7 @@ static class AreaTransitionCatalog
     /// live 2026-10-18, The Mud Flats' Metadata/QuestObjects/WaterCave/WaterCaveAreaTransition (adds Transitionable)
     /// is read with only AreaTransition's components, so a Transitionable byte in the blob became the task count
     /// (Buffer Underflow), and without it the component kept state 0 and its post-create event crashed the client
-    /// (0x141ded7b9, as for monsters sent state 0). How the real server sets that state is open (08 §5).</summary>
+    /// (0x141df0e19, as for monsters sent state 0). How the real server sets that state is open (08 §5).</summary>
     static string Resolve(string? type, string what, List<string> notes)
     {
         if (type is null or AreaTransitionObject.MetadataPath) return AreaTransitionObject.MetadataPath;
@@ -575,7 +575,7 @@ sealed record TransitionEffect(string Type, string Model, int X, int Y, float Ro
     /// plays state 2 on the first arrival is not captured.</summary>
     public const byte State = 3;
 
-    /// <summary>The 0x2b9 blob: Positioned (the record's height), Animated (the type's model), Transitionable (u8 state),
+    /// <summary>The 0x2bb blob: Positioned (the record's height), Animated (the type's model), Transitionable (u8 state),
     /// tasks; BaseEvents writes nothing (as the a1q4 waterfall's).</summary>
     public byte[] Blob()
     {

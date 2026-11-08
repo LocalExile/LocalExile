@@ -8,7 +8,7 @@ window's options come from the client itself (NPCTalk); choosing one is not hand
 sequenceDiagram
     participant C as Client
     participant G as Gateway
-    G->>C: 0x2b9 create NPC (type = NPCs.dat Id), 0x1a9 wake zone
+    G->>C: 0x2bb create NPC (type = NPCs.dat Id), 0x1a9 wake zone
     C->>G: 0x24 on the NPC (skill 0x0266, as for the waypoint)
     Note over C,G: the client walks into range
     G->>C: 0x84 NPC object id, 0xff
@@ -18,7 +18,7 @@ sequenceDiagram
 
 ## 1. The NPC object
 
-An NPCs.dat row's `Id` (`Metadata/NPC/Act1/Tarkleigh`) is an .ot type, created with S→C 0x2b9 like any object
+An NPCs.dat row's `Id` (`Metadata/NPC/Act1/Tarkleigh`) is an .ot type, created with S→C 0x2bb like any object
 (type = `ObjectTypeHash(Id)`). `Metadata/NPC/NPC.ot`: Positioned (`object_size = 5`, blocking), Animated, BaseEvents
 (`server_only`), InteractionAction, NPC, MinimapIcon (`icon = 3`), client Render (`ObjectDisplayTextNPC`) + Targetable.
 The child .ot only sets its `animated_object`.
@@ -32,12 +32,12 @@ few ControlZone, Functions, Stats or Brackets (not written yet).
 | Animated | `00` (the type supplies the model) |
 | BaseEvents | nothing |
 | InteractionAction | `00` |
-| NPC | two u8 (slot 17 `0x141e75050`): `+0x20` has dialogue (`0x141e76d40` lists NPCTalk rows only when set), `+0x21` index of a component that must be alive, `0xff` none. Sent `01 ff` |
+| NPC | two u8 (slot 17 `0x141e7b6e0`): `+0x20` has dialogue (`0x141e7d430` lists NPCTalk rows only when set), `+0x21` index of a component that must be alive, `0xff` none. Sent `01 ff` |
 | MinimapIcon | `00` |
 | Transitionable, StateMachine | as for monsters |
 
-The NPC component's debug dump (`0x141e751d0`) prints the NPC and the NPCTalk row the client picks for the player
-(`0x141e76d40`): the client chooses the dialogue itself.
+The NPC component's debug dump (`0x141e7b860`) prints the NPC and the NPCTalk row the client picks for the player
+(`0x141e7d430`): the client chooses the dialogue itself.
 
 Bosses that speak have an NPC component too, after their Transitionable (Captain Fairgraves' `SkeletonBossEmerge`,
 Merveil, the Siren's `seawitchillusion/Merveil`; Piety, General Gravicius and the Sceptre of God's three lieutenants,
@@ -104,7 +104,7 @@ by the same amount.
 - **Types without an .ot.** Half of the NPCs.dat Ids have no .ot of their own (`Metadata/NPC/Act6/Tarkleigh`,
   `Act9/Irasha`, `Epilogue/Lilly` …). The object-type register's 0xac-byte table ([04](04-player-entity.md) §1) is
   NPCs.dat: it files every row under its Id on the .ot of its `Metadata` column (row +0x10; Act 6's Tarkleigh on
-  `Metadata/NPC/Act1/Tarkleigh`, Irasha on `Metadata/NPC/NPC`). So 0x2b9 still uses `ObjectTypeHash(Id)`, and the
+  `Metadata/NPC/Act1/Tarkleigh`, Irasha on `Metadata/NPC/NPC`). So 0x2bb still uses `ObjectTypeHash(Id)`, and the
   Gateway takes the components of the Metadata .ot (`NpcCatalog`).
 - **Model.** A line's .ao is sent in Animated (bit0 + path) when the type has none (Irasha, Act 6's Lilly) or another
   one (Weylam's `Act6/RotTooth.ao` instead of `Act7/Weylam.ao`, Lilly's poses `Act5/Lilly.ao` / `Act6/LillySitting.ao`,
@@ -152,19 +152,19 @@ and then answers with 0x84.
 
 ### S→C 0x84: open the dialogue (13 bytes)
 
-World group, class `0x1435dd7d8`, read `0x141fddcb0`: the object header (u16 id, u32 BE object id → `+0x10`, u32, u16),
-then u8 → `+0x20`. The world handler `0x142187480` calls `0x142149db0(instance, object id, u8)`:
+World group, class `0x1435e84d8`, read `0x141fe44d0`: the object header (u16 id, u32 BE object id → `+0x10`, u32, u16),
+then u8 → `+0x20`. The world handler `0x14218ddf0` calls `0x142150700(instance, object id, u8)`:
 
 - object id 0: closes the dialogue (clears instance `+0xd7c0`).
 - u8 `0xff`: sets instance `+0xd7c4`/`+0xd7c8` to the NPC and fires the listeners at instance `+0x13f8` →
-  `0x140dcc720` (in-game UI, registered by `0x140dbcd40`) → `0x14071f6d0` → `0x140723d60` (NPCDialogueWindow setup).
+  `0x140dc9fb0` (in-game UI, registered by `0x140dba5d0`) → `0x140720d10` → `0x1407253a0` (NPCDialogueWindow setup).
 - other values: another path that looks at the NPC component's data (`+0x66`), not mapped.
 
 ### S→C 0x1c7: a line (22 bytes)
 
-World group, class `0x1435dd898`, read `0x1421c55b0`: the object header (u32 BE object id → `+0x10`), u16 BE NPCs row
+World group, class `0x1435e82d8`, read `0x1421cbf20`: the object header (u32 BE object id → `+0x10`), u16 BE NPCs row
 (`+0x20`, the speaker), u16 BE NPCTextAudio row (`+0x22`), u32 BE delay in ms (`+0x24`), u8 (`+0x28`), u8 bool
-(`+0x2c`). The world handler `0x142187480` says the line (subtitle and voice): object 0 globally (world vtable `+0x208`),
+(`+0x2c`). The world handler `0x14218ddf0` says the line (subtitle and voice): object 0 globally (world vtable `+0x208`),
 else from that object, kept for the delay while the client does not know it yet. Verified 2026-11-07 with Izaro's lines
 (NPCs 147), the last two bytes 0. For a row of a "…1 … …8" group the client may say another of the group (sent
 `IzaroFlee1`, it said `IzaroFlee7`'s text).
@@ -175,7 +175,7 @@ Id only. Live 2026-10-19 it came after every opened dialogue, when the window cl
 
 ### C→S 0x82: option (3 bytes)
 
-u8 = the chosen NPCTalk row's index among the NPC's rows (column 1). The client (`0x140722960`) handles NPCTalkCategory 5
+u8 = the chosen NPCTalk row's index among the NPC's rows (column 1). The client (`0x140723fa0`) handles NPCTalkCategory 5
 (Topic), 0x19 and 0x26 itself and sends 0x82 for the others. The Gateway answers by category:
 
 | Category | Answer |
@@ -183,8 +183,8 @@ u8 = the chosen NPCTalk row's index among the NPC's rows (column 1). The client 
 | Gossip, Quests, QuestReward | S→C 0x84 with the index: the window plays the row's text and audio (verified) |
 | BuyItems | shop tab (S→C 0xc0, manager 1) + S→C 0x8c (verified: the buy window shows the stock) |
 | SellItems | two offer inventories (0xc0, manager 1) + S→C 0xb8 (verified: drops, Ctrl + click, Accept, Cancel; §5) |
-| RespecPassivePointsForGold | S→C 0x7b kind 0x5f with 1: the character's passive tree (UI +0x650, listener 0x140dc8750; a non-zero u32 shows it in mode 2, `0x1409de680`), the script's `SendOpenScreen( CharacterPassiveTreeScreen, 1 )`. Not kind 0x11 (Atlas tree, UI +0x668) or 0x45 (UI +0x678). "Apply refunds" (C→S 0x36 per node) and "Refund All" (0x37) are paid in gold ([15](15-progression.md) §2) |
-| IdentifyItems | script `triggerer.IdentifyItems()`: every unidentified item with mods in the main inventory becomes identified, free (0xbf removes and re-adds the same ids), then a chat line "{0} Items identified" / "{0} Item identified" (ClientStrings `IdentifyItemsChatMessage(Single)`, S→C 0x17, [10](10-chat-and-commands.md) §2) and 0x84 0xff to list the options again (verified 2026-10-20). The client grays the option itself (`0x141e754b0` case 0x3b: no unidentified item in the inventory → ClientStrings id 0x1f07 "No items in your inventory can be identified", drawn gray by `0x14071e8d0`), but only when the options are listed. The real game probably charges Scrolls of Wisdom (ClientStrings `IdentifyItemsNotEnoughScrollsOfWisdom`); ours is free. The IdentifyAll sound effect is not sent |
+| RespecPassivePointsForGold | S→C 0x7b kind 0x5f with 1: the character's passive tree (UI +0x650, listener 0x140dc5fe0; a non-zero u32 shows it in mode 2, `0x1409df890`), the script's `SendOpenScreen( CharacterPassiveTreeScreen, 1 )`. Not kind 0x11 (Atlas tree, UI +0x668) or 0x45 (UI +0x678). "Apply refunds" (C→S 0x36 per node) and "Refund All" (0x37) are paid in gold ([15](15-progression.md) §2) |
+| IdentifyItems | script `triggerer.IdentifyItems()`: every unidentified item with mods in the main inventory becomes identified, free (0xbf removes and re-adds the same ids), then a chat line "{0} Items identified" / "{0} Item identified" (ClientStrings `IdentifyItemsChatMessage(Single)`, S→C 0x17, [10](10-chat-and-commands.md) §2) and 0x84 0xff to list the options again (verified 2026-10-20). The client grays the option itself (`0x141e7bb90` case 0x3b: no unidentified item in the inventory → ClientStrings id 0x1f07 "No items in your inventory can be identified", drawn gray by `0x14071ff10`), but only when the options are listed. The real game probably charges Scrolls of Wisdom (ClientStrings `IdentifyItemsNotEnoughScrollsOfWisdom`); ours is free. The IdentifyAll sound effect is not sent |
 
 C→S 0x85 during a talk = Continue → next eligible automatic quest talk, or 0x84 0xff (options);
 otherwise the Gateway answers 0x84 with object 0,
@@ -197,11 +197,11 @@ on those clicks. Ordinary clicks and Continue now execute eligible unstarted int
 the shared quest path, after explicit script continuation/termination. Per-interaction visited rows prevent loops;
 saved start flags prevent replay after reconnect. Eligible reward rows use the existing reward handler at the
 same selection point, preserving its class-filtered inventory, prerequisite checks and atomic claim handling.
-Native selector `0x141e76d40` checks availability, start flag `+0x54`, automatic eligibility `+0x160`
+Native selector `0x141e7d430` checks availability, start flag `+0x54`, automatic eligibility `+0x160`
 (NPCTalk `__col33`) and greatest priority `+0x161` (`__col34`), keeping the first row on ties.
 The introduction marker is `__col13`; heard introductions are skipped using their start flag.
 Initial clicks and Continue share this selector: introductions have no separate priority override.
-Availability `0x141e754b0` also checks context selectors `+0x124/+0x138`, class list `+0x128`,
+Availability `0x141e7bb90` also checks context selectors `+0x124/+0x138`, class list `+0x128`,
 minimum level `+0x14c`, league lists `+0xbe/+0xd2` and item/special predicates.
 Automatic quest selection conservatively accepts only rows with empty extra lists, null item/flag conditions,
 zero minimum level and native neutral context/league selectors (60 / `0x777`). Other rows retain manual selection.
@@ -215,7 +215,7 @@ A row's `Script` / `Script2` (NPCTalk columns) can do more than set flags. The G
 | Call | When | What the Gateway does |
 |---|---|---|
 | `SetQuestFlag(f)`, `ClearQuestFlag(f)`, `SetSessionQuestFlag(f)` | on choosing | the flags ([12](12-quests.md) §5); a session flag (SessionQuestFlags.dat) is never saved and is gone on the next area |
-| `DirtyTransition();` (top level) | on choosing | the NPC's own Transitionable steps one state on (S→C 0x2ba; Dialla at the Rapture Device withers, 534) |
+| `DirtyTransition();` (top level) | on choosing | the NPC's own Transitionable steps one state on (S→C 0x2bc; Dialla at the Rapture Device withers, 534) |
 | `ForEachOfType("<type>", { DirtyTransition(); })`, `ForEachInRange(r, { IfType("<type>", { Transition(); }) })` | on choosing | every object of the type steps on: NPCs, the quest objects the engine created, and area transitions of that tile type its quest flag still hides are shown on this instance (Dialla's 521 opens `AscentTransition`; the row's own flag keeps it open, `On.Exit`) |
 | `DoNPCChat(n)` | when the talk ends (0x85 Continue) | the NPC's option `n` plays next (0x84 with its index), with its own flags and script: talks in pages (Sin's "Kitava" 882 → 883 → 884) |
 | `FinishNPCChat()` | when the talk ends (at once for a row without text) | the dialogue closes (0x84 object 0) instead of listing the options again |
@@ -226,10 +226,10 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
 
 ## 5. Shops
 
-- **S→C 0x8c** (read `0x1421a1f60`): u32 BE NPC, u16 BE window kind (0 = buy), u8, u16 n + n × u32 BE inventory ids (one tab
-  each, looked up in inventory manager 1, instance +0xca10, `0x14216aa30`), u16 m + m × (compact uint, wstr name, u8)
-  tab names. Listener `0x140dcccf0` → VendorBuy (UI +0x7b8, vtable `0x1431356b8`, +0x380 = `0x14073d570`).
-- **C→S 0x88** (write `0x141f95380`): u32 BE shop item, u32 BE destination inventory (masked like 0x28's), u8 x, u8 y,
+- **S→C 0x8c** (read `0x1421a88d0`): u32 BE NPC, u16 BE window kind (0 = buy), u8, u16 n + n × u32 BE inventory ids (one tab
+  each, looked up in inventory manager 1, instance +0xca10, `0x1421713e0`), u16 m + m × (compact uint, wstr name, u8)
+  tab names. Listener `0x140dca580` → VendorBuy (UI +0x7b8, vtable `0x14313f658`, +0x380 = `0x14073ef50`).
+- **C→S 0x88** (write `0x141f9bdb0`): u32 BE shop item, u32 BE destination inventory (masked like 0x28's), u8 x, u8 y,
   u8, u8 flags, compact uint. The Gateway moves the item (0xbf on the tab, manager 1, and on the inventory) and takes the
   price from the main inventory's stacks and then the stash's (any tab, as 3.29 vendors do), in one transaction. Not
   enough: nothing happens, no message (the client shows the price in red itself, below). The client counts only the
@@ -255,35 +255,35 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   Awakened stock restores disabled rows; exceptional stock uses GemTags, excluding awakened rows.
   Maps use generic tier keys and Nightmare Map; Originator Maps carry `MapZanaInfluenced`.
   Unique maps have catalogue identities; full unique modifiers and unique-area routing remain incomplete.
-- **Custom tab protocol**: development tabs fill row by row. 0x8c's u16 is the window kind (`0x14073ee60`, +0x5f0), not an NPCShop row: 0 buy, 1-4 haggle,
+- **Custom tab protocol**: development tabs fill row by row. 0x8c's u16 is the window kind (`0x140740840`, +0x5f0), not an NPCShop row: 0 buy, 1-4 haggle,
   deal, exchange and expedition, 9 Azmeri, 10 black market, 11 unset; the Gateway sends 0. The window is chosen by the
-  NPC's DialogueStyle (`0x14072b160`: not LEGACY → UI +0x7b8), not by the u8. The u8 is the async trade mode (title
-  "Merchant", 78 more height, a report popup on the tabs; `0x14073d570`, `0x14073fdd0`); the Gateway sends 0. A tab's
+  NPC's DialogueStyle (`0x14072c7a0`: not LEGACY → UI +0x7b8), not by the u8. The u8 is the async trade mode (title
+  "Merchant", 78 more height, a report popup on the tabs; `0x14073ef50`, `0x1407417b0`); the Gateway sends 0. A tab's
   compact value is its colour, not an index (+0x24: ARGB, 0 the default brown; a small number has alpha 0, which drew no
   tab background). Tabs have 11 rows: 12 pushed the tab bar over the "Purchase" title (live 2026-10-31). The window's own
-  "Select Items To Buy" (`0x14073bee0`) stays visible behind the first tabs; no server value removes it.
+  "Select Items To Buy" (`0x14073d8c0`) stays visible behind the first tabs; no server value removes it.
 
-- **Sell**: S→C 0xb8 (write `0x141d6acc0`): u32 BE other party (0 = NPC sale → VendorSell, UI +0x7c8), u32 BE your offer,
-  u32 BE their offer (both manager-1 inventories, grids `0x140317440` / `0x140c605f0`), u8 flags, wstr name, u32 BE
+- **Sell**: S→C 0xb8 (write `0x141d6e350`): u32 BE other party (0 = NPC sale → VendorSell, UI +0x7c8), u32 BE your offer,
+  u32 BE their offer (both manager-1 inventories, grids `0x1403179d0` / `0x140c5e410`), u8 flags, wstr name, u32 BE
   NPCs row, u16, u32 BE TradeWindowVisuals row, u16 (+0x54, shown as an error text when set), u16. The offer grids
   must use an Inventories.dat row that accepts items (row 83 refused every drop; row 0 now). C→S 0xb1 (u32, u8): Cancel
   sent u8 0; Accept assumed u8 1. S→C 0xb9 (u32, u8 accepted) closes the window. The NPC offer is calculated by VendorRecipes from the complete ingredient set; see 24-vendor-recipes.md.
-- **0xb8 flags** (struct +0x50): bit 0 (0x01) = the active trade: the UI state's listener `0x140d62ec0` keeps the first
+- **0xb8 flags** (struct +0x50): bit 0 (0x01) = the active trade: the UI state's listener `0x140d60630` keeps the first
   u32 (struct +0x08, the other party; 0 for an NPC sale) at +0x984 and sets +0x988 = 1. Ctrl + click on an inventory item
-  (`0x14030e3e0`, from the grid click handler `0x1402ddbc0` through the grid's vtable +0x4d0) sends 0xb2 only when that
-  is set (branch at `0x14030e4dd`); without it the click runs through the other panels' checks and sends nothing. S→C
-  0xb9 with the same id clears it (`0x140d62e90`). Bit 4 (0x10) drops the "Mouse over each item to enable accept" rule
-  (`0x140c37140`). The Gateway sends 0x11.
-- **C→S 0xb2** (16 bytes, write `0x141f95b40`): an item into "Your Offer": u32 BE source inventory (13 = cursor),
+  (`0x14030e970`, from the grid click handler `0x1402de150` through the grid's vtable +0x4d0) sends 0xb2 only when that
+  is set (branch at `0x14030ea6d`); without it the click runs through the other panels' checks and sends nothing. S→C
+  0xb9 with the same id clears it (`0x140d60600`). Bit 4 (0x10) drops the "Mouse over each item to enable accept" rule
+  (`0x140c372c0`). The Gateway sends 0x11.
+- **C→S 0xb2** (16 bytes, write `0x141f9c570`): an item into "Your Offer": u32 BE source inventory (13 = cursor),
   u32 BE item id, u16, u8 x, u8 y, u16 (changes per request). Ctrl + click sends the item's own inventory with
-  x = y = 0xff (`0x142166660`): the Gateway puts it in the offer's first free cell, scanned like a pickup into the
-  inventory (column by column from the top left). **C→S 0xb3** (12 bytes, `0x142166750`): u32 BE item id, u32 BE grid
+  x = y = 0xff (`0x14216d010`): the Gateway puts it in the offer's first free cell, scanned like a pickup into the
+  inventory (column by column from the top left). **C→S 0xb3** (12 bytes, `0x14216d100`): u32 BE item id, u32 BE grid
   inventory, u16: Shift + click, the item moves to the other side (a click on an offered item sends inventory 0).
-  **C→S 0xb5** (12 bytes, `0x142166830`): the same for Ctrl + Shift + click.
-- **Accept**: C→S 0xb6 (6 bytes, `0x140c378d0`): u32 BE the revision of the other side's offer inventory, so the
+  **C→S 0xb5** (12 bytes, `0x14216d1e0`): the same for Ctrl + Shift + click.
+- **Accept**: C→S 0xb6 (6 bytes, `0x140c37a50`): u32 BE the revision of the other side's offer inventory, so the
   server knows the player accepted what it showed; C→S 0xb7 (4 bytes) un-accepts. The Gateway accepts when the revision
   is the last one it sent, else treats it as Cancel. **Cancel**: C→S 0xb1 (u32, u8 0).
-- **Closing**: S→C 0xb9 (u32 other party, u8 accepted) closes the window (`0x140dcd370`). The client is still in its
+- **Closing**: S→C 0xb9 (u32 other party, u8 accepted) closes the window (`0x140dcac00`). The client is still in its
   NPC talk afterwards (session +0xd7c0 = 2, +0xd7c4 = the NPC object; live 2026-10-19) and the player cannot move until
   S→C 0x84 with object 0 ends it. Cancel also sends C→S 0x85 for it, Accept sends nothing, so the Gateway sends 0x84
   object 0 after every 0xb9. Verified live 2026-10-19: drops, Ctrl + click (19 items into the first free cells),
@@ -298,7 +298,7 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   are generated UI items, not paid inventory, and are never granted on cancellation. Player-to-player trade is not
   implemented by this NPC sale path. Coverage: SaleImprintTests (duplicates, currency exclusion, cancel, restart,
   held-item recovery and atomic accepted sale). Live visibility verification pending.
-- S→C 0x87 opens the quest reward window (u16 = QuestRewardOffers row, `0x140c2b690`); a wrong row crashes the client.
+- S→C 0x87 opens the quest reward window (u16 = QuestRewardOffers row, `0x140c2f9d0`); a wrong row crashes the client.
 
 ## 6. Dev commands
 
@@ -343,7 +343,7 @@ Original-client memory captures from 2026-11-02 cover one level-91 Luminary (bas
 Exact league mode and Atlas history were not recorded; Siosa was locked and not captured.
 Raw captures stay under ignored `Tools/re/out/vendor-research/live-2026-11-02/`.
 The capture/decoder helpers live in `scripts/re/vendor-stock/`.
-Stream reader `0x140dfb630` sets `+0x252` on short reads: discard that attempt and retain the successful retry.
+Stream reader `0x140df9ed0` sets `+0x252` on short reads: discard that attempt and retain the successful retry.
 
 ### Presentation and item identity
 
@@ -362,11 +362,11 @@ and SkillGemConvocationNew; the alternatives have missing prices or different pr
 
 ### Native prices and generation evidence
 
-Price resolver `0x1421e8f80` prioritizes explicit Base prices.
-`0x1421e8d70` selects the highest ItemCostPerLevel.Level not exceeding Mods item level, or level 1 without Mods.
-Thus offered gem experience does not change its price row. `0x1421ea0b0` selects rarity columns 1–4.
-`0x1421e9fd0` multiplies positive costs by stack size; negative costs contribute their absolute value.
-Unidentified magic adds one Wisdom; unidentified rare adds one Chance (`0x1421e9129`).
+Price resolver `0x1421ef8f0` prioritizes explicit Base prices.
+`0x1421ef6e0` selects the highest ItemCostPerLevel.Level not exceeding Mods item level, or level 1 without Mods.
+Thus offered gem experience does not change its price row. `0x1421f0a20` selects rarity columns 1–4.
+`0x1421f0940` multiplies positive costs by stack size; negative costs contribute their absolute value.
+Unidentified magic adds one Wisdom; unidentified rare adds one Chance (`0x1421efa99`).
 Captured currency stacks were size 1; native full-stack conversion was not verified.
 Kirac's captured Kalguuran Scarab explicitly costs four Chaos Orbs; captured maps have item level 82.
 
@@ -375,9 +375,9 @@ This high-level observation does not establish low-level scaling or Ruthless par
 [Official 3.21 notes](https://www.pathofexile.com/forum/view-thread/3361403) establish partial level-up rotation
 and possible rare stock, but not exact weights or retention ages.
 
-Mod-value roller `0x14242e480` uses ranges from `0x142430860`, RNG `0x1404d03d0` and context RNG pointer `+0x20`;
+Mod-value roller `0x142434f50` uses ranges from `0x142437330`, RNG `0x1404d0990` and context RNG pointer `+0x20`;
 byte `+0x18` selects alternate ranges. Callers include Delve; this is not a recovered vendor generator.
-Received mods instead use `0x142430380`: 16-bit mod hashes followed by signed values (`0x141e490e0`).
+Received mods instead use `0x142436e50`: 16-bit mod hashes followed by signed values (`0x141e4c7e0`).
 Vendor messages carry rolled rarity, item level, visible modifiers, sockets and links, not a generation seed.
 No complete headless native generation ABI is verified; generation remains server-authoritative.
 

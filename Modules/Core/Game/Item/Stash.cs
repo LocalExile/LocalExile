@@ -30,7 +30,7 @@ static partial class Game
         uint id = conn.NextObjectId++;
         var stash = new StashObject(at.X, at.Y, at.Rotation);
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(StashObject.MetadataPath), stash.Blob()),
-            $"0x02b9 create stash 0x{id:x} at ({at.X}, {at.Y})");
+            $"0x02bb create stash 0x{id:x} at ({at.X}, {at.Y})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 stash 0x{id:x} enters wake zone");
         conn.StashObject = id;
         conn.StashAt = (at.X, at.Y);
@@ -49,7 +49,7 @@ static partial class Game
         {
             uint guild = conn.NextObjectId++;
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(guild, InstanceEntities.ObjectTypeHash(StashObject.GuildMetadataPath),
-                new StashObject(gx, gy, guildRotation).Blob()), $"0x02b9 create guild stash 0x{guild:x} at ({gx}, {gy})");
+                new StashObject(gx, gy, guildRotation).Blob()), $"0x02bb create guild stash 0x{guild:x} at ({gx}, {gy})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(guild), null);
             conn.GuildStashObject = guild;
             conn.GuildStashAt = (gx, gy);
@@ -78,7 +78,7 @@ static partial class Game
         conn.GuildStashOpen = false;
         var stash = StashOf(conn);
         // The panel keeps its tab while this connection lasts; only its first open here is moved to the account's last tab.
-        // A second 0x7b while it is open would close it (0x140dc4db0 toggles), so the choice is made now.
+        // A second 0x7b while it is open would close it (0x140dc2640 toggles), so the choice is made now.
         if (!conn.StashOpened)
         {
             conn.StashOpened = true;

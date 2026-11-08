@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 static partial class Game
 {
     // number_of_active_links: one per link (each source buff's condition stat). The client's derived aura effect
-    // (0x142822db0) and PassiveBonus add non_curse_aura_effect_+%_while_linked (Absolution) only while it is nonzero.
+    // (0x142829960) and PassiveBonus add non_curse_aura_effect_+%_while_linked (Absolution) only while it is nonzero.
     static Dictionary<uint, int> WithLinks(ClientState conn, Dictionary<uint, int> sources)
     {
         int count;
@@ -27,7 +27,7 @@ static partial class Game
 
     /// <summary>
     /// Links the skill to its target: the aimed object when it qualifies, else the nearest that does, one not linked yet
-    /// first (the client's candidate order, 0x141bf8080). A link skill has one target and a target one link of the
+    /// first (the client's candidate order, 0x141bfab10). A link skill has one target and a target one link of the
     /// player's, so the new link replaces both. It lasts <c>base_skill_effect_duration</c> at the effective gem level
     /// (Deep Connections' +5 included) with the skill duration modifiers and <c>link_skill_duration_+%</c>, and costs the
     /// skill's <c>mana_cost_per_minute</c> while it lasts. False when nothing qualifies.
@@ -74,7 +74,7 @@ static partial class Game
         return true;
     }
 
-    // The target a link cast takes. It qualifies as in the client's filter (0x141bf8490): not the player, within the link
+    // The target a link cast takes. It qualifies as in the client's filter (0x141bfaf20): not the player, within the link
     // range, and, as there is no party play, one of his living minions while he has link_skills_can_target_minions
     // (they carry is_player_minion and is_semantic_minion, and none has cannot_be_damaged).
     static uint? LinkTargetLocked(ClientState conn, uint aimed, Func<string, int> player, double now)
@@ -221,7 +221,7 @@ static partial class Game
 
     // A minion's walk with the player's flasks on it (Field Medicine): its variety's speed × (1 + its mods' and the
     // flasks' base_movement_velocity_+%, the strongest of each flask effect), in the server's walk and, as
-    // movement_velocity_+% (0xf5), in the client's, which walks every mover at its base × (1 + 0xf5 / 100) (0x141e7c0b0).
+    // movement_velocity_+% (0xf5), in the client's, which walks every mover at its base × (1 + 0xf5 / 100) (0x141e827a0).
     static void MinionFlaskSpeedLocked(ClientState conn, uint target, double now, List<byte> bytes)
     {
         if (!conn.Monsters.TryGetValue(target, out var m) || m.Dead || m.Variety is not { } variety) return;

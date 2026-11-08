@@ -114,7 +114,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [21](../docs/protocol/21-hideouts.md).
 - Hideout picker crash fix (2026-10-25, awaiting client confirmation): initialize the campaign unlock bitset with S→C
   0x1f6 on area entry, before Helena can open the picker.
-  Missing data caused the confirmed client access violation at 0x14216d8b7.
+  Missing data caused the confirmed client access violation at 0x142174267.
   See [21](../docs/protocol/21-hideouts.md).
 - **Niko and Kirac in the hideout (verified live, 2026-10-21):** Niko to Nessa's right, Kirac to her left.
   Kirac's hideout row has no dialogue of its own and uses the main Kirac's (`NpcCatalog.TalkSource`);

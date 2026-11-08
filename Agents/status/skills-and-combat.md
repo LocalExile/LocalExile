@@ -124,7 +124,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Skills and combat: the player has the default attack (PlayerMelee, Characters.dat StartingMeleeSkill) in the Actor
   skill list; it goes on the skill bar, walks into range, swings at the unarmed speed (757 ms with dual wielding's
-  10%) or faster with `/set_stat attack_speed_+%` (server-computed final stats, 0x2ba skill update, panel's Attacks
+  10%) or faster with `/set_stat attack_speed_+%` (server-computed final stats, 0x2bc skill update, panel's Attacks
   per Second), and the server lowers the monster's life 2–5 at the contact point; moving cancels;
   the dead monster's life bar hides.
   A weapon whose requirements are not met leaves the hands: the model sends its slot empty, so the client greys out
@@ -1139,6 +1139,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - **Instant skills and cooldowns (verified live 2026-10-21).** Haste, the Purities and Righteous Fire carry
   `skill_is_instant`, so the client sends them as C→S 0x191 and keeps walking;
   the server applies them and answers S→C 0x1ce, which starts the skill bar's cooldown.
+  Bladefall of Trarthus no longer hangs the client (its volley interval is in the record) and runs as its toggle: a
+  volley hitting the area around the player every interval, ground blades, the mana spent per second until it runs out
+  (live 2026-11-07: volleys and hits checked; the end at no mana not seen yet).
   Skill records retain GEPL Cooldown as the native base and carry the cooldown count.
   Ordinary one-use spells/attacks now resolve player and skill generic recovery once, and the server keeps remaining
   base-time budget through stat changes and pause.
@@ -1441,7 +1444,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   client draws the bolt or arrow itself with no server object; the server simulates it on the client's contact and
   range and releases it on the client's own release frame ([07](../docs/protocol/07-latency-visibility-movement.md)
   §6), so a hit recovery before it stops both (checked live 2026-11-05 on orders at a monster: one client
-  `WandProjectile` per shot of 41 and one `DefaultArrow` of 41, no projectile `0x2b9`, the client's release 0–7 ms
+  `WandProjectile` per shot of 41 and one `DefaultArrow` of 41, no projectile `0x2bb`, the client's release 0–7 ms
   after the server's for the wand and 1–3 for the bow, p10–p90; it was 16–40 ms after on the first version and 66–99
   ms before with server objects) ([11](../docs/protocol/11-skills.md) §4, §10). A shot at the ground (attack in place)
   is released the same way but not checked live. A predictive client keeps the server's objects: its record

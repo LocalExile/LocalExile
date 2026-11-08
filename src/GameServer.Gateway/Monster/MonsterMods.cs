@@ -127,7 +127,7 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         : seconds * Math.Max(0.1, 1 + this["attack_speed_+%"] / 100.0) / Math.Max(0.1, 1 + (this["attack_speed_+%"] + extraPct) / 100.0);
 
     /// <summary>The walk's movement_velocity_+% (base_movement_velocity_+% summed), sent to the client so both walk
-    /// the monster at its base × (1 + value / 100) (0x141e7c0b0).</summary>
+    /// the monster at its base × (1 + value / 100) (0x141e827a0).</summary>
     public int MovementPct => this["base_movement_velocity_+%"];
 
     public double MovementSpeed(double baseSpeed) => Math.Max(1, baseSpeed * (100 + MovementPct) / 100.0);
@@ -262,7 +262,7 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     public ModCatalog Mods => mods;
 
     /// <summary>The monster's tags for spawn weights: its MonsterVarieties TagsKeys, "default", "magic" / "rare" for
-    /// its rarity (the client adds the same tag, 0x1421ff3c0) and "not_part_of_pack" for a monster on its own.</summary>
+    /// its rarity (the client adds the same tag, 0x142205d50) and "not_part_of_pack" for a monster on its own.</summary>
     public IReadOnlySet<string> TagsOf(MonsterCatalog.Variety variety, MonsterRarity rarity, bool alone)
     {
         var tags = new HashSet<string>(_varietyTags.Value.GetValueOrDefault(variety.Row) ?? new HashSet<string>()) { "default" };

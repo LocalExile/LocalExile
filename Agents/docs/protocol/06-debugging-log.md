@@ -35,15 +35,15 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
   Set Source [Lioneye's Watch]", then the first encrypted client message `007D 43E6886D 8EA8DD43` (0x7d = the two hashes).
 - **Learned:** the 0x1d layout and the Salsa20 keying are right. The client waits after 0x7d.
 - **How 0x1d was found:** the real-server log in `Client.txt` (February) has "Client-Safe Instance ID" and "Generating
-  level"; `xr.py` on those strings → dispatcher case 6 → factory case 0x1d → write function `0x1421415c0`.
+  level"; `xr.py` on those strings → dispatcher case 6 → factory case 0x1d → write function `0x142147f10`.
 
-### 3. 0x22 + 0x2b9, no 0x21 (12:09)
-- **Sent:** after 0x7d: 0x22 (player id 0x1000) and 0x2b9 with a static-analysis blob (parent components first).
+### 3. 0x22 + 0x2bb, no 0x21 (12:09)
+- **Sent:** after 0x7d: 0x22 (player id 0x1000) and 0x2bb with a static-analysis blob (parent components first).
 - **Saw:** nothing (no reaction, no error, client stayed connected).
 - **Learned:** world messages are queued until world activation (`world+0xb7a`), which only 0x21 triggers.
 
 ### 4. + 0x21, order "parent first" (12:12): crash
-- **Saw:** WER crash, access violation at `0x141d7c5f0` (event log), in the spatial bucket insert `0x141d7c4c0`.
+- **Saw:** WER crash, access violation at `0x141d7fc80` (event log), in the spatial bucket insert `0x141d7fb50`.
 - **Cause:** with Animated before Positioned, Positioned read x one byte early (`00 73 00 00` = 0x7300 → tile 1280),
   outside the bucket grid (no bounds check).
 
@@ -59,32 +59,32 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
 ### 7. Frida: component trace (12:29)
 - **Script:** `trace-player-blob.js`, which logs the object's component vtables and the reader position around each
   deserializer.
-- **Saw:** 12 components: Positioned, comp1 (`0x1421c2f40`), Pathfinding, comp3 (`0x141e114d0`), Life, Animated, Player,
-  comp7, Inventories, comp9 (`0x142192a80`), comp10, comp11. Positioned read exactly 16; comps 1 and 3 swallowed 112
+- **Saw:** 12 components: Positioned, comp1 (`0x1421c98b0`), Pathfinding, comp3 (`0x141e14b30`), Life, Animated, Player,
+  comp7, Inventories, comp9 (`0x1421993f0`), comp10, comp11. Positioned read exactly 16; comps 1 and 3 swallowed 112
   bytes.
 - **Changed:** blob rewritten in the traced order with encodings for comp1 (10 B) and comp3 (2 B).
 
 ### 8. (12:38): comp9 underflow
 - **Saw:** Positioned 16, comp1 10, comp3 2, Life 55, Animated 1, Player 61, Inventories 2, all exact. Then comp9
-  threw at `0x14219329d` (a u32 read after the main fields).
+  threw at `0x142199c0d` (a u32 read after the main fields).
 - **Changed:** comp9 now also gets u32 `+0x26c`, u32 `+0x274` and its slot-20 flag bytes.
 
 ### 9. (12:42): blob accepted, UI crash
 - **Saw:** `CreateObject` consumed 167/169 (comp9's two conditional u8 are not read for us, so they were dropped next) and
-  world activation finished. Then an access violation reading `0x161` at `0x1402d0a99`: the flask frame UI
-  (`0x1402d0500`) with a null inventory from `0x141d621a0` (row 11 = Flask1).
+  world activation finished. Then an access violation reading `0x161` at `0x1402d1029`: the flask frame UI
+  (`0x1402d0a90`) with a null inventory from `0x141d65830` (row 11 = Flask1).
 - **Changed:** added 0xc0 (add inventory) for Inventories.dat rows 0–15.
 
 ### 10. (12:51): expanded inventory
-- **Saw:** 16 inventories registered. Crash at `0x14012aba4` (null + 0xa0) after a lookup of row **0x54**
+- **Saw:** 16 inventories registered. Crash at `0x14012af04` (null + 0xa0) after a lookup of row **0x54**
   (ExpandedMainInventory1).
 - **Changed:** a scan of all 409 lookup call sites showed about 50 rows in use, so the Gateway now registers **all 117
   rows**.
 
 ### 11. (12:56): passive slots
-- **Saw:** 117 inventories, no null lookups. Crash at `0x140785acf` (null + 0x18 → +0x30): UI `0x140785160` reads
+- **Saw:** 117 inventories, no null lookups. Crash at `0x14078adff` (null + 0x18 → +0x30): UI `0x14078a490` reads
   `instance+0xc2f8[instance+0xc2f0]`.
-- **Found:** that slot array is filled only by `0x142155bf0`, called from the 0x3d handler for flag bits 2/3/4.
+- **Found:** that slot array is filled only by `0x14215c540`, called from the 0x3d handler for flag bits 2/3/4.
 - **Changed:** added 0x3d with flags 0x1c.
 
 ### 12. In game (13:01)
@@ -100,7 +100,7 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
 - **Changed:** Auth closes the connection after a failed 0x04; unknown account → 5, wrong password → 6.
 
 ### 14. Walkability dump and land spawn (15:04–15:06)
-- **Script:** `dump-walkability.js` (hook `0x1410ddcfd`). The terrain grid is 690 × 414, not 230 × 138 (that is the
+- **Script:** `dump-walkability.js` (hook `0x1410e00bd`). The terrain grid is 690 × 414, not 230 × 138 (that is the
   one-third texture). Layer a, value 5 = walkable.
 - **Changed:** spawn (115, 69) → (197, 261), the deepest walkable cell. The camera now shows the beach and pier, and the
   minimap marker sits inside the town. The player model is still not drawn.
@@ -113,12 +113,12 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
 - **Saw:** the overlay's network ms climbed forever. The latency is now − the oldest unacknowledged 0x1b.
 - **Changed:** answer every 0x1b with 0x1c. With u32 = 0 the client showed **"HNC Protocol Violated"**: the u32 feeds a
   hidden, Salsa20-encrypted side channel that must decrypt to 0 when idle. With the HNC keystream as carrier the graph
-  stays flat at ~120 ms. (A crash in the logger at `0x140df141a` came from the same exception.)
+  stays flat at ~120 ms. (A crash in the logger at `0x140defc9a` came from the same exception.)
 
 ### 17. Invisible model → wake zone (15:31–15:47)
-- **Tried:** Positioned "shown" flag; Animated with an explicit `Int.ao`; no missing files (Frida on `0x1421cc280`).
+- **Tried:** Positioned "shown" flag; Animated with an explicit `Int.ao`; no missing files (Frida on `0x1421d2bf0`).
   None helped.
-- **Found:** world 0x1a9 = ObjectInWakeZone (`0x141ec0aa0`). Objects outside the wake zone are not drawn or updated.
+- **Found:** world 0x1a9 = ObjectInWakeZone (`0x141ec7350`). Objects outside the wake zone are not drawn or updated.
 - **Changed:** send 0x1a9 for the player after 0x21. The Witch appears (washed-up pose).
 
 ### 18. Movement (15:36–15:52)
@@ -138,7 +138,7 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
 - **Run 1:** "Buffer Underflow". The trace showed the right component order but AreaTransition read 5 bytes (a compact
   int after the destination).
 - **Run 2:** "Buffer Underflow" in MinimapIcon. ObjectMagicProperties read 4 bytes: a base-properties reader
-  (`0x142201d70`) runs before its flags byte, called with the reader still in `rdx`, so the decompiler hid it.
+  (`0x142208700`) runs before its flags byte, called with the reader still in `rdx`, so the decompiler hid it.
 - **Run 3:** all 41 bytes consumed, in game, and the exit icon shows at the east edge on the map. Using the exit is not
   handled yet.
 - **Note:** computer-use hides non-allowlisted windows (the user's Chrome) when it takes screenshots. Verify through
@@ -153,8 +153,8 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
 - **Damage:** `Client/PathOfExile.exe` and `PathOfExile_x64.exe` were replaced by the current official files (unused:
   we run `Game.patched.exe`). Inside `Content.ggpk` the official `gateway_list.txt` came back, and the root PDIR hash
   was set to **zero**. `Game.exe`, `Game.patched.exe` and the other GGPK records were unchanged.
-- **Symptoms:** with a zero root hash the client never logs "No patching required": `0x1428eb82e` requires
-  `0x1421ccaf0` (local root hash ≠ 0) and the welcome hash to match, otherwise it asks for the root contents, which our
+- **Symptoms:** with a zero root hash the client never logs "No patching required": `0x1428f3c7e` requires
+  `0x1421d3460` (local root hash ≠ 0) and the welcome hash to match, otherwise it asks for the root contents, which our
   patch server does not serve ("Timed out while waiting for packet from the patching server"). With the official
   gateway list the client then logged in to `ams.login.pathofexile.com:20484`, which failed the DSA check ("General
   Rhoa Failure #3") before any credentials were sent.
@@ -162,15 +162,15 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
   `data/ggpk-root-hash.backup.txt`), then `GameServer.Patch gateway --login 127.0.0.1:20493` again.
 
 ### Monster without a level (12:17)
-- **Sent:** 0x2b9 type `ObjectTypeHash("Metadata/Monsters/Zombies/ZombieBite")`, 198-byte blob, 0x1a9.
-- **Saw:** "Not Responding", then an access violation at `0x14161d166` (Targetable's deleter, null component).
-  `check-components.js` showed a C++ throw at blob position 0 from `0x141e6fd6f`, the Monster factory: "Creating
+- **Sent:** 0x2bb type `ObjectTypeHash("Metadata/Monsters/Zombies/ZombieBite")`, 198-byte blob, 0x1a9.
+- **Saw:** "Not Responding", then an access violation at `0x14161d166` (3.29.3b) (Targetable's deleter, null component).
+  `check-components.js` showed a C++ throw at blob position 0 from `0x141e763ff`, the Monster factory: "Creating
   monster with no level". The deleter crash is the cleanup of the half-built object.
 - **Found:** the level is the `@N` suffix of the type path; S→C **0x20** registers `<Id>@<level>` per MonsterVarieties
-  row (dispatcher case 9 → `0x141ec2540`). See [10](10-chat-and-commands.md) §5.
+  row (dispatcher case 9 → `0x141ec8df0`). See [10](10-chat-and-commands.md) §5.
 
 ### Monsters in town (12:40)
-- **Sent:** 0x20 (row 1159, level 13), then 0x2b9 with `ZombieBite@13`, three times.
+- **Sent:** 0x20 (row 1159, level 13), then 0x2bb with `ZombieBite@13`, three times.
 - **Saw:** three Hungry Corpses next to the player, idle, tagged "Unidentified". Each blob: 11 components exactly as
   predicted from the .ot and schema.md, 198 bytes consumed, 0 left.
 
@@ -178,7 +178,7 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
 - **StateMachine:** two counts, then per `define_shared_state` a compact int + u8 and per `define_shared_timer` a u32 +
   u8, in .ot order. Frost Bishop, Arakaali, Haku: 0 bytes left.
 - **Transitionable crash:** Alira and Gravel Eater hung the client after a fully consumed blob: access violation at
-  `0x141ded7b9` in the animation-event interpreter. Cause: transition state 0. The post-create slot `0x1421c26f0` runs
+  `0x141df0e19` in the animation-event interpreter. Cause: transition state 0. The post-create slot `0x1421c9060` runs
   the event at index `state − 1`; states run 1..`num_states`. Sending `num_states` fixed it. Not sending the Animated
   path (tried first) was not the cause.
 - **Movement:** 0x1ba slides an object in a straight line through walls; 0x1ab with the Move skill 0x2909 makes a
@@ -194,7 +194,7 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
 - First-chance exceptions are visible with `Process.setExceptionHandler`. The client's own handlers turn some of them
   into dialogs ("Buffer Underflow") and others into crashes later (the null call in run 5).
 - UI code assumes server state exists (inventories by row, passive slots). Each null crash points at the next message to
-  send; scanning all call sites of the lookup (`0x141d621a0`) beats fixing them one by one.
+  send; scanning all call sites of the lookup (`0x141d65830`) beats fixing them one by one.
 - A world object that exists but neither draws nor animates is probably outside the wake zone (0x1a9).
 - Carrier fields can belong to a hidden channel (HNC): an innocent zero can be a protocol violation.
 - Each round costs a client restart (`live.ps1`), a login and Play. Window positions change between launches, so take

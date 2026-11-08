@@ -8,7 +8,7 @@ public class WaypointTests
     [Fact]
     public void Waypoints_message_is_a_u32_and_a_19_byte_bitset()
     {
-        // S→C 0x4c (read 0x14219f460): u32 BE, then 19 raw bytes; bit i = the i-th waypoint area.
+        // S→C 0x4c (read 0x1421a5dd0): u32 BE, then 19 raw bytes; bit i = the i-th waypoint area.
         byte[] m = InstanceWaypoints.Waypoints([0, 1, 9, 89]);
         Assert.Equal(2 + 4 + 19, m.Length);
         Assert.Equal("004C" + "00000000" + "03" + "02" + new string('0', 18) + "02" + new string('0', 14),Convert.ToHexString(m));
@@ -23,7 +23,7 @@ public class WaypointTests
     [Fact]
     public void Open_world_panel_is_ui_kind_0_with_four_big_endian_u32s()
     {
-        // S→C 0x7b (read 0x1421a0450): u8 kind, then four u32 BE.
+        // S→C 0x7b (read 0x1421a6dc0): u8 kind, then four u32 BE.
         Assert.Equal("007B" + "00" + "00002F00" + "00000000" + "00000000" + "00000000",
             Convert.ToHexString(InstanceWaypoints.OpenUi(InstanceWaypoints.WorldPanelUi, 0x2f00)));
     }
@@ -31,7 +31,7 @@ public class WaypointTests
     [Fact]
     public void Open_crafting_bench_selects_the_ordinary_bench_type_not_the_object_id()
     {
-        // Client 0x142163420 case 0x33 forwards the first u32 as CraftingBenchTypes row.
+        // Client 0x142169dd0 case 0x33 forwards the first u32 as CraftingBenchTypes row.
         Assert.Equal("007B3300000000000000000000000000000000",
             Convert.ToHexString(InstanceWaypoints.OpenUi(InstanceWaypoints.CraftingBenchUi)));
     }
@@ -39,7 +39,7 @@ public class WaypointTests
     [Fact]
     public void Travel_request_reads_area_u32_and_ctrl()
     {
-        // C→S 0x4d (write 0x141f92e60): u16 BE area HASH16, u32 BE, u8 Ctrl.
+        // C→S 0x4d (write 0x141f99750): u16 BE area HASH16, u32 BE, u8 Ctrl.
         byte[] m = Convert.FromHexString("004D" + "7AD2" + "00002F00" + "01");
         Assert.Equal(InstanceWaypoints.TravelLength, m.Length);
         Assert.Equal(new InstanceWaypoints.Travel(0x7ad2, 0x2f00, true), InstanceWaypoints.ReadTravel(m));

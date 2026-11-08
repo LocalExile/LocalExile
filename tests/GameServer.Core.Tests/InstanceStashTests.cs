@@ -4,7 +4,7 @@ namespace GameServer.Core.Tests;
 
 public class InstanceStashTests
 {
-    // The read order of 0x141d4d1f0: u32 inventory, u32, wstr name, str id, u16 position, flags, u16 parent, R G B, type.
+    // The read order of 0x141d50880: u32 inventory, u32, wstr name, str id, u16 position, flags, u16 parent, R G B, type.
     [Fact]
     public void Tab_record_follows_the_client_reader()
     {

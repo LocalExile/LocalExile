@@ -1,11 +1,11 @@
-// Logs the cluster-jewel node constructor (FUN_141f114f0): the size tag, the template value, the cell's start and
-// total, and the node id it produces. Also logs the id function (FUN_141f0e770) with the node's slot row and position.
+// Logs the cluster-jewel node constructor (FUN_141f17de0): the size tag, the template value, the cell's start and
+// total, and the node id it produces. Also logs the id function (FUN_141f15060) with the node's slot row and position.
 //   python scripts/re/frida/run.py Game.patched.exe scripts/re/frida/trace-cluster-ids.js --seconds 120 --log ...
 const module = Process.getModuleByName('Game.patched.exe');
 const base = module.base;
 const at = va => base.add(ptr(va).sub(ptr('0x140000000')));
 
-Interceptor.attach(at(0x141f114f0), {
+Interceptor.attach(at(0x141f17de0), {
     onEnter(args) {
         try {
             const ctx = args[0];
@@ -21,7 +21,7 @@ Interceptor.attach(at(0x141f114f0), {
     }
 });
 
-Interceptor.attach(at(0x141f0e770), {
+Interceptor.attach(at(0x141f15060), {
     onEnter(args) {
         this.node = args[0];
     },

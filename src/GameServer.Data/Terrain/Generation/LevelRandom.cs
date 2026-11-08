@@ -1,14 +1,14 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The level generator's random numbers, as client 3.29.3b draws them
+/// <summary>The level generator's random numbers, as clients 3.29.3b and 3.29.3c draw them (the same functions)
 /// (Agents/docs/re/011-level-generation.md §2).
 /// <list type="bullet">
-/// <item>A thread-local <c>std::mt19937</c> seeded with the area seed when generation starts (<c>0x14204d820</c>);
-/// <see cref="NextRaw"/> is one draw (<c>0x140a0f990</c>).</item>
-/// <item><see cref="Next(uint)"/> is <c>0x141ff9720</c>: MSVC's <c>_Rng_from_urng</c> (<c>0x141f5d130</c>) over [0, n), no draw
+/// <item>A thread-local <c>std::mt19937</c> seeded with the area seed when generation starts (<c>0x142054070</c>);
+/// <see cref="NextRaw"/> is one draw (<c>0x140a0ae10</c>).</item>
+/// <item><see cref="Next(uint)"/> is <c>0x141ffff70</c>: MSVC's <c>_Rng_from_urng</c> (<c>0x141f63a20</c>) over [0, n), no draw
 /// for n ≤ 1, always 0 while the area disables randomness (WorldAreas byte +0x14e).</item>
-/// <item><see cref="PickIndex"/> / <see cref="PickOrientation"/> are <c>0x142046a70</c>: one MT draw seeds the
-/// MSVC <c>rand()</c> LCG (TLS +0x170, <c>0x140e3b310</c>), which then picks by rejection.</item>
+/// <item><see cref="PickIndex"/> / <see cref="PickOrientation"/> are <c>0x14204d2c0</c>: one MT draw seeds the
+/// MSVC <c>rand()</c> LCG (TLS +0x170, <c>0x140e3d630</c>), which then picks by rejection.</item>
 /// </list></summary>
 public sealed class LevelRandom
 {
@@ -27,7 +27,7 @@ public sealed class LevelRandom
 
     public uint Seed { get; }
 
-    /// <summary>The level's lettered unique groups (<c>0x142030790</c>'s map, generator-wide): per letter, the indices of
+    /// <summary>The level's lettered unique groups (<c>0x142036fe0</c>'s map, generator-wide): per letter, the indices of
     /// its numbered groups that stay, drawn once for every record.</summary>
     public Dictionary<char, List<int>> UniqueLetters { get; } = [];
 
@@ -66,7 +66,7 @@ public sealed class LevelRandom
         _index = 0;
     }
 
-    /// <summary><c>0x141ff9720</c>: a number in [0, n) (n = 0 counts as 1).</summary>
+    /// <summary><c>0x141ffff70</c>: a number in [0, n) (n = 0 counts as 1).</summary>
     public uint Next(uint n)
     {
         uint r = 0;
@@ -82,9 +82,9 @@ public sealed class LevelRandom
 
     public int Next(int n) => (int)Next((uint)n);
 
-    /// <summary><c>0x141f5d130</c>, MSVC <c>_Rng_from_urng&lt;uint, mt19937&gt;(n)</c>: one 32-bit draw, rejected while it
+    /// <summary><c>0x141f63a20</c>, MSVC <c>_Rng_from_urng&lt;uint, mt19937&gt;(n)</c>: one 32-bit draw, rejected while it
     /// falls in the last, incomplete bucket. Shuffles call it directly (no <see cref="Disabled"/> check).</summary>
-    /// <summary><c>0x141ff97f0</c>: a value in [lo, hi] (hi below lo counts as lo), <see cref="Uniform"/> over the
+    /// <summary><c>0x142000040</c>: a value in [lo, hi] (hi below lo counts as lo), <see cref="Uniform"/> over the
     /// range; lo while the area disables randomness.</summary>
     public int Range(int lo, int hi)
     {
@@ -111,7 +111,7 @@ public sealed class LevelRandom
     }
 
     /// <summary>The generator's state, to put back with <see cref="Restore"/> (the doodad stage copies TLS +400 aside
-    /// around its random doodads, <c>0x1420425d0</c>).</summary>
+    /// around its random doodads, <c>0x142048e20</c>).</summary>
     public (uint[] Mt, int Index) Save() => ((uint[])_mt.Clone(), _index);
 
     public void Restore((uint[] Mt, int Index) state)
@@ -121,7 +121,7 @@ public sealed class LevelRandom
     }
 
     /// <summary>A percent roll as the generator writes it: chance ≤ 0 never, ≥ 100 always (no draw), else
-    /// <c>Next(100) &lt; chance</c> (e.g. <c>0x142054a50</c>).</summary>
+    /// <c>Next(100) &lt; chance</c> (e.g. <c>0x14205b2a0</c>).</summary>
     public bool Chance(int percent, uint outOf = 100)
     {
         if (percent <= 0) return false;
@@ -129,7 +129,7 @@ public sealed class LevelRandom
         return Next(outOf) < (uint)percent;
     }
 
-    /// <summary>The in-place forward shuffle (<c>0x141f4fb80</c>, <c>0x14212d7f0</c>): element i swaps with
+    /// <summary>The in-place forward shuffle (<c>0x141f56470</c>, <c>0x1421340f0</c>): element i swaps with
     /// i + <see cref="Uniform"/>(remaining).</summary>
     public void Shuffle<T>(IList<T> list, int count = int.MaxValue)
     {
@@ -141,11 +141,11 @@ public sealed class LevelRandom
         }
     }
 
-    /// <summary><c>0x142046a70</c>'s pick: one <see cref="Next(uint)"/>(0xffffffff) seeds the LCG, which draws
+    /// <summary><c>0x14204d2c0</c>'s pick: one <see cref="Next(uint)"/>(0xffffffff) seeds the LCG, which draws
     /// bit-length(count − 1) bits until the value is below count. No LCG draws for count &lt; 2 (the MT draw happens).</summary>
     public int PickIndex(int count) => LcgPick(Next(uint.MaxValue), count);
 
-    /// <summary><c>0x142046a70</c> with an orientation: the same MT draw seeds the LCG for the index and, again from
+    /// <summary><c>0x14204d2c0</c> with an orientation: the same MT draw seeds the LCG for the index and, again from
     /// the start, for the orientation (a value in [0, 839], then <see cref="OrientationFromMask"/>).</summary>
     public (int Index, int Orientation) PickIndexAndOrientation(int count, byte mask) => PickIndexAndOrientation(count, _ => mask);
 
@@ -171,7 +171,7 @@ public sealed class LevelRandom
         return (int)r;
     }
 
-    /// <summary><c>0x140e3b310</c>: <paramref name="bits"/> bits from MSVC <c>rand()</c>, at most 15 per step.</summary>
+    /// <summary><c>0x140e3d630</c>: <paramref name="bits"/> bits from MSVC <c>rand()</c>, at most 15 per step.</summary>
     uint LcgBits(ref uint state, int bits)
     {
         int asked = bits;
@@ -187,7 +187,7 @@ public sealed class LevelRandom
         return result;
     }
 
-    /// <summary><c>0x14299da50</c>: the r-th (mod count) allowed orientation of a mask (bit k = code k); a mask of 0 or
+    /// <summary><c>0x1429a6db0</c>: the r-th (mod count) allowed orientation of a mask (bit k = code k); a mask of 0 or
     /// 0xff allows all eight (r &amp; 7).</summary>
     public static int OrientationFromMask(byte mask, uint r)
     {
@@ -198,7 +198,7 @@ public sealed class LevelRandom
         return allowed[(int)(r % (uint)n)];
     }
 
-    /// <summary>A topology's orientation list (Topologies +0x1c) as the mask <c>0x142046340</c> builds: 8 = all.</summary>
+    /// <summary>A topology's orientation list (Topologies +0x1c) as the mask <c>0x14204cb90</c> builds: 8 = all.</summary>
     public static byte OrientationMask(IEnumerable<int> orientations)
     {
         uint mask = 0;

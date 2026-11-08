@@ -1,6 +1,6 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>What a tile slot asks for and what a tile offers (the client's 0x4e-byte key, built by <c>0x141d813c0</c>
+/// <summary>What a tile slot asks for and what a tile offers (the client's 0x4e-byte key, built by <c>0x141d84a50</c>
 /// from a .tdt and by the room parser from an .arm slot): per edge (top, right, bottom, left) the edge type (.et path)
 /// and two edge points; the size in tiles; per corner ((0,0), (W,0), (W,H), (0,H)) the ground type (.gt path) and a
 /// height. A tile fits a slot when its key turned by an orientation equals the slot's key turned by the room's.</summary>
@@ -13,7 +13,7 @@ public sealed class TileKey : IEquatable<TileKey>
     public readonly byte[] PointB = new byte[4];
     public byte Width, Height;
 
-    // 0x142fbe3b8 (edges) and 0x142fbe3d8 (corners): for orientation code c, new index i takes old index T[c][i].
+    // 0x142fc84c0 (edges) and 0x142fc8468 (corners): for orientation code c, new index i takes old index T[c][i].
     static readonly byte[] EdgeFrom = [0, 1, 2, 3, 3, 0, 1, 2, 2, 3, 0, 1, 1, 2, 3, 0, 0, 3, 2, 1, 1, 0, 3, 2, 2, 1, 0, 3, 3, 2, 1, 0];
     static readonly byte[] CornerFrom = [0, 1, 2, 3, 3, 0, 1, 2, 2, 3, 0, 1, 1, 2, 3, 0, 1, 0, 3, 2, 2, 1, 0, 3, 3, 2, 1, 0, 0, 3, 2, 1];
 
@@ -28,7 +28,7 @@ public sealed class TileKey : IEquatable<TileKey>
         return k;
     }
 
-    /// <summary><c>0x141d80480</c>: the key turned by orientation code 0..7 (odd codes swap the size; codes 4..7 mirror
+    /// <summary><c>0x141d83b10</c>: the key turned by orientation code 0..7 (odd codes swap the size; codes 4..7 mirror
     /// the edge points, a point equal to the edge's length (3 per tile) meaning none).</summary>
     public TileKey Rotate(int code)
     {
@@ -84,7 +84,7 @@ public sealed class TileKey : IEquatable<TileKey>
     static string Short(string? path) => path is null ? "-" : Path.GetFileNameWithoutExtension(path);
 }
 
-/// <summary>Orientation codes (the client's placement codes, <c>0x142fa04b0</c>): 0..3 turn by quarter turns, 4..7
+/// <summary>Orientation codes (the client's placement codes, <c>0x142faa4d8</c>): 0..3 turn by quarter turns, 4..7
 /// mirror. <see cref="Map"/> places cell (x, y) of a w × h block.</summary>
 public static class Orientation
 {
@@ -99,7 +99,7 @@ public static class Orientation
         return (a[Table[c + 1] + 2 * Table[c]], a[(Table[c] == 0 ? 2 : 0) + Table[c + 2]]);
     }
 
-    /// <summary>Where vertex (u, v) of a w × h block lands, relative to the turned block's origin (<c>0x141d833e0</c>).</summary>
+    /// <summary>Where vertex (u, v) of a w × h block lands, relative to the turned block's origin (<c>0x141d86a70</c>).</summary>
     public static (int X, int Y) MapVertex(int code, int u, int v, int w, int h)
     {
         int c = Math.Min(code, 8) * 3;
@@ -118,7 +118,7 @@ public static class Orientation
         _ => 8,
     };
 
-    // 0x142025440 / 0x142026100: the orientation that mirrors o across a vertical seam [0] (left/right neighbour) or a
+    // 0x14202bc90 / 0x14202c950: the orientation that mirrors o across a vertical seam [0] (left/right neighbour) or a
     // horizontal one [1] (up/down neighbour).
     static readonly byte[] Mirror = [4, 6, 7, 5, 6, 4, 5, 7, 0, 2, 3, 1, 2, 0, 1, 3, 8, 8];
 

@@ -72,7 +72,7 @@ public sealed class ConnectionCiphers
     public Salsa20 Receive { get; }
 
     /// <param name="isClient">Client sends with IV km[32..40] and receives with km[48..56]; the server is the mirror image
-    /// (client 0x140e03a30: cipher A at iv = km + ((flag^1)+2)*16 is used for send, cipher B at km + (flag+2)*16 for recv).</param>
+    /// (client 0x140e022d0: cipher A at iv = km + ((flag^1)+2)*16 is used for send, cipher B at km + (flag+2)*16 for recv).</param>
     public ConnectionCiphers(ReadOnlySpan<byte> keyMaterial, bool isClient)
     {
         if (keyMaterial.Length != 64) throw new ArgumentException("key material must be 64 bytes", nameof(keyMaterial));
@@ -84,7 +84,7 @@ public sealed class ConnectionCiphers
 
 public static class LoginKdf
 {
-    /// <summary>km = SHA-512(Z_static || Z_ephemeral), the Crypto++ DH2 agreed value (client 0x140e03460).</summary>
+    /// <summary>km = SHA-512(Z_static || Z_ephemeral), the Crypto++ DH2 agreed value (client 0x140e01d00).</summary>
     public static byte[] KeyMaterial(ReadOnlySpan<byte> staticAgreed, ReadOnlySpan<byte> ephemeralAgreed) =>
         SHA512.HashData([.. staticAgreed, .. ephemeralAgreed]);
 }

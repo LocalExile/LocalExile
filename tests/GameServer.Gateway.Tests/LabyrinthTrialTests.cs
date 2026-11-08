@@ -67,6 +67,11 @@ public sealed class LabyrinthTrialTests
         Assert.All(chains.Take(16), c => Assert.False(c.Checker));
         // The pair is no ring: a checkerboard, its two traps in turn.
         Assert.Equal([(1, 0, true), (1, 1, true)], chains[16..].Order());
+        // On the plaque room's Trigger_Delay_4_0WG / _4_2WG timers (#576): the halves 2.5 s apart, every 5 s.
+        var (first, second) = (LabyrinthTrials.Trigger("Metadata/Terrain/Labyrinth/Traps/Trigger_Delay_4_0WG")!,
+            LabyrinthTrials.Trigger("Metadata/Terrain/Labyrinth/Traps/Trigger_Delay_4_2WG")!);
+        Assert.Equal(second.Delay - first.Delay, LabyrinthTrials.SpikeStep(true));
+        Assert.Equal(first.Period, LabyrinthTrials.SpikeWaveSeconds(2, LabyrinthTrials.SpikeStep(true)));
     }
 
     [Fact]

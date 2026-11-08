@@ -122,10 +122,10 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal(7, far.ClientChase);
         Assert.Null(far.ClientSwingAt);
         Assert.Equal((100, 100), far.LastTarget);
-        // A hit's recovery holds the client's monster (0x141e8d900): a chase that comes meanwhile waits, and the monster's
+        // A hit's recovery holds the client's monster (0x141e941a0): a chase that comes meanwhile waits, and the monster's
         // own tick starts it in the frame that ends the recovery, after the player's tick. A 1.0 s 0x1d1 written in the
         // frame from 1.023 ends in the frame 31 later, from 2.046: nothing is ordered in it, even with the clock past its
-        // end before its 0x2b5 has gone out, and the chase in the next frame, from 2.079, starts at once and tests the
+        // end before its 0x2b7 has gone out, and the chase in the next frame, from 2.079, starts at once and tests the
         // player's cell after his step in the frame from 2.046, 8.1 cells off (7.3 before it), so it walks up instead of
         // swinging.
         var hurtConn = Connection(lockstep: true);
@@ -225,7 +225,7 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal([0x3004u], plan.Swings.Select(s => s.Id));
         Assert.True(shooter.Walk.Moving(6.6));
         // Its order starts at the start of the frame it goes out in, from where the steps before it leave it. Written after
-        // the 0x2b5 that ended the frame from 0.099 and before that frame's steps were replayed: the Drowned's step at
+        // the 0x2b7 that ended the frame from 0.099 and before that frame's steps were replayed: the Drowned's step at
         // 0.105 blocks the Spitter's to (50, 55) at 0.100, so it shoots from (50, 56), busy from 0.132. A freeze sent
         // after the frame's start and before the order cancels it; a predictive client's starts when written.
         var shooting = Connection(lockstep: true);
@@ -310,8 +310,8 @@ public class LockstepMonsterTests : IDisposable
         // also on a Gateway whose lockstep frames run for this connection (RunLockstepFrames, any served one). The estimate
         // keeps no time after a stop there by design: PlayerWalk.FrameOf is null off lockstep (LockstepFrameOf and the
         // plan's FrameStart ask conn.LockstepClient), as the server cannot place a predictive client's stop among that
-        // client's own ticks. Whether the predictive client keeps it is not traced; the stop and the tick (0x141e350e0,
-        // 0x141e32710) read no network mode, so it likely does (07 §5).
+        // client's own ticks. Whether the predictive client keeps it is not traced; the stop and the tick (0x141e38420,
+        // 0x141e35a50) read no network mode, so it likely does (07 §5).
         var served = Connection(lockstep: false);
         SpawnedMonster Spitter(uint id, int x, int y) => new("Spitter", served.NewMonsterWalk(id, x, y, 8, 2, false), aggroRange: 120,
             stopRange: 2, maxLife: 10)
@@ -394,7 +394,7 @@ public class LockstepMonsterTests : IDisposable
         Assert.Single(stood.Walk.Steps(1.099, 1.132));
     }
 
-    // A lockstep client takes no Move whose target is within two cells of the walker (0x1419442d0): no set, no search,
+    // A lockstep client takes no Move whose target is within two cells of the walker (0x141949a20): no set, no search,
     // its current action goes on (live 2026-11-04: 317 of 317). So such a surround-slot or other plan Move is not sent,
     // a give-up or a freeze sends nothing, a minion that near its approach cell attacks instead, and the estimate keeps
     // the walk it had, a chase's walk-up too; three cells away the Move is placed as before and ends the walk-up, with
@@ -416,7 +416,7 @@ public class LockstepMonsterTests : IDisposable
         Assert.True(taken);
         Assert.Equal((107, 100), aim);
         Assert.Equal((107, 100), shooter.Walk.Destination);
-        // The client's sum of squares is a 32-bit int read as unsigned (0x1400f0a10): one past int's top is far, one that
+        // The client's sum of squares is a 32-bit int read as unsigned (0x1400f0c90): one past int's top is far, one that
         // wraps to 0 is not (a player's target is its cell plus the 0x18e's i32 offsets, unclamped).
         Assert.True(Game.LockstepTakesMove((0, 0), (46341, 0)));
         Assert.False(Game.LockstepTakesMove((0, 0), (65536, 0)));
@@ -440,7 +440,7 @@ public class LockstepMonsterTests : IDisposable
         held.LockstepFrame = (1.0, 1.033);
         var (left, frozenWalker) = Pair(held, frames: true);
         (left.ClientChase, frozenWalker.ClientChase) = (left.ActionGeneration, frozenWalker.ActionGeneration);   // walk-ups
-        // whose searches set up those walks: their search timers run from then (0x141e7bfb0)
+        // whose searches set up those walks: their search timers run from then (0x141e826a0)
         (left.ClientChaseTimerFrom, frozenWalker.ClientChaseTimerFrom) = (0.5, 0.5);
         var plan = Game.PlanMonsterAi(held, new MonsterAiCadence(), now: 1.0);
         Assert.Empty(plan.EndedActions);
@@ -462,7 +462,7 @@ public class LockstepMonsterTests : IDisposable
             Assert.Equal((229, 100), left.Walk.Destination);
             Assert.False(Game.WalkUpOpen(held, left));
             // It carries GGG's monster flags, 0 (none of its 56 175 monster orders has 0x400 or 0x8): without 0x400 the
-            // client refuses it while a non-Move action waits queued (0x141e8cf10), as GGG's client does.
+            // client refuses it while a non-Move action waits queued (0x141e937b0), as GGG's client does.
             Assert.Equal(0, BinaryPrimitives.ReadUInt16BigEndian(sent.AsSpan(12)));
         }
         var predictive = Connection(lockstep: false);
@@ -482,7 +482,7 @@ public class LockstepMonsterTests : IDisposable
         }
 
         // A fighting minion 2 cells from its approach cell gets its attack aimed at the target instead of that Move: a melee
-        // one walks up on the client (0x141e94720) and swings at the walk-up's end, an in-place one shoots from where it
+        // one walks up on the client (0x141e9afc0) and swings at the walk-up's end, an in-place one shoots from where it
         // stands. A predictive client gets the Moves.
         (SpawnedMonster Melee, SpawnedMonster Archer) Fighters(ClientState on, bool frames)
         {
@@ -571,7 +571,7 @@ public class LockstepMonsterTests : IDisposable
     }
 
     // A mortar attack is the client's own in both modes: its action fires only with a count on its skill record
-    // (0x141ba51a0) and draws the MonsterMortar row skill_behaviour_variation names (0x141b69900; none is row 0,
+    // (0x141ba7c30) and draws the MonsterMortar row skill_behaviour_variation names (0x141b6c390; none is row 0,
     // MortarMolten), as on GGG's Spitter records. The count is the skill's, the same on the record and in the server's
     // flight, which lands the hit but creates no object; a straight shot (the King's BugSoulrend) has no row, no count on
     // its record and keeps its object.
@@ -624,7 +624,7 @@ public class LockstepMonsterTests : IDisposable
         var direct = Game.MonsterProjectileProfile(spitter, 107.64, 11, 50) with { ContactCells = 2 };
         Assert.True(direct.DirectDamage);
         Assert.Null(direct.EndArea);
-        // Native straight-path destinations for standing and moving targets (141b69ba0).
+        // Native straight-path destinations for standing and moving targets (141b6c630).
         Assert.Equal(new ProjectileVector(848, 533), Game.MonsterMortarTarget(new(894, 554), new(890, 552),
             new(876, 546), 50, 3, 0xffff, 0x8000032, 0));
         Assert.Equal(new ProjectileVector(854, 583), Game.MonsterMortarTarget(new(894, 554), new(891, 557),

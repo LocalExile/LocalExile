@@ -1,8 +1,8 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The client's Voronoi diagram (<c>0x141f27200</c> and helpers): Steven Fortune's sweep2 rewritten in 32-bit
+/// <summary>The client's Voronoi diagram (<c>0x141f2daf0</c> and helpers): Steven Fortune's sweep2 rewritten in 32-bit
 /// integers (no normalised lines, integer square roots, integer hash buckets). Ported operation for operation so the
-/// output, its order included, is the client's. Output: the clipped segments (newest first, <c>0x141f26d70</c>) and the
+/// output, its order included, is the client's. Output: the clipped segments (newest first, <c>0x141f2d660</c>) and the
 /// vertices that end one or three segments.</summary>
 public sealed class FortuneVoronoi
 {
@@ -69,7 +69,7 @@ public sealed class FortuneVoronoi
             if (s.X < _xmin) _xmin = s.X; else if (s.X > _xmax) _xmax = s.X;
             if (s.Y < _ymin) _ymin = s.Y; else if (s.Y > _ymax) _ymax = s.Y;
         }
-        // 0x141f52490 with 0x141f4f830: by y, then x (std::sort; sites are distinct points, so the order is unique).
+        // 0x141f58d80 with 0x141f56120: by y, then x (std::sort; sites are distinct points, so the order is unique).
         _sites.Sort((a, b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X));
         _sqrt = (int)IntSqrt((uint)(_sites.Count + 4));
         _deltaY = _ymax - _ymin;
@@ -123,7 +123,7 @@ public sealed class FortuneVoronoi
             if (_adjacency[i].Count == 1 || (_adjacency[i].Count == 3 && i < _vertices.Count))
                 EndVertices.Add((_vertices[i].X, _vertices[i].Y));
         if (_vertices.Count == 0 && _adjacency.Count != 0)
-            throw new NotSupportedException("Voronoi without vertices (0x141f281d0) is not ported");
+            throw new NotSupportedException("Voronoi without vertices (0x141f2eac0) is not ported");
     }
 
     void SiteEvent(Site site)
@@ -214,7 +214,7 @@ public sealed class FortuneVoronoi
         lb.Right = he;
     }
 
-    /// <summary><c>0x141f26780</c>.</summary>
+    /// <summary><c>0x141f2d070</c>.</summary>
     Site? Intersect(HalfEdge el1, HalfEdge el2)
     {
         var e1 = el1.Edge;
@@ -242,7 +242,7 @@ public sealed class FortuneVoronoi
         }
     }
 
-    /// <summary><c>0x141f268d0</c>: whether p is right of the half-edge.</summary>
+    /// <summary><c>0x141f2d1c0</c>: whether p is right of the half-edge.</summary>
     static bool RightOf(HalfEdge el, Site p)
     {
         var e = el.Edge!;
@@ -292,7 +292,7 @@ public sealed class FortuneVoronoi
         }
     }
 
-    /// <summary><c>0x141f26580</c>: the half-edge left of p.</summary>
+    /// <summary><c>0x141f2ce70</c>: the half-edge left of p.</summary>
     HalfEdge LeftBoundary(Site p)
     {
         int bucket = Math.Clamp(unchecked((p.X - _xmin) / _deltaX * _elHashSize), 0, _elHashSize - 1);
@@ -364,7 +364,7 @@ public sealed class FortuneVoronoi
         ClipLine(e);
     }
 
-    /// <summary><c>0x141f26d70</c>: clips an edge to the bounds and records it.</summary>
+    /// <summary><c>0x141f2d660</c>: clips an edge to the bounds and records it.</summary>
     void ClipLine(Edge e)
     {
         int ddx = e.Reg[1].X - e.Reg[0].X, ddy = e.Reg[1].Y - e.Reg[0].Y;
@@ -441,7 +441,7 @@ public sealed class FortuneVoronoi
         return v;
     }
 
-    /// <summary><c>0x141f28010</c>: records that two vertices are joined (up to three neighbours each).</summary>
+    /// <summary><c>0x141f2e900</c>: records that two vertices are joined (up to three neighbours each).</summary>
     void Adjacent(int a, int b)
     {
         while (_adjacency.Count <= Math.Max(a, b)) _adjacency.Add((-1, -1, -1, 0));
@@ -452,6 +452,6 @@ public sealed class FortuneVoronoi
     static (int, int, int, int) Add((int A, int B, int C, int Count) v, int n) =>
         v.A == -1 ? (n, v.B, v.C, 1) : v.B == -1 ? (v.A, n, v.C, 2) : v.C == -1 ? (v.A, v.B, n, 3) : v;
 
-    /// <summary><c>0x141937840</c>: integer square root, rounded down.</summary>
+    /// <summary><c>0x14193d050</c>: integer square root, rounded down.</summary>
     public static uint IntSqrt(uint n) => (uint)Math.Sqrt(n) is var r && (ulong)(r + 1) * (r + 1) <= n ? r + 1 : (ulong)r * r > n ? r - 1 : r;
 }

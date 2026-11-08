@@ -28,7 +28,7 @@ static class TownNpcs
     /// from; with another seed the room's NPCs are not placed (Oriath is generated around its fixed rooms).</summary>
     public sealed record Room(string Arm, int Width, int Height, int Code, int OffsetX = 0, int OffsetY = 0, uint? Seed = null)
     {
-        // The client's 3-byte rows per placement code (0x142fa04b0; GameServer.Data.Terrain.TilePlacement).
+        // The client's 3-byte rows per placement code (0x142faa4d8; GameServer.Data.Terrain.TilePlacement).
         static readonly byte[] Table = [0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1, 1];
 
         /// <summary>A room cell on the area grid: a = [w − x − 1, x, h − y − 1, y]; x' = a[T1 + 2·T0],
