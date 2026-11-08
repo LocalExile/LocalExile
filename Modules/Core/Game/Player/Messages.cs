@@ -517,20 +517,20 @@ static partial class Game
             }
             else if (id == InstanceProtocol.ChannelUpdateId)
             {
-                // A channelled skill (Cyclone) goes on where the player now is: it moves there. Its hits run on their own
-                // timer (RunChannel), at the skill's attack rate, wherever the player is.
+                // A channelled skill (Cyclone) goes on, aimed at this cell: Cyclone walks toward it (ChannelAimedAt). Its hits
+                // run on their own timer (RunChannel), at the skill's attack rate, wherever the player is.
                 var (cx, cy) = InstanceProtocol.ReadChannelUpdate(bytes);
                 double t = conn.ClockAt(readAt);
                 using (ProjectileMutation(conn))
                 {
                     t = Math.Max(t, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
                     if (PlayerActionBlocked(conn, t, conn.Clock.Elapsed.TotalSeconds)) continue;
-                    conn.Walk.Teleport(cx, cy, t);
+                    ChannelAimedAt(conn, cx, cy, t);
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
                 }
             }
             else if (id == InstanceProtocol.ChannelEndId)
-                lock (conn.Monsters) { conn.ChannelSkill = 0; conn.ChannelGeneration++; }
+                ChannelReleased(conn, conn.ClockAt(readAt));
             else if (id == InstanceProtocol.SwapWeaponsId)
             {
                 // The weapon swap: the hands' rows and the other set's trade their items (the client shows the active set in
