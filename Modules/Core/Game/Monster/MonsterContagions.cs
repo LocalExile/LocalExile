@@ -1,0 +1,193 @@
+using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
+
+static partial class Game
+{
+    /// <summary>BuffDefinitions row 504 <c>contagion</c> ("You are taking Chaos Damage Over Time").</summary>
+    internal const ushort ContagionBuffRow = 504;
+
+    /// <summary>Whether the debuff icon is shown on affected monsters (false: the damage and spread only).</summary>
+    const bool ContagionBuffShown = false;
+
+    // The "more" support stats that scale Contagion's damage: an area spell's chaos damage over time.
+    static readonly string[] ContagionSupportMore =
+    [
+        "support_area_concentrate_area_damage_+%_final", "support_controlled_destruction_spell_damage_+%_final",
+        "support_void_manipulation_chaos_damage_+%_final", "support_rapid_decay_damage_over_time_+%_final",
+        "support_efficacy_spell_damage_+%_final", "support_efficacy_damage_over_time_+%_final",
+    ];
+
+    /// <summary>Contagion (GrantedEffects <c>Contagion</c>) or Contagion of Subsiding (<c>ContagionAltX</c>): what one cast
+    /// puts on each monster in its area; null for any other skill. Its damage is base_chaos_damage_to_deal_per_minute (the
+    /// gem level's resolved value) with the increases a spell's chaos damage over time takes (its implicit
+    /// spell_damage_modifiers_apply_to_skill_dot and is_area_damage admit spell and area damage), the supports' more
+    /// multipliers and the damage over time multipliers. Contagion of Transference (spread on hit) is not supported yet.</summary>
+    internal static MonsterContagion.Cast? ContagionCast(ClientState conn, ushort skillId, int effect)
+    {
+        string? id = SkillsFor(conn).EffectId(effect);
+        if (id is not ("Contagion" or "ContagionAltX")) return null;
+        var own = SupportedSkill(conn, skillId).Stats;
+        var player = CharacterPlayerStats(conn);
+        var merged = MergeSkillStats(player, own);
+        int Get(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
+        int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
+        int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
+
+        double perSecond = Get("base_chaos_damage_to_deal_per_minute") / 60.0;
+        if (!(perSecond > 0) || DamageStats.Prohibited(DamageType.Chaos, Get)) return null;
+        double increased = (double)Get("damage_+%") + Get("spell_damage_+%") + Get("area_damage_+%") + Get("chaos_damage_+%")
+            + Get("damage_over_time_+%") + Get("chaos_damage_over_time_+%");
+        double more = ContagionSupportMore.Aggregate(1.0, (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
+        double multiplier = 1 + ((double)Get("dot_multiplier_+") + Get("chaos_dot_multiplier_+")) / 100.0;
+        double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
+        double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
+        int radius = SkillRadius(conn, own, spell: true, effect);
+        return new(dps, seconds, radius, id == "ContagionAltX" ? 0.75 : 1, skillId);
+    }
+
+    /// <summary>A Contagion cast: once the area cast clip reaches its contact (as AreaSkillHit times a spell), every live
+    /// hostile monster within the radius of the centre is affected. It has no hit, so it deals nothing until it ticks.</summary>
+    internal static async Task CastContagion(ClientState conn, int effect, ushort skillId, (int X, int Y) from, (int X, int Y) to,
+        MonsterContagion.Cast cast, int repeat, double radiusMore, int action, bool instant, Func<bool> current)
+    {
+        int? castMs = CastMs(conn, effect, skillId);
+        if (castMs is null) return;
+        double delay = castMs.Value / 1000.0
+            * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
+        int radius = (int)Math.Round(cast.Radius * radiusMore);
+        var centre = SpellCentre(conn, effect, from, to);
+        await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.05, delay)));
+        await WhilePaused(conn);
+        if ((!instant && conn.ActionCount != action) || conn.Closed || !current()) return;
+        int affected = 0;
+        using (ProjectileMutation(conn))
+        {
+            double now = ProjectileWorldTime(conn);
+            foreach (var (_, m) in conn.Monsters)
+                if (m.Hostile && !m.Dead && m.Life > 0 && m.OwnerId is null && Dist(m.Walk.Position(now), centre) <= radius)
+                {
+                    m.Contagion.Apply(now, cast with { Radius = radius });
+                    affected++;
+                }
+        }
+        Console.WriteLine($"[gateway] contagion: {affected} monster(s) within {radius} of ({centre.X}, {centre.Y}), " +
+            $"{cast.DamagePerSecond:0.#}/s for {cast.Seconds:0.##} s");
+    }
+
+    /// <summary>The art played where a Contagion spreads from: MiscAnimated <c>ContagionCast</c>, the cast's own circle,
+    /// drawn for a radius of 180 world units, so it is scaled to the spread radius as Righteous Fire's ring is.</summary>
+    internal const string ContagionSpreadAo = "Metadata/Effects/Spells/contagion/contagion_main.ao";
+    const double ContagionSpreadArtSeconds = 1.5;
+
+    /// <summary>A monster died: if it was affected by Contagion, a fresh Contagion goes on every other live hostile monster
+    /// within the cast's radius of where it fell (Subsiding's at three quarters of the damage). Returns where it spread
+    /// from and the radius, for its art; null when the monster was not affected.</summary>
+    internal static ((int X, int Y) At, int Radius)? SpreadContagion(ClientState conn, uint id, SpawnedMonster m)
+    {
+        int spread = 0;
+        (int X, int Y) at;
+        MonsterContagion.Cast? cast;
+        using (ProjectileMutation(conn))
+        {
+            cast = m.Contagion.TakeSpread();
+            if (cast is null) return null;
+            double now = ProjectileWorldTime(conn);
+            at = m.Walk.Position(now);
+            var next = cast with { DamagePerSecond = cast.DamagePerSecond * cast.SpreadMore };
+            foreach (var (otherId, other) in conn.Monsters)
+                if (otherId != id && other.Hostile && !other.Dead && other.Life > 0 && other.OwnerId is null
+                    && Dist(other.Walk.Position(now), at) <= cast.Radius)
+                {
+                    other.Contagion.Apply(now, next);
+                    spread++;
+                }
+        }
+        Console.WriteLine($"[gateway] contagion spread from 0x{id:x} to {spread} monster(s)");
+        return (at, cast.Radius);
+    }
+
+    /// <summary>Plays the Contagion circle at a spread, sized to its radius, for <see cref="ContagionSpreadArtSeconds"/>.</summary>
+    internal static async Task ShowContagionSpread(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        (int X, int Y) at, int radius)
+    {
+        uint effect;
+        lock (conn.Monsters) effect = conn.NextObjectId++;
+        float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ContagionSpreadAo) ?? 180));
+        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            new EffectObject(at.X, at.Y, ContagionSpreadAo) { Scale = scale }.Blob()),
+            $"0x02b9 create effect 0x{effect:x} contagion spread at ({at.X}, {at.Y}), radius {radius}");
+        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
+        SendAfter(ContagionSpreadArtSeconds, async () =>
+        {
+            if (conn.Closed || conn.LeavingArea) return;
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(effect), null);
+        });
+    }
+
+    internal static async Task TickContagions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
+        var ended = new List<(uint Id, ushort Buff)>();
+        var updated = new List<(uint Id, ushort Buff, ushort Skill, double Remaining)>();
+        using (ProjectileMutation(conn))
+        {
+            if (conn.Closed || conn.LeavingArea) return;
+            double now = ProjectileWorldTime(conn);
+            foreach (var (id, m) in conn.Monsters)
+            {
+                if (m.Contagion.Idle) continue;
+                int damage = 0;
+                if (m.Dead || m.Life == 0) m.Contagion.Clear();
+                else damage = m.Contagion.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
+                if (damage > 0)
+                {
+                    (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
+                    m.Aggro = m.Life > 0;
+                    if (m.Life == 0)
+                    {
+                        m.Dead = true;
+                        CollectVaalSoulAtDeathLocked(conn, m);
+                        m.Contagion.Clear();
+                    }
+                    hits.Add((id, m, m.Life, damage));
+                    if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
+                }
+                if (m.Dead || m.Life == 0 || m.Contagion.Active is null)
+                {
+                    if (m.Contagion.Buff is ushort gone)
+                    {
+                        ended.Add((id, gone));
+                        m.Contagion.Buff = null;
+                    }
+                }
+                else if (ContagionBuffShown && m.Contagion.Buff is null)
+                {
+                    // One buff for the debuff's life: shown once with its remaining time, replaced only when it ends.
+                    ushort next = conn.NextBuff++;
+                    m.Contagion.Buff = next;
+                    updated.Add((id, next, m.Contagion.Active.SkillId, m.Contagion.Until - now));
+                }
+            }
+        }
+        foreach (var (id, buff) in ended)
+        {
+            await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, buff), null);
+            ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
+        }
+        foreach (var (id, buff, skill, remaining) in updated)
+            await Send(remote, stream, ciphers,
+                InstanceEntities.AddBuff(id, buff, ContagionBuffRow, PlayerId, skill,
+                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining))),
+                $"0x01c1 monster 0x{id:x} contagion buff 0x{buff:x} from skill 0x{skill:x4}, {remaining:0.##} s");
+        foreach (var (id, m, life, damage) in hits)
+        {
+            if (life == 0)
+                await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
+                life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of contagion" : null);
+            if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m);
+        }
+    }
+}

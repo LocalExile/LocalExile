@@ -1217,6 +1217,19 @@ This is a research baseline, not new live skill acceptance or complete native/se
   ([11](../docs/protocol/11-skills.md) 13).
 - Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
 - Hexes/marks have limits and combat effects; reflection and special payloads remain partial (`MonsterCurses`).
+- **Contagion (verified live 2026-11-08, Contagion and Contagion of Subsiding).** The cast has no hit: at the area
+  cast clip's contact every live hostile monster within the skill's radius of the spell centre gets one chaos damage
+  over time (`MonsterContagion`, ticked with the poisons by `TickContagions`, the monster's chaos mitigation applied).
+  Damage: `base_chaos_damage_to_deal_per_minute` with damage, spell, area, chaos, damage over time and chaos damage over
+  time increases, the `dot_multiplier_+` and `chaos_dot_multiplier_+` multipliers and the more of Concentrated Effect,
+  Controlled Destruction, Void Manipulation, Rapid Decay and Efficacy; duration from `base_skill_effect_duration` and
+  skill effect duration. It does not stack: a recast keeps the stronger damage and the later expiry. A monster that dies
+  affected spreads it to every monster within the cast radius (`SpreadContagion` in `MonsterKilledBy`); Subsiding's
+  spread keeps three quarters of the damage. Live: 86 kills by Contagion, a spread on each, no disconnect.
+  Each spread plays MiscAnimated `ContagionCast` at the corpse, scaled to the spread radius (not yet checked live).
+  Not yet: the `contagion` debuff (BuffDefinitions 504) is not sent: the client closed the connection about 3 s after it,
+  with or without the source skill id (`ContagionBuffShown` is false); Contagion of Transference (spread on hit); the
+  character panel's DoT row; Malevolence's conditional DoT multiplier.
 - **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
   a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
   (1 plus `number_of_additional_totems_allowed`; past it the oldest dies).

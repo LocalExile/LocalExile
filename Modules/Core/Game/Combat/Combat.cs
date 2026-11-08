@@ -1314,7 +1314,14 @@ static partial class Game
         int effectiveness = SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
         if (Stat("base_deal_no_damage") != 0) return;
-        if (!hitPlan.CanHit) return;
+        if (!hitPlan.CanHit)
+        {
+            // Contagion has no hit: its cast puts a chaos damage over time on the monsters in its area (MonsterContagions.cs).
+            if (ContagionCast(conn, skillId, gem.Effect) is { } contagion)
+                await CastContagion(conn, gem.Effect, skillId, from, to, contagion, repeat, radiusMore,
+                    actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, cooldownUse?.Instant == true, Current);
+            return;
+        }
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
         var weapon = WeaponFor(conn);
         int? castDuration = spell ? CastMs(conn, gem.Effect, skillId) : 0;
@@ -1977,6 +1984,8 @@ static partial class Game
         uint id, SpawnedMonster m, bool playerKill)
     {
         StopCorpseBlocking(remote, stream, ciphers, conn, id, m);
+        if (SpreadContagion(conn, id, m) is { } contagion)
+            await ShowContagionSpread(remote, stream, ciphers, conn, contagion.At, contagion.Radius);
         double now = conn.Clock.Elapsed.TotalSeconds;
         (int X, int Y) at, player;
         bool alive, blocked;
