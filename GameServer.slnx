@@ -2,7 +2,6 @@
   <Folder Name="/src/">
     <Project Path="src/GameServer.Auth/GameServer.Auth.csproj" />
     <Project Path="src/GameServer.Chat/GameServer.Chat.csproj" />
-    <Project Path="src/GameServer.Rates/GameServer.Rates.csproj" />
     <Project Path="src/GameServer.Core/GameServer.Core.csproj" />
     <Project Path="src/GameServer.Data/GameServer.Data.csproj" />
     <Project Path="src/GameServer.Gateway/GameServer.Gateway.csproj" />

@@ -1,6 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/GameServer.Rates/GameServer.Rates.csproj" />
-    <Project Path="src/GameServer.Core/GameServer.Core.csproj" />
-  </Folder>
-</Solution>
