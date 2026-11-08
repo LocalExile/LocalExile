@@ -6,9 +6,9 @@ using GameServer.Core.Protocol.Login;
 static partial class Game
 {
     // Handles the framed messages of one read, ticks taken out (OnClientData):
-    // 0x7d (area generated) → the local player id (0x22), the player object (0x2b9), inventories, passive slots, the area transitions,
+    // 0x7d (area generated) → the local player id (0x22), the player object (0x2bb), inventories, passive slots, the area transitions,
     // and with Game_GATEWAY_ENTER=1 enter area (0x21) + wake zone; 0x25 (move) → 0x1ab echo;
-    // 0x24 on an area transition → change area (0x2b2, then 0x27 with the new instance) or, with Ctrl, the instance chooser (0xae).
+    // 0x24 on an area transition → change area (0x2b4, then 0x27 with the new instance) or, with Ctrl, the instance chooser (0xae).
     // Anything else is logged in hex: those are the next messages to map.
     // The most a hold on the server has been seen to outlast the client's is 33 ms.
     const double HoldEndGraceSeconds = .06;
@@ -67,7 +67,7 @@ static partial class Game
             // Kinetic Blast burst's backlog of contacts (and the kills and loot they enqueue) run inside the input
             // handler: 0x0025 took 100-200 ms and the input queue reached 7 s (2026-11-05). Handlers that need a
             // current simulation use ProjectileMutation, which advances under the same locks.
-            // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.
+            // The client's answer to 0x2b4 (0x14214efe0): it is ready to leave, so move it now.
             if (id == InstanceTransfer.LeaveAreaAckId)
             {
                 if (conn.PendingTransfer is { } leaving) await Transfer(remote, stream, ciphers, conn, leaving);
@@ -202,9 +202,8 @@ static partial class Game
                 (int px, int py) = (0, 0);
                 CooldownUseTicket? cooldownUse = null;
                 int chargeBonus = cast && gem.Name is not null ? ShieldChargeBonusPct(conn, use.SkillId, gem.Effect) : 0, chargeToken = 0;
-                // A lockstep client's default attack at the ground (a held attack whose target died goes on at the ground,
-                // 07 §6) swings where the player stands: GGG's player stayed on its cell through 101 such attacks aimed
-                // 18 to 29 cells away, one per attack time. A predictive client sends a Move for that click instead.
+                // A lockstep client's forced stationary default attack swings where the player stands. Ordinary ground
+                // melee uses take StartLockstepGroundMelee's frame-stepped walk-up before reaching this handler.
                 bool inPlace = cast || conn.LockstepClient && use.SkillId == SkillCatalog.FirstSkillId;
                 void StartAction()
                 {
@@ -290,24 +289,16 @@ static partial class Game
             }
             else if (InstanceProtocol.IsLockstepRequest(id))
             {
-                if (conn.LockstepServed && !conn.LockstepLatency.Refused)
-                {
-                    OnLockstepRequest(remote, conn, id, bytes);
-                    if (id == InstanceProtocol.LockstepMoveUpdateId) await AimLockstepChannel(remote, stream, ciphers, conn);
-                    continue;
-                }
-                // The client moves this way only in lockstep, which the Gateway does not serve yet (07 §6): say so once per
-                // connection.
-                if (conn.WarnedLockstep) continue;
-                conn.WarnedLockstep = true;
-                Console.WriteLine($"[gateway] {remote} <= 0x{id:x4} lockstep movement: the client's Network Mode is lockstep (\"auto\" picks it on localhost); " +
-                    "only Predictive is supported, the player cannot move");
-                await Send(remote, stream, ciphers, InstanceChat.MessageBox(LockstepWarning), "0x000d message box: lockstep warning");
+                // The client chose lockstep (07 §6): it is served as it asks.
+                OnLockstepRequest(remote, conn, id, bytes);
+                if (id == InstanceProtocol.LockstepMoveUpdateId) await AimLockstepChannel(remote, stream, ciphers, conn);
             }
             else if (id == InstancePause.RequestId)
                 await SetPaused(remote, stream, ciphers, conn, InstancePause.ReadRequest(bytes));
             else if (id == InstanceWaypoints.LabyrinthChosenId && bytes.Length >= InstanceWaypoints.LabyrinthChosenLength)
                 await ChooseLabyrinth(remote, stream, ciphers, conn, bytes[2]);
+            else if (id == InstanceWaypoints.AscendancyChosenId && bytes.Length >= InstanceWaypoints.AscendancyChosenLength)
+                await ChooseAscendancyClass(remote, stream, ciphers, conn, bytes[2]);
             else if (id == InstanceProtocol.UseInstantSkillAtLocationId)
             {
                 var (x, y, skill) = InstanceProtocol.ReadUseInstantSkillAtLocation(bytes);
@@ -401,7 +392,7 @@ static partial class Game
                 if (command.Id == InstanceItems.DestroyCursorItemCommand) await DestroyHeldItem(remote, stream, ciphers, conn);
                 else if (command.Id == InstanceItems.WarpToHideoutCommand) await WarpToHideout(remote, stream, ciphers, conn, "/hideout");
                 else if (command.Id == InstanceItems.ForceResyncCommand) await SendResync(remote, stream, ciphers, conn, "the client asked");
-                else if (command.Id == InstanceItems.AfkCommand && conn.LockstepServed) AnswerLockstepProbe(remote, conn, readAt);
+                else if (command.Id == InstanceItems.AfkCommand && conn.LockstepClient) AnswerLockstepProbe(remote, conn, readAt);
                 else Console.WriteLine($"[gateway] {remote} <= 0x0016 command {command} (not handled)");
             }
             else if (id == InstanceWaypoints.VisitHideoutId)
@@ -604,7 +595,8 @@ static partial class Game
             else if (id == InstanceChat.ChatId)
             {
                 var chat = InstanceChat.ReadChat(bytes);
-                Console.WriteLine($"[gateway] {remote} <= 0x0015 chat \"{chat.Text}\" (u8 {chat.U8})");
+                Console.WriteLine($"[gateway] {remote} <= 0x0015 chat \"{chat.Text}\" ({chat.Links.Count} linked)");
+                // Plain lines are the Chat module's.
                 if (chat.IsCommand)
                 {
                     // A preceding slash command can finish a Game + Commands reload in this same batch.
@@ -612,12 +604,6 @@ static partial class Game
                     conn.Commands = Program.Commands(remote, stream, ciphers, conn);
                     await conn.Commands.RunAsync(chat.Text);
                 }
-                else await EchoChat(remote, stream, ciphers, conn, chat.Text);
-            }
-            else if (id == InstanceChat.JoinChannelId)
-            {
-                if (InstanceChat.ReadJoinChannel(bytes) is { } join) await JoinChatChannel(remote, stream, ciphers, conn, join);
-                else Console.WriteLine($"[gateway] {remote} <= 0x0134 join with an unknown channel kind, ignored: {Convert.ToHexString(bytes)}");
             }
             else if (id == InstanceTransfer.ChooseInstanceId)
             {
@@ -681,14 +667,12 @@ static partial class Game
                     await PlayerEnteredArea(remote, stream, ciphers, conn);
                     await SendWaypoints(remote, stream, ciphers, conn);
                     uint gold = PersonalStashOf(conn).Gold;
-                    await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02a9 gold: {gold} (account, {conn.League ?? "Standard"})");
+                    await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (account, {conn.League ?? "Standard"})");
                     // The worn cosmetics (S→C 0x1f3): the client's worn table starts empty with every instance connection.
                     await SendWornCosmetics(remote, stream, ciphers, conn, "entering the area");
                     // The saved skill bar (S→C 0x53), right after the player and the area.
                     await SendSkillBar(remote, stream, ciphers, conn);
-                    // The chat channels joined earlier in the session (Program.Chat.cs).
-                    await SendChatChannels(remote, stream, ciphers, conn);
-                    // The equipment again (S→C 0x02ba), as after an equip: the player object's own list does not set how a
+                    // The equipment again (S→C 0x02bc), as after an equip: the player object's own list does not set how a
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
                     await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
                     await PopulateArea(remote, stream, ciphers, conn);
@@ -704,7 +688,7 @@ static partial class Game
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     await Program.ServerHooks.AreaGenerated(PlayerOf(conn));
                     ActivateResourceEffects(conn, ProjectileWorldTime(conn));
-                    _ = conn.LockstepServed ? RunLockstepFrames(remote, stream, ciphers, conn) : RunServerFrames(remote, stream, ciphers, conn);
+                    _ = RunLockstepFrames(remote, stream, ciphers, conn);
                     Program.ActivatePlayerUpdates(conn);
                     _ = conn.RampageWorld;
                     lock (conn.Monsters)
@@ -719,9 +703,9 @@ static partial class Game
         {
             ushort uid = unknown.Length > 1 ? (ushort)(unknown[0] << 8 | unknown[1]) : unknown[0];
             Console.WriteLine($"[gateway] {remote} <= unframed 0x{uid:x4} ({unknown.Length} bytes): {Convert.ToHexString(unknown.AsSpan(0, Math.Min(unknown.Length, 256)))}");
-            // C→S 0x29c: Hinekora's Lock preview request: u16 key, u32 currency inventory, u32 currency id,
-            // u32 target inventory, u32 target id (all BE after the key). The 0x29f answer uses the same key.
-            if (uid == 0x029c && unknown.Length >= 20)
+            // C→S 0x29d: Hinekora's Lock preview request: u16 key, u32 currency inventory, u32 currency id,
+            // u32 target inventory, u32 target id (all BE after the key). The 0x2a0 answer uses the same key.
+            if (uid == 0x029d && unknown.Length >= 20)
             {
                 static uint U32(byte[] b, int i) => (uint)(b[i] << 24 | b[i + 1] << 16 | b[i + 2] << 8 | b[i + 3]);
                 ushort key = (ushort)(unknown[2] << 8 | unknown[3]);
@@ -742,7 +726,7 @@ static partial class Game
                 await Send(remote, stream, ciphers, InstanceItems.CurrencyApplicationForesightResult(
                     key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
                     preview is null ? [] : [preview]),
-                    $"0x029f foresight preview key {key} for item {targetId}: {(preview is null ? "refused" : "preview")}");
+                    $"0x02a0 foresight preview key {key} for item {targetId}: {(preview is null ? "refused" : "preview")}");
             }
             // Unframed messages have the hooks too.
             if (Program.ServerHooks.WantsPacket(uid)) await Program.ServerHooks.Packet(PlayerOf(conn), uid, unknown);

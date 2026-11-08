@@ -126,7 +126,7 @@ public class InstanceItemsTests
     [InlineData(0x403b9b3bu, 2u, "0263403B9B3B0000000C00000002000000000000")]
     public void Successful_flask_use_matches_the_official_sound_confirmation(uint typeHash, uint itemId, string capture)
     {
-        // Official 3.28 captures; field order and widths verified against the 3.29.3b reader 0x1421aded0.
+        // Official 3.28 captures; field order and widths verified against the 3.29.3c reader 0x1421b4840.
         Assert.Equal(capture, Convert.ToHexString(InstanceItems.ItemUsed(typeHash, 12, itemId)));
     }
 

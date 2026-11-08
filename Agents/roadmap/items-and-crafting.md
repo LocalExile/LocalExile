@@ -35,9 +35,12 @@ features.
   Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant).
   Enkindling/Instilling transactions, charge lock and rare-hit automation have native acceptance; verify the other
   automatic triggers natively and connect incoming Bleed/Poison sources when those mechanics exist.
-  Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): sockets are not generated
-  (`Sockets:` lines are dropped, and Tabula Rasa has neither its sockets nor mods); the five synthesis uniques and The Eternal
-  Struggle lack their random implicits; uniques with a choice of variants are one fixed choice, and the variable mods of the 34 uniques the
+  Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): Abyss socket layouts still lack
+  generation rules (`Sockets:` lines are dropped); ordinary default sockets, Tabula's six linked whites, Skin of the
+  Loyal's six linked random colours, the 3.29 no-white property, fixed "Has X Sockets" counts and Malachai's all-white
+  socket are implemented, awaiting a fresh native check. Skin of the Lords is absent from the generated seed, so it
+  cannot be created until its definition is added. The five synthesis
+  uniques and The Eternal Struggle lack their random implicits; uniques with a choice of variants are one fixed choice, and the variable mods of the 34 uniques the
   generator lists stay out, `{crafted}` lines too (Cinderswallow Urn's enchant-like rolls).
   Doryani's Delusion's generated variants are its corrupted ones.
   poedb differs from PoB's current variant on the base of Twyzel, Replica Twyzel, Kitava's Feast and Dissolution of the
@@ -82,7 +85,7 @@ features.
   success and refusal paths. Veiled modifiers and Reflective Oil/Sanctified remain separate,
   and Mirror from a stash tab is still unsupported. See
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
-  Hinekora's Lock's server rules are in (Mods flag bit 8 + seed, C→S 0x29c / S→C 0x29f preview with status 0,
+  Hinekora's Lock's server rules are in (Mods flag bit 8 + seed, C→S 0x29d / S→C 0x2a0 preview with status 0,
   exact committed result, clear-on-modification); the client's preview branch is the item popup's foresight element.
   See [the evidence](../docs/re/hinekora-lock.md).
   Enkindling and Instilling are implemented with the official five/fifteen pools, coexistence and Harvest/bench

@@ -1,18 +1,18 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The labyrinth node the server sends in an area's extra data (<c>0x141ec7220</c> flag 0x08: u32 seed, u16
+/// <summary>The labyrinth node the server sends in an area's extra data (<c>0x141ecdad0</c> flag 0x08: u32 seed, u16
 /// node, u8 difficulty): the day's layout (<see cref="LabyrinthLayout"/>) and the room's LabyrinthSectionLayout row.</summary>
 public sealed record LabyrinthNodeKey(uint Seed, int Row, int Difficulty);
 
-/// <summary><c>0x142032760</c> (.dgr, from <c>0x14203c900</c>) / <c>0x142033e30</c> (.tgr, from <c>0x14203f890</c>): the
+/// <summary><c>0x142038fb0</c> (.dgr, from <c>0x142043150</c>) / <c>0x14203a680</c> (.tgr, from <c>0x1420460e0</c>): the
 /// Labyrinth's graph pass, for an area whose WorldAreas row has +0x171 set (<see cref="AreaInfo.IsLabyrinth"/>), after
-/// the tag choices and side areas and before the description pass (<c>0x142034e60</c>). With a labyrinth node
+/// the tag choices and side areas and before the description pass (<c>0x14203b6b0</c>). With a labyrinth node
 /// (instance +0x48, <paramref name="node"/>) the node's LabyrinthNodeOverrides apply and its two secrets take secret
 /// rooms; without one, a boss area builds the seed-0 layout for its override and a door area may take the gold door.</summary>
 sealed class LabyrinthPass(Func<string, byte[]?> read, string areaId, bool boss, LabyrinthNodeKey? node = null)
 {
     /// <summary>Runs the pass over the graph's nodes. Every node tagged "secret" or "secret" plus one character
-    /// (<c>0x14203a2e0</c>) is collected and loses its exist chance (+0x44 = 0). Then the node's overrides and secrets,
+    /// (<c>0x142040b30</c>) is collected and loses its exist chance (+0x44 = 0). Then the node's overrides and secrets,
     /// else a boss area's override row, else an area named "_quad_door" or "_branch_door" turns the first collected node
     /// into the LabyrinthSecrets "GoldDoor" room. The nodes still collected then also lose their descriptions.</summary>
     public void Run(TileGraph graph, LevelRandom rng)
@@ -41,7 +41,7 @@ sealed class LabyrinthPass(Func<string, byte[]?> read, string areaId, bool boss,
         }
         else if (boss)
         {
-            // 0x1424e5ca0 builds the area's labyrinth with seed 0 (difficulty: the id's first character, 'E' = 4) for the
+            // 0x1424ec930 builds the area's labyrinth with seed 0 (difficulty: the id's first character, 'E' = 4) for the
             // pick below; "_end" areas take the final boss row (Normal: the one without traps), the others Boss1_Sec1.
             int difficulty = areaId[0] == 'E' ? 4 : areaId[0] - '0';
             string id = areaId.Contains("_end", StringComparison.Ordinal) ? difficulty == 1 ? "FinalBossEasy" : "FinalBoss" : "Boss1_Sec1";
@@ -59,16 +59,16 @@ sealed class LabyrinthPass(Func<string, byte[]?> read, string areaId, bool boss,
         }
     }
 
-    // The day's layout and the node whose LabyrinthSectionLayout row the server sent (0x1424e5ca0: none matches, no node).
+    // The day's layout and the node whose LabyrinthSectionLayout row the server sent (0x1424ec930: none matches, no node).
     (LabyrinthLayout Layout, LabyrinthLayout.Node Node)? Current()
     {
         var layout = LabyrinthLayout.Build(read, node!.Seed, node.Difficulty);
         return layout.Nodes.FirstOrDefault(n => n.Row == node.Row) is { } current ? (layout, current) : null;
     }
 
-    /// <summary><c>0x142034d30</c> → <c>0x142033ad0</c>: every node whose tag is the LabyrinthNodeOverrides row's node name
+    /// <summary><c>0x14203b580</c> → <c>0x14203a320</c>: every node whose tag is the LabyrinthNodeOverrides row's node name
     /// (+8) takes one of its overrides (+0x10): none empties the tag, one is taken as it is; with several,
-    /// <c>0x1424e5ee0</c> picks with a TinyMT seeded from (difficulty + 4 × the layout node's LabyrinthSectionLayout row)
+    /// <c>0x1424ecb70</c> picks with a TinyMT seeded from (difficulty + 4 × the layout node's LabyrinthSectionLayout row)
     /// × 0x13d + the layout's seed (no level draw).</summary>
     void Override(TileGraph graph, int row, LabyrinthLayout layout, int layoutRow)
     {
@@ -86,8 +86,8 @@ sealed class LabyrinthPass(Func<string, byte[]?> read, string areaId, bool boss,
     }
 
     /// <summary>The collected nodes' order before a secret takes the first: shuffled when all are tagged "secret" (one
-    /// <c>Next(count)</c>, <c>0x141ff9720</c>, then per place a <c>Uniform</c> draw below the places left, swapped with
-    /// the front: the client trace's n(2), u(2), u(1)) or else sorted by tag (<c>0x1420393f0</c>, stable).</summary>
+    /// <c>Next(count)</c>, <c>0x141ffff70</c>, then per place a <c>Uniform</c> draw below the places left, swapped with
+    /// the front: the client trace's n(2), u(2), u(1)) or else sorted by tag (<c>0x14203fc40</c>, stable).</summary>
     static void Order(List<GraphNode> secrets, bool plain, LevelRandom rng)
     {
         if (plain)
@@ -107,7 +107,7 @@ sealed class LabyrinthPass(Func<string, byte[]?> read, string areaId, bool boss,
         }
     }
 
-    /// <summary><c>0x142033660</c>: a LabyrinthSecrets row's room (+8) on the first collected node: its tag, exist 100,
+    /// <summary><c>0x142039eb0</c>: a LabyrinthSecrets row's room (+8) on the first collected node: its tag, exist 100,
     /// out of the collected list; a passage secret (+0x6d) also gives it an "entrance&lt;N&gt;" description (N: the labyrinth
     /// node's connections, then one more per passage); and the "secret1" / "secret2" description. None collected: the
     /// client logs "Not enough secret nodes in …" and goes on.</summary>
@@ -126,7 +126,7 @@ sealed class LabyrinthPass(Func<string, byte[]?> read, string areaId, bool boss,
     }
 
     /// <summary>The gold door: the collected nodes are shuffled (all tagged "secret": <c>Next(count)</c> per place,
-    /// front to back) or else sorted by tag (<c>0x1420393f0</c>, stable); the first takes the GoldDoor row's room name
+    /// front to back) or else sorted by tag (<c>0x14203fc40</c>, stable); the first takes the GoldDoor row's room name
     /// (+8) as its tag, exist 100, and a "secret1" description. None collected: the client logs "Not enough secret
     /// nodes in …" and goes on.</summary>
     void GoldDoor(List<GraphNode> secrets, bool plain, LevelRandom rng)

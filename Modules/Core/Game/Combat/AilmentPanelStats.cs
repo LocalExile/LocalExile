@@ -113,6 +113,9 @@ static class AilmentPanelStats
             };
         var more = SupportMore.Where(m => (m.Only is null || m.Only.Contains(ailment)) && (!m.MeleeHit || context.Melee)
             && (!m.Attack || context.Attack) && get(m.Stat) != 0).ToList();
+        more.Add(new("delirium_aura_damage_over_time_+%_final"));
+        if (ailment == "poison") more.Add(new("herald_of_agony_poison_damage_+%_final"));
+        if (ailmentType == DamageType.Physical) more.Add(new("herald_of_purity_physical_damage_+%_final"));
         double multiplier = Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get(Slug(ailmentType) + "_dot_multiplier_+")
             + get("ailment_dot_multiplier_+") + get(ailment + "_dot_multiplier_+")
             + (critical ? get("critical_ailment_dot_multiplier_+") + get("critical_" + ailment + "_dot_multiplier_+") : 0)) / 100)

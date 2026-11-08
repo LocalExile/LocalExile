@@ -22,7 +22,7 @@ static partial class Game
         Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: league quest flag(s) {string.Join(", ", wanted)} {(on ? "set" : "cleared")}");
         if (!conn.PlayerSent) return;
         await Send(remote, stream, ciphers, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(all)),
-            $"0x02ba player league quest flags: {string.Join(", ", all)}");
+            $"0x02bc player league quest flags: {string.Join(", ", all)}");
     }
 
     // Sets or clears quest flags for the character (saved at once) and sends the player's flag set again; one change at a
@@ -99,7 +99,7 @@ static partial class Game
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "current quest flags", Kind: PlayerMinions.OutputKind.QuestFlags));
         else
-            await Send(remote, stream, ciphers, [], "0x02ba player quest flags (current)", atGate: () => QuestFlagPresentation(conn));
+            await Send(remote, stream, ciphers, [], "0x02bc player quest flags (current)", atGate: () => QuestFlagPresentation(conn));
         if (ChangesResistancePenalty(change.Changed) || ChangesQuestStats(change.Changed))
             await SendCharacterStats(remote, stream, ciphers, conn, "quest static reward stats changed");
         // Quest passive and refund points (QuestStaticRewards) are in the tree's numbers.
@@ -112,7 +112,7 @@ static partial class Game
         // The quest engine's objects and chests whose state follows a flag (World/Quest/QuestEngine.cs).
         await UpdateQuestObjectStates(remote, stream, ciphers, conn, change.Effective);
         foreach (uint id in change.Removed)
-            await Send(remote, stream, ciphers, [], $"0x02bb remove room object 0x{id:x} (quest flag set)", atGate: () =>
+            await Send(remote, stream, ciphers, [], $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
             { lock (conn.Monsters) return conn.Closed || conn.LeavingArea || conn.QuestRoomObjects.ContainsKey(id) ? null : InstanceProtocol.RemoveObject(id); });
     }
 
@@ -141,6 +141,10 @@ static partial class Game
     internal static string? TransitionFlag(ClientState conn, AreaTransitionObject transition) =>
         // The plaza's way into the Labyrinth leads to the day's first room: shown once its door is open (ChooseLabyrinth).
         conn.Layout.Id == LabyrinthDay.Plaza && transition.SourceType == LabyrinthDay.Entrance ? LabyrinthDay.PlazaDoorOpen
+        // Izaro's arena's ways out (the layout's disabled ones): shown once his trial in this instance is won; the way in
+        // once the corridor's gate is open.
+        : transition.LayoutDisabled && LabyrinthDay.IzaroRoom(conn.Layout.Id, conn.Seed) is not null ? IzaroFights.Beaten
+        : transition.SourceType == IzaroFights.ArenaTransition && LabyrinthDay.IzaroRoom(conn.Layout.Id, conn.Seed) is not null ? IzaroFights.GateOpen
         : AreaTransitionCatalog.IdOf(transition.DestinationHash16) is { } dest ? QuestsOf(conn).FlagToEnter(conn.Layout.Id, dest) : null;
 
     // Whether a Labyrinth tier's trials are done (Labyrinths RequiredTrials: Normal's six, …; the character's flag or the
@@ -216,21 +220,55 @@ static partial class Game
             if (shown)
             {
                 await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()),
-                    $"0x02b9 create area transition 0x{id:x} {transition} ({why})");
+                    $"0x02bb create area transition 0x{id:x} {transition} ({why})");
                 await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             }
-            else await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove area transition 0x{id:x} ({why})");
+            else await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove area transition 0x{id:x} ({why})");
         }
     }
 
     // A quest flag as the client has it: the character's own, or one the World panel's access flags carry (an activated
     // waypoint's area, 16-waypoints.md §4: the Submerged Passage's waypoint brings a1q4-PlacedGlyphs). The client opens
     // its ways by these, so the server's checks follow them.
-    internal static bool ClientHasQuestFlag(ClientState conn, string flag) =>
-        Quests.IsInstanceFlag(flag) ? conn.Instance.HasState(flag) : Quests.ClientHas(flag, conn.QuestFlagsSnapshot(), PlayerQuestFlags(conn));
+    internal static bool ClientHasQuestFlag(ClientState conn, string flag)
+    {
+        if (Quests.IsInstanceFlag(flag)) return conn.Instance.HasState(flag);
+        if (conn.HasQuestFlag(flag)) return true;
+        if (Quests.Rows([flag]) is not [int row]) return false;
+        bool inHideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null || conn.Layout.Hash == StashCatalog.DelveHub;
+        lock (conn.Monsters)
+            if (conn.UnearnedQuestFlags.Contains(flag) && Quests.EndgameOnly.Contains(flag)
+                && (inHideout || MapDevices.Value.IsMapArea(conn.Layout.Hash))) return true;
+        // Combat reads individual flags for every Pantheon/stat calculation. Keep the World panel's access and visit
+        // semantics without rebuilding, sorting and allocating its complete flag list for each membership test.
+        lock (conn.Waypoints)
+        {
+            var world = WorldQuestFlagLookups.GetOrCreateValue(conn);
+            if (!world.Waypoints.SetEquals(conn.Waypoints) || !world.Visited.SetEquals(conn.Visited))
+            {
+                world.Waypoints = [.. conn.Waypoints];
+                world.Visited = [.. conn.Visited];
+                world.Rows.Clear();
+                foreach (var area in WaypointCatalog.Areas.Entries)
+                    if (conn.Waypoints.Contains(area.Id)) world.Rows.UnionWith(area.AccessFlags ?? []);
+                foreach (string area in conn.Visited) world.Rows.UnionWith(WaypointCatalog.Visits.For(area));
+                foreach (string area in conn.Waypoints) world.Rows.UnionWith(WaypointCatalog.Visits.For(area));
+            }
+            return world.Rows.Contains(row);
+        }
+    }
+
+    // Only the World panel's derived flags are cached. Own/session/instance flags above remain live; adding or
+    // removing a visit or waypoint rebuilds these rows, including replacements that leave the set's count unchanged.
+    sealed class WorldQuestFlagLookup
+    {
+        public HashSet<string> Waypoints = [], Visited = [];
+        public readonly HashSet<int> Rows = [];
+    }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, WorldQuestFlagLookup> WorldQuestFlagLookups = new();
 
     // The first ground click in WashedUp sends this action instead of Move, and any other request to move gets it from the
-    // server (0x141e94fc0). It plays getup in place; treating a target as a walk would move only the server's position estimate.
+    // server (0x141e9b860). It plays getup in place; treating a target as a walk would move only the server's position estimate.
     internal static async Task WakeUpOnBeach(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y)? target, ushort sequence, ushort flags, double requestedAt)
     {
@@ -282,7 +320,7 @@ static partial class Game
             else conn.RemoveBlocker(PassageBlockerFirstId + (uint)i);
     }
 
-    // PlacedGlyphs as the client has it changed: the wall and the waterfall play their transition (0x2ba to
+    // PlacedGlyphs as the client has it changed: the wall and the waterfall play their transition (0x2bc to
     // Transitionable), and the invisible blockers leave the server's walk estimate (the client drops its own when it gets
     // the flag). Cleared (dev): the other way.
     internal static async Task ChangeSubmergedPassage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool open)
@@ -296,6 +334,6 @@ static partial class Game
         foreach (var (id, what) in new[] { (conn.GlyphWallId, "Glyph Wall"), (conn.GlyphWaterId, "waterfall") })
             if (id != 0)
                 await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, GlyphQuest.TransitionableIndex, state),
-                    $"0x02ba {what} 0x{id:x} Transitionable → {state}");
+                    $"0x02bc {what} 0x{id:x} Transitionable → {state}");
     }
 }

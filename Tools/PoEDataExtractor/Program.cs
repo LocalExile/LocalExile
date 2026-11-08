@@ -9,7 +9,7 @@ internal static class Program
 {
     private const string Usage =
         """
-        PoEDataExtractor - Path of Exile 3.29.3b data pipeline
+        PoEDataExtractor - Path of Exile 3.29.3c data pipeline
 
         usage:
           PoEDataExtractor list   <ggpk>

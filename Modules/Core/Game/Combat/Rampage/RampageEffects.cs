@@ -80,7 +80,7 @@ static partial class Game
         uint? actor = await CreateRampageActor(remote, stream, ciphers, conn, tier.Daemon, level, end, null, origin, epoch);
         if (actor is null) throw new InvalidOperationException($"Rampage tier {tier.Threshold} cannot create its actor");
         await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(actor.Value, origin.X, origin.Y,
-            origin.X, origin.Y, SkillCatalog.FirstSkillId, 0xffff, 0x0408), $"Rampage tier {tier.Threshold}",
+            origin.X, origin.Y, SkillCatalog.FirstSkillId, 0xffff, conn.MonsterOrderFlags), $"Rampage tier {tier.Threshold}",
             still: () => RampageEffectCurrent(conn, epoch));
         lock (conn.Monsters)
             if (RampageEffectCurrent(conn, epoch))
@@ -277,14 +277,24 @@ static partial class Game
                     if (!Current()) { completed = true; return null; }
                     if (conn.Paused) return null;
                     completed = true;
-                    float remaining = (float)(token.Until - Now());
-                    return remaining > 0
-                        ? InstanceProtocol.ActorAnimation(token.Id, remaining, PlayerHitRecovery.TakeHitAnimation) : null;
+                    return RampageStunPacket(conn, token, Now());
                 }
             });
             if (completed) return;
             await Task.Delay(16);
         }
+    }
+
+    // A current stun's 0x1d1 at its send gate, for the recovery left of it at `now`, under conn.Monsters. It is a monster
+    // TakeHit like any other (TakeHitPacket), so a lockstep client's recovery is held in its frames, and the stun's own
+    // hold on the AI (BusyUntil, RampageStatusLocked) moves with it.
+    internal static byte[]? RampageStunPacket(ClientState conn, RampageStunToken token, double now)
+    {
+        var target = token.Target;
+        if ((float)(token.Until - now) <= 0) return null;
+        var packet = TakeHitPacket(conn, token.Id, target, token.Until, now);
+        if (target.BusyUntil == token.Until) target.BusyUntil = target.FlinchUntil;
+        return packet;
     }
 
     static Task SendRampageRemoval(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id) =>

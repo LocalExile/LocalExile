@@ -56,8 +56,8 @@ public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplie
 public sealed record ProjectileSplitFormRecipe(double SpeedMultiplier, int Pierce);
 public sealed record ProjectileTargetedRecipe(string Stage, int Count, double Radius);
 
-/// <summary>The client's volley (0x141bb13a0 with 0x141bb0f20's stats). A nova (0x141bb9500) puts projectile i at
-/// i × 2π / count from the aim. A fan (0x141bb9730) steps <see cref="FixedDegrees"/> / (count − 1) when set, otherwise
+/// <summary>The client's volley (0x141bb3e30 with 0x141bb39b0's stats). A nova (0x141bbbf90) puts projectile i at
+/// i × 2π / count from the aim. A fan (0x141bbc1c0) steps <see cref="FixedDegrees"/> / (count − 1) when set, otherwise
 /// atan(k × <see cref="Width"/> / aim distance), at most min(2π, k × 120°) / (count − 1) and at least 0.1428 rad, with
 /// k = 1 + <see cref="SpreadPercent"/> / 100 (live 2026-10-31: 175 Spark volleys).</summary>
 public sealed record ProjectileNativeVolley
@@ -69,7 +69,7 @@ public sealed record ProjectileNativeVolley
     /// <summary>multiple_projectiles_projectile_spread_+%.</summary>
     public int SpreadPercent { get; init; }
     public bool Nova { get; init; }
-    /// <summary>The host's seeded direction of each projectile from the aim (random_projectile_direction, 0x141bb9280).</summary>
+    /// <summary>The host's seeded direction of each projectile from the aim (random_projectile_direction, 0x141bbbd10).</summary>
     public IReadOnlyList<double>? Angles { get; init; }
 
     public double Angle(int index, int count, double distance)
@@ -206,6 +206,9 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     public object? Payload { get; init; }
     /// <summary>Optional initial-projectile snapshots; continuation children inherit their parent's selected payload.</summary>
     public IReadOnlyList<object?>? ProjectilePayloads { get; init; }
+    /// <summary>Optional per-projectile destinations. Each initial flight ends at its destination; children retain
+    /// their own continuation geometry. Used when the native action scatters target cells instead of directions.</summary>
+    public IReadOnlyList<ProjectileVector>? ProjectileTargets { get; init; }
     public int Seed { get; init; } = 1;
     /// <summary>The client action sequence that released this use, for the native terminal RNG.</summary>
     public ushort Sequence { get; init; }

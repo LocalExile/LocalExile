@@ -6,7 +6,7 @@ using LocalExile;
 // It always works from its own folder, whatever folder it was started in: the servers' paths are relative to it.
 //   run (default)  everything above, until the client closes
 //   setup          everything above except the servers and the client
-//   check          say whether a folder holds the 3.29.3b client; changes nothing
+//   check          say whether a folder holds the 3.29.3c client; changes nothing
 //   stop           stop this install's servers and client
 //   account create <name>
 //   version | client-command | help
@@ -17,7 +17,7 @@ const string Usage = """
     LocalExile.exe [run|setup|check|stop|version|client-command|help] [options]
     LocalExile.exe account create <name> [--password-stdin]
 
-      --client <folder>       the Path of Exile 3.29.3b install to use
+      --client <folder>       the Path of Exile 3.29.3c install to use
       --client-mode <mode>    copy (a separate copy, the default) or link (use the folder itself; its data is changed)
       --no-client             start only the servers
       --port-base <n>         with --no-client: five ports in a row from n instead of the defaults

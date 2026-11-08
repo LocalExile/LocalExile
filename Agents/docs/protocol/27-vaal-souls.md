@@ -17,21 +17,21 @@ These ignored research files and game data are not committed.
 
 The parent's UTF-8 `vaal-r22-wire-flag-constructor-dis.txt` proves the missing skill-record flag independently.
 `vaal-research-primary.c:717` reads wire flags immediately after the GEPL/stat-set references.
-At `0x1421975f0`, flags enter `eax`; `0x1421975f7` tests wire bit1 (0x02).
+At `0x14219df60`, flags enter `eax`; `0x14219df67` tests wire bit1 (0x02).
 When that bit is clear and raw GEPL +0x2c stored uses are nonzero, `dil = 1`; otherwise `dil = 0`.
-`0x1421976e8..0x1421976f6` passes constructor parameter13 as `(wireBit2 * 2) | dil`.
-The parent's `vaal-research-skill-dis.txt` shows `0x141ee7571..0x141ee75ba` testing parameter13 bit0.
+`0x14219e058..0x14219e066` passes constructor parameter13 as `(wireBit2 * 2) | dil`.
+The parent's `vaal-research-skill-dis.txt` shows `0x141eeddd1..0x141eede1a` testing parameter13 bit0.
 If set, it zeros skill +0xe8 base souls, +0xec stored uses and +0xf0 soul multiplier.
 If clear, it copies GEPL +0x28/+0x2c and retains the selected multiplier.
 Server-granted Vaal resource skills therefore require skill-record bit1 to retain these native inputs.
 This changes neither parent-object bit0 nor third bit2 and adds no fields to the record.
 
-Actor reader `0x1421932b0` selects `0x142197b10` for flag 0x40 and `0x142198800` for flag 0x20.
+Actor reader `0x142199c20` selects `0x14219e480` for flag 0x40 and `0x14219f170` for flag 0x20.
 Both use Actor +0x598's skill manager and its sorted vector at manager +0x188.
 Entries have stride 0x20: ActiveSkills row pointer +0, capacity +0x10, current +0x14 and dirty +0x18.
 Identity is the zero-based **ActiveSkills** row, using 0x101-byte rows.
 It is not the GrantedEffects row, GEPL row, effect ID, skill instance ID or cooldown grouping alias.
-`0x141eea5b0` follows GEPL to GrantedEffects +0x63's ActiveSkills pointer and finds this same entry.
+`0x141ef0e10` follows GEPL to GrantedEffects +0x63's ActiveSkills pointer and finds this same entry.
 
 All integers below are little endian inside the component blob.
 
@@ -58,10 +58,10 @@ Unknown rows and increases seed the capacity before updating current, avoiding t
 Routine skill refreshes do not reseed unchanged rows or refill balances.
 Cooldown-only, Rage and Fortification refreshes can keep their empty soul lists without clearing the native budget.
 
-`0x141eea3a0` checks required souls against entry +0x14.
-`0x141ee9d30` contains the native spend at `0x141eea350..0x141eea362` and marks dirty.
-`0x140ad7fb0` and `0x140826070` display current/capacity text.
-`0x140acfbb0` computes icon uses and fractional fill from capacity/current divided by required souls.
+`0x141ef0c00` checks required souls against entry +0x14.
+`0x141ef0590` contains the native spend at `0x141ef0bb0..0x141ef0bc2` and marks dirty.
+`0x140ad8d00` and `0x140827ab0` display current/capacity text.
+`0x140ad0900` computes icon uses and fractional fill from capacity/current divided by required souls.
 Its divisions and modulus are guarded by `required != 0`.
 Zero required souls pass the resource comparison; they still do not enable an unsupported server executor.
 
@@ -77,8 +77,8 @@ This flag remains set at zero effective cost, zero capacity and zero current sou
 Removing or explicitly zeroing an override does not change the flag or refill the resource.
 The property defaults false; ordinary Fireball, default attacks and support records retain their existing bytes.
 No extraction dependency or generated file changes, so the extraction manifest needs no version bump.
-Native construction `0x141ee7592..0x141ee75b4` sets base cost, raw stored uses and the selected multiplier.
-Getter `0x141ee8720` reads the following keys, whose names come from Stats.json:
+Native construction `0x141eeddf2..0x141eede14` sets base cost, raw stored uses and the selected multiplier.
+Getter `0x141eeef80` reads the following keys, whose names come from Stats.json:
 
 - 14270: `virtual_vaal_skill_require_no_souls_per_use`.
 - 19748: `virtual_non_aura_vaal_skill_soul_requirement_multipler`.

@@ -70,6 +70,8 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0030 socket {s}: refused ({why})");
             return;
         }
+        if (now is not null && PlayerInventories.ShowsOnModel(r))
+            ForgetGemActivation(conn, now.Item);
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], now is null ? [] : [now]),
             $"0x00bf cursor: remove gem {before.Id}" + (now is null ? "" : $", hold gem {now.Id} from the socket"));
@@ -78,7 +80,7 @@ static partial class Game
         if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
-    // C→S 0x31: the "+" on a socketed gem. The client derives the level from the gem's experience on read (0x14246f900), so
+    // C→S 0x31: the "+" on a socketed gem. The client derives the level from the gem's experience on read (0x1424763d0), so
     // the server writes the next level's threshold and replaces the item; the client then derives the level and its skill.
     internal static async Task LevelUpGem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.SocketGem s)
     {
@@ -145,11 +147,24 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x002f unsocket {s}: refused ({why})");
             return;
         }
+        if (PlayerInventories.ShowsOnModel(r)) ForgetGemActivation(conn, held.Item);
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(r), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold gem {held.Id}");
         if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
+    }
+
+    // Removing a physical source is an explicit deactivation, unlike town travel or a temporary actor restriction.
+    static void ForgetGemActivation(ClientState conn, Item gem)
+    {
+        var effects = ItemsFor(conn).GemEffects(gem).Select(e => SkillsFor(conn).EffectId(e)).OfType<string>().ToArray();
+        foreach (string effect in effects)
+        {
+            CharacterSaves.SetAuraActive(CharacterName(conn), effect, false);
+            if (effect == PetrifiedBlood.EffectId)
+                CharacterSaves.SetPetrifiedBlood(CharacterName(conn), false);
+        }
     }
 
     // A normal (non-cluster) jewel. The PassiveJewels1 pane (Inventories.dat row 23) holds one per allocated passive tree
@@ -407,13 +422,13 @@ static partial class Game
     }
 
     /// <summary>Recomputes and sends the stats after a jewel entered or left a passive tree socket. The pane's own 0xbf
-    /// is sent by the item move; this is the 0x1b3/0x2ba half.</summary>
+    /// is sent by the item move; this is the 0x1b3/0x2bc half.</summary>
     internal static async Task SendPassiveJewelStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
         {
             RecomputePoolsAndSpeed(conn);
-            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
             conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         }
         await SendCharacterStats(remote, stream, ciphers, conn, "passive jewels");
@@ -425,7 +440,7 @@ static partial class Game
             $"melee {conn.Pools.MeleePhysicalDamagePct}, " +
             $"{conn.ClusterPassives.Count}/{ClusterNodeBudget(conn)} cluster node(s)" +
             (timeless is null ? "" : $", timeless {timeless.Name} {timeless.DisplayedSeed} {timeless.ConquerorName}"));
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),
+        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
             $"0x01b1 player life {conn.PlayerLife} (passive jewels)");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passive jewels)");
     }
@@ -512,11 +527,12 @@ static partial class Game
     {
         // A survivors run keeps the ground clear: no loot reaches the client at all.
         if (!GameEvents.AllowsLoot(conn)) return;
+        conn.Instance.Ground.Observe(conn);
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
             conn.SeenGround.Add(id);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
-                $"0x02b9 create world item 0x{id:x} left at ({ground.GridX}, {ground.GridY})");
+                $"0x02bb create world item 0x{id:x} left at ({ground.GridX}, {ground.GridY})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
         }
     }
@@ -565,8 +581,8 @@ static partial class Game
             r = FlaskRecovery.For(use, flask.Item, local,
                 name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
             copyLife = ManaFlaskCopiesLife(r, character);
-            canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerMaxLife, conn.PlayerMana, (uint)UnreservedMana(conn))
-                || copyLife && conn.PlayerLife < conn.PlayerMaxLife;
+            canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerUnreservedLife, conn.PlayerMana, (uint)UnreservedMana(conn))
+                || copyLife && conn.PlayerLife < conn.PlayerUnreservedLife;
         }
         bool CurrentRecovery()
         {
@@ -585,7 +601,7 @@ static partial class Game
             {
                 uint life;
                 lock (conn.Monsters) life = conn.PlayerLife;
-                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                     $"0x01b1 player life {life} (full pool, flask refused)");
             }
             if (use.ManaPerUse > 0)
@@ -621,11 +637,11 @@ static partial class Game
         // Put here on an earlier connection: SendGroundItems has sent it already, if it still lies here.
         if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground) is not { } id) return;
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
-            $"0x02b9 create world item 0x{id:x} start weapon {ItemsFor(conn).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
+            $"0x02bb create world item 0x{id:x} start weapon {ItemsFor(conn).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
     }
 
-    // C→S 0x29: drop the held item where the player stands, as a WorldItem object (0x2b9 + wake zone 0x1a9).
+    // C→S 0x29: drop the held item where the player stands, as a WorldItem object (0x2bb + wake zone 0x1a9).
     internal static async Task DropItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (await TakeHeld(remote, stream, ciphers, ItemsOf(conn), "dropped") is not { } held)
@@ -636,12 +652,12 @@ static partial class Game
         var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         var ground = new WorldItemObject(x, y, held.Item);
         uint id = conn.Instance.Ground.Add(ground, conn);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
-            $"0x02b9 create world item 0x{id:x} at ({x}, {y})");
+        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
+            $"0x02bb create world item 0x{id:x} at ({x}, {y})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 world item 0x{id:x} enters wake zone");
     }
 
-    // C→S 0x24 on a world item: walk there, then put it in the main inventory (first free cell) and remove the object (0x2bb).
+    // C→S 0x24 on a world item: walk there, then put it in the main inventory (first free cell) and remove the object (0x2bd).
     internal static async Task PickUpGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
@@ -657,7 +673,7 @@ static partial class Game
                 removed = conn.Instance.Ground.Take(id) is not null;
             }
             if (removed)
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove quest item 0x{id:x}: {questFlags.Remove} is set");
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove quest item 0x{id:x}: {questFlags.Remove} is set");
             return;
         }
         if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true, tolerance: PickupTolerance)) return;
@@ -671,7 +687,16 @@ static partial class Game
                 InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
                 $"0x01ab player picks up world item 0x{id:x}", still: () => PlayerActionCurrent(conn, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (!PlayerActionCurrent(conn, action)) return;
+        lock (conn.Monsters)
+        {
+            if (!PlayerActionCurrent(conn, action)) return;
+            // Interaction's default completion lasts 0.1 s (3.29.3c, 0x1419478b0). A Move queued before it ends
+            // starts in Actor's completion callback, then its path is discarded by 0x141e9b860. Keep the request
+            // pending on the server until that completion has passed; the walk-up itself remains interruptible.
+            if (conn.LockstepClient && use.Started)
+                conn.LockstepBusyUntil = Math.Max(conn.LockstepBusyUntil,
+                    (conn.LockstepFrame?.Start ?? conn.Clock.Elapsed.TotalSeconds) + .1);
+        }
         if (IsGold(ground))
         {
             await PickUpGold(remote, stream, ciphers, conn, id, ground, "picked up");
@@ -703,16 +728,16 @@ static partial class Game
                 {
                     // Fits said yes, so this is not expected; the rest goes back on the ground rather than vanish.
                     rest = new WorldItemObject(ground.GridX, ground.GridY, ground.Item with { StackSize = (ushort)stacked.Left });
-                    restId = conn.Instance.Ground.Add(rest, conn);
+                    restId = conn.Instance.Ground.Add(rest, conn, shared: true, justDropped: false);
                 }
             }
             if (rest is not null)
             {
                 Console.WriteLine($"[gateway] {remote} world item 0x{id:x}: {stacked.Left} didn't fit, back on the ground as 0x{restId:x}");
                 await Send(remote, stream, ciphers, InstanceEntities.CreateObject(restId, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), rest.Blob()),
-                    $"0x02b9 create world item 0x{restId:x} (the rest of 0x{id:x})");
+                    $"0x02bb create world item 0x{restId:x} (the rest of 0x{id:x})");
             }
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), stacked.RemovedIds, stacked.AddedItems),
                 $"0x00bf inventory 1: {ground.Item.StackSize} picked up ({stacked.Changed.Count} stack(s) grown, {stacked.Added.Count} new)");
             return;
@@ -749,7 +774,7 @@ static partial class Game
                 return questFlags is not null ? QuestItems.Claim(CharacterName(conn), questFlags, Put) : Put();
             }, id);
         }
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
+        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
         if (placed is null) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
             toCursor ? $"0x00bf cursor: hold item {placed.Id}" : $"0x00bf inventory 1: add item {placed.Id} at ({cell.X}, {cell.Y})");
@@ -759,7 +784,7 @@ static partial class Game
 
     internal static bool IsGold(WorldItemObject ground) => Items.ByHash(ground.Item.TypeHash)?.Class == ItemDrops.GoldClass;
 
-    // Gold goes to the stash's gold of the character's league (S→C 0x2a9), not into the inventory.
+    // Gold goes to the stash's gold of the character's league (S→C 0x2aa), not into the inventory.
     internal static async Task PickUpGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground, string how)
     {
         uint total;
@@ -770,8 +795,8 @@ static partial class Game
             if (conn.Instance.Ground.Take(id) is null) return;   // already picked up
             total = PersonalStashOf(conn).AddGold(ground.Item.StackSize);
         }
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove world item 0x{id:x} (gold {how})");
-        await Send(remote, stream, ciphers, InstanceEntities.Gold(total), $"0x02a9 gold: {total} (+{ground.Item.StackSize} {how})");
+        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove world item 0x{id:x} (gold {how})");
+        await Send(remote, stream, ciphers, InstanceEntities.Gold(total), $"0x02aa gold: {total} (+{ground.Item.StackSize} {how})");
     }
 
     // A pickup whose save fails puts the item back on the ground before the error closes the connection: it left the ground
@@ -1068,7 +1093,7 @@ static partial class Game
             : target.Item.Mirrored ? null
             : target.Item.Corrupted && type?.Id != Wisdom ? null
             : CurrencyResult(conn, target.Item, used.Item.TypeHash, random);
-        // Hinekora's Lock: the next currency commits exactly the previewed result (from 0x29c/0x29f) and clears the
+        // Hinekora's Lock: the next currency commits exactly the previewed result (from 0x29d/0x2a0) and clears the
         // state; without a stored preview the seeded result is the same item. A refused currency keeps the state.
         if (foreseeing && type?.Id != CurrencyEffects.HinekorasLock)
         {

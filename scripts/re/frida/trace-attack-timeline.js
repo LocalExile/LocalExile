@@ -1,5 +1,5 @@
-// Load after common.js. One attack's timeline with a millisecond clock: the action start (0x141e8cf10, its type HASH16
-// and skill id), the body clip per frame, the server's object creates (0x141ebe190) and the client's own (0x141ebdf30),
+// Load after common.js. One attack's timeline with a millisecond clock: the action start (0x141e937b0, its type HASH16
+// and skill id), the body clip per frame, the server's object creates (0x141ec4a40) and the client's own (0x141ec47e0),
 // with the metadata path. A bow attack's order shows when the clip's contact falls against the arrow's arrival, and at
 // what speed the clip really plays.
 function typePath(rec) {
@@ -16,7 +16,7 @@ function typePath(rec) {
 }
 const ids = a => { try { return a.isNull() ? null : '0x' + a.add(0x118).readU16().toString(16) + '/0x' + a.add(0x11a).readU16().toString(16); } catch (e) { return '?'; } };
 let attackUntil = 0;
-Interceptor.attach(at('0x141e8cf10'), {
+Interceptor.attach(at('0x141e937b0'), {
   onEnter(args) {
     this.action = ids(args[1].readPointer());
     this.from = va(this.returnAddress);
@@ -29,7 +29,7 @@ Interceptor.attach(at('0x141e8cf10'), {
 });
 // The body controller (actor +0x1a0) each frame of the attack: clip index +0x190, elapsed +0x1a4, speed +0x1b0, clip
 // start and end +0x1b8/+0x1bc (seconds). A frame's elapsed and clock give the speed the clip really plays at.
-Interceptor.attach(at('0x141e8e060'), {
+Interceptor.attach(at('0x141e94900'), {
   onEnter(args) {
     if (Date.now() > attackUntil) return;
     try {
@@ -40,14 +40,14 @@ Interceptor.attach(at('0x141e8e060'), {
     } catch (e) { send({frameError: String(e)}); }
   }
 });
-Interceptor.attach(at('0x141ebe190'), {
+Interceptor.attach(at('0x141ec4a40'), {
   onEnter(args) {
     if (Date.now() > attackUntil) return;
     let t = '?'; try { t = typePath(args[1].readPointer()); } catch (e) { }
     send({t: Date.now(), server: t});
   }
 });
-Interceptor.attach(at('0x141ebdf30'), {
+Interceptor.attach(at('0x141ec47e0'), {
   onEnter(args) {
     if (Date.now() > attackUntil) return;
     let t = '?'; try { t = typePath(args[1].readPointer()); } catch (e) { }

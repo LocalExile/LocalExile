@@ -21,7 +21,7 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 5. **Run `live.ps1` directly** (`.\scripts\dev\live.ps1` in a PowerShell session). Do not wrap it in a pipe or
    capture its output (for example `powershell -File live.ps1 | Out-String`). The servers it starts keep the pipe
    open, so the call never returns. Read `logs\` instead.
-6. **The client must be version 3.29.3b.** The login patch and several protocol constants are specific to that build.
+6. **The client must be version 3.29.3c.** The login patch and several protocol constants are specific to that build.
    Any other version fails at step 4 or 5, with a clear error.
 
 ## What you need
@@ -31,7 +31,7 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 | Windows 10/11 x64, or Linux ([below](#linux)) | the steps below are written for Windows | |
 | [.NET 10 SDK](https://dotnet.microsoft.com/download) | builds and runs the servers | `dotnet --version` prints `10.x` |
 | PowerShell 5.1+ | runs `live.ps1` | `$PSVersionTable.PSVersion` |
-| Path of Exile **3.29.3b**, standalone install | the client you play with | a folder with `PathOfExile.exe` and `Content.ggpk` |
+| Path of Exile **3.29.3c**, standalone install | the client you play with | a folder with `PathOfExile.exe` and `Content.ggpk` |
 | [Node.js](https://nodejs.org) (Node 24) + `npm install` in `Tools\ooz` (npm package `ooz-wasm` 2.x) | decompresses the game's bundles for the data extraction (step 7) | `node --version`; `Tools\ooz\node_modules\ooz-wasm` exists |
 | Python 3.9+ | the data extraction (step 7); with `pip install frida`, walk maps (step 9, optional) | `python --version`; `python -c "import frida"` |
 | ~same free space as the client | you work on a copy of it | |
@@ -39,8 +39,8 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 **Steam installs do not work as is.** The Steam layout has no `Content.ggpk`, and its executables have other names.
 Use the standalone layout.
 
-**Getting 3.29.3b:** this repository cannot provide the client. The official launcher always updates to the newest
-version, so you need a copy that is still at 3.29.3b. Never let a newer launcher touch your copy.
+**Getting 3.29.3c:** this repository cannot provide the client. The official launcher always updates to the newest
+version, so you need a copy that is still at 3.29.3c. Never let a newer launcher touch your copy.
 
 ### Linux
 
@@ -171,7 +171,7 @@ it.
 | Problem | Meaning |
 |---|---|
 | `data/login-keys.json exists` | keys already made; keep them (the patched client from step 5 trusts exactly these keys) |
-| `login verify key not found in client image` | `Client\Game.exe` is not the 3.29.3b `PathOfExile.exe` |
+| `login verify key not found in client image` | `Client\Game.exe` is not the 3.29.3c `PathOfExile.exe` |
 
 ## 5. Patch the client to trust your keys
 
@@ -243,7 +243,7 @@ builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
 |---|---|
 | `setup incomplete: Node.js not found` / `Tools\ooz\node_modules missing` | install Node, then `cd Tools\ooz; npm install` |
 | `setup incomplete: Python 3.9+ ...` | install Python from python.org (see step 9 for the Store alias) |
-| `extract-data: <name> failed` | read `logs\extract-<name>.log`; the tables report `schema mismatch: 0` when the client is 3.29.3b |
+| `extract-data: <name> failed` | read `logs\extract-<name>.log`; the tables report `schema mismatch: 0` when the client is 3.29.3c |
 | `extract-data: building <project> failed` | read `logs\extract-build-<project>.log`; a build error there is a code problem in that tool, not in the game data |
 
 ### Game data in the save database
@@ -251,16 +251,16 @@ builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
 `extract-data.ps1` writes JSON under `data\`; it does not create the SQLite file. The first Gateway start (step 10, or
 `live.ps1 -Only Gateway`) creates `data\saves.db` (or `Game_SAVES_DB`) and seeds the game-data overlay from those tables:
 
-| Table | Rows on 3.29.3b | From |
+| Table | Rows on 3.29.3c | From |
 |---|---:|---|
 | `catalog_entries` | 1,299 uniques, 76 radius/threshold jewels, 43 unique jewels, 6 timeless jewels, 48 tattoo effects, 190 jewel art rows | the code arrays and the generated PoB unique catalogue |
 | `system_settings` | 51 | the code defaults |
-| `stats` / `mods` / `mod_stats` | 23,346 / 40,355 / 60,695 | `data\tables\Stats.json` and `data\tables\Mods.json` |
+| `stats` / `mods` / `mod_stats` | 23,362 / 40,355 / 60,695 | `data\tables\Stats.json` and `data\tables\Mods.json` |
 | `unique_weights` | 1,527 | `data\tables\VillageUniqueDisenchantValues.json` and `Words.json` |
 | `effective_mod_stats` | view | `mod_stats` with `mod_stat_overrides` applied |
 
 The same file holds characters, accounts and stashes; deleting it resets them too. The Gateway log shows
-`[gateway] game data reference: 23346 stat(s), 40355 mod(s), 60695 default mod stat row(s)`; if that line says `empty`,
+`[gateway] game data reference: 23362 stat(s), 40355 mod(s), 60695 default mod stat row(s)`; if that line says `empty`,
 the extraction is missing `Stats.json`/`Mods.json`: run `extract-data.ps1` and restart, or use `/game_data reference`
 while connected. `/game_data list` prints the row counts.
 
@@ -361,19 +361,20 @@ Success, in order:
 4. Click **Log In**, select your character, and click **Play**.
 5. You arrive in Lioneye's Watch. Click the ground to walk.
 
-**Set Network Mode to Predictive once** (Esc → Options → Game → Network Mode), then log out to the character screen
-and click Play again. The server supports only Predictive. With the default "auto", the client picks lockstep on
-localhost: your character is not drawn and does not move, and the server shows a message box saying so. The setting is
-saved in `Documents\My Games\Path of Exile\production_Config.ini` (`networking_type=predictive`), which your normal
-client shares.
+**Network Mode** (Esc → Options → Game → Network Mode) is the client's choice, and the server follows it. Predictive is
+the preferred mode; lockstep is served but partly working ([07](docs/protocol/07-latency-visibility-movement.md) §6).
+With the default "auto", the client picks lockstep on localhost, and the Gateway log says once that Predictive is
+preferred. To switch, change the option, log out to the character screen and click Play again. The setting is saved in
+`Documents\My Games\Path of Exile\production_Config.ini` (`networking_type=`), which your normal client shares.
 
 **League modes:** the existing creation screen's Hardcore, SSF and Ruthless choices select server rules.
 Selected modes change server rules; Hardcore Ruthless death is permanent.
-Ruthless balance can be edited in `Modules/Ruthless/ruthless.json` without rebuilding or restarting the server.
-To create a missing local copy and edit it, run from the repository root:
+Ruthless balance is the Ruthless module's settings, changed without rebuilding or restarting the server: write the numbers
+you change in `data/modules/Ruthless.json` (the defaults are in `Modules/Ruthless/settings.json`). From the repository root:
 
 ```powershell
-notepad .\Modules\Ruthless\ruthless.json
+New-Item -ItemType Directory -Force data\modules | Out-Null
+notepad .\data\modules\Ruthless.json
 ```
 
 See [league modes](docs/game/league-modes.md) for exact behavior, limitations and editing instructions.
@@ -451,9 +452,8 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data/tables` and `data/item-types.json` existed, and that empty kit was saved in `data\saves.db` | extract them, stop the Gateway, delete that character's row from `data\saves.db` (or move the whole DB aside to start over), run `live.ps1` again |
 | Character select shows no characters | the character was created after the login server started | run `live.ps1` again |
 | `dotnet build` / `dotnet test` fails with `MSB3027` ... `locked by: ".NET Host"` | the servers `live.ps1` started are running from the same `bin\` folders | let `live.ps1` rebuild them (`-Only Gateway` …), or build and test elsewhere with a short path: `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` |
-| In town, but your character is invisible and clicks do nothing | Network Mode is lockstep ("auto" picks it on localhost); the Gateway log says `lockstep movement` | Options → Game → Network Mode → Predictive, then log out to the character screen and Play again |
 | Stuck after Play (no area) | `Game_GATEWAY_ENTER` was set to something other than `1` | unset it; `live.ps1` sets it to `1` |
-| `HNC mask not found` in `live-gateway.err` | `Client\Game.exe` is not 3.29.3b | use the right client version |
+| `HNC mask not found` in `live-gateway.err` | `Client\Game.exe` is not 3.29.3c | use the right client version |
 | Spawn in the sea or off the map | an area the server does not generate, with no walk map yet | use `-Walkmaps` (step 9) and enter the area again |
 | `walkmaps: permission denied` | client and Python run at different privilege levels | run both as the same user, not one as administrator |
 | Esc → "Exit to character selection" hangs | not implemented yet | run `.\scripts\dev\live.ps1 -NoClient` (the client drops to the login screen) |
@@ -468,7 +468,6 @@ Environment variables, read when each server starts:
 |---|---|---|
 | `Game_GATEWAY_ENTER` | `1` (set by `live.ps1`) | `1` = enter the area after creating the player |
 | `Game_BIND` | `127.0.0.1` | address Auth and Gateway listen on |
-| `Game_LOCKSTEP` | off | serve a lockstep client: `1` on a connection confirmed as local, `network` on any connection ([07](docs/protocol/07-latency-visibility-movement.md) §6) |
 | `Game_LOGIN_PORT` | 20493 | login server port (must match step 6) |
 | `Game_GATEWAY_PORT` | 6112 | instance server port |
 | `Game_GATEWAY_HOST` | 127.0.0.1 | address (IP) Auth and the Gateway send the client for its first area and every area change |
@@ -480,7 +479,8 @@ Environment variables, read when each server starts:
 | `Game_SEED` | unset | a number = that seed for every new non-town, non-hideout instance (generation traces of one seed with `live.ps1 -Walkmaps`; overrides `Game_RANDOM_SEEDS`) |
 | `Game_LEAGUE` | `standard` | `hardcore` shows the hardcore death screen (a single Exit button) |
 | `Game_LEAGUES_FOLDER` | `Leagues` | where the leagues are: one folder per league |
-| `Game_RUTHLESS_RULES` | `Modules/Ruthless/ruthless.json` | Ruthless tuning file; valid edits apply during play |
+| `Game_LEAGUE_MODULES` | `data/league-modules.json` | the user's modules added to or removed from leagues ([modules](docs/dev/modules.md)) |
+| `Game_RUTHLESS_RULES` | unset | a file of all eight Ruthless numbers, in place of the module's settings; valid edits apply during play |
 | `Game_START_WEAPON` | unset | `ground` = a new character's class weapon waits on the ground near the spawn instead of being worn |
 | `Game_FLASK_BUFFS` | unset | `0` = flasks recover without putting their flask_effect buff on the player |
 | `Game_FLASK_CHARGES` | unset | unset = the game's flask charge rules (kills by rarity, charge mods, a flask put on the bar in a hostile area starts empty); `full` = every kill fills all flasks and equipped flasks keep their charges |

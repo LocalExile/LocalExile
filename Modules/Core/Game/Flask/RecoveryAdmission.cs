@@ -18,7 +18,7 @@ static partial class Game
             $"{(recovery.ExtraLife > 0 ? $", {recovery.ExtraLife:0.#} more life over {FlaskRecovery.ExtraLifeSeconds} s" : "")}");
         uint lifeBefore = conn.PlayerLife, manaBefore = conn.PlayerMana;
         // Liveness and the exact source/generation were admitted by 'still' before the charge deduction.
-        var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, conn.PlayerMaxLife, UnreservedMana(conn))!.Value;
+        var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, conn.PlayerUnreservedLife, UnreservedMana(conn))!.Value;
         (conn.PlayerLife, conn.PlayerMana) = (life, mana);
         TrimLeechLocked(conn); // Full-Mana leech/Recoup settlement is part of the accepted pool commit.
         if (life != lifeBefore) state.Packets.Add(new([], $"0x01b1 player life {life} (flask)", FlaskOutputPool.Life));

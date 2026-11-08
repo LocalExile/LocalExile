@@ -1,21 +1,16 @@
 # Player bots (the PlayerBots module)
 
 `Modules/PlayerBots/` makes a new server look lived in: server-driven characters that are created over time, play
-through the campaign, visit the towns and leave again. Off by default (`"enabled": false` in its settings).
+through the campaign, visit the towns and leave again. Off by default: no league lists it.
 
 ## Turning it on
 
-The Standard league lists the module (`Leagues/Standard/modules.json`); it only acts when
-`Modules/PlayerBots/playerbots.json` has `"enabled": true`. The module hot-reloads on build like any other.
+List it in a league, as `data/league-modules.json` does with
+`{"Standard": {"add": ["PlayerBots"]}}` ([modules](modules.md)), then restart the Gateway. Its settings are in
+`settings.json` beside it, and a user's values in `data/modules/PlayerBots.json` ([modding](modding.md), "Settings"); a
+change reloads the module, so the bots start over from `state/bots.json`.
 
-| Setting | Default | Meaning |
-|---|---|---|
-| `maxBots` | 100 | bots at most, all towns together |
-| `spawnIntervalSeconds` / `firstSpawnSeconds` | 60 / 60 | one new bot this often, the first this long after the start |
-| `league` | Standard | the league of the bots' characters |
-| `questMinutes` | [2, 6] | how long a quest takes (out of sight) |
-| `townActivities` / `idleSeconds` | [2, 4] / [8, 75] | what a staying visit does in town, and how long it stands at each place |
-| `deathChancePerQuest` | 0.15 | a death makes the bot retry the quest |
+Each setting's default, limits and meaning are in its `settings.json`.
 
 ## What a bot is
 
@@ -25,15 +20,15 @@ The Standard league lists the module (`Leagues/Standard/modules.json`); it only 
   instance of its town (`Program.InGame` lists the connections in game). Each client there replicates it as it
   replicates another player (`LivingCollision.SyncInstancePlayers`): created with its class model and gear, walking by
   the Move action (0x1ab, skill 0x2909) toward its destination, which the client paths and animates.
-  It is only shown where a player is; nobody collides with it, as players do not collide in the game.
+  It is only shown where a player is. Party followers instead use controlled player connections and the ordinary combat pipeline.
 - **Gear** (`BotGear`): real base items of the game data for its class and level (weapon by class, armour by the class's
-  attributes, a belt), drawn as the server draws a player's equipment. Better bases every four levels.
+  attributes, a belt), drawn as the server draws a player's equipment. Party builds include connected passives and compatible linked gems.
 - **The route**: `story-main.md` (the main story, 52 quests) and `story-side.md` (side quests, 30), act by act, main
   quests first. Both are tables the module reads; the order is the campaign driver's (`scripts/dev/campaign/order.py`).
   A quest is simulated out of sight for `questMinutes`; the zone, kills, deaths and gear changes are logged.
 - **Town visits**: after a quest, a quick visit (out of its own portal by an NPC, hands the quest in, leaves by portal)
-  or a stay (by the stash and the guild stash, a few things to do). At most five of each per town at once; a bot that
-  finds no room goes on to its next quest. Places to stand are walkable and 20 cells apart.
+  or a stay (by the stash and the guild stash, a few things to do). Towns maintain two to five residents when the configured
+  global bot limit permits; a bot that finds no room goes on to its next quest. Places to stand are walkable and 20 cells apart.
 - **The end**: after every quest of both guides the character and its account are deleted, and a new bot follows.
 
 A restart resumes every bot where it was (`state/bots.json`: phase, town, place, target, time left, gear). A bot account
@@ -48,16 +43,24 @@ does not know is deleted, and no other account ever is, whatever its name.
 | `logs/status.txt` | every bot, its level, act and what it is doing, rewritten every few seconds |
 | `state/bots.json` | the bots' state for a restart (local, not committed) |
 | `economy/<league>/` | a poe.ninja snapshot (prices in chaos, divine, alchemy, regal; exchange turnover and daily history) for trading bots, made locally by `tools/collect_economy.py` (not committed) |
-| `tools/trace-stance.js` | Frida: which animation set the client picks per actor (`0x141e97190`) |
+| `tools/trace-stance.js` | Frida: which animation set the client picks per actor (`0x141e9da30`) |
 
 ## Client findings
 
 - **Walking**: a glide (0x1ba MoveTo) slides a standing body; a Move action (0x1ab) makes the client walk it.
-- **Stance**: the client picks an actor's animation set (`FUN_141e97190`: `"Town"` in a town or with `use_town_stance`,
+- **Stance**: the client picks an actor's animation set (`FUN_141e9da30`: `"Town"` in a town or with `use_town_stance`,
   else the weapon's) when its Inventories component changes, not when the object is created (Frida, 2026-11-01).
-  An observer therefore gets the peer's equipment (0x2ba) right after creating it, for the town stance (not yet verified live).
+  An observer therefore gets the peer's equipment (0x2bc) right after creating it, for the town stance (not yet verified live).
+- **Party kick**: the native member-menu action sends C→S `0x94` with a compact wide string containing the selected
+  account (`0x140ab8ed0`), not `0x97` (promote leader). Confirmed through the actual party portrait menu.
 
 ## Not done yet
 
-Bots do not fight, loot, craft or trade for real: quests are timed, and the log tells what such a quest would hold.
-They do not chat or join parties.
+Party combat uses the ordinary player pipeline; offscreen quests, loot and crafting remain simulated.
+Trading, chat and advanced tactical/ascendancy builds remain open. Current implementation status is in
+[NPCs and chat](../../status/npcs-and-chat.md).
+
+## External party control
+
+The optional authenticated MCP endpoint exposes per-bot observations and leased tactical orders.
+See [connection, tools and fallback rules](../../../Modules/PlayerBots/MCP.md).

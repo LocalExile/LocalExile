@@ -98,9 +98,13 @@ static partial class Game
         return definition;
     }
 
+    // Recipes contain only immutable catalogue metadata and stat-reading delegates. Cache the recipe, never the
+    // resolved flight/damage profile: every release still evaluates its current player and supported-skill stats.
+    // Module reload replaces this dictionary together with the providers that define the recipes.
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<int, ProjectileSkillDefinition?> ProjectileRecipes = new();
     internal static ProjectileSkillDefinition? ResolveProjectileDefinition(int effect) =>
-        ProjectileDefinition(Skills.EffectId(effect) ?? "")
-        ?? (ProjectileDefinitions.RequireExplicitProfiles ? null : CatalogProjectileDefinition(effect));
+        ProjectileRecipes.GetOrAdd(effect, static row => ProjectileDefinition(Skills.EffectId(row) ?? "")
+            ?? (ProjectileDefinitions.RequireExplicitProfiles ? null : CatalogProjectileDefinition(row)));
 
     static ProjectileSkillParameters CatalogProjectileParameters(int effect, string profileId)
     {

@@ -60,7 +60,7 @@ static class WaypointCatalog
     public static WaypointObject? For(ushort hash, string id, uint seed)
     {
         // League hubs (the Azurite Mine Encampment, the Menagerie) have a waypoint their tile places but no WorldAreas
-        // waypoint bit of their own: the object is still sent, so it can be clicked; 0x4c cannot light it (0x141fdd130).
+        // waypoint bit of their own: the object is still sent, so it can be clicked; 0x4c cannot light it (0x141fe3950).
         if (Areas.BitOf(hash) is null) return LoadCapture(id, seed) is { } hub ? hub with { Active = 1 } : null;
         var captured = LoadCapture(id, seed);
         if (captured is not null) return captured;

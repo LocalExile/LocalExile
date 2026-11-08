@@ -63,7 +63,7 @@ public sealed partial class DelveModule
         var rail = DelveRailRoute.Load(conn.Layout.Id, conn.Seed);
         if (rail is null) { await player.Tell("The mine rail capture is unavailable; no sulphite was spent."); return; }
         using var scaling = JsonDocument.Parse(File.ReadAllBytes("data/tables/DelveLevelScaling.json"));
-        // 0x141ea3300 prices path points after the origin. BlockY*8 + CellY + 1 = 2 for the first quest destination.
+        // 0x141ea9bb0 prices path points after the origin. BlockY*8 + CellY + 1 = 2 for the first quest destination.
         var depth = scaling.RootElement.EnumerateArray().First(r => r.GetProperty("Depth").GetInt32() == 2);
         int cost = depth.GetProperty("SulphiteCost").GetInt32();
         byte level = depth.GetProperty("MonsterLevel").GetByte();
@@ -266,7 +266,7 @@ public sealed partial class DelveModule
         foreach (var (id, ground) in groundItems)
         {
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
-                InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()), "Delve completion reward", valid);
+                InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)), "Delve completion reward", valid);
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null, valid);
         }
         Console.WriteLine($"[gateway] {remote} Delve depth {trip.Depth} completed: {groundItems.Count} items, +{reward.QuantityPercent}% quantity, +{reward.Rarity}% rarity");

@@ -2,8 +2,8 @@ using GameServer.Core.Protocol.Instance;
 
 static partial class Game
 {
-    // The party bonus by the client's own rules, as its party panel shows them (0x14023b830 with the constants of
-    // 0x14247d600, read live 2026-11-04): each player beyond the first (Program.SetPartySize) adds to the monsters' life by
+    // The party bonus by the client's own rules, as its party panel shows them (0x14023bbc0 with the constants of
+    // 0x1424840d0, read live 2026-11-04): each player beyond the first (Program.SetPartySize) adds to the monsters' life by
     // rarity (+50% normal, +60% magic, +80% rare, +100% unique) and 23% more currency items; other items' quantity and
     // rarity, the monsters' damage and experience have no party bonus.
     internal static int PartyMonsterLife(ClientState conn, MonsterRarity rarity) => Math.Max(0, conn.PartySize - 1) * rarity switch

@@ -141,8 +141,10 @@ static class KingInMists
         var list = new List<GrantedSkill>();
         void Add(ushort id, int effect, MonsterAttack use)
         {
+            // The record's skill_behaviour_variation (the effect's SkillID) names GSVoodooKingRitual's GeometryAttack row and
+            // so its GeometryChannel: without it the 0x400e channel crashed the client (SkillCatalog.BehaviourVariation).
             var stats = use.Projectile is null
-                ? use.SkillStats()
+                ? WithBehaviourVariation(conn, effect, use.SkillStats())
                 : MonsterProjectileSkillStats(conn, effect, level, use);
             if (Game.SkillsFor(conn).FindByRow(id, effect, level, stats) is { } skill) list.Add(skill);
         }
@@ -209,7 +211,7 @@ static class KingInMists
         {
             ushort id = (ushort)(FetishRatSkill + i);
             // The fetish's granted effects are spells: they need their own cast-time stats, not the attack duration.
-            var stats = (attack with { Spell = true }).SkillStats();
+            var stats = WithBehaviourVariation(conn, FetishEffects[i], (attack with { Spell = true }).SkillStats());
             if (Game.SkillsFor(conn).FindByRow(id, FetishEffects[i], level, stats) is { } skill) list.Add(skill);
         }
         return list;
@@ -999,7 +1001,7 @@ static class KingInMists
 
         // A skill that only plays an animation (the effigy summon): no contact and no damage, unlike MonsterSwing.
         async Task Cast(ushort skill, string label, uint? target = null, double seconds = 1.5,
-            ushort flags = 0x0408, ushort header = 0)
+            ushort? flags = null, ushort header = 0)
         {
             double startedAt = conn.Clock.Elapsed.TotalSeconds;
             int action;
@@ -1018,7 +1020,7 @@ static class KingInMists
                     var here = boss.Walk.Position(at);
                     boss.Walk.Order(here.X, here.Y, at);   // a cast stops the chase
                     return InstanceProtocol.ActionStarted(id, here.X, here.Y, here.X, here.Y, skill,
-                        NextSeq(), flags, targetObjectId: target, header: header);
+                        NextSeq(), flags ?? conn.MonsterOrderFlags, targetObjectId: target, header: header);
                 },
                 $"0x01ab King in the Mists {label}");
         }
@@ -1048,7 +1050,7 @@ static class KingInMists
                     var here = boss.Walk.Position(sentAt);
                     boss.Walk.Order(tx, ty, sentAt);
                     return InstanceProtocol.ActionStarted(id, here.X, here.Y, tx, ty, MoveSkill,
-                        NextSeq(), 0x0408);
+                        NextSeq(), conn.MonsterOrderFlags);
                 },
                 $"0x01ab King in the Mists moves toward the player at ({tx}, {ty})");
         }
@@ -1144,7 +1146,7 @@ static class KingInMists
                 int action;
                 lock (conn.Monsters) action = ++boss.ActionGeneration;
                 if (!await SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
-                    () => InstanceProtocol.ActionStarted(id, at.X, at.Y, x, y, K.TeleportFlee, NextSeq(), 0x0408),
+                    () => InstanceProtocol.ActionStarted(id, at.X, at.Y, x, y, K.TeleportFlee, NextSeq(), conn.MonsterOrderFlags),
                     $"0x01ab King in the Mists teleports next to Mystic Fetish {which + 1} at ({x}, {y})")) return;
                 // TeleportFlee's clip is one second (GrantedEffects CastTime 1000). End the action before moving the object:
                 // the client ignores a 0x1b7 that arrives while the actor is still in that action, which left its model at
@@ -1174,18 +1176,18 @@ static class KingInMists
                 await Task.Delay(1200);
                 if (!Present()) return;
 
-                if (_fetishes[which] is null) return;
-                // The client's `0x400e` channel start is the StartChannelling crash path (0xc0000005 at 0x19e0daf).
-                // Play the official rig clips directly instead: call_start_01 (4), call_loop_01 (3) and
-                // call_end_01 (2). The ritual itself stays server-side, and the fetish StateMachine `active` update is
-                // also withheld for now (it enters the same channel path with no action).
+                if (_fetishes[which] is not { } fetishId) return;
+                // The ritual is the client's own GSVoodooKingRitual channel (0x400e), aimed at the fetish: the record's
+                // skill_behaviour_variation names its GeometryChannel (SkillCatalog.BehaviourVariation), and the King's
+                // .act plays call_start_01, call_loop_01 and, when the action ends, call_end_01.
                 double startedAt;
+                int ritual;
                 lock (conn.Monsters)
                 {
                     startedAt = conn.Clock.Elapsed.TotalSeconds;
                     var here = boss.Walk.Position(startedAt);
                     boss.Walk.Order(here.X, here.Y, startedAt);   // a channel stops the teleport/chase
-                    ++boss.ActionGeneration;
+                    ritual = ++boss.ActionGeneration;
                     boss.BusyUntil = Math.Max(boss.BusyUntil, startedAt + 4.0);
                 }
                 Console.WriteLine($"[gateway] {remote} King in the Mists 0x{id:x} phase {_phase}: channels into Mystic Fetish {which + 1}");
@@ -1197,18 +1199,15 @@ static class KingInMists
                 // The ritual bark belongs to the start of call_start_01, not to the teleport: Client.txt 11:45:27
                 // "Bid the darkness!" and 11:45:50 "Nothingness approaches!" both land on clip 4.
                 await Say(RitualBarks[ritualIndex % RitualBarks.Length]);
-                await Program.Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 4, 1f),
-                    "0x01b2 King in the Mists ritual start (call_start_01)");
-                // call_start_01 is 1.733 s in the rig; the official capture keeps it for its full length (the first
-                // ritual's 14 ms transition is a queued-action artifact, the second one holds the whole clip).
-                await Task.Delay(1700);
-                if (!Present()) return;
-                // The fetish stays immune through the channel; its immunity (and hidden bar) is released when the
-                // whole ritual animation is over, before the return teleport.
-                await Program.Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 3, 1f),
-                    "0x01b2 King in the Mists ritual channel (call_loop_01)");
+                if (!await SendMonsterAction(remote, stream, ciphers, conn, id, boss, ritual,
+                    () => InstanceProtocol.ActionStarted(id, x, y, fx, fy, K.Ritual, NextSeq(), conn.MonsterOrderFlags,
+                        targetObjectId: fetishId),
+                    $"0x01ab King in the Mists channels GSVoodooKingRitual (0x{K.Ritual:x4}) into Mystic Fetish {which + 1} (0x{fetishId:x})")) return;
 
-                double until = startedAt + 3.4;   // 1.7 s start + 1.7 s loop
+                // call_start_01 (1.733 s in the rig) and a loop: the official channel holds about 3.4 s before it ends.
+                // The fetish stays immune through the channel; its immunity (and hidden bar) is released when the whole
+                // ritual animation is over, before the return teleport.
+                double until = startedAt + 3.4;
                 while (conn.Clock.Elapsed.TotalSeconds < until)
                 {
                     await Task.Delay(50);
@@ -1219,8 +1218,13 @@ static class KingInMists
                     if (boss.Dead || !FetishAlive(which)) interrupted = true;
                 }
                 if (!interrupted) await CastFetish(which);
-                await Program.Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 2, 0.4f),
-                    "0x01b2 King in the Mists ritual end (call_end_01)");
+                // The action's end has the client play the channel's end (ChannelEnd: call_end_01), unless a hit reaction
+                // owns the actor (the flinch ends it).
+                bool ritualFlinching;
+                lock (conn.Monsters) ritualFlinching = conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil;
+                if (!ritualFlinching)
+                    await Program.Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id),
+                        "0x01ac King in the Mists ends the ritual channel (call_end_01)");
                 // The official client holds call_end_01 for ~1 s before the return teleport.
                 await Task.Delay(1000);
                 if (!Present()) return;
@@ -1324,7 +1328,7 @@ static class KingInMists
                 var obj = new EffectObject(ox + roomX, oy + roomY, model) { Scale = scale };
                 await Program.Send(remote, stream, ciphers,
                     InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), obj.Blob()),
-                    $"0x02b9 create arena object 0x{id:x} {type} at ({ox + roomX}, {oy + roomY})");
+                    $"0x02bb create arena object 0x{id:x} {type} at ({ox + roomX}, {oy + roomY})");
                 await Program.Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id),
                     $"0x01a9 arena object 0x{id:x} enters wake zone");
             }
@@ -1350,7 +1354,7 @@ static class KingInMists
             var obj = new RitualPillarObject(x, y, 0f, CentralShrineModel, states);
             await Program.Send(remote, stream, ciphers,
                 InstanceEntities.CreateObject(shrineId, InstanceEntities.ObjectTypeHash(CentralShrine), obj.Blob()),
-                $"0x02b9 create central HugeRitualShrine 0x{shrineId:x} at ({x}, {y}), state active_pillars = 0");
+                $"0x02bb create central HugeRitualShrine 0x{shrineId:x} at ({x}, {y}), state active_pillars = 0");
             await Program.Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(shrineId),
                 $"0x01a9 central HugeRitualShrine 0x{shrineId:x} enters wake zone");
         }
@@ -1363,7 +1367,7 @@ static class KingInMists
             _centralShrineStates = states;
             await Program.Send(remote, stream, ciphers,
                 InstanceEntities.StateMachineUpdate(shrineId, RitualPillarObject.StateMachineComponentIndex, states),
-                $"0x02ba central HugeRitualShrine 0x{shrineId:x} active_pillars = {value}");
+                $"0x02bc central HugeRitualShrine 0x{shrineId:x} active_pillars = {value}");
         }
 
         // The three Mystic Fetishes are room objects of arena.arm (not doodads), so the server has to create them. They
@@ -1511,7 +1515,7 @@ static class KingInMists
             states = states.Set("active", 1);
             lock (conn.Monsters) fetish.States = states;
             await Program.Send(remote, stream, ciphers, InstanceEntities.StateMachineUpdate(fetishId, (byte)index, states),
-                $"0x02ba Mystic Fetish {which + 1} activates");
+                $"0x02bc Mystic Fetish {which + 1} activates");
         }
 
 
@@ -1581,7 +1585,7 @@ static class KingInMists
             var effect = new EffectObject(x, y, ao) { Scale = scale };
             await Program.Send(remote, stream, ciphers,
                 InstanceEntities.CreateObject(effectId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()),
-                $"0x02b9 effect {ao} at ({x}, {y})");
+                $"0x02bb effect {ao} at ({x}, {y})");
             await Program.Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effectId),
                 "0x01a9 effect enters the wake zone");
             return effectId;
@@ -1845,13 +1849,13 @@ static class KingInMists
             // back in the arena (RunMaze). Keep the humanoid for the full morph clip; the earlier 2.5 s swap cut the
             // animation and made the model change look instantaneous.
             await SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
-                () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, K.Slam, NextSeq(), 0x0408),
+                () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, K.Slam, NextSeq(), conn.MonsterOrderFlags),
                 "0x01ab King in the Mists slams his staff");
             await Task.Delay(1000);
             if (!Present()) return;
             lock (conn.Monsters) action = ++boss.ActionGeneration;
             await SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
-                () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, K.BecomeTreant, NextSeq(), 0x0408),
+                () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, K.BecomeTreant, NextSeq(), conn.MonsterOrderFlags),
                 "0x01ab King in the Mists becomes a treant");
             await Task.Delay(5500);
             if (!Present()) return;
@@ -1864,7 +1868,7 @@ static class KingInMists
                 conn.Monsters.Remove(id);
             }
             await Program.Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
-                $"0x02bb remove the King's humanoid form 0x{id:x}");
+                $"0x02bd remove the King's humanoid form 0x{id:x}");
             if (_portentBuff is { } stale)
             {
                 _portentBuff = null;

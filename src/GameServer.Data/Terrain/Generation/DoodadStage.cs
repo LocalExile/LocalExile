@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>One doodad line of a .ddt group (<c>0x142a17320</c>): the .ao, its weight (−1: an "All" line, placed at
+/// <summary>One doodad line of a .ddt group (<c>0x142a20680</c>): the .ao, its weight (−1: an "All" line, placed at
 /// every vertex of the group's grounds), an angle (radians; +∞ = random), its own spacing radius (runtime +0xc: no
 /// other of the same .ao that close) and the group's clear radius (+0x10: nothing else on the same ground that close).</summary>
 public sealed record DdtEntry(string Model, int Weight, float Angle, int Radius, int GroundRadius)
@@ -23,7 +23,7 @@ public sealed class DdtGroup
         Total += e.Weight;
     }
 
-    /// <summary><c>0x1420061f0</c>: the entry the roll falls on (none when the list is empty).</summary>
+    /// <summary><c>0x14200ca40</c>: the entry the roll falls on (none when the list is empty).</summary>
     public DdtEntry? Pick(uint roll)
     {
         if (Total == 0 || Weighted.Count == 0) return null;
@@ -37,7 +37,7 @@ public sealed class DdtGroup
     }
 }
 
-/// <summary>A doodad table (.ddt, parser <c>0x142a17e00</c>, callbacks <c>0x141ff2540</c>…<c>0x141ff2640</c>): "version
+/// <summary>A doodad table (.ddt, parser <c>0x142a21160</c>, callbacks <c>0x141ff8d90</c>…<c>0x141ff8e90</c>): "version
 /// N", the default density (× 1000) and from version 4 the default clear radius and an optional flag "1", then
 /// "Default" and its lines; then groups: a line of quoted ground names (comma separated) followed by "All" (the group's
 /// lines are picked once at every vertex of those grounds) or by a density ("D" = the default) and a clear radius, then
@@ -108,14 +108,14 @@ public sealed class DoodadTable
                 t.Store(t.Grounds, grounds, w, f);
             }
         }
-        // 0x141ff2730 after the parse: the thresholds out of 1024 against the highest density.
+        // 0x141ff8f80 after the parse: the thresholds out of 1024 against the highest density.
         int max = Math.Max(t.MaxDensity, 1);
         t.DefaultThreshold = (uint)((max - density) * 0x400 / max);
         foreach (var (g, d) in groupDensities) t.Thresholds[g] = (uint)((max - d) * 0x400 / max);
         return t;
     }
 
-    /// <summary><c>0x141ff2260</c> / <c>0x141ff2350</c>: every ground of the header shares the lines; a ground without
+    /// <summary><c>0x141ff8ab0</c> / <c>0x141ff8ba0</c>: every ground of the header shares the lines; a ground without
     /// fixed lines leaves the fixed map.</summary>
     void Store(Dictionary<string, DdtGroup> groups, List<string> grounds, List<DdtEntry> weighted, List<DdtEntry> fixedLines)
     {
@@ -132,7 +132,7 @@ public sealed class DoodadTable
         }
     }
 
-    /// <summary><c>0x142a17320</c>: lines up to the next line starting with a quote.</summary>
+    /// <summary><c>0x142a20680</c>: lines up to the next line starting with a quote.</summary>
     static (List<DdtEntry> Weighted, List<DdtEntry> Fixed) ReadLines(Reader r, int version, int groupRadius)
     {
         var weighted = new List<DdtEntry>();
@@ -145,7 +145,7 @@ public sealed class DoodadTable
             if (line.Length == 0 || line.StartsWith("//", StringComparison.Ordinal)) continue;
             var l = new Reader(line);
             string first = l.Word();
-            // An int read by a stream (0x1403884e0): its leading digits, so "0.5" (act8/area9) is weight 0.
+            // An int read by a stream (0x140388a70): its leading digits, so "0.5" (act8/area9) is weight 0.
             int digits = first.Length > 0 && first[0] is '-' or '+' ? 1 : 0;
             while (digits < first.Length && char.IsAsciiDigit(first[digits])) digits++;
             int weight = first == "All" ? -1 : int.Parse(first.AsSpan(0, digits), CultureInfo.InvariantCulture);
@@ -211,7 +211,7 @@ public sealed class DoodadTable
     }
 }
 
-/// <summary>An .ao's <c>AOSet</c> component (parser <c>0x141dbf380</c>, keys <c>0x141dc0140</c> / <c>0x141dc0270</c>):
+/// <summary>An .ao's <c>AOSet</c> component (parser <c>0x141dc29e0</c>, keys <c>0x141dc37a0</c> / <c>0x141dc38d0</c>):
 /// either fixed children (<c>fixed_ao = "x y z … file"</c>, +0x30: the set itself is the doodad, its children are
 /// attached to it) or weighted ones (<c>ao = "weight file"</c>, +0x10, total +0x28; "null" places nothing), never both.
 /// <c>random_rotation_min</c> / <c>_max</c> +0x48 / +0x4c (<c>random_rotation = true</c>: −π … π),
@@ -281,7 +281,7 @@ public sealed class AoSet
         }
     }
 
-    /// <summary><c>0x141dd31d0</c>: the child the roll falls on.</summary>
+    /// <summary><c>0x141dd6830</c>: the child the roll falls on.</summary>
     public string? Pick(uint roll)
     {
         int r = (int)roll;
@@ -294,7 +294,7 @@ public sealed class AoSet
     }
 }
 
-/// <summary>What <c>0x14202ede0</c> makes of a doodad line's .ao: the model created, its angle, scale, mirror and offset
+/// <summary>What <c>0x142035630</c> makes of a doodad line's .ao: the model created, its angle, scale, mirror and offset
 /// (result +0, +8, +0xc, +0x10, +0x14 / +0x18).</summary>
 public readonly record struct AoPick(string Model, float Angle, float Scale, bool Mirrored, int Dx, int Dy);
 
@@ -303,10 +303,10 @@ public readonly record struct AoPick(string Model, float Angle, float Scale, boo
 public sealed record DoodadRecord(int X, int Y, int W, int H, Dictionary<string, string> Master, string MasterPath,
     IReadOnlyList<PlacedRoom> Rooms);
 
-/// <summary>The doodad stage (<c>0x1420425d0</c>, "Generating doodads..."), the parts ported so far: first the doodads
-/// of every record's rooms (<c>0x142040770</c>), then per record the random doodads of its master's .ddt (<c>Next</c>
+/// <summary>The doodad stage (<c>0x142048e20</c>, "Generating doodads..."), the parts ported so far: first the doodads
+/// of every record's rooms (<c>0x142046fc0</c>), then per record the random doodads of its master's .ddt (<c>Next</c>
 /// draws between a copy and a restore of the generator state) and the doodads at its inner vertices ("All" groups and
-/// fixed lines). Each random or vertex doodad goes through <c>0x142044180</c>: <c>0x14202ede0</c> (an .ao without
+/// fixed lines). Each random or vertex doodad goes through <c>0x14204a9d0</c>: <c>0x142035630</c> (an .ao without
 /// AOSet: a random angle when the line has none), a mirror roll for random doodads, another angle roll. A doodad's
 /// collision goes on the walkability grids as it is created, so later walk checks see it.</summary>
 public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid grid, Walkability walk, List<string> notes)
@@ -317,15 +317,15 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
 
     readonly Dictionary<string, (bool Created, bool Static, int? Size)> _clientTypes = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Whether a room or tile line's object type is created as a client object (<c>0x142041960</c>,
-    /// <c>0x1420415e0</c>, vtable +0x98 = <c>0x14152d680</c>): the type (<c>0x141ec1360</c>) takes its BaseEvents
+    /// <summary>Whether a room or tile line's object type is created as a client object (<c>0x1420481b0</c>,
+    /// <c>0x142047e30</c>, vtable +0x98 = <c>0x14152f9a0</c>): the type (<c>0x141ec7c10</c>) takes its BaseEvents
     /// flags, +0x2a4 serialised (no <c>no_serialise</c>), +0x2a8 1 for <c>client_only</c> / 2 for <c>server_only</c>,
     /// +0x2ac <c>league_category</c> (60 without one, else it must be the generator's +0xd0). So: not serialised or
     /// client only, not server only. Across the captures this holds for every type, <c>DoodadNoBlocking</c> included
     /// (all 5 062 of its room and tile lines in the 117 captures the stage reaches are captured; it is not static).
     /// Types with a league category are taken as another league's. The MiscObjects.dat rows <c>DoodadNoOverlap</c> / <c>DoodadNoOverlap3</c> /
-    /// <c>TileUpperDoodadNoOverlap</c> (<c>0x14202f640</c> → <c>0x142041ac0</c>) and <c>DoodadLayerDoodad</c>
-    /// (<c>0x14202f530</c> → world vtable +0x60) go elsewhere: not ported, left out. Static: the type's Positioned has
+    /// <c>TileUpperDoodadNoOverlap</c> (<c>0x142035e90</c> → <c>0x142048310</c>) and <c>DoodadLayerDoodad</c>
+    /// (<c>0x142035d80</c> → world vtable +0x60) go elsewhere: not ported, left out. Static: the type's Positioned has
     /// <c>static = true</c> (<c>Doodad</c>, <c>DoodadInvisible</c>); only those stamp their Hull. The others
     /// (<c>HangingSlave</c>, <c>BellyGrassClusterTrigger</c>, the <c>FlowBlocking</c> objects) are created without
     /// collision, as the captured grids show. Size: the Positioned <c>object_size</c> (0 without one) of a type whose
@@ -386,7 +386,7 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
 
     public void Run(IReadOnlyList<DoodadRecord> records)
     {
-        // 0x1420425d0's first loop: every record's rooms, in order.
+        // 0x142048e20's first loop: every record's rooms, in order.
         foreach (var rec in records)
             foreach (var room in rec.Rooms) RoomDoodads(room);
         for (int index = 0; index < records.Count; index++)
@@ -405,13 +405,13 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
             }
             if (ddt.AllGroups.Count != 0 || ddt.DefaultFixed.Count != 0 || ddt.Fixed.Count != 0) VertexDoodads(records, index, ddt);
         }
-        // Generator vtable +0x20 (0x142041200), after the stage and +0x50: the placed tiles' own objects.
+        // Generator vtable +0x20 (0x142047a50), after the stage and +0x50: the placed tiles' own objects.
         TileDoodads(records);
     }
 
-    /// <summary><c>0x142041200</c>: row by row, every tile origin's objects (its .tmd, or the record master's Reskin
-    /// copy of it, <c>0x141d7eda0</c> → <c>0x141d7f700</c>; per sub-tile for a tile made of them), then the .tmd the
-    /// .tdt names (+0x180), each placed as a room line (<c>0x1420415e0</c> → <c>0x14202f1c0</c>) with the tile's size,
+    /// <summary><c>0x142047a50</c>: row by row, every tile origin's objects (its .tmd, or the record master's Reskin
+    /// copy of it, <c>0x141d82430</c> → <c>0x141d82d90</c>; per sub-tile for a tile made of them), then the .tmd the
+    /// .tdt names (+0x180), each placed as a room line (<c>0x142047e30</c> → <c>0x142035a10</c>) with the tile's size,
     /// origin and orientation.</summary>
     void TileDoodads(IReadOnlyList<DoodadRecord> records)
     {
@@ -421,13 +421,13 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
                 if (grid[x, y] is not { IsOrigin: true } e) continue;
                 var tile = e.Tile;
                 var objects = tile.NoMeshObjects ? [] : files.TileObjects(tile);
-                // 0x141d77a90: the last record holding the tile, else the first.
+                // 0x141d7b120: the last record holding the tile, else the first.
                 int index = 0;
                 for (int k = 0; k < records.Count; k++)
                     if (x >= records[k].X && x < records[k].X + records[k].W && y >= records[k].Y && y < records[k].Y + records[k].H) index = k;
                 string? reskin = records.Count != 0 ? records[index].Master.GetValueOrDefault("Reskin") : null;
 
-                // 0x1420415e0: the .ao is resolved (AOSet draws) before the type filters. The line's angle and mirror
+                // 0x142047e30: the .ao is resolved (AOSet draws) before the type filters. The line's angle and mirror
                 // are in the tile's frame.
                 void Line(TileObject o, int cellX, int cellY, float lineAngle, bool lineMirror)
                 {
@@ -437,7 +437,7 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
                     var (cx, cy) = Orientation.Map(e.Orientation, cellX, cellY, tile.Width * 23, tile.Height * 23);
                     bool mirrors = e.Orientation is >= 4 and < 8;
                     float angle = TilePlacement.Angle(e.Orientation, lineAngle) + def.Angle;
-                    // 0x1420415e0's facing filter (0x142030080 / 0x14202fe70, MiscObjects rows by ObjectHASH32): an
+                    // 0x142047e30's facing filter (0x1420368d0 / 0x1420366c0, MiscObjects rows by ObjectHASH32): an
                     // AntiTallWallDoodad goes in only when its angle − 0.7604, wrapped, is under 3.1916; a TileUpperDoodad,
                     // TileUpperDoodadNoOverlap or DoodadNoScrollNoJostleExtendTallwall only when it is not (the
                     // Dreadnought's cart wheels: of each wheel pair, the one facing away).
@@ -461,12 +461,12 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
             }
     }
 
-    /// <summary><c>0x141d7eda0</c> for a tile made of sub-tiles: row by row, every slot that starts a sub-tile (G without
-    /// bits 2, 4, 8) takes its mesh's objects (<c>0x141d7f430</c>, from the Reskin copy when there is one), turned by the
-    /// slot's code inside the sub-tile's span (<c>0x141d7ec10</c>, 250 units per slot: a = [w − x, x, h − y, y] read
+    /// <summary><c>0x141d82430</c> for a tile made of sub-tiles: row by row, every slot that starts a sub-tile (G without
+    /// bits 2, 4, 8) takes its mesh's objects (<c>0x141d82ac0</c>, from the Reskin copy when there is one), turned by the
+    /// slot's code inside the sub-tile's span (<c>0x141d822a0</c>, 250 units per slot: a = [w − x, x, h − y, y] read
     /// like <see cref="TilePlacement.Cell"/>), moved to the slot and floored to cells (× 0.092); the angle is turned by
     /// the code and codes 4–7 mirror. Heights (the slot's step × tile +0x177 × 7.8125) and the line's orientation mask
-    /// (+0x1e through <c>0x143646180</c>) are not carried, as for the other tile lines.</summary>
+    /// (+0x1e through <c>0x143650f00</c>) are not carried, as for the other tile lines.</summary>
     void SubTileDoodads(TileDef tile, string? reskin, Action<TileObject, int, int, float, bool> line)
     {
         if (files.Walk(tile.Path) is not { } walkData || walkData.SubTiles.Length < tile.Width * tile.Height) return;
@@ -493,7 +493,7 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
             }
     }
 
-    /// <summary><c>0x141d77c60</c>: the tile is in record <paramref name="index"/> and in no later one.</summary>
+    /// <summary><c>0x141d7b2f0</c>: the tile is in record <paramref name="index"/> and in no later one.</summary>
     static bool Owns(IReadOnlyList<DoodadRecord> records, int index, int tx, int ty)
     {
         static bool In(DoodadRecord r, int x, int y) => x >= r.X && x < r.X + r.W && y >= r.Y && y < r.Y + r.H;
@@ -524,7 +524,7 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
             string? ground = GroundName(groundPath);
             DdtEntry? pick;
             bool loose = ground is null || (GroundFlags(groundPath) & 4) != 0;
-            // No ground, or a flag-4 one: a cell already short of open ground keeps no doodad (0x141d85260 < 5), nor one
+            // No ground, or a flag-4 one: a cell already short of open ground keeps no doodad (0x141d888f0 < 5), nor one
             // near a positioned room object (Blocked).
             if (loose && (walk.Walk[y * walk.Width + x] < 5 || Blocked(x, y))) continue;
             if (ground is null)
@@ -583,7 +583,7 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
             }
     }
 
-    /// <summary><c>0x142044180</c>.</summary>
+    /// <summary><c>0x14204a9d0</c>.</summary>
     bool Place(DdtEntry entry, int x, int y, bool flip)
     {
         if (files.Text(entry.Model) is null || Resolve(entry.Model, entry.RandomAngle) is not { } def) return false;
@@ -616,10 +616,10 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
         return a;
     }
 
-    /// <summary><c>0x14202ede0</c>: while the .ao has an AOSet of weighted children, one is picked (<c>Next(total)</c>;
+    /// <summary><c>0x142035630</c>: while the .ao has an AOSet of weighted children, one is picked (<c>Next(total)</c>;
     /// "null" places nothing); a set with fixed children, or an .ao without AOSet, is the doodad. The last AOSet seen
     /// gives the rest: an angle in its rotation range (<c>Next(512)</c>), else a random one when
-    /// <paramref name="randomAngle"/>; with an orientation mask a code (<c>Next(840)</c>, <c>0x14299da50</c>: the
+    /// <paramref name="randomAngle"/>; with an orientation mask a code (<c>Next(840)</c>, <c>0x1429a6db0</c>: the
     /// roll's set bit, codes 4-7 mirrored) turns it; a scale in its range; an offset in its translate radius (two
     /// <c>Next(512)</c>; no file has one, so the offset itself is not ported). Null when nothing is placed.</summary>
     AoPick? Resolve(string model, bool randomAngle)
@@ -660,12 +660,12 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
         {
             rng.Next(0x200);
             rng.Next(0x200);
-            notes.Add($"doodad {model}: AOSet random_translate_radius offset (0x14202ede0) is not ported");
+            notes.Add($"doodad {model}: AOSet random_translate_radius offset (0x142035630) is not ported");
         }
         return new AoPick(model, angle, scale, mirrored, 0, 0);
     }
 
-    /// <summary><c>0x14299da50</c>: the roll-th (mod count) set bit of the mask; a full or empty mask takes roll &amp; 7.</summary>
+    /// <summary><c>0x1429a6db0</c>: the roll-th (mod count) set bit of the mask; a full or empty mask takes roll &amp; 7.</summary>
     static int OrientationBit(byte mask, uint roll)
     {
         if ((byte)(mask - 1) >= 0xfe) return (int)(roll & 7);
@@ -673,8 +673,8 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
         return bits[(int)(roll % (uint)bits.Count)];
     }
 
-    /// <summary><c>0x142040770</c>: a room's doodad lines in order. Each resolves its .ao (<c>0x14202ede0</c> without a
-    /// random angle: no draw for an .ao without AOSet) and is placed by <c>0x14202f1c0</c>: the cell turned with the
+    /// <summary><c>0x142046fc0</c>: a room's doodad lines in order. Each resolves its .ao (<c>0x142035630</c> without a
+    /// random angle: no draw for an .ao without AOSet) and is placed by <c>0x142035a10</c>: the cell turned with the
     /// room's code inside its untouched w·23 × h·23 cells, plus the room's origin; the angle mirrored (2π − a) for codes
     /// 4–7, plus (code &amp; 3)·π/2; the scale; mirrored when the code mirrors xor the line's flip.</summary>
     void RoomDoodads(PlacedRoom room)
@@ -702,10 +702,10 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
     }
 
     // Room objects that veto random doodads: blocking ones, with their object_size (entity +0x1e3, copied from the
-    // Positioned data's +0x10 by 0x141e2e960).
+    // Positioned data's +0x10 by 0x141e31ca0).
     readonly List<(int X, int Y, int Size)> _blockers = [];
 
-    /// <summary><c>0x14154c2d0</c> → <c>0x141379fc0</c>: an entity in the map's per-tile lists whose Chebyshev distance
+    /// <summary><c>0x14154e5f0</c> → <c>0x14137c390</c>: an entity in the map's per-tile lists whose Chebyshev distance
     /// from (x, y), less its size, is under 5, unless its flag +0x2c0 / +0x2c1 skips it: taken to be the Positioned
     /// <c>blocking</c>. The <c>BioWallBlocker</c> objects of <c>biowall_waypoint_1.arm</c> (object_size 5, blocking)
     /// 7 units away veto (<c>1_3_10_1</c> seed 1 at (621, 1009)); static <c>Doodad</c>s (object_size 2) and Act 8's
@@ -713,8 +713,8 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
     bool Blocked(int x, int y) =>
         _blockers.Any(b => Math.Max(Math.Abs(b.X - x), Math.Abs(b.Y - y)) - b.Size < 5);
 
-    /// <summary><c>0x142042360</c> (nothing outside the map) and the world add: the doodad and, for a static type
-    /// (random and vertex doodads are <c>Doodad</c>s), its collision (<c>0x141d876e0</c>).</summary>
+    /// <summary><c>0x142048bb0</c> (nothing outside the map) and the world add: the doodad and, for a static type
+    /// (random and vertex doodads are <c>Doodad</c>s), its collision (<c>0x141d8ad70</c>).</summary>
     void Create(PlacedDoodad d, bool isStatic = true)
     {
         if (d.X < 0 || d.Y < 0 || d.X >= grid.Width * 23 || d.Y >= grid.Height * 23) return;

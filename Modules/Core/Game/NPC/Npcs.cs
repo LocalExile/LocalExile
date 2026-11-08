@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 
 static partial class Game
 {
-    // Creates one NPC (0x2b9, its NPCs.dat Id is an .ot type) and puts it in the wake zone; kept for clicks and /npcs.
+    // Creates one NPC (0x2bb, its NPCs.dat Id is an .ot type) and puts it in the wake zone; kept for clicks and /npcs.
     internal static async Task<uint> SpawnNpc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Npc npc,
         int x, int y, float rotation)
     {
@@ -12,7 +12,7 @@ static partial class Game
         var obj = new NpcObject(x, y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState, npc.Model, npc.Height);
         uint type = InstanceEntities.ObjectTypeHash(npc.Id);
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, type, obj.Blob()),
-            $"0x02b9 create npc 0x{id:x} {npc} type=0x{type:x8} at ({x}, {y}) rotation {rotation:0.##}, components {string.Join(", ", npc.Components!)}");
+            $"0x02bb create npc 0x{id:x} {npc} type=0x{type:x8} at ({x}, {y}) rotation {rotation:0.##}, components {string.Join(", ", npc.Components!)}");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 npc 0x{id:x} enters wake zone");
         lock (conn.Npcs) conn.Npcs[id] = new SpawnedNpc(npc, x, y);
         await RegisterStationaryCollision(remote, stream, ciphers, conn, id, npc.Id, x, y, rotation,
@@ -25,6 +25,8 @@ static partial class Game
     {
         var notes = new List<string>();
         var placements = HideoutFurniture(conn)?.Npcs ?? NpcCatalog.In(conn.Layout.Hash, conn.Seed, notes);
+        if (conn.Layout.Id == "1_4_town")
+            placements = [.. placements, new("Metadata/NPC/League/Delve/DelveMiner", 352, 618, 280 * MathF.PI / 180)];
         foreach (var note in notes) Console.WriteLine($"[gateway] {remote} npcs: {note}");
         if (placements.Count == 0 || Environment.GetEnvironmentVariable("Game_NPCS") == "0") return;
         if (Npcs.Value.Error is { } error) { Console.WriteLine($"[gateway] {remote} npcs: {error}"); return; }
@@ -55,21 +57,28 @@ static partial class Game
             lock (conn.Monsters)
             {
                 if (conn.PlayerLife == 0 || conn.HardcoreDeathRecorded) return;
-                conn.PlayerLife = conn.PlayerMaxLife;
+                conn.PlayerLife = conn.PlayerUnreservedLife;
                 conn.PlayerMana = (uint)UnreservedMana(conn);
             }
             await GainFlaskCharges(remote, stream, ciphers, conn, int.MaxValue, "vendor refill");
             PersistVitals(conn);
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife), "vendor restores life");
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), "vendor restores life");
             await SendPlayerMana(remote, stream, ciphers, conn, "vendor restores mana");
         }
         uint id;
         lock (conn.Npcs) id = conn.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
+        conn.AutomaticNpcTalkRows.Clear();
         conn.TalkingTo = id;
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
         conn.NpcRewardOffer = null;
+        // Ctrl + click goes straight to an NPC's Currency Exchange (Faustus), as picking the option does. An NPC without one, or a
+        // league without the module, talks as usual.
+        if (use.Ctrl && Npcs.Value.TalksOf(npc.Npc).FirstOrDefault(t => t.Category == "CurrencyExchange" && t.Available(Quests.Names(PlayerQuestFlags(conn)))) is { } exchange
+            && await Program.ServerHooks.RunNpcOption(new(PlayerOf(conn), npc.Npc.Name, exchange.Category, exchange.Option, exchange.Script, exchange.TextAudio.Count > 0,
+                exchange.Index, exchange.Row, exchange.OpensGuildHideouts, exchange.RewardOffer))) return;
         if (await GameEvents.AnyNpcTalk(conn, id, npc)) return;
+        if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 talk to npc 0x{id:x} {npc.Npc.Name}",
             still: () => PlayerActionCurrent(conn, action));
     }
@@ -98,6 +107,7 @@ static partial class Game
                 lock (conn.Npcs) speaker = conn.Npcs.GetValueOrDefault(id);
                 if (speaker is not null && await EndTalkScript(remote, stream, ciphers, conn, id, speaker, script)) return;
             }
+            if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
             await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 npc 0x{id:x}: back to the options (0x85 after a talk)");
             return;
         }
@@ -114,6 +124,19 @@ static partial class Game
         }
     }
 
+    internal static async Task<bool> ContinueQuestConversation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint id)
+    {
+        SpawnedNpc? npc;
+        lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(id);
+        if (npc is null || conn.TalkingTo != id) return false;
+        var next = Npcs.Value.NextConversationOf(npc.Npc, Quests.Names(PlayerQuestFlags(conn)), conn.AutomaticNpcTalkRows);
+        if (next is null) return false;
+        conn.AutomaticNpcTalkRows.Add(next.Row);
+        await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, next);
+        return conn.InNpcTalk || conn.NpcRewardOffer is not null || conn.TalkingTo != id;
+    }
+
     // C→S 0x82: an option picked in the NPC dialogue window (an NPCTalk row of the NPC talked to).
     internal static async Task ChooseNpcOption(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte index)
     {
@@ -126,13 +149,17 @@ static partial class Game
         Console.WriteLine($"[gateway] {remote} <= 0x0082 npc {npc.Npc.Name} option {index}: " +
             (talk is null ? "no NPCTalk row" : $"NPCTalk row {talk.Row} \"{talk.Option}\" ({talk.Category}), text audio [{string.Join(", ", talk.TextAudio)}]"));
         if (talk is null) return;
+        await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, talk);
+    }
+
+    internal static async Task ExecuteQuestConversation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk)
+    {
         if (!talk.Available(Quests.Names(PlayerQuestFlags(conn)))) return;
         if (!await GameEvents.AllowNpcOption(conn, talk)) return;
         // A row that sets a quest item's remove_flag takes the item (Nessa's Medicine Chest, Fairgraves' Allflame).
         if (!await HandInQuestItems(remote, stream, ciphers, conn, talk, npc.Npc.Id)) return;
-        if (TalkStartFlag(conn, talk) is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
-        if (QuestsOf(conn).OnTalkRow(talk.Row) is { Count: > 0 } byRow) await SetQuestFlags(remote, stream, ciphers, conn, byRow);
-        await OnQuestTalk(remote, stream, ciphers, conn, id, npc, talk);
+        await ApplyQuestConversationStart(remote, stream, ciphers, conn, id, npc, talk, applyRowRules: true);
         conn.NpcFinishFlag = talk.FinishFlag;
         conn.NpcTalkScript = null;
         // A scripted row's end (FinishNPCChat, DoNPCChat, a screen, a move): after its talk, or now when it has none.
@@ -203,7 +230,7 @@ static partial class Game
         // ClientStrings IdentifyItemsChatMessage / IdentifyItemsChatMessageSingle, as a chat line (S→C 0x17).
         string text = identified.Count == 1 ? "1 Item identified" : $"{identified.Count} Items identified";
         await Send(remote, stream, ciphers, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
-        // The client decides itself whether the option is usable (NPCTalkCategory IdentifyItems, 0x141e754b0: gray with
+        // The client decides itself whether the option is usable (NPCTalkCategory IdentifyItems, 0x141e7bb90: gray with
         // "No items in your inventory can be identified" when nothing is unidentified), but only when the options are
         // listed: list them again.
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(conn.TalkingTo), $"0x0084 npc 0x{conn.TalkingTo:x}: options again");

@@ -5,11 +5,11 @@ using GameServer.Data.Terrain.Generation;
 /// <summary>
 /// The day's Labyrinth (roadmap world.md "The Labyrinth", the day's layout): its seed, the layout the client builds from
 /// it (<see cref="LabyrinthLayout"/>), the area each room is played in, and the labyrinth node an area's extra data names
-/// (<c>0x141ec7220</c> flag 0x08; with it the client applies the room's LabyrinthNodeOverrides and secrets, and the
+/// (<c>0x141ecdad0</c> flag 0x08; with it the client applies the room's LabyrinthNodeOverrides and secrets, and the
 /// server's level generator must too, <see cref="ServerLevels"/>).
-/// The official server's daily seed and its pick of a room's area are not in the client: here the seed is the UTC day's
-/// number since 1970 (<c>Game_LAB_SEED</c> overrides it) and a room's area is one of its LabyrinthAreas row's areas for
-/// the difficulty, chosen from the seed and the room's place in the layout.
+/// The official server's daily seed and its pick of a room's area are not in the client; poelab.com's layouts show both:
+/// the seed is the UTC day's number since 1970, the same for every tier (<c>Game_LAB_SEED</c> overrides it), and a room's
+/// area is one of its LabyrinthAreas row's areas for the difficulty (<see cref="LabyrinthLayout.AreaPick"/>).
 /// </summary>
 static class LabyrinthDay
 {
@@ -29,6 +29,11 @@ static class LabyrinthDay
         : areaId.StartsWith("2_Labyrinth", StringComparison.Ordinal) ? 2
         : areaId.StartsWith("3_Labyrinth", StringComparison.Ordinal) ? 3
         : areaId.StartsWith("EndGame_Labyrinth", StringComparison.Ordinal) ? 4 : null;
+
+    /// <summary>The last room of a Labyrinth (LabyrinthAreas FinalBoss1-3: <c>N_Labyrinth_boss_K_end</c>, some with a
+    /// <c>_#</c>): Izaro's last arena and behind it the Ascendancy Chamber (boss_ascendancy.arm: the font, the portal out).</summary>
+    public static bool IsChamber(string areaId) => DifficultyOf(areaId) is not null
+        && areaId.Contains("_Labyrinth_boss_", StringComparison.Ordinal) && areaId.Contains("_end", StringComparison.Ordinal);
 
     /// <summary>The day's layout for a difficulty, with its rooms' areas.</summary>
     public static Day For(uint seed, int difficulty) => Days.GetOrAdd((seed, difficulty), key => Build(key.Seed, key.Difficulty));
@@ -64,6 +69,10 @@ static class LabyrinthDay
         public readonly int Difficulty = difficulty;
         public readonly Dictionary<int, (ulong Instance, uint Seed)> Rooms = [];
         public readonly HashSet<int> Visited = [];
+        // Rooms a glyph statue showed without the character having been in them (Reveal).
+        public readonly HashSet<int> Revealed = [];
+        // Izaro's Aspirant's Trials won (their sections' numbers, 1 …): the map's Izaro icons go.
+        public readonly HashSet<int> Izaro = [];
         public int Node = -1;
         public long Number = Interlocked.Increment(ref runs);
     }
@@ -75,10 +84,12 @@ static class LabyrinthDay
     static int IndexOf(Day day, int row) => day.Layout.Nodes.ToList().FindIndex(n => n.Row == row);
 
     /// <summary>The way to a room of a run from a transition: the plaza's way in starts a new run of today's Normal
-    /// Labyrinth at its first room; an exit of a run's room goes to the neighbour in the layout played in the exit's area
-    /// (its instance when the run has been there, else a new one at a seed the run picks, so the server knows its room).
+    /// Labyrinth at its first room; an exit of a run's room goes to its neighbour in the layout (the exit's
+    /// <paramref name="entrance"/> N: the N-th connection, else the neighbour played in the exit's area), its instance
+    /// when the run has been there, else a new one at a seed the run picks, so the server knows its room.
     /// Null: not a run's way (an ordinary transfer).</summary>
-    public static PendingTransfer? Transfer(string character, string fromArea, uint fromSeed, string? sourceType, ushort destination, string? destinationArea)
+    public static PendingTransfer? Transfer(string character, string fromArea, uint fromSeed, string? sourceType, ushort destination, string? destinationArea,
+        int? entrance = null)
     {
         Run? run;
         int to;
@@ -94,7 +105,7 @@ static class LabyrinthDay
             var day = For(run.Seed, run.Difficulty);
             int index = IndexOf(day, from.Row);
             if (index < 0) return null;
-            to = day.Layout.Nodes[index].Links.Where(l => l >= 0).FirstOrDefault(l => day.Areas[l] == destinationArea, -1);
+            to = Neighbour(day, index, destinationArea, entrance);
             if (to < 0) return null;
         }
         lock (run)
@@ -117,6 +128,17 @@ static class LabyrinthDay
         }
     }
 
+    /// <summary>The layout index of the room an exit of room <paramref name="index"/> leads to, or -1. Two exits can lead
+    /// to rooms played in the same area, so the exit's entranceN names its neighbour (the N-th connection); without one (a
+    /// passage secret's way, counted after the connections) it is the neighbour played in the exit's area.</summary>
+    internal static int Neighbour(Day day, int index, string? area, int? entrance)
+    {
+        var links = day.Layout.Nodes[index].Links;
+        return entrance is int n && n >= 1 && n <= links.Count && links[n - 1] >= 0 && day.Areas[links[n - 1]] == area
+            ? links[n - 1]
+            : links.Where(l => l >= 0).FirstOrDefault(l => day.Areas[l] == area, -1);
+    }
+
     /// <summary>A character enters an area: in a room of their run it is remembered (the map's progress to send,
     /// <see cref="Progress"/>); anywhere else their run ends. The progress, or null outside a run.</summary>
     public static byte[]? Enter(string character, string areaId, uint instanceSeed)
@@ -136,24 +158,86 @@ static class LabyrinthDay
             {
                 run.Node = index;
                 run.Visited.Add(index);
-                return Progress(run.Visited);
+                return Progress(run.Visited.Concat(run.Revealed), run.Izaro);
             }
     }
 
     /// <summary>The map's progress outside a run (a /goto into a room of today's Labyrinth): that room alone.</summary>
     public static byte[] Visit(LabyrinthNodeKey node) => Progress([IndexOf(For(node.Seed, node.Difficulty), node.Row)]);
 
+    /// <summary>A glyph statue by a room's exit (<see cref="GameServer.Core.Protocol.Instance.AreaTransitionObject.Entrance"/> N, the room's N-th
+    /// connection): the room behind it is shown on the map from now on, and the map opens with the way to it in green
+    /// (0x7b kind 0x0f's first u32, <see cref="RevealedRoom.Row"/>). In a run the room stays shown; outside one (a /goto)
+    /// the progress is this room and that one. Null when the area is not a room of today's Labyrinth or the exit leads
+    /// out of it (the plaza, Izaro's last room's way out).</summary>
+    public static RevealedRoom? Reveal(string character, string areaId, uint instanceSeed, int entrance)
+    {
+        if (NodeFor(areaId, instanceSeed) is not { } node) return null;
+        var day = For(node.Seed, node.Difficulty);
+        int index = IndexOf(day, node.Row);
+        if (index < 0) return null;
+        var links = day.Layout.Nodes[index].Links;
+        if (entrance < 1 || entrance > links.Count || links[entrance - 1] is not (>= 0 and var neighbour)) return null;
+        int row = day.Layout.Nodes[neighbour].Row;
+        if (Runs.TryGetValue(character, out var run) && run.Seed == node.Seed && run.Difficulty == node.Difficulty)
+            lock (run)
+                if (run.Node == index)
+                {
+                    run.Revealed.Add(neighbour);
+                    return new RevealedRoom(Progress(run.Visited.Concat(run.Revealed), run.Izaro), row);
+                }
+        return new RevealedRoom(Progress([index, neighbour]), row);
+    }
+
+    /// <summary>A room a glyph statue showed: the progress to send and the room's LabyrinthSectionLayout row.</summary>
+    public sealed record RevealedRoom(byte[] Progress, int Row);
+
     /// <summary>S→C 0x1cb, the run's progress (dispatcher case 0x84, 96 bits, bit i in byte i / 8): the Labyrinth map
-    /// (LabyrinthMapWindow, <c>0x140bcdf20</c>) shows a room whose bit 0x11 + its index is set, and Izaro's rooms (a
+    /// (LabyrinthMapWindow, <c>0x140bcebb0</c>) shows a room whose bit 0x11 + its index is set, and Izaro's rooms (a
     /// section's last, +0x5a = slot + 1) with his icon until bit slot + 1 is set. The secrets' numbers
     /// (<see cref="LabyrinthLayout.Node.Number1"/>) start after the rooms' bits.</summary>
-    public static byte[] Progress(IEnumerable<int> rooms)
+    public static byte[] Progress(IEnumerable<int> rooms, IEnumerable<int>? izaro = null)
     {
         var bytes = new byte[2 + 12];
         bytes[0] = 0x01; bytes[1] = 0xcb;
         foreach (int room in rooms)
             if (room + 0x11 is int bit and < 96) bytes[2 + bit / 8] |= (byte)(1 << (bit % 8));
+        foreach (int section in izaro ?? [])
+            if (section is > 0 and < 0x11) bytes[2 + section / 8] |= (byte)(1 << (section % 8));
         return bytes;
+    }
+
+    /// <summary>Izaro's Aspirant's Trial in a room of today's Labyrinth (<see cref="NodeFor(string, uint)"/>): its
+    /// section's number (the layout node's <see cref="LabyrinthLayout.Node.SectionEnd"/>, 1 …) of the layout's sections,
+    /// the day and difficulty, and the node's first secret (its LabyrinthSecrets row, -1: none; the arena's mechanic).
+    /// Null in any other room.</summary>
+    public static (int Number, int Of, uint Seed, int Difficulty, int Secret)? IzaroRoom(string areaId, uint instanceSeed)
+    {
+        if (!areaId.Contains("_Labyrinth_boss_", StringComparison.Ordinal) || NodeFor(areaId, instanceSeed) is not { } node) return null;
+        var day = For(node.Seed, node.Difficulty);
+        int index = IndexOf(day, node.Row);
+        return IzaroRooms(day).FirstOrDefault(r => r.Node == index) is { Number: > 0 } room
+            ? (room.Number, room.Of, node.Seed, node.Difficulty, day.Layout.Nodes[index].Secret1) : null;
+    }
+
+    /// <summary>A day's Izaro rooms (each section's last, <see cref="LabyrinthLayout.Node.SectionEnd"/>): node index, the
+    /// section's number and the layout's sections.</summary>
+    public static IEnumerable<(int Node, int Number, int Of)> IzaroRooms(Day day)
+    {
+        for (int i = 0; i < day.Layout.Nodes.Count; i++)
+            if (day.Layout.Nodes[i].SectionEnd > 0) yield return (i, day.Layout.Nodes[i].SectionEnd, day.Layout.Sections.Count);
+    }
+
+    /// <summary>The character's run has won Izaro's Aspirant's Trial of this section: the map's progress (his icon there
+    /// goes), or null outside a run.</summary>
+    public static byte[]? IzaroBeaten(string character, int section)
+    {
+        if (!Runs.TryGetValue(character, out var run)) return null;
+        lock (run)
+        {
+            run.Izaro.Add(section);
+            return Progress(run.Visited.Concat(run.Revealed), run.Izaro);
+        }
     }
 
     /// <summary>The Aspirants' Plaza: where the first room's way out (its -1 connection) leads.</summary>
@@ -184,7 +268,7 @@ static class LabyrinthDay
     }
 
     /// <summary>The area extra data (0x1d's terrain block) naming the node: flags 0x08, 0x00, then u32 seed, u16 node
-    /// (its LabyrinthSectionLayout row), u8 difficulty, little-endian (<c>0x141ec7220</c>).</summary>
+    /// (its LabyrinthSectionLayout row), u8 difficulty, little-endian (<c>0x141ecdad0</c>).</summary>
     public static byte[] ExtraData(LabyrinthNodeKey node)
     {
         var bytes = new byte[9];
@@ -213,6 +297,61 @@ static class LabyrinthDay
         }
     }
 
+    /// <summary>The seed of a UTC day: its number since 1970, as the official server's.</summary>
+    public static uint SeedOf(DateOnly day) => (uint)(day.DayNumber - DateOnly.FromDateTime(DateTime.UnixEpoch).DayNumber);
+
+    /// <summary>
+    /// The day's four Labyrinths as JSON lines for outside tools (`GameServer.Gateway labyrinth [yyyy-mm-dd | seed]`, a
+    /// map like the in-game one): a "day" line (seed, and the date when the seed is a day's), then per tier a "tier" line
+    /// (its Labyrinths name) and one "room" line per node: its index, area id and name, slot (section 0-2) and place, map
+    /// position (LabyrinthSectionLayout +0x54 / +0x58: x 0-3, y 0-2 within the slot), connections (-1: the way out, the
+    /// plaza before the first room, Izaro after the last), its secrets (LabyrinthSecrets Id and Name with the number a
+    /// key shares with its door) and, on a slot's last room, Izaro (slot + 1).
+    /// </summary>
+    public static IEnumerable<System.Text.Json.Nodes.JsonObject> Listing(uint seed, bool dated)
+    {
+        static byte[]? Read(string path) => GamePack.Default.TryRead(path);
+        RawDat Table(string name) => new(Read($"Data/{name}.datc64") ?? throw new FileNotFoundException($"Data/{name}.datc64"));
+        var labyrinths = Table("Labyrinths");
+        var layouts = Table("LabyrinthSectionLayout");
+        var secrets = Table("LabyrinthSecrets");
+        var worldAreas = Table("WorldAreas");
+        var areaNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (int r = 0; r < worldAreas.Count; r++) areaNames.TryAdd(worldAreas.String(r, 0), worldAreas.String(r, 8));
+        float F32(int row, int at) => BitConverter.Int32BitsToSingle(layouts.I32(row, at));
+        System.Text.Json.Nodes.JsonObject Secret(int row, int number) => new()
+        {
+            ["id"] = secrets.String(row, 0), ["name"] = secrets.String(row, 0x75), ["number"] = number,
+        };
+
+        var head = new System.Text.Json.Nodes.JsonObject { ["type"] = "day", ["seed"] = seed };
+        if (dated) head["date"] = DateOnly.FromDateTime(DateTime.UnixEpoch).AddDays((int)seed).ToString("yyyy-MM-dd");
+        yield return head;
+        for (int r = 0; r < labyrinths.Count; r++)
+        {
+            int tier = labyrinths.I32(r, 0);
+            var day = For(seed, tier);
+            yield return new() { ["type"] = "tier", ["tier"] = tier, ["name"] = labyrinths.String(r, 4) };
+            var sections = day.Layout.Sections.ToList();
+            for (int i = 0; i < day.Layout.Nodes.Count; i++)
+            {
+                var n = day.Layout.Nodes[i];
+                var found = new System.Text.Json.Nodes.JsonArray();
+                if (n.Secret1 >= 0) found.Add(Secret(n.Secret1, n.Number1));
+                if (n.Secret2 >= 0) found.Add(Secret(n.Secret2, n.Number2));
+                yield return new()
+                {
+                    ["type"] = "room", ["tier"] = tier, ["index"] = i,
+                    ["area"] = day.Areas[i], ["name"] = day.Areas[i] is { } a ? areaNames.GetValueOrDefault(a) : null,
+                    ["slot"] = sections.IndexOf(n.Section), ["place"] = n.Place,
+                    ["x"] = F32(n.Row, 0x54), ["y"] = F32(n.Row, 0x58),
+                    ["links"] = new System.Text.Json.Nodes.JsonArray([.. n.Links.Select(l => (System.Text.Json.Nodes.JsonNode?)l)]),
+                    ["secrets"] = found, ["izaro"] = n.SectionEnd,
+                };
+            }
+        }
+    }
+
     static Day Build(uint seed, int difficulty)
     {
         static byte[]? Read(string path) => GamePack.Default.TryRead(path);
@@ -227,8 +366,7 @@ static class LabyrinthDay
         {
             int row = layouts.Ref(layout.Nodes[i].Row, 0x44);
             int[] choices = row < 0 ? [] : areas.RefList(row, column);
-            picked.Add(choices.Length == 0 ? null
-                : worldAreas.String(choices[(int)(unchecked(seed * 0x9e3779b1u + (uint)i * 0x85ebca77u) % (uint)choices.Length)], 0));
+            picked.Add(choices.Length == 0 ? null : worldAreas.String(choices[layout.AreaPick(layout.Nodes[i], choices.Length)], 0));
         }
         return new Day(layout, picked);
     }

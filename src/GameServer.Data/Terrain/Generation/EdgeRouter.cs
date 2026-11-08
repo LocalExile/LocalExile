@@ -1,6 +1,6 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The edge router of the tile graph layout (<c>0x142124600</c> builds it, <c>0x142125790</c> runs it): a cost
+/// <summary>The edge router of the tile graph layout (<c>0x14212af00</c> builds it, <c>0x14212c090</c> runs it): a cost
 /// grid of one cell per graph tile (23 × 23 positions), random costs with a dearer border, then every edge routed
 /// through it.</summary>
 sealed class EdgeRouter
@@ -33,7 +33,7 @@ sealed class EdgeRouter
         Occupied = new bool[Width * Height];
     }
 
-    /// <summary><c>0x142125790</c> up to the routing: every cell's cost is <c>Next(1024)</c>, the border cells' 1024 more;
+    /// <summary><c>0x14212c090</c> up to the routing: every cell's cost is <c>Next(1024)</c>, the border cells' 1024 more;
     /// every edge's straight corridors are marked (<see cref="Mark"/>); cells under a placed tile are occupied.</summary>
     public void Prepare()
     {
@@ -58,7 +58,7 @@ sealed class EdgeRouter
                 Occupied[y * Cell / Cell * Width + x * Cell / Cell] = _grid[x + _offsetX, y + _offsetY] is not null;
     }
 
-    /// <summary><c>0x142125790</c>: the cost grid is prepared (<see cref="Prepare"/>), then every edge routed (<see cref="Route"/>); edges that fail are marked again and retried until a round fixes none.</summary>
+    /// <summary><c>0x14212c090</c>: the cost grid is prepared (<see cref="Prepare"/>), then every edge routed (<see cref="Route"/>); edges that fail are marked again and retried until a round fixes none.</summary>
     public void Run()
     {
         Prepare();
@@ -101,15 +101,15 @@ sealed class EdgeRouter
     // Point i as the edge holds it (positions, not cells).
     static (int X, int Y) Raw(GraphEdge e, int i) => i > e.Points.Count ? (e.B.X, e.B.Y) : e.Points[i - 1];
 
-    /// <summary><c>0x142125eb0</c>: the straight corridor of each of the edge's segments.</summary>
+    /// <summary><c>0x14212c7b0</c>: the straight corridor of each of the edge's segments.</summary>
     void Mark(GraphEdge e)
     {
         int w = CorridorWidth(e);
         for (int k = 0; k <= e.Points.Count; k++) Line(Point(e, k), Point(e, k + 1), 1, w);
     }
 
-    /// <summary><c>0x142124920</c>: walks the line from a to b (Bresenham, along the longer axis), adding
-    /// <paramref name="delta"/> to each cell's corridor count (<c>0x1421247e0</c>) and to the cost of the cells beside it
+    /// <summary><c>0x14212b220</c>: walks the line from a to b (Bresenham, along the longer axis), adding
+    /// <paramref name="delta"/> to each cell's corridor count (<c>0x14212b0e0</c>) and to the cost of the cells beside it
     /// (up to <paramref name="width"/> away, across the line) a penalty falling from 2000 · delta.</summary>
     void Line((int X, int Y) a, (int X, int Y) b, int delta, int width)
     {
@@ -141,11 +141,11 @@ sealed class EdgeRouter
         }
     }
 
-    // 0x142124c70's per-cell state (0x18 bytes in the client): g, h, parent index + 1, closed, in the open set.
+    // 0x14212b570's per-cell state (0x18 bytes in the client): g, h, parent index + 1, closed, in the open set.
     int[] _g = [], _h = [], _parent = [];
     bool[] _closed = [], _open = [];
 
-    /// <summary><c>0x142124c70</c>: A* over the cells from start to goal, neighbours left, up, right, down. A cell costs
+    /// <summary><c>0x14212b570</c>: A* over the cells from start to goal, neighbours left, up, right, down. A cell costs
     /// 100 + its cost (the client does not add the path so far), the estimate is 100 per cell of Manhattan distance;
     /// the open set is ordered by g + h, then cell index. Cells with a corridor or a placed tile are closed except the
     /// goal.</summary>
@@ -210,7 +210,7 @@ sealed class EdgeRouter
         return false;
     }
 
-    /// <summary><c>0x142124fc0</c>: each segment's straight corridor is taken away and the segment searched from its end
+    /// <summary><c>0x14212b8c0</c>: each segment's straight corridor is taken away and the segment searched from its end
     /// back to its start; the path's cells get the corridor instead, and every sixth cell becomes a new internal point
     /// at a random position in it (<c>Next(23)</c> twice). A segment with no path is skipped (its end point is dropped);
     /// the last one failing undoes the edge's corridors and fails.</summary>

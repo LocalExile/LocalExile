@@ -32,7 +32,7 @@ def table(name):
 def animation_keys():
     """"Melee" and every Animation.dat Id a monster projectile table names, sorted."""
     animations = table("Animation")
-    keys = {"Melee"}
+    keys = {"Melee", "Throw"}
     for name in ("MonsterMortar", "MonsterProjectileSpell", "MonsterProjectileAttack"):
         try:
             rows = table(name)
@@ -99,6 +99,10 @@ def act_pools(text, keys):
         if not value:
             continue
         clips = [c.strip() for c in value.split(",")]
+        # Stage casts use Throw (ZombieBossExtract). Preserve its clip/contact even when the ACT also
+        # specifies an attack budget; that budget is not a replacement for the granted effect's cast time.
+        if key == "Throw":
+            clips = [re.sub(r":attack_time=\d+(?:\.\d+)?$", "", c) for c in clips]
         if all(NAME.fullmatch(c) for c in clips):
             pools[key] = clips
     m = re.search(r'^\s*animated_object\s+"([^"]+)"', text, re.M)

@@ -32,6 +32,8 @@ static class GameDataFiles
         ("data/tables/UniqueMaps.json", "unique map shop identities"),
         ("data/tables/LabyrinthTrials.json", "the Trials of Ascendancy (their areas and completion flags)"),
         ("data/tables/GrantedEffectStatSets.json", "the Labyrinth spike traps' damage (LbRetractableTrap)"),
+        ("data/tables/GameConstants.json", "golem actor-level spell damage scaling"),
+        ("data/tables/SkillTrapVariations.json", "native placed-trap object identities"),
         ("data/tables/BuffDefinitions.json", "the Labyrinth spike traps' bleeding buff"),
         ("data/tables/MapFragmentMods.json", "map scarabs and fragments"),
         ("data/tables/MapDeviceRecipes.json", "map device recipes (Maven, Atziri)"),
@@ -50,7 +52,7 @@ static class GameDataFiles
         ("data/hideouts.json", "hideouts and native stationary model collision radii"),
         ("data/animation-contacts.json", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing and the bow/wand release points"),
         ("data/monster-takehit.json", "monster hit reactions (the TakeHit flinch and its sound)"),
-        ("data/monster-contacts.json", "monster projectile release timing and points (a Sand Spitter mortar leaves at half the attack from the default height without it)"),
+        ("data/monster-contacts.json", "monster projectile release timing/points and boss stage contacts"),
         ("data/projectile-clips.json", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
         ("data/passive-skill-graphs.json", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
         ("data/phrecia-passive-skillgraph.psg", "merged passive graph analysis artifact (not installed)"),
@@ -66,11 +68,12 @@ static class GameDataFiles
     /// entry, the version that added it): with an older one the feature runs without it, silently.</summary>
     public static readonly (string Entry, int Version, string Feature)[] Needed =
     [
-        ("tables", 3, "Kirac progression and gold refresh prices"),
+        ("tables", 4, "Kirac progression, gold refresh prices and native trap identities"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
         ("animation-contacts", 4, "class rig animation indices for 0x1b2 cast clips: without them run casts have no character animation"),
-        ("object-types", 6, "quest objects and chests (rooms' server objects, quest tile and room types): without them they get the wrong blob or none"),
+        ("monster-contacts", 4, "Throw-stage animation contacts: without them boss stage effects wait until recovery ends"),
+        ("object-types", 8, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals): without them they get the wrong blob or none"),
     ];
 
     /// <summary>The <see cref="Needed"/> entries data/extract-stamps.json (written by extract-data.ps1) records at an older

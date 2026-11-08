@@ -42,6 +42,8 @@ static class AccuracyRating
         or "two_handed_melee_accuracy_rating_+%" or "accuracy_rating_per_level"
         or "dexterity_accuracy_bonus_grants_accuracy_rating_+3_per_dexterity_instead"
         or "gain_accuracy_rating_equal_to_intelligence" or "gain_wand_accuracy_rating_equal_to_intelligence"
+        or "gain_accuracy_rating_equal_to_2_times_strength" or "gain_accuracy_rating_equal_to_strength"
+        or "attack_speed_+%_per_200_accuracy_rating"
         or "accuracy_rating_+%_final_vs_unique_enemies_from_mastery"
         or "accuracy_rating_+%_final_vs_enemies_in_close_range_from_mastery"
         || new[] { "sword", "axe", "mace", "claw", "dagger", "wand", "staff", "bow" }

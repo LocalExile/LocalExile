@@ -6,7 +6,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Works (verified with the real client)
 
 - Experience and levels: kills within 150 cells give DefaultMonsterStats experience × the variety's multiplier ×
-  rarity, with the level penalty (S→C 0x2ba Player experience; the client derives the level);
+  rarity (the hidden rarity mods in Mods.json) × the level penalty (safe zone, level 95+ and the effective monster
+  level above 70) × the party share (every living player within 150 cells, (level + 10)^2.71), with the gems' 10% taken
+  before the penalty (S→C 0x2bc Player experience; the client derives the level);
   a new level sends its stats, full life and mana, the passive points and the account's level;
   experience is saved per character; `/add_xp`.
   Code: `Progression.cs`, Gateway (`GainExperience`, `ApplyLevel`).
@@ -190,6 +192,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Selection requires `Game_VERIFIED_ANTIQUARIAN=1` and read-only verification of the exact installed compatible graph.
   Ordinary Juggernaut selection after a full refund restores the Default graph.
   Docs: [whole-class evidence, setup and explicit model boundaries](../docs/game/antiquarian.md).
+- Juggernaut: all 14 ordinary nodes apply and passed native acceptance, [node by node](../docs/game/juggernaut.md).
 
 - Gambler: every node in its installed graph has a gameplay consumer, including both Block Luck choices and drawbacks.
   Legal eight-point builds, exclusive choices, paid refunds, failed-save rollback and reload have Gateway coverage.

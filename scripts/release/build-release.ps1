@@ -1,4 +1,5 @@
-# Builds a player's release: artifacts\release\LocalExile-v<version>-win-x64.zip and its .sha256 (Agents/docs/dev/releases.md).
+# Builds a player's release: artifacts\release\LocalExile-v<version>-win-x64.zip and its .sha256, or -linux-x64 under pwsh on
+# Linux (Agents/docs/dev/releases.md).
 # The release workflow runs this; it also runs by hand in a clean checkout (it builds in place: bin\ and obj\ of Release).
 # It needs the .NET SDK and npm, and neither the client nor data\: a package never holds game files, and this refuses one that does.
 #   -Version <x.y.z[-pre]>   required
@@ -57,7 +58,7 @@ $commit = (git rev-parse HEAD).Trim()
 Check-Exit 'git rev-parse'
 $properties = @('-c', 'Release', "-p:Version=$Version", "-p:InformationalVersion=$Version+$commit", '-v', 'q', '-nologo')
 
-# Modules and mods compile against the Gateway, and copy nothing of it. Each goes into its own bin\ or Mods\Binaries\.
+# Modules compile against the Gateway, and copy nothing of it. Each goes into its own bin\.
 Step 'building the solution in Release ...'
 dotnet build GameServer.slnx @properties
 Check-Exit 'dotnet build'
@@ -75,20 +76,15 @@ Step 'publishing LocalExile.exe ...'
 dotnet publish (Join-Path $repo 'src\LocalExile') @properties -r $runtime --self-contained true -p:PublishSingleFile=true -p:DebugType=embedded -o $package
 Check-Exit 'dotnet publish src\LocalExile'
 
-# The window over LocalExile.exe --json, with Windows' own .NET Framework compiler: no runtime of its own to ship.
-if (-not $IsLinux) {
-    Step 'building LocalExileGUI.exe ...'
-    & powershell -NoProfile -ExecutionPolicy Bypass -File src\LocalExileGui\build.ps1 -Out (Join-Path $package 'LocalExileGUI.exe')
-    Check-Exit 'src\LocalExileGui\build.ps1'
-}
-
 # The modules as the Gateway loads them: each one's manifest and other files, and its bin\ without the build's leftovers.
-Step 'copying modules, mods and leagues ...'
+Step 'copying modules and leagues ...'
 Get-ChildItem Modules -Recurse -File | Where-Object {
     $relative = $_.FullName.Substring($repo.Length + 1).Replace('/', '\')
     $relative -notmatch '\\obj\\' -and $_.Extension -notin '.cs', '.csproj', '.props'
 } | ForEach-Object { Copy-Into $_.FullName $_.FullName.Substring($repo.Length + 1) }
-Copy-Into 'Mods\Binaries' 'Mods\Binaries'
+# No mods ship: Waypoint installs them from LocalExile-Mods. The empty folder is where they go, and what the Gateway watches;
+# a maintainer's own installed mods stay out of the package.
+New-Item -ItemType Directory -Force (Join-Path $package 'Mods\Binaries') | Out-Null
 Copy-Into 'Leagues' 'Leagues'
 Get-ChildItem (Join-Path $package 'Leagues') -Recurse -Directory -Filter Binaries | Remove-Item -Recurse -Force
 
@@ -160,7 +156,7 @@ Remove-Item $exported
 Copy-Into 'scripts\re\ot_components.py' 'scripts\re\ot_components.py'
 Copy-Into 'scripts\re\anim_contacts.py' 'scripts\re\anim_contacts.py'
 
-# Licenses, and what AGPL-3.0 asks: where this exact source is.
+# Licenses, and what GPL-2.0 asks: where this exact source is.
 Copy-Into 'LICENSE' 'licenses\LICENSE.txt'
 Copy-Into 'THIRD-PARTY-NOTICES.md' 'licenses\THIRD-PARTY-NOTICES.md'
 Copy-Into 'data\schema\LICENSE' 'licenses\dat-schema-LICENSE.txt'
@@ -168,7 +164,7 @@ Copy-Into 'Tools\ooz\node_modules\ooz-wasm\LICENSE' 'licenses\ooz-wasm-LICENSE.t
 if (-not $IsLinux) { Copy-Item (Join-Path $package 'Tools\python\LICENSE.txt') (Join-Path $package 'licenses\python-LICENSE.txt') }
 Set-Content (Join-Path $package 'licenses\SOURCE.txt') "LocalExile $Version is built from https://github.com/LocalExile/LocalExile/tree/$commit" -Encoding ascii
 Copy-Into $(if ($IsLinux) { 'scripts\release\README-player-linux.txt' } else { 'scripts\release\README-player.txt' }) 'README.txt'
-[ordered]@{ version = $Version; commit = $commit; client = '3.29.3b'; runtime = $runtime } | ConvertTo-Json |
+[ordered]@{ version = $Version; commit = $commit; client = '3.29.3c'; runtime = $runtime } | ConvertTo-Json |
     Set-Content (Join-Path $package 'release.json') -Encoding ascii
 
 # What must hold before anything goes out.
@@ -185,9 +181,9 @@ $bad = @(Get-ChildItem $package -Recurse -File | Where-Object {
     ($relative -like 'data\*' -and $relative -notlike 'data\schema\*') -or $relative -like 'Client\*'
 })
 if ($bad.Count) { throw "the package must not hold: $(($bad | Select-Object -First 10 | ForEach-Object { $_.FullName.Substring($package.Length + 1) }) -join ', ')" }
-foreach ($required in 'LocalExileGUI.exe', 'app\GameServer.Gateway.exe', 'app\GameServer.Auth.exe', 'app\GameServer.Patch.exe', 'app\GgDump.exe', 'Tools\python\python.exe',
+foreach ($required in 'app\GameServer.Gateway.exe', 'app\GameServer.Auth.exe', 'app\GameServer.Patch.exe', 'app\GgDump.exe', 'Tools\python\python.exe',
     'Tools\node\node.exe', 'Tools\ooz\node_modules\ooz-wasm\package.json', 'Modules\Core\Game\bin\game.dll', 'scripts\re\levelgen\gate-baseline.json', 'data\schema\schema.min.json') {
-    if ($IsLinux -and $required -in 'LocalExileGUI.exe', 'Tools\python\python.exe') { continue }
+    if ($IsLinux -and $required -eq 'Tools\python\python.exe') { continue }
     $relative = if ($IsLinux) { $required -replace '\.exe$', '' } else { $required }
     if (-not (Test-Path (Join-Path $package $relative))) { throw "the package misses $required" }
 }

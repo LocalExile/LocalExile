@@ -8,7 +8,7 @@ static partial class Game
     internal static IEnumerable<SpawnedMonster> InstanceMonsters(ClientState conn) =>
         conn.Monsters.Where(kv => conn.Instance.World.MonsterOrigins.ContainsKey(kv.Key)).Select(kv => kv.Value);
 
-    /// <summary>A minion leaves no corpse: queue its body's removal (0x2bb) a second after death.
+    /// <summary>A minion leaves no corpse: queue its body's removal (0x2bd) a second after death.
     /// Retain its identity through both server removal and publication. Under Monsters; every minion tick calls it.</summary>
     internal static void RemoveMinionBodiesLocked(ClientState conn, double now)
     {
@@ -25,6 +25,7 @@ static partial class Game
     /// player's minions go with him.</summary>
     internal static void KeepInstanceMonsters(ClientState left)
     {
+        SaveSummons(left);
         lock (left.Monsters)
         {
             left.Instance.Monsters = SavedMonster.Save(InstanceMonsters(left),

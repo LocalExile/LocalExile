@@ -1,10 +1,10 @@
 // Self-contained (Frida 17 gives each script its own scope). Which network stat set answers one stat read: while
-// FUNCTION runs, each read of KEY through the network getter 0x1424cfa40 (provider: sorted (u32 key, i32 value) pairs
+// FUNCTION runs, each read of KEY through the network getter 0x1424d6510 (provider: sorted (u32 key, i32 value) pairs
 // at +0xf0..+0xf8, falling back to the provider at +0xe0; 04-player-entity.md §4.1a) sends the provider, how many pairs it
 // holds, whether KEY is among them, the value of each MARKERS key it holds (a skill's own stats mark its record), and the
 // same for its fallback.
-// Shield Charge (3.29.3b): FUNCTION 0x141a6bae0 (its setup), KEY movement_velocity_+% (0xf5).
-const FUNCTION = '0x141a6bae0', KEY = 0xf5;
+// Shield Charge (3.29.3c): FUNCTION 0x141a6e4f0 (its setup), KEY movement_velocity_+% (0xf5).
+const FUNCTION = '0x141a6e4f0', KEY = 0xf5;
 const MARKERS = {level: 0x1, base_movement_velocity: 0xb4, shield_charge_damage_maximum: 0x1db};
 const m = Process.getModuleByName('Game.patched.exe');
 const at = va => m.base.add(ptr(va).sub(ptr('0x140000000')));
@@ -22,7 +22,7 @@ function describe(provider) {
 let inside = 0;
 const seen = new Set();
 Interceptor.attach(at(FUNCTION), { onEnter() { inside++; }, onLeave() { inside--; } });
-Interceptor.attach(at('0x1424cfa40'), {
+Interceptor.attach(at('0x1424d6510'), {
   onEnter(args) {
     if (inside === 0 || (args[1].toUInt32() >>> 0) !== KEY) return;
     const p = args[0];

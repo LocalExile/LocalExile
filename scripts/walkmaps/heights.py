@@ -2,7 +2,7 @@
 
 Usage: python scripts/walkmaps/heights.py <tiles_N.json> <area id> <seed>
 Writes data/walkability/<area>_seed<seed>.heights.bin (int16 per cell, row by row) and .heights.json {w, h}, which
-GameServer.Gateway's TerrainHeights reads. The lookup is the client's 0x141d84b00 / 0x141d7d100 / 0x141d8fc40
+GameServer.Gateway's TerrainHeights reads. The lookup is the client's 0x141d88190 / 0x141d80790 / 0x141d932d0
 (Agents/docs/protocol/11-skills.md §10): the subtile's palette-packed 23 x 23 int8 heights at the tile-local cell
 under the entry's code, + terrain multiplier x the entry's height offset.
 """
@@ -13,14 +13,14 @@ import struct
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# Client tables (3.29.3b): 0x142fa04b0 (9 x 3 bytes, the code's axis choice) and 0x142fb7f98 (code byte -> row).
+# Client tables (3.29.3c): 0x142faa4d8 (9 x 3 bytes, the code's axis choice) and 0x142fc2028 (code byte -> row).
 CODES = bytes.fromhex("000101010001000000010100000001010000000100010101000101")
 CLAMP = bytes.fromhex("00030201040506070800000000000000")
 UNKNOWN = -32768
 
 
 def cell(vec, i):
-    """0x141d8fc40: a subtile's height at index i of the 23 x 23 grid."""
+    """0x141d932d0: a subtile's height at index i of the 23 x 23 grid."""
     n = len(vec)
     if n == 0:
         return 0

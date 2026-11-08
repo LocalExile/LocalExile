@@ -123,7 +123,7 @@ static partial class Game
                 synchronized.Add(state);
             }
             if (updates.Count == 0) return null;
-            var bytes = InstanceEntities.PlayerSingleUseCooldowns(PlayerId, updates);
+            var bytes = InstanceEntities.PlayerSingleUseCooldowns(PlayerId, updates, canDetonateMines: CanDetonateMines(conn));
             foreach (var state in synchronized) state.NativeRefreshed();
             return bytes;
         }
@@ -135,7 +135,7 @@ static partial class Game
             if (!conn.SingleUseCooldowns.Values.Any(s => s.NeedsNativeRefresh)) return Task.CompletedTask;
         int epoch;
         lock (conn.Monsters) epoch = conn.ProjectileEpoch;
-        return Send(remote, stream, ciphers, [], "0x02ba player active cooldown progress/rate refresh",
+        return Send(remote, stream, ciphers, [], "0x02bc player active cooldown progress/rate refresh",
             atGate: () => NativeCooldownRefresh(conn, epoch, () => GemSkillEffects(conn)
                 .Where(g => CooldownFor(conn, g.Effect, g.Level, g.Quality) is not null)
                 .Select(g => (g.Id, g.Effect)).ToArray()));

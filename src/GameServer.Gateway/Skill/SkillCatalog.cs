@@ -13,7 +13,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 {
     /// <summary>The ids the server gives its skills (+0x40). Basic actions use their ActionTypes HASH16 instead, so these
     /// must not collide with the type's basic actions (Character.ot: Move 0x2909, Interaction 0x0266 …). 0x0101 did: a
-    /// Monster.ot basic action masks to it. 0x0102 is no ActionType's id in 3.29.3b.</summary>
+    /// Monster.ot basic action masks to it. 0x0102 is no ActionType's id in 3.29.3b or 3.29.3c.</summary>
     public const ushort FirstSkillId = 0x0102;
 
     private readonly Lazy<Tables?> _tables = new(() => Tables.Load(folder));
@@ -79,7 +79,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     }
 
     /// <summary>Skill ids for the server's skills from <see cref="FirstSkillId"/> on, skipping every id an ActionType's
-    /// HASH16 masks to (0x3fff): 0x0106, 0x010a and 0x0114 are basic actions in 3.29.3b, and a gem skill numbered after
+    /// HASH16 masks to (0x3fff): 0x0106, 0x010a and 0x0114 are basic actions in 3.29.3c, and a gem skill numbered after
     /// the default attack would replace one.</summary>
     public IEnumerable<ushort> SkillIds()
     {
@@ -138,6 +138,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
         if (gepl >= 0 && t.ManaPerMinute[gepl] > 0) { Put("base_mana_cost_per_minute", t.ManaPerMinute[gepl]); Put("mana_cost_per_minute", t.ManaPerMinute[gepl]); }
+        // A share of maximum mana over time (Bladefall of Trarthus: 300 per minute, "5% Mana per second"): CostTypes 9
+        // ManaPercentPerMinute. Its final mana_cost_per_minute takes the caster's maximum mana (Skills.cs publishes it).
+        if (gepl >= 0 && t.ManaPercentPerMinute[gepl] > 0) Put("base_mana_cost_%_per_minute", t.ManaPercentPerMinute[gepl]);
         // A skill with a cooldown (GEPL Cooldown, e.g. Haste's 1200 ms): the client keeps the cooldown only when the skill
         // has uses (virtual_total_cooldown_count, GEPL StoredUses) and a duration in its record (GrantedSkill.CooldownMs).
         // An instant skill (ActiveSkillType Instant: Haste, Righteous Fire) is one by its stat: the client reads
@@ -155,7 +158,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         // A non-attack is not necessarily a spell (warcries, for example); use the actual ActiveSkillType.
         Put("casting_spell", IsSpell(effectRow) && !IsAttack(effectRow) ? 1 : 0);
         // The Nova type's flag. The client casts a Nova at the cursor only when this, casting_spell and the caster's
-        // nova_spells_cast_at_target_location are all set (FUN_142896650); otherwise it stays around the caster.
+        // nova_spells_cast_at_target_location are all set (FUN_14289d210); otherwise it stays around the caster.
         if (IsNova(effectRow)) Put("skill_is_nova_skill", 1);
         // ActiveSkillType Brand's FlagStat is skill_is_brand_skill. It belongs to this selected skill, not the actor.
         Put("skill_is_brand_skill", IsBrand(effectRow) ? 1 : 0);
@@ -286,7 +289,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return row >= 0 ? t.SpellCritChances[row] : null;
     }
 
-    /// <summary>A gem's requirement for one attribute at a level (0x14246fc40): the level requirement of that level
+    /// <summary>A gem's requirement for one attribute at a level (0x142476710): the level requirement of that level
     /// (PlayerLevelReq) through the client's curve (3 x requirement + 11), the gem's percentage share (SkillGems
     /// Strength/Dexterity/IntelligenceRequirementPercent) raised to the power 0.9, and 0.5 for a support or 0.7 for a
     /// skill, truncated. Below 14 the client hides it and the requirement is 0. Anchors from the client's tooltips:
@@ -304,6 +307,32 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>The full ActionTypes HASH16 for a GrantedEffects row, used with its server skill id by skill buffs.</summary>
     public ushort? ActionHash(int effectRow) => _effectActions.Value.TryGetValue(effectRow, out ushort hash) ? hash : null;
+
+    /// <summary>
+    /// A GrantedEffects row's SkillID, 0 for none: the value the client's own skill-stat builder adds as
+    /// <c>skill_behaviour_variation</c> (0x1921; 0x141eefbe3 loads the row's +0xbe). An action takes its data row from it:
+    /// a mortar its MonsterMortar row, a geometry channel its GeometryAttack row (by Id) and that row's GeometryChannel.
+    /// A record sent over the network does not run that builder, so a record without it reads Id 0, whose GeometryAttack
+    /// row has no GeometryChannel: the King in the Mists' GSVoodooKingRitual (SkillID 1116) then crashed the client in
+    /// GeometryChannelBase::StartChannelling (0xc0000005 at 0x1419e37bf, the null row's +0x28).
+    /// </summary>
+    public int BehaviourVariation(int effectRow) => _skillIds.Value.GetValueOrDefault(effectRow);
+
+    private readonly Lazy<Dictionary<int, int>> _skillIds = new(() =>
+    {
+        string path = Path.Combine(folder, "tables", "GrantedEffects.json");
+        var result = new Dictionary<int, int>();
+        if (!File.Exists(path)) return result;
+        using var effects = GameTables.Open(path);
+        int row = 0;
+        foreach (var effect in effects.RootElement.EnumerateArray())
+        {
+            int index = row++;
+            if (effect.TryGetProperty("SkillID", out var id) && id.ValueKind == JsonValueKind.Number && id.TryGetInt32(out int value) && value > 0)
+                result[index] = value;
+        }
+        return result;
+    });
 
     private readonly Lazy<Dictionary<int, ushort>> _effectActions = new(() =>
     {
@@ -361,8 +390,14 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         int row = PickLevel(t.PerLevel, effectRow, level);
         if (row < 0 || row >= t.Reservations.Count) return null;
         var r = t.Reservations[row];
-        return r.ManaFlat == 0 && r.ManaPercent == 0 ? null : (r.ManaFlat, r.ManaPercent);
+        return r.ManaFlat == 0 && r.ManaPercent == 0
+            ? r.LifeFlat == 0 && r.LifePercent == 0 ? null : (r.LifeFlat, r.LifePercent)
+            : (r.ManaFlat, r.ManaPercent);
     }
+
+    public bool LifeReservation(int effectRow, int level) => _tables.Value is { } t
+        && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0
+        && (t.Reservations[row].LifeFlat != 0 || t.Reservations[row].LifePercent != 0);
 
     /// <summary>The Vaal souls a use of a skill needs at a level (GrantedEffectsPerLevel VaalSouls; 0 for skills that are
     /// not Vaal skills).</summary>
@@ -469,7 +504,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);
 
     /// <summary>A Strike skill: ActiveSkillType MeleeSingleTarget, whose FlagStat is <c>skill_is_strike_skill</c>, the
-    /// stat the client's own strike virtuals test (<c>0x142896310</c>, <c>0x1428b12d0</c>). The default attack is one
+    /// stat the client's own strike virtuals test (<c>0x14289ced0</c>, <c>0x1428b7e90</c>). The default attack is one
     /// (PoB's Default Attack has MeleeSingleTarget too).</summary>
     public bool IsStrike(int effectRow) => _strikeEffects.Value.Contains(effectRow);
 
@@ -481,7 +516,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public bool IsNova(int effectRow) => _novaEffects.Value.Contains(effectRow);
 
     /// <summary>A self-targeted skill (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge, Vaal Cold Snap), whose use
-    /// the client centres on the caster (FUN_14193e290). Totems, mines and traps are left out: their effect goes off at
+    /// the client centres on the caster (FUN_1419439e0). Totems, mines and traps are left out: their effect goes off at
     /// the object they place.</summary>
     public bool IsSelfTargeted(int effectRow) => _selfTargetedEffects.Value.Contains(effectRow);
 
@@ -723,7 +758,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
 
     /// <summary>A Projectiles.dat row's max(CollisionRadius, CollisionCandidateRadius): the reach of the client's object
-    /// contact for a projectile it draws itself (0x141e32710 → 0x141e47a40, 11-skills.md "Hit").</summary>
+    /// contact for a projectile it draws itself (0x141e35a50 → 0x141e4b140, 11-skills.md "Hit").</summary>
     public int? ProjectileContactCells(string id) => _projectileContacts.Value.TryGetValue(id, out int cells) ? cells : null;
 
     private readonly Lazy<Dictionary<string, int>> _projectileContacts = new(() =>
@@ -825,14 +860,19 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// aimed and damage an area there.</summary>
     public sealed record MonsterProjectileInfo(string Metadata, int Speed, bool Lobbed, double CollisionRadius)
     {
-        /// <summary>How many projectiles one release creates (VoodooKingBugRend's six BugSoulrends; one otherwise).</summary>
+        /// <summary>How many projectiles one release creates (VoodooKingBugRend's six BugSoulrends; a mortar's from its
+        /// skill, MonsterProjectile; one otherwise).</summary>
         public int Count { get; init; } = 1;
         /// <summary>The Animation.dat Id of the clips the client plays for the skill (MonsterMortar.Animation: the Sand
         /// Spitter mortar's <c>SpellProjectile</c>, row 20), the key of the variety's ACT pool; null when the row names none.</summary>
         public string? AnimationKey { get; init; }
-        /// <summary>The skill's <c>projectile_minimum_range</c> in world units (the Spitter's 50): a lob lands no closer
-        /// to the monster than this. 0 without the stat.</summary>
+        /// <summary>The MonsterMortar row the client draws for a <c>monster_mortar_attack</c> skill (its GrantedEffects
+        /// SkillID: 183 for the Sand Spitter's, 55 for a Cannibal's ThrowFire); 0 for any other projectile, for the spell
+        /// forms (<c>monster_mortar</c>, not traced) and for the skills whose SkillID is row 0.</summary>
+        public int Variation { get; init; }
+        /// <summary>The skill's <c>projectile_minimum_range</c> in grid cells (0x141b6c630; the Spitter's 50).</summary>
         public int MinimumRange { get; init; }
+        public int SpreadRadius { get; init; }
         /// <summary>The spread of a multi-projectile release: a fan by default, a full turn for a ring.</summary>
         public double SpreadRadians { get; init; } = Math.PI / 6;
         /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
@@ -902,10 +942,27 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// the GrantedEffects row's SkillID is the MonsterMortar row that names it (every Sand Spitter variant: SkillID 183 →
     /// MonsterMortar 183 → <c>Metadata/Projectiles/SandspitterMortarProjectile</c>, 1170). Weapon projectile attacks
     /// (<c>monster_projectile_weapon</c>, <c>monster_snipe</c>: SkillID 0 for all) take their projectile from the monster's
-    /// weapon art, which is not resolved here: null, and such a monster keeps its instant contact.</summary>
-    public MonsterProjectileInfo? MonsterProjectile(int effectRow) =>
-        _monsterProjectiles.Value.TryGetValue(effectRow, out var projectile)
-            ? projectile with { MinimumRange = MonsterProjectileMinimumRange(effectRow) } : null;
+    /// weapon art, which is not resolved here: null, and such a monster keeps its instant contact. The count is the skill's:
+    /// <c>number_of_projectiles_override</c> when set, else <c>base_number_of_projectiles</c> (1 without) plus
+    /// <c>number_of_additional_projectiles</c> (the side-area Spitter's 3, the Elder Guardian's strafe 5).</summary>
+    public MonsterProjectileInfo? MonsterProjectile(int effectRow)
+    {
+        if (!_monsterProjectiles.Value.TryGetValue(effectRow, out var projectile)) return null;
+        // Constants of the skill's stat set, so level 1 reads them.
+        var stats = EffectStats(effectRow, 1);
+        int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
+            : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
+        return projectile with
+        {
+            MinimumRange = Get("projectile_minimum_range"), SpreadRadius = Get("projectile_spread_radius"),
+            Count = Math.Max(1, count),
+            // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
+            // (141b6c630 -> 141baf9f0) selects a straight path unless a ballistic stat requests an arc.
+            Lobbed = projectile.Variation == 0 || Get("projectile_ballistic_angle_from_reference_event") != 0
+                || Get("projectile_ballistic_angle_from_target_distance") != 0,
+        };
+    }
 
     /// <summary>What a monster's summoning skill brings: its stat set's <c>alternate_minion</c> (a SummonedSpecificMonsters
     /// Id, whose MonsterVarietiesKey is the monster), <c>number_of_monsters_to_summon</c>, <c>summon_specific_monsters_in_front_offset</c>
@@ -936,14 +993,6 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 result.TryAdd(id.GetInt32(), v.GetInt32());
         return result;
     });
-
-    /// <summary>The skill's <c>projectile_minimum_range</c> (a constant of its stat set, so level 1 reads it), 0 without.</summary>
-    private int MonsterProjectileMinimumRange(int effectRow)
-    {
-        if (_stats.Key("projectile_minimum_range") is not uint key) return 0;
-        foreach (var (statKey, value) in EffectStats(effectRow, 1)) if (statKey == key) return value;
-        return 0;
-    }
 
     private readonly Lazy<Dictionary<int, MonsterProjectileInfo>> _monsterProjectiles = new(() =>
     {
@@ -979,18 +1028,22 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         var mortarSkills = active.RootElement.EnumerateArray().Select((r, i) => (r, i))
             .Where(a => a.r.TryGetProperty("Id", out var id) && id.GetString() is { } name
                 && name.StartsWith("monster_mortar", StringComparison.Ordinal))
-            .Select(a => a.i).ToHashSet();
+            .ToDictionary(a => a.i, a => a.r.GetProperty("Id").GetString() == "monster_mortar_attack");
         using var effects = GameTables.Open(TablePath("GrantedEffects"));
         int row = -1;
         foreach (var e in effects.RootElement.EnumerateArray())
         {
             row++;
-            if (!e.TryGetProperty("ActiveSkill", out var a) || a.ValueKind != JsonValueKind.Number || !mortarSkills.Contains(a.GetInt32())) continue;
+            if (!e.TryGetProperty("ActiveSkill", out var a) || a.ValueKind != JsonValueKind.Number
+                || !mortarSkills.TryGetValue(a.GetInt32(), out bool attackForm)) continue;
             if (!e.TryGetProperty("SkillID", out var k) || k.ValueKind != JsonValueKind.Number
                 || !mortarRows.TryGetValue(k.GetInt32(), out var mortar) || mortar.Projectile < 0 || mortar.Projectile >= rows.Count) continue;
             var p = rows[mortar.Projectile];
             if (p.Id.Length == 0 || p.Speed <= 0) continue;
-            result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius)) { AnimationKey = mortar.AnimationKey };
+            // Only the attack form's action (0x141b6c390) is traced and checked live drawing its own; the spell forms
+            // (monster_mortar, monster_mortar_around_caster) keep the server's object.
+            result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius))
+                { AnimationKey = mortar.AnimationKey, Variation = attackForm ? k.GetInt32() : 0 };
         }
         return result;
     });
@@ -1070,6 +1123,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// every hit it makes; empty for unarmed and for weapons without such mods.</summary>
         public DamagePacket LocalAdded { get; init; } = DamagePacket.Empty;
         public bool WieldingWand { get; init; }
+        /// <summary>An ordinary bow: its attacks also take the items' "with Bows" added damage stats.</summary>
+        public bool Bow { get; init; }
         public bool Melee { get; init; } = true;
 
         /// <summary>Unarmed attacks alternate hands, i.e. count as dual wielding, and the client adds dual wielding's 10%
@@ -1250,7 +1305,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // StatSetBase: per GrantedEffectStatSets row its ImplicitStats and (ConstantStats, ConstantStatsValues).
     // StatSetLevelStats: per GESSPL row its (FloatStats, BaseResolvedValues) and (AdditionalStats, AdditionalStatsValues).
     // Effectiveness: resolved permyriad, 10000 + the GESSPL DamageEffectiveness offset; 0 for missing data.
-    // ManaCost: per GEPL row the CostAmounts entry of CostTypes 0 (mana), else 0; ManaPerMinute the same of CostTypes 7.
+    // ManaCost: per GEPL row the CostAmounts entry of CostTypes 0 (mana), else 0; ManaPerMinute the same of CostTypes 7,
+    // ManaPercentPerMinute of CostTypes 9.
     // Reservations: per GEPL row the ManaReservationFlat and ManaReservationPercent (permyriad), parallel to PerLevel.
     // Cooldowns: per GEPL row its Cooldown (ms) and StoredUses, parallel to PerLevel. VaalSouls: per GEPL row its VaalSouls.
     // Quality: per GrantedEffects row its (quality stat, permille).
@@ -1261,7 +1317,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
-        List<int> ManaPerMinute)
+        List<int> ManaPerMinute, List<int> ManaPercentPerMinute)
     {
         // GemLevelReqs by stat set: every gem's requirement check (twice per linked gem per skill build) scanned the whole
         // table before.
@@ -1317,6 +1373,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var perLevel = new List<(int, int)>();
             var mana = new List<int>();
             var manaPerMinute = new List<int>();
+            var manaPercentPerMinute = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
             var cooldowns = new List<(int, int)>();
             var vaalSouls = new List<int>();
@@ -1332,6 +1389,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 mana.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
                 int m = Array.IndexOf(types, 7);
                 manaPerMinute.Add(m >= 0 && m < amounts.Length ? amounts[m] : 0);
+                int mp = Array.IndexOf(types, 9);
+                manaPercentPerMinute.Add(mp >= 0 && mp < amounts.Length ? amounts[mp] : 0);
                 reservations.Add((Math.Max(0, Int(r, "ManaReservationFlat")), Math.Max(0, Int(r, "ManaReservationPercent")),
                     Math.Max(0, Int(r, "LifeReservationFlat")), Math.Max(0, Int(r, "LifeReservationPercent"))));
                 cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses"))));
@@ -1369,7 +1428,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
             return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, reservations, cooldowns,
-                vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute);
+                vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
+                manaPercentPerMinute);
         }
     }
 }

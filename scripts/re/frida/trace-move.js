@@ -1,9 +1,9 @@
-// Load after common.js. Server-driven moves of Positioned (S→C 0x1ba → 0x141e34120 → 0x141e34400, and the creation blob's
+// Load after common.js. Server-driven moves of Positioned (S→C 0x1ba → 0x141e37460 → 0x141e37740, and the creation blob's
 // f1 0x01 movement): per call the object's grid cell, rotation (+0x29c) and fixed height (+0x290), the move's duration
 // (param_2 +8), height (+0xc) and flag bytes (+0x90..+0x95), and whether the actual move (Positioned vtable +0xd8) runs:
 // it is skipped when the object's check (object +8 → +0x78, vtable +0x1b0) answers non-zero.
 const hooked = {};
-Interceptor.attach(at('0x141e34400'), {
+Interceptor.attach(at('0x141e37740'), {
   onEnter(args) {
     const p = args[0], m2 = args[1];
     const flags = [];

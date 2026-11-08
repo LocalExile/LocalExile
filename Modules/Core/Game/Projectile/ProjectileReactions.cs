@@ -13,7 +13,7 @@ static partial class Game
 
     // Called synchronously under XP -> combat lock. The outbox contains notifications of committed results.
     internal static void CommitProjectileHit(ProjectileSession session, ProjectileDamage contact, SpawnedMonster target,
-        MonsterHit hit, int damage, ProjectileOffense shot, bool critical)
+        MonsterHit hit, int damage, ProjectileOffense shot, bool critical, StunHit stun)
     {
         var conn = session.Conn;
         double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
@@ -27,8 +27,12 @@ static partial class Game
             session.Packet(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
         // Native Actor TakeHit recovery (0x1d1), as the melee path sends: a rig-only clip (0x1b2) leaves the client
         // monster walking while the server's estimate has stopped (11-skills.md "Hit reaction").
-        if (HitReaction.TryFlinch(target, damage, now, random) is not null)
-            session.Packet(InstanceProtocol.ActorAnimation(id, (float)(target.FlinchUntil - now), PlayerHitRecovery.TakeHitAnimation));
+        // Built in the send gate, which places a lockstep client's recovery in its frames (TakeHitPacket).
+        if (HitReaction.TryFlinch(target, stun, now, random))
+        {
+            double until = target.FlinchUntil;
+            session.Packet(() => TakeHitPacket(conn, id, target, until, now));
+        }
         if (shot.HitPacket)
         {
             // S→C 0x1af before the life update, as the melee default attack sends it: an immediate package (kind 3) for the
@@ -67,20 +71,27 @@ static partial class Game
 
     internal static void CommitProjectileBossStage(ProjectileSession session, uint id, SpawnedMonster monster, long at)
     {
+        if (monster.StageActionStarted) return;
         var stage = monster.Stage!;
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
         var pos = monster.Walk.Position(now);
-        monster.Walk.Order(pos.X, pos.Y, now); monster.LastTarget = null; monster.BusyUntil = now + stage.CastSeconds;
-        session.Packet(InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, 0xffff, 0x0408));
-        session.Runtime.Schedule(at + ProjectileRuntime.Time(stage.CastSeconds), () =>
+        long recoveryAt = at + ProjectileRuntime.Time(stage.CastSeconds);
+        long effectAt = at + ProjectileRuntime.Time(stage.EffectSeconds(monster.Variety is { } variety
+            ? SkillsFor(session.Conn).MonsterContact(variety.Id, "Throw", 0xffff) : null));
+        monster.Walk.Order(pos.X, pos.Y, now); monster.LastTarget = null;
+        monster.BusyUntil = recoveryAt / (double)ProjectileRuntime.QuantaPerSecond;
+        monster.StageEffectAt = effectAt / (double)ProjectileRuntime.QuantaPerSecond;
+        monster.StageActionStarted = true;
+        session.Packet(InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, 0xffff, session.Conn.MonsterOrderFlags),
+            $"monster 0x{id:x} starts stage t={now:0.000000}; effect={monster.StageEffectAt:0.000000}, recovery={monster.BusyUntil:0.000000}");
+        session.Runtime.Schedule(effectAt, Publish);
+        session.Runtime.Schedule(recoveryAt, Publish);
+        void Publish()
         {
-            if (!session.Conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, monster) || monster.Dead) return;
-            monster.StageRunning = false; monster.Life = monster.MaxLife;
-            if (monster.Variety?.ComponentsOrBase.ToList().IndexOf("Transitionable") is int index and >= 0)
-                session.Packet(InstanceEntities.TransitionableUpdate(id, (byte)index, stage.TransitionTo));
-            session.Packet(InstanceProtocol.LifeUpdate(id, monster.Life));
-            session.Packet(InstanceProtocol.ActionEnded(id));
-        });
+            double time = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+            if (AdvanceMonsterStage(session.Conn, id, monster, time) is { } bytes)
+                session.Packet(bytes, $"monster 0x{id:x} stage {(monster.StageRunning ? "effect" : "complete")} t={time:0.000000}; life={monster.Life}");
+        }
     }
 
     internal static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random,
@@ -94,6 +105,8 @@ static partial class Game
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(conn);
         var modMonster = ModMonster(monster, position);
+        var partyShares = PartyExperienceShares(conn, position);
+        ShareKill(conn, id, monster, variety, position, partyShares);
         if (playerKill)
         {
             session.Enqueue(() => Program.ServerHooks.MonsterKilled(new(killer, modMonster)));
@@ -102,18 +115,18 @@ static partial class Game
             RecoverOnKill(conn, monster);
             session.Enqueue(() => ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
-        SoulEaterSoul(conn, position);
+        SoulEaterSoul(conn, id, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
         foreach (var send in kill.Afterwards) session.Enqueue(send);
-        uint xp = 0;
+        uint xp = 0, gemXp = 0;
         if (!monster.NoRewards && conn.PlayerLife > 0 && Dist(position, conn.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
-            xp = Program.ServerHooks.Experience(killer, modMonster,
-                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level));
-        var (gemPackets, leveled) = CommitGemExperience(conn, xp);
+            (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
+                conn.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, conn));
+        var (gemPackets, leveled) = CommitGemExperience(conn, gemXp);
         foreach (var packet in gemPackets) session.Packet(packet);
         if (leveled) session.Enqueue(() => SendSkills(session.remote, session.stream, session.ciphers, conn));
         if (QuestsOf(conn).LevelAfterKill(conn.Layout.Id, variety.Id) is int required and > 1 && required <= CharacterStats.LevelStarts.Count)
@@ -125,11 +138,11 @@ static partial class Game
             if (level != conn.Pools.Level)
             {
                 CommitExperienceLevel(conn, level);
-                conn.PlayerLife = conn.PlayerMaxLife; conn.PlayerMana = (uint)UnreservedMana(conn);
+                conn.PlayerLife = conn.PlayerUnreservedLife; conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
                 TrimLeechLocked(conn);
                 session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
-                session.Packet(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife));
+                session.Packet(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
                 session.Enqueue(() => SendPlayerMana(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
                 session.Packet(PassivesMessage(conn).Bytes);
                 // Account-level persistence is a projection of the committed XP ledger.
@@ -159,10 +172,12 @@ static partial class Game
         List<ItemDrops.Drop> drops = [];
         if (modded is not { Cancel: true })
         {
+            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
+                ? openMap.Area.Tier : 0;
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
-            drops.AddRange(ExtraDropsFromMap(conn, monster.Rarity, random));
+            drops.AddRange(ExtraDropsFromMap(conn, monster.Level, monster.Rarity, random));
         }
         foreach (string query in modded?.Items ?? [])
             if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
@@ -181,7 +196,7 @@ static partial class Game
 
     internal static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
     {
-        session.Packet(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()));
+        session.Packet(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)));
         session.Packet(InstanceProtocol.EnterWakeZone(id));
     }
 
@@ -219,7 +234,7 @@ static partial class Game
                 || f.Item.Charges >= FlaskCharges.Of(basis, ItemModStats.Local(f.Item, ItemsFor(conn).Mods)).MaxCharges)).ToList();
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        bool precision = conn.Auras.Values.Any(a => a.EffectId == "Precision");
+        bool precision = AffectingAuras(conn).Any(a => a.EffectId == "Precision");
         var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, at, random.Next);
         if (gains.Count > 0) CommitProjectileFlaskGain(session, (f, _) => gains.GetValueOrDefault(f.Id));
     }

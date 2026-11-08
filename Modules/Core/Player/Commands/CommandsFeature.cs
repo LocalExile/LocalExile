@@ -33,6 +33,15 @@ static class CommandsFeature
             System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float degrees)
             ? (x, y, degrees) : throw new ArgumentException($"{usage} <x> <y> <degrees>");
 
+    /// <summary>The item specs of an /item_give line: one JSON object, or every element of a JSON array in order.</summary>
+    internal static List<string> GiftSpecs(string json)
+    {
+        var text = json.TrimStart();
+        if (!text.StartsWith('[')) return [json];
+        using var document = System.Text.Json.JsonDocument.Parse(text);
+        return [.. document.RootElement.EnumerateArray().Select(element => element.GetRawText())];
+    }
+
     // A stationary object moved and turned in place (S→C 0x1b7 and the Positioned rotation update, as the hideout editor
     // does), with its path blocker; until the player leaves the area.
     internal static async Task MoveStationary(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
@@ -96,7 +105,7 @@ static class CommandsFeature
                 || AccuracyRating.IsInput(Stats.Name(stat) ?? args[0])
                 || ResistanceOvercap.IsInput(Stats.Name(stat) ?? args[0])
                 || rebuildLife || rebuildMana || rebuildDefences || rawAttribute
-                || Stats.Name(stat) == PlayerHitMitigation.ArmourAppliesToChaos)
+                || Stats.Name(stat) == PlayerHitMitigation.ArmourAppliesToChaos || IsDevDefenceInput(Stats.Name(stat)))
             {
                 while (true)
                 {
@@ -111,7 +120,7 @@ static class CommandsFeature
                         if (rawAttribute || rebuildLife || rebuildMana)
                         {
                             uint lifeBefore = conn.PlayerLife, manaBefore = conn.PlayerMana;
-                            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+                            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
                             conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
                             lifeClamped = conn.PlayerLife != lifeBefore;
                             manaClamped = conn.PlayerMana != manaBefore;
@@ -143,19 +152,19 @@ static class CommandsFeature
                 // Skill refresh can restore an aura or update its reservation; use those completed caps too.
                 lock (conn.Monsters)
                 {
-                    conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+                    conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
                     conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
                 }
                 // A raw pool change can alter reservation while current mana stays idle. Sample resources only after
                 // earlier queued sends, and never refill or resurrect a character when a maximum grows.
                 await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
-                    () => InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife), "raw attribute current life");
+                    () => InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), "raw attribute current life");
                 await SendPlayerMana(remote, stream, ciphers, conn, "raw attribute mana reservation");
             }
             if (!rawAttribute && (rebuildLife || lifeClamped))
                 await Send(remote, stream, ciphers, [], "0x01b1 life after raw source rebuild", atGate: () =>
                 {
-                    lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife);
+                    lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife);
                 });
             // Reservation can change with maximum mana even when recovery leaves current mana unchanged.
             if (!rawAttribute && (rebuildMana || manaClamped))
@@ -228,7 +237,7 @@ static class CommandsFeature
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
                 InstanceEntities.ObjectTypeHash(InstanceMonsterStatue.TypePath),
                 InstanceMonsterStatue.Blob(x, y, variety.Hash16, 100, variation)),
-                $"0x02b9 monster statue of {variety} at ({x}, {y})");
+                $"0x02bb monster statue of {variety} at ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id),
                 $"0x01a9 monster statue 0x{id:x} enters wake zone");
             await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
@@ -266,6 +275,20 @@ static class CommandsFeature
                 await conn.Commands!.Reply($"Added {unique.Name}");
                 return;
             }
+            if (UniquesFor(conn).NamedMap(query) is { } legendary)
+            {
+                var mapItems = ItemsOf(conn);
+                if (ItemsFor(conn).ByHash(legendary.TypeHash) is not { } mapType
+                    || mapItems.FreeCell(PlayerInventories.MainInventory, mapType.Width, mapType.Height, ShapeOf) is not { } mapCell)
+                { await conn.Commands!.Reply("No room in the inventory"); return; }
+                var placedMap = mapItems.Put(PlayerInventories.MainInventory,
+                    new InventoryItem(mapItems.NewItemId(), mapCell.X, mapCell.Y, legendary));
+                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+                    mapItems.NextRevision(PlayerInventories.MainInventory), [], [placedMap]),
+                    "0x00bf inventory 1: /item legendary map");
+                await conn.Commands!.Reply("Added a legendary map");
+                return;
+            }
             if (ItemsFor(conn).Find(query) is not { } type) { await conn.Commands!.Reply($"No item type \"{query}\""); return; }
             if (!type.Supported)
             {
@@ -300,19 +323,29 @@ static class CommandsFeature
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                 items.NextRevision(PlayerInventories.MainInventory), [], added), $"0x00bf inventory 1: /item {type} × {added.Count}");
         }, "item")
-        .Add("item_give", "/item_give <item as JSON> (dev: an item the launcher's item crafter composed, with its mods, into the inventory; Agents/docs/dev/item-crafter.md)", async args =>
+        .Add("item_give", "/item_give <item as JSON> (dev: an item the launcher's item crafter composed, with its mods, into the inventory; a JSON array gives each item in it; Agents/docs/dev/item-crafter.md)", async args =>
         {
             if (args.Length == 0) throw new ArgumentException("which item?");
             if (ItemsFor(conn).Error is { } error) { await conn.Commands!.Reply(error); return; }
-            if (ItemCrafter.Build(ItemsFor(conn), RollsFor(conn), string.Join(' ', args), conn.Pools.Level, Random.Shared, out string? why) is not { } created
-                || ItemsFor(conn).ByHash(created.TypeHash) is not { } type)
-            { await conn.Commands!.Reply(why ?? "Unknown item type"); return; }
             var items = ItemsOf(conn);
-            if (items.FreeCell(PlayerInventories.MainInventory, type.Width, type.Height, ShapeOf) is not { } cell) { await conn.Commands!.Reply("No room in the inventory"); return; }
-            var added = items.Put(PlayerInventories.MainInventory, new InventoryItem(items.NewItemId(), cell.X, cell.Y, created));
+            var added = new List<InventoryItem>();
+            string? failure = null, singleName = null;
+            foreach (string spec in GiftSpecs(string.Join(' ', args)))
+            {
+                if (ItemCrafter.Build(ItemsFor(conn), RollsFor(conn), spec, conn.Pools.Level, Random.Shared, out string? why) is not { } created
+                    || ItemsFor(conn).ByHash(created.TypeHash) is not { } type)
+                { failure = why ?? "Unknown item type"; break; }
+                if (items.FreeCell(PlayerInventories.MainInventory, type.Width, type.Height, ShapeOf) is not { } cell)
+                { failure = "No room in the inventory"; break; }
+                added.Add(items.Put(PlayerInventories.MainInventory, new InventoryItem(items.NewItemId(), cell.X, cell.Y, created)));
+                singleName = $"{(created.NameWords.Count > 0 ? RollsFor(conn).NameOf(created.NameWords) + " " : "")}{type.Name}";
+            }
+            if (added.Count == 0) { await conn.Commands!.Reply(failure ?? "No room in the inventory"); return; }
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
-                items.NextRevision(PlayerInventories.MainInventory), [], [added]), $"0x00bf inventory 1: /item_give {type}, {created.Rarity}, {created.Mods.Count} mod(s)");
-            await conn.Commands!.Reply($"Added {(created.NameWords.Count > 0 ? RollsFor(conn).NameOf(created.NameWords) + " " : "")}{type.Name}");
+                items.NextRevision(PlayerInventories.MainInventory), [], added), $"0x00bf inventory 1: /item_give × {added.Count}");
+            await conn.Commands!.Reply(failure is null
+                ? added.Count == 1 && singleName is not null ? $"Added {singleName}" : $"Added {added.Count} item(s)"
+                : $"Added {added.Count} item(s), then stopped: {failure}");
         })
         .Add("stash_place", "/stash_place <x> <y> <degrees> (dev: move and turn the stash of this area until you leave it; it opens from its new cell)", async args =>
         {
@@ -372,9 +405,9 @@ static class CommandsFeature
                 _ => throw new ArgumentException(usage),
             };
             conn.MoveWaypoint(changed);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(WaypointCatalog.ObjectId), "0x02bb remove the waypoint (/wp_state)");
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(WaypointCatalog.ObjectId), "0x02bd remove the waypoint (/wp_state)");
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(WaypointCatalog.ObjectId,
-                InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), changed.Blob()), $"0x02b9 create waypoint {changed} (/wp_state)");
+                InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), changed.Blob()), $"0x02bb create waypoint {changed} (/wp_state)");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId), null);
             await conn.Commands!.Reply($"Waypoint recreated: active {changed.Active}, model {changed.Model}");
         })
@@ -729,7 +762,7 @@ static class CommandsFeature
             uint id = conn.NextObjectId++;
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
                 new MapPortalObject(x, y, 0, type, created, Rotation: conn.PortalRotationRadians).Blob()),
-                $"0x02b9 create test portal 0x{id:x} type {type}, transitionable {created}, at ({x}, {y})");
+                $"0x02bb create test portal 0x{id:x} type {type}, transitionable {created}, at ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             lock (conn.MapPortals) conn.MapPortals[id] = (x, y, -1);
             if (openMs >= 0) OpenMapPortalLater(remote, stream, ciphers, conn, id, openMs);
@@ -959,24 +992,7 @@ static class CommandsFeature
                 await conn.Commands!.Reply($"{chosen.Name} is already your main ascendancy.");
                 return;
             }
-            AscendancyProgress next;
-            lock (conn.Monsters)
-            {
-                using var availability = AscendancyPolicies.Enter(conn, chosen.Identity);
-                next = Saves.Atomically(() =>
-                {
-                    var saved = CharacterSaves.Load(CharacterName(conn));
-                    return CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
-                    {
-                        var candidate = Game.AscendancyRules.Select(baseClass, latest, chosen.Identity);
-                        ValidateOrdinaryPassives(conn, saved?.Passives ?? [], candidate);
-                        return candidate;
-                    });
-                });
-                conn.MainAscendancy = next;
-                AscendancyPolicies.SelectionChanged(conn);
-                conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
-            }
+            Game.SelectMainAscendancy(conn, chosen);
             await conn.Commands!.Reply($"Main ascendancy selected - {chosen.Name}. Reloading the area to show its tree.");
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"ascendancy {chosen.Name}");
         })
@@ -984,24 +1000,8 @@ static class CommandsFeature
         {
             if (args.Length != 1) throw new ArgumentException("a Labyrinth tier or all");
             string tier = args[0].ToLowerInvariant();
-            byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
-            AscendancyProgress next;
-            lock (conn.Monsters)
-            {
-                using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
-                next = CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
-                {
-                    AscendancyPolicies.RequireCurrentSelection(conn.MainAscendancy.Selection, latest.Selection);
-                    foreach (string award in tier == "all" ? global::AscendancyRules.AwardKeys : [tier])
-                        latest = Game.AscendancyRules.Award(baseClass, latest, award);
-                    return latest;
-                });
-                conn.MainAscendancy = next;
-                AscendancyPolicies.SelectionChanged(conn);
-                conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
-            }
-            await SendPassives(remote, stream, ciphers, conn);
-            await conn.Commands!.Reply($"Ascendancy points earned - {next.EarnedPoints}; each tier can be earned once.");
+            int earned = await Game.AwardAscendancyPoints(remote, stream, ciphers, conn, tier == "all" ? global::AscendancyRules.AwardKeys : [tier]);
+            await conn.Commands!.Reply($"Ascendancy points earned - {earned}; each tier can be earned once.");
         })
         .Add("reset_ascendancy", "/reset_ascendancy (refund all ascendancy nodes; five refund points per node/effect, choice shells are free)", async _ =>
         {
@@ -1013,7 +1013,7 @@ static class CommandsFeature
         {
             if (args.Length == 0 || !long.TryParse(args[0], out long delta)) throw new ArgumentException("an amount of gold (negative takes gold)");
             uint gold = PersonalStashOf(conn).AddGold(delta);
-            await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02a9 gold: {gold} (/gold {delta})");
+            await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (/gold {delta})");
             await conn.Commands!.Reply($"Gold: {gold}");
         })
         .Add("add_passive_points", "/add_passive_points <n> (dev: add n extra passive skill points, saved)", async args =>
@@ -1102,7 +1102,7 @@ static class CommandsFeature
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                     "0x01b3 player hide_mini_life_bar = 1 (dev hit)");
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                 $"0x01b1 player dev {type} hit for {dealt} ({amount} before {mitigation}), life {life}/{conn.PlayerMaxLife}");
             if (hit.Mana != hit.ManaBefore)
                 await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})");
@@ -1172,8 +1172,14 @@ static class CommandsFeature
                 $"evasion {evasion} ({conn.Pools.EvasionPct}% increased): {100 - hitChance}% chance to evade " +
                 $"(monster accuracy {monsterAccuracy}, {hitChance}% chance to be hit).");
         })
-        .Add("auras", "/auras (active auras, their reservation and the character's efficiency)", async _ =>
+        .Add("auras", "/auras [off <name|effectId|all>] (list reservations or disable one, including stances)", async args =>
         {
+            if (args.Length > 0)
+            {
+                if (args.Length < 2 || !args[0].Equals("off", StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException("/auras off <name|effectId|all>");
+                await DisableReservations(remote, stream, ciphers, conn, string.Join(' ', args.Skip(1)));
+            }
             List<AuraCatalog.Aura> auras;
             int reserved;
             int maxMana;
@@ -1182,15 +1188,16 @@ static class CommandsFeature
             lock (conn.Monsters)
             {
                 auras = [.. conn.Auras.Values];
-                reserved = AuraCatalog.ReservedMana(conn.Pools, auras);
+                reserved = ReservedMana(conn);
                 maxMana = (int)conn.Pools.Mana;
                 efficiency = conn.Pools.ManaReservationEfficiencyPct;
                 auraEffect = conn.Pools.AuraEffectPct;
             }
             string list = auras.Count == 0 ? "none" : string.Join(", ", auras.Select(a =>
-                $"{a.Name} ({a.ManaFlat} flat, {a.ManaPercent / 100.0:0.##}%)"));
+                $"{a.Name} ({a.ManaFlat} flat, {a.ManaPercent / 100.0:0.##}% {(a.ReservesLife ? "life" : "mana")})"));
             await conn.Commands!.Reply($"Auras: {list}. Mana {conn.PlayerMana}/{maxMana}, {reserved} reserved " +
-                $"({maxMana - reserved} unreserved); reservation efficiency {efficiency}%, aura effect {auraEffect}%.");
+                $"({maxMana - reserved} unreserved); Life {conn.PlayerLife}/{conn.PlayerMaxLife}, {conn.PlayerReservedLife} reserved. " +
+                $"Reservation efficiency mana {efficiency}%, life {conn.Pools.LifeReservationEfficiencyPct}%, aura effect {auraEffect}%.");
         })
         .Add("spellhit", "/spellhit <fire|cold|lightning|chaos|physical> <damage> (dev: spell hit through resistance and Spell Suppression)", async args =>
         {
@@ -1209,7 +1216,7 @@ static class CommandsFeature
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                     "0x01b3 player hide_mini_life_bar = 1 (dev spell hit)");
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                 $"0x01b1 player dev spell {type} hit for {dealt} ({amount} before {mitigation}, suppression {(suppressed ? "yes" : "no")}), life {life}/{conn.PlayerMaxLife}");
             if (hit.Mana != hit.ManaBefore)
                 await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})");
@@ -1269,7 +1276,7 @@ static class CommandsFeature
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                     "0x01b3 player hide_mini_life_bar = 1 (dev block hit)");
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                 $"0x01b1 player dev {(spell ? "spell" : "attack")} hit for {dealt} ({(blocked ? "blocked" : mitigation)}), life {life}/{conn.PlayerMaxLife}");
             if (mana != manaBefore)
                 await SendPlayerMana(remote, stream, ciphers, conn,
@@ -1297,8 +1304,8 @@ static class CommandsFeature
         })
         .Add("heal", "/heal (full life; also revives: 0x1b1 from 0 runs the client's revive)", async _ =>
         {
-            lock (conn.Monsters) { (conn.PlayerLife, conn.PlayerMana) = (conn.PlayerMaxLife, (uint)UnreservedMana(conn)); conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); }
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMaxLife),
+            lock (conn.Monsters) { (conn.PlayerLife, conn.PlayerMana) = (conn.PlayerUnreservedLife, (uint)UnreservedMana(conn)); conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); }
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
                 $"0x01b1 player healed to {conn.PlayerMaxLife}");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 0)]),
@@ -1334,9 +1341,9 @@ static class CommandsFeature
             {
                 conn.ReplaceAreaTransition(id, changed);
                 at = changed;
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove area transition 0x{id:x}");
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove area transition 0x{id:x}");
                 await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(at.Type), at.Blob()),
-                    $"0x02b9 create area transition {at}");
+                    $"0x02bb create area transition {at}");
                 await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 area transition 0x{id:x} enters wake zone");
             }
             await conn.Commands!.Reply($"Area transition 0x{id:x} at ({at.GridX}, {at.GridY}), {at.Rotation * 180 / MathF.PI:0.#} degrees, " +
@@ -1369,10 +1376,11 @@ static class CommandsFeature
             await conn.Commands!.Reply($"Trials done ({which}): {own} of {trials.Count} by the character's quest flag, {league} by the league's.");
             await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window (/trials)");
         })
-        .Add("lab_layout", "/lab_layout [1|2|3|4] (dev: today's Labyrinth layout of a tier, 1 Normal by default: each room's area, section, connections and secrets; /goto a listed area to play that room with its node)", async args =>
+        .Add("lab_layout", "/lab_layout [1|2|3|4] [yyyy-mm-dd] (dev: today's Labyrinth layout of a tier, or another day's, 1 Normal by default: each room's area, section, connections and secrets; /goto a listed area to play today's room with its node)", async args =>
         {
             int tier = args.Length > 0 && int.TryParse(args[0], out int n) && n is >= 1 and <= 4 ? n : 1;
-            uint seed = LabyrinthDay.Seed;
+            string? date = args.FirstOrDefault(a => a.Contains('-'));
+            uint seed = date is null ? LabyrinthDay.Seed : LabyrinthDay.SeedOf(DateOnly.ParseExact(date, "yyyy-MM-dd"));
             await conn.Commands!.Reply($"Labyrinth day {seed}, tier {tier}:");
             foreach (var line in LabyrinthDay.Describe(seed, tier)) await conn.Commands!.Reply(line);
         })
@@ -1515,7 +1523,7 @@ static class CommandsFeature
             ushort Key(string s) => HideoutCatalog.Hideouts.FirstOrDefault(h => h.AreaId.Equals(s, StringComparison.OrdinalIgnoreCase)) is { } h ? h.Hash16
                 : ushort.TryParse(s.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber, null, out var k) ? k : (ushort)0;
             ushort a = args.Length > 0 ? Key(args[0]) : (ushort)0, b = args.Length > 1 ? Key(args[1]) : (ushort)0;
-            await Send(remote, stream, ciphers, InstanceEntities.PlayerHideoutsUpdate(PlayerId, a, b), $"0x02ba player hideout keys 0x{a:x4} 0x{b:x4}");
+            await Send(remote, stream, ciphers, InstanceEntities.PlayerHideoutsUpdate(PlayerId, a, b), $"0x02bc player hideout keys 0x{a:x4} 0x{b:x4}");
             await Send(remote, stream, ciphers, InstanceChat.ChatLine($"Hideout keys 0x{a:x4} 0x{b:x4}."), "0x0017 chat line: hideout keys");
         })
         .Add("waypoints", "/waypoints [all | reset] (list the activated waypoints; dev: activate all and visit every pinned area, or keep only the towns')", async args =>
@@ -1556,7 +1564,7 @@ static class CommandsFeature
             var (x, y) = NextToPlayer(conn);
             await SpawnNpc(remote, stream, ciphers, conn, npc, x, y, (deg ?? 0) * MathF.PI / 180);
         }, "npc")
-        // Turns an NPC: it is created again with the new facing (0x2bb, then 0x2b9).
+        // Turns an NPC: it is created again with the new facing (0x2bd, then 0x2bb).
         .Add("npc_place", "/npc_place <name> <x> <y> <degrees> (dev: move and turn an NPC here)", async args =>
         {
             if (args.Length < 4 || !int.TryParse(args[^3], out int x) || !int.TryParse(args[^2], out int y)) throw new ArgumentException("/npc_place <name> <x> <y> <degrees>");
@@ -1567,7 +1575,7 @@ static class CommandsFeature
             if (found.Value is not { } npc) { await conn.Commands!.Reply($"No NPC {name} here."); return; }
             lock (conn.Npcs) conn.Npcs.Remove(found.Key);
             conn.RemoveBlocker(found.Key);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(found.Key), $"0x02bb remove npc 0x{found.Key:x} {npc.Npc.Name}");
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(found.Key), $"0x02bd remove npc 0x{found.Key:x} {npc.Npc.Name}");
             await SpawnNpc(remote, stream, ciphers, conn, npc.Npc, x, y, deg * MathF.PI / 180);
             await conn.Commands!.Reply($"{npc.Npc.Name} at ({x}, {y}), {deg}°");
         })
@@ -1581,7 +1589,7 @@ static class CommandsFeature
             if (found.Value is not { } npc) { await conn.Commands!.Reply($"No NPC {name} here."); return; }
             lock (conn.Npcs) conn.Npcs.Remove(found.Key);
             conn.RemoveBlocker(found.Key);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(found.Key), $"0x02bb remove npc 0x{found.Key:x} {npc.Npc.Name}");
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(found.Key), $"0x02bd remove npc 0x{found.Key:x} {npc.Npc.Name}");
             float rad = deg * MathF.PI / 180;
             await SpawnNpc(remote, stream, ciphers, conn, npc.Npc, npc.X, npc.Y, rad);
             await conn.Commands!.Reply($"{npc.Npc.Name} at ({npc.X}, {npc.Y}) faces {deg}° ({rad:0.###} rad).");
@@ -1895,7 +1903,7 @@ static class CommandsFeature
                 bool removed;
                 lock (conn.Monsters) removed = conn.Monsters.Remove(id) || MonsterEmerge.Buried(conn).Remove(id);
                 if (!removed) { await conn.Commands!.Reply($"No monster 0x{id:x}."); continue; }
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove monster 0x{id:x}");
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove monster 0x{id:x}");
             }
         })
         // Movement probes: walk (0x1ba, Positioned move with a speed) or teleport (0x1b7) a monster to a few cells from the player.

@@ -87,6 +87,7 @@ static class CharacterStats
         int CriticalStrikeMultiplier = 0, int SpellCriticalStrikeMultiplier = 0,
         long Accuracy = 0, long AccuracyPct = 0, int AccuracyPerLevel = 0,
         bool DexterityAccuracyTriple = false, bool AccuracyEqualsIntelligence = false,
+        int AccuracyFromStrengthPct = 0, int AttackSpeedPer150Accuracy = 0,
         int AccuracyMoreVsUniquePct = 0, int AccuracyMoreInCloseRangePct = 0,
         int ManaReservationEfficiencyPct = 0, int LifeReservationEfficiencyPct = 0,
         int AuraEffectPct = 0, int AuraAreaPct = 0, decimal ArmourMorePct = 0, decimal EvasionMorePct = 0, int EnergyShield = 0,
@@ -191,7 +192,7 @@ static class CharacterStats
         long accuracyPerLevel = 2L + b.AccuracyPerLevel;
         int accuracyPerDex = b.NoDexterityBonuses ? 0 : b.DexterityAccuracyTriple ? 3 : 2;
         long accuracyBase = accuracyPerLevel * level + (long)accuracyPerDex * dex + b.Accuracy
-            + (b.AccuracyEqualsIntelligence ? intel : 0);
+            + (b.AccuracyEqualsIntelligence ? intel : 0) + (long)str * b.AccuracyFromStrengthPct / 100;
         int accuracy = AccuracyRating.Calculate(accuracyBase, b.AccuracyPct);
         // PoB CalcDefence: armour and evasion are flat defences raised by their increased modifiers. Evasion keeps the
         // character's 15 base and gains 1% per 5 dexterity; armour has no base outside items and passives. The
@@ -199,7 +200,7 @@ static class CharacterStats
         // Iron Reflexes' converted evasion keeps it, as PoB's converted branch reads the same Evasion INC bucket).
         int armourPct = b.ArmourPct;
         // Native slot calculations add slot-specific increases to the applicable global bucket. Sum fractional
-        // contributions before rounding the final rating (AR 0x142732ee7, EV 0x14272a59b, ES 0x14252c6e7).
+        // contributions before rounding the final rating (AR 0x142739a97, EV 0x14273114b, ES 0x142533297).
         decimal Increased(decimal total, decimal shield, decimal body, long increase, long shieldIncrease,
             long bodyIncrease = 0, bool bodyAsArmour = false)
         {
@@ -237,7 +238,7 @@ static class CharacterStats
             // Iron Reflexes converts all evasion rating to armour and removes dexterity's evasion bonus. The converted
             // evasion keeps the armour, evasion and shared defence increases (each once), but not dexterity.
             long convertedPct = armourPct + ordinaryEvasionPct - b.SharedDefencesPct;
-            // Native 0x142731a7b also doubles converted body EV, or suppresses it with the no-body-AR flag.
+            // Native 0x14273862b also doubles converted body EV, or suppresses it with the no-body-AR flag.
             decimal converted = More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, convertedPct,
                 (long)b.ShieldArmourPct + b.ShieldEvasionPct + b.SharedShieldDefencesPct, bodyAsArmour: true),
                 b.EvasionMorePct), b.ArmourMorePct);
@@ -272,8 +273,11 @@ static class CharacterStats
         }
         // PoB CalcOffence: rate = base rate * (1 + increased / 100) * more. The client takes one integer
         // main_hand_attack_speed_+%, so send the equivalent increased value (93 for 75% increased and 10% more).
+        // attack_speed_+%_per_200_accuracy_rating is per 150 in its own text and in the client: floor(accuracy / 150) x value
+        // joins increased (0x1427088d0). shortcut: the off hand uses this accuracy and a gem's own accuracy does not count,
+        // until a weapon's local accuracy feeds the pools per hand.
         int attackSpeedPct = (int)Math.Round(
-            ((1 + b.AttackSpeedPct / 100.0) * (1 + b.AttackSpeedMorePct / 100.0) - 1) * 100,
+            ((1 + (b.AttackSpeedPct + accuracy / 150 * b.AttackSpeedPer150Accuracy) / 100.0) * (1 + b.AttackSpeedMorePct / 100.0) - 1) * 100,
             MidpointRounding.AwayFromZero);
         attackSpeedPct = Math.Max(-99, attackSpeedPct);
         return new(level, life, mana, accuracy, ExperienceFor(level, folder),

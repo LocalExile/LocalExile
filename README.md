@@ -1,29 +1,20 @@
-# Important Notice
-It's important to note that LocalExile is not an official Grinding Gear Games product, and it is not affiliated with or endorsed by Path of Exile or Grinding Gear Games. LocalExile does not in any case sponsor nor support illegal public servers. If you use this project to run an illegal public server and not for testing and learning it is your own personal choice.
-
-This project is for fun and education only. It is intended for local-gameplay with no internet much like MMO Solutions (TrinityCore, AzerothCore, MangOS).
-Everything here is made by Claude Opus 5.5. You can pull-request and are encouraged to. I'm running only on two pro subs
-and Im broke and unemployed, so help out folks.
-
 [Join Discord](https://discord.gg/pd2Fd5M6Hd)
 
-# To play
-Download the zip from [Releases](https://github.com/LocalExile/LocalExile/releases), extract it, and run `LocalExile.exe`.
-You need your own standalone Path of Exile 3.29.3b client, and nothing else to install.
-Always start the game with `LocalExile.exe`: any other way can update the client, which breaks the setup.
-
-Licensed under [AGPL-3.0](LICENSE); bundled components are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-
-# To develop [Humans]
-- Open up a Frontier Model (such as Claude Opus 5.5) and tell them to set-up this project on your machine. 
-- Tell them to read all the Agents/ folder and all the MD files.
-
 # LocalExile
-A local, from-scratch server for the Path of Exile **3.29.3b** client. It is written in C# (.NET 10) from scratch to serve 
+A local, from-scratch server for the Path of Exile **3.29.3c** client. It is written in C# (.NET 10) from scratch to serve 
 the client's network protocol. You play on your own machine against servers running on 127.0.0.1.
 
-This project is not affiliated with or endorsed by Grinding Gear Games. It contains **no game files, keys or game data**.
-You need your own installed copy of the client, and everything the servers need is generated locally from it.
+It contains **no game files, keys or game data**. You need your own installed copy of the client, and everything the
+servers need is generated locally from it.
+
+## How to play?
+Download the zip from [Releases](https://github.com/LocalExile/LocalExile/releases), extract it, and run `LocalExile.exe`.
+You need your own standalone Path of Exile 3.29.3c client, and nothing else to install.
+Always start the game with `LocalExile.exe`: any other way can update the client, which breaks the setup.
+
+Prefer a launcher? [Waypoint](https://github.com/LocalExile/Waypoint) is a Windows workspace manager for LocalExile:
+it downloads the release (or sets up a source checkout), starts and stops the servers and the client, and manages mods,
+backups and accounts. It is a separate project, and it starts the game the safe way.
 
 ## Showcase (Most recent to older)
 https://github.com/user-attachments/assets/e20dd43d-4453-40d4-8f81-eb902a87817f
@@ -45,54 +36,51 @@ and `/set_speed` in The Coast, all against the local servers.
 
 ## What works
 
-- **Login:** the client's custom TCP login (Diffie-Hellman key exchange, DSA-signed server key, Salsa20), accounts and
-  the character list.
-- **Instance server (Gateway):** encryption, area load, player object, inventories, latency acks, visibility and
-  click-to-move.
-- **Lioneye's Watch → The Coast:** the exit loads the area. Ctrl+click opens the Instance Manager (list, join or create
-  instances). Towns have one instance, and empty instances expire after 6 minutes.
-- **Chat commands:** `/help`, `/set_speed <percent>`, `/set_stat <key> <value>`, `/raw <hex>`,
-  `/spawn_mob <monster>[@level] [friendly] [rarity] [name]` (a monster next to you that chases you), `/despawn`.
+An overview; each area's full list (works, partly working, not working yet) is in [Agents/Status.md](Agents/Status.md).
+"(partly)" marks features that work but are incomplete or not yet checked end to end with the real client.
 
-Not done yet: skills and combat, server text as chat lines, exit to character selection, and exits
-beyond town. Details: [Agents/Status.md](Agents/Status.md).
+- **Login and characters:** the client's own login, accounts and Remember Password; every class; character creation
+  in Standard, Hardcore, Ruthless, SSF and Allflame leagues and their variants; deletion; Exit to Character Selection;
+  characters, items and skill bars are saved.
+- **World:** area transitions in every area, waypoints, Portal Scrolls and the Portal skill, and the Instance Manager
+  (Ctrl+click an exit); instances keep their monsters and ground items until they expire; pausing outside towns.
+  The client's level generator is ported (partly), as are the Labyrinth and the Trials of Ascendancy (partly).
+- **Campaign:** the quest engine runs all of Act 1, with Hillock, Breaking Some Eggs and Mercy Mission played through;
+  Acts 2–10 and the Epilogue, the bandits and the Pantheon have been played through with the campaign runner (partly).
+- **NPCs and players:** the NPCs of every campaign town with their dialogue, vendors that keep their stock, chat lines
+  and channels; trading, parties and friends between players in the same instance.
+- **Monsters:** monster packs at the area's level, magic and rare monsters with their mods, monsters that fight back
+  with their skills, buried monsters that emerge, hit reactions, and bosses from Hillock to Dominus.
+- **Skills and combat:** the default attack, gem skills and bow attacks, spells, auras and buffs (Righteous Fire,
+  Pride, Determination, Grace, Discipline), charges, and about 150 character-panel stats (life, mana, regeneration,
+  resistances, armour, evasion, block, spell suppression, accuracy, movement speed).
+- **Gems:** drops, quest rewards and gem vendors, gem experience and levels, requirements and linked supports (partly).
+- **Progression:** experience and levels, the passive tree with masteries, jewel sockets, cluster, timeless and radius
+  jewels, and ascendancies.
+- **Items and crafting:** loot by monster rarity, gold, life, mana and utility flasks with charges, item mods by
+  rarity, influences and other item states, unique items, currency (Orb of Alchemy, Chaos Orb, Jeweller's Orb, Sacred
+  Orb, essences) and the crafting bench (partly).
+- **Stash and hideouts:** personal and guild stashes with the special tabs; a hideout for every character with hideout
+  editing, the crafting bench, Horticrafting Station, Heist Locker, Niko and Kirac; Delve's first steps and the first
+  maps (partly).
+- **Microtransactions:** every account owns every cosmetic the client can show.
+- **Leagues, modules and mods:** leagues (including Survivors and Phrecia) are sets of game modules, and mods
+  tweak the game and reload while it runs ([leagues and modules](Agents/docs/dev/modules.md),
+  [mods](Agents/docs/dev/modding.md)).
+- **Chat commands:** `/commands` lists them all, from `/set_level`, `/spawn_mob` and `/goto` to `/mod` and `/module`.
+- **Releases:** a self-contained player zip with the `LocalExile.exe` launcher, for Windows and Linux.
 
 ## Contributing
 
-People and AI agents are both welcome. Start with [AGENTS.md](AGENTS.md): the rules, then
-[Agents/Status.md](Agents/Status.md) (what works) and [Agents/Roadmap.md](Agents/Roadmap.md) (what to build next and
-how to pick up an item). The protocol reference and the notes are in
-[Agents/docs/](Agents/docs/README.md).
+Want to help build it? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Projects
+## License
 
-| Project | Role | Port |
-|---|---|---|
-| `GameServer.Auth` | login server; also generates keys and patches the client to trust them | 20493 (login), 127.0.0.1:20495 (control) |
-| `GameServer.Gateway` | instance (game) server | 6112 |
-| `GameServer.Patch` | local patching server, so the client never contacts the real patch servers; also edits the GGPK gateway list | 12995, http 8080 |
-| `GameServer.Host` + `GameServer.DevClient` | dev account service (register accounts, create characters) | 7000 |
-| `GameServer.Core` | protocol, crypto, accounts, instance registry | |
-| `GameServer.Data` | GGPK / bundle / `.dat` readers | |
-| `GameServer.Storage` | JSON account store | |
+Licensed under [GPL-2.0](LICENSE); bundled components are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
-## Getting Started
+## Important Notice
+It's important to note that LocalExile is not an official Grinding Gear Games product, and it is not affiliated with or endorsed by Path of Exile or Grinding Gear Games. LocalExile does not in any case sponsor nor support illegal public servers. If you use this project to run an illegal public server and not for testing and learning it is your own personal choice.
 
-**Full guide: [Agents/GettingStarted.md](Agents/GettingStarted.md).** It covers every step with its expected output, the edge cases
-and a troubleshooting table. It is written for people and for AI agents setting this up.
-
-In short (Windows, .NET 10 SDK, a standalone Path of Exile **3.29.3b** client):
-
-```powershell
-dotnet build GameServer.slnx
-robocopy "<your PoE 3.29.3b folder>" Client /E; Copy-Item Client\PathOfExile.exe Client\Game.exe
-dotnet run --project src/GameServer.Auth -- keygen Client/Game.exe
-dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.patched.exe
-dotnet run --project src/GameServer.Patch -- gateway --login 127.0.0.1:20493
-# needs Node.js (+ npm install in Tools/ooz) and Python 3.9+: live.ps1 extracts the game data first (scripts/dev/extract-data.ps1)
-# create an account + character: GameServer.Host and GameServer.DevClient (Agents/GettingStarted.md, step 8)
-.\scripts\dev\live.ps1 -Walkmaps   # -Walkmaps is optional: needs `pip install frida`, captures walk maps
-```
-
-**Always start the client through `live.ps1`.** Started any other way, the client contacts the official patch servers
-and may update itself.
+This project is for fun and education only. It is intended for local-gameplay with no internet much like MMO Solutions (TrinityCore, AzerothCore, MangOS).
+It is built by a community of contributors working with AI agents (such as Claude Opus 5.5). Pull requests are welcome
+and encouraged.

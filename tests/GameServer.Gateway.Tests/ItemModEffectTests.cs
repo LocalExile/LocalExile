@@ -23,6 +23,17 @@ public sealed class ItemModEffectTests
         Assert.Equal(20, stats.GetValueOrDefault("additional_strength"));
         // The effect stat itself is never scaled, or it would raise itself.
         Assert.Equal(100, ItemModStats.Local(item, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"));
+        var local = ItemModStats.Local(item, items.Mods);
+        local.Clear();
+        Assert.Equal(100, ItemModStats.Local(item, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"));
+        var changed = item with
+        {
+            Mods = [.. item.Mods.Select(m => m with { Values = [.. m.Values.Select(v => v + 1)] })],
+        };
+        Assert.Equal(ItemModStats.Sum([changed], items.Mods, local: true).OrderBy(p => p.Key),
+            ItemModStats.Local(changed, items.Mods).OrderBy(p => p.Key));
+        Assert.NotEqual(ItemModStats.Local(item, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"),
+            ItemModStats.Local(changed, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"));
     }
 
     [Fact]

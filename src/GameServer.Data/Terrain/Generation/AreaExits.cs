@@ -213,7 +213,7 @@ public static class AreaExits
         return list;
     }
 
-    // The room's named points (room cells, turned by its orientation like its doodads, 0x142040770) other than spawns
+    // The room's named points (room cells, turned by its orientation like its doodads, 0x142046fc0) other than spawns
     // (named by a Metadata path), in file order.
     static List<RoomPoint> Points(TerrainCache files, PlacedRoom room)
     {

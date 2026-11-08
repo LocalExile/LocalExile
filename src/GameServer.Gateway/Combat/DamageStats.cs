@@ -143,7 +143,10 @@ static class DamageStats
         foreach (var type in Types)
         {
             string slug = Slug(type), prefix = spell ? "spell" : "attack";
-            var range = new DamageRange(get($"{prefix}_minimum_added_{slug}_damage"), get($"{prefix}_maximum_added_{slug}_damage"));
+            // Global added damage applies to attacks and spells alike (a ring's "Adds # to # Fire Damage"); the
+            // attack-/spell-specific stats are extra on top, not a replacement.
+            var range = new DamageRange(get($"{prefix}_minimum_added_{slug}_damage"), get($"{prefix}_maximum_added_{slug}_damage"))
+                .Add(new DamageRange(get($"global_minimum_added_{slug}_damage"), get($"global_maximum_added_{slug}_damage")));
             if (!spell) range = range.Add(AttributeAdded(get, type));
             if (!spell && type == DamageType.Lightning)
             {

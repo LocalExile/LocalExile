@@ -55,7 +55,7 @@ static class BenchFeature
                 new HideoutDoodad(bench.Hash, (byte)bench.Variation), [.. states.Select(_ => 0)]);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(benchId,
                 InstanceEntities.ObjectTypeHash(bench.Type!), obj.Blob()),
-                $"0x02b9 create crafting bench 0x{benchId:x} left of guild stash at ({bench.X}, {bench.Y})");
+                $"0x02bb create crafting bench 0x{benchId:x} left of guild stash at ({bench.X}, {bench.Y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(benchId), null);
             conn.CraftingBenchObject = benchId;
             conn.CraftingBenchAt = (bench.X, bench.Y);

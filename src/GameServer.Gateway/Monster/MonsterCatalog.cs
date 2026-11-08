@@ -18,6 +18,9 @@ sealed class MonsterCatalog(string folder = "data")
     {
         public MonsterLifeData LifeData { get; init; } = new(null, null, null);
         public bool RangedWeapon { get; init; }
+        /// <summary>Native Positioned.blocking, independent of targetability. Missing optional metadata retains
+        /// the earlier living-body assumption; the extracted resolved type supplies explicit false values.</summary>
+        public bool PositionedBlocking { get; init; } = true;
         /// <summary>The row's HASH16: the key the client's MonsterVarieties table and the statue task use.</summary>
         public ushort Hash16 { get; init; }
         /// <summary>
@@ -84,7 +87,7 @@ sealed class MonsterCatalog(string folder = "data")
 
     /// <summary>
     /// The maximum life the client gives a monster of this variety at this level, before mods: the client's Monster type
-    /// (0x141e701d0) sets stat 0x7d to max(1, column × LifeMultiplier / 100) from DefaultMonsterStats row level − 1 (0x48-byte
+    /// (0x141e76860) sets stat 0x7d to max(1, column × LifeMultiplier / 100) from DefaultMonsterStats row level − 1 (0x48-byte
     /// rows). The column depends on the variety's MonsterTypes row: AltLife1 → AltLife1, else AltLife2 → AltLife2, else
     /// IsPlayerMinion → MinionLife, else MonsterLife. Null when the tables are missing.
     /// </summary>
@@ -259,6 +262,7 @@ sealed class MonsterCatalog(string folder = "data")
         var stateMachines = new Dictionary<string, StateMachineData>();
         var transitionStates = new Dictionary<string, byte>();
         var lifeData = new Dictionary<string, MonsterLifeData>();
+        var blocking = new Dictionary<string, bool>();
         string types = Path.Combine(folder, "object-types.json");
         if (File.Exists(types))
         {
@@ -268,6 +272,12 @@ sealed class MonsterCatalog(string folder = "data")
                 int read = t.GetProperty("read").GetInt32();
                 string type = t.GetProperty("type").GetString()!;
                 components[type] = [.. t.GetProperty("components").EnumerateArray().Take(read).Select(c => c.GetString()!)];
+                if (t.TryGetProperty("positioned", out var positioned) && positioned.ValueKind == JsonValueKind.Object
+                    && positioned.TryGetProperty("blocking", out var block))
+                {
+                    if (block.ValueKind is JsonValueKind.True or JsonValueKind.False) blocking[type] = block.GetBoolean();
+                    else if (block.ValueKind == JsonValueKind.String && bool.TryParse(block.GetString(), out bool value)) blocking[type] = value;
+                }
                 // Files generated before the StateMachine data have no "shared_states": those types stay unsupported.
                 if (t.TryGetProperty("shared_states", out var ss) && t.TryGetProperty("shared_timers", out var st))
                     stateMachines[type] = new([.. ss.EnumerateArray().Select(e => e[1].GetInt32())], st.GetArrayLength(),
@@ -313,6 +323,7 @@ sealed class MonsterCatalog(string folder = "data")
                     r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
+                        PositionedBlocking = blocking.GetValueOrDefault(type, true),
                         Hash16 = (ushort)r.GetProperty("HASH16").GetInt32(),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,

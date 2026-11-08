@@ -1,6 +1,6 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>A node's room or tile as <c>0x1421203f0</c> places it (the client's 0x98-byte record): the room (.arm) or
+/// <summary>A node's room or tile as <c>0x142126cf0</c> places it (the client's 0x98-byte record): the room (.arm) or
 /// tile (.tdt), its orientation and key, the position in graph tiles (+0x70), the node (+0x78), the side each of the
 /// node's edge slots leaves by (+0x80), the alignment (+0x91) and whether it must stay reachable (+0x92).</summary>
 sealed class NodePlacement
@@ -19,30 +19,30 @@ sealed class NodePlacement
     public override string ToString() => $"{System.IO.Path.GetFileName(Path)} o{Orientation} at ({X}, {Y}) for {Node}";
 }
 
-/// <summary>The special-node stage of the tile graph layout (<c>0x142116600</c> after the Voronoi jitter): nodes are
-/// sorted into lists (<c>0x14211f100</c>), tagged nodes and nodes on virtual edges get a room or a tile
-/// (<c>0x1421225d0</c> → <c>0x1421203f0</c>), and the placed rooms are tilised (<c>0x142121610</c>).</summary>
-/// <summary>A tilised room as <c>0x141fea780</c> records it (0x38 bytes on the layout context's +0x58 list): the
+/// <summary>The special-node stage of the tile graph layout (<c>0x14211cf00</c> after the Voronoi jitter): nodes are
+/// sorted into lists (<c>0x142125a00</c>), tagged nodes and nodes on virtual edges get a room or a tile
+/// (<c>0x142128ed0</c> → <c>0x142126cf0</c>), and the placed rooms are tilised (<c>0x142127f10</c>).</summary>
+/// <summary>A tilised room as <c>0x141ff0fa0</c> records it (0x38 bytes on the layout context's +0x58 list): the
 /// room, its footprint in map entries, the node's descriptions (+0x20) and its orientation code (+0x1b).</summary>
 public sealed record PlacedRoom(RoomDef Room, int X, int Y, int Width, int Height, IReadOnlyList<string> Descriptions, int Orientation = 0);
 
 sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> notes, TileGraph graph, TileGrid grid,
     int offsetX, int offsetY, TileStore store, RoomSetIndex rooms)
 {
-    // 0x14211f100's lists (the layout object's +0, +0x18, +0x30, +0x48).
+    // 0x142125a00's lists (the layout object's +0, +0x18, +0x30, +0x48).
     public readonly List<GraphNode> Virtual = [], Plain = [], Tagged = [], Lonely = [];
     /// <summary>Nodes of <see cref="Virtual"/> that found no room or tile (+0x60).</summary>
     public readonly List<GraphNode> Failed = [];
     public readonly List<NodePlacement> Placed = [];
     readonly RoomTiler _tiler = new(rng, grid, offsetX, offsetY, store);
-    /// <summary>The room tilising the overlays share (<c>0x141fea780</c>).</summary>
+    /// <summary>The room tilising the overlays share (<c>0x141ff0fa0</c>).</summary>
     public RoomTiler Tiler => _tiler;
     /// <summary>The rooms tilised, in order (<see cref="RoomTiler.Rooms"/>).</summary>
     public List<PlacedRoom> Rooms => _tiler.Rooms;
     /// <summary><see cref="RoomTiler.RoomVertices"/>.</summary>
     public HashSet<(int X, int Y)> RoomVertices => _tiler.RoomVertices;
 
-    /// <summary>The listeners <c>0x141fea780</c> calls after each slot tile (tile, orientation, view x, y).</summary>
+    /// <summary>The listeners <c>0x141ff0fa0</c> calls after each slot tile (tile, orientation, view x, y).</summary>
     public Action<TileDef, int, int, int>? TilePlaced { get => _tiler.TilePlaced; set => _tiler.TilePlaced = value; }
     /// <summary>Called as each relaxation starts (the trace's "relax" graph snapshot).</summary>
     public Action? BeforeRelax;
@@ -51,13 +51,13 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
 
     EdgeType Type(GraphEdge e) => files.Edge(e.Type) ?? throw new FileNotFoundException(e.Type);
 
-    /// <summary><c>0x1421225d0</c>.</summary>
+    /// <summary><c>0x142128ed0</c>.</summary>
     public void Run()
     {
         foreach (var n in graph.Nodes) Classify(n);
         foreach (var n in Tagged)
             Placed.Add(Place(n) ?? throw new InvalidOperationException($"Could not tilise the special node at ({n.X}, {n.Y}) with type \"{n.Tag}\""));
-        // 0x142121d80: rooms the room set marks as required. None of the ported room sets has any.
+        // 0x142128680: rooms the room set marks as required. None of the ported room sets has any.
         foreach (var n in Virtual)
         {
             if (Place(n) is { } p) Placed.Add(p);
@@ -68,7 +68,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         foreach (var p in Placed) Tilise(p);
     }
 
-    /// <summary><c>0x142122970</c>: every plain node (the list has grown since) not on the border with its one edge
+    /// <summary><c>0x142129270</c>: every plain node (the list has grown since) not on the border with its one edge
     /// gets a room or tile (one that fails is fatal); a node with one edge within its edge's size of the border moves
     /// off the map past it, its edge's end offset pointing back in. Then the relaxation (nodes with one edge left out)
     /// and the tilising, as for the special nodes.</summary>
@@ -122,18 +122,18 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         foreach (var p in placed) Tilise(p);
     }
 
-    /// <summary><c>0x142116600</c> after the edge tiling: every node without edges but with descriptions gets a room or
-    /// tile (<c>0x1421203f0</c>) and is tilised (<c>0x142121610</c>) when one fits; no relaxation.</summary>
+    /// <summary><c>0x14211cf00</c> after the edge tiling: every node without edges but with descriptions gets a room or
+    /// tile (<c>0x142126cf0</c>) and is tilised (<c>0x142127f10</c>) when one fits; no relaxation.</summary>
     public void RunLonely()
     {
         foreach (var n in Lonely)
             if (Place(n) is { } p) Tilise(p);
     }
 
-    /// <summary><c>0x1421239d0</c> (with all nodes): every placed room becomes a rectangle grown by its edges' room
-    /// (<c>0x142123000</c>); every node and then every internal point is pushed away from the rectangles
-    /// (<c>0x142123310</c>), a node also from its own room's four border probes (<c>0x142124210</c>); the pushes are
-    /// applied (<c>0x142124480</c>, <c>0x1421327c0</c>) and each room is centred again on its node where it fits.</summary>
+    /// <summary><c>0x14212a2d0</c> (with all nodes): every placed room becomes a rectangle grown by its edges' room
+    /// (<c>0x142129900</c>); every node and then every internal point is pushed away from the rectangles
+    /// (<c>0x142129c10</c>), a node also from its own room's four border probes (<c>0x14212ab10</c>); the pushes are
+    /// applied (<c>0x14212ad80</c>, <c>0x1421390c0</c>) and each room is centred again on its node where it fits.</summary>
     void Relax(List<NodePlacement> records, bool all)
     {
         BeforeRelax?.Invoke();
@@ -229,7 +229,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
     }
 
     // The top-left corner of a w × h footprint centred on tile (tx, ty), odd sizes by the placement table (as
-    // 0x1421203f0 and 0x1421239d0 centre a room).
+    // 0x142126cf0 and 0x14212a2d0 centre a room).
     static (int X, int Y) Centred(int tx, int ty, int w, int h)
     {
         int t = Math.Min(GraphOrientation, 8) * 3;
@@ -239,7 +239,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return (Math.Max(x, 0), Math.Max(y, 0));
     }
 
-    /// <summary><c>0x142123310</c>: the push a room rectangle gives a point: inside, out through the side nearer the
+    /// <summary><c>0x142129c10</c>: the push a room rectangle gives a point: inside, out through the side nearer the
     /// room's node (scaled by the rectangle's half size); outside, falling off over 138 positions from a side or a
     /// corner.</summary>
     static (int X, int Y) Push((int X0, int Y0, int X1, int Y1, GraphNode Node) r, (int X, int Y) p)
@@ -340,11 +340,11 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         }
     }
 
-    /// <summary><c>0x14211e9b0</c>: a node of the virtual list that got no room or tile. With three or more edges, the
-    /// edges lose their points within the largest max width of the node (<c>0x14211e860</c>), and each pair of
+    /// <summary><c>0x1421252b0</c>: a node of the virtual list that got no room or tile. With three or more edges, the
+    /// edges lose their points within the largest max width of the node (<c>0x142125160</c>), and each pair of
     /// neighbouring edges (in slot order, around) with a virtual one gets that edge's end point here: a width
-    /// <c>Next(max − min + 1) + min</c> toward the other edge (<c>0x14211e100</c>), or between two virtual edges the
-    /// corner point (<c>0x14211e1d0</c>). Then the node splits into one node per edge (<c>0x14211dbc0</c>).</summary>
+    /// <c>Next(max − min + 1) + min</c> toward the other edge (<c>0x142124a00</c>), or between two virtual edges the
+    /// corner point (<c>0x142124ad0</c>). Then the node splits into one node per edge (<c>0x1421244c0</c>).</summary>
     public void TileLessVirtual(GraphNode n)
     {
         int degree = n.Degree;
@@ -401,7 +401,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         SplitNode(n);
     }
 
-    // 0x14211e860: an edge's internal points within r of the node go, from the node's end.
+    // 0x142125160: an edge's internal points within r of the node go, from the node's end.
     static void TrimNear(GraphNode n, GraphEdge e, int r)
     {
         if (e.Points.Count == 0) return;
@@ -418,7 +418,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         }
     }
 
-    /// <summary><c>0x14211e100</c>: the point w from a toward b (nine tenths of the way when b is nearer than
+    /// <summary><c>0x142124a00</c>: the point w from a toward b (nine tenths of the way when b is nearer than
     /// 10/9 · w).</summary>
     static (int X, int Y) Toward((int X, int Y) a, (int X, int Y) b, int w)
     {
@@ -431,7 +431,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return (dx * 9 / 10 + a.X, dy * 9 / 10 + a.Y);
     }
 
-    /// <summary><c>0x14211e1d0</c>: where two virtual edges meeting at a corner b (coming from a, going to c) get their
+    /// <summary><c>0x142124ad0</c>: where two virtual edges meeting at a corner b (coming from a, going to c) get their
     /// shared end point: the crossing of the two lines offset by w, on the side away from d (the next edge's point)
     /// unless the two edges' sides disagree.</summary>
     static (int X, int Y) Between((int X, int Y) a, (int X, int Y) b, (int X, int Y) c, (int X, int Y) d, int w)
@@ -467,7 +467,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return flip ? q : p;
     }
 
-    /// <summary><c>0x14211dbc0</c>: every edge after the node's first gets its own node at the same place (with the
+    /// <summary><c>0x1421244c0</c>: every edge after the node's first gets its own node at the same place (with the
     /// node's height); neighbouring edge ends (around the node) where either edge is virtual become logical
     /// links.</summary>
     void SplitNode(GraphNode n)
@@ -504,7 +504,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         }
     }
 
-    // 0x14211f010.
+    // 0x142125910.
     static void AddLink(GraphNode n, int index)
     {
         if (n.Link2 != -1) throw new InvalidOperationException($"Too many logical links for node at ({n.X}, {n.Y})");
@@ -512,7 +512,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         else n.Link2 = index;
     }
 
-    /// <summary><c>0x14211f100</c>.</summary>
+    /// <summary><c>0x142125a00</c>.</summary>
     void Classify(GraphNode n)
     {
         int degree = n.Degree;
@@ -535,7 +535,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         (hasVirtual ? Virtual : Plain).Add(n);
     }
 
-    /// <summary><c>0x14211f2b0</c>: a node with one edge that lies within the edge's size of the graph's border.</summary>
+    /// <summary><c>0x142125bb0</c>: a node with one edge that lies within the edge's size of the graph's border.</summary>
     bool AtBorder(GraphNode n)
     {
         var first = n.Slots.First(e => e is not null)!;
@@ -553,7 +553,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
 
     static readonly (int X, int Y)[] SideVectors = [(0, -1), (1, 0), (0, 1), (-1, 0)];
 
-    /// <summary><c>0x1421299f0</c>: the side (0 up, 1 right, 2 down, 3 left; 4 none) each edge slot leaves the node by.
+    /// <summary><c>0x1421302f0</c>: the side (0 up, 1 right, 2 down, 3 left; 4 none) each edge slot leaves the node by.
     /// Each edge takes the side its direction points to; while a side holds more than one edge, the edge that turns
     /// least (<see cref="GraphGeometry.Angle"/>) moves to a free neighbouring side, else to one holding a single edge. Null when a side
     /// keeps two edges.</summary>
@@ -590,7 +590,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return result;
     }
 
-    // 0x142129d80 / 0x142129e90: for every side with more than one edge, each edge's move to a neighbouring side
+    // 0x142130680 / 0x142130790: for every side with more than one edge, each edge's move to a neighbouring side
     // (side − 1, then side + 1) that holds `holding` edges.
     List<(ushort Cost, int From, int To, int Edge)> Moves(GraphNode n, List<int>[] sides, int holding)
     {
@@ -610,9 +610,9 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return moves;
     }
 
-    /// <summary><c>0x1421203f0</c>: the node's edges as a key, its candidates (<see cref="Candidates"/>), then a weighted
-    /// pick: the pick is centred on the node, snapped, clamped to the graph and must fit (<c>0x141d84e10</c>,
-    /// <c>0x14211c820</c>); one that does not is dropped and the pick repeats.</summary>
+    /// <summary><c>0x142126cf0</c>: the node's edges as a key, its candidates (<see cref="Candidates"/>), then a weighted
+    /// pick: the pick is centred on the node, snapped, clamped to the graph and must fit (<c>0x141d884a0</c>,
+    /// <c>0x142123120</c>); one that does not is dropped and the pick repeats.</summary>
     NodePlacement? Place(GraphNode n)
     {
         int tx = Math.Min(n.X / 23, graph.Width - 1), ty = Math.Min(n.Y / 23, graph.Height - 1);
@@ -622,7 +622,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
             notes.Add($"{n}: failed to convert graph edges to TileEdgeKey");
             return null;
         }
-        // 0x14212b5f0.
+        // 0x142131ef0.
         var key = new TileKey();
         for (int i = 0; i < 4; i++)
             if (sides[i] < 4) key.Edges[sides[i]] = n.Slots[i]!.Type;
@@ -678,7 +678,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         }
     }
 
-    // "align<n>" among the node's descriptions, else the largest size of its edge types (0x142126df0).
+    // "align<n>" among the node's descriptions, else the largest size of its edge types (0x14212d6f0).
     byte Align(GraphNode n)
     {
         foreach (var d in n.Descriptions)
@@ -692,12 +692,12 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
     }
 
     // +0x92: "accessible", "default", "entrance…" or "sideentrance…" among the descriptions (the edge-type test
-    // 0x142120310 is not ported).
+    // 0x142126c10 is not ported).
     static bool Accessible(GraphNode n) => n.Descriptions.Any(d => d == "accessible" || d == "default" ||
         (d.Length > 7 && d.StartsWith("entrance", StringComparison.Ordinal)) ||
         (d.Length > 11 && d.StartsWith("sideentrance", StringComparison.Ordinal)));
 
-    /// <summary><c>0x14202ecc0</c>: a position snapped to the alignment grid (to the nearer multiple, by the orientation's
+    /// <summary><c>0x142035510</c>: a position snapped to the alignment grid (to the nearer multiple, by the orientation's
     /// rounding for a middle remainder).</summary>
     static (int X, int Y) Snap(int x, int y, int align, int orientation)
     {
@@ -728,7 +728,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return true;
     }
 
-    /// <summary><c>0x14211c820</c>: a placed tile just outside the candidate's footprint, across one of its edges, whose
+    /// <summary><c>0x142123120</c>: a placed tile just outside the candidate's footprint, across one of its edges, whose
     /// edge points do not line up with the candidate's.</summary>
     bool Misaligned(int x, int y, TileKey key)
     {
@@ -759,7 +759,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
     (TileKey Key, int OffsetX, int OffsetY)? Neighbour(int x, int y) =>
         grid[x + offsetX, y + offsetY] is { } e ? (e.Tile.Key.Rotate(e.Orientation), e.OffsetX, e.OffsetY) : null;
 
-    /// <summary><c>0x14211d6b0</c>: keeps room on each side that has an edge for the edge (its size, twice for a virtual
+    /// <summary><c>0x142123fb0</c>: keeps room on each side that has an edge for the edge (its size, twice for a virtual
     /// edge).</summary>
     (int X, int Y) KeepEdgesInside(int x, int y, int size, TileKey key)
     {
@@ -771,9 +771,9 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return (x, y);
     }
 
-    /// <summary><c>0x14211f3c0</c>: for a tagged node, a key some room or tile of its tag has (<c>0x14211ce90</c>); then
-    /// the rooms of the node's tag whose turned outer edges are the key's (<c>0x142012a40</c>), each turned by the node's
-    /// orientation (<c>0x14211fb20</c>); with none, tiles (not ported).</summary>
+    /// <summary><c>0x142125cc0</c>: for a tagged node, a key some room or tile of its tag has (<c>0x142123790</c>); then
+    /// the rooms of the node's tag whose turned outer edges are the key's (<c>0x142019290</c>), each turned by the node's
+    /// orientation (<c>0x142126420</c>); with none, tiles (not ported).</summary>
     List<(string Path, RoomDef? Room, TileDef? Tile, int Orientation, TileKey Key, int Weight)> Candidates(GraphNode n, TileKey nodeKey, int[] sides)
     {
         var result = new List<(string, RoomDef?, TileDef?, int, TileKey, int)>();
@@ -787,7 +787,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         }
         else
         {
-            // 0x14211fcc0: a variant whose turned key suits the node's sides, strictly, else loosely.
+            // 0x1421265c0: a variant whose turned key suits the node's sides, strictly, else loosely.
             foreach (bool strict in new[] { true, false })
             {
                 foreach (var v in matches)
@@ -799,9 +799,9 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
             }
         }
         if (result.Count != 0) return result;
-        // 0x141d811c0 / 0x141d82280: the sizes of the tag's tiles with these edges, then per size every tile (of any
-        // tag, in each orientation) with these edges and size; the node's tag picks among them (0x14211fe80 for a fixed
-        // orientation, 0x142120090 with the strict, then the loose, side check otherwise).
+        // 0x141d84850 / 0x141d85910: the sizes of the tag's tiles with these edges, then per size every tile (of any
+        // tag, in each orientation) with these edges and size; the node's tag picks among them (0x142126780 for a fixed
+        // orientation, 0x142126990 with the strict, then the loose, side check otherwise).
         foreach (var (w, h) in store.Sizes(n.Tag, key.Edges))
         {
             var list = store.ByEdgesAndSize(key.Edges, w, h);
@@ -827,7 +827,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return result;
     }
 
-    /// <summary><c>0x14211ce90</c> / <c>0x14211d240</c>: some tile or room of the node's tag has these edges; for a node
+    /// <summary><c>0x142123790</c> / <c>0x142123b40</c>: some tile or room of the node's tag has these edges; for a node
     /// with two edges the first one may move to the free neighbouring side; with three, the edge after the free side
     /// moves into it, or else (moved back) the edge before it.</summary>
     bool TagHasKey(GraphNode n, TileKey key, int[] sides)
@@ -865,7 +865,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return Has();
     }
 
-    /// <summary><c>0x142110020</c>: the sides must suit the placed key (<c>0x14210fc70</c>); else they turn by one, then
+    /// <summary><c>0x142116920</c>: the sides must suit the placed key (<c>0x142116570</c>); else they turn by one, then
     /// back by two, then are mirrored, then turned.</summary>
     void FitSides(NodePlacement p)
     {
@@ -884,7 +884,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         throw new InvalidOperationException($"Edge to side doesn't work for node at ({p.Node.X}, {p.Node.Y})");
     }
 
-    /// <summary><c>0x142121910</c>: an any-orientation placement turns a quarter either way when that brings its edges'
+    /// <summary><c>0x142128210</c>: an any-orientation placement turns a quarter either way when that brings its edges'
     /// sides nearer their directions (<see cref="SideCost"/>) without pointing one off a map border it touches.</summary>
     void TurnToSides(NodePlacement p)
     {
@@ -909,7 +909,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         else if (canPlus && SideCost(plus, p.Node) < cost) Turn(plus, 1);
     }
 
-    /// <summary><c>0x1421102d0</c>: the sum over the node's edges of the angle (in degrees) between the side each
+    /// <summary><c>0x142116bd0</c>: the sum over the node's edges of the angle (in degrees) between the side each
     /// leaves by and its direction.</summary>
     int SideCost(int[] sides, GraphNode n)
     {
@@ -926,7 +926,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return total;
     }
 
-    /// <summary><c>0x14210fc70</c> (not strict): each edge's type is the key's on its side, and the key's corners at
+    /// <summary><c>0x142116570</c> (not strict): each edge's type is the key's on its side, and the key's corners at
     /// that side carry the edge type's grounds (in the edge's direction) and heights.</summary>
     bool SidesFit(TileKey key, int[] sides, GraphNode n, bool strict = false)
     {
@@ -960,7 +960,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
 
     bool OpenGround(string? g) => g is null || (files.Ground(g)?.Flags & 1) != 0;
 
-    /// <summary><c>0x142121610</c>: a room's tiles (<c>0x142120fa0</c> → <c>0x141fea780</c>) at its snapped position.</summary>
+    /// <summary><c>0x142127f10</c>: a room's tiles (<c>0x1421278a0</c> → <c>0x141ff0fa0</c>) at its snapped position.</summary>
     void Tilise(NodePlacement p)
     {
         if (p.Align > 1) (p.X, p.Y) = Snap(p.X, p.Y, p.Align, GraphOrientation);
@@ -972,18 +972,18 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
             if (p.Key.Width >= 2 || p.Key.Height >= 2 || n.Degree != 0 || n.Tag.Length != 0 || grid[p.X + offsetX, p.Y + offsetY] is null)
                 grid.Place(tile, p.Orientation, p.X + offsetX, p.Y + offsetY, 0);
         }
-        // 0x142120fa0 calls 0x141fea780 with param_8 = 0: the room's plain slots leave their vertices without a ground.
+        // 0x1421278a0 calls 0x141ff0fa0 with param_8 = 0: the room's plain slots leave their vertices without a ground.
         else TiliseRoom(p.Room!, p.X, p.Y, p.Orientation, fillGrounds: false, p.Node.Descriptions);
         TrimPoints(p);
         var exits = Exits(p);
         MoveToExits(p, exits);
     }
 
-    /// <summary><c>0x142121380</c>: before tilising, the footprint plus a margin for its edges (the align on the top and
+    /// <summary><c>0x142127c80</c>: before tilising, the footprint plus a margin for its edges (the align on the top and
     /// left, the edge type's size on the right and bottom) must be free and the corners must suit the map
-    /// (<see cref="CornersFit"/>). Else a spiral (<c>0x142121210</c>: runs of 1, 1, 2, 2 … 9, 9 steps of the align,
-    /// turning up, right, down, left) looks for such a place from the margin's corner (<c>0x142132b80</c>), then for the
-    /// bare footprint from the room's position (<c>0x142132a50</c>). False when neither finds one.</summary>
+    /// (<see cref="CornersFit"/>). Else a spiral (<c>0x142127b10</c>: runs of 1, 1, 2, 2 … 9, 9 steps of the align,
+    /// turning up, right, down, left) looks for such a place from the margin's corner (<c>0x142139480</c>), then for the
+    /// bare footprint from the room's position (<c>0x142139350</c>). False when neither finds one.</summary>
     bool FindRoomForTiles(NodePlacement p)
     {
         var k = p.Key;
@@ -1014,8 +1014,8 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
                Spiral(p.X, p.Y, (x, y) => Free(x, y, k.Width, k.Height) && Take(x, y));
     }
 
-    /// <summary><c>0x141ffba10</c>: no side with a real edge on the map border, and each corner's ground agrees with a
-    /// map vertex that has one (<c>0x141d85570</c>: equal, or both null or flag 8).</summary>
+    /// <summary><c>0x142002260</c>: no side with a real edge on the map border, and each corner's ground agrees with a
+    /// map vertex that has one (<c>0x141d88c00</c>: equal, or both null or flag 8).</summary>
     bool CornersFit(int x, int y, TileKey k)
     {
         bool Real(string? e) => e is not null && files.Edge(e)?.Wildcard != true;
@@ -1032,7 +1032,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
                Fits(x + k.Width, y + k.Height, k.Grounds[2]) && Fits(x, y + k.Height, k.Grounds[3]);
     }
 
-    /// <summary><c>0x14211d420</c>: an edge's internal points inside the room's footprint go (from its node's end).</summary>
+    /// <summary><c>0x142123d20</c>: an edge's internal points inside the room's footprint go (from its node's end).</summary>
     static void TrimPoints(NodePlacement p)
     {
         int x0 = p.X * 23, y0 = p.Y * 23, x1 = Math.Max(x0, x0 + p.Key.Width * 23), y1 = Math.Max(y0, y0 + p.Key.Height * 23);
@@ -1055,7 +1055,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         }
     }
 
-    // 0x142fa09b8: where edge points 0, 1, 2 of a tile side lie along its 23 positions.
+    // 0x142faa9d8: where edge points 0, 1, 2 of a tile side lie along its 23 positions.
     static readonly int[] PointAlong = [3, 11, 19];
 
     // The position of edge point `point` on side `side` of a w × h footprint at (x, y) (in graph tiles).
@@ -1073,8 +1073,8 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return (px + x * 23, py + y * 23);
     }
 
-    /// <summary><c>0x14211d830</c>: per edge slot, where the edge leaves the room: the key's edge point on the edge's
-    /// side (a virtual edge: both its points, kept as the edge's end points, <c>0x14211e540</c>, and their middle). The
+    /// <summary><c>0x142124130</c>: per edge slot, where the edge leaves the room: the key's edge point on the edge's
+    /// side (a virtual edge: both its points, kept as the edge's end points, <c>0x142124e40</c>, and their middle). The
     /// edge's end offset becomes the side's direction.</summary>
     (int X, int Y)[] Exits(NodePlacement p)
     {
@@ -1106,7 +1106,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         return exits;
     }
 
-    /// <summary><c>0x14211e540</c>: the first call sets end point 1, the second end point 2, then orders the two by the
+    /// <summary><c>0x142124e40</c>: the first call sets end point 1, the second end point 2, then orders the two by the
     /// side of the edge's line they lie on.</summary>
     static void SetVirtualEnd(GraphEdge e, int end, (int X, int Y) q)
     {
@@ -1130,7 +1130,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         if (cross < 0) (e.VirtualEnd1[end], e.VirtualEnd2[end]) = (q, p1);
     }
 
-    /// <summary><c>0x142126310</c>: the node moves to its first edge's exit; every other edge gets a new node at its
+    /// <summary><c>0x14212cc10</c>: the node moves to its first edge's exit; every other edge gets a new node at its
     /// exit (appended to the graph, with the node's height).</summary>
     void MoveToExits(NodePlacement p, (int X, int Y)[] exits)
     {
@@ -1155,7 +1155,7 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
         }
     }
 
-    /// <summary><c>0x142122d90</c>: the node's edges lose their internal points within 46 of it (<c>0x14211e860</c>), then
+    /// <summary><c>0x142129690</c>: the node's edges lose their internal points within 46 of it (<c>0x142125160</c>), then
     /// each gets a point one tile out on its side (<see cref="EdgeSides"/>), clamped to the map.</summary>
     public void Explode(GraphNode n)
     {
@@ -1186,12 +1186,12 @@ sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> note
             if (e.A == n) e.Points.Insert(0, (x, y)); else e.Points.Add((x, y));
         }
     }
-    /// <summary><c>0x141fea780</c>: see <see cref="RoomTiler.Tilise"/>.</summary>
+    /// <summary><c>0x141ff0fa0</c>: see <see cref="RoomTiler.Tilise"/>.</summary>
     public void TiliseRoom(RoomDef room, int x0, int y0, int o, bool fillGrounds, IReadOnlyList<string> descriptions) =>
         _tiler.Tilise(room, x0, y0, o, fillGrounds, descriptions);
 }
 
-/// <summary>A master's RoomSet as <c>0x14211f3c0</c> looks it up (master +0x1f8): per tag, every room in list order
+/// <summary>A master's RoomSet as <c>0x142125cc0</c> looks it up (master +0x1f8): per tag, every room in list order
 /// in its eight orientations, each with its outer edges turned (0x60-byte entries, weight +0x58).</summary>
 sealed class RoomSetIndex
 {
@@ -1201,7 +1201,7 @@ sealed class RoomSetIndex
 
     public RoomSetIndex(TerrainCache files, string roomSetPath)
     {
-        // The lines as a tile list's (0x142a0d950: weight, path, orientation words); only the orientations a line allows.
+        // The lines as a tile list's (0x142a16cb0: weight, path, orientation words); only the orientations a line allows.
         foreach (var (weight, path, mask) in files.TileList(roomSetPath))
         {
             if (files.Room(path) is not { } room) continue;
@@ -1217,11 +1217,11 @@ sealed class RoomSetIndex
 /// <summary>Integer geometry of the tile graph layout.</summary>
 public static partial class GraphGeometry
 {
-    // 0x142fe0b10: acos((i − 127) / 127) as a fraction of 32768 = π.
+    // 0x142feac40: acos((i − 127) / 127) as a fraction of 32768 = π.
     static readonly ushort[] AcosTable = Enumerable.Range(0, 255)
         .Select(i => (ushort)Math.Round(Math.Acos(Math.Clamp((i - 127) / 127.0, -1, 1)) / Math.PI * 32768)).ToArray();
 
-    /// <summary><c>0x14299d730</c>: the angle between two vectors (0..32768 = 0..π), through the integer cosine.</summary>
+    /// <summary><c>0x1429a6a90</c>: the angle between two vectors (0..32768 = 0..π), through the integer cosine.</summary>
     public static ushort Angle(int ax, int ay, int bx, int by)
     {
         if ((ax == 0 && ay == 0) || (bx == 0 && by == 0)) return 0;

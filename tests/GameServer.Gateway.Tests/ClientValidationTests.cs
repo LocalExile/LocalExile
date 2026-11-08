@@ -91,6 +91,8 @@ public class ClientValidationTests
             var failure = Assert.Throws<LauncherException>(() => ClientArchiveCheck.Parse(1, JsonSerializer.Serialize(bad, options), ""));
             Assert.Equal(ExitCode.Client, failure.Code);
             Assert.Contains("official PoE launcher", failure.Message);
+            Assert.Equal("3.29.3c", ClientInstall.RequiredVersion);
+            Assert.Contains("standalone PoE 3.29.3c", failure.Message);
             Assert.Equal(badBefore, File.ReadAllBytes(archive));
             Assert.Equal("validation-unavailable", Assert.Throws<LauncherException>(() =>
                 ClientArchiveCheck.Parse(0, JsonSerializer.Serialize(bad, options), "")).Reason);

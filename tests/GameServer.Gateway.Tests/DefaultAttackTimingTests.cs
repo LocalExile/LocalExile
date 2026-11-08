@@ -42,6 +42,14 @@ public sealed class DefaultAttackTimingTests : IDisposable
         Assert.Equal("attack_sword_01a", clip.Animation);
         Assert.Equal(0.299 * 0.45 / 0.365 + 0.195, clip.ContactSeconds(0.645), 3);
         Assert.Equal(0.5636, contacts.DefaultAttackContactSeconds(ao, sword, 7, 0.645), 3);
+        // One-hand maces use the sword stance too: the Marauder's club plays attack_sword_01a,
+        // a 0..387 ms view of doublestrike_sword, rather than attack1_maul's contact fraction.
+        var mace = sword with { Sword = false, Mace = true };
+        Assert.Equal("OneHandSword", AnimationContacts.StanceFor(mace));
+        Assert.Equal("OneHandSwordShield", AnimationContacts.StanceFor(mace with { Shield = true }));
+        Assert.Equal("TwoHandMace", AnimationContacts.StanceFor(mace with { OneHand = false, TwoHandMelee = true }));
+        Assert.Equal(contacts.DefaultAttackCutInSeconds(ao, sword, 7, 0.645),
+            contacts.DefaultAttackCutInSeconds(ao, mace, 7, 0.645));
         // An attack shorter than the budget compresses the view: the contact at its fraction.
         Assert.Equal(0.4 * 299 / 365.0, clip.ContactSeconds(0.4), 3);
         // A clip without a budget stretches to the attack: a 600 ms wand clip's contact at 300 in a 0.667 s attack.
@@ -50,6 +58,20 @@ public sealed class DefaultAttackTimingTests : IDisposable
         Assert.True(contacts.TryDefaultAttackClip(ao, wand, 7, 0.667, out var bolt));
         Assert.Equal("attack1_wand", bolt.Animation);
         Assert.Equal(0.3335, bolt.ContactSeconds(0.667), 3);
+        // The client's own bolt leaves when its clip clock reaches the contact: the clip plays at its speed outside the
+        // slow span (150-235), which takes up the attack's 67 ms over the clip, so 0.367 s; an attack no longer than the
+        // clip compresses it evenly, and a budgeted view leaves at its contact.
+        Assert.Equal(0.300 + 0.067, bolt.ReleaseSeconds(0.667), 4);
+        Assert.Equal(0.5 * 0.5, bolt.ReleaseSeconds(0.5), 4);
+        // At most 8 times its length: then the rest of the clip slows evenly over what is left.
+        Assert.Equal(0.085 * 8 + (0.150 + 0.065) * (1.6 - 0.68) / 0.515, bolt.ReleaseSeconds(1.6), 4);
+        Assert.Equal(clip.ContactSeconds(0.645), clip.ReleaseSeconds(0.645), 6);
+        // A lockstep client fires on the frame tick its clip clock passes the release, counted from the start of the
+        // frame its action began in: the wand's 0.367 s on frame 12, the bow's 0.268 s on 9 (33 ms frames), at least 1.
+        Assert.Equal(10 + 12 * 0.033, Game.LockstepShotAt(10, bolt.ReleaseSeconds(0.667)), 6);
+        Assert.Equal(10 + 9 * 0.033, Game.LockstepShotAt(10, 0.268), 6);
+        Assert.Equal(10 + 11 * 0.033, Game.LockstepShotAt(10, 11 * 0.033), 6);
+        Assert.Equal(10 + 0.033, Game.LockstepShotAt(10, 0), 6);
         Assert.NotNull(bolt.Point);
         // No lock_cancelling keyframe: a Move held during the swing runs at the contact.
         Assert.Equal(bolt.ContactSeconds(0.667), bolt.CutInSeconds(0.667), 6);

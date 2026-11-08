@@ -58,7 +58,12 @@ static partial class Game
         int evasion = UnderBlind(conn, target.Id, t.Mods.Effects.Evasion(Monsters.BaseEvasion(t.Level) ?? 0));
         if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), random.Next(100)) || MonsterBlocks(t, random, spell: false))
             return null;
-        int damage = MonsterTakesRolled(t, a.Damage.Roll(random), spell: false);
+        var offense = a.Damage;
+        int Flat(string bound) => Stats.Key($"non_golem_minion_global_{bound}_added_physical_damage") is uint key
+            ? conn.Golems.OwnerStats.GetValueOrDefault(key) : 0;
+        if (Flat("maximum") > 0) offense = offense.Add(GameServer.Core.World.DamageType.Physical,
+            new GameServer.Core.World.DamageRange(Flat("minimum"), Flat("maximum")).Scale(Math.Max(0, 1 + m.Mods.Effects["damage_+%"] / 100.0)));
+        int damage = MonsterTakesRolled(t, offense.Roll(random), spell: false);
         return ApplyMonsterHitLocked(conn, t, damage, allyAt: at) is { } hit ? (hit, damage) : null;
     }
 
@@ -104,8 +109,8 @@ static partial class Game
                         if (!Current() || attack.Started) return null;
                         attack.Started = true;
                         return a.InPlace
-                            ? InstanceProtocol.ActionStarted(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, 0x0408, targetObjectId: target.Id)
-                            : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, 0x0408, target.Id);
+                            ? InstanceProtocol.ActionStarted(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, conn.MonsterOrderFlags, targetObjectId: target.Id)
+                            : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, conn.MonsterOrderFlags, target.Id);
                     }
                 });
         while (true)

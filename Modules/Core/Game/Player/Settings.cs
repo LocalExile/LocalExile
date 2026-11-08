@@ -26,9 +26,6 @@ static partial class Game
     internal static byte DeathScreenFlags(ClientState conn) => ForceHardcore || conn.Hardcore ? (byte)0x01 : conn.LastTown == 0 ? (byte)0x04 : (byte)0x0c;
     // PoB's "recently": the last 4 seconds.
     internal const double RecentlySeconds = 4;
-    // Shown once per connection when the client moves in lockstep (InstanceProtocol.IsLockstepMovement).
-    internal const string LockstepWarning = "Your Network Mode is lockstep, which this server does not support yet: your character stays " +
-        "hidden and cannot move. Set Options > Game > Network Mode to Predictive, then log out to the character screen and Play again.";
     // The Positioned size (object_size − 1) of area transitions and waypoints (AreaTransition.ot, Waypoint.ot
     // object_size 6): the player walks up to them as the client does (PlayerWalk.WalkUpTo).
     internal const int AreaTransitionObjectSize = 5, WaypointObjectSize = 5;
@@ -51,7 +48,7 @@ static partial class Game
     // How close (cells, centre to centre) gold on the ground is picked up by itself (RunPlayerTick): our own number, a
     // little inside a click's PickupReach.
     // A monster's second skill, after its attack (SkillCatalog.FirstSkillId): a boss's stage skill (BossFights). 0x0103
-    // is free in 3.29.3b (SkillCatalog.SkillIds).
+    // is free in 3.29.3b and 3.29.3c (SkillCatalog.SkillIds).
     internal const ushort StageSkillId = 0x0103;
     // NPCs.dat with the NPC types' components; loaded with the first town.
     internal static readonly Lazy<NpcCatalog> Npcs = new(() => NpcCatalog.Load());
@@ -72,13 +69,13 @@ static partial class Game
     // The Cosmetics tab's Social Frame slot (MicrotransactionSlot 17): the portrait frames.
     internal const byte SocialFrameSlot = 17;
     // Per character: the ids of worn items whose requirements are not met (CharacterStatSources).
-    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<uint>> InactiveItems = new(StringComparer.OrdinalIgnoreCase);
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<uint>> InactiveItems = CharacterEquipmentState.Inactive;
     // The character panel's Spell Suppression chance stats (the client reads the final value).
     internal static readonly uint[] SuppressionChanceKeys = [.. new[] { "spell_suppression_chance_%",
         "base_spell_suppression_chance_%", "combined_spell_suppression_chance_%" }.Select(n => Stats.Key(n)).OfType<uint>()];
     // Per character: the skill ids of the socketed gems (GemSkillIds), and the ids gem skills may use (after the default
-    // attack, the ids below FirstSkillId + 64 that no basic action uses: SkillCatalog.IsGemSkill; 55 in 3.29.3b).
-    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> GemSkillIdsOf = new(StringComparer.OrdinalIgnoreCase);
+    // attack, the ids below FirstSkillId + 64 that no basic action uses: SkillCatalog.IsGemSkill; 55 in 3.29.3c).
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> GemSkillIdsOf = GemSkillIds.ByCharacter;
     internal static readonly Lazy<ushort[]> GemSkillIdPool = new(() => [.. Skills.SkillIds().Skip(1).Where(Skills.IsGemSkill)]);
     // Maps.dat: which area each map opens (MapDevice.cs); loaded with the first Activate.
     internal static readonly Lazy<MapDevice> MapDevices = new(() => MapDevice.Load("data", row => Items.Row(row)?.Hash, Items));

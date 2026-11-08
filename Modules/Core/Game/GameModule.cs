@@ -13,12 +13,21 @@ public sealed class GameModule : IModule
     {
         Rules.CombatLifetime = module.Lifetime;
         Program.SetGameLogic(new GameLogic(module.Lifetime));
+        module.OnTick((player, _) => global::BrineKing.Tick(Program.ConnOf(player)));
+        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("BrineKing", global::BrineKing.PlayerStats));
+        module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
+        module.Lifetime.Own(GameEvents.Kill.Add("Game", Rules.ReservationKill));
+        module.OnPlayerLeaving((player, _) => global::BrineKing.Leaving(Program.ConnOf(player)));
     }
 }
 
-sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic
+sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IControlledPlayerRules, IControlledPlayerCommands
 {
     internal IModuleLifetime? Lifetime { get; } = lifetime ?? Rules.CombatLifetime;
+    public double MaximumLeaderDistance => Rules.ControlledFollowerLeash;
+    public void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
+    public void ClearControlledIntent(ClientState player) => Rules.ClearControlledIntent(player);
+    public object ObserveControlledPlayer(ClientState player, ClientState leader) => Rules.ObserveControlledPlayer(player, leader);
     public void ResumePlayerUpdates(ClientState conn)
     {
         if (ReferenceEquals(Program.GameLogicOrNull, this) && ReferenceEquals(Lifetime, Rules.CombatLifetime))
@@ -75,6 +84,7 @@ sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic
             CharacterSaves.SaveExperience(Program.CharacterName(conn));
             Rules.ItemsOf(conn).SaveUnsaved();
             Rules.PersistVitals(conn);
+            Rules.SaveGolems(conn);
         }
         Rules.CommitHardcoreDeath(conn);
     }
@@ -91,4 +101,8 @@ sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic
     public IPlayerWorld WorldFor(ClientState conn) => new Rules.ModuleWorld(conn);
     public IEnumerable<(string Value, string Detail)>? CompletionValues(string kind) => Rules.CompletionValues(kind);
     public double PlayerActionFactor(ClientState conn) => Rules.PlayerActionFactor(conn);
+    public CharacterSaves.Save BuildControlled(GameServer.Core.Accounts.CharacterClass characterClass, int level) => Rules.BuildControlledPlayer(characterClass, level);
+    public Task InitializeControlled(ClientState player, ClientState leader) => Rules.InitializeControlledPlayer(player, leader);
+    public Task StepControlled(ClientState player, ClientState leader) => Rules.StepControlledPlayer(player, leader);
+    public Task ControlledCompletion(ClientState player) => player.PlayerUpdatesState is PlayerUpdatesState updates ? updates.Completion : Task.CompletedTask;
 }

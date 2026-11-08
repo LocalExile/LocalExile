@@ -26,7 +26,7 @@ enum EmergeKind
 /// script (BossFights), not a proximity rise.
 /// They are created in state 1; when the player comes within <see cref="Range"/> cells (or their aggro range, if
 /// shorter), or a lurking one is hit, they rise: the Emerge action (S→C 0x1ab, the .act's Emerge clip),
-/// Transitionable → 2 (0x2ba; on_transition runs EnableTargetable) and 0x1ac, which lets the clip play; until it has
+/// Transitionable → 2 (0x2bc; on_transition runs EnableTargetable) and 0x1ac, which lets the clip play; until it has
 /// played they are busy, so the AI neither moves them nor attacks with them. Data: object-types.json (<c>basic_actions</c>,
 /// <c>client_transitionable</c>, <c>client_targetable</c>: scripts/re/ot_components.py), monster-takehit.json
 /// (<c>emerge</c>: the clip's length, scripts/re/monster_takehit.py), ActionTypes.json.
@@ -77,7 +77,7 @@ sealed class MonsterEmerge(string folder = "data")
     public uint? ClipIndex(MonsterCatalog.Variety v) =>
         _clips.Value.TryGetValue(v.Id, out var clip) && clip.Index >= 0 ? (uint)clip.Index : null;
 
-    /// <summary>The rise, in GGG's order and tick: the Transitionable step (0x2ba), then the Emerge action in place aimed
+    /// <summary>The rise, in GGG's order and tick: the Transitionable step (0x2bc), then the Emerge action in place aimed
     /// at the monster itself, with the 0x1ac that starts its clip.</summary>
     public static byte[][] RiseMessages(uint id, (int X, int Y) at, ushort skill, ushort sequence, byte transitionableIndex, byte state) =>
     [
@@ -87,14 +87,14 @@ sealed class MonsterEmerge(string folder = "data")
 
     /// <summary>The buried monsters of a connection by object id: not in <see cref="ClientState.Monsters"/> until they
     /// rise. Guarded by the Monsters lock.</summary>
-    public static SortedDictionary<uint, SpawnedMonster> Buried(ClientState conn) => Grounds.GetValue(GroundKey(conn), _ => new()).Monsters;
+    public static SortedDictionary<uint, SpawnedMonster> Buried(ClientState conn) => conn.DormantMonsters;
 
     /// <summary>Every monster that has not risen yet, buried or lurking (for the instance's saved state). Under the
     /// Monsters lock.</summary>
     public static List<SpawnedMonster> Unrisen(ClientState conn)
     {
         var g = Grounds.GetValue(GroundKey(conn), _ => new());
-        return [.. g.Monsters.Values, .. g.Lurking.Select(id => conn.Monsters.GetValueOrDefault(id)).OfType<SpawnedMonster>()];
+        return [.. conn.DormantMonsters.Values, .. g.Lurking.Select(id => conn.Monsters.GetValueOrDefault(id)).OfType<SpawnedMonster>()];
     }
 
     /// <summary>Registers a new monster (SpawnMonster): a buried one that has not risen goes to <see cref="Buried"/>,
@@ -104,7 +104,7 @@ sealed class MonsterEmerge(string folder = "data")
     {
         var g = Grounds.GetValue(GroundKey(conn), _ => new());
         bool waits = unrisen && kind != EmergeKind.None;
-        if (waits && kind == EmergeKind.Buried) { g.Monsters[id] = m; return true; }
+        if (waits && kind == EmergeKind.Buried) { conn.DormantMonsters[id] = m; return true; }
         conn.Monsters[id] = m;
         if (waits)
         {
@@ -138,11 +138,11 @@ sealed class MonsterEmerge(string folder = "data")
             return d <= (m.AggroRange > 0 ? Math.Min(Range, m.AggroRange) : Range);
         }
         double SecondsOf(SpawnedMonster m) => m.Variety is { } v ? Seconds(v) : DefaultSeconds;
-        foreach (var (id, m) in g.Monsters)
+        foreach (var (id, m) in conn.DormantMonsters)
             if (Near(m, out var at)) risen.Add((id, m, at, SecondsOf(m)));
         foreach (var (id, m, _, _) in risen)
         {
-            g.Monsters.Remove(id);
+            conn.DormantMonsters.Remove(id);
             conn.Monsters[id] = m;
         }
         foreach (uint id in g.Lurking.ToList())
@@ -161,13 +161,12 @@ sealed class MonsterEmerge(string folder = "data")
             // A little past the clip, so the client has finished the action before the AI's first order.
             m.BusyUntil = now + seconds + 0.3;
         }
-        watching = g.Watching = g.Monsters.Count + g.Lurking.Count > 0;
+        watching = g.Watching = conn.DormantMonsters.Count + g.Lurking.Count > 0;
         return risen;
     }
 
     sealed class Ground
     {
-        public readonly SortedDictionary<uint, SpawnedMonster> Monsters = [];
         public readonly HashSet<uint> Lurking = [];
         public bool Watching;
     }
@@ -180,7 +179,7 @@ sealed class MonsterEmerge(string folder = "data")
     /// <summary>Whether any monster still waits to rise, and none watches for it (its watcher's connection left).
     /// Under the Monsters lock.</summary>
     public static bool Unwatched(ClientState conn) =>
-        Grounds.GetValue(GroundKey(conn), _ => new()) is { Watching: false } g && g.Monsters.Count + g.Lurking.Count > 0;
+        Grounds.GetValue(GroundKey(conn), _ => new()) is { Watching: false } g && conn.DormantMonsters.Count + g.Lurking.Count > 0;
 
     /// <summary>The watch ended with its connection. Under the Monsters lock.</summary>
     public static void StopWatch(ClientState conn) => Grounds.GetValue(GroundKey(conn), _ => new()).Watching = false;

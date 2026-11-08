@@ -1,5 +1,5 @@
 """a6q1 "The Brine King" (act6.md), Act 6 → 7: the third Nessa in Merveil's cavern and the Black Flag chest beside her;
-at The Beacon the lever refuels and lights it (the fuel carts are not created) and the beacon statue takes the flag
+at The Beacon both fuel carts are escorted to the tank, then the lever lights it and the beacon statue takes the flag
 (a6q1-DeliveredFlag: Weylam comes ashore). Weylam's "Sail to the Brine King's Reef" (1006) and, after Tsoagoth, Sin's
 god talk (1003: the Pantheon panel, the runner picks the gods) and Weylam's "Sail to the Bridge Encampment" (1010); in
 the Bridge Encampment the runner makes sure both gods are chosen."""
@@ -19,8 +19,9 @@ STEPS = [
     {"verb": "pickup", "item": "Metadata/Items/QuestItems/Act6/BlackFlag", "expect_flag": "a6q1-HaveFlag", "skip_if": ["a6q1-HaveFlag", DELIVERED]},
     {"verb": "goto", "area": "2_6_14", "skip_if": [DELIVERED, "Visited-6_15"]},
     {"verb": "tp", "target": "BlackCrest_BeaconLever", "expect_flag": "a6q1-SeenBeacon", "skip_if": ["a6q1-SeenBeacon", DELIVERED], "optional": True},
-    {"verb": "interact", "target": "BlackCrest_BeaconLever", "area": "2_6_14", "expect_flag": "a6q1-RefueledBeacon",
+    {"verb": "escort", "target": "BeaconPayload", "area": "2_6_14", "expect_flag": "a6q1-RefueledBeacon", "timeout": 180,
      "skip_if": ["a6q1-RefueledBeacon", DELIVERED]},
+    {"verb": "interact", "target": "BlackCrest_BeaconLever", "area": "2_6_14", "skip_if": DELIVERED},
     {"verb": "interact", "target": "BlackCrest_BeaconInteract", "area": "2_6_14", "expect_flag": DELIVERED, "skip_if": DELIVERED},
     {"verb": "talk", "npc": "WeylamBeacon", "option": "Introduction", "area": "2_6_14", "skip_if": ["WeylamBeaconIntro", "Visited-6_15"],
      "optional": True},
@@ -28,7 +29,8 @@ STEPS = [
      "skip_if": ["Visited-6_15", KILLED]},
     {"verb": "wait_flag", "flag": "Visited-6_15", "timeout": 60, "skip_if": KILLED},
     {"verb": "goto", "area": "2_6_15", "skip_if": KILLED},
-    {"verb": "kill", "target": "BrineKing/BrineKing", "appear_timeout": 15, "expect_flag": KILLED, "skip_if": KILLED},
+    {"verb": "kill", "target": "BrineKing/BrineKing", "appear_timeout": 15, "repeat": True, "timeout": 90,
+     "expect_flag": KILLED, "skip_if": KILLED},
     {"verb": "talk", "npc": "SinBrineKing", "option": "The Brine King", "area": "2_6_15", "expect_flag": "SinBrineKingReward",
      "skip_if": "SinBrineKingReward", "optional": True},
     {"verb": "pantheon", "optional": True},

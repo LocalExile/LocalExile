@@ -81,7 +81,7 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
         return Result<Session>.Success(NewSession(acc));
     }
 
-    /// <summary>What the official client sends for a password: SHA-256 over its UTF-16LE text (client 0x140d05f70 → 0x140e23290).</summary>
+    /// <summary>What the official client sends for a password: SHA-256 over its UTF-16LE text (client 0x140d060a0 → 0x140e21b30).</summary>
     public static byte[] ClientPasswordDigest(string password) => SHA256.HashData(Encoding.Unicode.GetBytes(password));
 
     /// <summary>Persistent device-bound credential for the client's Remember Password path.
@@ -133,18 +133,19 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
 
     public Character? FindCharacter(string name) => store.FindCharacter(name);
 
-    /// <summary>Creates a level 1 character in <paramref name="inLeague"/> (default: the service's league).</summary>
-    public Result<Character> CreateCharacter(Guid accountId, string name, CharacterClass cls, string? inLeague = null)
+    /// <summary>Creates a character at <paramref name="level"/> (1 by default) in <paramref name="inLeague"/> (default: the service's league).</summary>
+    public Result<Character> CreateCharacter(Guid accountId, string name, CharacterClass cls, string? inLeague = null, int level = 1)
     {
         if (!ValidName(name, 3, 23)) return Result<Character>.Fail(AuthError.InvalidCharacterName);
         if (!Enum.IsDefined(cls)) return Result<Character>.Fail(AuthError.InvalidClass);
+        if (level is < 1 or > 100) return Result<Character>.Fail(AuthError.InvalidLevel);
         lock (_gate)
         {
             if (store.GetAccount(accountId) is null) return Result<Character>.Fail(AuthError.NotFound);
             if (store.CharactersOf(accountId).Count >= maxCharacters) return Result<Character>.Fail(AuthError.LimitReached);
             if (store.FindCharacter(name) is not null) return Result<Character>.Fail(AuthError.CharacterNameTaken);
             var now = _clock.GetUtcNow();
-            var c = new Character(Guid.NewGuid(), accountId, name, cls, 1, inLeague ?? league, StartingArea, now, now);
+            var c = new Character(Guid.NewGuid(), accountId, name, cls, level, inLeague ?? league, StartingArea, now, now);
             store.AddCharacter(c);
             return Result<Character>.Success(c);
         }

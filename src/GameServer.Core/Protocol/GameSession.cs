@@ -90,7 +90,7 @@ public sealed class GameSession(AccountService accounts, InstanceManager instanc
     {
         if (_session is null) return Err("not_logged_in");
         if (!Enum.TryParse<CharacterClass>(Str(r, "class"), true, out var cls)) return Err("bad_class");
-        var res = accounts.CreateCharacter(_session.AccountId, Str(r, "name"), cls);
+        var res = accounts.CreateCharacter(_session.AccountId, Str(r, "name"), cls, level: r["level"]?.GetValue<int>() ?? 1);
         return res.Ok ? Ok(("character", Describe(res.Value!))) : Err(res.Error);
     }
 

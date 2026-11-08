@@ -1,7 +1,7 @@
 namespace GameServer.Core.World;
 
 /// <summary>
-/// The client's pathfinder (0x141e4d890), ported 1:1 so the server's copy of a client-moved walker takes the client's own
+/// The client's pathfinder (0x141e50f90), ported 1:1 so the server's copy of a client-moved walker takes the client's own
 /// path (Agents/docs/protocol/07-latency-visibility-movement.md §5). A* over the walk grid in a 272 x 272 window around
 /// the start: 8 neighbours (no corner rule), cost 1 / 1.4142, float32 throughout, an MSVC binary heap on f; a cell is
 /// walkable for a mover of size s (Positioned +0x1e3 = object_size − 1) when its walk value is ≥ s + 1, and free of
@@ -21,7 +21,7 @@ public static class ClientPathfinder
         public double? CollisionRadius { get; init; }
     }
 
-    /// <summary>How long a search may run (0x141e4d890, from the mover's components).</summary>
+    /// <summary>How long a search may run (0x141e50f90, from the mover's components).</summary>
     public enum SearchLimit
     {
         /// <summary>A mover with a Player component: no expansion count, the ellipse instead.</summary>
@@ -33,7 +33,7 @@ public static class ClientPathfinder
     }
 
     const int Window = 0x110, Half = 0x88, MaxWaypoints = 0x88, Tile = 23, CoarseLimit = 300;
-    // DAT_142fbf350 (dx, dy per direction) and DAT_142fbf330 (the opposite direction).
+    // DAT_142fc93e0 (dx, dy per direction) and DAT_142fc9420 (the opposite direction).
     static readonly (int X, int Y)[] Dirs = [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (1, -1), (-1, -1), (-1, 1)];
     static readonly byte[] Reverse = [2, 3, 0, 1, 6, 7, 4, 5];
     const byte NoParent = 8, Closed = 1, InObject = 2;
@@ -67,7 +67,7 @@ public static class ClientPathfinder
 
     /// <param name="sight">The projectile grid (the client's walk layer 1: 0 … 5, 0 outside the map), when the goal must
     /// have the line to the target: a cell in range is the goal only if no cell of the line from it to the target, both
-    /// ends included, is below <paramref name="precision"/> (0x141d87160 at the order's precision: 1 for a Move or a
+    /// ends included, is below <paramref name="precision"/> (0x141d8a7f0 at the order's precision: 1 for a Move or a
     /// melee attack, 3 for a bow's). Null: any cell in range.</param>
     /// <param name="precision">The order's precision (MoveTo +0x528, 1 … 5): the line test's threshold.</param>
     public static List<(int X, int Y)> FindPath((int X, int Y) start, (int X, int Y) target, Func<int, int, bool> walkable,
@@ -90,11 +90,11 @@ public static class ClientPathfinder
     }
 
     /// <summary>
-    /// Where an order's goal is met without a step (0x141e7b260, what MoveTo tries before a search and an action tests
+    /// Where an order's goal is met without a step (0x141e81950, what MoveTo tries before a search and an action tests
     /// before it swings): <paramref name="here"/> is within [<paramref name="minRange"/>, <paramref name="maxRange"/>] of
     /// the target, the target's size (<paramref name="tolerance"/>, −1 for none) widening the range, and, for a target
     /// with a size, the line to it on the projectile grid holds <paramref name="precision"/> up to the target's body:
-    /// the last cell of the line at or above the threshold is within tolerance + 1 of the target (0x141d87500; a cell
+    /// the last cell of the line at or above the threshold is within tolerance + 1 of the target (0x141d8ab90; a cell
     /// each side on the diagonal). Without a size the range alone decides.
     /// </summary>
     public static bool InReach((int X, int Y) here, (int X, int Y) target, int minRange, int maxRange, int tolerance,
@@ -123,15 +123,15 @@ public static class ClientPathfinder
         /// <summary>The explored cell with the lowest heuristic, the first of its value.</summary>
         public (int X, int Y) Best { get; private set; }
         public void ToTarget() => (minRange, maxRange) = (0, 0);
-        readonly int _threshold = moverSize + 1, _objectRadius = 5 - 1 + moverSize;   // DAT_143a5fe58 = 5
+        readonly int _threshold = moverSize + 1, _objectRadius = 5 - 1 + moverSize;   // DAT_143a6ae58 = 5
         readonly int _vx = target.X - start.X, _vy = target.Y - start.Y;
-        // The coarse waypoints (goal first) and the path length from each to the target (DAT_1445bb850 / 0x1445bb868).
+        // The coarse waypoints (goal first) and the path length from each to the target (DAT_1445c69c0 / 0x1445c69d8).
         readonly List<(int X, int Y)> _coarse = [];
         readonly List<float> _coarseLength = [];
 
         bool InObjectAt(int x, int y) => ObjectBlocks(blockers, x, y, _threshold, _objectRadius);
 
-        // 0x141e4d7d0: the distance to the target (less the tolerance) outside [min, max], plus 0.001 × |cross|.
+        // 0x141e50ed0: the distance to the target (less the tolerance) outside [min, max], plus 0.001 × |cross|.
         float Heuristic(int x, int y)
         {
             int wx = x - target.X, wy = y - target.Y;
@@ -146,7 +146,7 @@ public static class ClientPathfinder
         static float Distance((int X, int Y) a, (int X, int Y) b) =>
             MathF.Sqrt((uint)((a.Y - b.Y) * (a.Y - b.Y) + (a.X - b.X) * (a.X - b.X)));
 
-        // 0x141e4ee90: the coarse waypoint a cell heads for (an index into _coarse + 1; 0 = the target itself).
+        // 0x141e52590: the coarse waypoint a cell heads for (an index into _coarse + 1; 0 = the target itself).
         byte Progress(byte index, (int X, int Y) cell)
         {
             static uint D2((int X, int Y) a, (int X, int Y) b) => (uint)((a.Y - b.Y) * (a.Y - b.Y) + (a.X - b.X) * (a.X - b.X));
@@ -208,7 +208,7 @@ public static class ClientPathfinder
                 if (c.H < bestH) { best = (cx, cy); bestH = c.H; }
                 if (c.H == 0f)
                 {
-                    // The goal line test (0x141d87160 on the projectile grid at the order's precision): a cell in range
+                    // The goal line test (0x141d8a7f0 on the projectile grid at the order's precision): a cell in range
                     // without the line to the target is searched on from, like any other.
                     if (sight is null || !LineBelow((cx, cy), target, sight, precision)) { end = (cx, cy); reached = true; break; }
                     SightFailed = true;
@@ -359,7 +359,7 @@ public static class ClientPathfinder
 
     static (int X, int Y) Step((int X, int Y) c, byte dir) => (c.X + Dirs[dir].X, c.Y + Dirs[dir].Y);
 
-    /// <summary>Whether a blocking object covers a cell for a mover (0x141e61370 / 0x141e61540): objects are found in the
+    /// <summary>Whether a blocking object covers a cell for a mover (0x141e65910 / 0x141e65ae0): objects are found in the
     /// 23-cell tiles within <paramref name="radius"/> of the cell, and block when their Chebyshev distance − their size is
     /// below <paramref name="threshold"/> (mover size + 1).</summary>
     public static bool ObjectBlocks(IReadOnlyList<Blocker> blockers, int x, int y, int threshold, int radius)
@@ -387,7 +387,7 @@ public static class ClientPathfinder
     }
 
     /// <summary>The cells of the client's line from <paramref name="a"/> to <paramref name="b"/>, both ends included
-    /// (the Bresenham of 0x141d87160, and of a walk segment, 0x141e4d180 / 0x141e4d390).</summary>
+    /// (the Bresenham of 0x141d8a7f0, and of a walk segment, 0x141e50880 / 0x141e50a90).</summary>
     public static IEnumerable<(int X, int Y)> Line((int X, int Y) a, (int X, int Y) b)
     {
         bool steep = Math.Abs(b.X - a.X) < Math.Abs(b.Y - a.Y);
@@ -412,13 +412,13 @@ public static class ClientPathfinder
         return false;
     }
 
-    /// <summary>The client's line test against a threshold (0x141d87160): whether a cell of the line from
+    /// <summary>The client's line test against a threshold (0x141d8a7f0): whether a cell of the line from
     /// <paramref name="a"/> to <paramref name="b"/>, both ends included, has a value below <paramref name="threshold"/>
     /// (a negative threshold: never).</summary>
     public static bool LineBelow((int X, int Y) a, (int X, int Y) b, Func<int, int, int> value, int threshold) =>
         LineBelow(a, b, value, threshold, out _);
 
-    /// <summary>The same test reporting where the line got to (0x141d87500): the last cell at or above the threshold
+    /// <summary>The same test reporting where the line got to (0x141d8ab90): the last cell at or above the threshold
     /// before the one below it, <paramref name="a"/> itself when that is the first.</summary>
     public static bool LineBelow((int X, int Y) a, (int X, int Y) b, Func<int, int, int> value, int threshold, out (int X, int Y) last)
     {
@@ -432,7 +432,7 @@ public static class ClientPathfinder
         return false;
     }
 
-    // The object line check (0x141e616a0): blocked when any cell of the line is inside an object.
+    // The object line check (0x141e65c40): blocked when any cell of the line is inside an object.
     static bool LineInObject((int X, int Y) a, (int X, int Y) b, Func<int, int, bool> inObject)
     {
         foreach (var (x, y) in Line(a, b))
@@ -440,7 +440,7 @@ public static class ClientPathfinder
         return false;
     }
 
-    // MSVC std::push_heap / std::pop_heap with the comparator a.F > b.F (0x141beb420 / 0x141beb2b0 / 0x141beb2a0).
+    // MSVC std::push_heap / std::pop_heap with the comparator a.F > b.F (0x141bedeb0 / 0x141bedd40 / 0x141bedd30).
     static bool Less((int, float F) a, (int, float F) b) => a.F > b.F;
 
     static void Push(List<(int Index, float F)> heap, int index, float f)

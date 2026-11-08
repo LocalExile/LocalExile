@@ -14,6 +14,7 @@ static partial class Game
         public double At;
         public object? Pools;
         public long NextBuff, Life, Mana;
+        public long Golems;
         public int Overrides, Auras;
         public bool Moving;
         public Dictionary<uint, int>? Stats;
@@ -40,13 +41,13 @@ static partial class Game
         return new()
         {
             At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = (long)conn.PlayerMana,
-            Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now),
+            Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
         };
     }
 
     static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
         b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
-        && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving;
+        && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving && a.Golems == b.Golems;
 
     internal static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {
@@ -96,7 +97,7 @@ static partial class Game
 
     // ---- the skill list ----
 
-    // The last full skill list (0x2ba, no removals) this client was sent: the Rage, charge, aura, Fortification, Onslaught,
+    // The last full skill list (0x2bc, no removals) this client was sent: the Rage, charge, aura, Fortification, Onslaught,
     // Rampage and Antiquarian refreshes resend it whole, about 32 KB, at every change of theirs, also when not one skill
     // changed. An unchanged list is left out. The full refresh (SendCharacterStats) always sends and records it.
     sealed class SentSkillList { public byte[]? Bytes; }
@@ -104,7 +105,7 @@ static partial class Game
 
     internal static byte[] PlayerSkillsIfChanged(ClientState conn, IReadOnlyList<GrantedSkill> skills)
     {
-        var bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, []);
+        var bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn));
         var sent = SentSkillLists.GetOrCreateValue(conn);
         lock (sent)
         {
@@ -118,6 +119,6 @@ static partial class Game
     internal static void RecordPlayerSkills(ClientState conn, IReadOnlyList<GrantedSkill> skills)
     {
         var sent = SentSkillLists.GetOrCreateValue(conn);
-        lock (sent) sent.Bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, []);
+        lock (sent) sent.Bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn));
     }
 }

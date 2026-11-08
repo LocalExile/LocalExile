@@ -45,8 +45,8 @@ branch's stack the same evening: 28 default attacks and 18 gem uses against the 
 2dd0d763 and before 185ee748 moved the arrow release point. The capture files stay local:
 they hold account data and are not committed. The analysis used `sniff.py` on both.
 
-- **No arrow objects.** Over all 45 live shots, the server sent no `0x2b9` arrow and no `0x2bb` removal. A shot was
-  the `0x1ab` echo, `0x1ac` and a `0x2ba` on the player at once, then `0x1af`, `0x1b3` and `0x1b1` on the target when
+- **No arrow objects.** Over all 45 live shots, the server sent no `0x2bb` arrow and no `0x2bd` removal. A shot was
+  the `0x1ab` echo, `0x1ac` and a `0x2bc` on the player at once, then `0x1af`, `0x1b3` and `0x1b1` on the target when
   it landed, so the live client draws its own arrows. This branch creates `Metadata/Projectiles/DefaultArrow` objects
   (and the gem's projectile) for each shot. The Frida trace that saw no client arrows on our server therefore points
   at something in our answer that stops the client from drawing its own. The likeliest causes are the skill ids
@@ -76,7 +76,7 @@ from login. Live 0x20 registered `Metadata/Monsters/SandSpitters/SandSpitter12@1
 this branch spawns there, and all 11 hits the player took came from three of them (type `0xe63d7611`). In the first
 capture the player was never hit (its `0x1b1` changes were mana, pool 1).
 
-- **No mortar objects.** No `0x2b9` was created around the spits, so the live client draws the mortar as well. This
+- **No mortar objects.** No `0x2bb` was created around the spits, so the live client draws the mortar as well. This
   branch sends `Metadata/Projectiles/SandspitterMortarProjectile` objects.
 - **The spit and its hit.** Each spit is `0x1ab` flags `0x80` with the player as the target object and a real action
   sequence (`0x80bc`, `0x80bd`, …; the Spitter's skills there were `0x4000`–`0x4002`). Each hit is `0x1af` kind 3,

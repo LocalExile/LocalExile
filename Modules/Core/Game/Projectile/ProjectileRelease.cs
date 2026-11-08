@@ -43,6 +43,11 @@ static partial class Game
     internal static bool UsesProjectileRuntime(int effect) => Skills.IsProjectile(effect)
         || ProjectileDefinition(Skills.EffectId(effect) ?? "") is not null;
 
+    // Presentation only: Burning Arrow's real local input emits its own primary. Keep its existing simulation
+    // geometry separate from ClientPredicted, which also selects native range/contact/volley specialization.
+    internal static bool ClientDrawsPrimaryProjectile(bool predicted, string? effect) =>
+        predicted || effect == "BurningArrow";
+
     // Validate adopted paths before accepting an action, spending mana or reserving a cooldown.
     // Release still resolves again: equipment/stats may change during the ordinary cancellable windup.
     internal static bool ProjectilePathAvailable(string remote, ClientState conn, ushort skillId, int effect)
@@ -73,7 +78,7 @@ static partial class Game
     internal static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
-        ushort sequence = 0)
+        ushort sequence = 0, double? swingAt = null)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -81,7 +86,8 @@ static partial class Game
         bool cancelOnNewAction = !attack || ResolveProjectileDefinition(gem.Effect)?.CancelWindupOnNewAction == true;
         int? cast = attack ? 0 : CastMs(conn, gem.Effect, skillId);
         if (cast is null) return Task.CompletedTask;
-        double acceptedAt = conn.Clock.Elapsed.TotalSeconds;
+        // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
+        double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
         double? thrown = attack && SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow"
             ? SpectralThrowRelease.Delay(conn, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
@@ -128,35 +134,7 @@ static partial class Game
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
         int Get(string key) => Player(key) + Own(key);
-        // The client's range (slot 0x600, 0x141ba62d0): projectile_maximum_range_override, else 50 with the Reclaimed
-        // Malevolence notable, else 150 cells. A return (0x141bb2ae0) flies back to the caster's cell and that range on.
-        double range = Get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
-            : Get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
-        // The client's object contact uses the row's radii and the monster's size, not the server's 4-cell stand-in.
-        use = use with { Profile = use.Profile with { Range = range, ReturnOvershoot = range,
-            ContactCells = SkillsFor(conn).ProjectileContactCells(use.Profile.Id) } };
-        // 0x141bb13a0 picks parallel (0x141bb89d0) and random directions (0x141bb9280) before nova and fan.
-        // shortcut: parallel keeps the server's fan until it is ported.
-        if (use.Profile.ReturnChancePercent is > 0 and < 100)
-            use = use with { Profile = use.Profile with { ReturnRolls = ReturnRolls(sequence, use.Profile.Count, PlayerId, repeatsLeft) } };
-        if (Get("support_parallel_projectile_number_of_points_per_side") == 0)
-            use = use with
-            {
-                Profile = use.Profile with
-                {
-                    NativeVolley = Get("random_projectile_direction") != 0
-                        ? new() { Angles = RandomVolleyAngles(sequence, use.Profile.Count, PlayerId, use.Aim - use.Origin, repeatsLeft) }
-                        : new()
-                        {
-                            Width = Get("total_projectile_spread_angle_override") is > 0 and var width
-                                ? width / 10.869565 : 60 / 10.869565,
-                            FixedDegrees = Get("projectile_remove_default_spread") != 0 ? -1 : Get("fixed_projectile_spread"),
-                            SpreadPercent = Get("multiple_projectiles_projectile_spread_+%"),
-                            // 0x141bb33f0 (the Disgorge nova and the action's own flags are not tracked here).
-                            Nova = Get("projectiles_nova") != 0
-                        }
-                }
-            };
+        use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft) };
         if (SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow")
         {
             double thrown = use.Profile.Speed;
@@ -183,17 +161,37 @@ static partial class Game
             Profile = use.Profile with
             {
                 Legs = i => new SparkLegs(sequence, i, PlayerId, life, randomDuration, speed, repeatsLeft),
-                // 0x141b36170: a spark ends 150 cells from where it started.
+                // 0x141b38c00: a spark ends 150 cells from where it started.
                 LegLeash = 150
             }
         };
     }
 
-    // random_projectile_direction (static RE 2026-10-31). A volley (0x141bb0f20 → 0x141bb9280) seeds 0x141bba070 from
+    // What a projectile the client draws itself takes from the client's own rules, so a hit lands where it is drawn:
+    // its range (slot 0x600, 0x141ba8d60: projectile_maximum_range_override, else 50 with the Reclaimed Malevolence
+    // notable, else 150 cells; a return, 0x141bb5570, flies back to the caster's cell and that range on), its object
+    // contact from the row's radii and the target's size instead of the server's 4-cell stand-in, its return rolls, and
+    // its volley: 0x141bb3e30 picks parallel (0x141bbb460) and random directions (0x141bbbd10) before nova and fan.
+    // shortcut: parallel keeps the server's fan until it is ported.
+    internal static ProjectileProfile ClientDrawnProfile(ClientState conn, ProjectileProfile profile, Func<string, int> get,
+        ushort sequence, ProjectileVector aim, uint repeatsLeft = 0)
+    {
+        double range = get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
+            : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
+        profile = profile with { Range = range, ReturnOvershoot = range, ContactCells = SkillsFor(conn).ProjectileContactCells(profile.Id) };
+        if (profile.ReturnChancePercent is > 0 and < 100)
+            profile = profile with { ReturnRolls = ReturnRolls(sequence, profile.Count, PlayerId, repeatsLeft) };
+        if (get("support_parallel_projectile_number_of_points_per_side") == 0 && get("random_projectile_direction") != 0)
+            return profile with { NativeVolley = new() { Angles = RandomVolleyAngles(sequence, profile.Count, PlayerId, aim, repeatsLeft) } };
+        // 0x141bb5e80 (the Disgorge nova and the action's own flags are not tracked here).
+        return NativeVolley(profile, get);
+    }
+
+    // random_projectile_direction (static RE 2026-10-31). A volley (0x141bb39b0 → 0x141bbbd10) seeds 0x141bbcb00 from
     // [sequence, action +0x11c (0), +0x2d0, +0x458 (0), owner, slot 0x540 (0), 0] and turns each projectile's aim
-    // by a 0–2π draw. A single projectile (0x141bb13a0) seeds 0x141a0c9d0 from its detached copy, [sequence, 2, +0x458
+    // by a 0–2π draw. A single projectile (0x141bb3e30) seeds 0x141a0f3e0 from its detached copy, [sequence, 2, +0x458
     // (0), +0x2d0, owner], and flies along (sin a, cos a) whatever the aim. +0x2d0 is the cast's repeats left
-    // (SpellRepeats), which the copy (0x1419e2d40) keeps.
+    // (SpellRepeats), which the copy (0x1419e5750) keeps.
     internal static double[] RandomVolleyAngles(ushort sequence, int count, uint owner, ProjectileVector aim, uint repeatsLeft = 0)
     {
         const float Tau = 6.2831855f;
@@ -208,10 +206,10 @@ static partial class Game
         return angles;
     }
 
-    // projectile_return_%_chance (0x141bb04f0, static RE 2026-10-31): each projectile's own action copy rolls 0–99
-    // (0x1404d03d0) from a generator seeded (0x1419c29b0) with [sequence, +0x11c (2 + its index, as Spark's), owner,
+    // projectile_return_%_chance (0x141bb2f80, static RE 2026-10-31): each projectile's own action copy rolls 0–99
+    // (0x1404d0990) from a generator seeded (0x1419c73c0) with [sequence, +0x11c (2 + its index, as Spark's), owner,
     // +0x2d0 (the repeats left), byte +0x2b8, 0, 0, 0] and returns when the roll is under the chance.
-    // shortcut: +0x2b8 is taken as 0 (only its decrement, 0x141ba4620, was found); check it live with a return chance.
+    // shortcut: +0x2b8 is taken as 0 (only its decrement, 0x141ba70b0, was found); check it live with a return chance.
     internal static int[] ReturnRolls(ushort sequence, int count, uint owner, uint repeatsLeft = 0)
     {
         var rolls = new int[count];
@@ -224,6 +222,10 @@ static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0)
     {
+        // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
+        // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
+        // equipment/requirements/support walk for every field while holding the combat lock.
+        using var snapshot = new PlayerStatScope(conn, fresh: true);
         var player = CharacterPlayerStats(conn);
         var own = SupportedSkill(conn, skillId).Stats;
         var merged = MergeSkillStats(player, own);
@@ -279,7 +281,7 @@ static partial class Game
             AreaHit = SupportedProjectileHit(conn, skillId, area: true),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             VsProfaneCriticalChance = SupportedCriticalChanceVsProfane(conn, skillId, release: true),
-            Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality,
+            Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
             SkillStats = new Dictionary<uint, int>(own),
             Penetration = Penetration.Of(player, Stats, !spell, own, local), ResistanceMods = HitResistMods(player, own),
             ImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local),
@@ -298,9 +300,9 @@ static partial class Game
             PointBlank = Get("keystone_point_blank") != 0,
             ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindInputs(player, own),
             // A spell's action spawns its projectiles itself, every one of a volley, from where it stands (Frida
-            // 2026-10-29, 0x141ebdf30 from the action at 0x141e938c0): a server object for them was a second fireball.
-            // An attack gem's does not: Burning Arrow's action 0x415 started and created no projectile until the server's
-            // 0x2b9, as the default attack's arrow (Frida 2026-10-31).
+            // 2026-10-29, 0x141ec47e0 from the action at 0x141e9a160): a server object for them was a second fireball.
+            // The older packet-driven Burning Arrow control missed local input prediction: real mouse input creates
+            // a client projectile too. ClientDrawsPrimaryProjectile handles its visual without changing simulation.
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
             // Arrow Nova's volley is drawn by the client (the 18 SplitArrowDefault children were client objects), but
             // its payload arrow is not, so the server still sends that one object.

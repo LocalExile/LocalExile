@@ -35,6 +35,7 @@ static partial class Game
         }
         ChargesOf(conn).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(conn).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary));
+        CurseCharges(conn, m, false);
     }
 
     // The player died (PlayerDied): every gained charge goes now, not at the ticker's next step, which a pause holds back.
@@ -56,11 +57,16 @@ static partial class Game
             conn.RecentEvents.Record(StatConditions.KilledEnemy, now);
         }
         ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
+        CurseCharges(conn, m, true);
     }
 
-    // A monster's hit on the player that landed (when hit) or was blocked (on block).
-    internal static void ChargesWhenHit(ClientState conn, bool blocked, bool spell = false) =>
-        ChargesOf(conn).Enqueue(blocked ? new ChargeEvent.Block(spell) : new ChargeEvent.WhenHit());
+    // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit
+    // recently" counts blocked hits too (wiki Blocking, fixed in 3.11.1c).
+    internal static void ChargesWhenHit(ClientState conn, bool blocked, bool spell = false)
+    {
+        ChargesOf(conn).Enqueue(new ChargeEvent.WhenHit());
+        if (blocked) ChargesOf(conn).Enqueue(new ChargeEvent.Block(spell));
+    }
 
     // Transfer: the charges go with the player to the area of the new ticket.
     // Whether the official server keeps charges across areas is not documented (poewiki's Charge page says nothing about
@@ -207,7 +213,7 @@ static partial class Game
     const int InfiniteWarcryPower = 999999;
 
     // A warcry's use time (PoB CalcOffence calcWarcryCastTime): its cast time over warcry speed (the player's and the
-    // gem's) and action speed, at least a server tick. The client times the cry from the same warcry_speed_+% (0x141abcaa0).
+    // gem's) and action speed, at least a server tick. The client times the cry from the same warcry_speed_+% (0x141abf4b0).
     internal static double WarcryCastSeconds(ClientState conn, int effect, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int> own)
     {
@@ -386,7 +392,7 @@ static partial class Game
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats (charges {why})");
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerSkillsIfChanged(conn, PlayerSkills(conn)),
-            $"0x02ba player Actor: {skills.Count} skill(s), charge stats");
+            $"0x02bc player Actor: {skills.Count} skill(s), charge stats");
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
     }
 }

@@ -1,8 +1,8 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary><c>0x142114f00</c> (after the edge routing, no draws): virtual edges that leave a room bend into an arc
-/// toward the room's side (<c>0x14212a340</c> at the first node, <c>0x14212ac40</c> at the second; up to five rounds
-/// while one bends), then corners are rounded (<c>0x14210aeb0</c>, up to five rounds while one changes).</summary>
+/// <summary><c>0x14211b800</c> (after the edge routing, no draws): virtual edges that leave a room bend into an arc
+/// toward the room's side (<c>0x142130c40</c> at the first node, <c>0x142131540</c> at the second; up to five rounds
+/// while one bends), then corners are rounded (<c>0x1421117b0</c>, up to five rounds while one changes).</summary>
 sealed class EdgeShaping(TileGraph graph, Func<GraphEdge, EdgeType> type)
 {
     bool _changed;
@@ -23,14 +23,14 @@ sealed class EdgeShaping(TileGraph graph, Func<GraphEdge, EdgeType> type)
         RoundAll();
     }
 
-    /// <summary><c>0x14210aeb0</c> up to five rounds, while a round changes something.</summary>
+    /// <summary><c>0x1421117b0</c> up to five rounds, while a round changes something.</summary>
     public void RoundAll()
     {
         for (int round = 0; round < 5; round++)
             if (!RoundCorners()) break;
     }
 
-    /// <summary><c>0x14212a340</c> (end 0) / <c>0x14212ac40</c> (end 1): where the edge leaves its node across the
+    /// <summary><c>0x142130c40</c> (end 0) / <c>0x142131540</c> (end 1): where the edge leaves its node across the
     /// offset's axis at a slant of more than 30°, points on a circle tangent to the offset (one per 45°) lead into
     /// it.</summary>
     void Arc(GraphEdge e, int end)
@@ -124,7 +124,7 @@ sealed class EdgeShaping(TileGraph graph, Func<GraphEdge, EdgeType> type)
         _changed = true;
     }
 
-    /// <summary><c>0x14210aeb0</c>: from every node with one edge, then every node with more, each edge not rounded yet
+    /// <summary><c>0x1421117b0</c>: from every node with one edge, then every node with more, each edge not rounded yet
     /// is rounded from that end (<see cref="Round"/>). True when something changed.</summary>
     bool RoundCorners()
     {
@@ -155,10 +155,10 @@ sealed class EdgeShaping(TileGraph graph, Func<GraphEdge, EdgeType> type)
         else e.Points[i - 1] = p;
     }
 
-    /// <summary><c>0x14210a240</c>: walks the edge from one end (and on through nodes with two edges) and rounds each
+    /// <summary><c>0x142110b40</c>: walks the edge from one end (and on through nodes with two edges) and rounds each
     /// corner sharper than about 140°: the corner is replaced by two points (max width + 10)-ish away along its two
     /// segments, or moved to the middle when its segments are too short; repeated points are removed
-    /// (<c>0x142109fb0</c>).</summary>
+    /// (<c>0x1421108b0</c>).</summary>
     void Round(GraphEdge e, int back)
     {
         int step = back == 0 ? 1 : -1;
@@ -294,7 +294,7 @@ sealed class EdgeShaping(TileGraph graph, Func<GraphEdge, EdgeType> type)
         }
     }
 
-    /// <summary><c>0x142109fb0</c>: removes the corner at pos; when the next point is the far node (joining
+    /// <summary><c>0x1421108b0</c>: removes the corner at pos; when the next point is the far node (joining
     /// <paramref name="other"/>), the node takes the nearest internal point instead (of this edge, else of the other).
     /// False when there is nothing to remove.</summary>
     static bool RemovePoint(GraphEdge e, int back, GraphEdge? other, int otherBack, int pos)
@@ -322,7 +322,7 @@ sealed class EdgeShaping(TileGraph graph, Func<GraphEdge, EdgeType> type)
         return true;
     }
 
-    /// <summary><c>0x1421275a0</c>: inserts a position at index i (0: before the first node, which takes it; n + 2: after
+    /// <summary><c>0x14212dea0</c>: inserts a position at index i (0: before the first node, which takes it; n + 2: after
     /// the second node, likewise; else among the internal points).</summary>
     static void Insert(GraphEdge e, int i, (int X, int Y) p)
     {
@@ -342,7 +342,7 @@ sealed class EdgeShaping(TileGraph graph, Func<GraphEdge, EdgeType> type)
 
 public static partial class GraphGeometry
 {
-    // 0x142fe0a10: a sine table of 256 steps (127 = 1).
+    // 0x142feab40: a sine table of 256 steps (127 = 1).
     static readonly sbyte[] Sine =
     [
         0, 3, 6, 9, 12, 16, 19, 22, 25, 28, 31, 34, 37, 40, 43, 46, 49, 51, 54, 57, 60, 63, 65, 68, 71, 73, 76, 78, 81, 83,
@@ -366,7 +366,7 @@ public static partial class GraphGeometry
         return Math.Clamp(v, -0x7f, 0x7f);
     }
 
-    /// <summary><c>0x14299d820</c>: a vector of length r at an angle (0x10000 = a full turn).</summary>
+    /// <summary><c>0x1429a6b80</c>: a vector of length r at an angle (0x10000 = a full turn).</summary>
     public static (int X, int Y) Polar(int r, int angle)
     {
         int s = SineOf(angle & 0xffff), c = SineOf((0x4000 - angle) & 0xffff);

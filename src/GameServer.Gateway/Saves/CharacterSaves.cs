@@ -36,8 +36,10 @@ static class CharacterSaves
     /// <summary>A Monster Statue decoration: the MonsterVarieties HASH16 and the actor variation (5 the stone pose).</summary>
     public sealed record SavedMonsterStatue(int X, int Y, float Rotation, ushort MonsterHash16, ushort Scale = 100, byte Variation = 5);
 
-    /// <summary>A worn cosmetic: the record picked (a MtxTypes row + 1) and the 0x1f9 option byte it was picked with.</summary>
-    public sealed record SavedCosmetic(uint Record, byte Option = 0);
+    /// <summary>A worn cosmetic: the record picked (a MtxTypes row + 1), the 0x1f9 option byte it was picked with and the
+    /// record's MtxTypes HASH32, which names it in every game version. A save without the hash was written by a 3.29.3b
+    /// build: its record is a 3.29.3b row (<see cref="CosmeticMigration"/>).</summary>
+    public sealed record SavedCosmetic(uint Record, byte Option = 0, uint? Hash = null);
 
     /// <summary>Skill bar: slot index → a GrantedEffects Id (skill ids change with the socketed gems, effects do not),
     /// "Action/&lt;ActionTypes Id&gt;" for a basic action ("Action/Move") or "" for a cleared slot. Experience: the
@@ -69,7 +71,7 @@ static class CharacterSaves
         Dictionary<ushort, ushort>? TattooKeystones = null, List<List<ushort>>? AtlasPassivePresets = null,
         ushort? AtlasPassivePoints = null, string? SelectedAtlasLayout = null, Dictionary<string, string>? ModuleData = null,
         List<string>? QuestRefundsCredited = null, string? PantheonMajor = null, string? PantheonMinor = null,
-        ushort? AttackInPlaceSlots = null, ushort? SkillBarMask52 = null)
+        ushort? AttackInPlaceSlots = null, ushort? SkillBarMask52 = null, string? Stance = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -186,6 +188,7 @@ static class CharacterSaves
         && HardcoreDeathRules.TicketMatches(current, characterId, league);
 
     public static void ClearActiveAuras(string character) => Update(character, save => save with { ActiveAuras = [] });
+    public static void SetStance(string character, string stance) => Update(character, save => save with { Stance = stance });
 
     /// <summary>Persist aura intent by stable GrantedEffects Id, replacing any alias of the same aura family.</summary>
     public static void SetAuraActive(string character, string effect, bool active) => Update(character, save =>
@@ -383,6 +386,9 @@ static class CharacterSaves
     /// <summary>Records the Atlas layout selected on the map device, by AtlasNode Id.</summary>
     public static void SetAtlasLayout(string character, string layout) =>
         Update(character, s => s with { SelectedAtlasLayout = layout });
+
+    /// <summary>The Atlas layout the character selected (an AtlasNode Id), or null before it picked one (382).</summary>
+    public static string? AtlasLayout(string character) => Load(character)?.SelectedAtlasLayout;
 
     /// <summary>Records the three Atlas passive presets (PassiveSkillGraphId lists) and the points the character has.</summary>
     public static void SetAtlasPassives(string character, IReadOnlyList<IReadOnlyList<ushort>> presets, ushort points) =>

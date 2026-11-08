@@ -135,26 +135,44 @@ static partial class Game
     internal sealed record RagePrepared(RageState.Value Value, IReadOnlyList<GrantedSkill> Skills,
         SkillSnapshotInputs? Inputs = null);
 
-    // A Rage value alone cannot identify a skill list: gems, equipment, conditional stats, pools and art also matter.
+    // A Rage value alone cannot identify a skill list: gems, equipment, conditional stats, pools, art and client mode also matter.
     internal sealed record SkillSnapshotInputs(Dictionary<uint, int> Stats,
         InventoryItem[] Equipment, Dictionary<string, CharacterSaves.SavedCosmetic> Cosmetics,
-        CharacterStats.Pools Pools, uint Life)
+        CharacterStats.Pools Pools, uint Life, bool LockstepClient)
     {
         public static SkillSnapshotInputs Capture(ClientState conn, Dictionary<uint, int> stats) =>
             new(new(stats), [.. ItemsOf(conn).EquipmentSnapshot().Select(e => e.Item)],
-                new(CharacterSaves.SkillCosmetics(CharacterName(conn))), conn.Pools, conn.PlayerLife);
+                new(CharacterSaves.SkillCosmetics(CharacterName(conn))), conn.Pools, conn.PlayerLife, conn.LockstepClient);
 
         public bool Matches(ClientState conn, Dictionary<uint, int> stats)
         {
-            if (Pools != conn.Pools || Life != conn.PlayerLife || Stats.Count != stats.Count
+            if (LockstepClient != conn.LockstepClient || Pools != conn.Pools || Life != conn.PlayerLife || Stats.Count != stats.Count
                 || Stats.Any(kv => !stats.TryGetValue(kv.Key, out int value) || value != kv.Value)) return false;
             var equipment = ItemsOf(conn).EquipmentSnapshot().Select(e => e.Item).ToArray();
             if (equipment.Length != Equipment.Length) return false;
             for (int i = 0; i < equipment.Length; i++)
-                if (equipment[i].Id != Equipment[i].Id || !ReferenceEquals(equipment[i].Item, Equipment[i].Item)) return false;
+                if (equipment[i].Id != Equipment[i].Id || !SameSkillItem(equipment[i].Item, Equipment[i].Item, ItemsFor(conn))) return false;
             var cosmetics = CharacterSaves.SkillCosmetics(CharacterName(conn));
             return cosmetics.Count == Cosmetics.Count && Cosmetics.All(kv => cosmetics.TryGetValue(kv.Key, out var value) && value == kv.Value);
         }
+    }
+
+    // Gem XP rewrites an equipped host on every kill. XP within the same gem level changes neither its requirements
+    // nor its skill records. Compare every other item field, socket colour and gem field normally.
+    internal static bool SameSkillItem(Item a, Item b, ItemCatalog catalog)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a.Sockets.Count != b.Sockets.Count || a with { Sockets = b.Sockets } != b) return false;
+        for (int i = 0; i < a.Sockets.Count; i++)
+        {
+            var left = a.Sockets[i]; var right = b.Sockets[i];
+            if (left.Colour != right.Colour) return false;
+            if (ReferenceEquals(left.Gem, right.Gem)) continue;
+            if (left.Gem is not { } first || right.Gem is not { } second
+                || first with { GemExperience = second.GemExperience } != second
+                || catalog.GemLevel(first) != catalog.GemLevel(second)) return false;
+        }
+        return true;
     }
 
     // The skill list is the expensive part of a Rage change (every gem's panel damage): build it before the send gate, so

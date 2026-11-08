@@ -8,9 +8,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Quests: a1q1: new characters
   start on The Twilight Strand's beach and log in there until they reach a town;
   coming within 60 cells of Hillock sets `a1q1-SeenHillock` ("Kill Hillock");
-  Hillock has the boss life bar at the top of the screen once he aggroes (StateMachine `boss_life_bar`, 0x2ba), unique
+  Hillock has the boss life bar at the top of the screen once he aggroes (StateMachine `boss_life_bar`, 0x2bc), unique
   life (311 at level 1) and a second stage: at half life he pulls out his sword (ZombieBossExtract, Transitionable → 2)
-  and his life fills up again; the force wall (`Tutorial_Blocker_3`, the room's angle and scale 2.7) stands across the
+  and heals at its extracted contact (~750 ms), with separate 3 s recovery; the force wall stands across the
   way to the gate until he dies, and the server closes the way on its own walk map too (`QuestBarriers`), so its
   position estimate stops where the client stops; after his death the quest log says to enter the gate (every
   character has `CompletedAllTutorials`); his death levels the character to 2, removes the wall and creates the gate
@@ -22,7 +22,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   tile records and each drops its glyph once per instance while the character still needs it.
   Picking a glyph up sets `a1q4-KnowsAboutGlyphs` and `a1q4-HaveGlyphN`; coming near the Glyph Wall sets
   `a1q4-SeenGlyphWall`.
-  Using the wall with all three glyphs takes them, sets `a1q4-PlacedGlyphs` and plays the wall's transition (0x2ba to
+  Using the wall with all three glyphs takes them, sets `a1q4-PlacedGlyphs` and plays the wall's transition (0x2bc to
   Transitionable).
   The client's invisible wall then opens, and the exit into The Submerged Passage appears; until then the server's
   walk estimate stops at the same invisible wall as the client.
@@ -118,8 +118,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   (Shavronne), a6q7 (Abberath, both phases), a6q6 (Ryslatha) and a6q1 (the three Nessas, the Beacon lit, the Black
   Flag, the Brine King; Weylam sails to The Bridge Encampment). It ended in 2_7_town with every flag of `Act4Complete`
   and the act 5/6 completion flags; every area change through an exit, a waypoint or an NPC-script transport. The god
-  Sins appear where the gods die. `a4q1-KillGuardians` is not set; the Beacon's fuel carts are left out (the lever
-  lights it). Driver step files `scripts/dev/campaign/quests/a4q*.py`, `a5q*.py`, `a6q*.py`.
+  Sins appear where the gods die. `a4q1-KillGuardians` is not set. The Beacon now has both proximity-escorted fuel
+  carts, route encounters, staged refuelling and separate ignition/flag use (live 2026-11-06); its escort radius and
+  encounter counts still need comparison with the original server. The Brine King now has a separate staged controller
+   (75/50/25% life gates, flood, tide, storm, defensive stance, minions and boss life bar): all three floods,
+   tide buff entry/exit, combat and the post-kill Act 7 transition were verified live 2026-11-06.
+   A party member can finish while the instance host stays at the entrance or dies; late joins retain valid packets.
+   Original-server timing and damage comparison remain pending. Driver: `scripts/dev/campaign/quests/a[456]q*.py`.
   Code: `Acts/Act4.cs`, `Acts/Act5.cs`, `Acts/Act6.cs` (QuestObjects module), Highgate's two Diallas in `NPC/TownNpcs.cs`.
   Docs: [12](../docs/protocol/12-quests.md) §13–15; [act 4](../docs/game/campaign/act4.md),
   [act 5](../docs/game/campaign/act5.md), [act 6](../docs/game/campaign/act6.md).

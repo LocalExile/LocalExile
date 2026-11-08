@@ -6,7 +6,7 @@ using GameServer.Storage;
 
 /// <summary>
 /// An account's stash (Agents/docs/protocol/18-stash.md): its tabs and their items, shared by every character of the
-/// account, the tab the stash was last on, and the account's gold (S→C 0x2a9, also shared by every character). One row
+/// account, the tab the stash was last on, and the account's gold (S→C 0x2aa, also shared by every character). One row
 /// per account in the save database (<see cref="Saves"/>), written in a transaction after every change. A new account
 /// gets <see cref="StarterTabs"/>.
 /// <para>Item ids: characters number their items from 1, each on its own, so an item put into the stash gets a stash id
@@ -162,6 +162,8 @@ sealed partial class AccountStash
             else if (added.Count > 0) stash.Persist([.. Enumerable.Range(stash._tabs.Count - added.Count, added.Count)]);
             else if (stash.Repair(i => catalog.ByHash(i.TypeHash) is { } t ? new PlayerInventories.Shape(t.Width, t.Height, t.Class) : null) is { Count: > 0 } repaired)
                 stash.Persist([.. repaired]);
+            // A map tab gets a page per tier (#477): the client shows a map only on a page of its own.
+            stash.EnsureMapChildren();
             return stash;
         });
 
@@ -198,7 +200,7 @@ sealed partial class AccountStash
 
     public int Count { get { lock (_lock) return _tabs.Count; } }
 
-    /// <summary>The account's gold (S→C 0x2a9).</summary>
+    /// <summary>The account's gold (S→C 0x2aa).</summary>
     public uint Gold { get { lock (_lock) return _gold; } }
 
 
@@ -404,6 +406,13 @@ sealed partial class AccountStash
         why = "";
         if (t.Saved.UniqueCategory != 0)
         {
+            // A map tab's page (AccountStash.Map) takes a map at the first free cell; every other hidden child is a
+            // unique collection category with one cell per unique.
+            if (t.Saved.Type == StashRules.Map)
+            {
+                if (!MapPageTakes(t.Saved.UniqueCategory, item)) { why = "the map page takes maps only"; return null; }
+                return (x, y);
+            }
             if (_rules.Uniques.Find(item) is not { } unique || unique.Category != t.Saved.UniqueCategory)
             { why = "this unique does not belong to the collection category"; return null; }
             return (unique.X, unique.Y);
@@ -719,7 +728,9 @@ sealed partial class AccountStash
             var t = _tabs[tab];
             if (CellIn(t, item, 0, 0, out _) is not var (sx, sy)) return null;
             if (t.Saved.UniqueCategory != 0)
-                return t.Items.Any(i => i.X == sx && i.Y == sy) ? null : ((byte)sx, (byte)sy);
+                return t.Saved.Type == StashRules.Map
+                    ? FreeCellIn(t, shape.Width, shape.Height, shapeOf)
+                    : t.Items.Any(i => i.X == sx && i.Y == sy) ? null : ((byte)sx, (byte)sy);
             if (!_rules.Slotted(t.Saved.Type)) return FreeCellIn(t, shape.Width, shape.Height, shapeOf);
             return t.Items.Any(i => i.X == sx && i.Y == sy) ? null : ((byte)sx, (byte)sy);
         }

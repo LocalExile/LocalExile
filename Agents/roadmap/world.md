@@ -44,7 +44,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   ([re/011](../docs/re/011-level-generation.md), [status/world.md](../status/world.md)).
   `/tour <file>` with `live.ps1 -Walkmaps` records new (area, seed) loads; `levelgen tourlist` writes the lists.
 - **Start:** the supported areas get random seeds, and a 5-seed tour of them found 4 loads the port gets wrong
-  (1_2_15 at `0x14211532d`, 1_2_14_2 at `0x142031e88`, [re/011](../docs/re/011-level-generation.md) §8 Random seeds)
+  (1_2_15 at `0x14211bc2d`, 1_2_14_2 at `0x1420386d8`, [re/011](../docs/re/011-level-generation.md) §8 Random seeds)
   and 202 seeds it cannot generate (the Gateway plays a new instance at such a seed at a replacement seed it can,
   `ServerLevels.PlayableSeed`; fixing the generator errors gives those seeds back).
 - **To be implemented with their leagues (out of scope for now):** the 202 areas whose level the client builds from
@@ -111,8 +111,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   The day's layout is sent with each room in it, and a Normal run works ([status](../status/world.md), "A Labyrinth run").
   The Aspirants' Plaza (`Labyrinth_Airlock`, `WaypointCatalog.LabyrinthPlaza`) is a waypoint the World panel's
   Labyrinth pin always shows.
-  Ascendancy points come only from the `/ascendancy_points` dev command (`AscendancyProgress`: two per tier, once);
-  choosing the ascendancy through the native Altar is #151.
+  The Ascendancy Chamber's font chooses the ascendancy and gives the tier's two points, and Izaro's three trials are
+  fought ([status](../status/world.md), "A Labyrinth run";
+  [labyrinth-trials](../docs/game/labyrinth-trials.md), "Izaro's arenas").
   The tables are extracted (`data/tables/Labyrinth*.json`): 4 tiers with their required trials, quest flag and area
   level, 18 trials, 47 sections, 223 section layout rows, 58 secrets and the Izaro chests.
   AreaTransition type 5 is Labyrinth ([08](../docs/protocol/08-area-transitions.md) §7), and
@@ -126,11 +127,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. Izaro: three Aspirant's Trials, each ending when he loses a third of his life (the boss stages of
-     `BossFights.cs`); the third opens the Ascendancy Chamber and its Izaro chests (LabyrinthIzaroChests).
-  2. The Ascendancy Chamber: the Altar (`LabyrinthAscendancyDevice`) chooses the ascendancy on the first Normal run,
-     awards the tier's two points through `AscendancyProgress` and sets the tier's quest flag (Labyrinths
-     `QuestFlag`); agree the shared code with #151.
+  1. Izaro's arenas' mechanics (the day's LabyrinthSecrets on his rooms: their objects at the BossObjectiveMarkers,
+     LabyrinthSecretEffects, carried to the later trials), one at a time, and the Goddess of Justice.
+  2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
   3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
      Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type
@@ -149,9 +148,21 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   swap places between client and server ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
 - **Lockstep network mode:** the server decides every action and the client plays it back by server frames, each
   action start putting the client on the server's cell, which ends the parted copies of a crowd.
-  It works locally and over a network, off by default ([status](../status/world.md)).
-  Still needed: monsters' order keys, and a decision on turning it on
-  ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
+  It works locally, off by default; over a network it is not verified ([status](../status/world.md)).
+  - **Known:** M5's dormant-body membership and saved-cell restoration are accepted with open issues.
+    Pickup completion, one-hand mace recovery, corpse collision, ground melee walk-up and tutorial chest approach
+    follow the client.
+    Held-walk crowd accuracy still trails; predictive drift and standing-start discrepancies remain unresolved
+    ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
+  - **Start:** close the remaining held-walk gap, then finish frame record ordering, action ownership and ranged
+    chase behavior before the remaining skills, world interactions and network validation.
+  - **Done when:** on a fixed bench every sync figure is within GGG's margin. The bench is pack fights per weapon,
+    natural packs and a dense area. The figures are monsters standing per order kind, monsters in a pack, monsters
+    walking per speed, the player standing and walking, and snap episodes.
+    The server sends nothing the client ignores and frames its orders as GGG does.
+    Skills, objects, area changes, bosses, two players and a real network link work as on GGG, or as the client plays
+    them where GGG was never recorded.
+    Turning it on by default stays the maintainer's decision.
 - **HNC packets from the client** (type 0xDD): what the server should do with them
   ([07](../docs/protocol/07-latency-visibility-movement.md)).
 - **Server-side world simulation** (monsters, combat): no project for it yet; add one when it is needed.

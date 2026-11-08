@@ -8,7 +8,7 @@ namespace LocalExile;
 /// path, as they do in a checkout. Game.exe and Game.patched.exe are added beside the client's own files.</summary>
 static class ClientInstall
 {
-    public const string RequiredVersion = "3.29.3b";
+    public const string RequiredVersion = "3.29.3c";
     const int MaxExecutableBytes = 128 << 20;
     const string Folder = "Client";
     static string Ggpk => Path.Combine(Folder, "Content.ggpk");
@@ -17,7 +17,7 @@ static class ClientInstall
     static readonly string Keys = Path.Combine("data", "login-keys.json");
     sealed record CheckedExecutable(string Path, string Sha256);
 
-    /// <summary>The folder's 3.29.3b executable, or why it has none.</summary>
+    /// <summary>The folder's 3.29.3c executable, or why it has none.</summary>
     static CheckedExecutable? FindExecutable(string folder, out string problem, bool reportReadErrors = false)
     {
         problem = "";
@@ -53,7 +53,7 @@ static class ClientInstall
             throw new LauncherException(ExitCode.Unexpected,
                 "A client executable exceeds the validator's 128 MiB limit. Keep this copy and check or update the LocalExile package.",
                 "validation-limit", oversized);
-        problem = $"{folder} does not hold the Path of Exile 3.29.3b executable; other versions do not work";
+        problem = $"{folder} does not hold the Path of Exile 3.29.3c executable; other versions do not work";
         return null;
     }
 
@@ -85,7 +85,7 @@ static class ClientInstall
         using var lease = AcquireCheckedClient(folder, out string exe);
         var result = await ClientArchiveCheck.RunAsync(folder, stop);
         lease.AssertUnchanged();
-        log.Value("client", $"{exe} is the 3.29.3b client");
+        log.Value("client", $"{exe} is the 3.29.3c client");
         log.Value("client-data", $"Index and sampled required tables are readable ({result.Files} files, {result.Bundles} bundles); this is not a full asset verification.");
         log.Value("client-index-sha256", result.IndexSha256);
     }
@@ -122,7 +122,7 @@ static class ClientInstall
         using var original = AcquireCheckedClient(source, out string found);
         var ready = await ClientArchiveCheck.RunAsync(source);
         original.AssertUnchanged();
-        log.Info($"{found} is the 3.29.3b client");
+        log.Info($"{found} is the 3.29.3c client");
 
         string mode = options.ClientMode ?? AskMode(source, log);
         if (mode == "link") Link(source, log);
@@ -133,13 +133,13 @@ static class ClientInstall
     static string Ask(Output log)
     {
         string? guess = Guesses().FirstOrDefault(g => FindExecutable(g, out _) is not null);
-        if (log.Json) throw log.NeedsInput("--client", "which folder holds the Path of Exile 3.29.3b client?", guess);
+        if (log.Json) throw log.NeedsInput("--client", "which folder holds the Path of Exile 3.29.3c client?", guess);
         if (guess is not null)
         {
-            Console.Write($"Found the 3.29.3b client in {guess}. Use it? [Y/n] ");
+            Console.Write($"Found the 3.29.3c client in {guess}. Use it? [Y/n] ");
             if ((Console.ReadLine() ?? "").Trim().ToLowerInvariant() is "" or "y" or "yes") return guess;
         }
-        Console.Write("Folder of your Path of Exile 3.29.3b client: ");
+        Console.Write("Folder of your Path of Exile 3.29.3c client: ");
         string answer = (Console.ReadLine() ?? "").Trim().Trim('"');
         if (answer.Length == 0) throw new LauncherException(ExitCode.NeedsInput, "no client folder given");
         return answer;
@@ -175,7 +175,7 @@ static class ClientInstall
         long needed = Size(source);
         long free = new DriveInfo(Path.GetFullPath(".")).AvailableFreeSpace;
         Console.WriteLine($"LocalExile changes the client's login list and adds two files beside it. A failed write could damage the client,");
-        Console.WriteLine($"and a newer launcher cannot bring 3.29.3b back, so a separate copy is safer. It needs {needed >> 30} GB; {free >> 30} GB are free here.");
+        Console.WriteLine($"and a newer launcher cannot bring 3.29.3c back, so a separate copy is safer. It needs {needed >> 30} GB; {free >> 30} GB are free here.");
         Console.Write("[C]opy the client, or [L]ink to it and use that folder itself? [C/l] ");
         return (Console.ReadLine() ?? "").Trim().ToLowerInvariant() is "l" or "link" ? "link" : "copy";
     }
@@ -272,7 +272,12 @@ static class ClientInstall
             log.Info("generating your own login keys (kept in data\\; never share them)");
             Tools.RunOrThrow(Tools.Auth, ["keygen", GameExe], "auth-keygen", ExitCode.Client, log);
         }
-        if (File.Exists(PatchedExe) && File.GetLastWriteTimeUtc(PatchedExe) >= File.GetLastWriteTimeUtc(Keys)) return;
+        // Patched from these keys and this Game.exe: a client updated in place (a linked install) has a newer Game.exe, and
+        // the patch keeps the size, so an older or differently sized Game.patched.exe is another build's.
+        var patched = new FileInfo(PatchedExe);
+        var game = new FileInfo(GameExe);
+        if (patched.Exists && patched.Length == game.Length && patched.LastWriteTimeUtc >= game.LastWriteTimeUtc
+            && patched.LastWriteTimeUtc >= File.GetLastWriteTimeUtc(Keys)) return;
         log.Info("writing Client\\Game.patched.exe, the copy of the client that trusts your keys (antivirus may flag a modified executable)");
         Tools.RunOrThrow(Tools.Auth, ["patch", GameExe, PatchedExe], "auth-patch", ExitCode.Client, log);
         if (!File.Exists(PatchedExe)) throw new LauncherException(ExitCode.Client, "Client\\Game.patched.exe is missing after patching: allow it in your antivirus");

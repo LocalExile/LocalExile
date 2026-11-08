@@ -25,6 +25,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         Validate(use.Profile);
         if (use.ProjectilePayloads is { } payloads && payloads.Count != use.Profile.Count)
             throw new ArgumentException("Payload count must match initial projectile count.", nameof(use));
+        if (use.ProjectileTargets is { } targets && targets.Count != use.Profile.Count)
+            throw new ArgumentException("Target count must match initial projectile count.", nameof(use));
         long useId = ++sequence, emission = ++sequence;
         // One sample per released use, independent of spread, damage and child RNG streams.
         int returnRoll = new Random(unchecked(use.Seed * 397 ^ (int)useId ^ 0x3172c85d)).Next(100);
@@ -47,6 +49,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 ? use with { Payload = snapshots[i], ProjectilePayloads = null } : use;
             if (unresolved.ReturnRolls is { } rolls)
                 projectileUse = projectileUse with { Profile = ResolveReturn(unresolved, rolls[i]) };
+            if (use.ProjectileTargets is { } destinations)
+            {
+                var target = destinations[i];
+                direction = (target - use.Origin).Unit;
+                projectileUse = projectileUse with { Aim = target, ProjectileTargets = null,
+                    Profile = projectileUse.Profile with { Range = Math.Max(.001, (target - use.Origin).Length) } };
+            }
             int index = i;
             void Emit() => Spawn(projectileUse, useId, group, 0, use.Origin, direction, index: index);
             if (use.Profile.SequentialDelay > 0 && i > 0) Schedule(Now + i * use.Profile.SequentialDelay, Emit);
@@ -201,7 +210,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         foreach (var actor in actors.OrderBy(a => a.Key.Id).ThenBy(a => a.Key.Generation))
         {
             if (actor.Team == p.Use.Team || actor.Key == p.Use.Owner || actor.Key == p.TurnaroundTarget) continue;
-            // The client's contact (0x141e47ca0, 11-skills.md): Chebyshev cells against reach + the actor's size, with
+            // The client's contact (0x141e4b3a0, 11-skills.md): Chebyshev cells against reach + the actor's size, with
             // cells centred on integers, so the square's half-width is half a cell wider.
             int? cells = p.Profile.ContactCells;
             if (cells is not null && actor.Size < 0) continue;

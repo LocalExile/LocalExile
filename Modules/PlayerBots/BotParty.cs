@@ -22,6 +22,12 @@ sealed partial class BotDirector
             bot = _bots.FirstOrDefault(b => string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase)
                 && b.Leader is null && b.Shown.Contains(conn.Instance));
             if (bot is null) return false;
+            if (_bots.Count(b => ReferenceEquals(b.Leader, conn) && b.Phase == BotPhase.Following) >= 5)
+                return true;
+            // Select from the inviting town once. Later area changes preserve earned levels and experience.
+            int level = LevelForTown(bot.Level, bot.Town, _random);
+            if (level != bot.Level) { bot.Level = level; Dress(bot); }
+            SaveProgress(bot);
             party = _bots.FirstOrDefault(b => ReferenceEquals(b.Leader, conn))?.Party ?? unchecked((uint)Interlocked.Increment(ref _nextParty));
             Hide(bot);
             (bot.Leader, bot.Party, bot.Phase, bot.FollowIn) = (conn, party, BotPhase.Following, null);
@@ -48,9 +54,7 @@ sealed partial class BotDirector
         return true;
     }
 
-    // C→S 0x97 from a player who leads a bot party: logged (its layout is not known yet); a kick names the member, so a
-    // bot whose account or name is in it leaves.
-    public async Task<bool> Kick(ClientState conn, byte[] message)
+    public async Task<bool> Kick(ClientState conn, string name)
     {
         Bot? kicked;
         uint party;
@@ -58,9 +62,8 @@ sealed partial class BotDirector
         {
             var members = _bots.Where(b => ReferenceEquals(b.Leader, conn) && b.Phase == BotPhase.Following).ToList();
             if (members.Count == 0) return false;
-            _console($"bots: 0x0097 from {Program.CharacterName(conn)}: {Convert.ToHexString(message)}");
-            string text = System.Text.Encoding.Unicode.GetString(message, 2, message.Length - 2 & ~1);
-            kicked = members.FirstOrDefault(b => text.Contains(b.Account, StringComparison.OrdinalIgnoreCase) || text.Contains(b.Name, StringComparison.OrdinalIgnoreCase));
+            kicked = members.FirstOrDefault(b => string.Equals(name, b.Account, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, b.Name, StringComparison.OrdinalIgnoreCase));
             if (kicked is null) return false;
             party = kicked.Party;
             Depart(kicked, "исключён из группы");
@@ -72,6 +75,8 @@ sealed partial class BotDirector
     // Out of the party: to the nearest way out of the area it is in, then on with its quests (StepWithLeader).
     void Depart(Bot bot, string why)
     {
+        bot.Control = null;
+        StopCombat(bot);
         bot.Phase = BotPhase.Departing;
         bot.Doing = $"{why}: уходит к ближайшему выходу";
         if (bot.Leader is { } leader)
@@ -131,6 +136,7 @@ sealed partial class BotDirector
         var leader = bot.Leader;
         if (leader is null || leader.Closed || !Program.InGame.ContainsKey(leader))
         {
+            StopCombat(bot);
             // An area change is a new connection of the same character: the bot goes on with it, and its client gets the
             // party again. Only a leader not back within LeaderGrace leaves it.
             Hide(bot);
@@ -154,6 +160,7 @@ sealed partial class BotDirector
             return;
         }
         var layout = leader.Layout;
+        if (bot.Phase == BotPhase.Following) return;
         if (bot.Phase == BotPhase.Departing)
         {
             // The leader left the area first: it goes with nobody watching.
@@ -191,6 +198,8 @@ sealed partial class BotDirector
     // Back to its quests (from where it left them), out of the party.
     void Unparty(Bot bot, DateTime now, string why)
     {
+        bot.Control = null;
+        StopCombat(bot);
         Hide(bot);
         _log.Write(bot.Account, bot.Name, $"покинул группу ({why}): продолжает квесты");
         (bot.Leader, bot.Party, bot.FollowIn) = (null, 0, null);

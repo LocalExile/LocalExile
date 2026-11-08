@@ -2,14 +2,14 @@ using GameServer.Core.Protocol.Instance;
 using DamageType = GameServer.Core.World.DamageType;
 
 /// <summary>
-/// The monsters the player owns (minions): Summon Elemental Relic's relics (PlayerMinions.cs) and the Spirit
-/// chieftains (SpiritChieftains.cs). A minion is
+/// The monsters the player owns: relics, Spirit chieftains and gem golems (whose lifecycle is in GolemState).
+/// A minion is
 /// a monster on his team (Positioned team 0) that the client knows as his by its own stats is_player_minion and
-/// is_semantic_minion (the link-target filter 0x141bf8490 reads 0x48a and 0x3cf8). It follows him (the monster AI walks
+/// is_semantic_minion (the link-target filter 0x141bfaf20 reads 0x48a and 0x3cf8). It follows him (the monster AI walks
 /// friendly monsters into the player's surround; one with a teleport jumps back to him from beyond its aggro range),
-/// may fight his enemies (Game.MinionAttacks), lives until its duration ends (no monster attacks a minion), may cast an
-/// aura on him while he is within its radius and may explode when it ends; it leaves no corpse. It is never kept by the instance, goes with the
-/// connection (area change, logout) and dies with him. Guarded by the connection's Monsters lock.
+/// may fight his enemies, cast an aura and explode when it ends. Timed relics and chieftains leave with the connection;
+/// golems keep their activation separately across areas and can take hostile damage. Never kept by the instance.
+/// Guarded by the connection's Monsters lock.
 /// </summary>
 sealed class PlayerMinions
 {
@@ -49,7 +49,7 @@ sealed class PlayerMinions
     }
     internal readonly Dictionary<uint, Attack> Attacks = [];
     // Accepted gameplay finishes under Monsters; only neutral output/projection data crosses Game replacement.
-    internal enum OutputKind { Packet, Life, Experience, Flinch, Remove, Vaal, QuestFlags, QuestKill, QuestTransition, QuestRoomRemove, PlayerKill, Charges, Passives, GemInventory, MonsterType }
+    internal enum OutputKind { Packet, Life, Experience, Flinch, Remove, Vaal, QuestFlags, QuestKill, QuestTransition, QuestRoomRemove, PlayerKill, Charges, Passives, GemInventory, MonsterType, GolemAction, GolemIncoming }
     internal sealed record Output(byte[] Packet, string? Log, uint? TargetId = null, SpawnedMonster? Target = null,
         OutputKind Kind = OutputKind.Packet, double Until = 0, int Action = 0,
         AreaTransitionObject? Transition = null, GameServer.Modding.MonsterInfo? Kill = null, IReadOnlyList<AcceptedCharges>? Charges = null, byte? InventoryRow = null, IReadOnlyList<uint>? ItemIds = null, (int X, int Y)? At = null, (ushort Row, byte Level)? MonsterType = null);

@@ -3,14 +3,14 @@ namespace GameServer.Core.World;
 /// <summary>
 /// The server's copy of the local player's client-predicted walk (Agents/docs/protocol/07-latency-visibility-movement.md
 /// §5). Each order takes the client's own path (<see cref="ClientPathfinder"/>) from the player's cell, and the walker
-/// moves as the client's Positioned does (0x141e34400 → 0x141e4d180, ticked by 0x141e32710 → 0x141e4d390): every
+/// moves as the client's Positioned does (0x141e37740 → 0x141e50880, ticked by 0x141e35a50 → 0x141e50a90): every
 /// segment between two waypoints is a Bresenham line of cells, one step per (|segment| / speed) / (major-axis steps)
 /// seconds, so the cell is always a whole grid cell. A new order mid-step keeps the step's elapsed fraction (the
 /// client rescales its time accumulator to the new step time). Each step is checked against terrain and bodies by the
 /// Gateway's step pass, which replays all walkers together, on a lockstep client frame by frame in the client's object
 /// order (<see cref="Steps"/>, <see cref="StopAt"/>, <see cref="Repath"/>).
 /// The 0x1ab echo reports <see cref="Position"/>; the client snaps to it only when it is ~92+ cells off (Actor handler
-/// 0x1421940a0).
+/// 0x14219aa10).
 /// </summary>
 public sealed class PlayerWalk
 {
@@ -26,10 +26,19 @@ public sealed class PlayerWalk
     private (int X, int Y) _target;
     private int _maxRange, _tolerance = -1;
     // The current order's precision (MoveTo +0x528): the projectile grid value its line to the target needs; 1 again once
-    // a search above 1 found nothing (0x141e7b920), for the rest of the order.
+    // a search above 1 found nothing (0x141e82010), for the rest of the order.
     private int _precision = 1;
+    // The client's step accumulator (+0x244) on a walker that a stop left standing mid-step. The stop waits for the
+    // frame's steps (0x141e38420), and the tick after them clears only the step time (0x141e35a50), so the time since
+    // the last step stays; a forced set keeps it on a standing walker (0x141e34b40 zeroes it only on one under way), and
+    // the next walk takes it as it is, with no step time to rescale it from (0x141e50880). Zero while walking and after
+    // a walk the step loop ended (its path's end, a blocked step). From: the end of the tick that stops the walk, from
+    // which it holds; a walk set up before then, in the stop's own frame, does not take it (Walk).
+    private (double Seconds, double From) _kept;
 
-    private sealed record Segment((int X, int Y) From, (int X, int Y)[] Cells, double T0, float Step)
+    // Joined: the next segment goes on along the same piece of the path (steps already due, split off by InFrame), so
+    // this one's last cell is no waypoint (EndsPiece).
+    private sealed record Segment((int X, int Y) From, (int X, int Y)[] Cells, double T0, float Step, bool Joined = false)
     {
         public double End => T0 + Cells.Length * (double)Step;
     }
@@ -68,7 +77,7 @@ public sealed class PlayerWalk
     public bool Floor(int x, int y) => _walkable(x, y);
 
     /// <summary>Whether the current path ends in the order's range. A path the search cut short is walked to its end, and
-    /// then the client paths again from there (<see cref="Repath"/>; 0x141e7bec0 → 0x141e7b920).</summary>
+    /// then the client paths again from there (<see cref="Repath"/>; 0x141e825b0 → 0x141e82010).</summary>
     public bool Reached { get; private set; } = true;
 
     /// <summary>Whether the walk ended at its goal: the search found the goal and every step was taken. False for a walk
@@ -77,8 +86,8 @@ public sealed class PlayerWalk
     public bool ReachedGoal => Reached && _goalReached;
     private bool _goalReached = true;
 
-    /// <summary>The path began on a blocked cell (0x141e4d890's out flag → Positioned +0x1e5 &amp; 4): the walker steps
-    /// through bodies until its first free step; terrain still stops it (0x141e32710).</summary>
+    /// <summary>The path began on a blocked cell (0x141e50f90's out flag → Positioned +0x1e5 &amp; 4): the walker steps
+    /// through bodies until its first free step; terrain still stops it (0x141e35a50).</summary>
     public bool WalksThrough { get; set; }
 
     /// <summary>The steps of the current walk after <paramref name="from"/> up to <paramref name="to"/>: when each cell is
@@ -100,8 +109,8 @@ public sealed class PlayerWalk
     }
 
     /// <summary>Ends the walk before its step at <paramref name="at"/> (a time from <see cref="Steps"/>): the client found
-    /// that step blocked and stands where it is, with no new path (0x141e32710, whose blocked callback ends the pathing:
-    /// 0x141e7bc20). The steps before stay, so a position asked for an earlier time is still the walked cell.</summary>
+    /// that step blocked and stands where it is, with no new path (0x141e35a50, whose blocked callback ends the pathing:
+    /// 0x141e82310). The steps before stay, so a position asked for an earlier time is still the walked cell.</summary>
     public void StopAt(double at)
     {
         var here = At(at - 1e-9, out _);
@@ -116,20 +125,72 @@ public sealed class PlayerWalk
         _rest = here;
         _restSince = at;
         _segments = kept;
+        _kept = default;
         Reached = true;
         _goalReached = false;
+        WalksThrough = false;
+    }
+
+    /// <summary>Whether the step at <paramref name="at"/> (a time from <see cref="Steps"/>) ends a piece of the path: the
+    /// walker steps into one of its waypoints, where the client's MoveTo tests its goal (0x141e825b0).</summary>
+    public bool EndsPiece(double at)
+    {
+        foreach (var s in _segments)
+            if (s.Cells.Length > 0 && s.End == at) return !s.Joined;
+        return false;
+    }
+
+    /// <summary>Ends the walk at its goal once it has taken its steps up to <paramref name="until"/> (a lockstep client's
+    /// MoveTo found its goal, 0x141e82310). Mid-piece the stop (0x141e38420) waits for the next tick, whose due steps the
+    /// walker still takes: <paramref name="until"/> is that tick's end. At a waypoint the piece's step time is already
+    /// spent and the walker stands there at once: <paramref name="until"/> is that step's time. The steps up to then stay,
+    /// so a position asked for an earlier time is still the walked cell, and the time since the last step stays for the
+    /// next walk as after any stop that waits for a tick (the stop clears only the step time, 0x141e35a50); none when the
+    /// walk's own steps ended by then (the step loop ended it).</summary>
+    public void StopAfter(double until)
+    {
+        var kept = new List<Segment>();
+        double last = _segments.Count > 0 ? _segments[0].T0 : until;
+        bool beyond = false;
+        foreach (var s in _segments)
+        {
+            int k = 0;
+            while (k < s.Cells.Length && s.T0 + (k + 1) * (double)s.Step <= until) k++;
+            if (k > 0)
+            {
+                kept.Add(k == s.Cells.Length ? s : s with { Cells = s.Cells[..k] });
+                last = s.T0 + k * (double)s.Step;
+            }
+            if (k < s.Cells.Length)
+            {
+                beyond = true;
+                break;
+            }
+        }
+        _rest = kept.Count > 0 ? kept[^1].Cells[^1] : _segments.Count > 0 ? _segments[0].From : _rest;
+        _restSince = until;
+        _segments = kept;
+        _kept = beyond ? (Math.Max(0, until - last), until) : default;
+        Reached = true;
+        _goalReached = true;
         WalksThrough = false;
     }
 
     /// <summary>Paths again to the current order's target from where the walk ended, at <paramref name="at"/>.</summary>
     public (int X, int Y) Repath(double at) => Walk(_target, _maxRange, _tolerance, at, _precision);
 
-    /// <summary>Whether a cell meets the current order's goal for a target (0x141e7b260, what the client's action tests
+    /// <summary>Whether a cell meets the current order's goal for a target (0x141e81950, what the client's action tests
     /// before it swings): within <paramref name="reach"/> of it, the target's size (<paramref name="tolerance"/>, −1 for
     /// none) widening the reach, and with the line to the target's body on the projectile grid at the order's precision
     /// (<see cref="ClientPathfinder.InReach"/>).</summary>
     public bool InReachOf((int X, int Y) from, (int X, int Y) target, int reach, int tolerance) =>
         ClientPathfinder.InReach(from, target, 0, reach, tolerance, _sight, _precision);
+
+    /// <summary>The current order's precision (MoveTo +0x528): 1 again once a search above 1 found nothing.</summary>
+    public int Precision => _precision;
+
+    /// <summary>The target's cell the current order last searched toward (MoveTo +0x550, which 0x141e82010 stores).</summary>
+    public (int X, int Y) SearchedFor => _target;
 
     /// <summary>Changes the walking speed. As in the client, the segment in progress starts again from the walker's cell
     /// at the new pace, at once (a held walk when its hold ends), and the following segments are set up at the new speed.</summary>
@@ -144,7 +205,7 @@ public sealed class PlayerWalk
         var end = left.Cells[^1];
         float step = StepTime(here, end);
         double start = now < left.T0 ? left.T0 : now - fraction * step;
-        var walk = new List<Segment> { new(here, [.. ClientPathfinder.Line(here, end).Skip(1)], start, step) };
+        var walk = new List<Segment> { left with { From = here, Cells = [.. ClientPathfinder.Line(here, end).Skip(1)], T0 = start, Step = step } };
         foreach (var next in _segments.Skip(i + 1))
             walk.Add(next with { T0 = walk[^1].End, Step = StepTime(next.From, next.Cells[^1]) });
         _segments = walk;
@@ -153,11 +214,45 @@ public sealed class PlayerWalk
     /// <summary>The walker's cell at <paramref name="now"/> (seconds, any monotonic clock).</summary>
     public (int X, int Y) Position(double now) => At(Frame(now), out _);
 
+    /// <summary>Where the current walk has the walker <paramref name="seconds"/> after <paramref name="now"/>: a cell
+    /// ahead on its path. <see cref="Position"/> cannot answer that on frames: a time past the current frame reads as the
+    /// frame's start (the walker has not stepped there yet).</summary>
+    public (int X, int Y) Ahead(double now, double seconds) => At(Frame(now) + seconds, out _);
+
+    /// <summary>The walk as it stands, to put back with <see cref="Restore"/> when an order turns out not to be taken.</summary>
+    public Snapshot Save() => new(this);
+
+    /// <summary>Puts back a walk saved with <see cref="Save"/>.</summary>
+    public void Restore(Snapshot saved) => saved.Into(this);
+
+    /// <summary>A walk's state (<see cref="Save"/>).</summary>
+    public sealed class Snapshot
+    {
+        readonly List<Segment> _segments;
+        readonly (int X, int Y) _rest, _target;
+        readonly double _restSince;
+        readonly (double, double) _kept;
+        readonly int _maxRange, _tolerance, _precision;
+        readonly bool _reached, _goalReached, _walksThrough;
+
+        internal Snapshot(PlayerWalk w) =>
+            (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision, _reached, _goalReached, _walksThrough) =
+            (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision, w.Reached, w._goalReached, w.WalksThrough);
+
+        internal void Into(PlayerWalk w)
+        {
+            (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision) =
+                (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision);
+            (w.Reached, w._goalReached, w.WalksThrough) = (_reached, _goalReached, _walksThrough);
+        }
+    }
+
     /// <summary>Where the walker is within its current step at <paramref name="now"/>: the seconds since the step before
     /// (the client's accumulator, +0x244) and the step's length; (0, 0) when it stands or is held.</summary>
-    public (double Into, double Step) StepPhase(double now)
+    public (double Into, double Step) StepPhase(double now) => Phase(Frame(now));
+
+    private (double Into, double Step) Phase(double now)
     {
-        now = Frame(now);
         foreach (var s in _segments)
         {
             if (now >= s.End) continue;
@@ -208,7 +303,7 @@ public sealed class PlayerWalk
         if (i < 0) return;
         var left = _segments[i];
         int done = Math.Max(0, (int)((now - left.T0) / left.Step));
-        var walk = new List<Segment> { new(here, left.Cells[done..], Math.Max(left.T0, now + seconds - fraction * left.Step), left.Step) };
+        var walk = new List<Segment> { left with { From = here, Cells = left.Cells[done..], T0 = Math.Max(left.T0, now + seconds - fraction * left.Step) } };
         foreach (var next in _segments.Skip(i + 1)) walk.Add(next with { T0 = walk[^1].End });
         _segments = walk;
     }
@@ -229,7 +324,8 @@ public sealed class PlayerWalk
     /// <summary>
     /// Walks toward a target only until it is within <paramref name="reach"/> cells (a melee attack or a click on an
     /// object: the client walks into range first, the pathfinder's max range). Returns where the walker is now, where it
-    /// stops and when; when it is already in reach it stays. <paramref name="tolerance"/> is the target object's size
+    /// stops and when; when it is already in reach it stays, on frames where the frame's steps leave it (the stop waits
+    /// for them, 0x141e38420). <paramref name="tolerance"/> is the target object's size
     /// (ObjectSize − 1), subtracted from the distance before the range test, as the client's MoveTo sends it (a monster:
     /// its ObjectSize − 1; −1 for none). Without it the stop lands up to that many cells closer to the target than the
     /// client's. <paramref name="precision"/> is the order's: the projectile grid value every cell of the line from the
@@ -239,7 +335,7 @@ public sealed class PlayerWalk
         int tolerance = -1, int precision = 1)
     {
         var here = Walk((targetX, targetY), (int)reach, tolerance, now, precision);
-        return (here, _segments.Count == 0 ? here : Destination, ArrivesAt);
+        return (here, Destination, ArrivesAt);
     }
 
     /// <summary>
@@ -278,7 +374,7 @@ public sealed class PlayerWalk
     }
 
     /// <summary>
-    /// Shield Charge's run (setup 0x141a6bae0): no search, a straight line to the aim cut to <paramref name="range"/> cells.
+    /// Shield Charge's run (setup 0x141a6e4f0): no search, a straight line to the aim cut to <paramref name="range"/> cells.
     /// An aim off the floor moves back along the line to the first cell the mover can stand on. The steps are checked as
     /// any walk's are, so the first blocked one ends the run.
     /// </summary>
@@ -292,7 +388,9 @@ public sealed class PlayerWalk
         if (!_walkable(end.X, end.Y))
             end = ClientPathfinder.Line(end, here).FirstOrDefault(c => _walkable(c.X, c.Y), here);
         (_target, _maxRange, _tolerance) = (end, 0, -1);
-        Follow(end == here ? [here] : [here, end], here, fraction, now);
+        // From a stand the run starts a whole step after the use, with no kept time: its setup goes through 0x141ea0c60,
+        // not the MoveTo the kept time was traced on, and its first step from a stand is not traced.
+        Follow(end == here ? [here] : [here, end], here, fraction, 0, now);
         Reached = true;
         WalksThrough = false;
         return here;
@@ -304,7 +402,7 @@ public sealed class PlayerWalk
         var here = At(now, out double fraction);
         var bodies = _blockers();
         _precision = precision;
-        // MoveTo tries the goal where the walker stands first (0x141e7b260): in range with the line to the target's body,
+        // MoveTo tries the goal where the walker stands first (0x141e81950): in range with the line to the target's body,
         // there is nothing to walk.
         bool reached = ClientPathfinder.InReach(here, target, 0, maxRange, tolerance, _sight, precision);
         List<(int X, int Y)> path = [];
@@ -312,7 +410,7 @@ public sealed class PlayerWalk
         {
             path = ClientPathfinder.FindPath(here, target, _walkable, _w, _h, bodies, _size, 0, maxRange, tolerance, _limit, _sight, precision, out reached);
             // Nothing found at a precision above 1: the goal is tried where the walker stands at 1, which the order then
-            // keeps (0x141e7b920); the client shoots from here when that holds.
+            // keeps (0x141e82010); the client shoots from here when that holds.
             if (!reached && path.Count == 0 && precision > 1)
             {
                 _precision = 1;
@@ -320,42 +418,95 @@ public sealed class PlayerWalk
             }
         }
         (_target, _maxRange, _tolerance) = (target, maxRange, tolerance);
-        // No step to take: the client ends the action instead of pathing again (0x141e7b920 with nothing found).
+        // No step to take: the client ends the action instead of pathing again (0x141e82010 with nothing found).
         Reached = reached || path.Count < 2;
         _goalReached = reached;
         WalksThrough = !_walkable(here.X, here.Y) || ClientPathfinder.ObjectBlocks(bodies, here.X, here.Y, _size + 1, _size + 4);
-        // A stop takes effect after the frame's steps (0x141e350e0). The caller reports here, where the client is now; the
-        // walker stands where the client will, or the next start puts the client back up to two cells.
+        // A stop takes effect after the frame's steps (0x141e38420). The caller reports here, where the client is now; the
+        // walker stands where the client will, or the next start puts the client back up to two cells, and keeps the time
+        // since its last step for the next walk (_kept).
         if (path.Count < 2 && FrameOf?.Invoke(now) is { } frame && Moving(now))
         {
             var stop = At(frame.End, out _);
+            var kept = (Phase(frame.End).Into, frame.End);
             Teleport(stop.X, stop.Y, now);
+            // At its goal only when it was in range where it stood, not when the search found no path (ReachedGoal).
+            _goalReached = reached;
+            _kept = kept;
             return here;
         }
-        Follow(path, here, fraction, now);
+        // The stop's own frame went to the old walk's steps already: a walk set up in it takes no kept time.
+        Follow(path, here, fraction, now >= _kept.From ? _kept.Seconds : 0, now);
         return here;
     }
 
-    private void Follow(IReadOnlyList<(int X, int Y)> path, (int X, int Y) here, double fraction, double now)
+    // `kept`: the time since the last step that a walk from a stand starts with.
+    private void Follow(IReadOnlyList<(int X, int Y)> path, (int X, int Y) here, double fraction, double kept, double now)
     {
+        bool standing = !Moving(now);
         var walk = new List<Segment>();
         double t = now;
         for (int i = 1; i < path.Count; i++)
         {
             var cells = ClientPathfinder.Line(path[i - 1], path[i]).Skip(1).ToArray();
             float step = StepTime(path[i - 1], path[i]);
-            // The first step comes when the step in progress would have: its elapsed fraction carries over.
-            if (i == 1) t -= fraction * step;
+            // The first step comes when the step in progress would have: its elapsed fraction carries over. From a stand,
+            // the time a stop kept carries over as it is.
+            if (i == 1) t -= standing ? kept : fraction * step;
             walk.Add(new Segment(path[i - 1], cells, t, step));
             t += cells.Length * (double)step;
         }
+        if (walk.Count > 0) _kept = default;
         // Whole: monsters' walks are read outside the lock too (Rampage's weapons).
         _rest = here;
         _restSince = now;
-        _segments = walk;
+        _segments = InFrame(walk, now);
     }
 
-    // 0x141e4d180: the segment's time is its length over the speed, spread evenly over its major-axis steps.
+    // A kept time of a step or more leaves steps due before the order's frame. The client's first tick takes them all, as
+    // its loop steps while the accumulator holds a step (0x141e35a50), so they go in the order's frame, in order, before
+    // the walk's first step not yet due and the frame's end (evenly: the step pass reads only a step's frame and order),
+    // not before the frame, where no frame's pass would check them and the frame's start would show them.
+    private List<Segment> InFrame(List<Segment> walk, double now)
+    {
+        static int Due(Segment s, double at)
+        {
+            int n = 0;
+            while (n < s.Cells.Length && s.T0 + (n + 1) * (double)s.Step <= at) n++;
+            return n;
+        }
+        int due = 0;
+        double next = double.PositiveInfinity;
+        foreach (var s in walk)
+        {
+            int d = Due(s, now);
+            due += d;
+            if (d < s.Cells.Length)
+            {
+                next = s.T0 + (d + 1) * (double)s.Step;
+                break;
+            }
+        }
+        if (due == 0 || FrameOf?.Invoke(now) is not { } frame || frame.End <= now) return walk;
+        float gap = (float)((Math.Min(next, frame.End) - now) / (due + 1));
+        var placed = new List<Segment>();
+        int before = 0;
+        foreach (var s in walk)
+        {
+            int d = Due(s, now);
+            if (d == 0)
+            {
+                placed.Add(s);
+                continue;
+            }
+            placed.Add(new Segment(s.From, s.Cells[..d], now + before * (double)gap, gap, Joined: d < s.Cells.Length));
+            if (d < s.Cells.Length) placed.Add(s with { From = s.Cells[d - 1], Cells = s.Cells[d..], T0 = s.T0 + d * (double)s.Step });
+            before += d;
+        }
+        return placed;
+    }
+
+    // 0x141e50880: the segment's time is its length over the speed, spread evenly over its major-axis steps.
     private float StepTime((int X, int Y) a, (int X, int Y) b)
     {
         int dx = b.X - a.X, dy = b.Y - a.Y;

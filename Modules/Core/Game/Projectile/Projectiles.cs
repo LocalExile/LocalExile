@@ -8,6 +8,14 @@ using GameServer.Core.World;
 
 static partial class Game
 {
+    // Everything a flight object's or an area effect's create sends. A projectile's blob wakes it during the create, so it
+    // gets no 0x1a9; an effect is created asleep and gets its 0x1a9 in the same send (07 section 3).
+    internal static byte[] CreateProjectileObject(uint id, ProjectileObject obj) =>
+        InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: 0xffffffff);
+
+    internal static byte[] CreateEffectObject(uint id, EffectObject effect) =>
+        InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
+
     /// <summary>One gameplay pump and one presentation consumer per connection, regardless of projectile count.</summary>
     internal sealed class ProjectileSession : IProjectileWorld, IProjectileRuntime
     {
@@ -141,7 +149,7 @@ static partial class Game
             return packet;
         });
         internal void Packet(byte[] bytes, string? log = null) => Packet(() => bytes, log);
-        void Packet(Func<byte[]?> snapshot, string? log = null) => Enqueue(async () =>
+        internal void Packet(Func<byte[]?> snapshot, string? log = null) => Enqueue(async () =>
         {
             while (Active)
             {
@@ -203,7 +211,8 @@ static partial class Game
             }
             if (Conn.PlayerLife > 0)
                 result.Add(new(new(PlayerId, epoch), 1,
-                    t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0));
+                    t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
+                    { Size = LivingCollision.PlayerSize });
             return result;
         }
 
@@ -308,7 +317,7 @@ static partial class Game
             {
                 var settings = (critical ? shot.CriticalImpaleSettings : null) ?? shot.ImpaleSettings ?? new(shot.ImpaleChance);
                 double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, shot.CriticalMultiplier) / 100d : 1);
-                var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Mods.Effects["avoid_impale_%"]);
+                var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Effects["avoid_impale_%"]);
                 damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
             }
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
@@ -320,14 +329,15 @@ static partial class Game
             if (hit.Value.Life == 0) DevourOnKill(Conn, shot.SkillStats);
             if (!immune)
                 AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
-                    at, contact.Projectile.ReactionRandomSource, poison: shot.Poison);
+                    at, contact.Projectile.ReactionRandomSource, poison: shot.Poison, sourceSkill: shot.SourceSkill);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0) BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at);
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
             ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
             InflictMonsterBlind(Conn, contact.Target.Id, target, at, shot.Blind, contact.Projectile.ReactionRandomSource);
-            CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical);
+            CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
+                OwnerStun(Conn, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats));
             if (critical) Enqueue(() => MaybeCreateProfaneGround(remote, stream, ciphers, Conn, target.Walk.Position(at)));
             return ProjectileHitResult.Hit;
         }
@@ -365,7 +375,8 @@ static partial class Game
             // areas and continuation children, which do get objects).
             if (value.Kind == ProjectileEventKind.Spawn && p.Profile.HideVisual) return;
             if (value.Kind == ProjectileEventKind.Spawn && p.ParentId == 0
-                && p.Use.Payload is ProjectileOffense { ClientPredicted: true }) return;
+                && p.Use.Payload is ProjectileOffense primary
+                && ClientDrawsPrimaryProjectile(primary.ClientPredicted, SkillsFor(Conn).EffectId(primary.Effect))) return;
             if (value.Kind == ProjectileEventKind.Spawn)
             {
                 string? flightVisual = (p.Use.Payload as ProjectileOffense)?.FlightVisual ?? presentation.FlightVisual;
@@ -396,11 +407,11 @@ static partial class Game
                         Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
-                    return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(p.Profile.Id), obj.Blob(), headerU32: 0xffffffff);
+                    return CreateProjectileObject(id, obj);
                 });
                 // No 0x1a9: an object created with the header's u32 at 0xffffffff is in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of
-                // Poison Arrow Trap bolts in The Upper Sceptre of God) broke its object list until it crashed at 0x14012946a
+                // Poison Arrow Trap bolts in The Upper Sceptre of God) broke its object list until it crashed at 0x1401297ca
                 // on an object that was gone (live 2026-11-04 and 2026-11-05, with traps firing).
                 if (presentation.FlightClip is { } clip)
                     Packet(() => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed) : null);
@@ -475,9 +486,8 @@ static partial class Game
             {
                 if (visual.Ended) return null;
                 visual.Created = true;
-                return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
+                return CreateEffectObject(id, effect);
             });
-            Packet(() => visual.Created ? InstanceProtocol.EnterWakeZone(id) : null);
             Runtime.Schedule(Runtime.Now + lifetime, () =>
             {
                 visual.Ended = true;

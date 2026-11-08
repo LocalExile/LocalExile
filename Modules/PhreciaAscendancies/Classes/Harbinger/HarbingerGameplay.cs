@@ -31,7 +31,8 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
     sealed record Pending(HarbingerCompanionCatalog.Companion Source, ushort Skill, double At, Func<bool> Current);
     HarbingerCompanionCatalog Catalog(ClientState conn) => LeagueFor(conn).HardMode ? hard : normal;
     static bool Enabled(ClientState conn) => conn.MainAscendancy.Selection is
-        { Family: AscendancyFamily.Phrecia, Id: "Occultist", Revision: "3.29.3b" }
+        { Family: AscendancyFamily.Phrecia, Id: "Occultist" } selection
+        && AscendancyCatalog.IsKnownRevision(selection.Revision)
         && AscendancyPolicies.SourceOwner(conn) is not null;
     State Get(ClientState conn)
     {
@@ -198,7 +199,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
                             var at = native.Walk.Position(now); var target = conn.Walk.Position(now);
                             bytes.AddRange(InstanceProtocol.ActionStarted(caster, at.X, at.Y, target.X, target.Y,
                                 HarbingerActor.SkillId(change.Owner.Source, SkillsFor(conn), cast.Skill.Effect),
-                                conn.NextActionSequence(), 0x0408, targetObjectId: PlayerId));
+                                conn.NextActionSequence(), conn.MonsterOrderFlags, targetObjectId: PlayerId));
                             bytes.AddRange(InstanceProtocol.ActionEnded(caster));
                         }
                 foreach (uint actor in state.Session.PruneActors())

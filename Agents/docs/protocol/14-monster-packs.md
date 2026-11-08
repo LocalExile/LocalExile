@@ -26,22 +26,25 @@ The Coast (`1_1_2`, WorldAreas row 6, level 2):
 
 Packs whose `Id` is `<area>-<name>` have weight 0: the layout places them, through **room points** (§3).
 
-**Not in the client:** how many packs an area gets, and how often a pack is magic or has a rare: the official server
+**Not recovered:** how many packs an area gets, and how often a pack is magic or has a rare: the official server
 decides those. Ours (`AreaPopulation`): one scattered pack per 9 000 walkable cells (`CellsPerPack`; The Coast: 44
 packs), 12% magic packs (every member magic), 6% packs with one rare member, at least 2 rare packs per area. Pack
 centres keep 60 cells from the arrival point, 25 from area transitions, 28 from other packs and need 5 walkable cells
-around them; members stand within 9 cells. The roll is seeded by (area hash, seed): the same layout gets the same packs.
+around them; members stand within 9 cells. Population uses a stable MurmurHash2 over invariant ASCII
+`population:<area HASH16, 4 hex digits>:<area seed, 8 hex digits>`.
+The previous `HashCode.Combine` used a process-random salt, so a restart changed the population for the same seed.
+This is a local seed derivation; the official server population RNG and placement algorithm remain unrecovered.
 
 ## 2. Spawning
 
-`SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2b9 with the
+`SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2bb with the
 rarity in ObjectMagicProperties, 0x1a9 wake zone, and the monster joins the AI (chase, first granted effect as its
 attack). Its mods (§5) set its life, hit, speed and defences.
 A magic or rare monster then gets its glow, a 0x1c1 buff with no optional fields (`MonsterRarityBuffs`):
 BuffDefinitions 66 `monster_magic_effect_buff` (BuffVisuals 58, `StatusAilments/monsters/champions/blue/blue.epk`)
 or 67 `monster_rare_effect_buff` (BuffVisuals 59, `champions/gold/gold.epk` and `gold_large.epk`). Both are
 invisible and cancel on death. No Mods.dat row grants them, and the rarity in ObjectMagicProperties alone drew no
-glow. The ObjectMagicProperties `.ot` keys `enable_rarity` / `disable_rarity` (parser 0x1421dda20) set a
+glow. The ObjectMagicProperties `.ot` keys `enable_rarity` / `disable_rarity` (parser 0x1421e4390) set a
 per-rarity mask at type +0xc9 (bits normal 1, magic 2, rare 4, unique 8); what reads it was not traced. Monsters are created after the player (0x7d →
 `SendPlayer` → skill bar → `PopulateArea`); towns and areas without a walk map get none.
 
@@ -49,11 +52,15 @@ per-rarity mask at type +0xc9 (bits normal 1, magic 2, rare 4, unique 8); what r
 (`InstanceStore`) saves each living monster's variety, level, rarity, mods, team, life and current position (its walk
 estimate, `SavedMonster.Save`); dead ones are not saved. The next connection into that instance re-creates exactly
 those monsters instead of planning the packs: where they were (a dragged group stays a group), idle until the player
-comes within aggro range, and a damaged one gets its life with 0x1b1 right after its 0x2b9. A buried emerge monster
+comes within aggro range, and a damaged one gets its life with 0x1b1 right after its 0x2bb. A buried emerge monster
 is kept buried; one that has risen comes back risen (Transitionable state 2). Only a new instance plans
 fresh packs. The saved state goes with the instance's ground items: kept in the Gateway's memory and wiped when the
 instance expires.
 `Game_MONSTERS=0` turns it off. Only unique and rare monsters are logged one by one; a summary line lists the rest.
+Shared delivery must copy plaintext per recipient: `Program.Write` encrypts its input in place, possibly after a
+send-gate wait. Reusing one buffer across viewers corrupts another viewer's payload or the owner's later send;
+copying once for the entire fan-out is insufficient. `Game.ToOthers` and the combat/action mirrors own a separate
+copy for each recipient, including after rewriting player identities and action sequences.
 
 ## 3. Room points: where the camp is
 
@@ -71,9 +78,9 @@ before their slot grid, e.g. `Metadata/Terrain/Act1/Area2/Rooms/scavenger_camp_2
 and the bonfire rooms (`bonfire1`–`6.arm`, scattered by the master's `FillTiles` `random_fill_tiles.gft`) one or three
 `%area%-cannibalfire` points. The client does not use these points; it does place the room's **doodads**:
 
-- The tile-object loop (`0x141d7f700` → `0x1420415e0`, [08](08-area-transitions.md) §7) only sees `.tmd` records; room
+- The tile-object loop (`0x141d82d90` → `0x142047e30`, [08](08-area-transitions.md) §7) only sees `.tmd` records; room
   doodads never pass there (traced 2026-10-18: ~40 records per area, no bonfire).
-- **`0x142042360`(?, record, u8)** creates one client-side doodad from a record laid out like a `.tmd` record, already in
+- **`0x142048bb0`(?, record, u8)** creates one client-side doodad from a record laid out like a `.tmd` record, already in
   world terms: i32 grid x, i32 grid y, f32 world x, f32 world y, f32 z (+0x10), f32 angle (+0x14), type handle +0x30,
   `.ao` handle +0x38 (handle +8 → UTF-16 path). It runs for every doodad while the area loads, room doodads included
   (The Coast: `beachfire_04.ao` at (1154, 656), the camp's `beach_sheet_03.ao` at (1181, 627), …).
@@ -144,7 +151,7 @@ So:
    `Metadata/NPC/Info/` excepted, `RoomFile.IsQuestObject`) are kept too, without any point (version 4): Fairgraves'
    ship, Piety's room in The Upper Prison, the blocked road at Prisoner's Gate, so quests find their objects
    ([12](12-quests.md) §5).
-2. `scripts/walkmaps` (`live.ps1 -Walkmaps`) hooks `0x142042360` and writes `data/walkability/<area>_seed<seed>.doodads.json`.
+2. `scripts/walkmaps` (`live.ps1 -Walkmaps`) hooks `0x142048bb0` and writes `data/walkability/<area>_seed<seed>.doodads.json`.
 3. `AreaPopulation.LoadPoints` fits each candidate room: anchored on the room doodad whose model is rarest in the
    capture, it tries each captured doodad of that model × the 8 turns/flips, and keeps a placement when ≥ 70% of the
    room's doodads land within 2 cells of a captured doodad of the same model. The points go through the same placement.
@@ -177,6 +184,15 @@ The Tidal Island seed 1 (live 2026-10-25): `medicine_boat_1` captured at (138, 3
 boss pack stood once per area, a second one stood at `mapboss`).
 
 ## 4. Open
+
+The existing opening capture contains 39 distinct monster creation records and six additional actors inferred
+from monster-like updates. Its first 35 seconds are missing: the reconstructed 45 is an approved provisional
+calibration target, not a verified complete-area total or evidence of normal-only packs.
+For new Act 1 Twilight Strand instances, reserve one slot for the separate tutorial zombie and retain named/boss
+spawns, then cap scattered members at the remaining target (normally 43 plus Hillock). The final pack can be
+shortened, and insufficient candidate/placement space can produce fewer monsters. Existing instances keep their
+population. Other areas, rarity rolls, life and damage retain their existing behavior; official allocation and
+placement algorithms remain unknown.
 
 - Pack density and magic/rare chances are guesses (§1); so are the mod counts (§5).
 - Unique map bosses get `MonsterMapBossDifficulty` plus `MonsterMapDifficulty` life and damage percentages
@@ -220,7 +236,7 @@ State of 2026-10-25, verified live (The Twilight Strand, The Coast). Code: `Mons
 **Rolling.** An affix is a Mods.dat row with the monster Domain (3) and GenerationType 1 (prefix) or 2 (suffix); 111
 rows have a spawn weight. It can roll when its `Level` is at most the monster's level and the first of its SpawnWeight
 tags that the monster has gives a weight above 0. The monster's tags are its MonsterVarieties `TagsKeys`, `default`,
-`magic` or `rare` (the client adds the same tag when it reads the mods, `0x1421ff3c0`; many mods have `magic` 0, so
+`magic` or `rare` (the client adds the same tag when it reads the mods, `0x142205d50`; many mods have `magic` 0, so
 only rares get them) and `not_part_of_pack` for a monster on its own (`/spawn_mob`). Each affix is drawn by weight
 from the allowed ones, a ModFamily once, at most Rarity.dat's MaxPrefix / MaxSuffix of each kind; every monster mod
 has a fixed value. The counts are not in the client's data: Rarity.dat's `MinMods` / `MaxMods` (1–2, 4–6) are the
@@ -239,7 +255,7 @@ monsters roll none.
 size, rewards) go with every magic, rare and unique monster in the hidden list (flags bit 11), which the client does
 not show; the server applies their stats as it does the affixes'.
 
-**What the client gets** (ObjectMagicProperties' base part, `0x142201d70` as for items, [13](13-items.md) §2a): the
+**What the client gets** (ObjectMagicProperties' base part, `0x142208700` as for items, [13](13-items.md) §2a): the
 affixes in the explicit list (bit 5), prefixes first, and a rare monster's name as two Words.dat keys (bit 8): a
 `MONSTER_PREFIX` (word list 3) and a `MONSTER_SUFFIX` (list 4) word drawn by the same tags ("Gore" + "walker"; the
 only default-weighted words are placeholders such as " Broken"). Live, hovering a rare showed "Gorewalker" in yellow
@@ -247,7 +263,7 @@ on its life bar at the top of the screen and under it one line per affix from th
 Life", "Fire and Ignite Resistant"); a magic one showed "Quick Hungry Corpse" in blue and "Hasted". The client
 applies none of the mods itself: a rare with Fecund (40% increased life) at half its server life showed a half bar.
 So the server sends the final `maximum_life`, the rarity's life stats, `movement_velocity_+%` (the client walks a
-monster at its base × (1 + value / 100), `0x141e7c0b0`: a Quick magic Hungry Corpse stepped every 0.083 s, 12
+monster at its base × (1 + value / 100), `0x141e827a0`: a Quick magic Hungry Corpse stepped every 0.083 s, 12
 cells/s, a normal one every 0.125–0.133 s; the server walks it at the same speed), `actor_scale_+%` and
 `life_regeneration_rate_per_minute_%`.
 
@@ -266,7 +282,7 @@ cells/s, a normal one every 0.125–0.133 s; the server walks it at the same spe
 | `base_damage_taken_+%`, `rare_monster_mod_spell_damage_taken_+%_final` | the player's hits (the second only spell hits: the stat has no description, so it is not taken to cover Righteous Fire's burn) |
 | `monster_base_block_%` | blocks the player's attacks: rolled before the hit, a blocked one has no damage, impale, flinch or 0x1af (the client has no block result we know); the log says "blocked" |
 | `evasion_rating_+%`, `accuracy_rating_+%` | the player's chance to hit it, its chance to hit the player |
-| `always_crit` | its critical strikes (monster attacks have no base chance; × 130% less the player's `base_self_critical_strike_multiplier_-%`, at least 100%). An override: the client's effective chance (`FUN_14275c050`) is 10000 under `virtual_always_crit` before any increase, so reduced critical strike chance (Devout of Solaris) does not lower it |
+| `always_crit` | its critical strikes (monster attacks have no base chance; × 130% less the player's `base_self_critical_strike_multiplier_-%`, at least 100%). An override: the client's effective chance (`FUN_142762c00`) is 10000 under `virtual_always_crit` before any increase, so reduced critical strike chance (Devout of Solaris) does not lower it |
 | `hit_damage_+%_per_10%_missing_enemy_life` | its hit on a wounded player |
 | `self_take_no_extra_damage_from_critical_strikes` | the player's critical hits deal their normal damage |
 | `cannot_have_life_leeched_from` | prevents Life-source leech from accepted player hits; does not prevent Mana/native ES leech (damage §5b) |

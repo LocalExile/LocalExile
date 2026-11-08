@@ -11,12 +11,12 @@ static partial class Game
         double now, string by) => CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, by, playerKill: false);
 
     static void CommitAcceptedHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
-        double now, string by, bool playerKill, bool deferKill = false)
+        double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null)
     {
         var state = conn.Minions;
         if (hit.Life == 0) state.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
             $"0x01b3 monster 0x{id:x} hide_mini_life_bar = 1", id, monster));
-        if (HitReaction.TryFlinch(monster, damage, now, Random.Shared) is not null)
+        if (HitReaction.TryFlinch(monster, stun ?? new(damage), now, Random.Shared))
             state.OutputQueue.Add(new([], $"0x01d1 monster 0x{id:x} TakeHit recovery", id, monster,
                 PlayerMinions.OutputKind.Flinch, monster.FlinchUntil, monster.ActionGeneration));
         state.OutputQueue.Add(new([], $"0x01b1 monster 0x{id:x} hit by {by} for {damage}, life {hit.Life}/{monster.MaxLife}{(hit.Life == 0 ? " (dies)" : "")}",
@@ -24,14 +24,16 @@ static partial class Game
         if (hit.Life == 0 && !deferKill) CommitAcceptedKillLocked(conn, id, monster, now, playerKill);
     }
 
-    static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
+    internal static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
         var state = conn.Minions;
         if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
-        SoulEaterSoul(conn, at);
+        var partyShares = PartyExperienceShares(conn, at);
+        ShareKill(conn, victimId, monster, variety, at, partyShares);
+        SoulEaterSoul(conn, victimId, at);
         var killer = PlayerOf(conn); var modMonster = ModMonster(monster, at);
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
@@ -45,7 +47,7 @@ static partial class Game
         var packets = new List<(byte[] Packet, string? Log)>();
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
         {
-            if (conn.PlayerSent) state.OutputQueue.Add(new([], "0x02ba player quest flags (accepted kill)", Kind: PlayerMinions.OutputKind.QuestFlags));
+            if (conn.PlayerSent) state.OutputQueue.Add(new([], "0x02bc player quest flags (accepted kill)", Kind: PlayerMinions.OutputKind.QuestFlags));
             foreach (var (id, transition) in conn.Layout.AreaTransitions)
             {
                 if (TransitionFlag(conn, transition) is not { } flag || !quest.Effective.Contains(flag)) continue;
@@ -58,13 +60,13 @@ static partial class Game
         var kill = new KillContext(conn, monster, variety.Id, at) { PlayerKill = playerKill, CommittedOutput = packets };
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
         foreach (var (packet, log) in packets) state.OutputQueue.Add(new(packet, log));
-        uint xp = 0;
-        if (conn.PlayerLife > 0 && Dist(at, conn.Walk.Position(now)) <= ExperienceRange
+        uint xp = 0, gemXp = 0;
+        if (!monster.NoRewards && conn.PlayerLife > 0 && Dist(at, conn.Walk.Position(now)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
-            xp = Program.ServerHooks.Experience(killer, modMonster,
-                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level));
+            (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
+                conn.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, conn));
         var gemRows = new List<(byte Row, uint[] Items)>();
-        var (_, leveled) = CommitGemExperience(conn, xp, gemRows);
+        var (_, leveled) = CommitGemExperience(conn, gemXp, gemRows);
         foreach (var (row, ids) in gemRows)
             state.OutputQueue.Add(new([], "gem experience (current)", Kind: PlayerMinions.OutputKind.GemInventory, InventoryRow: row, ItemIds: ids));
         if (leveled) state.StatRevision++;
@@ -72,12 +74,12 @@ static partial class Game
             xp = (uint)Math.Max(xp, Math.Max(0L, (long)CharacterStats.LevelStarts[required - 1] - conn.Experience));
         if (xp > 0 && RecordExperienceGain(conn, xp) is { } change)
         {
-            state.OutputQueue.Add(new([], $"0x02ba current player experience ({monster.Rarity} {monster.Label} 0x{victimId:x})", Kind: PlayerMinions.OutputKind.Experience));
+            state.OutputQueue.Add(new([], $"0x02bc current player experience ({monster.Rarity} {monster.Label} 0x{victimId:x})", Kind: PlayerMinions.OutputKind.Experience));
             int level = Progression.LevelFor(change.After, CharacterStats.LevelStarts);
             if (level != conn.Pools.Level)
             {
                 CommitExperienceLevel(conn, level);
-                conn.PlayerLife = conn.PlayerMaxLife; conn.PlayerMana = (uint)UnreservedMana(conn);
+                conn.PlayerLife = conn.PlayerUnreservedLife; conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); TrimLeechLocked(conn);
                 state.StatRevision++; state.AccountRevision++;
                 state.OutputQueue.Add(new([], "0x0033 current passive skill tree (accepted level)", Kind: PlayerMinions.OutputKind.Passives));
@@ -90,11 +92,11 @@ static partial class Game
         var drops = new List<ItemDrops.Drop>();
         if (modded is not { Cancel: true })
         {
+            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash ? openMap.Area.Tier : 0;
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
-                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash ? openMap.Area.Tier : 0;
             if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared) is { } map) drops.Add(map);
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
@@ -109,8 +111,8 @@ static partial class Game
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
-            state.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
-                $"0x02b9 create world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})"));
+            state.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
+                $"0x02bb create world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})"));
             state.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null));
         }
     }
@@ -192,14 +194,17 @@ static partial class Game
                     }
                     if (output.Kind == PlayerMinions.OutputKind.Charges) return AcceptedChargePresentationLocked(conn, remote);
                     if (output.TargetId is uint id && !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), output.Target)) return null;
+                    if (output.Kind == PlayerMinions.OutputKind.GolemAction) return GolemActionPresentation(conn, output);
+                    if (output.Kind == PlayerMinions.OutputKind.GolemIncoming) return GolemIncomingPresentation(conn, output);
+                    if (output.Action != 0 && output.Target?.ActionGeneration != output.Action) return null;
                     return output.Kind switch
                     {
                         PlayerMinions.OutputKind.Life => InstanceProtocol.LifeUpdate(output.TargetId!.Value, output.Target!.Life),
                         PlayerMinions.OutputKind.Vaal => VaalSoulPresentation(conn),
                         PlayerMinions.OutputKind.Experience => InstanceEntities.PlayerExperienceUpdate(PlayerId, CurrentExperience(conn)),
                         PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action
-                            && output.Until > AreaTime(conn) ? InstanceProtocol.ActorAnimation(output.TargetId!.Value,
-                                (float)(output.Until - AreaTime(conn)), PlayerHitRecovery.TakeHitAnimation) : null,
+                            && output.Until > AreaTime(conn) ? TakeHitPacket(conn, output.TargetId!.Value, m, output.Until,
+                                AreaTime(conn)) : null,
                         _ => output.Packet,
                     };
                 }
@@ -248,7 +253,7 @@ static partial class Game
             if (!Current()) return;
             await SendPlayerMana(remote, stream, ciphers, conn); await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             await Send(remote, stream, ciphers, [], "player life after minion outcomes", atGate: () =>
-            { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife) : null; });
+            { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife) : null; });
             lock (conn.Monsters) if (Current() && !conn.Closed && !conn.LeavingArea) state.PresentedStatRevision = Math.Max(state.PresentedStatRevision, revision);
         }
         if (!Current() || account == state.PresentedAccountRevision) return;

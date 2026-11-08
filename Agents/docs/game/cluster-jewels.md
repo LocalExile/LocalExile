@@ -128,8 +128,8 @@ and drops them all when no cluster jewel is socketed. A cluster jewel may not le
 allocated: a tree that lists nodes of a jewel the client no longer has crashes it in
 `PassiveAllocation::IsAllocatedLeaf`, so the player refunds them first.
 
-The ids come from the client's own node-id function (`FUN_141f0e770`; the generator is `FUN_141f10110` and the
-constructor `FUN_141f114f0`, all decompiled after the full analysis and traced live with
+The ids come from the client's own node-id function (`FUN_141f15060`; the generator is `FUN_141f16a00` and the
+constructor `FUN_141f17de0`, all decompiled after the full analysis and traced live with
 `scripts/re/frida/trace-cluster-ids.js`):
 
 - the block base is `39 * ClusterIndex` for a jewel in a tree socket (cell 20, index 5, uses 195);
@@ -173,7 +173,7 @@ are the real small passives. So each small passive grants the theme as it is all
 each notable position applies the row of the notable the layout puts there (the jewel's notables in the order of their
 Stats.dat row: for Fettle, Prodigious Defence and Advance Guard, Prodigious at 204, Advance at 196 and Fettle at 200).
 
-What the client's map shows (live dump, hooking the resolver `0x1422d9920`): the tree's id -> node table is a flat
+What the client's map shows (live dump, hooking the resolver `0x1422e02b0`): the tree's id -> node table is a flat
 hash map (`[[resolver context] + 0x28] + 0x60`, FNV-1a over the two id bytes, probes of `0x100`, 16-byte entries whose
 first u16 is the id) with **5706 entries keyed by the real `PassiveSkillGraphId`s**. The expansion nodes live in a second
 map on the tree (`tree + 0x2b0`, keyed by the `PassiveJewelSlots` row, one graph per socketed cluster jewel), so a
@@ -181,7 +181,7 @@ cluster id can *collide* with a tree id: the client tells them apart through the
 that carries them in the wrong list makes it resolve a tree node and fail (`PassiveAllocation::IsAllocatedLeaf`). That
 is why sending them for a jewel the client has no layout for crashes it.
 
-The 0x33 handler (`0x141ef2710`), the node apply/refund functions (`0x141ef69e0`, `0x141ef6bf0`), the id function and
+The 0x33 handler (`0x141ef8f70`), the node apply/refund functions (`0x141efd280`, `0x141efd490`), the id function and
 the generator were decompiled with Ghidra (project `Tools/ghidra-projects/poe3293`, `-noanalysis` read-only runs); the
 id function is also hooked live by `scripts/re/frida/trace-cluster-ids.js`, which logs `(slot, size, position, id)` for
 every expansion node and is the quickest way to check a new shape.

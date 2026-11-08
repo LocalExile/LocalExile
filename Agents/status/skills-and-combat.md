@@ -5,6 +5,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Holy Sweep's art: the skill sends its base `skill_art_variation` 2 and a worn effect's value adds to it, so hits no
+  longer crash the client drawing the hammers (live 2026-11-08 in a map: none, Originator's, Awakener's, Abyssal).
+  Code: `SkillArtBase.cs`. Docs: [23](../docs/protocol/23-microtransactions.md) §3.
+- Holy Sweep's area: its swings (ActionTypes Sweep, SweepAltX) hit around the player, where the client draws them,
+  instead of around the aimed monster (live 2026-11-08); other melee area attacks still land on the target.
+  Code: `MeleeAreaCentre.cs`, `AreaSkillHit`. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Fortification: qualifying melee hits build temporary protection through an explicit LocalExile generation model.
   Native checks confirmed the buff component, expiry, 20/30-stack limits, attack speed and actual hit protection.
   Elapsed Life regeneration, stopping at expiry, area carry, death and relog were also verified.
@@ -124,7 +130,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Skills and combat: the player has the default attack (PlayerMelee, Characters.dat StartingMeleeSkill) in the Actor
   skill list; it goes on the skill bar, walks into range, swings at the unarmed speed (757 ms with dual wielding's
-  10%) or faster with `/set_stat attack_speed_+%` (server-computed final stats, 0x2ba skill update, panel's Attacks
+  10%) or faster with `/set_stat attack_speed_+%` (server-computed final stats, 0x2bc skill update, panel's Attacks
   per Second), and the server lowers the monster's life 2–5 at the contact point; moving cancels;
   the dead monster's life bar hides.
   A weapon whose requirements are not met leaves the hands: the model sends its slot empty, so the client greys out
@@ -324,8 +330,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([11-skills](../docs/protocol/11-skills.md) "The client's volley"; static RE, the fan fitted to live Spark volleys)
   and its seeded random directions (static RE, checked live 2026-10-31: damage only where a projectile was drawn).
   Parallel volleys still use the server's own fan.
-  An attack gem's projectiles are not predicted: they get a server object like the default attack's arrow (Burning
-  Arrow showed no arrow before; live 2026-10-31, the arrows fly and ignite).
+  Ordinary Burning Arrow uses the client's primary arrow visual; real mouse-input tracing exposed the duplicate
+  server arrow missed by the old packet-driven control. Its server collision/damage simulation remains active.
+  Other attack gems retain their existing presentation until verified individually.
   Spark's action fires through the same client method, so its sparks are the client's too; they live the skill's
   `skill_effect_duration`, which gem skills now carry (without it no spark was drawn; static RE 2026-10-30, not yet
   checked live).
@@ -369,8 +376,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `SkillCatalog.cs`, Gateway (`CastOn`, `LaunchProjectile`, `AreaSkillHit`), `ProjectileObject`.
   Docs: [11](../docs/protocol/11-skills.md) §9–10.
 - Resistances: the passive `base_resist_all_elements_%` / per-element `base_*_damage_resistance_%` are summed from the
-  0% base, the two Kitava quest penalties (-30% each) are mirrored from quest flags, and the final value uses Path of
-  Building's floor -200 / default max 75 / absolute cap 90 (`DamageModel`);
+  0% base, the item tables' non-base spellings (`fire_damage_resistance_+%`, `elemental_damage_resistance_+%`) count as
+  the same stats, and the pair-resistance stats (`cold_and_lightning_`, `fire_and_cold_`, `fire_and_lightning_`) each
+  raise both named elements; the two Kitava quest penalties (-30% each) are mirrored from quest flags, and the final value
+  uses Path of Building's floor -200 / default max 75 / absolute cap 90 (`DamageModel`);
   used by Righteous Fire's self-burn and `/hit`; `/resistances` shows modifier, penalty and final.
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
@@ -382,6 +391,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (an attack or spell hit in the last 4 s), and `_while_on_full_energy_shield` from the effective ES pool.
   Full ES requires a living player with positive capacity and whole current ES at maximum; zero ES does not qualify.
   The raw base and active conditions add before one 0..100 clamp, shared by the panel and spell-hit roll.
+  Monster spells apply suppression after armour and flat damage taken.
   Sixteen native controls checked damage/refill, actual recharge, cap, conversion, independent ES, no-ES/zero-ES
   sources and independent full-Life/full-ES conditions. The guaranteed first spell dealt 60 damage to 118 ES,
   leaving 58 ES and changing suppression from 100% to 90% for the next hit.
@@ -393,8 +403,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   The character panel gets the chance again within 250 ms of a condition changing (the player tick).
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
-- Movement speed: the passive `base_movement_velocity_+%` is summed into `Pools`, sent as the client's
-  `movement_velocity_+%` and used by the server's walk copy (37 × (1 + pct / 100) cells/s);
+- Movement speed: the passive `base_movement_velocity_+%` and the item/conditional `movement_velocity_+%` are summed
+  into `Pools`, sent as the client's `movement_velocity_+%` and used by the server's walk copy (37 × (1 + pct / 100)
+  cells/s);
   applied on login, level, passive and area changes; `/set_speed` adds its percentage on top.
   `action_speed_-%` from raw sources and dev overrides is composed additively with chill/freeze and multiplied once
   into movement, attack, cast and stun-recovery pacing. New actions are limited to one per frame (30/s, `TickSeconds`);
@@ -405,7 +416,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Block / Spell Block: passives' `additional_block_%` and `base_spell_block_%` are summed and capped at 75% / 90% (PoB
   `BlockChanceCap`), max-res passives `maximum_block_%` / `base_maximum_spell_block_%` raise the caps;
   a successful block prevents the hit, monster melee and `/blockhit` use it; `/block` shows both chances;
-  an equipped shield adds its `ShieldTypes.Block` base and enables the shield-specific passives, staff passives apply
+  an equipped shield adds its `ShieldTypes.Block` base plus the shield's local `local_additional_block_chance_%`
+  (unique and rare shields alike, and Kongming's `local_no_block_chance` removes it) and enables the shield-specific
+  passives, staff passives apply
   with a staff, and dual wielding adds its inherent 20% attack block and dual-wield block/spell-block passives;
   Versatile Combatant reduces both maxima by 10% and converts overcapped attack block to spell block at 2% per 1%;
   lucky block uses 1-(1-p)^2 for attack/spell (dev `/block_luck`);
@@ -673,11 +686,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §9.
 - Pride on enemies: its buff (row 1331) reaches every monster in the aura without breaking the client's stream.
   Code: `EnemyDebuffs.Rules.cs`. Docs: [11](../docs/protocol/11-skills.md) (The player's debuffs on monsters).
-- Combat load: one stat snapshot per client message and at most one rebuild per 60 Hz frame (`PlayerStatsCache.cs`), the
-  skill list rebuilt only when its inputs change, the tick's state publications batched at the send gate, idle polls
-  skip it; a pack fight's input queue stays under ~400 ms (was 4-16 s). F1 NETWORK shows that wait.
 
 ## Partly working
+
+- Combat load: message/frame and fresh projectile-release snapshots; input-checked skill/equipment caches ignore
+  within-level gem XP and extended active recent windows; immutable item-local stats, condition parsers and projectile
+  recipes are reused. F1 NETWORK retains real input-queue latency; large load spikes remain under investigation.
+  Code: `PlayerStatsCache.cs`, `StatConditions.cs`.
 
 - Survivors league and three optional modules, including the seven stage gate bosses; the catalogue keeps only skills the flight/pulse presentation can play (every projectile gets a visible fallback), ground area spells land on their target, the support pool is every normal support gem whose numbers the cast pipeline reads, and enemies are 5x tougher and 4x harder-hitting (ranged shots at 30%) with a DPS threat on life, nearby experience orbs, a first window that pauses before any spawn, 25%-of-life death zones and corpse cleanup; uniques persist between runs and bosses are 5x their ladder: [client presentation and limits](../docs/game/survivors-mode.md).
 
@@ -685,7 +700,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   GrantedEffectsPerLevel multiplier) for both the admission gate and the swing interval, instead of mixing it with
   `SkillAttackSeconds`. Tornado Shot's -20% and player/bow attack speed apply. Projectile speed adds the player's
   `projectile_speed_+%` to the skill's `base_projectile_speed_+%`. Automated pace and projectile-speed checks pass;
-  no native check yet. Code: `GemSupports.Rules.cs`, `Combat.cs`, `ProjectileSpeed.cs`.
+  native Burning Arrow numeric controls confirm integer final-speed rounding before duration, while broader native
+  admission checks remain pending. Code: `GemSupports.Rules.cs`, `Combat.cs`, `ProjectileSpeed.cs`.
 - Lifetap Support: supported skills pay their whole Mana cost as Life, including the 300% cost multiplier; the paid
   Life is accumulated against `support_lifetap_spent_life_threshold`. Reaching it grants the 4 s (plus quality) Lifetap
   buff, whose more damage applies to supported hits and whose 20% increased Life recovery applies to flasks.
@@ -693,6 +709,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   and minion buffs are not sent, and damage over time does not receive the more multiplier.
   Automated test covers Tornado Shot with level-1 Lifetap: 9 Mana becomes 27 Life, the first use grants the buff,
   and the hit and flask bonuses apply. Code: `Combat/Lifetap.cs`, `Player.cs`, `ConditionalSupportDamage.cs`;
+  docs: [25](../docs/protocol/25-gem-supports.md).
+- Blood Magic: `keystone_blood_magic` (the passive node and item-granted keystones such as Malachai's Awakening and
+  Tukohama's Fortress) converts every skill's whole Mana cost to Life in `PayMana`, without Lifetap's multiplier,
+  counter or buff; a skill whose Life cost is not below current Life is refused, and reservations stay on Mana.
+  Automated test: Tornado Shot's 9 Mana becomes 9 Life with Mana unchanged. Code: `Player.cs`;
   docs: [25](../docs/protocol/25-gem-supports.md).
 - Bow projectile counts: actual bow attacks now read `number_of_additional_arrows` and
   `number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more` on top of the generic projectile additions, so
@@ -905,6 +926,34 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Other Vaal executors remain explicit refusals; the bounded modular native session did not repeat a full Vaal matrix.
   See [Behemoth](../docs/game/behemoth.md) for execution models and source ownership.
   See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md).
+- Ground Slam now hits as the forward wave its data action names, not as one circle: the skills whose ActionTypes action
+  is "DistanceScaledGroundSlam" (GrantedEffects GroundSlam, GroundSlamAltX, GroundSlamAltY, GroundSlamRoyale and
+  PlaytestSlam) send a sector from where the player stands whose front advances to the skill's reach, each monster hit
+  as the front arrives it and the rest of the sweep dropped on death, area change or a closed connection. Vaal Ground
+  Slam's own skill is a different action, so its 40-cell radial blast is unchanged, as are Ice Nova's ring, Cyclone,
+  Rolling Magma and every other circle. The player's gem resolves to GrantedEffects "GroundSlam"; the +40% final radius
+  and 4 melee repeats belong to the old "ExileGroundSlam" row, which no GemEffects row grants. The tables carry no wave
+  length, base angle or speed (the four `ground_slam_*` shape stats are held by no player stat set and no Mod of the
+  3.29 table), so `GroundSlamWave` holds three estimates — a 60-cell length at the generic 12-cell area radius, moved by
+  however far the skill's own radius sits from it; half angle 30 deg (half the 60-degree cone `ground_slam_cone_angle_override`
+  names), grown by the gem's `ground_slam_angle_+%`; and 60 cells a second — to calibrate against a live measurement.
+  The wave's close-range damage (`groundslam_damage_to_close_targets_+%_final`, real in the gem's own stats) is still
+  applied by the Vaal executor only. A live session's 0x0024 object uses reach the same sweep, with the wave's origin
+  already the post-walk swing position, so the gap between its object uses and its sweeps was swings whose hit the server
+  dropped (22 of 80 swing echoes), not a missing area part. Client fact (measured live 2026-11-07): clicking a monster
+  and immediately walking away plays the whole swing and draws the wave, so the client queues the Move instead of
+  cancelling the attack; the server was dropping the paid hit on the action counter alone. A gem melee swing
+  (`holdsItsSwing`: an attack that is Melee, not channelled) now keeps its hit over a moved action counter, and only a
+  death, an area change, a pause, a freeze or a stun's hit recovery ends it. This was every gem melee attack, not Ground
+  Slam alone (Cleave, Sweep, Ground Slam's alternate-quality forms and Vaal Ground Slam's own blast all take the same
+  path), and each such swing's contact now comes from its own rig clip (`GemAttackContactDelay`: groundslam_maul's 0.633
+  of the attack, where the class's attack1_maul, the default attack's swing, is 0.692) — both are logged with the sweep.
+  Not yet checked with the real client.
+  Remaining: the client queues its Move until the clip's cut-in (Lockstep.cs) while the server walks on the Move as it
+  arrives, so the server's position leads by up to about 0.3 s during a swing; holding the Move until the contact
+  (`HeldMove`) would align them, and needs `Messages.cs`, `PlayerAilments.cs` and a `ClientState` field.
+  Code: `SkillArea.cs` (`GroundSlamWave`), `Combat.cs` (`AreaSkillHit`, `GemAttackContactDelay`),
+  `AnimationContacts.cs` (`SkillAttackContact`).
 - Warcry release (Enduring Cry, the only warcry executor): the cry's time follows warcry speed and action speed as the
   client's does, and its release runs the shared warcry effects within its radius: corpse explosions that consume the
   corpse and quest chests opening (Deathrattle).
@@ -956,7 +1005,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   the nearest hostile monster near both, swings its first skill with his minion modifiers (its base hit from
   DefaultMonsterStats `MinionDamage`, the ally table), and its kills give him
   experience and loot; the instance save, his area hits and his on-kill charges leave it out.
-  The Spirit chieftains are the only ones; no monster attacks a minion.
+  This first-skill controller serves Spirit chieftains; golems use their own controller below.
   Gateway coverage; not yet checked with the real client.
   Code: `PlayerMinions.cs`, `MinionAttacks.cs`, `RunMonsterAi`.
   Docs: [11](../docs/protocol/11-skills.md) section 10h.
@@ -995,16 +1044,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Discipline's ordinary ES pool and recharge are verified separately above; conditional effects remain partial.
   Reservation overflow is refused.
   See [11](../docs/protocol/11-skills.md) section 13.
-- Flesh and Stone (#471, 2026-11-05, not checked live): the aura now activates (it was refused as an unimplemented
-  effect) and alternates its stance on every activation, the skill's own description: Blood Stance's BuffDefinitions row
-  1308 for 1309, with `NextFleshAndStoneStance` flipping when the aura starts. Blood Stance gives the monsters within the
-  aura radius the data's increased Physical Damage taken, full beside the player and falling off with distance, on the
-  physical share only (`SpawnedMonster.TakenFromPlayer.Physical`, read by `MonsterTakesMitigated` and `MonsterDotTaken`).
-  Sand Stance blinds the monsters within the same radius (the passive blind aura's mechanism, whichever radius is
-  larger) and adds the data's Sand Stance damage-taken reduction to the player's `base_damage_taken_+%`. Local rules, not
-  the official ones: the reduction is applied at its full value (the data scales it by the attacker's distance), Maim is
-  not modelled (monsters have no movement-speed slow) and the skill's 2 s cooldown is the client's own. Two Gateway
-  tests cover the registration, the stance rows and both effects.
+- Flesh and Stone and Blood and Sand share a persisted stance: recasting switches both without releasing reservation;
+  `/auras off <name|effectId|all>` explicitly disables them. Blood and Sand modifies melee area damage and area.
+  Flesh and Stone uses the current gem's distance-dependent more physical hit damage / less incoming hit damage;
+  the obsolete blind, global reduced-damage and physical-DoT bonuses are removed. Native stance switching and off passed.
   Code: `AuraCatalog` (`FleshAndStone*`, `RawStats`), `Game.ToggleAura` / `EnemyDebuffsTick`, `MonsterMods`.
 - Passive-granted skills: a passive's `GrantedEffectsPerLevel` skill joins the gem skills at the row's fixed level,
   with a stable id, no supports, quality 0 and no requirements; it casts, reserves, saves and ends like a gem's.
@@ -1014,17 +1057,13 @@ This is a research baseline, not new live skill acceptance or complete native/se
   on hits against rares and uniques, behind its cooldown, in Ruthless too.
   Used by the Paladin Aura options (Determination, Grace, Discipline); automated coverage only, not checked with the
   real client. See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
-- Owned minions: the player's minions are friendly monsters marked by `is_player_minion` and `is_semantic_minion`.
-  They follow him (teleporting back from beyond their aggro range when they have a teleport), end by their duration,
-  can cast an aura on him and explode when they end; his increased minion life and duration raise their life and
-  duration, and the flasks that Field Medicine puts on a linked minion change its walk speed.
-  Their kills give experience and items. They go with death, the granting passive, an area change and logout, and
-  are never saved.
-  Only Summon Elemental Relic's relics exist (Elemental Valiance and Unwavering Crusade); no gem makes minions yet.
-  Not modelled: monsters attacking minions, minion attacks and damaging skills, the player's other minion modifiers
-  (damage, resistances, energy shield), and party allies.
-  Automated coverage only, not checked with the real client.
-  See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
+- Owned minions: relics and chieftains remain timed; all 17 playable golem gems summon, fight and take generic hostile
+  hits/projectiles. Golems follow, scale with gem level/quality and supports, grant their distinct owner buffs and save
+  activation across areas. Local rule: each activated golem returns two game seconds after death while its source is
+  usable. All variants summoned in the real client; ordinary combat, buffs and repeated returns checked live.
+  Nearby ordinary auras now affect owned fighters. Partial: exact official AI priorities, some support interactions,
+  sharing golem owner buffs with other players and bespoke boss damage.
+  See [11](../docs/protocol/11-skills.md) section 10h; relics remain in section 13 and [Paladin](../docs/game/paladin.md).
 - Link skills: Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link link one of the player's minions when
   he has `link_skills_can_target_minions` (Deep Connections); with no party play there is nothing else to link.
   A link lasts its duration, costs mana every second, breaks after 4 s out of range or when its cost is not paid, and
@@ -1116,6 +1155,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - **Instant skills and cooldowns (verified live 2026-10-21).** Haste, the Purities and Righteous Fire carry
   `skill_is_instant`, so the client sends them as C→S 0x191 and keeps walking;
   the server applies them and answers S→C 0x1ce, which starts the skill bar's cooldown.
+  Bladefall of Trarthus no longer hangs the client (its volley interval is in the record) and runs as its toggle: a
+  volley hitting the area around the player every interval, ground blades, the mana spent per second until it runs out
+  (live 2026-11-07: volleys and hits checked; the end at no mana not seen yet).
   Skill records retain GEPL Cooldown as the native base and carry the cooldown count.
   Ordinary one-use spells/attacks now resolve player and skill generic recovery once, and the server keeps remaining
   base-time budget through stat changes and pause.
@@ -1170,9 +1212,17 @@ This is a research baseline, not new live skill acceptance or complete native/se
   death cleared both.
   The skill-bar active frame and rotating circle now receive the buff's skill id/action hash association (0x1c1 bit3),
   including area-entry restoration; automated checks pass, live icon verification pending.
-  Not modelled: Heralds, banners, curse auras, unsupported conditional effects, Purity ailment immunity, Reservation
-  masteries 1/2/6, supports, party/minion auras and life reservation
+  Permanent spell buffs, five heralds, Skitterbots and Temporal Rift share source/reservation reconciliation.
+  Purity grants elemental-ailment immunity; Arctic Armour gives stationary hit mitigation, freeze immunity and chilled
+  trail; Tempest Shield grants shield spell block, shock immunity and block retaliation. Herald kill/poison procs use
+  the ordinary damage/minion pipeline. Temporal Rift recalls position/resources from four seconds ago, with native proof.
+  Nearby player auras reach allies and controlled fighters using caster effect; duplicate families select each stat's
+  strongest value. Life reservation uses an independent budget, Arrogance and pool/recovery caps; curse auras use
+  the hex lifecycle. Skitterbots apply scaled chill/shock and trigger placed traps/mines, rearming a mine once;
+  full trap/mine skill-specific payloads, banner/Vaal executors and Agony's retail Virulence decay remain partial.
   ([11](../docs/protocol/11-skills.md) 13).
+- Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
+- Hexes/marks have limits and combat effects; reflection and special payloads remain partial (`MonsterCurses`).
 - **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
   a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
   (1 plus `number_of_additional_totems_allowed`; past it the oldest dies).
@@ -1198,7 +1248,12 @@ This is a research baseline, not new live skill acceptance or complete native/se
   modifiers for area of effect (per 25 kills) and Chain Hook / Shield Charge attack speed (per 10 kills) count, and a
   kill grants the extra Vaal Soul while the streak is active. `gain_soul_eater_during_flask_effect` grants Soul Eater
   while a flask effect runs: 5% increased attack and cast speed and 1% character size per soul, one soul per kill
-  within 60 cells, at most 45, and one lost every 0.5 s after 4 s without a kill. The Soul Eater icon is not sent yet.
+  within 60 cells, a base maximum of 45 plus item stack modifiers, and one lost every 0.5 s after 4 s without a kill.
+  The player gets its icon and count
+  (`soul_eater_player`, 279) and the invisible `soul_eater_aura` (277), the client's `using_flask` flag is sent, and each
+  soul draws the official `ServerBeamEffect` line from the corpse to the player (see
+  [11-skills.md](../docs/protocol/11-skills.md) §12).
+  Soulthirst's loss of eaten souls on flask use is not implemented.
   Not modelled at present: the threshold smoke cloud (no timed smoke ground), Unholy Might (no Unholy Might system),
   the frenzy charge every 50 kills (the charge session has no Rampage-count rule), starting a streak at maximum
   endurance charges and losing them when it ends, and the map/leaguestone Rampage modifiers.
@@ -1401,28 +1456,39 @@ This is a research baseline, not new live skill acceptance or complete native/se
   action sequence, flags 0x4201 plus the critical bit, code by damage type) on contact for the target's blood and
   particles; the main-hand bit follows the live capture, the skill index and header words it also fills stay zero. Projectile objects are created at their release point and their first move runs from there: the lazy
   snapshot used to create them where the simulation already had them, one to ten cells past the bow in a live log
-  (2026-10-29). A Frida trace the same day saw the client create no projectile of its own for the default attack
-  (40 arrows) nor for a monster's action, so these server objects are the only visible shots on our server.
-  On GGG's server the same shots have no objects and the client draws them; what in our answer stops it is open
-  (skill ids `0x102`/`0x103` against live `0x4000`/`0x8002`, and the `0x1af` fields, are the candidates).
+  (2026-10-29). On a lockstep client the default attack's record carries the shot's count, as GGG's do, and the
+  client draws the bolt or arrow itself with no server object; the server simulates it on the client's contact and
+  range and releases it on the client's own release frame ([07](../docs/protocol/07-latency-visibility-movement.md)
+  §6), so a hit recovery before it stops both (checked live 2026-11-05 on orders at a monster: one client
+  `WandProjectile` per shot of 41 and one `DefaultArrow` of 41, no projectile `0x2bb`, the client's release 0–7 ms
+  after the server's for the wand and 1–3 for the bow, p10–p90; it was 16–40 ms after on the first version and 66–99
+  ms before with server objects) ([11](../docs/protocol/11-skills.md) §4, §10). A shot at the ground (attack in place)
+  is released the same way but not checked live. A predictive client keeps the server's objects: its record
+  has no count, without which the release fires nothing (a native trace on 2026-10-29 saw no client arrow in 40).
   The live hit-timing fit put our arrows at 367 cells/s against live's 308, but the Gateway releases DefaultArrow at
   the table's 3260 units/s = 299.9 cells/s (logged on every release), so the fit's slope measures something else
   (the roadmap). They leave from the
   releasing clip's contact keyframe (`data/animation-contacts.json` positions, `anim_contacts.py` v3): the Ranger's
   bow 5.5 cells ahead along the aim at 16 steps up, a wand's tip 7.5 cells ahead at 12 (the 5-step default, tuned on a
   fireball, had the arrow trail start at the hip, live 2026-10-29); the keyframe's lateral part is not applied.
-  Monster projectiles: a mortar skill's shot (Sand Spitter, `monster_mortar_attack` via GrantedEffects SkillID →
-  MonsterMortar → Projectiles) is a server object on the same runtime, released at the clip the client plays for the
+  Monster projectiles: a mortar attack's shot (Sand Spitter, a Cannibal's ThrowFire: `monster_mortar_attack` via
+  GrantedEffects SkillID → MonsterMortar → Projectiles) is drawn by the client, whose record carries the MonsterMortar
+  row and the skill's count as GGG's does, with no server object (checked live 2026-11-05 on a lockstep and a
+  predictive client: one client `SandspitterMortarProjectile` per order, no server object;
+  [11](../docs/protocol/11-skills.md) §6); a spell mortar (`monster_mortar`) keeps its server object. Not measured yet:
+  where the client's mortar lands against the server's hit.
+  The server simulates it on the same runtime, released at the clip the client plays for the
   skill (MonsterMortar.Animation → the ACT's `SpellProjectile` pool, the native selector on the action's 0xffff
   sequence: attack1, contact at 37.5 % of the attack) from that clip's keyframe (4.2 cells behind the body that faces
   away, so toward the player, 9 steps up: `projectile_uses_contact_position`; `data/monster-contacts.json`,
   `scripts/re/monster_contacts.py`), lobbed at the player's cell but no closer than the skill's
   `projectile_minimum_range` (4.6 cells), team 2, and its landing splash (`Game_MONSTER_MORTAR_RADIUS`, default 10
   cells) runs the monster contact pipeline (`HostileProjectileOffense`, `Program.ProjectileHostile.cs`). Not checked
-  live yet: that the client seeds a monster's clip choice from the sequence, and the dead zone. The object plays its rig's flight
-  clip from spawn and its impact clip where it lands (`data/projectile-clips.json`, `scripts/re/projectile_clips.py`:
-  every Projectiles row's clip indexes and lengths, and its .ao default animation), without which a mortar is
-  invisible (its .ao declares no default animation, the wand bolt's does). The data loaders turn their feature off
+  live yet: that the client seeds a monster's clip choice from the sequence, and the dead zone. Another monster's
+  projectile object plays its rig's flight clip from spawn and its impact clip where it lands
+  (`data/projectile-clips.json`: every Projectiles row's clip indexes and lengths,
+  and its .ao default animation), without which an object whose .ao declares no default animation (the mortar's; the
+  wand bolt's declares one) is invisible. The data loaders turn their feature off
   with one warning on an unreadable file instead of faulting the pump, and monster ACT pools come from the root block
   only (a nested stance's entries had replaced them for 191 varieties; review 2026-10-30). Weapon-projectile monsters
   (`monster_projectile_weapon`, SkillID 0) still hit instantly with no shot; see the roadmap.
@@ -1640,9 +1706,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - Projectile spawn height on platforms and doodads: the protocol carries no player z and the server has no
   surface-height model, so a projectile on the hideout waypoint platform spawns at the terrain height below it.
   Tracked in issue #182.
-- Leech and Mark curses (curses in general) do not exist yet.
-  Spirit of Utula's Leadership (`leech_%_is_instant`) therefore changes nothing, and Spirit of Rakiata (a crit against
-  a Marked Unique) is never triggered ([Ancestral Commander](../docs/game/ancestral-commander.md)).
+- Spirit of Utula's Leadership and Rakiata's Mark-specific trigger still need their own chieftain executors.
+- Holy Sweep's hammers deal no damage: the client draws them on the hits, but the server has no hammerfall hits
+  (`holy_sweep_number_of_holy_bolts_to_create`, the 12-cell secondary area, `holy_sweep_hammerfall_damage_+%_final`).
 - Effects that should be attached to bones (Righteous Fire's orbs, MiscAnimated RighteousFireOrb) are not sent;
   an effect object follows the player only by 0x1ba glides.
   Combat auras, Heralds and banners are not implemented; only the simple auras above use buffs.

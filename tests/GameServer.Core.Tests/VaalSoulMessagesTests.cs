@@ -10,7 +10,7 @@ public class VaalSoulMessagesTests
         var skill = new GrantedSkill(0x103, 532, 42);
         // Same literal skill record as existing records; souls follow the removed u16 ids.
         string record = "03010014020000002A00000000000000000000000000000000000000";
-        string expected = "02BA00001000000000000000003909" + "20000101" + record + "0401"
+        string expected = "02BC00001000000000000000003909" + "20000101" + record + "0401"
             + "01" + "570000001E000000" + "01" + "57000000070000001E000000";
         Assert.Equal(expected, Convert.ToHexString(InstanceEntities.PlayerSkillsChange(0x1000, [skill], [0x104],
             [new(87, 30)], [new(87, 7, 30)])));
