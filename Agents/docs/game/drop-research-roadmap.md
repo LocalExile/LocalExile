@@ -38,8 +38,9 @@ is not in the client tables needs a source and a confidence note.
   (70); Orb of Horizons removed in 3.28.
 - [ ] Decide the baseline for a best-effort recalibration: 2014 shape corrected
   by the 3.26/3.28/3.29 notes, or a collected sample.
-- [ ] Add a `CurrencySource(Id, SourceKind, SourceId, DropLevel, Weight)` model:
-  `core`, `boss`, `league`, `atlas`, `vendor`; the core table stays the fallback.
+- [~] Add a `CurrencySource(Id, SourceKind, SourceId, DropLevel, Weight)` model:
+  `core`, `boss`, `league`, `atlas`, `vendor`; the `drop_currency_sources` table
+  and record exist, the core table is seeded and wired, the source rows are not.
 - [ ] Add boss/league-only currency: Awakener's Orb (Sirus), Maven's Orb and Orb
   of Dominance (Maven, verify), Veiled (Betrayal), Eldritch (Exarch/Eater),
   Fracturing/Ancient (core), Cartographer's Chisel (maps), Orb of Unmaking
@@ -67,8 +68,9 @@ is not in the client tables needs a source and a confidence note.
   `ItemDrops.KingInMistsExtras`; the other boss cards are not).
 - [ ] Collect community samples for the important chances (Maven's Orb ~25% from
   the 400-run sample is the current lead; verify).
-- [ ] Implement `BossDrop(BossId, ItemId, Chance, Source, Confidence)` and the
-  boss hooks; keep the generic unique roll as the fallback.
+- [~] Implement `BossDrop(BossId, ItemId, Chance, Source, Confidence)` and the
+  boss hooks; the `drop_boss_items` table and snapshot exist, no roll reads them
+  yet, and the generic unique roll stays the fallback.
 - [ ] Decide how campaign bosses (mostly no unique guarantee) and map bosses
   (global pool vs map-specific pool) are handled.
 
@@ -110,16 +112,20 @@ is not in the client tables needs a source and a confidence note.
 
 - [x] Define the source kinds and the boss/card schemas in prose.
 - [x] Draft the SQLite schema and the seed files: [drop-data-schema.md](../dev/drop-data-schema.md).
-- [ ] Add typed data tables (CSV/JSON or SQLite) for:
-  `CurrencySource`, `BossDrop`, `CardArea`, `CardSource`, `DropPenalty`.
-- [ ] Keep the current `ItemDrops.Currency` core table as the fallback; no
+- [x] Add typed tables for `DropCurrencyWeights`, `DropCurrencySources`,
+  `DropBosses`, `DropBossItems`, `DropCardAreas` and `DropCardSources` in
+  `GameDataStore`, seeded from the CSVs by `GameDataDrops` (schema version 4);
+  the currency table is wired into `ItemDrops.Build`.
+- [x] Keep the current `ItemDrops.Currency` core table as the fallback; no
   boss-only row goes into it without a source.
-- [ ] Add loader validation: unknown ids, duplicate rows, zero/negative weights,
-  missing `DropLevel`, unsupported base types.
-- [ ] Add tests (at most 2 per PR, Gateway only): table loading, source filtering,
-  card area/tier/DropLevel filter, King in the Mists distribution.
-- [ ] Move the tables to editable data (`system_settings`/SQLite) once stable,
-  as [editable-game-data.md](../dev/editable-game-data.md) proposes.
+- [~] Loader validation: finite non-negative weights, `chance` in 0..1, the
+  three confidence values and the decimal style are checked; unknown game ids
+  and unsupported base types are skipped by the pool, not rejected at load.
+- [~] Add tests (at most 2 per PR, Gateway only): seed and publication, empty
+  fallback done; source filtering, card area/tier/DropLevel filter and King in
+  the Mists distribution next.
+- [~] Move the tables to editable data (SQLite, `game_data_meta`/`drop_seeded`);
+  the `/game_data` edit commands and a re-seed on schema change are next.
 
 ## Phase 6. Verification and data collection
 
@@ -135,7 +141,8 @@ is not in the client tables needs a source and a confidence note.
 ## Phase 7. PR sequence
 
 1. **#709 (current, draft):** docs, source collection, `bosses.csv`,
-   `divination-card-areas.csv`, boss/card cross-reference.
+   `divination-card-areas.csv`, boss/card cross-reference, plus the SQLite tables,
+   the CSV seed and the currency-weight wiring.
 2. **Next:** card pool filtering by area/tier/`DropLevel` (one code PR, one or
    two tests).
 3. **Next:** boss drop tables and boss-only currency (one code PR, one or two
@@ -143,7 +150,7 @@ is not in the client tables needs a source and a confidence note.
 4. **Next:** currency baseline recalibration + missing core types (one code PR,
    two tests at most).
 5. **Next:** drop penalty (one code PR, one test).
-6. **Next:** data-driven tables / editable data.
+6. **Next:** `/game_data` edit commands, source rows and re-seeding.
 7. **Later:** collector and MLE recalibration from live samples.
 
 ## Open questions
