@@ -12,6 +12,14 @@ sealed class MapDevice
     /// <summary>Portals one activation opens; each takes one player into the map once.</summary>
     public const int PortalCount = 6;
 
+    public const string CampaignDeviceArea = "2_7_5_1", CampaignMapArea = "2_7_5_map",
+        CampaignDeviceType = "Metadata/QuestObjects/Act7/MaligaroOrrery",
+        CampaignMapItem = "Metadata/Items/QuestItems/Act7/MaligaroMap";
+    public static readonly uint CampaignMapHash = InstanceEntities.ObjectTypeHash(CampaignMapItem);
+
+    public static bool AcceptsItem(uint typeHash, string itemClass) =>
+        typeHash == CampaignMapHash || AcceptsClass(itemClass);
+
     /// <summary>ItemClasses Ids the slots take.</summary>
     public const string MapClass = "Map", MapKeyClass = "MapKey", FragmentClass = "MapFragment",
         MiscClass = "MiscMapItem", VaultClass = "VaultKey";
@@ -153,9 +161,21 @@ sealed class MapDevice
     /// </summary>
     public Opening? Check(IReadOnlyList<Slot> slots, out string why) => Check(slots, null, null, out why);
 
-    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why)
+    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why, bool campaign = false)
     {
         why = "";
+        if (campaign)
+        {
+            if (slots.Count != 1 || slots[0].TypeHash != CampaignMapHash)
+            {
+                why = "Place only Maligaro's Map in this device.";
+                return null;
+            }
+            var sanctum = _worldAreas.FirstOrDefault(a => a?.Id == CampaignMapArea);
+            if (sanctum is not null) return new Opening(sanctum, MapMods.None);
+            why = "Maligaro's Sanctum is not available.";
+            return null;
+        }
         if (slots.FirstOrDefault(s => !AcceptsClass(s.Class) && !s.IsMap && s.Class.Length > 0) is { Class: not null } wrong)
         {
             why = $"{wrong.Name} cannot be used in the Map Device: only maps and map fragments can.";
@@ -212,7 +232,10 @@ sealed class MapDevice
     public sealed record OpenMap(MapArea Area, ulong Instance, IReadOnlyList<int> Left, MapMods Mods, int ItemRow = 0)
     {
         public int PortalsLeft => Left.Count;
+        public Origin? ReturnTo { get; init; }
     }
+
+    public sealed record Origin(ushort Area, ulong Instance, int X, int Y);
 
     private static readonly ConcurrentDictionary<string, OpenMap> Open = new(StringComparer.OrdinalIgnoreCase);
 
@@ -220,8 +243,8 @@ sealed class MapDevice
     public static OpenMap? OpenOf(string character) => Open.GetValueOrDefault(character);
 
     /// <summary>Opens a map for the character with a portal at every place, replacing the one open before.</summary>
-    public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0) =>
-        Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow);
+    public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0, Origin? returnTo = null) =>
+        Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow) { ReturnTo = returnTo };
 
     /// <summary>The character's open map when they are in that area.</summary>
     public static OpenMap? Current(string character, ushort areaHash) =>
@@ -236,7 +259,7 @@ sealed class MapDevice
         {
             if (!map.Left.Contains(index)) return null;
             var after = map with { Left = [.. map.Left.Where(i => i != index)] };
-            bool done = after.Left.Count == 0 ? Open.TryRemove(new(character, map)) : Open.TryUpdate(character, after, map);
+            bool done = after.Left.Count == 0 && map.ReturnTo is null ? Open.TryRemove(new(character, map)) : Open.TryUpdate(character, after, map);
             if (done) return (map, after.Left.Count);
         }
         return null;

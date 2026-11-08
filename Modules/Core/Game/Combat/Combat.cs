@@ -767,6 +767,7 @@ static partial class Game
         {
             uint cost, lifeCost;
             bool paid;
+            int? channelWalk = ChannelWalkPercent(conn, skillId, gem.Effect);
             lock (conn.Monsters)
             {
                 if (!Current()) return false;
@@ -776,6 +777,9 @@ static partial class Game
                 {
                     channelGeneration = ++conn.ChannelGeneration;
                     conn.ChannelSkill = skillId;
+                    bool walkChanges = channelWalk is not null || conn.ChannelMovement.Skill != 0;
+                    conn.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
+                    if (walkChanges) conn.ApplyMovementSpeed();
                     conn.ChannelSkillSequence = sequence;
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
                     conn.PaidChannel = CombatLifetime is { IsActive: true } rules
@@ -1234,6 +1238,37 @@ static partial class Game
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+    }
+
+    // Cyclone moves while it is channelled: its final movement modifier (cyclone_movement_speed_+%_final, from the gem's
+    // stats with its supports); null for a channel that stands (Blade Flurry …).
+    internal static int? ChannelWalkPercent(ClientState conn, ushort skillId, int effect) =>
+        SkillArea.IsCyclone(SkillsFor(conn).EffectId(effect))
+            ? GolemStat(SupportedSkill(conn, skillId).Stats, "cyclone_movement_speed_+%_final") : null;
+
+    // C→S 0x197: the point the held channel is aimed at now (the cursor's cell), not the player's cell: it can be the
+    // whole screen away the moment the channel starts. The client walks Cyclone's player toward it at the movement speed
+    // with the skill's final modifier, as an order re-aimed on every update; the sweeps follow that walk (RunChannel).
+    // A channel that stands keeps the player where it is.
+    internal static void ChannelAimedAt(ClientState conn, int x, int y, double at)
+    {
+        if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill) conn.Walk.Order(x, y, at);
+    }
+
+    // C→S 0x199: the button let go. The channel ends, and a walking one stops where the player is (it was walking only
+    // as part of the channel); the walk gets its usual speed back.
+    internal static void ChannelReleased(ClientState conn, double at)
+    {
+        lock (conn.Monsters)
+        {
+            if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill)
+            {
+                var (x, y) = conn.Walk.Position(at);
+                conn.Walk.Order(x, y, at);
+            }
+            conn.ChannelSkill = 0;
+            conn.ChannelGeneration++;
+        }
     }
 
     internal static bool ChannelCurrent(ClientState conn, ushort skill, int action, int generation)

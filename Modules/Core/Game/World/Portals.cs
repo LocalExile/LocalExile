@@ -4,12 +4,23 @@ using GameServer.Core.Protocol.Login;
 
 static partial class Game
 {
+    internal static (uint Id, int X, int Y, bool Campaign)? MapDeviceHere(ClientState conn)
+    {
+        if (conn.Layout.Id == MapDevice.CampaignDeviceArea)
+            lock (conn.QuestObjects)
+                foreach (var (id, obj) in conn.QuestObjects)
+                    if (obj.Rule.ObjectType == MapDevice.CampaignDeviceType)
+                        return (id, obj.At.X, obj.At.Y, true);
+        lock (conn.HideoutDoodads)
+            foreach (var (id, device) in conn.HideoutDoodads)
+                return (id, device.X, device.Y, false);
+        return null;
+    }
     // Lists the portals already standing again, so a portal cosmetic takes effect without reopening the map device: 0x008f
     // carries the variation of every entry and the client re-applies the visual. False when nothing stands.
     internal static async Task<bool> ResendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        uint deviceId;
-        lock (conn.HideoutDoodads) deviceId = conn.HideoutDoodads.Keys.FirstOrDefault();
+        uint deviceId = MapDeviceHere(conn)?.Id ?? 0;
         lock (conn.MapPortals)
             if (conn.MapPortals.Count == 0) return false;
         await SendMapPortals(remote, stream, ciphers, conn, deviceId,
