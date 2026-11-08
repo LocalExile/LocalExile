@@ -39,7 +39,7 @@ public sealed class CurrencyExchangeTests
         var rates = ExchangeRates.FromDigests(
         [
             Digest(3600, Market("Allflame", ExchangeRates.Divine, ExchangeRates.Chaos, 1, 400),
-                Market("Allflame", X, ExchangeRates.Chaos, 100, 50), Market("Allflame", Thin, ExchangeRates.Chaos, 1, 19),
+                Market("Allflame", X, ExchangeRates.Chaos, 100, 50), Market("Allflame", Thin, ExchangeRates.Chaos, 1, 4),
                 Market("Allflame", ViaDivine, ExchangeRates.Divine, 200, 1), Market("Standard", X, ExchangeRates.Chaos, 10, 30)),
             Digest(7200, Market("Allflame", ExchangeRates.Divine, ExchangeRates.Chaos, 1, 500), Market("Private (PL1)", X, ExchangeRates.Chaos, 1, 900)),
         ]);

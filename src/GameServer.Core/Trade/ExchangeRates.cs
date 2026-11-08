@@ -17,8 +17,9 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
     public const string Chaos = "Metadata/Items/Currency/CurrencyRerollRare", Divine = "Metadata/Items/Currency/CurrencyModValues";
     public const string Standard = "Standard";
 
-    /// <summary>A pair below this much chaos in the digests is too thin to price: single trades there reach several times the value.</summary>
-    public const double MinChaosVolume = 20;
+    /// <summary>A pair below this much chaos in the digests is too thin to price. It bounds what a stray trade can do: a price from little
+    /// volume cannot be above that volume, so a thin item's wrong price is never worth much.</summary>
+    public const double MinChaosVolume = 5;
 
     static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
 
