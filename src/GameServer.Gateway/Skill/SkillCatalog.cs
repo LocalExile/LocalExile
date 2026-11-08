@@ -1123,6 +1123,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// every hit it makes; empty for unarmed and for weapons without such mods.</summary>
         public DamagePacket LocalAdded { get; init; } = DamagePacket.Empty;
         public bool WieldingWand { get; init; }
+        /// <summary>An ordinary bow: its attacks also take the items' "with Bows" added damage stats.</summary>
+        public bool Bow { get; init; }
         public bool Melee { get; init; } = true;
 
         /// <summary>Unarmed attacks alternate hands, i.e. count as dual wielding, and the client adds dual wielding's 10%
