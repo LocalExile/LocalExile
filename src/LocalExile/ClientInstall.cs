@@ -188,7 +188,12 @@ static class ClientInstall
             log.Info("generating your own login keys (kept in data\\; never share them)");
             Tools.RunOrThrow(Tools.Auth, ["keygen", GameExe], "auth-keygen", ExitCode.Client, log);
         }
-        if (File.Exists(PatchedExe) && File.GetLastWriteTimeUtc(PatchedExe) >= File.GetLastWriteTimeUtc(Keys)) return;
+        // Patched from these keys and this Game.exe: a client updated in place (a linked install) has a newer Game.exe, and
+        // the patch keeps the size, so an older or differently sized Game.patched.exe is another build's.
+        var patched = new FileInfo(PatchedExe);
+        var game = new FileInfo(GameExe);
+        if (patched.Exists && patched.Length == game.Length && patched.LastWriteTimeUtc >= game.LastWriteTimeUtc
+            && patched.LastWriteTimeUtc >= File.GetLastWriteTimeUtc(Keys)) return;
         log.Info("writing Client\\Game.patched.exe, the copy of the client that trusts your keys (antivirus may flag a modified executable)");
         Tools.RunOrThrow(Tools.Auth, ["patch", GameExe, PatchedExe], "auth-patch", ExitCode.Client, log);
         if (!File.Exists(PatchedExe)) throw new LauncherException(ExitCode.Client, "Client\\Game.patched.exe is missing after patching: allow it in your antivirus");
