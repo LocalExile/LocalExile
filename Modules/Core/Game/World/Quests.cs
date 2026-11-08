@@ -190,6 +190,9 @@ static partial class Game
     // they do not, so a league without them has the layout as generated.
     internal static bool TransitionShown(ClientState conn, uint id, AreaTransitionObject transition)
     {
+        // The Reverie Device's six consumable portals replace the old permanent quest exit.
+        if (QuestsOf(conn).Includes("QuestObjects") && conn.Layout.Id == MapDevice.CampaignDeviceArea
+            && transition.DestinationHash16 == AreaTransitionCatalog.HashOf(MapDevice.CampaignMapArea)) return false;
         var quests = QuestsOf(conn);
         if (transition.QuestSource is { } source && quests.Includes(source) == transition.QuestReplaced) return false;
         return quests.Exists(transition.SourceType, f => ClientHasQuestFlag(conn, f))

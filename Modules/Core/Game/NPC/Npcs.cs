@@ -25,6 +25,8 @@ static partial class Game
     {
         var notes = new List<string>();
         var placements = HideoutFurniture(conn)?.Npcs ?? NpcCatalog.In(conn.Layout.Hash, conn.Seed, notes);
+        if (conn.Layout.Id == "1_4_town")
+            placements = [.. placements, new("Metadata/NPC/League/Delve/DelveMiner", 352, 618, 280 * MathF.PI / 180)];
         foreach (var note in notes) Console.WriteLine($"[gateway] {remote} npcs: {note}");
         if (placements.Count == 0 || Environment.GetEnvironmentVariable("Game_NPCS") == "0") return;
         if (Npcs.Value.Error is { } error) { Console.WriteLine($"[gateway] {remote} npcs: {error}"); return; }
@@ -70,6 +72,11 @@ static partial class Game
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
         conn.NpcRewardOffer = null;
+        // Ctrl + click goes straight to an NPC's Currency Exchange (Faustus), as picking the option does. An NPC without one, or a
+        // league without the module, talks as usual.
+        if (use.Ctrl && Npcs.Value.TalksOf(npc.Npc).FirstOrDefault(t => t.Category == "CurrencyExchange" && t.Available(Quests.Names(PlayerQuestFlags(conn)))) is { } exchange
+            && await Program.ServerHooks.RunNpcOption(new(PlayerOf(conn), npc.Npc.Name, exchange.Category, exchange.Option, exchange.Script, exchange.TextAudio.Count > 0,
+                exchange.Index, exchange.Row, exchange.OpensGuildHideouts, exchange.RewardOffer))) return;
         if (await GameEvents.AnyNpcTalk(conn, id, npc)) return;
         if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 talk to npc 0x{id:x} {npc.Npc.Name}",

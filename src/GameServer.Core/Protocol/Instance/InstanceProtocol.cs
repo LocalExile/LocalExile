@@ -41,7 +41,8 @@ public static class InstanceProtocol
     public const ushort SwapWeaponsId = 0xdd;
 
     /// <summary>C→S 0x197 (10 bytes, live 2026-10-23 while Cyclone was held): a channelled skill goes on, u32 BE x, u32 BE
-    /// y (grid cells) of the player. C→S 0x199 (2 bytes): the channel ends (the button let go). Read from captures.</summary>
+    /// y (grid cells) of the point it is aimed at now (the cursor, not the player). C→S 0x199 (2 bytes): the channel ends
+    /// (the button let go). Read from captures.</summary>
     public const ushort ChannelUpdateId = 0x197, ChannelEndId = 0x199;
 
     public static (int X, int Y) ReadChannelUpdate(ReadOnlySpan<byte> m) =>
@@ -106,7 +107,11 @@ public static class InstanceProtocol
         InstanceMicrotransactions.RequestId => InstanceMicrotransactions.RequestLength,
         InstanceHideouts.SelectId => InstanceHideouts.SelectLength,
         InstanceHideoutEditing.MoveId => InstanceHideoutEditing.MoveLength,
-        InstanceBench.CraftId => InstanceBench.CraftLength, InstanceBench.MoveId => InstanceBench.MoveLength, InstanceHarvest.CraftId => InstanceHarvest.CraftLength, _ => null,
+        InstanceBench.CraftId => InstanceBench.CraftLength, InstanceBench.MoveId => InstanceBench.MoveLength, InstanceHarvest.CraftId => InstanceHarvest.CraftLength,
+        InstanceCurrencyExchange.RequestOrdersId => InstanceCurrencyExchange.RequestOrdersLength, InstanceCurrencyExchange.PlaceOrderId => InstanceCurrencyExchange.PlaceOrderLength,
+        InstanceCurrencyExchange.CloseOrderId => InstanceCurrencyExchange.CloseOrderLength, InstanceCurrencyExchange.ClaimId => InstanceCurrencyExchange.ClaimLength,
+        InstanceCurrencyExchange.RequestMarketId => InstanceCurrencyExchange.RequestMarketLength, InstanceCurrencyExchange.RequestPartnersId => InstanceCurrencyExchange.RequestPartnersLength,
+        InstanceCurrencyExchange.RequestFeeId => InstanceCurrencyExchange.RequestFeeLength, _ => null,
     };
 
     /// <summary>

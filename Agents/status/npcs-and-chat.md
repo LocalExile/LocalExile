@@ -33,6 +33,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Native walking respected the three NPCs and both stashes in Lioneye's Watch; the guild stash receives
   its native HaveGuild access flag when locally available, so its client collision matches the server.
   League NPCs and later quest stages are not placed ([17](../docs/protocol/17-npcs.md) §2).
+  Niko also stands in Act 4 Highgate at the player's confirmed position and facing.
   Clicking walks to them and opens the dialogue window (S→C 0x84); talk options play (0x82 → 0x84 + index);
   Continue and Goodbye (C→S 0x85) are answered; Purchase Items opens the shop (S→C 0xc0 manager 1 + 0x8c) and buying
   (C→S 0x88) uses item-specific prices; Sell Items: the sell window (S→C 0xb8) takes drops, Ctrl + click (first free
@@ -70,6 +71,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Faustus's Currency Exchange at official prices works through `/exchange` (orders, claims, cancelling; live 2026-11-08).
+  Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written and not yet played.
+  Faustus stands in every hideout; his dialogue option there is not yet played.
+  See [29](../docs/protocol/29-currency-exchange.md).
 - Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.
   Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.
   Support gems are excluded from deterministic rewards and the opening support chest.

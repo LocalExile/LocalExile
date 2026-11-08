@@ -20,6 +20,18 @@ public sealed class GameDataStore : IDisposable
         string ModType);
     public sealed record ModStatRow(string ModId, int StatIndex, string StatId, int Minimum, int Maximum, bool Local);
     public sealed record UniqueWeightRow(string Name, double Weight, double RuthlessWeight);
+    public sealed record CurrencyWeightRow(string CurrencyId, double Weight, int DropLevel, bool Enabled,
+        string Source, string Confidence, string? Notes);
+    public sealed record CurrencySourceRow(string CurrencyId, string SourceKind, string SourceId, double Weight,
+        int DropLevel, bool Enabled, string Confidence, string Source, string? Notes);
+    public sealed record BossRow(string BossId, string BossName, string? AreaId, string Category, bool Enabled);
+    public sealed record BossItemRow(string BossId, string ItemId, string ItemKind, double? Chance,
+        string Confidence, string Source, string? Notes);
+    public sealed record CardAreaRow(string AreaId, string AreaName, string CardId, int MinMapTier, string Source);
+    public sealed record CardSourceRow(string CardId, string SourceKind, string SourceId, int? MinMapTier,
+        int DropLevel, string Confidence, string Source, string? Notes);
+    public sealed record ItemWeightRow(string Category, string ItemId, double Weight, bool Enabled, string Source,
+        string Confidence, string Patch, string SampledAt, string? Notes);
 
     private readonly SqliteConnection _db;
     private readonly object _gate = new();
@@ -144,9 +156,86 @@ public sealed class GameDataStore : IDisposable
                     mods TEXT NOT NULL,
                     updated_utc TEXT NOT NULL
                 ) STRICT;
+                CREATE TABLE IF NOT EXISTS drop_currency_weights (
+                    currency_id TEXT PRIMARY KEY,
+                    weight REAL NOT NULL CHECK (weight >= 0),
+                    drop_level INTEGER NOT NULL CHECK (drop_level >= 0),
+                    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                    source TEXT NOT NULL,
+                    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
+                    notes TEXT,
+                    updated_utc TEXT NOT NULL
+                ) STRICT;
+                CREATE TABLE IF NOT EXISTS drop_currency_sources (
+                    currency_id TEXT NOT NULL,
+                    source_kind TEXT NOT NULL CHECK (source_kind IN ('core', 'boss', 'league', 'atlas', 'vendor')),
+                    source_id TEXT NOT NULL,
+                    weight REAL NOT NULL CHECK (weight >= 0),
+                    drop_level INTEGER NOT NULL CHECK (drop_level >= 0),
+                    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
+                    source TEXT NOT NULL,
+                    notes TEXT,
+                    updated_utc TEXT NOT NULL,
+                    PRIMARY KEY (currency_id, source_kind, source_id)
+                ) STRICT;
+                CREATE TABLE IF NOT EXISTS drop_bosses (
+                    boss_id TEXT PRIMARY KEY,
+                    boss_name TEXT NOT NULL,
+                    area_id TEXT,
+                    category TEXT NOT NULL,
+                    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                    updated_utc TEXT NOT NULL
+                ) STRICT;
+                CREATE TABLE IF NOT EXISTS drop_boss_items (
+                    boss_id TEXT NOT NULL,
+                    item_id TEXT NOT NULL,
+                    item_kind TEXT NOT NULL CHECK (item_kind IN ('unique', 'currency', 'gem', 'card', 'other')),
+                    chance REAL CHECK (chance IS NULL OR (chance >= 0 AND chance <= 1)),
+                    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
+                    source TEXT NOT NULL,
+                    notes TEXT,
+                    updated_utc TEXT NOT NULL,
+                    PRIMARY KEY (boss_id, item_id)
+                ) STRICT;
+                CREATE TABLE IF NOT EXISTS drop_card_areas (
+                    area_id TEXT NOT NULL,
+                    area_name TEXT NOT NULL,
+                    card_id TEXT NOT NULL,
+                    min_map_tier INTEGER NOT NULL CHECK (min_map_tier BETWEEN 1 AND 16),
+                    source TEXT NOT NULL,
+                    updated_utc TEXT NOT NULL,
+                    PRIMARY KEY (area_id, card_id)
+                ) STRICT;
+                CREATE TABLE IF NOT EXISTS drop_card_sources (
+                    card_id TEXT NOT NULL,
+                    source_kind TEXT NOT NULL CHECK (source_kind IN ('area', 'boss', 'league')),
+                    source_id TEXT NOT NULL,
+                    min_map_tier INTEGER CHECK (min_map_tier IS NULL OR min_map_tier BETWEEN 1 AND 16),
+                    drop_level INTEGER NOT NULL CHECK (drop_level >= 0),
+                    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
+                    source TEXT NOT NULL,
+                    notes TEXT,
+                    updated_utc TEXT NOT NULL,
+                    PRIMARY KEY (card_id, source_kind, source_id)
+                ) STRICT;
+                CREATE TABLE IF NOT EXISTS drop_item_weights (
+                    category TEXT NOT NULL CHECK (category IN ('scarab', 'card', 'essence', 'fossil', 'catalyst',
+                        'delirium-orb', 'breachstone', 'legion-splinter', 'runegraft')),
+                    item_id TEXT NOT NULL,
+                    weight REAL NOT NULL CHECK (weight >= 0),
+                    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                    source TEXT NOT NULL,
+                    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
+                    patch TEXT NOT NULL,
+                    sampled_at TEXT NOT NULL,
+                    notes TEXT,
+                    updated_utc TEXT NOT NULL,
+                    PRIMARY KEY (category, item_id)
+                ) STRICT;
                 """);
-            Execute("INSERT OR IGNORE INTO game_data_meta (key, value) VALUES ('schema_version', '3')");
-            Execute("UPDATE game_data_meta SET value = '3' WHERE key = 'schema_version' AND value IN ('1', '2')");
+            Execute("INSERT OR IGNORE INTO game_data_meta (key, value) VALUES ('schema_version', '5')");
+            Execute("UPDATE game_data_meta SET value = '5' WHERE key = 'schema_version' AND value IN ('1', '2', '3', '4')");
         }
         catch
         {
@@ -584,6 +673,336 @@ public sealed class GameDataStore : IDisposable
     public bool CatalogSeeded(string kind) => Meta("catalog_seeded:" + kind) is not null;
 
     public void MarkCatalogSeeded(string kind) => SetMeta("catalog_seeded:" + kind, DateTime.UtcNow.ToString("O"));
+
+    public bool DropSeeded() => Meta("drop_seeded") is not null;
+
+    public void MarkDropSeeded() => SetMeta("drop_seeded", DateTime.UtcNow.ToString("O"));
+
+    /// <summary>The seed-file generation the drop tables were last filled from; a newer one re-seeds them.</summary>
+    public string? DropSeedVersion() => Meta("drop_seed_version");
+
+    public void MarkDropSeedVersion(string version) => SetMeta("drop_seed_version", version);
+
+    public (int CurrencyWeights, int CurrencySources, int Bosses, int BossItems, int CardAreas, int CardSources,
+        int ItemWeights) DropCounts()
+    {
+        lock (_gate)
+        {
+            int Count(string table)
+            {
+                using var command = Command($"SELECT COUNT(*) FROM {table}");
+                return Convert.ToInt32(command.ExecuteScalar());
+            }
+            return (Count("drop_currency_weights"), Count("drop_currency_sources"), Count("drop_bosses"),
+                Count("drop_boss_items"), Count("drop_card_areas"), Count("drop_card_sources"),
+                Count("drop_item_weights"));
+        }
+    }
+
+    public IReadOnlyList<CurrencyWeightRow> LoadCurrencyWeights()
+    {
+        lock (_gate)
+        {
+            using var command = Command("""
+                SELECT currency_id, weight, drop_level, enabled, source, confidence, notes
+                FROM drop_currency_weights ORDER BY currency_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<CurrencyWeightRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetDouble(1), reader.GetInt32(2), reader.GetInt32(3) != 0,
+                    reader.GetString(4), reader.GetString(5), reader.IsDBNull(6) ? null : reader.GetString(6)));
+            return rows;
+        }
+    }
+
+    public void ReplaceCurrencyWeights(IReadOnlyList<CurrencyWeightRow> rows)
+    {
+        Atomically(() =>
+        {
+            Execute("DELETE FROM drop_currency_weights");
+            using var command = Command("""
+                INSERT INTO drop_currency_weights (currency_id, weight, drop_level, enabled, source, confidence, notes, updated_utc)
+                VALUES ($id, $weight, $level, $enabled, $source, $confidence, $notes, $utc)
+                """, ("$id", ""), ("$weight", 0.0), ("$level", 0), ("$enabled", 1), ("$source", ""),
+                ("$confidence", "unknown"), ("$notes", DBNull.Value), ("$utc", ""));
+            command.Prepare();
+            foreach (var row in rows)
+            {
+                command.Parameters["$id"].Value = row.CurrencyId;
+                command.Parameters["$weight"].Value = row.Weight;
+                command.Parameters["$level"].Value = row.DropLevel;
+                command.Parameters["$enabled"].Value = row.Enabled ? 1 : 0;
+                command.Parameters["$source"].Value = row.Source;
+                command.Parameters["$confidence"].Value = row.Confidence;
+                command.Parameters["$notes"].Value = row.Notes ?? (object)DBNull.Value;
+                command.Parameters["$utc"].Value = DateTime.UtcNow.ToString("O");
+                command.ExecuteNonQuery();
+            }
+        });
+    }
+
+    public IReadOnlyList<CurrencySourceRow> LoadCurrencySources()
+    {
+        lock (_gate)
+        {
+            using var command = Command("""
+                SELECT currency_id, source_kind, source_id, weight, drop_level, enabled, confidence, source, notes
+                FROM drop_currency_sources ORDER BY currency_id, source_kind, source_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<CurrencySourceRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetDouble(3),
+                    reader.GetInt32(4), reader.GetInt32(5) != 0, reader.GetString(6), reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetString(8)));
+            return rows;
+        }
+    }
+
+    public void ReplaceCurrencySources(IReadOnlyList<CurrencySourceRow> rows)
+    {
+        Atomically(() =>
+        {
+            Execute("DELETE FROM drop_currency_sources");
+            using var command = Command("""
+                INSERT INTO drop_currency_sources (currency_id, source_kind, source_id, weight, drop_level, enabled,
+                    confidence, source, notes, updated_utc)
+                VALUES ($id, $kind, $source_id, $weight, $level, $enabled, $confidence, $source, $notes, $utc)
+                """, ("$id", ""), ("$kind", "core"), ("$source_id", ""), ("$weight", 0.0), ("$level", 0),
+                ("$enabled", 1), ("$confidence", "unknown"), ("$source", ""), ("$notes", DBNull.Value), ("$utc", ""));
+            command.Prepare();
+            foreach (var row in rows)
+            {
+                command.Parameters["$id"].Value = row.CurrencyId;
+                command.Parameters["$kind"].Value = row.SourceKind;
+                command.Parameters["$source_id"].Value = row.SourceId;
+                command.Parameters["$weight"].Value = row.Weight;
+                command.Parameters["$level"].Value = row.DropLevel;
+                command.Parameters["$enabled"].Value = row.Enabled ? 1 : 0;
+                command.Parameters["$confidence"].Value = row.Confidence;
+                command.Parameters["$source"].Value = row.Source;
+                command.Parameters["$notes"].Value = row.Notes ?? (object)DBNull.Value;
+                command.Parameters["$utc"].Value = DateTime.UtcNow.ToString("O");
+                command.ExecuteNonQuery();
+            }
+        });
+    }
+
+    public IReadOnlyList<BossRow> LoadBosses()
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT boss_id, boss_name, area_id, category, enabled FROM drop_bosses ORDER BY boss_id");
+            using var reader = command.ExecuteReader();
+            var rows = new List<BossRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.GetString(3), reader.GetInt32(4) != 0));
+            return rows;
+        }
+    }
+
+    public void ReplaceBosses(IReadOnlyList<BossRow> rows)
+    {
+        Atomically(() =>
+        {
+            Execute("DELETE FROM drop_bosses");
+            using var command = Command("""
+                INSERT INTO drop_bosses (boss_id, boss_name, area_id, category, enabled, updated_utc)
+                VALUES ($id, $name, $area, $category, $enabled, $utc)
+                """, ("$id", ""), ("$name", ""), ("$area", DBNull.Value), ("$category", "other"),
+                ("$enabled", 1), ("$utc", ""));
+            command.Prepare();
+            foreach (var row in rows)
+            {
+                command.Parameters["$id"].Value = row.BossId;
+                command.Parameters["$name"].Value = row.BossName;
+                command.Parameters["$area"].Value = row.AreaId ?? (object)DBNull.Value;
+                command.Parameters["$category"].Value = row.Category;
+                command.Parameters["$enabled"].Value = row.Enabled ? 1 : 0;
+                command.Parameters["$utc"].Value = DateTime.UtcNow.ToString("O");
+                command.ExecuteNonQuery();
+            }
+        });
+    }
+
+    public IReadOnlyList<BossItemRow> LoadBossItems()
+    {
+        lock (_gate)
+        {
+            using var command = Command("""
+                SELECT boss_id, item_id, item_kind, chance, confidence, source, notes
+                FROM drop_boss_items ORDER BY boss_id, item_kind, item_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<BossItemRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetDouble(3), reader.GetString(4), reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetString(6)));
+            return rows;
+        }
+    }
+
+    public void ReplaceBossItems(IReadOnlyList<BossItemRow> rows)
+    {
+        Atomically(() =>
+        {
+            Execute("DELETE FROM drop_boss_items");
+            using var command = Command("""
+                INSERT INTO drop_boss_items (boss_id, item_id, item_kind, chance, confidence, source, notes, updated_utc)
+                VALUES ($boss, $item, $kind, $chance, $confidence, $source, $notes, $utc)
+                """, ("$boss", ""), ("$item", ""), ("$kind", "other"), ("$chance", DBNull.Value),
+                ("$confidence", "unknown"), ("$source", ""), ("$notes", DBNull.Value), ("$utc", ""));
+            command.Prepare();
+            foreach (var row in rows)
+            {
+                command.Parameters["$boss"].Value = row.BossId;
+                command.Parameters["$item"].Value = row.ItemId;
+                command.Parameters["$kind"].Value = row.ItemKind;
+                command.Parameters["$chance"].Value = row.Chance ?? (object)DBNull.Value;
+                command.Parameters["$confidence"].Value = row.Confidence;
+                command.Parameters["$source"].Value = row.Source;
+                command.Parameters["$notes"].Value = row.Notes ?? (object)DBNull.Value;
+                command.Parameters["$utc"].Value = DateTime.UtcNow.ToString("O");
+                command.ExecuteNonQuery();
+            }
+        });
+    }
+
+    public IReadOnlyList<CardAreaRow> LoadCardAreas()
+    {
+        lock (_gate)
+        {
+            using var command = Command("""
+                SELECT area_id, area_name, card_id, min_map_tier, source
+                FROM drop_card_areas ORDER BY area_id, card_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<CardAreaRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3),
+                    reader.GetString(4)));
+            return rows;
+        }
+    }
+
+    public void ReplaceCardAreas(IReadOnlyList<CardAreaRow> rows)
+    {
+        Atomically(() =>
+        {
+            Execute("DELETE FROM drop_card_areas");
+            using var command = Command("""
+                INSERT INTO drop_card_areas (area_id, area_name, card_id, min_map_tier, source, updated_utc)
+                VALUES ($area, $name, $card, $tier, $source, $utc)
+                """, ("$area", ""), ("$name", ""), ("$card", ""), ("$tier", 1), ("$source", ""), ("$utc", ""));
+            command.Prepare();
+            foreach (var row in rows)
+            {
+                command.Parameters["$area"].Value = row.AreaId;
+                command.Parameters["$name"].Value = row.AreaName;
+                command.Parameters["$card"].Value = row.CardId;
+                command.Parameters["$tier"].Value = row.MinMapTier;
+                command.Parameters["$source"].Value = row.Source;
+                command.Parameters["$utc"].Value = DateTime.UtcNow.ToString("O");
+                command.ExecuteNonQuery();
+            }
+        });
+    }
+
+    public IReadOnlyList<CardSourceRow> LoadCardSources()
+    {
+        lock (_gate)
+        {
+            using var command = Command("""
+                SELECT card_id, source_kind, source_id, min_map_tier, drop_level, confidence, source, notes
+                FROM drop_card_sources ORDER BY card_id, source_kind, source_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<CardSourceRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetInt32(3), reader.GetInt32(4), reader.GetString(5),
+                    reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7)));
+            return rows;
+        }
+    }
+
+    public void ReplaceCardSources(IReadOnlyList<CardSourceRow> rows)
+    {
+        Atomically(() =>
+        {
+            Execute("DELETE FROM drop_card_sources");
+            using var command = Command("""
+                INSERT INTO drop_card_sources (card_id, source_kind, source_id, min_map_tier, drop_level,
+                    confidence, source, notes, updated_utc)
+                VALUES ($card, $kind, $source_id, $tier, $level, $confidence, $source, $notes, $utc)
+                """, ("$card", ""), ("$kind", "area"), ("$source_id", ""), ("$tier", DBNull.Value), ("$level", 0),
+                ("$confidence", "unknown"), ("$source", ""), ("$notes", DBNull.Value), ("$utc", ""));
+            command.Prepare();
+            foreach (var row in rows)
+            {
+                command.Parameters["$card"].Value = row.CardId;
+                command.Parameters["$kind"].Value = row.SourceKind;
+                command.Parameters["$source_id"].Value = row.SourceId;
+                command.Parameters["$tier"].Value = row.MinMapTier ?? (object)DBNull.Value;
+                command.Parameters["$level"].Value = row.DropLevel;
+                command.Parameters["$confidence"].Value = row.Confidence;
+                command.Parameters["$source"].Value = row.Source;
+                command.Parameters["$notes"].Value = row.Notes ?? (object)DBNull.Value;
+                command.Parameters["$utc"].Value = DateTime.UtcNow.ToString("O");
+                command.ExecuteNonQuery();
+            }
+        });
+    }
+
+    public IReadOnlyList<ItemWeightRow> LoadItemWeights()
+    {
+        lock (_gate)
+        {
+            using var command = Command("""
+                SELECT category, item_id, weight, enabled, source, confidence, patch, sampled_at, notes
+                FROM drop_item_weights ORDER BY category, item_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<ItemWeightRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetDouble(2), reader.GetInt32(3) != 0,
+                    reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetString(8)));
+            return rows;
+        }
+    }
+
+    public void ReplaceItemWeights(IReadOnlyList<ItemWeightRow> rows)
+    {
+        Atomically(() =>
+        {
+            Execute("DELETE FROM drop_item_weights");
+            using var command = Command("""
+                INSERT INTO drop_item_weights (category, item_id, weight, enabled, source, confidence, patch,
+                    sampled_at, notes, updated_utc)
+                VALUES ($category, $item, $weight, $enabled, $source, $confidence, $patch, $sampled, $notes, $utc)
+                """, ("$category", "card"), ("$item", ""), ("$weight", 0.0), ("$enabled", 1), ("$source", ""),
+                ("$confidence", "unknown"), ("$patch", ""), ("$sampled", ""), ("$notes", DBNull.Value), ("$utc", ""));
+            command.Prepare();
+            foreach (var row in rows)
+            {
+                command.Parameters["$category"].Value = row.Category;
+                command.Parameters["$item"].Value = row.ItemId;
+                command.Parameters["$weight"].Value = row.Weight;
+                command.Parameters["$enabled"].Value = row.Enabled ? 1 : 0;
+                command.Parameters["$source"].Value = row.Source;
+                command.Parameters["$confidence"].Value = row.Confidence;
+                command.Parameters["$patch"].Value = row.Patch;
+                command.Parameters["$sampled"].Value = row.SampledAt;
+                command.Parameters["$notes"].Value = row.Notes ?? (object)DBNull.Value;
+                command.Parameters["$utc"].Value = DateTime.UtcNow.ToString("O");
+                command.ExecuteNonQuery();
+            }
+        });
+    }
 
     public string? Meta(string key)
     {

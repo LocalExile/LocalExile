@@ -997,8 +997,24 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public (uint Id, int X, int Y)? ReturnPortal;
     /// <summary>The portal back to the character's open town portal, in its town or hideout (SpawnBackPortal).</summary>
     public (uint Id, int X, int Y)? BackPortal;
-    /// <summary>The gem skill being channelled (Cyclone: C→S 0x197 until 0x199), 0 for none, and when it next hits.</summary>
-    public ushort ChannelSkill;
+    /// <summary>The gem skill being channelled (Cyclone: C→S 0x197 until 0x199), 0 for none, and when it next hits.
+    /// Leaving a moving channel (<see cref="ChannelMovement"/>) gives the walk its usual speed back.</summary>
+    public ushort ChannelSkill
+    {
+        get => _channelSkill;
+        set
+        {
+            ushort was = _channelSkill;
+            _channelSkill = value;
+            if (was == value || ChannelMovement.Skill == 0 || was != ChannelMovement.Skill) return;
+            ChannelMovement = default;
+            ApplyMovementSpeed();
+        }
+    }
+    ushort _channelSkill;
+    /// <summary>A channel that walks the player toward its aimed point (Cyclone) and its own final movement modifier
+    /// (cyclone_movement_speed_+%_final): the walk goes at it while <see cref="ChannelSkill"/> is that skill.</summary>
+    public (ushort Skill, int Percent) ChannelMovement;
     public int ChannelGeneration;
     /// <summary>The last passive and equipment stat sum and its inputs (CharacterStatSources).</summary>
     public volatile object? StatSourcesCacheState;

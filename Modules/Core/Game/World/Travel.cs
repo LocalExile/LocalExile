@@ -133,14 +133,14 @@ static partial class Game
         // A gate within the area (a map's boss arena): next to its pair, in the same instance.
         if (transition.TeleportTo is { } pair)
         {
-            var (tx, ty) = conn.Layout.Near(pair);
+            var (tx, ty) = GateArrival(conn.Layout, transition);
             using (ProjectileMutation(conn))
             {
                 if (!PlayerActionCurrent(conn, action)) return;
                 conn.Walk.Teleport(tx, ty, ProjectileWorldTime(conn));
             }
             await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, tx, ty),
-                $"0x01b7 player through the gate 0x{use.TargetId:x} to ({tx}, {ty}), next to its pair at ({pair.X}, {pair.Y})",
+                $"0x01b7 player through the gate 0x{use.TargetId:x} to ({tx}, {ty}), destination gate at ({pair.X}, {pair.Y})",
                 still: () => PlayerActionCurrent(conn, action));
             return;
         }
@@ -153,6 +153,27 @@ static partial class Game
         var transfer = LabyrinthDay.Transfer(CharacterName(conn), conn.Layout.Id, conn.Seed, transition.SourceType, dest,
             AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false);
         await ChangeArea(remote, stream, ciphers, conn, transfer, use.ToString());
+    }
+
+    // Arakaali's return gate and telepad are on the balcony outside her closed web. Until the encounter's scripted
+    // entrance is modelled, the arena entrance must land on the boss room's floor, rather than beside that return gate.
+    // Use the placed room's footprint so every seed and orientation supplies its own coordinates.
+    internal static (int X, int Y) GateArrival(AreaLayout layout, AreaTransitionObject transition)
+    {
+        if (transition.TeleportTo is not { } pair) throw new ArgumentException("The transition is not an intra-area gate.", nameof(transition));
+        if (layout.Id == "2_7_12_2" && transition.SourceType == "Metadata/QuestObjects/BossArenaEntranceTransition"
+            && layout.Level?.Records.SelectMany(r => r.Rooms).LastOrDefault(r =>
+                r.Room.Path.EndsWith("/boss.arm", StringComparison.OrdinalIgnoreCase)
+                && pair.X >= r.X * 23 && pair.X < (r.X + r.Width) * 23
+                && pair.Y >= r.Y * 23 && pair.Y < (r.Y + r.Height) * 23) is { } room)
+        {
+            var centre = (X: room.X * 23 + room.Width * 23 / 2, Y: room.Y * 23 + room.Height * 23 / 2);
+            if (layout.WalkableFor(centre.X, centre.Y, 1)) return centre;
+            var near = layout.Near(centre);
+            if (near.X >= room.X * 23 && near.X < (room.X + room.Width) * 23
+                && near.Y >= room.Y * 23 && near.Y < (room.Y + room.Height) * 23 && layout.WalkableFor(near.X, near.Y, 1)) return near;
+        }
+        return layout.Near(pair);
     }
 
     // The destination's instances (0xae) for the client's instance chooser; its pick (0xaf) changes area.

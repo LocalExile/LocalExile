@@ -767,6 +767,7 @@ static partial class Game
         {
             uint cost, lifeCost;
             bool paid;
+            int? channelWalk = ChannelWalkPercent(conn, skillId, gem.Effect);
             lock (conn.Monsters)
             {
                 if (!Current()) return false;
@@ -776,6 +777,9 @@ static partial class Game
                 {
                     channelGeneration = ++conn.ChannelGeneration;
                     conn.ChannelSkill = skillId;
+                    bool walkChanges = channelWalk is not null || conn.ChannelMovement.Skill != 0;
+                    conn.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
+                    if (walkChanges) conn.ApplyMovementSpeed();
                     conn.ChannelSkillSequence = sequence;
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
                     conn.PaidChannel = CombatLifetime is { IsActive: true } rules
@@ -1236,6 +1240,37 @@ static partial class Game
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
     }
 
+    // Cyclone moves while it is channelled: its final movement modifier (cyclone_movement_speed_+%_final, from the gem's
+    // stats with its supports); null for a channel that stands (Blade Flurry …).
+    internal static int? ChannelWalkPercent(ClientState conn, ushort skillId, int effect) =>
+        SkillArea.IsCyclone(SkillsFor(conn).EffectId(effect))
+            ? GolemStat(SupportedSkill(conn, skillId).Stats, "cyclone_movement_speed_+%_final") : null;
+
+    // C→S 0x197: the point the held channel is aimed at now (the cursor's cell), not the player's cell: it can be the
+    // whole screen away the moment the channel starts. The client walks Cyclone's player toward it at the movement speed
+    // with the skill's final modifier, as an order re-aimed on every update; the sweeps follow that walk (RunChannel).
+    // A channel that stands keeps the player where it is.
+    internal static void ChannelAimedAt(ClientState conn, int x, int y, double at)
+    {
+        if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill) conn.Walk.Order(x, y, at);
+    }
+
+    // C→S 0x199: the button let go. The channel ends, and a walking one stops where the player is (it was walking only
+    // as part of the channel); the walk gets its usual speed back.
+    internal static void ChannelReleased(ClientState conn, double at)
+    {
+        lock (conn.Monsters)
+        {
+            if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill)
+            {
+                var (x, y) = conn.Walk.Position(at);
+                conn.Walk.Order(x, y, at);
+            }
+            conn.ChannelSkill = 0;
+            conn.ChannelGeneration++;
+        }
+    }
+
     internal static bool ChannelCurrent(ClientState conn, ushort skill, int action, int generation)
     {
         lock (conn.Monsters)
@@ -1341,9 +1376,11 @@ static partial class Game
         double waveHalfAngle = wave ? GroundSlamWave.HalfAngle(Stat) : 0;
         (double X, double Y) waveDir = wave ? GroundSlamWave.Direction(from, to) : (0, 0);
         // A wave starts where the player stands and only takes its direction from the aim; a melee skill aimed far away
-        // still lands in front of the player; a self-targeted spell goes off around the caster.
-        var centre = wave || VaalExecutor(conn, gem.Effect) || !spell && Dist(from, to) > radius + weapon.Range ? from
-            : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
+        // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
+        // around the caster.
+        var centre = wave || VaalExecutor(conn, gem.Effect) ? from
+            : spell ? SpellCentre(conn, gem.Effect, from, to)
+            : MeleeAreaCentre.Of(SkillsFor(conn).ActionHash(gem.Effect), from, to, radius + weapon.Range);
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         // A later action (a Move, another use) replaces the swing; nothing of it lands from then on. The ordinary attack
         // says so at its own contact (Attack's HitTarget); this says so for a gem skill's sweep, whose drop was otherwise
@@ -2010,15 +2047,20 @@ static partial class Game
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(conn, id, at);
         await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
-        ShareKill(conn, id, m, variety, at);
+        // The party's kill: every living player within the experience range takes their share
+        // (Progression.PartyMultiplier), the killer included. The presence of a private area is the party (an area is
+        // entered as the party's instance).
+        var partyShares = PartyExperienceShares(conn, at);
+        ShareKill(conn, id, m, variety, at, partyShares);
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });
         // A summoned monster whose skill says so gives neither experience nor items.
         if (!m.NoRewards && alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
-            uint xp = Program.ServerHooks.Experience(killer, monster,
-                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, m.Rarity, conn.Pools.Level, m.Level));
-            // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too.
-            await GainGemExperience(remote, stream, ciphers, conn, xp);
+            var (xp, gemXp) = KillExperience(killer, monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
+                conn.Pools.Level, m.Level, PartyExperienceShareOf(partyShares, conn));
+            // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too:
+            // 10% of the kill's experience before the level penalty.
+            await GainGemExperience(remote, stream, ciphers, conn, gemXp);
             await GainExperience(remote, stream, ciphers, conn, xp, $"{m.Rarity} {m.Label} 0x{id:x}");
         }
         // A quest kill that levels the character up (a1q1: Hillock → at least level 2), wherever the player stands.
@@ -2049,17 +2091,18 @@ static partial class Game
             drops.AddRange(DropsFor(conn).KingInMists(m.Level, Random.Shared));
         if (modded is not { Cancel: true })
         {
-            drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
-            drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign.
+            // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign. The same
+            // tier lets the rolls add their base card/scarab drops in a map.
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
                 ? openMap.Area.Tier : 0;
+            drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
+            drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
-            drops.AddRange(ExtraDropsFromMap(conn, m.Rarity, Random.Shared));
+            drops.AddRange(ExtraDropsFromMap(conn, m.Level, m.Rarity, Random.Shared));
         }
         foreach (string query in modded?.Items ?? [])
         {

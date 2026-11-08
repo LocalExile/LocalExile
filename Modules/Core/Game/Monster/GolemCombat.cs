@@ -220,7 +220,7 @@ static partial class Game
         if (a.Effect is 4336 or 4337)
         {
             double dps = GolemStat(a.Stats, "base_chaos_damage_to_deal_per_minute") / 60.0;
-            dps *= GolemDamageFactor(g, area: true);
+            dps *= GolemDamageFactor(g, area: true) * DoedreSewers.MinionDamageFactor(conn);
             g.Hazards.Add(new(a.Effect, at, now + GolemStat(a.Stats, "base_skill_effect_duration") / 1000.0, a.Radius,
                 dps, DamageType.Chaos, Follows: true, Wither: a.Effect == 4337) { LastAt = now });
             return;
@@ -277,7 +277,7 @@ static partial class Game
         }
         if (a.Effect == 5268)
         {
-            double dps = GolemStat(a.Stats, "base_fire_damage_to_deal_per_minute") / 60.0 * GolemDamageFactor(g, area: true);
+            double dps = GolemStat(a.Stats, "base_fire_damage_to_deal_per_minute") / 60.0 * GolemDamageFactor(g, area: true) * DoedreSewers.MinionDamageFactor(conn);
             if (dps > 0) g.Hazards.Add(new(a.Effect, at, now + 5, a.Radius, dps, DamageType.Fire) { LastAt = now });
         }
         if (a.Effect == 4839)
@@ -327,7 +327,7 @@ static partial class Game
             if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), Random.Shared.Next(100))) return false;
         }
         if (MonsterBlocks(target, Random.Shared, a.Attack.Spell)) return false;
-        double factor = 1;
+        double factor = DoedreSewers.MinionDamageFactor(conn);
         if (g.Definition.Kind == "Carrion")
         {
             var here = g.Monster.Walk.Position(now);

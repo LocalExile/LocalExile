@@ -229,6 +229,8 @@ sealed class NpcCatalog
         new("Metadata/NPC/Epilogue/KiracHideout", 249, 358, 4.0f),
         new("Metadata/NPC/Epilogue/LillyHideout", 235, 372, 4.0f),
         new("Metadata/NPC/League/Bestiary/EinharHideout", 242, 365, 4.0f),
+        // Last, and two steps past Helena on screen: on every hideout's floor this moves nothing placed before or after him.
+        new("Metadata/NPC/League/Kalguur/VillageFaustusHideout", 284, 323, 4.0f),
     ];
 
     public static IReadOnlyList<Placement> HideoutNpcs => Hideout;

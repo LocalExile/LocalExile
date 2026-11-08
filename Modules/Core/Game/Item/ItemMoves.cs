@@ -180,7 +180,7 @@ static class ItemMoves
         else return null;
         byte to = from == main ? device : main;
         if (shapeOf(item.Item) is not { } shape) return null;
-        if (to == device && !MapDevice.AcceptsClass(shape.Class)) return null;
+        if (to == device && !MapDevice.AcceptsItem(item.Item.TypeHash, shape.Class)) return null;
         if (items.FreeCell(to, shape.Width, shape.Height, shapeOf) is not { } cell
             || items.Remove(from, itemId) is not { } taken) return null;
         return new(from, to, items.Put(to, taken with { X = cell.X, Y = cell.Y }));
@@ -260,6 +260,35 @@ static class ItemMoves
         var fromStash = amount > fromInventory ? stash!.Pay(currency, amount - fromInventory) : null;
         return new Price(paid, fromStash);
     }
+
+    /// <summary>A currency (<see cref="Pay"/>), gold and what they buy, together. Null (nothing changes) when the player holds too little.</summary>
+    public static Price? PayCurrency(PlayerInventories items, AccountStash stash, uint currency, int amount, uint gold, Func<bool> commit) =>
+        Saves.Atomically<Price?>(() =>
+        {
+            if (amount <= 0 || stash.Gold < gold || (long)items.Count(Main, currency) + stash.CountOf(currency) < amount) return null;
+            var paid = Pay(items, stash, currency, amount) ?? throw new InvalidOperationException("Currency payment changed after validation");
+            if (gold > 0 && stash.TrySpendGold(gold) is null) throw new InvalidOperationException("Gold changed after validation");
+            if (!commit()) throw new InvalidOperationException("What the payment buys could not be saved");
+            return paid;
+        });
+
+    /// <summary>As much of a stackable item as fits into the main inventory, and the record of how much, together.</summary>
+    public static (int Placed, IReadOnlyList<PlayerInventories.Stacking> Stacks) ReceiveCurrency(PlayerInventories items, Item item, int amount,
+        Func<Item, PlayerInventories.Shape?> shapeOf, Func<int, bool> commit) => Saves.Atomically(() =>
+    {
+        var stacks = new List<PlayerInventories.Stacking>();
+        int placed = 0;
+        while (placed < amount)
+        {
+            int chunk = Math.Min(amount - placed, ushort.MaxValue);
+            var into = items.AddStacked(Main, item with { StackSize = (ushort)chunk }, shapeOf);
+            if (into.Any) stacks.Add(into);
+            placed += chunk - into.Left;
+            if (into.Left > 0) break;
+        }
+        if (placed > 0 && !commit(placed)) throw new InvalidOperationException("What was received could not be recorded");
+        return (placed, (IReadOnlyList<PlayerInventories.Stacking>)stacks);
+    });
 
     /// <summary>
     /// Ctrl + click on a shop item (C→S 0x8a): the price (or nothing, when free) paid (<see cref="Pay"/>: the inventory, then

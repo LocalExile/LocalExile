@@ -5,6 +5,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Holy Sweep's art: the skill sends its base `skill_art_variation` 2 and a worn effect's value adds to it, so hits no
+  longer crash the client drawing the hammers (live 2026-11-08 in a map: none, Originator's, Awakener's, Abyssal).
+  Code: `SkillArtBase.cs`. Docs: [23](../docs/protocol/23-microtransactions.md) §3.
+- Holy Sweep's area: its swings (ActionTypes Sweep, SweepAltX) hit around the player, where the client draws them,
+  instead of around the aimed monster (live 2026-11-08); other melee area attacks still land on the target.
+  Code: `MeleeAreaCentre.cs`, `AreaSkillHit`. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Fortification: qualifying melee hits build temporary protection through an explicit LocalExile generation model.
   Native checks confirmed the buff component, expiry, 20/30-stack limits, attack speed and actual hit protection.
   Elapsed Life regeneration, stopping at expiry, area carry, death and relog were also verified.
@@ -370,8 +376,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `SkillCatalog.cs`, Gateway (`CastOn`, `LaunchProjectile`, `AreaSkillHit`), `ProjectileObject`.
   Docs: [11](../docs/protocol/11-skills.md) §9–10.
 - Resistances: the passive `base_resist_all_elements_%` / per-element `base_*_damage_resistance_%` are summed from the
-  0% base, the two Kitava quest penalties (-30% each) are mirrored from quest flags, and the final value uses Path of
-  Building's floor -200 / default max 75 / absolute cap 90 (`DamageModel`);
+  0% base, the item tables' non-base spellings (`fire_damage_resistance_+%`, `elemental_damage_resistance_+%`) count as
+  the same stats, and the pair-resistance stats (`cold_and_lightning_`, `fire_and_cold_`, `fire_and_lightning_`) each
+  raise both named elements; the two Kitava quest penalties (-30% each) are mirrored from quest flags, and the final value
+  uses Path of Building's floor -200 / default max 75 / absolute cap 90 (`DamageModel`);
   used by Righteous Fire's self-burn and `/hit`; `/resistances` shows modifier, penalty and final.
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
@@ -395,8 +403,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   The character panel gets the chance again within 250 ms of a condition changing (the player tick).
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
-- Movement speed: the passive `base_movement_velocity_+%` is summed into `Pools`, sent as the client's
-  `movement_velocity_+%` and used by the server's walk copy (37 × (1 + pct / 100) cells/s);
+- Movement speed: the passive `base_movement_velocity_+%` and the item/conditional `movement_velocity_+%` are summed
+  into `Pools`, sent as the client's `movement_velocity_+%` and used by the server's walk copy (37 × (1 + pct / 100)
+  cells/s);
   applied on login, level, passive and area changes; `/set_speed` adds its percentage on top.
   `action_speed_-%` from raw sources and dev overrides is composed additively with chill/freeze and multiplied once
   into movement, attack, cast and stun-recovery pacing. New actions are limited to one per frame (30/s, `TickSeconds`);
@@ -407,7 +416,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Block / Spell Block: passives' `additional_block_%` and `base_spell_block_%` are summed and capped at 75% / 90% (PoB
   `BlockChanceCap`), max-res passives `maximum_block_%` / `base_maximum_spell_block_%` raise the caps;
   a successful block prevents the hit, monster melee and `/blockhit` use it; `/block` shows both chances;
-  an equipped shield adds its `ShieldTypes.Block` base and enables the shield-specific passives, staff passives apply
+  an equipped shield adds its `ShieldTypes.Block` base plus the shield's local `local_additional_block_chance_%`
+  (unique and rare shields alike, and Kongming's `local_no_block_chance` removes it) and enables the shield-specific
+  passives, staff passives apply
   with a staff, and dual wielding adds its inherent 20% attack block and dual-wield block/spell-block passives;
   Versatile Combatant reduces both maxima by 10% and converts overcapped attack block to spell block at 2% per 1%;
   lucky block uses 1-(1-p)^2 for attack/spell (dev `/block_luck`);
@@ -698,6 +709,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   and minion buffs are not sent, and damage over time does not receive the more multiplier.
   Automated test covers Tornado Shot with level-1 Lifetap: 9 Mana becomes 27 Life, the first use grants the buff,
   and the hit and flask bonuses apply. Code: `Combat/Lifetap.cs`, `Player.cs`, `ConditionalSupportDamage.cs`;
+  docs: [25](../docs/protocol/25-gem-supports.md).
+- Blood Magic: `keystone_blood_magic` (the passive node and item-granted keystones such as Malachai's Awakening and
+  Tukohama's Fortress) converts every skill's whole Mana cost to Life in `PayMana`, without Lifetap's multiplier,
+  counter or buff; a skill whose Life cost is not below current Life is refused, and reservations stay on Mana.
+  Automated test: Tornado Shot's 9 Mana becomes 9 Life with Mana unchanged. Code: `Player.cs`;
   docs: [25](../docs/protocol/25-gem-supports.md).
 - Bow projectile counts: actual bow attacks now read `number_of_additional_arrows` and
   `number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more` on top of the generic projectile additions, so
@@ -1671,6 +1687,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   The first live check found that direct radius alone did not scale the channelled visual;
   its conditional path now also receives aggregate area (0xd7) and radius percentage (0x1591).
   Cyclone's additional melee-range and stage modifiers remain partial.
+  Its sweeps follow the player walking toward the aimed cell (C→S 0x197) at the gem's movement speed, not the cursor.
+  Checked with the real client (2026-11-08): the sweeps advance with the player.
   See protocol/11-skills.md.
 - **Self-targeted spells (2026-10-29).** Self-targeted spells (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge,
   Shock Nova) hit around the caster wherever they are aimed, as the client draws them; before, an Ice Nova cast on a
@@ -1691,6 +1709,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   surface-height model, so a projectile on the hideout waypoint platform spawns at the terrain height below it.
   Tracked in issue #182.
 - Spirit of Utula's Leadership and Rakiata's Mark-specific trigger still need their own chieftain executors.
+- Holy Sweep's hammers deal no damage: the client draws them on the hits, but the server has no hammerfall hits
+  (`holy_sweep_number_of_holy_bolts_to_create`, the 12-cell secondary area, `holy_sweep_hammerfall_damage_+%_final`).
 - Effects that should be attached to bones (Righteous Fire's orbs, MiscAnimated RighteousFireOrb) are not sent;
   an effect object follows the player only by 0x1ba glides.
   Combat auras, Heralds and banners are not implemented; only the simple auras above use buffs.

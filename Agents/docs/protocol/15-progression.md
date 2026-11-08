@@ -16,11 +16,18 @@ yet confirmed on screen).
   `Metadata/Effects/misc/levelup_new/rig.ao`; its default animation is `levelup`.
 - **A kill** (`MonsterKilled`): the player gains experience when alive and within `Game_XP_RANGE` cells (default 150)
   of the monster when it dies (melee, Fireball or Righteous Fire). Amount (`Progression.MonsterExperience`):
-  DefaultMonsterStats `Experience` at the monster's level × MonsterVarieties `ExperienceMultiplier` / 100 × rarity
-  (magic 2, rare and unique 5: our own numbers) × the level penalty, rounded.
-- **Level penalty** (`Progression.LevelPenalty`): safe zone 3 + level / 16; beyond it, with d the levels past it,
-  ((L + 5) / (L + 5 + d^2.5))^1.5, at least 0.01 (L = the player's level). The extra penalty above level 95 is not
-  modelled.
+  DefaultMonsterStats `Experience` at the monster's level × MonsterVarieties `ExperienceMultiplier` / 100 × rarity ×
+  the level penalty × the party share, rounded. The rarity multipliers are the hidden rarity mods in Mods.json
+  (`monster_slain_experience_+%`): magic +250% (×3.5), rare +750% (×8.5), unique +450% (×5.5).
+- **Level penalty** (`Progression.LevelPenalty`, the wiki's Experience page): safe zone 3 + level / 16; beyond it, with d
+  the levels past it, ((L + 5) / (L + 5 + d^2.5))^1.5, at least 0.01 (L = the player's level). At level 95 and above
+  another 1 / (1 + 0.1 * (L − 94)) applies. A monster above level 70 counts as a lower level for d only
+  (`EffectiveMonsterLevel`: −0.03 * level² + 5.17 * level − 144.9; 75 → 74.10, 82 → 77.32), not for its stats, loot or
+  base experience.
+- **Party play** (`ShareKill`, `Progression.PartyMultiplier`): every living player within the experience range (150
+  cells) of the kill takes a share of any party member's kill, min{1, N * (level + 10)^2.71 / Σ (level + 10)^2.71},
+  capped at their solo experience; the killer is one of the N. The gems' 10% takes the same share (they are the
+  character's pre-penalty experience). A private area is entered as the party's instance, so its presence is the party.
 - **A new level** (`ApplyLevel`): the level's stats (0x1b3) and skills (0x2bc Actor), full life and mana (0x1b1), the
   Passive Skill Tree with the new level (0x33, §2), and the account's level through Auth's `set_level` control op (the
   character list and the next tickets carry it). Experience stops at the start of level 100.
@@ -225,14 +232,19 @@ unique, rare or magic, raised by item rarity. A unique is chosen among its base'
 base's weights add up to less than 1 the rest gives a rare, and a unique outside that table does not drop.
 `DropLoot` puts each as a WorldItem
 ([13](13-items.md) §5) 3–6 cells around the corpse, on a walkable cell when the walk map is known. `Game_DROPS=0` turns
-it off.
+it off. In a map, the kill also rolls the base card and scarab chances (`drop_card_chance_pct`, `drop_scarab_chance_pct`,
+our own numbers, scaled by item quantity); a card or scarab pick follows the published community weights when
+`drop_item_weights` covers the monster's level, and is uniform otherwise.
+The client DropLevels, the current hardcoded weights, the recent patch changes and the (unimplemented) currency drop
+penalty are collected in [game/currency-drops.md](../game/currency-drops.md).
 
 ## Open
 
 - Phrecia client compatibility and special ascendancy gameplay.
   Selection/points/saves have automated coverage; this slice makes no claim that all 19 classes' gameplay works.
   See [scope and checks](../game/ascendancies.md).
-- The real rarity experience bonuses, the level 95+ penalty, party sharing.
+- The death experience penalty (0% in Acts 1-5 and the Normal Labyrinth, 5% in Acts 6-10 and Cruel/Merciless, 10% in
+  maps and the Eternal Labyrinth) and the boss areas where no experience is gained or lost.
 - Quest passive-point rewards and cluster/expansion topology; ordinary and ascendancy connectivity are checked.
 - Real drop pools (MonsterVarieties / area drop tables), item rarity and mods, quantity and rarity bonuses; ground
   items only exist on the connection that saw them drop.

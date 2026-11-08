@@ -137,6 +137,8 @@ public sealed class QuestObjectsModule : IModule, IDisposable
                         Act3Objects.LabyrinthSelect => () => QuestobjectsRules.UseLabyrinthSelect(remote, stream, ciphers, conn),
                         Act3Objects.ReturnPortal or Act3Objects.ChamberPortal => () => QuestobjectsRules.UsePlazaReturnPortal(remote, stream, ciphers, conn),
                         Act3Objects.AscendancyFont => () => QuestobjectsRules.UseAscendancyFont(remote, stream, ciphers, conn),
+                        Act7Objects.Orrery => () => Send(remote, stream, ciphers,
+                            InstanceWaypoints.OpenUi(InstanceWaypoints.MapDeviceUi, use.TargetId), "0x007b open the Reverie Device"),
                         _ => null,
                     });
                 return true;

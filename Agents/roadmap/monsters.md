@@ -14,6 +14,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Twilight Strand has a provisional 45-monster calibration cap; complete official population and placement rules
   remain unresolved because the reference capture misses its opening.
   emerge monsters rise near the player ([10](../docs/protocol/10-chat-and-commands.md) §5).
+  Act 2's Oversoul has its campaign attack set and altar/exit lifecycle; official decision weights/cooldowns still need
+  a reference capture ([status](../status/monsters.md#partly-working)).
   Hits can make monsters flee ([11](../docs/protocol/11-skills.md) §6); a live check should settle the flee distance
   and whether the real server walks a fleeing monster with Monster.ot's `Flee` action instead of Move.
   Inherited Life corpse/sinking flags and the source eligibility predicate are implemented for ordinary creation
