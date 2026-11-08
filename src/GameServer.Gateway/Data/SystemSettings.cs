@@ -48,6 +48,10 @@ sealed class SystemSettings
         ["drop_multiplier_gems"] = 1,
         ["drop_multiplier_maps"] = 1,
         ["drop_multiplier_unique_rarity"] = 1,
+        // Our own base chances per monster kill in a map until the game's are known (a map device's card/scarab stats
+        // are added separately). Editable live with /game_data setting.
+        ["drop_scarab_chance_pct"] = 0.2,
+        ["drop_card_chance_pct"] = 0.5,
         ["monster_pack_density_multiplier"] = 1,
         ["monster_pack_size_multiplier"] = 1,
         ["experience_multiplier"] = 1,
@@ -222,7 +226,9 @@ sealed class SystemSettings
                 error = "gold_drop_multiplier is a number 0..10000";
         }
         else if (key.Equals("gold_drop_chance_multiplier", StringComparison.OrdinalIgnoreCase)
-            || key.Equals("gold_auto_loot_radius", StringComparison.OrdinalIgnoreCase))
+            || key.Equals("gold_auto_loot_radius", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_scarab_chance_pct", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_card_chance_pct", StringComparison.OrdinalIgnoreCase))
         {
             if (!double.IsFinite(value) || value < 0 || value > 100)
                 error = $"{key} is a number 0..100";

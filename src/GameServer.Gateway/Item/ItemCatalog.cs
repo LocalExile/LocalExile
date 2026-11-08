@@ -568,9 +568,10 @@ sealed class ItemCatalog
 
     /// <summary>Two linked sockets for a type with a Sockets component: 3.29 white by default, each with the item-level
     /// chance to roll a colour proportional to its attribute requirements (ComponentAttributeRequirements:
-    /// strength red, dexterity green, intelligence blue; SocketColours); no sockets for other types.</summary>
+    /// strength red, dexterity green, intelligence blue; SocketColours); no sockets for other types.
+    /// <paramref name="noWhite"/> is the hidden 3.29 property that forbids white sockets.</summary>
     public (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) DefaultSockets(
-        BaseType t, int itemLevel = 1, int quality = 0, Random? random = null)
+        BaseType t, int itemLevel = 1, int quality = 0, Random? random = null, bool noWhite = false)
     {
         if (!t.Components.Contains("Sockets")) return ([], null);
         if (ResonatorSockets(t) > 0) return (ResonatorSocketList(t), null);
@@ -578,8 +579,8 @@ sealed class ItemCatalog
         // (SocketColours). Both sockets of a new item still start linked.
         var requirements = Requirements(t);
         random ??= Random.Shared;
-        return ([new(SocketColours.Roll(requirements, itemLevel, quality, random)),
-                 new(SocketColours.Roll(requirements, itemLevel, quality, random))], [2]);
+        return ([new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite)),
+                 new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite))], [2]);
     }
 
     private Lazy<Dictionary<string, (int Str, int Dex, int Int)>> _requirements = null!;

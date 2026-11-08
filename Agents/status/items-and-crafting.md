@@ -118,7 +118,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/item <type> magic|rare`, `/roll`.
   Equipped items' mods count on the character: global stats like a passive's (life, resistances, attributes, spell
   damage …), the main hand's local crit, attack speed and accuracy, its local physical damage and quality,
-  and its local added elemental/chaos damage (`ItemWeapons`).
+  and its local added elemental/chaos damage (`ItemWeapons`). The third ring slot (Ring3, row 102, shown by The Unseen
+  Hand's `enable_ring_slot_3`) counts like the first two.
   Armour/evasion/ES local flat, increased and hybrid mods and multiplicative quality feed the shared pools and panel
   (`ItemDefences`, [13](../docs/protocol/13-items.md) §2c).
   Armour, evasion and ES share a saved variable base roll, sent in the native Armour component.
@@ -209,6 +210,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   mostly gives a rare instead. The 1,527 reference weights are seeded into `unique_weights`; `/game_data unique_weight`
   and `clear_unique_weight` edit the override layer live. Schema upgrades, repeated reference rebuilds and a reopened
   database preserve overrides; invalid or non-finite weights are rejected before writing. The extracted JSON remains the fallback before seeding.
+  The core currency weights also live in `drop_currency_weights` (seeded from the compiled table with the client's
+  DropLevels, `GameDataDrops`); `ItemDrops.Build` prefers them and keeps the compiled table as the fallback, still gated by each
+  base's DropLevel. Cards and scarabs follow the poedata.dev community weights (`drop_item_weights`: 422 cards, 109
+  scarabs), and a map kill rolls our own base `drop_card_chance_pct`/`drop_scarab_chance_pct`; both settings are
+  editable live. The boss and divination-card area tables are seeded (630 bosses, 108 boss items, 555 area/card pairs) but
+  no roll reads them yet; [drop-data-schema](../docs/dev/drop-data-schema.md) has the schema and the next steps.
   Mod affix spawn/generation weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods.json`) are still
   loaded from JSON; moving them would also require clearing the affix-pool cache on reload. Drops have the monster's level as item level, +1 from magic, +2 from rare and +3 from unique
   monsters. One drop event's stackable items of one type become stacks up to its `CurrencyItems` StackSize (twenty-one
@@ -229,6 +236,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   death. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
 - Conditional item gates feed live pools and stat publication; Kintsugi incoming hits, expiry and lifecycle verified.
   Weapon/aura, tracked-event, numeric-threshold and supported runtime-state gates have automated coverage.
+  The item mods' "when on low/full life or mana" spelling shares the "while" state flags and folds onto the plain stat.
   Untracked, counted-recent and compound operators remain partial ([13](../docs/protocol/13-items.md)).
 
 - **On-kill explosions and attribute damage reduction (implemented 2026-11-04, automated verification; live client
@@ -276,6 +284,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   base Life before Life increases; independent global/aura ES remains ES and excluded shields grant no converted Life.
   The corrupted-item conditional ES increase enters the global ES bucket, leaving tooltips and converted Life alone.
   Hidden no-attribute-requirement modifiers retain the level gate.
+  Local requirement percentages (`local_attribute_requirements_+%`, `local_strength_requirement_+%` and the dexterity
+  and intelligence ones) change an item's attribute requirements, counting a row that is both implicit and explicit once;
+  automated, no native requirement check yet.
   Automated coverage passes; historical native conversion and corrupted-item ES controls are recorded at `0bae37a`
   and `c9060e4` (see the protocol reference for values).
   Fresh real-client checks of the merged branch and other unique/conditional mechanics remain open.
@@ -286,6 +297,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   1,299 generated from Path of Building with their current base, implicits and rolls (`scripts/re/unique_items.py`),
   compared with poedb's item cards, with the differences that remain on the roadmap. Divine and Blessed Orbs reroll
   within a unique's own rolls, and an admin's `/game_data mod` range wins over them.
+  Ordinary uniques get default sockets; Tabula gets six linked whites and hidden overrides (tests; live check pending).
+  Skin of the Loyal gets its six linked random-colour sockets, and the 3.29 hidden no-white-socket property is on it and
+  Dialla's Malefaction (automated; live check pending).
+  Fixed "Has X Sockets" counts (Loreweave, Voidfletcher, The Squire, crests and hats) and Malachai's all-white Unset Ring
+  socket are generated from those rows too; link groups there use the Jeweller's approximation (automated).
   Every definition but the five tinctures creates, writes and reloads by test (the server cannot write the Tincture
   component). Seen in the client 2026-10-30, with their name, art, base, mods and item level: Tulfall, Shimmeron,
   Replica Atziri's Foible, Kalandra's Touch, Emperor's Vigilance, The Broken Elegy, Gorgon's Gaze, Grand Spectrum and
