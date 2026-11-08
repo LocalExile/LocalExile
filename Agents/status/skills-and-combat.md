@@ -1253,6 +1253,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   A monster that dies affected by both Contagion and Essence Drain spreads both: the strongest Essence Drain instance goes
   with each Contagion spread at full damage for its remaining duration (wiki), also after a death tick cleared it.
   Live (3.29.3b): 91 spreads carried it (e.g. 7 monsters, 208.7/s for 1.44 s), chaining through the pack, no crash.
+  Rechecked live on 3.29.3c (2026-11-08): 33 spreads all carried it (e.g. 521.9/s for 3.45 s), 26 kills by its damage,
+  no disconnect.
   Not done: the `siphon_damage` debuff icon (BuffDefinitions 503, `__col7` 8, the same crash as Contagion's), Of
   Desperation's life loss, the debuff in Survivors runs, and leech goes to the monster runner, not the caster.
   Code: `MonsterEssenceDrain.cs`, `MonsterEssenceDrains.cs`, `ProjectileOffense.EssenceDrain`, `Projectiles.cs` hit,
