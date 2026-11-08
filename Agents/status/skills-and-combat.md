@@ -6,7 +6,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Works (verified with the real client)
 
 - Holy Sweep's art: the skill sends its base `skill_art_variation` 2 and a worn effect's value adds to it, so hits no
-  longer crash the client drawing the hammers (live 2026-11-08, no effect worn; worn effects only seen without hits).
+  longer crash the client drawing the hammers (live 2026-11-08 in a map: none, Originator's, Awakener's, Abyssal).
   Code: `SkillArtBase.cs`. Docs: [23](../docs/protocol/23-microtransactions.md) §3.
 - Fortification: qualifying melee hits build temporary protection through an explicit LocalExile generation model.
   Native checks confirmed the buff component, expiry, 20/30-stack limits, attack speed and actual hit protection.
