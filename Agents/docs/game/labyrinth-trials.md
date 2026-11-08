@@ -186,10 +186,13 @@ objects with no model whose `.ot` (BaseEvents `server_only`, `no_serialise`) has
 Where a room has them the Gateway uses them (`LabyrinthTrials.TriggeredSpikes`): a trigger fires the traps joined to
 its nearest trap, one step a tile from it; two triggers on the same traps share them as a checkerboard of the traps'
 own tiles (live 2026-11-01, the original: a diagonal line of four rises from its `Trigger_CascadeFast` end).
-The Normal trials' rooms have none, so their pattern is fitted by eye against the original (live 2026-10-31):
+The Normal trials' rooms reach the Gateway without them (`room-points.json` has no trigger lines), so their pattern is
+fitted by eye against the original (live 2026-10-31):
 - a ring (every trap side by side with two others) cascades from its trap nearest the trial's lever, straight towards
   its trap nearest the trial's doors and on round, 450 ms a trap, starting again at once;
-- any other chain fires as a checkerboard: the tiles of the start's colour, then the others 2 s later, every 4 s.
+- any other chain fires as a checkerboard: the tiles of the start's colour, then the others 2.5 s later, every 5 s.
+  These are the timers of the `Trigger_Delay_4_0WG` / `_4_2WG` lines the Lower Prison plaque room
+  (`Prison/Rooms/Unique/axiom_intro_end.arm`) places at (46, 46) and (69, 46), on two of its traps (#576).
 
 **What it does.** The cascade traps do not answer a step (the spikes that do are another trap, in Izaro's rooms).
 - A player on the tile while the spikes are up is hit once: `LbRetractableTrap`'s stat set (GrantedEffectStatSets

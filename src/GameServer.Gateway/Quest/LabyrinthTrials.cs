@@ -779,10 +779,10 @@ static class LabyrinthTrials
     /// <remarks><c>/trial_spike_step</c> (dev) changes it from the next wave on.</remarks>
     public static double SpikeStepSeconds = 0.45;
 
-    /// <summary>A checkerboard chain's step: its two halves fire two seconds apart, every four (our reading of the room's
-    /// <c>Trigger_Delay_4_0WG</c> / <c>Trigger_Delay_4_2WG</c> lines; live 2026-10-31: they rise together, as a
-    /// checkerboard).</summary>
-    public const double SpikeCheckerSeconds = 2;
+    /// <summary>A checkerboard chain's step: its two halves fire 2.5 s apart, every 5 s, the timers of the room's
+    /// <c>Trigger_Delay_4_0WG</c> / <c>Trigger_Delay_4_2WG</c> lines (<see cref="Triggers"/>; the Lower Prison trial's
+    /// <c>axiom_intro_end.arm</c>, #576; live 2026-10-31: they rise together, as a checkerboard).</summary>
+    public const double SpikeCheckerSeconds = 2.5;
 
     /// <summary>A chain's step: <see cref="SpikeCheckerSeconds"/> for a checkerboard, else <see cref="SpikeStepSeconds"/>.</summary>
     public static double SpikeStep(bool checker) => checker ? SpikeCheckerSeconds : SpikeStepSeconds;
