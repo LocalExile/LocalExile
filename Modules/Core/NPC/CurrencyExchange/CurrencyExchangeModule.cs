@@ -99,7 +99,8 @@ public sealed class CurrencyExchangeModule : IModule
         var options = Options;
         if (Now - rates.SourceHour > options.MaxRateAgeDays * 86400) return null;
         var items = ItemsOf(player);
-        return rates.Prices(options.League == ExchangeRatesLeague.Standard) is { } prices
+        var league = player.League == ExchangeRates.Standard ? options.StandardPrices : options.LeaguePrices;
+        return rates.Prices(league == ExchangeRatesLeague.Standard) is { } prices
             ? new(rates, prices, hash => items.ByHash.TryGetValue(hash, out var row) ? row.Id : null, options.SpreadScale, options.VolumeShare,
                 options.PatientRange, options.PatientSpeed, options.CatchUpHours) : null;
     }

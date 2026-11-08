@@ -25,13 +25,13 @@ static class ExchangeRateFeed
         get { lock (Asked) return Asked.Count == 0 ? Defaults : Asked[^1]; }
     }
 
-    public static IDisposable Use(string url, GameServer.Modding.ExchangeOptions options)
+    public static IDisposable Use(string url, GameServer.Modding.ExchangeOptions options, Action<string>? currentLeague = null)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var address) || address.Scheme is not ("http" or "https"))
             throw new ArgumentException($"not an http address: {url}");
         lock (Asked) Asked.Add(options);
         var stop = new CancellationTokenSource();
-        _ = KeepUpdated(address, stop.Token);
+        _ = KeepUpdated(address, currentLeague, stop.Token);
         return new Undo(() =>
         {
             lock (Asked) Asked.RemoveAll(a => ReferenceEquals(a, options));
@@ -40,7 +40,7 @@ static class ExchangeRateFeed
         });
     }
 
-    static async Task KeepUpdated(Uri address, CancellationToken stop)
+    static async Task KeepUpdated(Uri address, Action<string>? currentLeague, CancellationToken stop)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30), MaxResponseContentBufferSize = MaxBytes };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("LocalExile-Gateway");
@@ -66,6 +66,8 @@ static class ExchangeRateFeed
                         System.IO.File.Move(written, File, overwrite: true);
                         seen = response.Headers.ETag;
                         Console.WriteLine($"[rates] {address}: rates of {DateTimeOffset.FromUnixTimeSeconds(rates.SourceHour):u}");
+                        try { if (!stop.IsCancellationRequested) currentLeague?.Invoke(rates.Current); }
+                        catch (Exception e) { Console.WriteLine($"[rates] a mod failed on the league's name: {e.Message}"); }
                     }
                 }
                 catch (Exception e) when (e is HttpRequestException or IOException or UnauthorizedAccessException
