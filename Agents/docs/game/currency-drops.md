@@ -73,7 +73,7 @@ table above is used by `ItemDrops.Currency`.
 ## 3. Recent changes to relative currency rates
 
 These are the fresh data points; the full public table is only the 2014 leak
-(§6), so treat these as corrections to its shape.
+(§7), so treat these as corrections to its shape.
 
 | Version | Change | Consequence |
 |---|---|---|
@@ -117,7 +117,67 @@ monster level; adding it needs both, applied to the currency (and, once cards
 exist, card) category. The order relative to item quantity is not documented
 here; do not guess it.
 
-## 5. Community spreadsheets and datasets
+## 5. Boss, league and area-specific sources
+
+`ItemDrops.Currency` is the global core pool, and `ItemDrops.Card` picks a
+uniform random card from every supported card. Neither models the game's
+restricted pools: some currency is boss- or league-only, and every card has an
+area, a minimum map tier, a `DropLevel`, or a boss/league source. The weights
+cannot be treated as complete until those sources are part of the model.
+
+### 5.1 Currency
+
+| Item | Restriction | Evidence |
+|---|---|---|
+| Awakener's Orb | Sirus, Awakener of Worlds | PoEDB item page, "Dropped by" |
+| Maven's Orb, Orb of Dominance | The Maven | game knowledge; verify against the item pages |
+| Veiled Chaos/Exalted | Betrayal safehouses/Catarina | game knowledge; verify |
+| Eldritch Chaos/Exalted/Annulment | Searing Exarch/Eater of Worlds | game knowledge; verify |
+| Fracturing Orb, Ancient Orb | core drop since 3.28 | 3.28 patch notes |
+| Cartographer's Chisel | map currency; map drop rules | 3.25 patch notes |
+| Orb of Unmaking | Atlas currency | client `DropLevel` 70 |
+| Breach, Timeless and Simulacrum splinters | league mechanics | not boss-only; separate pools |
+
+The Gateway table has no source column. A boss-only currency must not be added
+as a normal core weight; the model needs a source field, for example
+`CurrencySource(Id, SourceKind, SourceId, DropLevel, Weight)` with kinds
+`core`, `boss`, `league`, `atlas` and `vendor`. The current core table stays the
+`core` fallback, and each boss/league executor adds its own rows.
+
+### 5.2 Divination cards
+
+The card's `BaseItemTypes.DropLevel` is its minimum monster level (The Doctor
+75, House of Mirrors 80, The Apothecary 75, The Endless Darkness 81). The client
+tables do not contain the area list: PoEDB's
+[Divination_Cards](https://poedb.tw/us/Divination_Cards) page has an **Areas**
+table of 135 areas and 555 area/card pairs, with `(tier N+)` minimum map tiers.
+It is exported to [divination-card-areas.csv](divination-card-areas.csv).
+
+Examples:
+
+| Area | Card | Min map tier |
+|---|---|---:|
+| Burial Chambers | The Doctor | 7 |
+| Cage | The Apothecary | 7 |
+| Shrine | The Progeny of Lunaris | 13 |
+| Tropical Island | Pride of the First Ones | 12 |
+| The Putrid Cloister | The Professor | 1 |
+
+Boss and league cards are not all in that table: The Endless Darkness comes
+from the King in the Mists (already in `ItemDrops.KingInMistsCards` at 15%);
+The Breach and The Dreamer are Breach/Chayula cards; The Calling, The Valkyrie
+and The Undaunted are Beyond/Nemesis cards; The Admirer is an Atziri card; The
+Professor is the Putrid Cloister's. Some cards are disabled in the client
+(`The Cartographer`, `The Obscured`, `The Puzzle`).
+
+Current code: `ItemDrops.Card(Random rng)` does not check `DropLevel`, area,
+map tier, boss or league; it picks uniformly from every supported card. A
+correct `Card` needs the area id, map tier and monster level (and a boss/league
+flag for the special hooks), then the intersection of the area table,
+`DropLevel <= monster level` and the special source. `MapRun.CardDropChance` and
+`PacksDropCards` only change the chance, not the pool.
+
+## 6. Community spreadsheets and datasets
 
 Searched for 2024-2026 community Excel/Google Sheets. There is **no public
 per-orb weight sheet**: the recent sheets are prices, farming strategies, chest
@@ -135,7 +195,7 @@ loot or other item pools. The useful ones found:
 The 2014 leak remains the only complete public orb distribution; the fresh
 sources above are corrections and cross-checks, not a replacement table.
 
-## 6. Sources
+## 7. Sources
 
 - 2014 leak table (the only complete public orb distribution; historic):
   [Reddit](https://www.reddit.com/r/pathofexile/comments/2dvjol/drop_rate_of_currency_in_poetw_wiki/),
@@ -159,7 +219,7 @@ sources above are corrections and cross-checks, not a replacement table.
   [3.28.0](https://poedb.tw/us/Version_3.28.0) and
   [3.29.0](https://poedb.tw/us/Version_3.29.0) pages.
 
-## 7. Open
+## 8. Open
 
 - Calibrate the 24 weights to the 3.28/3.29 changes, then add Orb of Binding,
   Sacred Orb, Ancient Orb, Cartographer's Chisel and Fracturing Orb.
