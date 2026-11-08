@@ -83,7 +83,10 @@ public static class InstanceWaypoints
     /// the trials' flags (0x140b76170 → 0x141f69230), not from the message. Kind 0x66 (HUD virtual +0x1028, the live
     /// HUD's +0xa30) is Mirage's Wishes window instead (live 2026-10-31).</summary>
     public const byte TrialPlaqueUi = 9;
-    /// <summary>The Labyrinth map (LabyrinthMapWindow in the client's screen table at 0x142fc5920).</summary>
+    /// <summary>The Labyrinth map (LabyrinthMapWindow in the client's screen table at 0x142fc5920). The first u32 is a
+    /// LabyrinthSectionLayout row (0 none, 0x140bcdd90 → window +0x358): the map (0x140bcd190) draws the connection between
+    /// the current room and that row's room with ConnectionGreen when both are shown (0x1cb); a connection to a room not
+    /// shown is ConnectionFaded.</summary>
     public const byte LabyrinthMapUi = 0x0f;
     /// <summary>The Labyrinth's choice of difficulty at the plaza (LabyrinthSelectWindow in the screen table).</summary>
     public const byte LabyrinthSelectUi = 0x10;

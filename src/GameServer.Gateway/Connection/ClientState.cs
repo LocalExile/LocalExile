@@ -156,8 +156,10 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public bool FetishGrace;
     /// <summary>Pending life thresholds and immunity owned by an encounter controller.</summary>
     public LifePhaseGate? LifePhases;
+    /// <summary>An encounter's own entrance: hits do nothing until its script clears it (Izaro rising on his elevator).</summary>
+    public bool EntranceGrace;
     // No damage, ailments, impale or hit reaction while a scripted grace runs.
-    public bool Invulnerable => KingGrace || RitualGrace || FetishGrace || LifePhases?.Active == true;
+    public bool Invulnerable => KingGrace || RitualGrace || FetishGrace || EntranceGrace || LifePhases?.Active == true;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual

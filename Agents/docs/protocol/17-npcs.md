@@ -160,6 +160,15 @@ then u8 → `+0x20`. The world handler `0x142187480` calls `0x142149db0(instance
   `0x140dcc720` (in-game UI, registered by `0x140dbcd40`) → `0x14071f6d0` → `0x140723d60` (NPCDialogueWindow setup).
 - other values: another path that looks at the NPC component's data (`+0x66`), not mapped.
 
+### S→C 0x1c7: a line (22 bytes)
+
+World group, class `0x1435dd898`, read `0x1421c55b0`: the object header (u32 BE object id → `+0x10`), u16 BE NPCs row
+(`+0x20`, the speaker), u16 BE NPCTextAudio row (`+0x22`), u32 BE delay in ms (`+0x24`), u8 (`+0x28`), u8 bool
+(`+0x2c`). The world handler `0x142187480` says the line (subtitle and voice): object 0 globally (world vtable `+0x208`),
+else from that object, kept for the delay while the client does not know it yet. Verified 2026-11-07 with Izaro's lines
+(NPCs 147), the last two bytes 0. For a row of a "…1 … …8" group the client may say another of the group (sent
+`IzaroFlee1`, it said `IzaroFlee7`'s text).
+
 ### C→S 0x85: dialogue closed (2 bytes)
 
 Id only. Live 2026-10-19 it came after every opened dialogue, when the window closed (Goodbye, Esc or walking away).
