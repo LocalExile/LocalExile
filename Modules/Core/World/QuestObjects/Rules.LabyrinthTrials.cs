@@ -109,6 +109,8 @@ static partial class QuestobjectsRules
                 await SpawnNpc(remote, stream, ciphers, conn, npc, glyph.X, glyph.Y, glyph.Angle);
             else Console.WriteLine($"[gateway] {remote} trial monograph {glyph.Type}: unknown or unsupported NPC");
         }
+        // The rooms' stashes (the account's, as a town's: before Izaro's arenas and in the Ascendancy Chamber).
+        if (labyrinth) await PlaceLabyrinthStashes(remote, stream, ciphers, conn, all);
         // Izaro's arena (Rules.Izaro.cs): his elevator, its doors and his trial.
         if (labyrinth) await RunIzaroArena(remote, stream, ciphers, conn, all);
         // The statues wake only in the Labyrinth's own rooms (a trial's tiles keep theirs as they were).
