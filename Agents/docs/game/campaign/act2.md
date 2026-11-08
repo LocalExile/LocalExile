@@ -252,7 +252,7 @@ needed for the rest of the quest; the quest log starts at `a2q6-ReceivedQuest`.
 | 4 | Kill Fidelitas | 1_2_6_2 | kill MV 154 `Metadata/Monsters/DemonFourLegged/BossFourLeggedDemon` | `a2q6-KilledDemon` | server `OnMonsterKilled` |
 | 5 | Helena climbs up | 1_2_6_2 | `HelenaSins` Transitionable 1 → 2 (`halyna_climbUp`, becomes targetable) | - | after the kill (inferred from her .ot) |
 | 6 | Talk to Helena | 1_2_6_2 | NPCTalk 457 "Rescued" (not HaveSkillGem, not RescuedHelena), Script `triggerer.FinishNPCChat();` | `a2q6-RescuedHelena` | row 456 is the same with the gem carried |
-| 7 | The Strange Device opens | 1_2_6_2 | `Metadata/Chests/QuestChests/Helena/PoisonCart` (Chests 188) state 2 (targetable) → open (state 3) | drops `PoisonSkillGem` | state 2 after the rescue (assumed) |
+| 7 | The Strange Device opens | 1_2_6_2 | `Metadata/Chests/QuestChests/Helena/PoisonCart` (Chests 188) state 2 (targetable) → open (state 3) | drops `PoisonSkillGem` | state 2 once Fidelitas is dead (#578: Helena's row 456 is the "Rescued" for a player already carrying the gem, so the device does not wait for her; the real trigger is unverified) |
 | 8 | Pick up the Baleful Gem | 1_2_6_2 | pick up `Metadata/Items/QuestItems/PoisonSkillGem` (BIT 1543) | `a2q6-HaveSkillGem` (grant), `a2q6-HelenaInTown` (extra) | `remove_flag a2q9-PoisonedTree` |
 | 9 | Helena in town | 1_2_town | NPCTalk 462 "Rescued" (`HelenaTown`, no conditions) | `HelenaIntroduced` | QS Order 1 |
 | 10 | Greust | 1_2_town | NPCTalk 153 "Helena" (needs HelenaInTown, not QuestRewardTaken) | `a2q6-Congratulated` | |
