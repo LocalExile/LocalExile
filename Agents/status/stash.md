@@ -5,7 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Act 6 Lioneye's Watch has personal and guild stashes at user-confirmed positions (329, 408) and (318, 408).
+- Campaign towns in Acts 6–8 have personal and guild stashes at player-confirmed positions.
 - Delve stash correction: publishes the native 41 × 4 inventory bounds;
   all fossil/resonator slots retain the 5000 limit.
   Empty legacy resonators migrate to stackable types with 1–4 independent yellow/orange Delve sockets.
