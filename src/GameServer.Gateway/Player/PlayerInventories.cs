@@ -172,7 +172,7 @@ sealed class PlayerInventories
             {
                 if (x < 0 || y < 0 || x + shape.Width > slot.Width || y + shape.Height > slot.Height) { why = "outside the grid"; return null; }
                 if (row == Flask && !Accepts(row, shape.Class)) { why = $"{shape.Class} does not go in the flask slots"; return null; }
-                if (row == MapDevice && !Accepts(row, shape.Class)) { why = $"{shape.Class} does not go in the map device"; return null; }
+                if (row == MapDevice && !global::MapDevice.AcceptsItem(held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the map device"; return null; }
                 inTheWay = [.. ItemsIn(row).Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
             }
             if (inTheWay.Count > 1) { why = $"{inTheWay.Count} items in the way"; return null; }

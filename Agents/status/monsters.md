@@ -119,6 +119,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Vaal Oversoul: campaign encounter; AI timing uncalibrated ([Act 2](../docs/game/campaign/act2.md)).
 - The King in the Mists' Crux of Nothingness encounter: `An Audience With The King` alone opens the area in the map
   device; the humanoid form fights with the default attack, spell projectile, Vine Slam and Vine Cascade, spawns the three
   Mystic Fetishes as visible shrines, teleports next to them and channels its `0x400e` ritual into one (the fetish is
