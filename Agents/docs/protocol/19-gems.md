@@ -179,7 +179,7 @@ the transfigured item-name display still needs a native retest.
   another socket keeps it too (matched by its skill): a move goes through the cursor, where the gem is out of the
   equipment for an update or more, so the id of a gem that left waits for a gem of its skill to come back. A new gem
   takes the lowest gem skill id no gem had, and only when none is left the id of the gem that left longest ago. The gem
-  skill ids are the ids below `FirstSkillId + 64` that no basic action uses (`SkillCatalog.IsGemSkill`): 55 in 3.29.3b.
+  skill ids are the ids below `FirstSkillId + 64` that no basic action uses (`SkillCatalog.IsGemSkill`): 55 in 3.29.3c.
   The client binds skill bar keys by skill id: with ids given in socket order, taking Haste out of a wand gave Righteous
   Fire Haste's id, and Haste's keys then cast Righteous Fire (live 2026-10-20).
 - An id a gem gives up never goes to another skill's gem in the same update. A gem swapped into a socket (the old gem

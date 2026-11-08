@@ -106,7 +106,7 @@ ActionType → `HASH16`); the default attack's is `Melee` 45448 = 0xb188.
 
 **Skill ids** are the server's choice, but they share the manager with the basic actions, whose ids are `HASH16 &
 0x3fff`. 0x0101 collided with a Monster.ot basic action (monsters showed a skill 0x101 / 0x4101). The Gateway uses
-**0x0102**, which no ActionType masks to in 3.29.3b (`SkillCatalog.FirstSkillId`).
+**0x0102**, which no ActionType masks to in 3.29.3b or 3.29.3c (`SkillCatalog.FirstSkillId`).
 Granted-skill construction `0x141eedc99`, insertion `0x14219ebf0/0x14219ec21` and action lookup
 `0x141ef00b0/0x141ef00de` preserve and compare the full u16 ID, as do the checked S2C 0x1ab/0x1b4 paths.
 The basic-action mask is not a general rule for network-granted skills.
@@ -1110,7 +1110,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
 (Gateway).
 
 - **Skill ids.** Gem skills take the ids after the default attack's that no ActionType `HASH16 & 0x3fff` uses
-  (`SkillCatalog.SkillIds`): 0x0106, 0x010a and 0x0114 are basic actions in 3.29.3b, so plain counting from 0x0103 would
+  (`SkillCatalog.SkillIds`): 0x0106, 0x010a and 0x0114 are basic actions in 3.29.3c, so plain counting from 0x0103 would
   have replaced one. Fireball is 0x0103.
 - **Stats** (`SkillCatalog.EffectStats`): the effect's GrantedEffectStatSets row (ImplicitStats = 1, ConstantStats with
   ConstantStatsValues), its GESSPL row at the gem level (FloatStats with BaseResolvedValues, AdditionalStats with

@@ -110,7 +110,7 @@ field to 3.
 | u8 | +0x86 | | |
 
 The struct also gets the account name (`login+0xdf0`) and is handed to the listeners at `+0x290`, which start the
-instance connection. Lioneye's Watch (`1_1_town`) is HASH16 `0x235c` in 3.29.3b.
+instance connection. Lioneye's Watch (`1_1_town`) is HASH16 `0x235c` in 3.29.3b and 3.29.3c.
 
 ## 5. Our login server
 
