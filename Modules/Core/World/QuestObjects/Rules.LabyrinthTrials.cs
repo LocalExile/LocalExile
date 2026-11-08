@@ -471,6 +471,8 @@ static partial class QuestobjectsRules
         if (conn.ActionCount != action || conn.Closed) return true;
         if (!GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (o.X, o.Y), size))
             Console.WriteLine($"[gateway] {remote} trial object 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
+        else if (IzaroStatues.IsStatue(o.Type))
+            await UseIzaroStatue(remote, stream, ciphers, conn, use.TargetId);
         else if ((o.Type is LabyrinthTrials.Lever or LabyrinthWiring.OnceMultiSwitch || LabyrinthWiring.IsCrank(o.Type))
                  && Wirings.TryGetValue(conn, out var wiring) && wiring.IndexOf(use.TargetId) is int wired && wiring.Graph.Wired(wired))
             await PullWired(remote, stream, ciphers, conn, wiring, wired);

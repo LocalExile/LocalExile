@@ -1635,6 +1635,7 @@ static partial class Game
         var gambler = GamblerFor(stats);
         // The King's Mystic Fetishes leave Portent Vapors: 10% increased damage taken per stack from his hits only.
         var hitDamage = a.Damage;
+        if (m.EncounterStats is { } encounter) hitDamage = MonsterModEffects.AddedTo(hitDamage, encounter);
         if (KingInMists.IsBoss(m.Variety) && conn.KingPortentStacks > 0 && now < conn.KingPortentUntil)
             hitDamage = hitDamage.Scale(1 + 0.1 * conn.KingPortentStacks);
         var rolled = gambler.RollIncomingHit(hitDamage, conn.IncomingHitRandom);

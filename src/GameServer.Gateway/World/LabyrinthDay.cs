@@ -71,6 +71,8 @@ static class LabyrinthDay
         public readonly HashSet<int> Visited = [];
         // Izaro's Aspirant's Trials won (their sections' numbers, 1 …): the map's Izaro icons go.
         public readonly HashSet<int> Izaro = [];
+        // What his trials' mechanics left on him for the later ones (LabyrinthSecretEffects Ids: a statue still on).
+        public readonly HashSet<string> Carried = new(StringComparer.Ordinal);
         public int Node = -1;
         public long Number = Interlocked.Increment(ref runs);
     }
@@ -167,15 +169,16 @@ static class LabyrinthDay
 
     /// <summary>Izaro's Aspirant's Trial in a room of today's Labyrinth (<see cref="NodeFor(string, uint)"/>): its
     /// section's number (the layout node's <see cref="LabyrinthLayout.Node.SectionEnd"/>, 1 …) of the layout's sections,
-    /// the day and difficulty, and the node's first secret (its LabyrinthSecrets row, -1: none; the arena's mechanic).
+    /// the day and difficulty, and the node's secrets (LabyrinthSecrets rows, -1: none; the first is the arena's mechanic,
+    /// a "…2" row brings an earlier trial's mechanic back).
     /// Null in any other room.</summary>
-    public static (int Number, int Of, uint Seed, int Difficulty, int Secret)? IzaroRoom(string areaId, uint instanceSeed)
+    public static (int Number, int Of, uint Seed, int Difficulty, int Secret, int Secret2)? IzaroRoom(string areaId, uint instanceSeed)
     {
         if (!areaId.Contains("_Labyrinth_boss_", StringComparison.Ordinal) || NodeFor(areaId, instanceSeed) is not { } node) return null;
         var day = For(node.Seed, node.Difficulty);
         int index = IndexOf(day, node.Row);
         return IzaroRooms(day).FirstOrDefault(r => r.Node == index) is { Number: > 0 } room
-            ? (room.Number, room.Of, node.Seed, node.Difficulty, day.Layout.Nodes[index].Secret1) : null;
+            ? (room.Number, room.Of, node.Seed, node.Difficulty, day.Layout.Nodes[index].Secret1, day.Layout.Nodes[index].Secret2) : null;
     }
 
     /// <summary>A day's Izaro rooms (each section's last, <see cref="LabyrinthLayout.Node.SectionEnd"/>): node index, the
@@ -184,6 +187,20 @@ static class LabyrinthDay
     {
         for (int i = 0; i < day.Layout.Nodes.Count; i++)
             if (day.Layout.Nodes[i].SectionEnd > 0) yield return (i, day.Layout.Nodes[i].SectionEnd, day.Layout.Sections.Count);
+    }
+
+    /// <summary>What Izaro's earlier trials of the character's run left on him (<see cref="Carry"/>); none outside a run.</summary>
+    public static IReadOnlyCollection<string> Carried(string character)
+    {
+        if (!Runs.TryGetValue(character, out var run)) return [];
+        lock (run) return [.. run.Carried];
+    }
+
+    /// <summary>A trial's mechanic leaves these effects on Izaro for the run's later trials.</summary>
+    public static void Carry(string character, IEnumerable<string> effects)
+    {
+        if (!Runs.TryGetValue(character, out var run)) return;
+        lock (run) run.Carried.UnionWith(effects);
     }
 
     /// <summary>The character's run has won Izaro's Aspirant's Trial of this section: the map's progress (his icon there

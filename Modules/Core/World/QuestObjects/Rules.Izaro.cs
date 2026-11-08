@@ -44,6 +44,15 @@ static partial class QuestobjectsRules
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             doors.Add((id, door));
         }
+        // The alcoves' railings stand up (a mechanic with monsters lowers them).
+        foreach (var railing in all.Where(o => o.Type == IzaroFights.Railing))
+        {
+            uint id = conn.NextObjectId++;
+            await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(railing.Type),
+                IzaroFights.Blob(railing.Type, railing.Model, railing.X, railing.Y, railing.Angle, IzaroFights.RailingUp)),
+                .. InstanceProtocol.EnterWakeZone(id)], $"0x02b9 alcove railing 0x{id:x} at ({railing.X}, {railing.Y})");
+            CloseIzaroDoor(conn, id, railing);
+        }
         if (all.FirstOrDefault(o => o.Type == IzaroFights.Gate) is { } gate)
         {
             bool open = beaten || conn.Instance.HasState(IzaroFights.GateOpen);
@@ -58,9 +67,10 @@ static partial class QuestobjectsRules
                 CloseIzaroDoor(conn, id, gate);
             }
         }
+        var statues = await PlaceIzaroStatues(remote, stream, ciphers, conn, trial, all, beaten);
         Console.WriteLine($"[gateway] {remote} {what} in {conn.Layout.Id}: {(beaten ? "won in this instance" : $"Izaro {trial.Variety} from {trial.StartPercent}% to {trial.LeavesAtPercent}%, mechanic {trial.Mechanic ?? "none"}")}, {doors.Count} door(s)");
         if (beaten) return;
-        _ = IzaroTrial(remote, stream, ciphers, conn, layout, trial, elevator, lift, doors);
+        _ = IzaroTrial(remote, stream, ciphers, conn, layout, trial, elevator, lift, doors, statues);
     }
 
     // The corridor's gate used (UseTrialObject): it opens for good in this instance, he says the trial's prefight line and
@@ -89,6 +99,27 @@ static partial class QuestobjectsRules
         }
     }
 
+    // An elevator's state change, with its blockage: closed on the client (0x1c6) and on the server's walk map while it moves.
+    static byte[] LiftState(ClientState conn, uint id, AreaPopulation.RoomObject lift, byte state)
+    {
+        bool moving = IzaroFights.LiftMoving(state);
+        if (moving && conn.Layout.Walkable is { } walk)
+        {
+            int r = IzaroFights.LiftRadius(lift.Type);
+            var cells = new HashSet<(int X, int Y)>();
+            for (int dy = -r; dy <= r; dy++)
+                for (int dx = -r; dx <= r; dx++)
+                    if (dx * dx + dy * dy <= r * r && walk(lift.X + dx, lift.Y + dy)) cells.Add((lift.X + dx, lift.Y + dy));
+            lock (conn.Monsters)
+            {
+                conn.DoorBarriers[id] = cells;
+                conn.UpdateBarrier();
+            }
+        }
+        else OpenIzaroDoor(conn, id);
+        return [.. InstanceEntities.TransitionableUpdate(id, IzaroFights.TransitionableIndex, state), .. InstanceEntities.BlockageUpdate(id, moving)];
+    }
+
     static void OpenIzaroDoor(ClientState conn, uint id)
     {
         lock (conn.Monsters)
@@ -107,7 +138,8 @@ static partial class QuestobjectsRules
     }
 
     static async Task IzaroTrial(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AreaLayout layout,
-        IzaroFights.Trial trial, AreaPopulation.RoomObject elevator, uint lift, List<(uint Id, AreaPopulation.RoomObject Door)> doors)
+        IzaroFights.Trial trial, AreaPopulation.RoomObject elevator, uint lift, List<(uint Id, AreaPopulation.RoomObject Door)> doors,
+        IzaroArena statues)
     {
         string what = $"Izaro's trial {trial.Number} of {trial.Of}";
         bool Here() => !conn.Closed && !conn.LeavingArea && ReferenceEquals(conn.Layout, layout);
@@ -149,7 +181,7 @@ static partial class QuestobjectsRules
             byte transitionable = (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable");
             // The rise: the elevator's raise and his Emerge (lift_raise_*), both about 10.7 s, with the mechanic's line; the
             // arena's doors shut.
-            await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(lift, IzaroFights.TransitionableIndex, IzaroFights.Raising),
+            await Send(remote, stream, ciphers, LiftState(conn, lift, elevator, IzaroFights.Raising),
                 $"0x02ba Izaro's elevator 0x{lift:x} rises");
             if (Emerges.SkillId is ushort emerge)
                 await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionStarted(izaro, elevator.X, elevator.Y, elevator.X, elevator.Y, emerge, 0xffff, conn.MonsterOrderFlags),
@@ -163,9 +195,10 @@ static partial class QuestobjectsRules
             }
             await Task.Delay(TimeSpan.FromSeconds(IzaroFights.RiseSeconds));
             if (!Here()) return;
-            await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(lift, IzaroFights.TransitionableIndex, IzaroFights.Raised),
+            await Send(remote, stream, ciphers, [.. LiftState(conn, lift, elevator, IzaroFights.Raised),
                 .. InstanceEntities.TransitionableUpdate(izaro, transitionable, IzaroFights.Fighting)], $"0x02ba Izaro 0x{izaro:x} fights");
             lock (conn.Monsters) (boss.BusyUntil, boss.Aggro, boss.EntranceGrace) = (conn.Clock.Elapsed.TotalSeconds, true, false);
+            await StartIzaroStatues(remote, stream, ciphers, conn, statues, izaro, boss, Here);
             // The fight, until he dies (the last trial) or his life reaches the trial's end (the others).
             while (Here())
             {
@@ -188,12 +221,14 @@ static partial class QuestobjectsRules
                 {
                     if (!trial.Last) return;   // gone some other way: the trial is not won
                     Console.WriteLine($"[gateway] {remote} {what}: Izaro 0x{izaro:x} dies");
+                    await EndIzaroStatues(remote, stream, ciphers, conn, trial);
                     await IzaroSays(remote, stream, ciphers, 0, IzaroFights.EndLine(trial));
                     await WinIzaroTrial(remote, stream, ciphers, conn, trial, doors);
                     return;
                 }
                 if (leaves)
                 {
+                    await EndIzaroStatues(remote, stream, ciphers, conn, trial);
                     await IzaroLeaves(remote, stream, ciphers, conn, trial, elevator, lift, doors, izaro, boss, action, free, transitionable, Here);
                     return;
                 }
@@ -233,7 +268,7 @@ static partial class QuestobjectsRules
         if (!here()) return;
         await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(izaro, transitionable, IzaroFights.Defeated),
             .. InstanceProtocol.AnimationUpdate(izaro, 0, IzaroFights.LowerClip(trial.Weapon), 1),
-            .. InstanceEntities.TransitionableUpdate(lift, IzaroFights.TransitionableIndex, IzaroFights.Lowering)],
+            .. LiftState(conn, lift, elevator, IzaroFights.Lowering)],
             $"0x02ba Izaro 0x{izaro:x} goes down, the elevator lowers");
         await WinIzaroTrial(remote, stream, ciphers, conn, trial, doors);
         await Task.Delay(TimeSpan.FromSeconds(IzaroFights.LowerSeconds));
@@ -243,7 +278,7 @@ static partial class QuestobjectsRules
             if (ReferenceEquals(conn.Monsters.GetValueOrDefault(izaro), boss)) conn.Monsters.Remove(izaro);
         }
         if (!here()) return;
-        await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(lift, IzaroFights.TransitionableIndex, IzaroFights.Down),
+        await Send(remote, stream, ciphers, [.. LiftState(conn, lift, elevator, IzaroFights.Down),
             .. InstanceProtocol.RemoveObject(izaro)], $"0x02bb Izaro 0x{izaro:x} is gone");
     }
 
