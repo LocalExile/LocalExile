@@ -152,8 +152,24 @@ Friend notes, ignore lists and account status editing remain separate features.
 
 ## Open
 
-- Party: Decline, kicking and promoting members, a member's disconnect or area change, the party panel's other fields
+- Party: declining an invitation, a member's disconnect or area change, the party panel's other fields
   (`+0x6c`, `+0x6f`, the leader's character string), and parties across instances.
+  Kicking and promoting are done from chat (`/kick`, `/promote`) with the messages the panel path would use anyway: the
+  removed member gets 0xaa, and the party list 0xa9 carries the leader as its first member, so a promotion is that
+  list reordered and resent (verified 2026-11-08 with three clients).
+- The party panel's area column stays "Travelling..." and its travel button is disabled. Measured 2026-11-08 with a real
+  second client: same area shows nothing, another area shows "Travelling..." — for a player and for a bot alike, so the
+  client has no area data for a member at all. What it is not, from the client's own read table
+  ([schema.md](schema.md)): 0xa9 has no area field; 0xa7's `+0x90` wstr is ignored by the panel whether it holds the
+  area name or its id; `+0x6f` = 1 in 0xa9 made the client drop its instance connection. **There is no S→C 0xac in the
+  3.29.3c table** — the earlier "dispatcher case 0x10" came from the 3.29.3b case table. **0xa4** (online known player, dispatcher case 0x25) was tried both with the 0xa7 body and with the one-wstr body its
+  reader implies; the client answered "Protocol violation reading wstring from the network" both times, so it is not
+  the panel's source and this server does not send it.
+- **The addresses quoted on this page are 3.29.3b.** The client here is 3.29.3c: the documented absolute addresses
+  (0xa9's reader `0x1421a18b0`, the 0xa7 reader `0x141f8f850`, the dispatcher `0x14214a190`, its byte table
+  `0x142154e14`) do not resolve in the 3.29.3c image — a RIP-relative scan of `Game.exe` finds no reference to the
+  byte table, and none to the login key blobs the 3.29.3b notes name either. Re-finding the same structures in
+  3.29.3c needs its own analysis, not the 3.29.3b addresses.
 - Friends: notes, ignore lists and account status editing.
 - The exact meaning of 0xa7's other fields (class, league, online state) and of the request option `0x19`.
 - Trades across instances (the client only offers Trade on a player it sees).

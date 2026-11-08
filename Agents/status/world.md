@@ -87,6 +87,34 @@ Part of [Status](../Status.md); what to build next in this area is in
   Unknown message layouts and existing 0x0099 handling remain unchanged.
   Docs: [instance framing](../docs/protocol/02-instance-connection.md#fixed-message-boundaries-across-tcp-reads).
 
+- Other machines, over a LAN or a tunnel: `live.ps1 -Lan` binds the servers to 0.0.0.0 and tells remote clients the
+  public address and ports (`-PublicAddress`, `-PublicLoginPort`, `-PublicPort`), while a connection from this PC keeps
+  127.0.0.1 and the local port; the GGPK's gateway list stays local, and a remote player's tool answers the patching
+  hello on their own PC.
+  Code: `scripts/dev/live.ps1`, `GatewayEndpoint.PublicPort`, `InstanceTransfer.ConnectInstance`. `Modules/Core/Game/World/Travel.cs`.
+  Docs: [LAN play](../docs/dev/lan-play.md).
+- Party: invite (C→S 0x93), accept (0x95) and leave (0x96) with the party list (0xa9) and the party modifiers (0x231),
+  and the panel's own Kick is C→S 0x94 (a compact wstr member name, captured live); an invite from a player who is
+  already in a party joins that party, so a third member lands in the same one, and a member keeps their place through
+  an area change.
+  Verified 2026-11-08 with three clients: both invites carry party 0x101, the accept gives all three the same 0xa9
+  (the leader and both members, in join order) and 0x231 reports 3 players.
+  `/travel <character name>` moves the player to that character's area and instance (verified: a player in the town
+  travelled into the beach instance another one was in).
+  `/invite`, `/leave`, `/kick <name>`, `/promote <name>` and `/decline` do the party panel's operations from chat; kick
+  sends the removed member 0xaa (the leave message) and the leader transfer reorders 0xa9 so that member is first with
+  status 2.
+  Verified 2026-11-08 with three clients: `/invite` twice (the second reuses party 0x101 once the first is accepted),
+  `/promote` (0xa9 now lists the promoted member first), `/kick` (the kicked member gets 0xaa, the other two the 2-player party),
+  `/leave` (the last member gets the disbanded notice) and `/decline` (the invite is dropped, the inviter gets 0xaa for
+  that id, and a later accept answers "no such invite").
+  The party panel's area column ("Travelling...") and its travel button remain
+  ([roadmap](../roadmap/world.md)).
+  Code: `Modules/Core/Player/Social/SocialModule.cs` (party, `%` chat, 0x94), `Modules/Core/Player/Commands/CommandsFeature.cs`.
+  Docs: [28](../docs/protocol/28-player-trade.md).
+
+## Partly working
+
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). It
   handles pickup/attack recovery, corpse collision and ground melee/chest approach;
   crowd and predictive gaps remain ([07](../docs/protocol/07-latency-visibility-movement.md) §6).

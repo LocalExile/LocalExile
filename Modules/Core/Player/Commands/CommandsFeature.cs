@@ -1494,6 +1494,21 @@ static class CommandsFeature
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hash, 0, seed != 0) { Seed = seed },
                 seed != 0 ? $"/goto {target} seed {seed}" : $"/goto {target}");
         }, "area")
+        .Add("travel", "/travel <character name> (go to a party member's area and instance: what the party panel's travel does)", async args =>
+        {
+            string name = string.Join(' ', args).Trim();
+            if (name.Length == 0) { await conn.Commands!.Reply("用法：/travel <角色名>，例如 /travel 吴沃鸿"); return; }
+            var other = InGame.Keys.FirstOrDefault(o => !ReferenceEquals(o, conn)
+                && o is { Closed: false, LeavingArea: false, PlayerObjectCreated: true, Outbox: not null }
+                && string.Equals(CharacterName(o), name, StringComparison.OrdinalIgnoreCase));
+            if (other is null)
+            {
+                await conn.Commands!.Reply($"没找到在线角色 \"{name}\"（要已进入游戏，且名字完全一致）。");
+                return;
+            }
+            // The same area hash and instance number: the instance that player is in, not a fresh copy of the area.
+            await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(other.Layout.Hash, other.InstanceNumber, false), $"/travel {name}");
+        }, "social")
         .Add("tour", "/tour <list file> | stop | status (dev, live.ps1 -Walkmaps: visit every \"<area id> <seed>\" of the file in a new instance and record it; levelgen tourlist writes one)", async args =>
         {
             string character = CharacterName(conn);

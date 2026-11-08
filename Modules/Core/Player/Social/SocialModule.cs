@@ -99,6 +99,67 @@ public sealed class SocialModule : IModule
             var (conn, remote) = Of(p);
             return await SocialFeature.LeaveParty(remote, conn, InstanceSocial.ReadPartyAccept(p.Bytes.ToArray()));
         });
+        // A '%' line is party chat. Returning false leaves the packet to the Gateway's own chat handling (local, '#'
+        // global, '$' trade); it ignores a party line (there is no party registry there).
+        module.OnPacket(InstanceChat.ChatId, async p =>
+        {
+            var (conn, remote) = Of(p);
+            await SocialFeature.PartyChat(remote, conn, InstanceChat.ReadChat(p.Bytes.ToArray()).Text);
+            return false;
+        });
+        // C→S 0x94: the party panel's Kick, a wstr member name (captured live 2026-11-08: the client sent the kicked bot's
+        // name as a compact wstr). A bot party is the PlayerBots module's and it sees the packet first, so this handler
+        // only runs for a party of real players; returning false hands it on.
+        module.OnPacket(0x0094, async p =>
+        {
+            var (conn, remote) = Of(p);
+            string name = new LoginReader(p.Bytes.Span[2..]).WStr();
+            if (name.Length == 0) return false;
+            var (ok, message) = await SocialFeature.Kick(conn, name);
+            Console.WriteLine($"[gateway] {remote} <= 0x0094 kick \"{name}\": {(ok ? message : "not taken")}");
+            if (ok) await SocialFeature.Tell(conn, message);
+            return ok;
+        });
+        // C→S 0xac (3 bytes: the id alone): the party panel asks for its members again — it opens it, or a member changes
+        // area. Answering with 0xa7 per member is what fills the panel's area column ("Travelling..." until then).
+        module.OnPacket(0x00ac, async p =>
+        {
+            var (conn, remote) = Of(p);
+            await SocialFeature.RefreshParty(remote, conn);
+            return true;
+        });
+
+        // Party commands: the panel's buttons need packets whose layouts are not known yet, so the same operations are
+        // also reachable as chat commands. Everything they send (0xa9, 0xaa) is the traffic the UI path already uses.
+        module.OnChatCommand("invite", "/invite <character name> (invite that player to your party)", async cmd =>
+        {
+            if (cmd.Args.Count == 0) { await SocialFeature.Tell(cmd.Player, "用法：/invite <角色名>"); return; }
+            string name = string.Join(' ', cmd.Args);
+            var conn = ConnOf(cmd.Player);
+            bool ok = await SocialFeature.InviteToParty(conn.Wire.Remote, conn, name);
+            await SocialFeature.Tell(cmd.Player, ok ? $"已邀请 {name}。" : $"没找到在线角色 \"{name}\"（需已进入游戏）。");
+        });
+        module.OnChatCommand("leave", "/leave (leave your party)", async cmd =>
+        {
+            var conn = ConnOf(cmd.Player);
+            if (SocialFeature.PartyOf(conn) is not uint party) { await SocialFeature.Tell(cmd.Player, "你没有队伍。"); return; }
+            await SocialFeature.LeaveParty(conn.Wire.Remote, conn, party);
+        });
+        module.OnChatCommand("kick", "/kick <character name> (party leader only: remove that member)", async cmd =>
+        {
+            if (cmd.Args.Count == 0) { await SocialFeature.Tell(cmd.Player, "用法：/kick <角色名>"); return; }
+            await SocialFeature.KickMember(cmd.Player, ConnOf(cmd.Player), string.Join(' ', cmd.Args));
+        });
+        module.OnChatCommand("promote", "/promote <character name> (party leader only: make that member the leader)", async cmd =>
+        {
+            if (cmd.Args.Count == 0) { await SocialFeature.Tell(cmd.Player, "用法：/promote <角色名>"); return; }
+            await SocialFeature.PromoteMember(cmd.Player, ConnOf(cmd.Player), string.Join(' ', cmd.Args));
+        });
+        module.OnChatCommand("decline", "/decline (refuse the party invitations waiting for you)", async cmd =>
+        {
+            int refused = await SocialFeature.DeclineInvites(ConnOf(cmd.Player));
+            await SocialFeature.Tell(cmd.Player, refused == 0 ? "没有待接受的组队邀请。" : $"已拒绝 {refused} 个组队邀请。");
+        });
     }
 }
 
@@ -126,7 +187,13 @@ static class SocialFeature
     // Each side must know the other (0xa7) before 0xb8: the request is looked up by character name in that table.
     internal static async Task Introduce(ClientState to, ClientState about) =>
         await SendTo(to, InstanceSocial.KnownPlayer(about.Account ?? CharacterName(about), CharacterName(about), about.Pools.Level,
-            PackedClass(about), about.PortraitFrame, WornPortrait(about)), $"0x00a7 known player {CharacterName(about)}");
+            PackedClass(about), about.PortraitFrame, WornPortrait(about), AreaName(about)), $"0x00a7 known player {CharacterName(about)}");
+
+    /// <summary>
+    /// The area name the party panel shows for a player (the 0xa7 field at +0x90). Empty when the area is not in
+    /// WorldAreas.json, which the client draws as "Travelling...".
+    /// </summary>
+    internal static string AreaName(ClientState conn) => conn.Layout.Id;   // "1_1_town": the client knows its own names
 
     // 0xb8 builds the trade window's two offer grids at once, even for the request and the waiting notice: their
     // inventories must exist (inventory 0 crashed both clients at 0x1402d1029 through the grid 0x140317a44). A fresh
@@ -154,9 +221,11 @@ static class SocialFeature
         await Introduce(conn, other);
         await Introduce(other, conn);
         // The client keeps the parties it knows by id (+0xc668): only an id it doesn't know yet shows the invite. It finds
-        // the inviter by the second string (an account name, 0x14216d400) among the known players, and shows the notice
-        // (0x140dce360) only with +0x6c clear and +0x6d set.
-        uint party = unchecked((uint)Interlocked.Increment(ref _nextPartyId));
+        // the inviter by the second string (an account name, 0x142166a50) among the known players, and shows the notice
+        // (0x140dd0ad0) only with +0x6c clear and +0x6d set.
+        // An invite from a player already in a party joins that party: a fresh id per invite would leave the first pair
+        // in one party and the third member in another.
+        uint party = PartyOf(conn) ?? unchecked((uint)Interlocked.Increment(ref _nextPartyId));
         var info = InstanceSocial.PartyInfo(party, me, conn.Account ?? me, 0, 0, 1, 0, [(me, PartyInvited), (them, PartyInvited)]);
         Console.WriteLine($"[gateway] {remote} <= 0x0093 party invite: {me} -> {them} (party 0x{party:x})");
         PartyInvites[party] = (conn, other);
@@ -178,8 +247,163 @@ static class SocialFeature
         var leader = invite.Leader;
         string lead = CharacterName(leader), member = CharacterName(conn);
         Console.WriteLine($"[gateway] {remote} <= 0x0095 accept party 0x{party:x}: {member} joins {lead}");
-        Parties[party] = [leader, conn];
+        // The party may already exist (a third member invited by someone who is in one): add to it, never replace it.
+        if (Parties.TryGetValue(party, out var list)) { lock (list) if (!list.Contains(conn)) list.Add(conn); }
+        else Parties[party] = [leader, conn];
         await SendParty(party);
+    }
+
+    /// <summary>
+    /// The party panel asks for its members again (C→S 0xac): this player gets an 0xa7 for every member, with the area
+    /// each is in, which is the column that otherwise stays "Travelling...".
+    /// </summary>
+    internal static async Task RefreshParty(string remote, ClientState conn)
+    {
+        if (PartyOf(conn) is not uint party || !Parties.TryGetValue(party, out var list))
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x00ac party refresh with no party");
+            return;
+        }
+        ClientState[] members;
+        lock (list) members = [.. list];
+        foreach (var member in members) await Introduce(conn, member);
+        Console.WriteLine($"[gateway] {remote} <= 0x00ac party refresh: {members.Length} member(s) sent");
+    }
+
+    /// <summary>The party this connection belongs to, or null.</summary>
+    internal static uint? PartyOf(ClientState conn)
+    {
+        foreach (var (id, list) in Parties)
+            lock (list) if (list.Contains(conn)) return id;
+        return null;
+    }
+
+    /// <summary>A chat line back to the player who ran a command.</summary>
+    internal static Task Tell(IPlayer player, string text) => Tell(ConnOf(player), text);
+
+    /// <summary>A chat line to one connection.</summary>
+    internal static Task Tell(ClientState conn, string text) =>
+        SendTo(conn, InstanceChat.ChatLine(text), $"0x0017 {text}");
+
+    /// <summary>
+    /// '/decline': the invitations waiting for this connection are dropped. The inviter is told with 0xaa only when the
+    /// party id belongs to that invitation alone — an invite from someone already in a party reuses their party id, and
+    /// 0xaa on that id would remove the leader from their own party. Returns how many invitations were refused.
+    /// </summary>
+    internal static async Task<int> DeclineInvites(ClientState conn)
+    {
+        int refused = 0;
+        foreach (var (party, invite) in PartyInvites)
+        {
+            if (!ReferenceEquals(invite.Invited, conn)) continue;
+            if (!PartyInvites.TryRemove(party, out var gone)) continue;
+            refused++;
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} /decline: party 0x{party:x} from {CharacterName(invite.Leader)}");
+            // A party id that no party holds is this invitation's alone (see above).
+            if (!Parties.ContainsKey(party) && invite.Leader.Outbox is { } outbox)
+                _ = outbox(InstanceSocial.PartyRemove(party), $"0x00aa party 0x{party:x} removed (declined)");
+        }
+        return refused;
+    }
+
+    /// <summary>
+    /// '/kick' from the leader: the member leaves the party (0xaa to them, the smaller party to the rest, or disband
+    /// when only the leader is left). The same messages the client's own Leave sends, so nothing new is on the wire.
+    /// </summary>
+    internal static async Task KickMember(IPlayer actor, ClientState conn, string name)
+    {
+        var (ok, message) = await Kick(conn, name);
+        if (!ok) await Tell(actor, message);
+    }
+
+    /// <summary>
+    /// The kick itself, shared by '/kick' and the party panel's Kick button (C→S 0x94, a wstr member name — captured
+    /// live 2026-11-08 from the panel, see Agents/docs/protocol/28-player-trade.md). Returns whether a member was
+    /// removed and the line to show the leader.
+    /// </summary>
+    internal static async Task<(bool Ok, string Message)> Kick(ClientState conn, string name)
+    {
+        if (PartyOf(conn) is not uint party || !Parties.TryGetValue(party, out var list))
+            return (false, "你没有队伍。");
+        ClientState[] members;
+        lock (list) members = [.. list];
+        if (members.Length < 2 || !ReferenceEquals(members[0], conn))
+            return (false, "只有队长可以踢人。");
+        var target = members.FirstOrDefault(m => !ReferenceEquals(m, conn)
+            && string.Equals(CharacterName(m), name, StringComparison.OrdinalIgnoreCase));
+        if (target is null) return (false, $"队伍里没有 \"{name}\"。");
+        lock (list) list.Remove(target);
+        await SendTo(target, InstanceSocial.PartyRemove(party), $"0x00aa party 0x{party:x} removed (kicked)");
+        await Program.SetPartySize(target, 1);
+        Console.WriteLine($"[gateway] {conn.Wire.Remote} kick {name}: left party 0x{party:x}");
+        await Tell(target, "你已被移出队伍。");
+        if (list.Count >= 2) { await SendParty(party); return (true, $"已把 {name} 移出队伍。"); }
+        Parties.TryRemove(party, out _);
+        foreach (var member in members.Where(m => !ReferenceEquals(m, target)))
+        {
+            await SendTo(member, InstanceSocial.PartyRemove(party), $"0x00aa party 0x{party:x} removed (disbanded)");
+            await Program.SetPartySize(member, 1);
+        }
+        return (true, $"已把 {name} 移出队伍（队伍不足两人，已解散）。");
+    }
+
+    /// <summary>
+    /// '/promote' from the leader: that member becomes the leader — the party list (0xa9) carries the leader as its
+    /// first entry with status 2, so reordering the list and resending it is the whole transfer.
+    /// </summary>
+    internal static async Task PromoteMember(IPlayer actor, ClientState conn, string name)
+    {
+        if (PartyOf(conn) is not uint party || !Parties.TryGetValue(party, out var list))
+        {
+            await Tell(actor, "你没有队伍。");
+            return;
+        }
+        ClientState[] members;
+        lock (list) members = [.. list];
+        if (members.Length < 2 || !ReferenceEquals(members[0], conn))
+        {
+            await Tell(actor, "只有队长可以转移队长。");
+            return;
+        }
+        var target = members.FirstOrDefault(m => !ReferenceEquals(m, conn)
+            && string.Equals(CharacterName(m), name, StringComparison.OrdinalIgnoreCase));
+        if (target is null)
+        {
+            await Tell(actor, $"队伍里没有 \"{name}\"。");
+            return;
+        }
+        lock (list)
+        {
+            list.Remove(target);
+            list.Insert(0, target);
+        }
+        Console.WriteLine($"[gateway] {conn.Wire.Remote} /promote {name}: leader of party 0x{party:x}");
+        await SendParty(party);
+        await Tell(actor, $"已把队长转给 {name}。");
+    }
+
+    /// <summary>
+    /// A '%' line (party chat): the text reaches every member of the player's party, its author included, as an S→C
+    /// 0x17 line from the character. Without a party the line goes nowhere (the client shows nothing either).
+    /// </summary>
+    internal static async Task PartyChat(string remote, ClientState conn, string typed)
+    {
+        var (channel, text) = InstanceChat.SplitChannel(typed);
+        if (channel != TypedChannel.Party || string.IsNullOrWhiteSpace(text)) return;
+        if (PartyOf(conn) is not uint party || !Parties.TryGetValue(party, out var list))
+        {
+            Console.WriteLine($"[gateway] {remote} party chat with no party: \"{text}\"");
+            return;
+        }
+        ClientState[] members;
+        lock (list) members = [.. list];
+        byte[] line = InstanceChat.ChatLine(text, CharacterName(conn));
+        foreach (var member in members)
+        {
+            if (member.Outbox is not { } outbox) continue;
+            _ = outbox((byte[])line.Clone(), null);
+        }
+        Console.WriteLine($"[gateway] {remote} party chat to {members.Length} member(s) in party 0x{party:x}: \"{text}\"");
     }
 
     /// <summary>The parties formed here by id: the leader first, then the members in joining order.</summary>
@@ -201,6 +425,8 @@ static class SocialFeature
             var to = members[i];
             await Program.SetPartySize(to, members.Length);
             foreach (var m in members) await Introduce(to, m);
+            // +0x6c/.6d/.6f stay 0 in a party message. Checked live 2026-11-08: with +0x6f = 1 the client dropped its
+            // instance connection right after the party message, so that byte is not "the member's area".
             await SendTo(to, InstanceSocial.PartyInfo(party, lead, leader.Account ?? lead, (byte)i, 0, 0, 0, entries),
                 $"0x00a9 party 0x{party:x} for {CharacterName(to)}: {string.Join(", ", members.Select(CharacterName))}");
         }

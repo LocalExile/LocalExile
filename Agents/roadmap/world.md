@@ -168,7 +168,15 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Server-side world simulation** (monsters, combat): no project for it yet; add one when it is needed.
 - **Several players** in one instance: player presence, poses, life, departure and body blockers are published.
   Verify two authenticated connections together, then add party admission to private instances and shared combat.
-  Trade between players and party invite / accept / leave work. Next: friend requests (C→S 0x80) and the friend list,
-  and party Decline, kicks and disconnects ([28](../docs/protocol/28-player-trade.md) "Open").
+  Trade between players and party invite / accept / leave work, as do '/travel <name>' to a party member's area and
+  instance, party chat ('%'), the local, '#' and '$' chat channels relaying to the other players on them, and
+  '/invite', '/kick', '/promote' and '/decline' for the party panel's operations
+  ([status](../status/world.md)).
+  Next: friend requests (C→S 0x80 and the 0x179 the panel sends, unhandled) and the friend list, a member's disconnect,
+  and the party panel's area column and travel button.
+  The panel has no area data for a member at all (same area shows nothing, another area "Travelling..."); 0xa9, 0xa7
+  `+0x90` and +0x6f were ruled out by measurement, and the 3.29.3c read table has no S→C 0xac. The one candidate left
+  is **0xa4** (online known player), which this server never sends
+  ([28](../docs/protocol/28-player-trade.md) "Open").
   The native remote-player body and normal/unique monster clearance have single-client checks.
   See [status/world.md](../status/world.md) and [07](../docs/protocol/07-latency-visibility-movement.md).

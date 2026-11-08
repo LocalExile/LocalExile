@@ -121,11 +121,14 @@ public static class InstanceSocial
     /// frame (+0xb0) and the portrait (+0xb2), which the party portraits (0x14020b5a0) and social rows (0x140af7970) draw;
     /// the client's own writer leaves the pair out when both are 0.
     /// </summary>
-    public static byte[] KnownPlayer(string account, string character, int level, byte packedClass = 0, ushort frame = 0, ushort portrait = 0)
+    /// <param name="area">The wstr at +0x90. Filled with the player's area name since 2026-11-07; the party panel still
+    /// showed "Travelling..." for that member, so it is not the field the panel draws the area from. It stays filled
+    /// because an area name fits the position and no client showed harm.</param>
+    public static byte[] KnownPlayer(string account, string character, int level, byte packedClass = 0, ushort frame = 0, ushort portrait = 0, string area = "")
     {
         bool look = frame != 0 || portrait != 0;
         var w = new LoginWriter().U16(KnownPlayerId).WStr(account).WStr("").U8((byte)(look ? 0x06 : 0x04))
-            .WStr(character).U8(0).U8(packedClass).U16((ushort)Math.Clamp(level, 0, ushort.MaxValue)).U16(0).WStr("").U8(0);
+            .WStr(character).U8(0).U8(packedClass).U16((ushort)Math.Clamp(level, 0, ushort.MaxValue)).U16(0).WStr(area).U8(0);
         if (look) w.U16(frame).U16(portrait);
         return w.ToArray();
     }
