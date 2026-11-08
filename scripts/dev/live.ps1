@@ -39,6 +39,9 @@
 #               trimmed working set, freed memory returned at once and the Null buffers' unused copies uncommitted
 #               (about 1.6 GB commit, no GPU memory, ~20 % of a core in town). Without it the session's settings decide
 #               the renderer (the preset: DirectX 11).
+#   -Sound      the -Session client keeps its sound. A session client starts through scripts/dev/nullifier.py, which
+#               appends --nosound (and its preset is a silent one); this hands it --sound instead, for a client that has
+#               to be heard (a skill's sound as it plays). Without it: --nosound, as before.
 #   -Agent      one agent's whole setup in one command: this checkout's servers and one -Nullifier client of session
 #               'agent' (or -Session). The port base is -PortBase, else Game_PORT_BASE, else the one data\stack.json
 #               recorded, else the first block of 100 from 21000 to 29900 whose five ports nothing listens on and no
@@ -51,7 +54,7 @@
 #   script stops is this checkout's own (its paths, or the client PIDs it recorded in data\clients\), never another's.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload,
     [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @(), [int]$PortBase = -1, [string]$Session = $env:Game_CLIENT_SESSION,
-    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug)
+    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug, [switch]$Sound)
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -226,10 +229,11 @@ function Assert-GlobalSlot([int[]]$exclude = @()) {
 # Starts a session client through scripts/dev/nullifier.py, detached (it lives as long as its client), and waits until it
 # has merged the client's PID and start time (and its own) into the pending record. On failure (the launcher ended, or
 # no client within 60 s) the launcher and what it started are stopped, the record goes, and this throws.
-function Start-SessionLauncher([string]$session, [string]$folder, [string]$record, $stack, [bool]$nullifier) {
+function Start-SessionLauncher([string]$session, [string]$folder, [string]$record, $stack, [bool]$nullifier, [bool]$sound) {
     $python = Get-Python 'session clients (scripts/dev/nullifier.py)'
     $arguments = @((Join-Path $repo 'scripts\dev\nullifier.py'), '--cwd', $folder, '--record', $record,
         '--patch-port', "$($stack.Ports.patch)", '--login-port', "$($stack.Ports.login)")
+    if ($sound) { $arguments += '--sound' }
     # -Nullifier: the Null renderer, trimming, the allocator returning freed memory at once and the Null buffers' unused
     # CPU copies left uncommitted (Agents/docs/dev/headless-client.md §6).
     $arguments += if ($nullifier) { @('--renderer', 'null', '--trim-seconds', '10', '--mimalloc', 'purge_delay=0',
@@ -442,7 +446,7 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
     # Whatever fails from here on leaves no pending record behind.
     try {
         if ($session -ne 'default') {
-            Start-SessionLauncher $session $folder $record $stack $nullifier
+            Start-SessionLauncher $session $folder $record $stack $nullifier $sound
             return
         }
         $p = if ($IsLinux) { Start-WineClient $client $stack.Ports.patch }
