@@ -69,6 +69,8 @@ static class LabyrinthDay
         public readonly int Difficulty = difficulty;
         public readonly Dictionary<int, (ulong Instance, uint Seed)> Rooms = [];
         public readonly HashSet<int> Visited = [];
+        // Izaro's Aspirant's Trials won (their sections' numbers, 1 …): the map's Izaro icons go.
+        public readonly HashSet<int> Izaro = [];
         public int Node = -1;
         public long Number = Interlocked.Increment(ref runs);
     }
@@ -141,7 +143,7 @@ static class LabyrinthDay
             {
                 run.Node = index;
                 run.Visited.Add(index);
-                return Progress(run.Visited);
+                return Progress(run.Visited, run.Izaro);
             }
     }
 
@@ -152,13 +154,48 @@ static class LabyrinthDay
     /// (LabyrinthMapWindow, <c>0x140bcdf20</c>) shows a room whose bit 0x11 + its index is set, and Izaro's rooms (a
     /// section's last, +0x5a = slot + 1) with his icon until bit slot + 1 is set. The secrets' numbers
     /// (<see cref="LabyrinthLayout.Node.Number1"/>) start after the rooms' bits.</summary>
-    public static byte[] Progress(IEnumerable<int> rooms)
+    public static byte[] Progress(IEnumerable<int> rooms, IEnumerable<int>? izaro = null)
     {
         var bytes = new byte[2 + 12];
         bytes[0] = 0x01; bytes[1] = 0xcb;
         foreach (int room in rooms)
             if (room + 0x11 is int bit and < 96) bytes[2 + bit / 8] |= (byte)(1 << (bit % 8));
+        foreach (int section in izaro ?? [])
+            if (section is > 0 and < 0x11) bytes[2 + section / 8] |= (byte)(1 << (section % 8));
         return bytes;
+    }
+
+    /// <summary>Izaro's Aspirant's Trial in a room of today's Labyrinth (<see cref="NodeFor(string, uint)"/>): its
+    /// section's number (the layout node's <see cref="LabyrinthLayout.Node.SectionEnd"/>, 1 …) of the layout's sections,
+    /// the day and difficulty, and the node's first secret (its LabyrinthSecrets row, -1: none; the arena's mechanic).
+    /// Null in any other room.</summary>
+    public static (int Number, int Of, uint Seed, int Difficulty, int Secret)? IzaroRoom(string areaId, uint instanceSeed)
+    {
+        if (!areaId.Contains("_Labyrinth_boss_", StringComparison.Ordinal) || NodeFor(areaId, instanceSeed) is not { } node) return null;
+        var day = For(node.Seed, node.Difficulty);
+        int index = IndexOf(day, node.Row);
+        return IzaroRooms(day).FirstOrDefault(r => r.Node == index) is { Number: > 0 } room
+            ? (room.Number, room.Of, node.Seed, node.Difficulty, day.Layout.Nodes[index].Secret1) : null;
+    }
+
+    /// <summary>A day's Izaro rooms (each section's last, <see cref="LabyrinthLayout.Node.SectionEnd"/>): node index, the
+    /// section's number and the layout's sections.</summary>
+    public static IEnumerable<(int Node, int Number, int Of)> IzaroRooms(Day day)
+    {
+        for (int i = 0; i < day.Layout.Nodes.Count; i++)
+            if (day.Layout.Nodes[i].SectionEnd > 0) yield return (i, day.Layout.Nodes[i].SectionEnd, day.Layout.Sections.Count);
+    }
+
+    /// <summary>The character's run has won Izaro's Aspirant's Trial of this section: the map's progress (his icon there
+    /// goes), or null outside a run.</summary>
+    public static byte[]? IzaroBeaten(string character, int section)
+    {
+        if (!Runs.TryGetValue(character, out var run)) return null;
+        lock (run)
+        {
+            run.Izaro.Add(section);
+            return Progress(run.Visited, run.Izaro);
+        }
     }
 
     /// <summary>The Aspirants' Plaza: where the first room's way out (its -1 connection) leads.</summary>

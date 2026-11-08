@@ -109,6 +109,8 @@ static partial class QuestobjectsRules
                 await SpawnNpc(remote, stream, ciphers, conn, npc, glyph.X, glyph.Y, glyph.Angle);
             else Console.WriteLine($"[gateway] {remote} trial monograph {glyph.Type}: unknown or unsupported NPC");
         }
+        // Izaro's arena (Rules.Izaro.cs): his elevator, its doors and his trial.
+        if (labyrinth) await RunIzaroArena(remote, stream, ciphers, conn, all);
         // The statues wake only in the Labyrinth's own rooms (a trial's tiles keep theirs as they were).
         if (!labyrinth) all = [.. all.Where(o => !LabyrinthTrials.IsStatueSpawner(o.Type))];
         var objects = all.Where(o => LabyrinthTrials.Handles(o.Type)).ToList();
@@ -474,6 +476,9 @@ static partial class QuestobjectsRules
             await PullWired(remote, stream, ciphers, conn, wiring, wired);
         else switch (o.Type)
         {
+            case IzaroFights.Gate:
+                await OpenIzaroGate(remote, stream, ciphers, conn, use.TargetId, o);
+                break;
             case LabyrinthTrials.IntroDoor or LabyrinthTrials.BarDoor:
                 await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o);
                 break;

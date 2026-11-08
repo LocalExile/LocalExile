@@ -43,4 +43,18 @@ public sealed class LabyrinthLayoutTests
     [InlineData("1_Labyrinth_EH_end_bottleneck", false)]
     [InlineData("1_3_town", false)]
     public void OnlyTheLastRoomsAreTheChamber(string area, bool chamber) => Assert.Equal(chamber, LabyrinthDay.IsChamber(area));
+
+    // Izaro's three Aspirant's Trials of a Normal day (each section's last room) share his life bar: each starts where
+    // the one before left him, the last ends at 0 in the Ascendancy Chamber's area; winning one takes his icon off the
+    // run's map (0x1cb bit = the section's number).
+    [Fact]
+    public void IzarosTrialsShareHisLife()
+    {
+        var trials = IzaroFights.Trials(20764, 1).ToList();
+        Assert.Equal(["1_Labyrinth_boss_1", "1_Labyrinth_boss_2", "1_Labyrinth_boss_2_end"], trials.Select(t => t.Area));
+        Assert.Equal([(100, 66), (66, 33), (33, 0)], trials.Select(t => (t.Trial.StartPercent, t.Trial.LeavesAtPercent)));
+        Assert.True(trials[^1].Trial.Last && LabyrinthDay.IsChamber(trials[^1].Area!));
+        Assert.Single(trials.Select(t => t.Trial.Variety).Distinct());
+        Assert.Equal(0b0000_0100, LabyrinthDay.Progress([], [2])[2]);
+    }
 }

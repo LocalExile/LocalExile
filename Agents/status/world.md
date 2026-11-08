@@ -195,15 +195,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   done, then opens the statue for good and the way to the plaza behind it (`/trials off` shuts it). At the plaza the
   device opens the select window (0x7b kind 0x10); choosing Normal (C→S 0x212 = 1) opens the door with its animation
   and shows the way into the day's first room; the portal goes back to town. Each room is its own instance (the run
-  picks its seed, so the server knows its node), its "entranceN" exits lead to its neighbours, Izaro's arena's way on
-  is open (no fight yet), the glyph statues open the Labyrinth map (0x7b kind 0x0f) with the run's rooms (S→C 0x1cb);
+  picks its seed, so the server knows its node), its "entranceN" exits lead to its neighbours, the glyph statues open
+  the Labyrinth map (0x7b kind 0x0f) with the run's rooms (S→C 0x1cb);
   being anywhere else ends the run, and the plaza's door shuts again. Checked live 2026-11-03.
   In the last room's Ascendancy Chamber the font gives the tier's two ascendancy points and opens the class selector
   (0x7b kind 0x0a; the choice, C→S 0x39, is saved and the area reloads), and its portal goes back to town.
   Checked live 2026-11-03: the class chosen there stays after a relog.
-  Not yet: Izaro (the font works without his fight), his chests, the enchanting bench, the tier's `LabyrinthComplete`
-  flag, Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
-  Code: `LabyrinthDay.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`, `Act3.cs`, `Act8.cs`.
+  Izaro's three Aspirant's Trials: the corridor's gate opens when used (his prefight line), he rises on the elevator
+  with the day's weapon as the player comes into the arena (the mechanic's line) and the arena's doors shut; his life
+  bar goes in thirds from trial to trial: in the first two he leaves at the next third (his line, a walk to the
+  elevator's middle, down on it) and the doors and the way on open; in the last he dies, the way to the Ascendancy
+  Chamber opens and `LabyrinthKilledIzaro` and the tier's `LabyrinthComplete` flag are set. His lines are S→C 0x1c7.
+  Checked live 2026-11-07 (trial 1).
+  Not yet: the arenas' mechanics, the Goddess of Justice, his chests, the enchanting bench, Cruel and harder tiers, the
+  secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
+  Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,
+  `Rules.Izaro.cs`, `Act3.cs`, `Act8.cs`.
 - **Trials of Ascendancy.** In each LabyrinthTrials area the Gateway places the trial rooms' door, levers, Locked
   Doors, plaque and portal back, and the Bronze Monograph at the door, which reads at once when clicked.
   The door opens, a lever opens what its room's links name (the `.arm` files' link section), the plaque sets the trial's quest flag and its league quest
