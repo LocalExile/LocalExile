@@ -179,6 +179,9 @@ each object once, where the client has it.
   The
   blob writes Positioned, Animated, Transitionable, Chest, Stats, ObjectMagicProperties, TriggerableBlockage, NPC,
   InteractionAction and MinimapIcon as the traced objects do; it reproduces the Rhoa Nest's and the Glyph Wall's bytes.
+  MinimapIcon flags `0x06` explicitly hide its marker (`0x02` override present, `0x04` hidden). Its component update
+  does not refresh the marker in the client: recreate the source object with those flags after its item is collected,
+  retaining its opened state. A marker is personal to the character, including on area re-entry and after hand-in.
 - **Rewards nothing can build**: an offer none of whose items the server can build (magic or rare jewellery) sets its
   taken flag without an item, so its quest completes (a3q4, a3q13).
 - **Dialogue** ([17](17-npcs.md)): `QuestFlag4` set on choosing, `QuestFlag5` when the talk ends, and the scripts'

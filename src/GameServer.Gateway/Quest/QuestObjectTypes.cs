@@ -26,6 +26,7 @@ static class QuestObjectTypes
     public static bool IsTileQuestObject(string type) =>
         type.StartsWith("Metadata/QuestObjects/", StringComparison.Ordinal) || type.StartsWith("Metadata/Chests/QuestChests/", StringComparison.Ordinal)
         || type.StartsWith("Metadata/Monsters/IncaShadowBoss/", StringComparison.Ordinal)
+        || type.StartsWith("Metadata/Monsters/Doedre/DoedreSewer/", StringComparison.Ordinal)
         || type.StartsWith("Metadata/Terrain/", StringComparison.Ordinal) && type.Contains("/Objects/", StringComparison.Ordinal);
 
     public static Info? Find(string type) => Catalog.Value.GetValueOrDefault(type);
