@@ -21,7 +21,9 @@ All u32 are big-endian, and items are `BaseItemTypes` hashes. Counts are under 1
 | S→C | Case | Layout |
 |---|---|---|
 | 0x2e9 | 0xf2 | compact count, orders, **u8 order slots** (0 reads "No Order Slots Left") |
-| 0x2f3 | 0xf5 | order, u8 |
+| 0x2f3 | 0xf5 | order, bool just placed (Faustus says `FaustusSettlersPlaceOrder_Random`, `0x141628180`) |
+| 0x2f8 | 0xf9 | empty: an order completed, the notification and its sound (`0x140d96cf0`) |
+| 0x2fa | 0xfb | empty: sets a state on an object of the area (`0x1416280e0`), not mapped and not sent |
 | 0x2f2 | 0xf4 | u32 item, compact count, u32 items **little-endian** (copied from memory) |
 | 0x2f4 | 0xf6 | u32 low, u32 high, levels of those selling low, levels of those selling high |
 | 0x2f5 | 0xf7 | u8: the order slots again |
@@ -52,7 +54,7 @@ An **order** (`0x1429adaf0`, 0x58 bytes in memory; offsets are the row's):
 | u16 × 2 | +0x4c, +0x4e | the cheapest competing order, sold : bought; 0 hides it |
 | u8 | +0x50 | 0 listed, 1 and 2 completed, 3 cancelled, 4 with all three counts 0 removes the row |
 
-A status string's id in the client is its `ClientStrings` row + 1.
+A status string's id in the client is its `ClientStrings` row + 1. `FaustusSettlersOrderFilled_Random` is named nowhere in the client: the server says it (S→C 0x1c7, [17](17-npcs.md)).
 
 ## Rates
 

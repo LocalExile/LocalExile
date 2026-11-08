@@ -25,6 +25,7 @@ public sealed class CurrencyExchangeTests
             0,
         ];
         Assert.Equal(expected, InstanceCurrencyExchange.OrderChanged(order));
+        Assert.Equal(1, InstanceCurrencyExchange.OrderChanged(order, placed: true)[^1]); // Faustus speaks of it
     }
 
     [Fact]

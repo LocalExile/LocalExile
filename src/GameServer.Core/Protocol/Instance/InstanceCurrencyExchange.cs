@@ -14,7 +14,10 @@ public static class InstanceCurrencyExchange
     public const int RequestOrdersLength = 2, PlaceOrderLength = 18, CloseOrderLength = 6, ClaimLength = 11, RequestMarketLength = 10,
         RequestPartnersLength = 6, RequestFeeLength = 6;
 
-    public const ushort OrdersId = 0x2e9, PartnersId = 0x2f2, OrderChangedId = 0x2f3, MarketId = 0x2f4, FeeId = 0x2f7;
+    public const ushort OrdersId = 0x2e9, PartnersId = 0x2f2, OrderChangedId = 0x2f3, MarketId = 0x2f4, FeeId = 0x2f7, OrderCompletedId = 0x2f8;
+
+    /// <summary>S→C 0x2f8, empty: "Faustus has completed one of your Currency Exchange orders", as a notification with its sound (0x140d96cf0).</summary>
+    public static byte[] OrderCompleted() => new LoginWriter().U16(OrderCompletedId).ToArray();
 
     /// <summary>What an order's row shows; <see cref="Removed"/> with nothing left to claim takes the row away.</summary>
     public enum OrderState : byte { Listed = 0, Completed = 1, Cancelled = 3, Removed = 4 }
@@ -52,11 +55,13 @@ public static class InstanceCurrencyExchange
     }
 
     /// <summary>S→C 0x2f3: one order added or changed.</summary>
-    public static byte[] OrderChanged(Order order)
+    /// <param name="order">The order.</param>
+    /// <param name="placed">Just placed: Faustus says FaustusSettlersPlaceOrder_Random (0x141628180).</param>
+    public static byte[] OrderChanged(Order order, bool placed = false)
     {
         var w = new LoginWriter().U16(OrderChangedId);
         Write(w, order);
-        return w.U8(0).ToArray();
+        return w.Bool(placed).ToArray();
     }
 
     /// <summary>S→C 0x2f2: the items that trade against this one. The list is written from memory, not byte-swapped.</summary>

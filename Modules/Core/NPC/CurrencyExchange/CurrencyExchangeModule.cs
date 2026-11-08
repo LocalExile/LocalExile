@@ -111,8 +111,8 @@ public sealed class CurrencyExchangeModule : IModule
         return new(o.Id, league, o.Have, o.Want, o.HaveCount, o.ClaimHave, o.ClaimWant, o.Remaining, o.RatioHave, o.RatioWant, give, get, o.State);
     }
 
-    Task SendOrder(IPlayer player, ExchangeOrder order, string why) =>
-        player.Send(Wire.OrderChanged(ToWire(order, player.League, MarketOf(player))), $"0x02f3 order {order.Id} {order.State}: {why}");
+    Task SendOrder(IPlayer player, ExchangeOrder order, string why, bool placed = false) =>
+        player.Send(Wire.OrderChanged(ToWire(order, player.League, MarketOf(player)), placed), $"0x02f3 order {order.Id} {order.State}: {why}");
 
     Task SendOrders(IPlayer player)
     {
@@ -175,18 +175,40 @@ public sealed class CurrencyExchangeModule : IModule
             await player.Tell("Currency Exchange: not enough currency or gold.");
             return;
         }
-        await SendOrder(player, placed!, "placed");
-        await SendFilled(player, filled.Where(o => o != placed));
+        // He is already speaking, of the placing: what completed now only has its notification.
+        await SendOrder(player, placed!, "placed", placed: true);
+        await SendFilled(player, filled.Where(o => o != placed), speak: false);
+        if (placed!.State == Wire.OrderState.Completed) await player.Send(Wire.OrderCompleted(), "0x02f8 an order completed");
     }
 
-    async Task SendFilled(IPlayer player, IEnumerable<ExchangeOrder> filled)
+    /// <summary>What filled, and for what completed one notification and one of Faustus's lines, however many: after a night away they would overlap.</summary>
+    async Task SendFilled(IPlayer player, IEnumerable<ExchangeOrder> filled, bool speak)
     {
+        bool completed = false;
         foreach (var order in filled)
         {
             await SendOrder(player, order, "filled");
-            if (order.State == Wire.OrderState.Completed) await player.Tell("Faustus has completed one of your Currency Exchange orders.");
+            completed |= order.State == Wire.OrderState.Completed;
         }
+        if (!completed) return;
+        await player.Send(Wire.OrderCompleted(), "0x02f8 an order completed");
+        if (speak && FaustusLine.Value is var (npc, line))
+            await player.Send(InstanceNpcs.TextAudio(0, npc, line), "0x01c7 Faustus: an order is filled");
     }
+
+    /// <summary>What he says of a filled order, from anywhere (S→C 0x1c7, object 0): the client picks among the row's group. Nothing in the client asks for it.</summary>
+    static readonly Lazy<(ushort Npc, ushort Line)?> FaustusLine = new(() =>
+    {
+        if (Npcs.Value.Find("Metadata/NPC/League/Kalguur/VillageFaustusHideout") is not { } npc) return null;
+        using var lines = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes("data/tables/NPCTextAudio.json"));
+        int row = 0;
+        foreach (var line in lines.RootElement.EnumerateArray())
+        {
+            if (line.GetProperty("Id").GetString() == "FaustusSettlersOrderFilled_Random") return ((ushort)npc.Row, (ushort)row);
+            row++;
+        }
+        return null;
+    });
 
     /// <summary>The player's X on an order: what is left of it can be claimed. The gold stays paid, as the window warns.</summary>
     async Task Close(IPlayer player, uint id)
@@ -243,6 +265,6 @@ public sealed class CurrencyExchangeModule : IModule
         if (!book.Orders.Exists(o => o.State == Wire.OrderState.Listed && o.LastHour < market.Hour)) return;
         var filled = new List<ExchangeOrder>();
         Save(player, saved => filled = saved.Settle(market));
-        await SendFilled(player, filled);
+        await SendFilled(player, filled, speak: true);
     }
 }
