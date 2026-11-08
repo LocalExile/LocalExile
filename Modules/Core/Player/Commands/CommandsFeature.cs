@@ -1376,10 +1376,11 @@ static class CommandsFeature
             await conn.Commands!.Reply($"Trials done ({which}): {own} of {trials.Count} by the character's quest flag, {league} by the league's.");
             await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window (/trials)");
         })
-        .Add("lab_layout", "/lab_layout [1|2|3|4] (dev: today's Labyrinth layout of a tier, 1 Normal by default: each room's area, section, connections and secrets; /goto a listed area to play that room with its node)", async args =>
+        .Add("lab_layout", "/lab_layout [1|2|3|4] [yyyy-mm-dd] (dev: today's Labyrinth layout of a tier, or another day's, 1 Normal by default: each room's area, section, connections and secrets; /goto a listed area to play today's room with its node)", async args =>
         {
             int tier = args.Length > 0 && int.TryParse(args[0], out int n) && n is >= 1 and <= 4 ? n : 1;
-            uint seed = LabyrinthDay.Seed;
+            string? date = args.FirstOrDefault(a => a.Contains('-'));
+            uint seed = date is null ? LabyrinthDay.Seed : LabyrinthDay.SeedOf(DateOnly.ParseExact(date, "yyyy-MM-dd"));
             await conn.Commands!.Reply($"Labyrinth day {seed}, tier {tier}:");
             foreach (var line in LabyrinthDay.Describe(seed, tier)) await conn.Commands!.Reply(line);
         })

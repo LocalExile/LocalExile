@@ -188,7 +188,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   server does; entering one of those areas sends the room's node in 0x1d's extra data, and the client and the server's
   generation then apply the room's overrides and secret rooms alike (live: `1_Labyrinth_OH_quad_#` with its Gauntlet
   room, 2026-11-02). The day is the official one: the seed (the UTC day number, `Game_LAB_SEED`) and the room areas
-  match poelab.com's layouts (re/011). A room's tile seed is ours. `/lab_layout [tier]` lists the day.
+  match poelab.com's layouts (re/011). A room's tile seed is ours. `/lab_layout [tier] [yyyy-mm-dd]` lists a day.
   The secret rooms' objects (hidden doors, the Gauntlet's end) are not created yet.
   Code: `LabyrinthLayout.cs`, `LabyrinthPass.cs`, `LabyrinthDay.cs`, `ServerLevels.cs`.
   Docs: [03](../docs/protocol/03-area-and-world.md), [re/011](../docs/re/011-level-generation.md) ("Labyrinth pass").
