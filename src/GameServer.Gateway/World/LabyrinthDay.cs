@@ -71,8 +71,9 @@ static class LabyrinthDay
         public readonly HashSet<int> Visited = [];
         // Izaro's Aspirant's Trials won (their sections' numbers, 1 …): the map's Izaro icons go.
         public readonly HashSet<int> Izaro = [];
-        // What his trials' mechanics left on him for the later ones (LabyrinthSecretEffects Ids: a statue still on).
-        public readonly HashSet<string> Carried = new(StringComparer.Ordinal);
+        // What his trials' mechanics left on him for the later ones (LabyrinthSecretEffects Ids: a statue still on, a
+        // gargoyle alive), with the trial that left it.
+        public readonly Dictionary<string, int> Carried = new(StringComparer.Ordinal);
         public int Node = -1;
         public long Number = Interlocked.Increment(ref runs);
     }
@@ -189,18 +190,27 @@ static class LabyrinthDay
             if (day.Layout.Nodes[i].SectionEnd > 0) yield return (i, day.Layout.Nodes[i].SectionEnd, day.Layout.Sections.Count);
     }
 
-    /// <summary>What Izaro's earlier trials of the character's run left on him (<see cref="Carry"/>); none outside a run.</summary>
-    public static IReadOnlyCollection<string> Carried(string character)
+    /// <summary>What Izaro's earlier trials of the character's run left on him (<see cref="Carry"/>), with the trial that
+    /// left each; none outside a run.</summary>
+    public static IReadOnlyList<(string Effect, int Trial)> Carried(string character)
     {
         if (!Runs.TryGetValue(character, out var run)) return [];
-        lock (run) return [.. run.Carried];
+        lock (run) return [.. run.Carried.Select(c => (c.Key, c.Value))];
     }
 
-    /// <summary>A trial's mechanic leaves these effects on Izaro for the run's later trials.</summary>
-    public static void Carry(string character, IEnumerable<string> effects)
+    /// <summary>A trial's mechanic leaves these effects on Izaro for the run's later trials (an effect already carried
+    /// keeps the trial that first left it).</summary>
+    public static void Carry(string character, int trial, IEnumerable<string> effects)
     {
         if (!Runs.TryGetValue(character, out var run)) return;
-        lock (run) run.Carried.UnionWith(effects);
+        lock (run) foreach (string e in effects) run.Carried.TryAdd(e, trial);
+    }
+
+    /// <summary>A carried effect is gone (a gargoyle an earlier trial left was killed in a later one).</summary>
+    public static void Uncarry(string character, IEnumerable<string> effects)
+    {
+        if (!Runs.TryGetValue(character, out var run)) return;
+        lock (run) foreach (string e in effects) run.Carried.Remove(e);
     }
 
     /// <summary>The character's run has won Izaro's Aspirant's Trial of this section: the map's progress (his icon there

@@ -22,6 +22,14 @@ static class IzaroFights
         Railing = "Metadata/Terrain/Labyrinth/Objects/BossObjectiveBlocker",
         ArenaTransition = "Metadata/Terrain/Labyrinth/Objects/LabyrinthIzaroArenaTransition";
 
+    /// <summary>The places of a mechanic's things an earlier trial left: an alcove's (BossObjectiveMarker, three behind each
+    /// railing) and a ledge's in the room before the arena (BossEntryObjectiveMarker, in threes).</summary>
+    public const string Marker = "Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker",
+        LedgeMarker = "Metadata/Terrain/Labyrinth/Objects/BossEntryObjectiveMarker";
+
+    /// <summary>The railing's lowering (alcove_railing.ao "down").</summary>
+    public const double RailingSeconds = 3.3;
+
     // Positioned, BaseEvents, Animated, Transitionable, TriggerableBlockage (then Render), the gate also InteractionAction
     // (then Render, Targetable), ot_components.py.
     static readonly string[] Components = ["Positioned", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage"];
@@ -150,9 +158,6 @@ static class IzaroFights
     /// (IzaroDeath1-6), at random.</summary>
     public static string EndLine(Trial trial) =>
         trial.Last ? $"IzaroDeath{Random.Shared.Next(1, 7)}" : trial.Number == 1 ? $"IzaroFlee{Random.Shared.Next(1, 7)}" : $"IzaroFlee{Random.Shared.Next(7, 9)}";
-
-    /// <summary>His line before a trial, as its corridor's gate opens: Izaro&lt;n&gt;_Prefight.</summary>
-    public static string PrefightLine(Trial trial) => $"Izaro{Math.Clamp(trial.Number, 1, 3)}_Prefight";
 
     /// <summary>The instance's state once the corridor's gate is open: it stays open, the way into the arena shows.</summary>
     public static readonly string GateOpen = Quests.InstanceFlag("IzaroGate");

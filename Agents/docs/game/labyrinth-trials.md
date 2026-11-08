@@ -633,14 +633,41 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
 - The original (live, the user): he rises on the elevator as the player comes in; his life bar is split in thirds
   carried from trial to trial (2/3, 1/3, death); at a trial's end he speaks, walks to the elevator's middle, stands and
   goes down on it, and the doors open as he goes. His weapon is the day's and the tier's (wiki); the client does not
-  have the pick. A move order sent during his swing was lost on the client.
+  have the pick. A move order sent during his swing was lost on the client. At his trial's floor his boss bar is
+  dimmed (live, as Malachai's): the bar draws `UniqueBossFrameImmuneOverlay` once the life is at the
+  `cannot_drop_below_%_life` stat (client key 0xca8, checked on each life change, 0x14028ec50), sent with 0x1b3.
+  `is_hidden_monster`, `cannot_be_damaged`, `base_cannot_be_damaged` and the invisible `cannot_be_damaged` buff did not
+  change the bar. No boss bar while he rises (live): `boss_life_bar` 1 goes only as he starts to fight.
+  `disable_life_bar` does not hold it: BossLifeBar.ot's `on_state_boss_life_bar_1` shows the bar whatever
+  `disable_life_bar` is, and `on_state_disable_life_bar_0` shows it even with `boss_life_bar` 0.
 - His lines are NPCTextAudio rows of NPCs 147 (S→C 0x1c7, [17](../protocol/17-npcs.md)): `Izaro<n>_Prefight` as the
-  gate opens, `IzaroStart<mechanic>` as he rises, `IzaroFlee1`–`6` (trial 1) and `7`–`8` (trial 2), `IzaroDeath1`–`6`.
-  The plaza door's line (`IzaroSpeechOpenDoor*`) the client says itself.
+  player comes into the room of the server-only `IzaroSpeech/BossPrefight` object (live; nothing as the gate opens), `IzaroStart<mechanic>` as he rises, `IzaroFlee1`–`6` (trial 1) and `7`–`8` (trial 2), `IzaroDeath1`–`6`.
+  The plaza door's line (`IzaroSpeechOpenDoor*`) the client says itself. At a trial's end he says two lines (the
+  original, live): the Flee or Death line, then the arena's mechanic's `IzaroFinish<mechanic><n>` (n = how many of its
+  three are left; the statues' 1 names the element). `IzaroAll<mechanic>Dead` when the last one is killed.
+- The mechanics (LabyrinthSecretEffects `<Mechanic><Tier>_<Element>`: fire, cold, lightning; the "…2" rows are the
+  ones an earlier trial left). The arena's three `Elevator_Player` (the wiki's "three small holes") carry its own:
+  Toggle Statues rise one at a time, the first with Izaro (EmpowerStatueBase.ot: 1 lowered, 2 raising, 3 off, 4 on, 5 lowering, 6 down), a
+  click turns one off for 15 s in Normal (live). The gargoyles (IzaroGargoyle.ot: 1 lowered, 2 `ascending_elevator`,
+  3 raised, 4 lowering, 5 `elevator_down_idle`, the state a new one is in) rise together, stand 5 s, then one at a
+  time a 10 s beam to Izaro (MiscBeams `IzaroGargoyleBeam`, `awaken_gargoyle` on the gargoyle; the Beam's end follows
+  its object, its start stays where it began, so the start is the gargoyle) and it awakens (its Emerge, `awaken`), its
+  buff on Izaro until it dies (live). Before its beam it takes little damage, from the beam on all of it (live). Elevators cannot be stood on while they move (live).
+- What is left when a trial ends (a statue on or not risen, a gargoyle alive) comes back in later trials whose room
+  has the mechanic's "…2" secret: in the arena behind an alcove's railing (`BossObjectiveBlocker`: 1 up, 2 down in
+  3.3 s; its three `BossObjectiveMarker`) and on a ledge of the room before it (`BossEntryObjectiveMarker`, in threes).
+  The original (live): the first trial's on the right ledge, the second's on the left. The final arena has two
+  alcoves; which trial takes which is ours (the first the one with the least y). Statues stand as StatueDoodad1-3 and
+  keep their buff; gargoyles (IzaroGargoyle2) come out with all their buffs when the railing lowers as he fights.
+  The arena's gargoyles rise with Izaro; their `ascending_elevator` is the .ot's server event, so the server plays it
+  (0x1b2, rig clip 0) or the client leaves them in the hole (live).
+- The room before each arena and the Ascendancy Chamber have the account's stash (their `Stash` room object). The
+  plaza's device (`LabyrinthDifficultySelect`) follows the door's state: transitioned, it plays `open` (the green
+  flame) and its minimap icon goes (`hide_on_transition`).
 
 ## Not built yet
 
-- The step-triggered spikes of Izaro's rooms, his arenas' mechanics and the Goddess of Justice, and the hot plates'
-  Cruel and Merciless rooms.
+- The step-triggered spikes of Izaro's rooms, his arenas' other mechanics and the Goddess of Justice, and the hot
+  plates' Cruel and Merciless rooms.
 - The Labyrinth's `Door_Counter` puzzles and its rooms' monsters (the ElegantHouse rooms' Immolators among them).
 - The Eternal trials' plaques drop an Offering to the Goddess.
