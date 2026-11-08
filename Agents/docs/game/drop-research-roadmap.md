@@ -109,6 +109,7 @@ is not in the client tables needs a source and a confidence note.
 ## Phase 5. Data model and implementation
 
 - [x] Define the source kinds and the boss/card schemas in prose.
+- [x] Draft the SQLite schema and the seed files: [drop-data-schema.md](../dev/drop-data-schema.md).
 - [ ] Add typed data tables (CSV/JSON or SQLite) for:
   `CurrencySource`, `BossDrop`, `CardArea`, `CardSource`, `DropPenalty`.
 - [ ] Keep the current `ItemDrops.Currency` core table as the fallback; no
