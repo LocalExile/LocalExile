@@ -67,6 +67,7 @@ This research does not change the production simulator or certify native/officia
 | [dev/debugging.md](dev/debugging.md) | log timestamps and archives, error stack traces, the packet history and dumps, `Game_TRACE`, client crashes, `bugreport.ps1` |
 | [dev/performance.md](dev/performance.md) | measuring a stack's startup, memory, area creation and busy-instance CPU (`scripts/perf/startup.ps1`, `scripts/perf/PerfBench`), results and the remaining costs |
 | [dev/editable-game-data.md](dev/editable-game-data.md) | what game data can become editable in SQLite, the client-compatibility boundary, the snapshot/cache design and the phased plan |
+| [dev/drop-data-schema.md](dev/drop-data-schema.md) | draft SQLite schema for currency weights, boss drops and card areas |
 | [dev/modding.md](dev/modding.md) | mods in `Mods/Binaries/<id>/`: `mod.json`, writing one (LocalExile-Mods), the hooks, reloading, limits |
 | [dev/item-crafter.md](dev/item-crafter.md) | the item crafter hook for tools: the Gateway's `crafter` mode (bases, mod pools, stat descriptions) and `/item_give` |
 | [dev/player-bots.md](dev/player-bots.md) | the PlayerBots module: server-driven characters that play the campaign and visit towns, settings, logs, the client findings behind their walk and stance |
@@ -83,6 +84,9 @@ This research does not change the production simulator or certify native/officia
 | [game/fortification.md](game/fortification.md) | melee-hit protection and the explicit server model |
 | [game/arcane-might.md](game/arcane-might.md) | spell increased/reduced transfer to attacks, source inventory and implementation boundaries |
 | [game/maps.md](game/maps.md) | 3.29 maps and the Atlas: the 20 generic map bases, tiers, drops, Voidstones (rules to build to) |
+| [game/currency-drops.md](game/currency-drops.md) | currency DropLevels, the hardcoded weights, the 3.26-3.29 changes and the drop penalty |
+| [game/boss-drops.md](game/boss-drops.md) | boss unique pools, boss-only currency, known drop chances and `bosses.csv` |
+| [game/drop-research-roadmap.md](game/drop-research-roadmap.md) | the working checklist for currency, card, boss and penalty research |
 | [game/king-in-the-mists.md](game/king-in-the-mists.md) | The King in the Mists: Crux entry, both forms, phase data, skills, loot and implementation boundaries |
 | [game/gambler.md](game/gambler.md) | Gambler node checklist, incoming elemental ailments and read-only opt-in |
 | [game/aristocrat.md](game/aristocrat.md) | Aristocrat node checklist: gem levels/quality, attribute requirements and conditional immunities |

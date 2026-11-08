@@ -210,6 +210,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   mostly gives a rare instead. The 1,527 reference weights are seeded into `unique_weights`; `/game_data unique_weight`
   and `clear_unique_weight` edit the override layer live. Schema upgrades, repeated reference rebuilds and a reopened
   database preserve overrides; invalid or non-finite weights are rejected before writing. The extracted JSON remains the fallback before seeding.
+  The core currency weights also live in `drop_currency_weights` (seeded from `Agents/docs/game/currency-weights.csv`,
+  `GameDataDrops`); `ItemDrops.Build` prefers them and keeps the compiled table as the fallback, still gated by each
+  base's DropLevel. The boss and divination-card tables are seeded (630 bosses, 108 boss items, 555 area/card pairs) but
+  no roll reads them yet; [drop-data-schema](../docs/dev/drop-data-schema.md) has the schema and the next steps.
   Mod affix spawn/generation weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods.json`) are still
   loaded from JSON; moving them would also require clearing the affix-pool cache on reload. Drops have the monster's level as item level, +1 from magic, +2 from rare and +3 from unique
   monsters. One drop event's stackable items of one type become stacks up to its `CurrencyItems` StackSize (twenty-one

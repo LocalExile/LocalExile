@@ -233,6 +233,8 @@ base's weights add up to less than 1 the rest gives a rare, and a unique outside
 `DropLoot` puts each as a WorldItem
 ([13](13-items.md) §5) 3–6 cells around the corpse, on a walkable cell when the walk map is known. `Game_DROPS=0` turns
 it off.
+The client DropLevels, the current hardcoded weights, the recent patch changes and the (unimplemented) currency drop
+penalty are collected in [game/currency-drops.md](../game/currency-drops.md).
 
 ## Open
 
