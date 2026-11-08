@@ -1592,9 +1592,9 @@ the target open, so the recorder's write of the fourth object threw and left the
 - **Oracle:** `… oracle [area regex]` runs every (area, seed) the client logged with its tile hash
   (`Client/logs/Client-*-archive.txt`, older log parts kept aside, then `Client/logs/Client.txt`) and reports match /
   mismatch / where the port stops, with a summary. **Only loads of the local client's version count** (since
-  2026-10-24; `Shared.LocalVersion`): each client start logs its patch root (`Web root:
-  https://patch.poecdn.com/3.29.3.3/`, or `http://127.0.0.1:8080/`, our patch server, when `live.ps1` starts it;
-  both are the local client). `Client-3.29-archive.txt` holds the 3.29 loads (262 pairs) rebuilt from the log
+  2026-10-24; `Shared.LocalVersion`: 3.29.3.4, the 3.29.3c client, since 2026-11-08; 3.29.3.3, 3.29.3b, before):
+  each client start logs its patch root (`Web root: https://patch.poecdn.com/3.29.3.4/`, or `http://127.0.0.1:8080/`,
+  our patch server, when `live.ps1` starts it; both are the local client). `Client-3.29-archive.txt` holds the 3.29 loads (262 pairs) rebuilt from the log
   before it was cut to its last session on 2026-10-24. The log also held the official game's 3.27.0.8.2 (February) and 3.28.0.8
   (April) sessions. Their hashes are no oracle for 3.29.3b: of the 78 (area, seed, level) triples logged by both 3.27
   and 3.29 (the capture tour replayed 3.27 seeds), 46 have different hashes and 32 the same (the towns, two hideouts
