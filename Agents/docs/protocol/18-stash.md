@@ -135,9 +135,10 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   (`SavedTab.Affinities`) and sends the tab list again (S→C 0x136), with flag 0x40 and the bitset in each record. Whether
   0x136 is what closes the window is not checked live yet.
 - **0xe0** (20 bytes, vtable `0x1435cb2b0`, write `0x141f9df90`, built by `0x14216f460`): Ctrl + click on an inventory
-  item while a tab is shown. u16 BE tab (the stash page's +0x4a4), u32 BE item id, u8 flags (bits 0, 1), u8 kind (page
-  +0x491), u16 token (raw, changes per request), u64 raw (0). The item's inventory is not sent. The Gateway moves the
-  item to the tab's first free cell (column by column) from whichever inventory holds it.
+  item while a tab is shown. u16 BE tab (the stash page's +0x4a4), u32 BE item id, u8 flags (bit 1: Ctrl + right click, the
+  bulk boolean of `0x1403119d0`, as 0xe1 below), u8 kind (page +0x491), u16 token (raw, changes per request), u64 raw (0). The
+  item's inventory is not sent. The Gateway moves the item to the tab's first free cell (column by column) from whichever
+  inventory holds it.
 - **0xe3** (12 bytes, vtable `0x1435caf38`, write `0x141f9e870`, built by `0x14216f7d0`): Ctrl + click on a tab item.
   u16 BE tab, u32 BE item id, u8 stash kind, u16 raw token (low byte first), u8 bulk.
   Live ordinary click suffix: `00 a7 cd 00`; the middle two bytes change per request.

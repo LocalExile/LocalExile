@@ -248,7 +248,7 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x00e0 move item {move.ItemId} to stash tab {move.Tab} ({move}): refused (not the personal stash)");
             return;
         }
-        await CtrlClickToStash(remote, stream, ciphers, conn, move.Tab, move.ItemId, $"0x00e0 ({move})");
+        await CtrlClickToStash(remote, stream, ciphers, conn, move.Tab, move.ItemId, move.Flags, $"0x00e0 ({move})");
     }
 
     // C→S 0xe1: Ctrl + click on an inventory item that has an affinity tab (currency …): into the tab the client picked for it
@@ -260,18 +260,23 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x00e1 move item {move.ItemId} to its affinity tab: refused (no tab named): {hex}");
             return;
         }
-        // Ctrl + right click: every stack of that type in the same inventory goes, the clicked one first; each stack is one
-        // Ctrl + click (its own transaction), so a full slot stops only what doesn't fit.
+        await CtrlClickToStash(remote, stream, ciphers, conn, tab, move.ItemId, move.Flags, $"0x00e1 (affinity {affinity})");
+    }
+
+    // Ctrl + right click (both messages' flag): every stack of that type in the same inventory goes, the clicked one first; each
+    // stack is one Ctrl + click (its own transaction), so a full slot stops only what doesn't fit.
+    static async Task CtrlClickToStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, uint itemId, byte flags, string why)
+    {
         var items = ItemsOf(conn);
-        if ((move.Flags & InstanceStash.MoveAllOfType) != 0 && items.RowOf(move.ItemId) is byte row
-            && items.Items(row).FirstOrDefault(i => i.Id == move.ItemId) is { } clicked)
+        if ((flags & InstanceStash.MoveAllOfType) != 0 && items.RowOf(itemId) is byte row
+            && items.Items(row).FirstOrDefault(i => i.Id == itemId) is { } clicked)
         {
             uint[] ids = [clicked.Id, .. items.Items(row).Where(i => i.Item.TypeHash == clicked.Item.TypeHash && i.Id != clicked.Id).Select(i => i.Id)];
             foreach (uint id in ids)
-                await CtrlClickToStash(remote, stream, ciphers, conn, tab, id, $"0x00e1 Ctrl + right click, all {ids.Length} stacks (affinity {affinity})");
+                await CtrlClickToStash(remote, stream, ciphers, conn, tab, id, $"{why} Ctrl + right click, all {ids.Length} stacks");
             return;
         }
-        await CtrlClickToStash(remote, stream, ciphers, conn, tab, move.ItemId, $"0x00e1 (affinity {affinity})");
+        await CtrlClickToStash(remote, stream, ciphers, conn, tab, itemId, why);
     }
 
     internal static async Task CtrlClickToStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, uint itemId, string why)
