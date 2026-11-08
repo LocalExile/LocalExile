@@ -34,6 +34,16 @@ public sealed class LabyrinthLayoutTests
         Assert.Equal(new byte[] { 0x08, 0, 0, 0, 0, 0, 0x34, 0x12, 1 }, LabyrinthDay.ExtraData(new(0, 0x1234, 1)));
     }
 
+    // The official Eternal Labyrinth of 2026-11-07 (poelab.com's layout, its rooms' names and areacodes): the day's seed is
+    // the day's number since 1970 (20764), and each room's area is the official server's pick (LabyrinthLayout.AreaPick).
+    [Fact]
+    public void TheDaysRoomsAreTheOfficialOnes() => Assert.Equal(
+    [
+        "OH_branch", "RT_straight", "DG_quad_door", "RT_end_bottleneck", "boss_1",
+        "DG_branch_bottleneck_1_#", "EH_end_bottleneck", "P_end_bottleneck", "C_branch_bottleneck_1", "boss_1",
+        "C_branch_bottleneck_1", "RT_branch_bottleneck_1", "C_end_bottleneck", "DG_branch_bottleneck_1_#", "EH_end_bottleneck", "boss_2_end",
+    ], LabyrinthDay.For(20764, 4).Areas.Select(a => a?.Replace("EndGame_Labyrinth_", "")));
+
     // C→S 0x39 is taken only in the Ascendancy Chamber's room: every tier's FinalBoss areas, some with a "_#", and no other.
     [Theory]
     [InlineData("1_Labyrinth_boss_2_end", true)]
