@@ -330,6 +330,8 @@ static partial class Game
             if (!immune)
                 AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
                     at, contact.Projectile.ReactionRandomSource, poison: shot.Poison, sourceSkill: shot.SourceSkill);
+            if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
+                EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0) BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at);
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,

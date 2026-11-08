@@ -1242,6 +1242,21 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Not yet: the `contagion` debuff (BuffDefinitions 504) is not sent: the client closed the connection about 3 s after it,
   with or without the source skill id (`ContagionBuffShown` is false); Contagion of Transference (spread on hit); the
   character panel's DoT row; Malevolence's conditional DoT multiplier.
+- **Essence Drain (verified live 2026-11-08).** The gem fires its old name's projectile row, `Metadata/Projectiles/Siphon`
+  (`SkillCatalog.ProjectileFallbacks`; before, every cast was refused). A projectile hit the monster survives puts a chaos
+  damage over time on it: `base_chaos_damage_to_deal_per_minute` with spell/chaos/DoT increases,
+  `essence_drain_damage_+%`, support more (Controlled Destruction, Void Manipulation, Rapid Decay, Efficacy, Vicious
+  Projectiles) and DoT multipliers, for `base_skill_effect_duration` (3.8 s) with skill and siphon duration. Instances do
+  not stack: the strongest active one deals damage and a weaker one takes over when it ends. 0.5% of the damage dealt
+  (`siphon_life_leech_from_damage_permyriad`) is leeched as life through the ordinary leech session. Live (3.29.3b): 24 hits,
+  18 kills by the debuff, leech recovering life, together with Contagion, no crash.
+  A monster that dies affected by both Contagion and Essence Drain spreads both: the strongest Essence Drain instance goes
+  with each Contagion spread at full damage for its remaining duration (wiki), also after a death tick cleared it.
+  Live (3.29.3b): 91 spreads carried it (e.g. 7 monsters, 208.7/s for 1.44 s), chaining through the pack, no crash.
+  Not done: the `siphon_damage` debuff icon (BuffDefinitions 503, `__col7` 8, the same crash as Contagion's), Of
+  Desperation's life loss, the debuff in Survivors runs, and leech goes to the monster runner, not the caster.
+  Code: `MonsterEssenceDrain.cs`, `MonsterEssenceDrains.cs`, `ProjectileOffense.EssenceDrain`, `Projectiles.cs` hit,
+  `Player.cs` ticker.
 - **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
   a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
   (1 plus `number_of_additional_totems_allowed`; past it the oldest dies).

@@ -726,6 +726,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // Rolling Magma (once Magma Orb) creates MagmaOrbShort (Frida 2026-11-01, trace-projectile-create.js); without the row every
     // cast was refused while the client drew its orb.
     // Spectral Throw's is ThrownWeapon; without it every use was refused (live 2026-11-02).
+    // Essence Drain keeps its old name's row, Siphon (Metadata/Effects/Spells/siphon), as do its transfigured versions.
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -747,6 +748,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
+        ["EssenceDrain"] = "Metadata/Projectiles/Siphon",
+        ["EssenceDrainAltX"] = "Metadata/Projectiles/Siphon",
+        ["EssenceDrainAltY"] = "Metadata/Projectiles/Siphon",
         ["SplitArrow"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltX"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltY"] = "Metadata/Projectiles/SplitArrowDefault",
