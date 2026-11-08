@@ -21,6 +21,9 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
     /// volume cannot be above that volume, so a thin item's wrong price is never worth much.</summary>
     public const double MinChaosVolume = 5;
 
+    /// <summary>How many of the newest hours make an item's price when it traded enough in them.</summary>
+    public const int RecentHours = 24;
+
     static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
 
     public string Serialize() => JsonSerializer.Serialize(this, Options);
@@ -30,17 +33,21 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
     /// <summary>The prices every league of this server trades at: official Standard's, or the current challenge league's.</summary>
     public Dictionary<string, ExchangePrice>? Prices(bool standard) => Leagues.GetValueOrDefault(standard ? Standard : Current);
 
-    /// <summary>Prices from GGG's digests (<c>/api/currency-exchange/&lt;hour&gt;</c>): each pair's chaos traded over the items traded, over all the
-    /// digests, so one outlier trade moves little. An item with no chaos pair is priced through its divine pair.</summary>
+    /// <summary>Prices from GGG's digests (<c>/api/currency-exchange/&lt;hour&gt;</c>), <b>newest first</b>: each pair's chaos traded over the items
+    /// traded, so one outlier trade moves little. An item with no chaos pair is priced through its divine pair. An item traded enough in the
+    /// last <see cref="RecentHours"/> has that price, which follows the market; a rarer one has its price over all the digests.</summary>
     public static ExchangeRates FromDigests(IEnumerable<string> digests)
     {
-        var volumes = new Dictionary<string, Dictionary<(string A, string B), (double A, double B)>>();
-        long hour = 0;
+        var all = new Dictionary<string, Dictionary<(string A, string B), (double A, double B)>>();
+        var recent = new Dictionary<string, Dictionary<(string A, string B), (double A, double B)>>();
+        long newest = 0;
         foreach (string digest in digests)
         {
             using var document = JsonDocument.Parse(digest);
             var root = document.RootElement;
-            hour = Math.Max(hour, root.GetProperty("next_change_id").GetInt64() - 3600);
+            long hour = root.GetProperty("next_change_id").GetInt64() - 3600;
+            newest = Math.Max(newest, hour);
+            bool isRecent = hour > newest - RecentHours * 3600;
             foreach (var market in root.GetProperty("markets").EnumerateArray())
             {
                 string? league = market.GetProperty("league").GetString();
@@ -49,15 +56,27 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
                 string a = pair[0].GetString()!, b = pair[1].GetString()!;
                 var traded = market.GetProperty("volume_traded");
                 if (!traded.TryGetProperty(a, out var va) || !traded.TryGetProperty(b, out var vb)) continue;
-                if (!volumes.TryGetValue(league, out var pairs)) volumes[league] = pairs = [];
-                var sum = pairs.GetValueOrDefault((a, b));
-                pairs[(a, b)] = (sum.A + va.GetDouble(), sum.B + vb.GetDouble());
+                Add(all);
+                if (isRecent) Add(recent);
+
+                void Add(Dictionary<string, Dictionary<(string A, string B), (double A, double B)>> volumes)
+                {
+                    if (!volumes.TryGetValue(league, out var pairs)) volumes[league] = pairs = [];
+                    var sum = pairs.GetValueOrDefault((a, b));
+                    pairs[(a, b)] = (sum.A + va.GetDouble(), sum.B + vb.GetDouble());
+                }
             }
         }
-        var leagues = volumes.ToDictionary(l => l.Key, l => Prices(l.Value));
+        var leagues = all.ToDictionary(l => l.Key, l =>
+        {
+            var prices = Prices(l.Value);
+            if (recent.TryGetValue(l.Key, out var pairs))
+                foreach (var (item, price) in Prices(pairs)) prices[item] = price;
+            return prices;
+        });
         string current = leagues.Where(l => l.Key != Standard && !l.Key.StartsWith("Hardcore", StringComparison.Ordinal))
             .OrderByDescending(l => l.Value.Count).Select(l => l.Key).FirstOrDefault() ?? Standard;
-        return new(hour, current, leagues);
+        return new(newest, current, leagues);
     }
 
     static Dictionary<string, ExchangePrice> Prices(Dictionary<(string A, string B), (double A, double B)> pairs)

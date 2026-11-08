@@ -5,8 +5,8 @@ using GameServer.Core.Trade;
 
 // The rates service (Agents/docs/protocol/29-currency-exchange.md): it reads GGG's public hourly Currency Exchange digests, one
 // request an hour however many Gateways there are, and serves one small file of prices.
-// Game_RATES_PORT (default 6114), Game_RATES_FOLDER (default rates-data), Game_RATES_HOURS (default 24). With --once <file>: writes the file and exits.
-int hours = int.Parse(Environment.GetEnvironmentVariable("Game_RATES_HOURS") ?? "24");
+// Game_RATES_PORT (default 6114), Game_RATES_FOLDER (default rates-data), Game_RATES_HOURS (default 168). With --once <file>: writes the file and exits.
+int hours = int.Parse(Environment.GetEnvironmentVariable("Game_RATES_HOURS") ?? "168");
 const string Digests = "https://web.poecdn.com/api/currency-exchange/";
 
 string folder = Environment.GetEnvironmentVariable("Game_RATES_FOLDER") ?? "rates-data";
@@ -19,11 +19,12 @@ http.DefaultRequestHeaders.UserAgent.ParseAdd("(+https://github.com/LocalExile/L
 
 string? Cached(long hour) => Path.Combine(folder, $"digest-{hour}.json") is var path && File.Exists(path) ? path : null;
 
-// Keeps the last day's digests; each is fixed once its hour has passed, so it is asked for once. Returns the newest hour's prices.
+// Keeps the digests of the last hours, newest asked for first; each is fixed once its hour has passed, so it is asked for once.
+// GGG may remove old history: an hour it refuses is skipped, and the rest still count.
 async Task<string?> Update(CancellationToken stop)
 {
     long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 3600 * 3600, newest = now - 3600, oldest = now - hours * 3600;
-    for (long hour = oldest; hour <= newest; hour += 3600)
+    for (long hour = newest; hour >= oldest; hour -= 3600)
     {
         if (Cached(hour) is not null) continue;
         using var response = await http.GetAsync(Digests + hour, stop);
@@ -32,15 +33,19 @@ async Task<string?> Update(CancellationToken stop)
             await Task.Delay(response.Headers.RetryAfter?.Delta ?? TimeSpan.FromMinutes(1), stop);
             break;
         }
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.WriteLine($"[rates] hour {hour}: {(int)response.StatusCode}, skipped");
+            continue;
+        }
         string digest = await response.Content.ReadAsStringAsync(stop);
-        if (!digest.Contains($"\"next_change_id\":{hour + 3600}", StringComparison.Ordinal)) break; // not published yet
-        await File.WriteAllTextAsync(Path.Combine(folder, $"digest-{hour}.json"), digest, stop);
+        if (digest.Contains($"\"next_change_id\":{hour + 3600}", StringComparison.Ordinal)) // else not published yet
+            await File.WriteAllTextAsync(Path.Combine(folder, $"digest-{hour}.json"), digest, stop);
         await Task.Delay(TimeSpan.FromSeconds(1), stop);
     }
     foreach (string file in Directory.GetFiles(folder, "digest-*.json"))
         if (long.TryParse(Path.GetFileNameWithoutExtension(file)["digest-".Length..], out long hour) && hour < oldest) File.Delete(file);
-    string[] held = Directory.GetFiles(folder, "digest-*.json");
+    string[] held = [.. Directory.GetFiles(folder, "digest-*.json").OrderDescending(StringComparer.Ordinal)];
     return held.Length == 0 ? null : ExchangeRates.FromDigests(held.Select(File.ReadAllText)).Serialize();
 }
 

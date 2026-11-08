@@ -30,7 +30,8 @@ public sealed class CurrencyExchangeTests
     [Fact]
     public void PricesComeFromVolumesAndARatioNeverPaysMoreThanTheRate()
     {
-        const string X = "Metadata/Items/Currency/X", Thin = "Metadata/Items/Currency/Thin", ViaDivine = "Metadata/Items/Currency/ViaDivine";
+        const string X = "Metadata/Items/Currency/X", Thin = "Metadata/Items/Currency/Thin", ViaDivine = "Metadata/Items/Currency/ViaDivine",
+            Rare = "Metadata/Items/Currency/Rare";
         static string Market(string league, string a, string b, int va, int vb) =>
             $$$"""{"league":"{{{league}}}","market_pair":["{{{a}}}","{{{b}}}"],"volume_traded":{"{{{a}}}":{{{va}}},"{{{b}}}":{{{vb}}}}}""";
         static string Digest(int hour, params string[] markets) =>
@@ -38,13 +39,16 @@ public sealed class CurrencyExchangeTests
 
         var rates = ExchangeRates.FromDigests(
         [
-            Digest(3600, Market("Allflame", ExchangeRates.Divine, ExchangeRates.Chaos, 1, 400),
+            Digest(100 * 3600, Market("Allflame", ExchangeRates.Divine, ExchangeRates.Chaos, 1, 500), Market("Private (PL1)", X, ExchangeRates.Chaos, 1, 900)),
+            Digest(99 * 3600, Market("Allflame", ExchangeRates.Divine, ExchangeRates.Chaos, 1, 400),
                 Market("Allflame", X, ExchangeRates.Chaos, 100, 50), Market("Allflame", Thin, ExchangeRates.Chaos, 1, 4),
                 Market("Allflame", ViaDivine, ExchangeRates.Divine, 200, 1), Market("Standard", X, ExchangeRates.Chaos, 10, 30)),
-            Digest(7200, Market("Allflame", ExchangeRates.Divine, ExchangeRates.Chaos, 1, 500), Market("Private (PL1)", X, ExchangeRates.Chaos, 1, 900)),
+            // Days ago: it prices what the last day cannot, and moves nothing that it can.
+            Digest(50 * 3600, Market("Allflame", ExchangeRates.Divine, ExchangeRates.Chaos, 1, 900), Market("Allflame", Rare, ExchangeRates.Chaos, 2, 10)),
         ]);
 
-        Assert.Equal(7200, rates.SourceHour);
+        Assert.Equal(100 * 3600, rates.SourceHour);
+        Assert.Equal(5, rates.Prices(standard: false)![Rare].Chaos);
         Assert.Equal("Allflame", rates.Current);
         Assert.DoesNotContain("Private (PL1)", rates.Leagues.Keys);
         var prices = rates.Prices(standard: false)!;
