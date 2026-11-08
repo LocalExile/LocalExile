@@ -877,7 +877,7 @@ static partial class Game
         // Only the active usable shield contributes. The alternate set and unmet requirements cannot grant block.
         int shieldBlock = ActiveOffHand(conn) is { Type.Class: "Shield" } shield
             ? EquipmentInput("block_chance_from_equipped_shield_is_%") is > 0 and var replacement
-                ? replacement : ItemsFor(conn).ShieldBlock(shield.Type) : 0;
+                ? replacement : ItemModStats.ShieldBlock(ItemsFor(conn), shield.Item, shield.Type) : 0;
         int rawAttack = pools.BlockChanceUncapped + shieldBlock;
         double blockFactor = (1 + bonus.BlockChanceInc / 100.0) * (1 + bonus.BlockChanceMore / 100.0);
         int totalAttack = (int)Math.Round(Math.Max(0, rawAttack) * blockFactor);

@@ -408,7 +408,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Block / Spell Block: passives' `additional_block_%` and `base_spell_block_%` are summed and capped at 75% / 90% (PoB
   `BlockChanceCap`), max-res passives `maximum_block_%` / `base_maximum_spell_block_%` raise the caps;
   a successful block prevents the hit, monster melee and `/blockhit` use it; `/block` shows both chances;
-  an equipped shield adds its `ShieldTypes.Block` base and enables the shield-specific passives, staff passives apply
+  an equipped shield adds its `ShieldTypes.Block` base plus the shield's local `local_additional_block_chance_%`
+  (unique and rare shields alike, and Kongming's `local_no_block_chance` removes it) and enables the shield-specific
+  passives, staff passives apply
   with a staff, and dual wielding adds its inherent 20% attack block and dual-wield block/spell-block passives;
   Versatile Combatant reduces both maxima by 10% and converts overcapped attack block to spell block at 2% per 1%;
   lucky block uses 1-(1-p)^2 for attack/spell (dev `/block_luck`);
