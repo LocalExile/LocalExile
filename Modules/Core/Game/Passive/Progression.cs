@@ -541,10 +541,14 @@ static partial class Game
         }
         var wornItems = worn
             .Select(i => (i, t: ItemsFor(conn).ByHash(i.Item.TypeHash)))
-            .Select(x => x.t is { } t
-                ? new ItemModStats.Worn(x.i.Id, x.i.Item, Req(ItemsFor(conn).Requirements(t).Str), Req(ItemsFor(conn).Requirements(t).Dex), Req(ItemsFor(conn).Requirements(t).Int),
-                    ItemModStats.LevelRequirement(x.i.Item, t.DropLevel, ItemsFor(conn).Mods))
-                : new ItemModStats.Worn(x.i.Id, x.i.Item, 0, 0, 0, 0))
+            .Select(x =>
+            {
+                if (x.t is not { } t) return new ItemModStats.Worn(x.i.Id, x.i.Item, 0, 0, 0, 0);
+                var (str, dex, intel) = ItemModStats.AttributeRequirements(ItemsFor(conn), x.i.Item, t);
+                return new ItemModStats.Worn(x.i.Id, x.i.Item, Req(str), Req(dex), Req(intel),
+                    ItemModStats.LevelRequirement(x.i.Item, t.DropLevel, ItemsFor(conn).Mods));
+            })
+            .Select(w => ItemModStats.ApplyBaseRequirementOverrides(w, ItemsFor(conn).Mods))
             .Select(WithGems).ToList();
         // Requirements compare virtual_*_for_requirements, as the client and GemRequirementsUnmet do: the attribute unless
         // /set_stat replaced it. The mod catalog lets the resolver see the hidden modifier that waives requirements.
@@ -877,7 +881,7 @@ static partial class Game
         // Only the active usable shield contributes. The alternate set and unmet requirements cannot grant block.
         int shieldBlock = ActiveOffHand(conn) is { Type.Class: "Shield" } shield
             ? EquipmentInput("block_chance_from_equipped_shield_is_%") is > 0 and var replacement
-                ? replacement : ItemsFor(conn).ShieldBlock(shield.Type) : 0;
+                ? replacement : ItemModStats.ShieldBlock(ItemsFor(conn), shield.Item, shield.Type) : 0;
         int rawAttack = pools.BlockChanceUncapped + shieldBlock;
         double blockFactor = (1 + bonus.BlockChanceInc / 100.0) * (1 + bonus.BlockChanceMore / 100.0);
         int totalAttack = (int)Math.Round(Math.Max(0, rawAttack) * blockFactor);
@@ -947,6 +951,9 @@ static partial class Game
     {
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         int allRes = Get("base_resist_all_elements_%");
+        // The item tables also spell resistances without the base_ prefix (The Annihilating Light's -70% elemental,
+        // the Cowl uniques' reduced single resistances); both spellings are the same character stat.
+        int elementalRes = Get("elemental_damage_resistance_+%");
         // The game's block stats are conditional on the equipped weapons:
         // - dual_wield_or_shield_block_%: dual wielding or a shield;
         // - block_while_dual_wielding_% / _claws: dual wielding (the latter with two claws);
@@ -1018,8 +1025,10 @@ static partial class Game
         int accuracyMoreVsUnique = Get("accuracy_rating_+%_final_vs_unique_enemies_from_mastery");
         int accuracyMoreCloseRange = Get("accuracy_rating_+%_final_vs_enemies_in_close_range_from_mastery");
         int allMax = Get("additional_maximum_all_resistances_%"), allElemMax = Get("additional_maximum_all_elemental_resistances_%");
-        // The cold-and-lightning pair-resistance stat (Sea Legs' +40%): one input stat that both elements' pools take.
+        // The pair-resistance stats: one input adds to both named elements (Cold and Lightning is Sea Legs').
         int pairRes = Get(ResistanceOvercap.ColdAndLightningResistance);
+        int fireColdRes = Get("fire_and_cold_damage_resistance_%");
+        int fireLightningRes = Get("fire_and_lightning_damage_resistance_%");
         // Reservation efficiency: generic efficiency applies to both pools; the mana/life-specific stats only to theirs.
         // Aura effect is the generic non-curse/aura effect; the Reservation mastery's self-aura effect is included.
         int manaReservation = Get("base_mana_reservation_efficiency_+%") + Get("base_reservation_efficiency_+%")
@@ -1077,9 +1086,12 @@ static partial class Game
             DoubleBodyArmour: Get("damage_reduction_rating_from_body_armour_doubled") != 0,
             NoBodyArmour: Get("gain_no_armour_from_body_armour") != 0,
             MeleePhysicalDamagePct: Get("melee_physical_damage_+%"),
-            FireResistance: allRes + Get("base_fire_damage_resistance_%"),
-            ColdResistance: allRes + Get("base_cold_damage_resistance_%") + pairRes,
-            LightningResistance: allRes + Get("base_lightning_damage_resistance_%") + pairRes,
+            FireResistance: allRes + Get("base_fire_damage_resistance_%") + Get("fire_damage_resistance_+%") + elementalRes
+                + fireColdRes + fireLightningRes,
+            ColdResistance: allRes + Get("base_cold_damage_resistance_%") + Get("cold_damage_resistance_+%") + elementalRes
+                + pairRes + fireColdRes,
+            LightningResistance: allRes + Get("base_lightning_damage_resistance_%") + Get("lightning_damage_resistance_+%")
+                + elementalRes + pairRes + fireLightningRes,
             ChaosResistance: Get("base_chaos_damage_resistance_%"),
             FireMaxResistance: allMax + allElemMax + Get("base_maximum_fire_damage_resistance_%"),
             ColdMaxResistance: allMax + allElemMax + Get("base_maximum_cold_damage_resistance_%"),
@@ -1093,7 +1105,9 @@ static partial class Game
             SpellSuppressionWhileMoving: Get("spell_suppression_chance_%_while_moving"),
             SpellSuppressionIfHitRecently: Get("spell_suppression_chance_%_if_enemy_hit_recently"),
             SpellSuppressionWhileFullEnergyShield: Get("spell_suppression_chance_%_while_on_full_energy_shield"),
-            MovementVelocityPct: Get("base_movement_velocity_+%"),
+            // Item mods state movement as movement_velocity_+% (the conditional "when on low/full life" ones fold onto
+            // it); passives and base-speed mods use base_movement_velocity_+%. Both are speed inputs.
+            MovementVelocityPct: Get("base_movement_velocity_+%") + Get("movement_velocity_+%"),
             BlockChance: Get("additional_block_%") + Get("attack_block_%") + Get("monster_base_block_%")
                 + blockWhileDualOrShield + shieldBlock + staffBlock + dualBlock + bowBlock,
             SpellBlockChance: Get("base_spell_block_%") + Get("additional_spell_block_%") + staffOrShieldSpell

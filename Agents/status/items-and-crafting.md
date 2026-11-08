@@ -229,6 +229,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   death. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
 - Conditional item gates feed live pools and stat publication; Kintsugi incoming hits, expiry and lifecycle verified.
   Weapon/aura, tracked-event, numeric-threshold and supported runtime-state gates have automated coverage.
+  The item mods' "when on low/full life or mana" spelling shares the "while" state flags and folds onto the plain stat.
   Untracked, counted-recent and compound operators remain partial ([13](../docs/protocol/13-items.md)).
 
 - **On-kill explosions and attribute damage reduction (implemented 2026-11-04, automated verification; live client
@@ -276,6 +277,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   base Life before Life increases; independent global/aura ES remains ES and excluded shields grant no converted Life.
   The corrupted-item conditional ES increase enters the global ES bucket, leaving tooltips and converted Life alone.
   Hidden no-attribute-requirement modifiers retain the level gate.
+  Local requirement percentages (`local_attribute_requirements_+%`, `local_strength_requirement_+%` and the dexterity
+  and intelligence ones) change an item's attribute requirements, counting a row that is both implicit and explicit once;
+  automated, no native requirement check yet.
   Automated coverage passes; historical native conversion and corrupted-item ES controls are recorded at `0bae37a`
   and `c9060e4` (see the protocol reference for values).
   Fresh real-client checks of the merged branch and other unique/conditional mechanics remain open.
@@ -286,6 +290,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   1,299 generated from Path of Building with their current base, implicits and rolls (`scripts/re/unique_items.py`),
   compared with poedb's item cards, with the differences that remain on the roadmap. Divine and Blessed Orbs reroll
   within a unique's own rolls, and an admin's `/game_data mod` range wins over them.
+  Ordinary uniques get default sockets; Tabula gets six linked whites and hidden overrides (tests; live check pending).
+  Skin of the Loyal gets its six linked random-colour sockets, and the 3.29 hidden no-white-socket property is on it and
+  Dialla's Malefaction (automated; live check pending).
+  Fixed "Has X Sockets" counts (Loreweave, Voidfletcher, The Squire, crests and hats) and Malachai's all-white Unset Ring
+  socket are generated from those rows too; link groups there use the Jeweller's approximation (automated).
   Every definition but the five tinctures creates, writes and reloads by test (the server cannot write the Tincture
   component). Seen in the client 2026-10-30, with their name, art, base, mods and item level: Tulfall, Shimmeron,
   Replica Atziri's Foible, Kalandra's Touch, Emperor's Vigilance, The Broken Elegy, Gorgon's Gaze, Grand Spectrum and

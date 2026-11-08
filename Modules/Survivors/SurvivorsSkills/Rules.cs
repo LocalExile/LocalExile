@@ -887,7 +887,6 @@ static partial class SurvivorsSkills
             int baseDamage = SurvivorsRules.SkillDamage(roster.WeaponDamage, rank);
             var heraldRaw = DamagePacket.Of(skill.Type, baseDamage, baseDamage);
             heraldRaw = DamageStats.RawAdded(heraldRaw, Get, spell: true, effectiveness: 1.0);
-            heraldRaw = SurvivorsGlobalAdded(heraldRaw, Get, 10_000);
             var pulse = PlayerHitDamage.Resolve(heraldRaw, Get, conversion, spell: true, area: true, projectile: false,
                 supportModifiers: supportMods);
             if (pulse.IsZero) return null;
@@ -908,14 +907,12 @@ static partial class SurvivorsSkills
                 // once, below, to the whole hit, so the power curve is the reference's and the gem stays itself.
                 own = SkillsFor(conn).HitDamage(skill.Effect, 1);
                 own = DamageStats.RawAdded(own, Get, spell: true, effectiveness / 10_000.0);
-                own = SurvivorsGlobalAdded(own, Get, effectiveness);
                 own = own.Scale(roster.SkillScale);
             }
             else if (armedAttack)
             {
                 // The equipped weapon's own hit (local damage, local added, attack added) at the gem's effectiveness.
                 own = SupportedAttackDamage.Raw(weapon, Get);
-                own = SurvivorsGlobalAdded(own, Get, 10_000);
                 own = SpellDamage.WithEffectiveness(own, effectiveness);
             }
             else
@@ -924,7 +921,6 @@ static partial class SurvivorsSkills
                 var nominal = unarmed ? DamagePacket.Empty
                     : DamagePacket.Of(DamageType.Physical, roster.WeaponDamage * 0.45, roster.WeaponDamage * 0.9);
                 var added = DamageStats.RawAdded(DamagePacket.Empty, Get, spell: false);
-                added = SurvivorsGlobalAdded(added, Get, 10_000);
                 added = SpellDamage.WithEffectiveness(added, effectiveness);
                 own = SpellDamage.WithEffectiveness(nominal, effectiveness)
                     .Add(added.Scale(roster.SkillScale));
@@ -1119,23 +1115,6 @@ static partial class SurvivorsSkills
         DamageType.Physical => "physical", DamageType.Lightning => "lightning", DamageType.Cold => "cold",
         DamageType.Fire => "fire", _ => "chaos",
     };
-
-    /// <summary>
-    /// The "global" added damage ranges (Added Cold/Lightning Support, a unique's "Adds X to Y Damage"): PoB's
-    /// ModParser adds them to spells and attacks alike, scaled by the skill's damage effectiveness like any other
-    /// added range.
-    /// </summary>
-    internal static DamagePacket SurvivorsGlobalAdded(DamagePacket raw, Func<string, int> get, int effectivenessPermyriad)
-    {
-        double effectiveness = Math.Max(0, effectivenessPermyriad / 10_000.0);
-        foreach (var type in new[] { DamageType.Physical, DamageType.Lightning, DamageType.Cold, DamageType.Fire, DamageType.Chaos })
-        {
-            string slug = SurvivorsDamageSlug(type);
-            var added = new DamageRange(get($"global_minimum_added_{slug}_damage"), get($"global_maximum_added_{slug}_damage"));
-            if (!added.IsZero) raw = raw.Add(type, added.Scale(effectiveness));
-        }
-        return raw;
-    }
 
     /// <summary>
     /// The gem mechanics the shared profile rules do not carry: Ice Spear's second form, Ball Lightning's repeated

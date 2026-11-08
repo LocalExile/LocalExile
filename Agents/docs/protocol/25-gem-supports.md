@@ -42,6 +42,9 @@ its 300% cost multiplier), counts the Life paid against `support_lifetap_spent_l
 buff (BuffDefinitions 1846) for the support's 4000 ms base plus 100 ms per 1% quality. While it runs, supported hits
 take `support_lifetap_damage_+%_final_while_buffed` and flasks recover 20% increased Life. A paid Vaal use follows the
 same Life cost.
+The Blood Magic keystone (the passive tree node or an item's `keystone_blood_magic`, for example Malachai's Awakening)
+converts every skill's whole Mana cost to Life the same way, without Lifetap's multiplier, counter or buff; a skill is
+refused when its Life cost is not below current Life. Mana reservation is unchanged.
 Physical more damage is applied before conversion; elemental and chaos modifiers apply to their resulting damage.
 Conditional modifiers are not treated as unconditional bonuses.
 Skill panel values and ordinary hit execution use the same supported-skill calculation.

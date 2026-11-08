@@ -389,7 +389,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
             _uniques = index = new(all, byBase);
         }
         if (!index.ByBase.TryGetValue(type.Id, out var candidates) || PickUnique(candidates, rng) is not { } chosen) return null;
-        return uniques.Create(chosen, rng) is { } created ? created with { ItemLevel = (byte)Math.Clamp(level, 1, 100) } : null;
+        return uniques.Create(chosen with { ItemLevel = (byte)Math.Clamp(level, 1, 100) }, rng);
     }
 
     /// <summary>One of a base's uniques by weight, or null. The weights are absolute: while a base's add up to less than 1

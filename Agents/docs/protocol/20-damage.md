@@ -269,8 +269,10 @@ Evidence: `artifacts/issue75-completion/weapon-native/`, including the preserved
 
 ## 2b. Added damage from stats
 
-Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges and the
-stats below are read.
+Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges, the
+`global_minimum/maximum_added_<type>_damage` ranges (a ring's "Adds # to # Fire Damage", added to attacks and spells
+alike), the bow-conditional `attack_minimum/maximum_added_<type>_damage_with_bow(s)` ranges (an item's quiver or body
+armour bonus, added only while a bow is the weapon) and the stats below are read.
 `DamageStats.RawAdded` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.
 The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`
@@ -290,6 +292,8 @@ This stack does not introduce the separate derived-damage engine from archival P
 Automated production-path cases cover ranged and melee gems, effectiveness and a spell isolation control.
 Native evidence here belongs to original head `378ffde`; supported-skill composition needs a new native check.
 `attack_damage_+%` scales the added range for every attack.
+`elemental_damage_with_attack_skills_+%` joins `elemental_damage_+%` for attacks only (Roth's Reach, Ewar's Mirage,
+Aegis Aurora, Sibyl's Lament, Wilma's Requital); a spell's elemental damage ignores it.
 `melee_damage_+%` applies only in explicit melee context: the default attack uses its active weapon profile,
 and attack gems use `ActiveSkillType Melee` through `SkillCatalog.IsMelee`.
 An inactive weapon set cannot change that context.
