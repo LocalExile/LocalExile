@@ -105,6 +105,8 @@ static partial class Game
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(conn);
         var modMonster = ModMonster(monster, position);
+        var partyShares = PartyExperienceShares(conn, position);
+        ShareKill(conn, id, monster, variety, position, partyShares);
         if (playerKill)
         {
             session.Enqueue(() => Program.ServerHooks.MonsterKilled(new(killer, modMonster)));
@@ -114,18 +116,17 @@ static partial class Game
             session.Enqueue(() => ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
         SoulEaterSoul(conn, id, position);
-        ShareKill(conn, id, monster, variety, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
         foreach (var send in kill.Afterwards) session.Enqueue(send);
-        uint xp = 0;
+        uint xp = 0, gemXp = 0;
         if (!monster.NoRewards && conn.PlayerLife > 0 && Dist(position, conn.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
-            xp = Program.ServerHooks.Experience(killer, modMonster,
-                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level));
-        var (gemPackets, leveled) = CommitGemExperience(conn, xp);
+            (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
+                conn.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, conn));
+        var (gemPackets, leveled) = CommitGemExperience(conn, gemXp);
         foreach (var packet in gemPackets) session.Packet(packet);
         if (leveled) session.Enqueue(() => SendSkills(session.remote, session.stream, session.ciphers, conn));
         if (QuestsOf(conn).LevelAfterKill(conn.Layout.Id, variety.Id) is int required and > 1 && required <= CharacterStats.LevelStarts.Count)

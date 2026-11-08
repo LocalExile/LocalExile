@@ -144,8 +144,8 @@ Nothing yet.
   Not yet: verify every disabled-gem aura transition
   ([19](../docs/protocol/19-gems.md) 1, 3).
 - **Gem experience from kills (one gem in the first weapon set checked with the real client).** Every gem socketed in
-  an equipped item, in either weapon set, gains 10% of a kill's monster experience (support gems included;
-  inactive items, gems at their last level and corrupted gems over their cap nothing;
+  an equipped item, in either weapon set, gains 10% of a kill's experience **before the character's level penalty**
+  (support gems included; inactive items, gems at their last level and corrupted gems over their cap nothing;
   quest levels and `/add_xp` give the gems nothing), sent with the kill as 0x00bf item changes, each item once, so the
   XP bars follow, and saved with the character (`GainGemExperience`, `PlayerInventories.ChangeSocketedGems`;
   [19](../docs/protocol/19-gems.md) §1).
