@@ -31,7 +31,7 @@ static partial class Game
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
-        var partyShares = PartyExperienceShares(conn);
+        var partyShares = PartyExperienceShares(conn, at);
         ShareKill(conn, victimId, monster, variety, at, partyShares);
         SoulEaterSoul(conn, victimId, at);
         var killer = PlayerOf(conn); var modMonster = ModMonster(monster, at);

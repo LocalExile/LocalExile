@@ -105,7 +105,7 @@ static partial class Game
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(conn);
         var modMonster = ModMonster(monster, position);
-        var partyShares = PartyExperienceShares(conn);
+        var partyShares = PartyExperienceShares(conn, position);
         ShareKill(conn, id, monster, variety, position, partyShares);
         if (playerKill)
         {
@@ -116,7 +116,6 @@ static partial class Game
             session.Enqueue(() => ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
         SoulEaterSoul(conn, id, position);
-        ShareKill(conn, id, monster, variety, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };

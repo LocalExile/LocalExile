@@ -11,20 +11,21 @@ static partial class Game
     internal sealed record PartyExperienceShare(ClientState Conn, double Multiplier);
 
     /// <summary>
-    /// The living players in the instance (the presence: a private area is entered as the party's instance) and their
-    /// shares of a kill's experience. A dead or leaving player takes no share. The wiki's Experience page: the monster's
-    /// experience is multiplied by the party size and split by (level + 10)^2.71, capped at each player's solo
-    /// experience.
+    /// The living players in the instance near enough to the kill (the presence: a private area is entered as the
+    /// party's instance) and their shares of its experience. A dead, leaving or too distant player takes no share, as
+    /// the game's experience range does. The wiki's Experience page: the monster's experience is multiplied by the
+    /// party size and split by (level + 10)^2.71, capped at each player's solo experience.
     /// </summary>
-    internal static IReadOnlyList<PartyExperienceShare> PartyExperienceShares(ClientState host)
+    internal static IReadOnlyList<PartyExperienceShare> PartyExperienceShares(ClientState host, (int X, int Y) at)
     {
         var members = new List<ClientState>();
-        if (host.PlayerLife > 0) members.Add(host);
+        if (host.PlayerLife > 0 && Dist(at, host.Walk.Position(host.Clock.Elapsed.TotalSeconds)) <= ExperienceRange)
+            members.Add(host);
         var seen = new HashSet<ClientState> { host };
         foreach (var peer in host.Instance?.Presence.PlayersExcept(host.PeerId) ?? [])
         {
             if (peer.Owner is not { } other || !seen.Add(other) || other.Closed || other.LeavingArea || !other.PlayerSent
-                || peer.Life == 0) continue;
+                || peer.Life == 0 || Dist(at, (peer.X, peer.Y)) > ExperienceRange) continue;
             members.Add(other);
         }
         if (members.Count == 0) return [];
