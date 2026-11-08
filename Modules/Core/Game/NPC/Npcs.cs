@@ -25,6 +25,8 @@ static partial class Game
     {
         var notes = new List<string>();
         var placements = HideoutFurniture(conn)?.Npcs ?? NpcCatalog.In(conn.Layout.Hash, conn.Seed, notes);
+        if (conn.Layout.Id == "1_4_town")
+            placements = [.. placements, new("Metadata/NPC/League/Delve/DelveMiner", 352, 618, 280 * MathF.PI / 180)];
         foreach (var note in notes) Console.WriteLine($"[gateway] {remote} npcs: {note}");
         if (placements.Count == 0 || Environment.GetEnvironmentVariable("Game_NPCS") == "0") return;
         if (Npcs.Value.Error is { } error) { Console.WriteLine($"[gateway] {remote} npcs: {error}"); return; }
