@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 /// The Trials of Ascendancy (Agents/docs/game/labyrinth-trials.md): LabyrinthTrials.dat names each trial's area. Its
 /// rooms (the area's <c>labyrinth_intro</c> / <c>labyrinth_end</c> nodes) hold the door, the levers and doors, the
 /// plaque and the portal back as server object lines. The client counts a trial done when the character has the row's
-/// quest flag (column 7, e.g. NormalLabyrinthCompletedPrison) or the league quest flag of column 1 (0x141f69230).
+/// quest flag (column 7, e.g. NormalLabyrinthCompletedPrison) or the league quest flag of column 1 (0x141f6fb00).
 /// </summary>
 static class LabyrinthTrials
 {
@@ -221,8 +221,8 @@ static class LabyrinthTrials
     /// <summary>A roomba's 0x2bb blob: LabyrinthRoomba.ot reads Positioned, Animated, BaseEvents, Stats, Buffs, Movement,
     /// Transitionable; LabyrinthFlyingRoomba.ot Positioned, BaseEvents, Animated, Stats, Buffs, Movement; a sawblade's
     /// (LabyrinthSawblade.ot, …Slow) Positioned, BaseEvents, Animated, Stats, Buffs, Movement, Transitionable, the same
-    /// bytes. Movement (<c>0x141e741e0</c>): u8 (+0x30), i32 x, i32 y (the cell it sets Positioned to), four u32 (+0x3c,
-    /// +0x40, +0x4c, +0x50), u8 +0x76 (non-zero starts its own movement, <c>0x141e74970</c>: not sent), u8 +0x77. The
+    /// bytes. Movement (<c>0x141e7a870</c>): u8 (+0x30), i32 x, i32 y (the cell it sets Positioned to), four u32 (+0x3c,
+    /// +0x40, +0x4c, +0x50), u8 +0x76 (non-zero starts its own movement, <c>0x141e7b000</c>: not sent), u8 +0x77. The
     /// server moves it with 0x1ba. Transitionable 2 is a stopped sawblade (<c>create_transitioned</c>: its spin wound down).
     /// </summary>
     public static byte[] RoombaBlob(string type, int x, int y, float angle, string model, byte state = Closed)
@@ -1525,7 +1525,7 @@ static class LabyrinthTrials
     /// <summary>A trial object's 0x2bb blob: its type's components (<see cref="Components"/>) with the room line's model,
     /// angle, scale and fixed height (world z, down: the Crematorium's hot plates 125 below the floor's grates, which
     /// they glow through; on the terrain they stood above it). Only the plates are sent theirs: the doors and levers,
-    /// checked live on the terrain, keep standing on it. TriggerableBlockage (0x141e44290) is blocked with no
+    /// checked live on the terrain, keep standing on it. TriggerableBlockage (0x141e47880) is blocked with no
     /// sections while closed.</summary>
     public static byte[] Blob(string type, string model, int x, int y, float angle, float scale, byte state, float? height = null)
     {
@@ -1534,7 +1534,7 @@ static class LabyrinthTrials
             switch (c)
             {
                 // x, y, rotation, u16, flags0 (0x20: uniform scale, then the x / y stretches), flags1 0x02 (shown). A door
-                // also has flags1 0x20 (+0x1e7 bit 1: no static position), or the client's object pass (0x141d88690)
+                // also has flags1 0x20 (+0x1e7 bit 1: no static position), or the client's object pass (0x141d8bd20)
                 // stamps its Hull whatever its TriggerableBlockage says and an opened door stays closed to walking, and
                 // 0x08 with 1 (+0x1e6 bit 0x40: blocks no walker), so only the blockage closes its cells.
                 // f0 0x04: the fixed height, i32 whole steps of 7.8125 and the f32 z the client uses (as an area

@@ -40,7 +40,7 @@ sealed class AscendancyCatalog(string folder = "data")
         // A multiple-choice option is the effect of the paid parent, not a second ascendancy point.
         public int PointCost => IsStart || IsChoiceOption ? 0 : 1;
 
-        // Refund currency is a different calculation (client 0x141efb0e0): the choice shell is free to remove;
+        // Refund currency is a different calculation (client 0x141f01950): the choice shell is free to remove;
         // changing its selected effect costs five regrets, although that effect consumes no extra ascendancy point.
         public int RefundCost => IsStart || IsChoice ? 0 : AscendancyRules.RefundPointsPerAscendancyPoint;
     }

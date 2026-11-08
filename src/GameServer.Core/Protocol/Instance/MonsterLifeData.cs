@@ -10,7 +10,7 @@ public sealed record MonsterLifeData(bool? CorpseUsable, bool? PreventCorpseSink
     public byte Flags => (byte)((CorpseUsable == true ? 1 : 0) | (PreventCorpseSinking == true ? 2 : 0));
 
     /// <summary>
-    /// Source/type part of 0x141e6c610. Owned actors remain excluded by server policy.
+    /// Source/type part of 0x141e72bb0. Owned actors remain excluded by server policy.
     /// A staged boss at life 1 is alive. Null skillIsMinionSkill means no skill context (native null argument).
     /// Spectre restrictions precede the explicit stat-9525 fallback.
     /// </summary>

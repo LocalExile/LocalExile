@@ -64,20 +64,20 @@ static partial class Game
     }
 
     // Differs from GGG: it keys a Move from its tick by the player (u16 0x9001, 3 286 of 3 492 Moves). Keys must reach the
-    // client sorted or the rest of the frame waits for its end (0x142184680), and everything else the Gateway sends is key
+    // client sorted or the rest of the frame waits for its end (0x14218aff0), and everything else the Gateway sends is key
     // 0 in no set order, so ours is key 0 too: applied before the objects tick, which fits a walk starting at the frame's
     // start.
     static byte[] LockstepActionStart(ClientState conn, (int X, int Y) from, (int X, int Y) target, ushort sequence) =>
         InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, target.X, target.Y, conn.LockstepHold.Skill, sequence, conn.LockstepHold.Flags);
 
     // Differs from GGG: a monster out of its wake zone stands on its server as on the client, so nothing needs placing when
-    // it comes back. Ours walks on out there, and a lockstep client skips 0x128 (case 0x50 of 0x14214a190), so a returner
+    // it comes back. Ours walks on out there, and a lockstep client skips 0x128 (case 0x50 of 0x142150ae0), so a returner
     // would stay on its old cell until its next action. 0x1b7 is not gated by the network mode.
     static byte[] LockstepPlace(List<(uint Id, int X, int Y)> back) =>
         [.. back.SelectMany(m => InstanceProtocol.Teleport(m.Id, m.X, m.Y))];
 
     // Differs from GGG: it reports the object's cell as the target. The client replaces the target with the object's own
-    // position when it starts the action (0x1421940a0), and this path has no cell for every kind of object.
+    // position when it starts the action (0x14219aa10), and this path has no cell for every kind of object.
     static byte[] LockstepObjectStart((int X, int Y) from, InstanceTransfer.UseSkillOnObject use, ushort sequence) =>
         InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, from.X, from.Y, use.SkillId, sequence, use.Flags, targetObjectId: use.TargetId);
 
@@ -172,5 +172,5 @@ static partial class Game
 
     // Differs from GGG: a monster whose chase walk-up starts its swing (StepWalkUp, TakeLockstepChase) gets no 0x1ac
     // (MonsterSwing's begunAt path). GGG sends one when its own copy starts the swing; a lockstep client does nothing with
-    // a 0x1ac (0x14164dc70), and its swing starts by its own goal test either way.
+    // a 0x1ac (0x1416502e0), and its swing starts by its own goal test either way.
 }

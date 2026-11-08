@@ -2,10 +2,10 @@ namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// The base magic properties both items (their Mods component) and monsters (their ObjectMagicProperties component)
-/// carry, read by 0x142201d70: u16 flags (bits 0-2 rarity, bit 3 identified, one bit per mod list, bit 7 a custom name,
+/// carry, read by 0x142208700: u16 flags (bits 0-2 rarity, bit 3 identified, one bit per mod list, bit 7 a custom name,
 /// bit 8 Words.dat name parts), u8 (+0x7a), then the lists in the reader's order: bit 4 (implicit), 6 (enchant),
 /// 10 (scourge), 11 (hidden), and only when identified the name (bit 7: u32 length + UTF-16; else bit 8: u8 n × u32
-/// Words.dat HASH32) and bit 5 (explicit). A list is u8 count + mods; a mod (0x142430380) is its u16 Mods.dat HASH16
+/// Words.dat HASH32) and bit 5 (explicit). A list is u8 count + mods; a mod (0x142436e50) is its u16 Mods.dat HASH16
 /// and a signed compact value per stat of the row (Agents/docs/protocol/13-items.md §2a).
 /// </summary>
 public static class MagicProperties

@@ -1,8 +1,8 @@
 namespace GameServer.Data.Terrain.Generation;
 
 /// <summary>
-/// The Labyrinth's day layout, <c>0x1424e30f0</c> (built by <c>0x1424e5ca0(…, seed, difficulty, node)</c>; the server
-/// sends seed, node and difficulty in the area's extra data, <c>0x141ec7220</c> flag 0x08): the day's LabyrinthSection
+/// The Labyrinth's day layout, <c>0x1424e9d80</c> (built by <c>0x1424ec930(…, seed, difficulty, node)</c>; the server
+/// sends seed, node and difficulty in the area's extra data, <c>0x141ecdad0</c> flag 0x08): the day's LabyrinthSection
 /// per slot, their LabyrinthSectionLayout rows as nodes, the connections between them, and the secrets each node holds.
 /// Checked against the client's own layouts with <c>scripts/re/frida/lab-layout.py</c> (<c>lg.ps1 lablayout</c>).
 /// </summary>
@@ -42,7 +42,7 @@ public sealed class LabyrinthLayout
 
     readonly RawDat _layouts, _secrets;
     readonly int[] _first, _last;
-    // The client's draw counter (0x1424e53a0): 0x2e3, × 0x1f7 before every draw.
+    // The client's draw counter (0x1424ec030): 0x2e3, × 0x1f7 before every draw.
     uint _draws = 0x2e3;
     // The next secret number: 2 × nodes + 0x11, raised by each placed secret's span.
     int _number;
@@ -69,7 +69,7 @@ public sealed class LabyrinthLayout
     /// <summary>The layout the client builds for this seed and difficulty (1 Normal … 4 Eternal).</summary>
     public static LabyrinthLayout Build(Func<string, byte[]?> read, uint seed, int difficulty) => new(read, seed, difficulty);
 
-    /// <summary><c>0x1424e2c10</c>: one LabyrinthSection per slot. From row 1 on, the rows whose slot range (+0x20, +0x24)
+    /// <summary><c>0x1424e98a0</c>: one LabyrinthSection per slot. From row 1 on, the rows whose slot range (+0x20, +0x24)
     /// holds slot + 1 and whose tier range (+0x18, +0x1c) holds the tier, without one already picked (no exclusion
     /// group, +8) or one of a picked row's group; a TinyMT seeded from seed + 0x11 + (tier + 4 × slot) × 0x13d picks.</summary>
     void PickSections(RawDat sections, int tier, int slots)
@@ -90,7 +90,7 @@ public sealed class LabyrinthLayout
         }
     }
 
-    /// <summary>Each section's layout rows become nodes, ordered by their place (+0x10, <c>0x1424e62c0</c>); a section's
+    /// <summary>Each section's layout rows become nodes, ordered by their place (+0x10, <c>0x1424ecf50</c>); a section's
     /// last node carries slot + 1 (+0x5a).</summary>
     void BuildNodes()
     {
@@ -131,7 +131,7 @@ public sealed class LabyrinthLayout
         _nodes[from].Links.Add(to);
     }
 
-    /// <summary>One draw of the client's layout generator (<c>0x1424e53a0</c>): the counter × 0x1f7, then a TinyMT seeded
+    /// <summary>One draw of the client's layout generator (<c>0x1424ec030</c>): the counter × 0x1f7, then a TinyMT seeded
     /// from (difficulty + 4 × counter) × 0x13d + seed picks below n (no draw for fewer than two).</summary>
     int Draw(int n)
     {
@@ -148,7 +148,7 @@ public sealed class LabyrinthLayout
         public Bag Copy() { var b = new Bag(); foreach (var e in Entries) b.Add(e.Secret, e.Weight); return b; }
     }
 
-    /// <summary><c>0x1424e5420</c>: two draws below the total (the first is thrown away), the entry whose weight span holds
+    /// <summary><c>0x1424ec0b0</c>: two draws below the total (the first is thrown away), the entry whose weight span holds
     /// the second, taken out of the bag.</summary>
     int Take(Bag bag)
     {
@@ -169,7 +169,7 @@ public sealed class LabyrinthLayout
         else if (n.Secret2 < 0) { n.Secret2 = secret; n.Number2 = number; }
     }
 
-    /// <summary><c>0x1424e55f0</c>: a node in [from, to) with a free secret place, not already holding the secret first
+    /// <summary><c>0x1424ec280</c>: a node in [from, to) with a free secret place, not already holding the secret first
     /// and not <paramref name="exclude"/>, drawn among them; -1 when none.</summary>
     int PickNode(int from, int to, int secret, int exclude)
     {
@@ -181,7 +181,7 @@ public sealed class LabyrinthLayout
 
     int Uses(int secret) => _used.GetValueOrDefault(secret);
 
-    /// <summary><c>0x1424e57f0</c>: a secret that brings others along (a key and its door, the statues' two halves): its
+    /// <summary><c>0x1424ec480</c>: a secret that brings others along (a key and its door, the statues' two halves): its
     /// node in the section (one before the last for placement 1), then each companion where the placement says (1: later
     /// in the section; 2: the next section; 3: the section's last node, when its second place is free; 4: the last
     /// section; 5: a later dead end), else (not 1 or 3) any later node. The main secret then takes its node; both get

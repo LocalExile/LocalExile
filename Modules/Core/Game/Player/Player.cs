@@ -366,7 +366,7 @@ static partial class Game
         Stats.Key("cast_speed_+%") is uint k ? stats.GetValueOrDefault(k) : 0;
 
     // "More" cast speed on the summed increases (the skill's own included), as the client's cast_speed_+% calculator
-    // 0x142709610: round((increased + 100) × (final + 100) / 100 − 100), at least −99. Its combined final (0x142708190)
+    // 0x1427101c0: round((increased + 100) × (final + 100) / 100 − 100), at least −99. Its combined final (0x14270ed40)
     // multiplies max(0, 1 + v / 100) of each source below in single precision and in this order, then rounds:
     // Spell Echo's support_multicast_cast_speed_+%_final, Screaming Reels' only for main_hand_weapon_type 15 (a fishing
     // rod), the totem supports' only off a totem, Fanaticism's only for a hand-cast spell, the Frostbolt one at most
@@ -1225,7 +1225,7 @@ static partial class Game
             foreach (var (id, _) in layout.Effects)
                 messages.Add(($"0x01a9 transition effect 0x{id:x} enters wake zone", InstanceProtocol.EnterWakeZone(id)));
             if (layout.Waypoint is not null) messages.Add(($"0x01a9 waypoint 0x{WaypointCatalog.ObjectId:x} enters wake zone", InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId)));
-            // The attributes once more as a stats update. UI built on entering caches them (0x141e802d0 reads the Stats
+            // The attributes once more as a stats update. UI built on entering caches them (0x141e869c0 reads the Stats
             // component's getter); live 2026-10-18 the cache held 0 while the getter returned 14/14/32.
             messages.Add(("0x01b3 class attributes", []));
         }

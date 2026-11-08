@@ -10,7 +10,7 @@ public sealed class PortraitFrameTests
     [Fact]
     public void KnownPlayerCarriesTheClassFrameAndPortrait()
     {
-        // In the order the client reads them (0x141f8f850).
+        // In the order the client reads them (0x141f96140).
         var r = new LoginReader(InstanceSocial.KnownPlayer("Account", "Character", 90, packedClass: 3, frame: 12, portrait: 7));
 
         Assert.Equal(InstanceSocial.KnownPlayerId, r.U16());

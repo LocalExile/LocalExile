@@ -6,7 +6,7 @@ verified standalone GGPK. Addresses use image base `0x140000000`; the login-key 
 
 ## Class byte
 
-`0x142156f24..0x142156f37` and `0x141ef27a9..0x141ef27be` decode the main ascendancy as:
+`0x14215d894..0x14215d8a7` and `0x141ef9009..0x141ef901e` decode the main ascendancy as:
 
 ```text
 baseClass = byte & 0x1f                 // Characters.IntegerId, not its table row
@@ -14,18 +14,18 @@ classNo   = (byte >> 6) | ((byte >> 3) & 4)
 ```
 
 Zero means unascended: the first consumer branches to the base-class display when the decoded value is zero.
-The earlier comparison with `7` at `0x142156e99` compares the entire byte, not the ascendancy number. It is not
+The earlier comparison with `7` at `0x14215d7e9` compares the entire byte, not the ascendancy number. It is not
 an ascendancy sentinel. The inverse is `base | ((classNo & 3) << 6) | ((classNo & 4) << 3)`.
 `CharacterClassByte` implements it, with exhaustive coverage of all seven base classes and all eight representable
 class numbers. Only the existing data's 1..3 numbers are used by the current ordinary/Phrecia variants.
 
-`0x142425e40` builds per-character vectors of ascendancy names. Their size follows the highest ClassNo plus one;
+`0x14242c900` builds per-character vectors of ascendancy names. Their size follows the highest ClassNo plus one;
 this particular loader does not impose a three-class maximum. That alone does not prove a six-option native chooser.
 
 ## The family is a world stat
 
 The exact `Stats.dat` row 21145 is `league_enable_alt_ascendancies`, so the client's stat key is **21146** (`0x529a`).
-`0x141ec5750` selects the character graph:
+`0x141ecc000` selects the character graph:
 
 1. World `+0xd0 == 0x27` selects `PassiveSkillTrees` row 1, Royale.
 2. Otherwise it reads key `0x529a` from the world's stats interface at `+0x120`.
@@ -33,20 +33,20 @@ The exact `Stats.dat` row 21145 is `league_enable_alt_ascendancies`, so the clie
    `Metadata/AlternateSkillGraphs/CustomAscendancyPassiveSkillGraph`.
 4. Zero selects row 0, `Default`, path `Metadata/PassiveSkillGraph`.
 
-The same key is read by the ascendancy presentation consumers at `0x1409824e0`, `0x14099e770` and `0x140b724b0`.
+The same key is read by the ascendancy presentation consumers at `0x140984040`, `0x1409a0360` and `0x140b6da40`.
 It controls the existing normal/LeagueName presentation, not an additional ClassNo. The spare byte in `0x33` is
 not required to select Phrecia.
 
 The stat is supplied in **S→C `0x1d`**: flag byte 0 bit 6 enables three tail collections. They follow the existing
-mandatory vectors. `0x142141a4d..0x142141b88` writes:
+mandatory vectors. `0x14214839d..0x1421484d8` writes:
 
 1. Compact unsigned count, then unsigned key / signed value pairs: packet `+0x100`.
 2. Compact unsigned count, then unsigned key / signed value pairs: packet `+0x120`.
 3. Byte count of further records: packet `+0x138`.
 
 The first collection becomes the world's stats interface at `+0x120`. The full static path is the copied area
-message in `0x142155140`, then `0x142157760`, world vtable slot `+0x1b8` (`0x142183130`), which assigns argument 4
-to world `+0x120` at `0x142183168..0x142183172`.
+message in `0x14215ba90`, then `0x14215e0d0`, world vtable slot `+0x1b8` (`0x142189aa0`), which assigns argument 4
+to world `+0x120` at `0x142189ad8..0x142189ae2`.
 
 `AreaInstance.LeagueStats` serializes that first collection. For Phrecia the exact tail is
 `01 C0 52 9A 01 00 00` (first list has key 21146 value 1, second/final lists empty), and the first flag
@@ -56,18 +56,18 @@ change must reload the area before the new graph is used.
 
 ## Point costs and multiple-choice options
 
-Class starts are implicit. `0x141ef6040` first tests the received allocation list; if a node is absent,
-`0x141ef64d5..0x141ef6535` still considers an ascendancy start allocated when its owner's ClassNo and Character
-match the packed class byte. `0x141ef70d0` handles the ordinary class start. Neither start belongs in the paid
-`0x33` node vector: `0x141ef69e0` increments the ascendancy counter for every explicit node with an ascendancy
+Class starts are implicit. `0x141efc8d0` first tests the received allocation list; if a node is absent,
+`0x141efcd62..0x141efcde0` still considers an ascendancy start allocated when its owner's ClassNo and Character
+match the packed class byte. `0x141efd970` handles the ordinary class start. Neither start belongs in the paid
+`0x33` node vector: `0x141efd280` increments the ascendancy counter for every explicit node with an ascendancy
 owner, including an explicitly sent start. Keeping starts out of the save and wire list agrees with this native
 behaviour; a collapsed/off-screen ascendancy view is not evidence that its start must be transmitted.
 
 Runtime `PassiveSkills` has a packed layout with 16-byte foreign-row handles. `AscendancyKey` is at `+0x66`,
 `SkillPointsGranted` at `+0x87`, `IsMultipleChoice` at `+0x8b`, and `IsMultipleChoiceOption` at `+0x8c`.
-The remove-node function `0x141ef6bf0` decrements the ascendancy allocation count (`tree+0x280`) for a node with an
+The remove-node function `0x141efd490` decrements the ascendancy allocation count (`tree+0x280`) for a node with an
 ascendancy owner; an option also decrements the free-option count (`tree+0x28c`).
-`0x141ef7010` computes remaining ascendancy points from earned points (`+0x27c`) minus allocated owner nodes plus
+`0x141efd8b0` computes remaining ascendancy points from earned points (`+0x27c`) minus allocated owner nodes plus
 the free-option count. Thus the parent costs one point and its chosen option costs zero. Both remain allocated.
 The secondary-ascendancy equivalents are `+0x284` and `+0x290`.
 

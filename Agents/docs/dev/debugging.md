@@ -70,7 +70,7 @@ Set it in the PowerShell session before `live.ps1`, for example `$env:Game_TRACE
 3. For the faulting instruction, attach `scripts/re/frida/trace-crash.js` before reproducing it:
    `python scripts/re/frida/run.py Game.patched.exe scripts/re/frida/trace-crash.js --log logs/client-crash.jsonl`.
    Each native exception is sent with the time, the faulting address as a Ghidra VA, the memory access, the registers,
-   a backtrace and the ids of the last 64 S→C messages a handler group accepted in `0x14299e300`
+   a backtrace and the ids of the last 64 S→C messages a handler group accepted in `0x1429a7660`
    ([02](../protocol/02-instance-connection.md) §5), without the 0x1c tick answers and 0x2b7 frame ends. That the call's
    return value is the acceptance is read from the pump, not yet checked live: if `lastReceived` stays empty, it is not.
    `run.py` prints `"reason": "process-terminated"` when the client goes. Load it on its own, not after `common.js`,

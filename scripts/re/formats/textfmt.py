@@ -94,7 +94,7 @@ def weighted(line):
 
 
 def key_values(text):
-    """.tsi: version, then Key value; 0x142a06390 reads them by name."""
+    """.tsi: version, then Key value; 0x142a0f6f0 reads them by name."""
     c = Lines(text)
     out = {"version": c.version(), "values": {}}
     while not c.done():
@@ -167,7 +167,7 @@ def named_groups(text):
 
 
 def materials(text):
-    """.mtd, a stream of tokens (0x1429efee0): version, the default group, then "name" groups. A group is the number of mix
+    """.mtd, a stream of tokens (0x1429f9240): version, the default group, then "name" groups. A group is the number of mix
     and of sprinkle materials, then the mix materials with their numbers, then the sprinkle ones. A material is a path
     with an optional doodad layer path after it."""
     c = Lines(text)
@@ -327,7 +327,7 @@ def edge_type(text):
 
 
 def skin_mesh(text):
-    """.sm: version, SkinnedMeshData "smd", Materials count + "mat" faces, BoundingBox six numbers (0x1429e4bb0)."""
+    """.sm: version, SkinnedMeshData "smd", Materials count + "mat" faces, BoundingBox six numbers (0x1429edf10)."""
     c = Lines(text)
     out = {"version": c.version(), "materials": []}
     while not c.done():
@@ -346,7 +346,7 @@ def skin_mesh(text):
 
 def tile_geometry(text):
     """.tgt: version, Size, TileMeshRoot, NormalMaterials and its paths, SubTileMaterialIndices with one line per sub tile
-    (0x1429c0cb0)."""
+    (0x1429ca010)."""
     c = Lines(text)
     out = {"version": c.version()}
     while not c.done():
@@ -386,7 +386,7 @@ def animation_metadata(text):
 
 
 def actions(text):
-    """.act: animated_object "x.ao", then { Action = "clips" [effect ...]; then "clips"; }, then key value (0x142a047b0).
+    """.act: animated_object "x.ao", then { Action = "clips" [effect ...]; then "clips"; }, then key value (0x142a0db10).
     A statement ends at ";" and may span lines; "then" continues the action before it."""
     c = Lines(text)
     out = {"animated_object": None, "actions": [], "values": {}}

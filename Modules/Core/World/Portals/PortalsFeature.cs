@@ -149,7 +149,7 @@ static class PortalsFeature
 
     // C→S 0xe8: Ctrl + click with the Atlas map device open. A map/fragment in the inventory goes into Map1's first
     // free cell; an item already in the slots goes back to the inventory. The client only sends this after the window's
-    // +0x10b8 check (0x14030e3e0 → 0x142167da0).
+    // +0x10b8 check (0x14030e970 → 0x14216e750).
     internal static async Task MoveToMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceMapDevice.Move request)
     {

@@ -5,10 +5,10 @@ namespace GameServer.Core.World;
 /// <summary>
 /// The waypoint areas in the order of the client's waypoint bitset (S→C 0x4c, Agents/docs/protocol/16-waypoints.md):
 /// the WorldAreas rows with <c>HasWaypoint</c> whose column at row +0x1e4 (<c>__col51</c> in data/tables/WorldAreas.json:
-/// 1 town, 2 area, 11 the Labyrinth's Aspirants' Plaza) is 1, 2, 5 or 11, in table order (0x141fdcf90 counts them the
+/// 1 town, 2 area, 11 the Labyrinth's Aspirants' Plaza) is 1, 2, 5 or 11, in table order (0x141fe37b0 counts them the
 /// same way, up to 150). 3.29.3b has 90, from Lioneye's Watch (bit 0) to Aspirants' Plaza (bit 89).
 /// <para>AccessFlags: the QuestFlags rows of the row's list at +0x54 (<c>EndQuestFlags</c> in the extracted table, a name
-/// that does not fit): the World panel shows the area's pin only when the player has all of them (0x140797750), e.g.
+/// that does not fit): the World panel shows the area's pin only when the player has all of them (0x14077ecf0), e.g.
 /// a1q1-KilledHillock for Lioneye's Watch and The Coast, a1q4-PlacedGlyphs for The Submerged Passage.</para>
 /// </summary>
 public sealed class WorldAreaWaypoints

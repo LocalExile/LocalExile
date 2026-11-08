@@ -251,7 +251,7 @@ static class ItemModStats
     }
 
     /// <summary>
-    /// An item's character level requirement, as the client computes it (0x1421e03d0, stored in the Mods component
+    /// An item's character level requirement, as the client computes it (0x1421e6d40, stored in the Mods component
     /// +0x2bc; nothing is sent): a local_level_requirement_override wins outright; otherwise the item type's level, raised
     /// to Mods.dat Level × 4 / 5 of every mod in all five lists, plus local_level_requirement_+, at least 0. The client
     /// shows it in the tooltip but does not refuse an equip below it, so the server does.

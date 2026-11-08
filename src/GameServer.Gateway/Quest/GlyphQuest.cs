@@ -120,7 +120,7 @@ static class GlyphQuest
     }
 
     /// <summary>A nest's 0x2bb blob: Positioned (the record's height), Animated (the tile's virtual model), Chest (opened
-    /// bit 0, 0x141e138b0), Stats, ObjectMagicProperties, InteractionAction, MinimapIcon (u8 flags), tasks.</summary>
+    /// bit 0, 0x141e16f10), Stats, ObjectMagicProperties, InteractionAction, MinimapIcon (u8 flags), tasks.</summary>
     public static byte[] NestBlob(Placement p, bool opened)
     {
         var w = new BlobWriter().U8(0).U8(0);

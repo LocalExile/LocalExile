@@ -1,6 +1,6 @@
 # 00 — End-to-end overview: from launch to the in-game HUD
 
-Client: Path of Exile **3.29.3b**, `Client/Game.exe` (image base `0x140000000`), run as the patched copy
+Client: Path of Exile **3.29.3c**, `Client/Game.exe` (image base `0x140000000`), run as the patched copy
 `Client/Game.patched.exe`. Every address in these documents is a Ghidra VA in that image. State of 2026-10-16: the
 patched client logs in to our servers, lists characters, connects to our instance server, generates Lioneye's Watch,
 creates the local player and shows the in-game HUD.

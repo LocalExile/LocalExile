@@ -829,7 +829,7 @@ static partial class Game
         if (Stats.Key(LabyrinthTrials.ArrowSlowStat) is uint arrowSlow && sources.GetValueOrDefault(arrowSlow) is int slowFinal and not 0)
             bonus = bonus with { MovementVelocityPct = (int)Math.Round((100.0 + bonus.MovementVelocityPct) * (100 + slowFinal) / 100) - 100 };
         // "Movement Speed cannot be modified to below Base Value" (PoB CalcDefence: max(mod, 1)). The client bounds
-        // movement_velocity_+% below by 0 instead of -100 from the same raw flag (0x14251cbd0).
+        // movement_velocity_+% below by 0 instead of -100 from the same raw flag (0x142523780).
         if (EquipmentInput("movement_speed_cannot_be_reduced_below_base") != 0)
             bonus = bonus with { MovementVelocityPct = Math.Max(0, bonus.MovementVelocityPct) };
         if (conn.God)
@@ -1026,7 +1026,7 @@ static partial class Game
             + Get("mana_reservation_efficiency_+%") + Get("reservation_efficiency_+%");
         int lifeReservation = Get("base_life_reservation_efficiency_+%") + Get("base_reservation_efficiency_+%")
             + Get("life_reservation_efficiency_+%") + Get("reservation_efficiency_+%");
-        // Absolution's increase counts while the player has a linked target, as the client's 0x142822db0 adds it.
+        // Absolution's increase counts while the player has a linked target, as the client's 0x142829960 adds it.
         int auraEffect = Get("non_curse_aura_effect_+%") + Get("aura_effect_+%")
             + Get("aura_effect_on_self_from_your_skills_+%")
             + (Get("number_of_active_links") > 0 ? Get("non_curse_aura_effect_+%_while_linked") : 0);
@@ -1068,7 +1068,7 @@ static partial class Game
             ShieldArmourPct: Get("shield_physical_damage_reduction_rating_+%"),
             ShieldEvasionPct: Get("shield_evasion_rating_+%"),
             ShieldEnergyShieldPct: Get("shield_maximum_energy_shield_+%"),
-            // Despite its name, shield_armour_+% increases all shield defences (native 0x142724c50).
+            // Despite its name, shield_armour_+% increases all shield defences (native 0x14272b800).
             // combined_shield_defences_+% is the native derived value, not a second additive source.
             SharedShieldDefencesPct: Get("shield_armour_+%"),
             NoShieldDefences: Get("minions_get_shield_stats_instead_of_you") != 0

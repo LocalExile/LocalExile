@@ -67,7 +67,7 @@ static class PantheonRules
     static readonly HashSet<ushort> Hubs = [0xb5be, 0x3064];
 
     /// <summary>Where a god may be chosen: a town, a hideout, the Rogue Harbour, or with CanChangePantheon set (the
-    /// client's own gate before it sends 0x1ee, 0x14097e000).</summary>
+    /// client's own gate before it sends 0x1ee, 0x14097fb60).</summary>
     internal static bool CanChoose(ClientState conn) =>
         InTown(conn) || HideoutCatalog.ByArea(conn.Layout.Hash) is not null || Hubs.Contains(conn.Layout.Hash)
         || ClientHasQuestFlag(conn, CanChangePantheon);

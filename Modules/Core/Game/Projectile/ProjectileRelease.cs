@@ -161,17 +161,17 @@ static partial class Game
             Profile = use.Profile with
             {
                 Legs = i => new SparkLegs(sequence, i, PlayerId, life, randomDuration, speed, repeatsLeft),
-                // 0x141b36170: a spark ends 150 cells from where it started.
+                // 0x141b38c00: a spark ends 150 cells from where it started.
                 LegLeash = 150
             }
         };
     }
 
     // What a projectile the client draws itself takes from the client's own rules, so a hit lands where it is drawn:
-    // its range (slot 0x600, 0x141ba62d0: projectile_maximum_range_override, else 50 with the Reclaimed Malevolence
-    // notable, else 150 cells; a return, 0x141bb2ae0, flies back to the caster's cell and that range on), its object
+    // its range (slot 0x600, 0x141ba8d60: projectile_maximum_range_override, else 50 with the Reclaimed Malevolence
+    // notable, else 150 cells; a return, 0x141bb5570, flies back to the caster's cell and that range on), its object
     // contact from the row's radii and the target's size instead of the server's 4-cell stand-in, its return rolls, and
-    // its volley: 0x141bb13a0 picks parallel (0x141bb89d0) and random directions (0x141bb9280) before nova and fan.
+    // its volley: 0x141bb3e30 picks parallel (0x141bbb460) and random directions (0x141bbbd10) before nova and fan.
     // shortcut: parallel keeps the server's fan until it is ported.
     internal static ProjectileProfile ClientDrawnProfile(ClientState conn, ProjectileProfile profile, Func<string, int> get,
         ushort sequence, ProjectileVector aim, uint repeatsLeft = 0)
@@ -183,15 +183,15 @@ static partial class Game
             profile = profile with { ReturnRolls = ReturnRolls(sequence, profile.Count, PlayerId, repeatsLeft) };
         if (get("support_parallel_projectile_number_of_points_per_side") == 0 && get("random_projectile_direction") != 0)
             return profile with { NativeVolley = new() { Angles = RandomVolleyAngles(sequence, profile.Count, PlayerId, aim, repeatsLeft) } };
-        // 0x141bb33f0 (the Disgorge nova and the action's own flags are not tracked here).
+        // 0x141bb5e80 (the Disgorge nova and the action's own flags are not tracked here).
         return NativeVolley(profile, get);
     }
 
-    // random_projectile_direction (static RE 2026-10-31). A volley (0x141bb0f20 → 0x141bb9280) seeds 0x141bba070 from
+    // random_projectile_direction (static RE 2026-10-31). A volley (0x141bb39b0 → 0x141bbbd10) seeds 0x141bbcb00 from
     // [sequence, action +0x11c (0), +0x2d0, +0x458 (0), owner, slot 0x540 (0), 0] and turns each projectile's aim
-    // by a 0–2π draw. A single projectile (0x141bb13a0) seeds 0x141a0c9d0 from its detached copy, [sequence, 2, +0x458
+    // by a 0–2π draw. A single projectile (0x141bb3e30) seeds 0x141a0f3e0 from its detached copy, [sequence, 2, +0x458
     // (0), +0x2d0, owner], and flies along (sin a, cos a) whatever the aim. +0x2d0 is the cast's repeats left
-    // (SpellRepeats), which the copy (0x1419e2d40) keeps.
+    // (SpellRepeats), which the copy (0x1419e5750) keeps.
     internal static double[] RandomVolleyAngles(ushort sequence, int count, uint owner, ProjectileVector aim, uint repeatsLeft = 0)
     {
         const float Tau = 6.2831855f;
@@ -206,10 +206,10 @@ static partial class Game
         return angles;
     }
 
-    // projectile_return_%_chance (0x141bb04f0, static RE 2026-10-31): each projectile's own action copy rolls 0–99
-    // (0x1404d03d0) from a generator seeded (0x1419c29b0) with [sequence, +0x11c (2 + its index, as Spark's), owner,
+    // projectile_return_%_chance (0x141bb2f80, static RE 2026-10-31): each projectile's own action copy rolls 0–99
+    // (0x1404d0990) from a generator seeded (0x1419c73c0) with [sequence, +0x11c (2 + its index, as Spark's), owner,
     // +0x2d0 (the repeats left), byte +0x2b8, 0, 0, 0] and returns when the roll is under the chance.
-    // shortcut: +0x2b8 is taken as 0 (only its decrement, 0x141ba4620, was found); check it live with a return chance.
+    // shortcut: +0x2b8 is taken as 0 (only its decrement, 0x141ba70b0, was found); check it live with a return chance.
     internal static int[] ReturnRolls(ushort sequence, int count, uint owner, uint repeatsLeft = 0)
     {
         var rolls = new int[count];
@@ -300,7 +300,7 @@ static partial class Game
             PointBlank = Get("keystone_point_blank") != 0,
             ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindInputs(player, own),
             // A spell's action spawns its projectiles itself, every one of a volley, from where it stands (Frida
-            // 2026-10-29, 0x141ebdf30 from the action at 0x141e938c0): a server object for them was a second fireball.
+            // 2026-10-29, 0x141ec47e0 from the action at 0x141e9a160): a server object for them was a second fireball.
             // The older packet-driven Burning Arrow control missed local input prediction: real mouse input creates
             // a client projectile too. ClientDrawsPrimaryProjectile handles its visual without changing simulation.
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.

@@ -80,7 +80,7 @@ static partial class Game
         if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
-    // C→S 0x31: the "+" on a socketed gem. The client derives the level from the gem's experience on read (0x14246f900), so
+    // C→S 0x31: the "+" on a socketed gem. The client derives the level from the gem's experience on read (0x1424763d0), so
     // the server writes the next level's threshold and replaces the item; the client then derives the level and its skill.
     internal static async Task LevelUpGem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.SocketGem s)
     {
@@ -690,8 +690,8 @@ static partial class Game
         lock (conn.Monsters)
         {
             if (!PlayerActionCurrent(conn, action)) return;
-            // Interaction's default completion lasts 0.1 s (3.29.3b, 0x141942160). A Move queued before it ends
-            // starts in Actor's completion callback, then its path is discarded by 0x141e94fc0. Keep the request
+            // Interaction's default completion lasts 0.1 s (3.29.3c, 0x1419478b0). A Move queued before it ends
+            // starts in Actor's completion callback, then its path is discarded by 0x141e9b860. Keep the request
             // pending on the server until that completion has passed; the walk-up itself remains interruptible.
             if (conn.LockstepClient && use.Started)
                 conn.LockstepBusyUntil = Math.Max(conn.LockstepBusyUntil,

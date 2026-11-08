@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>One section of a doodad's collision (the .ao's <c>Hull</c> component, parser <c>0x141e02690</c>, 0x80-byte
+/// <summary>One section of a doodad's collision (the .ao's <c>Hull</c> component, parser <c>0x141e05cf0</c>, 0x80-byte
 /// records): per layer (0 walk, 1 projectiles) its triangles (x, y three times, in cells around the doodad) and circles
 /// (x, y, radius). Shapes before any <c>section</c> line go into the first, unnamed section.</summary>
 public sealed class HullSection(string name)
@@ -74,9 +74,9 @@ public readonly record struct PlacedDoodad(string Model, int X, int Y, float Ang
 
 public sealed partial class Walkability
 {
-    /// <summary><c>0x141d876e0</c>: a doodad's collision. The walk grid takes its walk shapes, then both grids its
-    /// projectile shapes (<c>0x141d91100</c>: each point turned by the angle — x mirrored first when mirrored — and
-    /// scaled; triangles rasterised at 1/16 cell, <c>0x141d99da0</c>; circles as the cells within the radius).</summary>
+    /// <summary><c>0x141d8ad70</c>: a doodad's collision. The walk grid takes its walk shapes, then both grids its
+    /// projectile shapes (<c>0x141d94790</c>: each point turned by the angle — x mirrored first when mirrored — and
+    /// scaled; triangles rasterised at 1/16 cell, <c>0x141d9d430</c>; circles as the cells within the radius).</summary>
     public void Stamp(DoodadHull hull, PlacedDoodad d)
     {
         foreach (var (grid, shapes) in new[] { (0, 0), (0, 1), (1, 1) })
@@ -106,7 +106,7 @@ public sealed partial class Walkability
             }
     }
 
-    /// <summary><c>0x141d99da0</c>: the cells a triangle covers, in 1/16 cells with a top-left rule (cell (x, y) is the
+    /// <summary><c>0x141d9d430</c>: the cells a triangle covers, in 1/16 cells with a top-left rule (cell (x, y) is the
     /// sample at 16·x, 16·y), the corners put in counter-clockwise order first.</summary>
     static void Triangle((float X, float Y) p1, (float X, float Y) p2, (float X, float Y) p3, Action<int, int> cell)
     {
@@ -142,7 +142,7 @@ public sealed partial class Walkability
         }
     }
 
-    /// <summary><c>0x141d87da0</c>: a cell of grid 0 (walk) or 1 (projectiles) that is not blocked yet becomes 0, and
+    /// <summary><c>0x141d8b430</c>: a cell of grid 0 (walk) or 1 (projectiles) that is not blocked yet becomes 0, and
     /// the cells within 4 of it (Chebyshev) take their distance when lower.</summary>
     void Block(int grid, int x, int y)
     {

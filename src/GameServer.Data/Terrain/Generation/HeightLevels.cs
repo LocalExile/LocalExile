@@ -1,11 +1,11 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary><c>0x142118470</c> (the state built by <c>0x1421173d0</c>): the height fix-ups of the map's view (the
+/// <summary><c>0x14211ed70</c> (the state built by <c>0x14211dcd0</c>): the height fix-ups of the map's view (the
 /// graph's area, <paramref name="offsetX"/>, <paramref name="offsetY"/> in from the map's corner). Every tile not yet reached starts a breadth-first
-/// walk (<c>0x142118100</c>) that gives each tile a height offset agreeing with the tiles already done around it
-/// (<see cref="Candidates"/>), writes it (<c>0x1421174f0</c>) and goes on to the tiles it is open to
+/// walk (<c>0x14211ea00</c>) that gives each tile a height offset agreeing with the tiles already done around it
+/// (<see cref="Candidates"/>), writes it (<c>0x14211ddf0</c>) and goes on to the tiles it is open to
 /// (<see cref="Neighbours"/>). With any height in the view, everything is then lowered to the lowest tile offset, the
-/// vertices still without a height take a lone done neighbour's (<c>0x142118790</c>). No draws.</summary>
+/// vertices still without a height take a lone done neighbour's (<c>0x14211f090</c>). No draws.</summary>
 sealed class HeightLevels(TileGrid grid, int offsetX, int offsetY, int width, int height, TerrainCache files)
 {
     // Bit sets +0x18 (vertices, (width + 1) × (height + 1)) and +0x38 (entries, width × height): already given a height.
@@ -71,11 +71,11 @@ sealed class HeightLevels(TileGrid grid, int offsetX, int offsetY, int width, in
                 x += Size(e).W;
             }
         FillVertices();
-        // 0x142118900 then gives every room of the subgraph the height of one of its tiles (room +0x18); nothing ported
+        // 0x14211f200 then gives every room of the subgraph the height of one of its tiles (room +0x18); nothing ported
         // reads it yet.
     }
 
-    /// <summary><c>0x142118100</c>: the walk from one tile. A tile with several candidate heights that cannot be
+    /// <summary><c>0x14211ea00</c>: the walk from one tile. A tile with several candidate heights that cannot be
     /// reconciled is fatal ("Mismatched heights found during height fix-ups").</summary>
     void Spread(int sx, int sy)
     {
@@ -101,7 +101,7 @@ sealed class HeightLevels(TileGrid grid, int offsetX, int offsetY, int width, in
         }
     }
 
-    /// <summary><c>0x1421176c0</c>: the heights the tile at (x, y) could take. An empty entry: the heights of its done
+    /// <summary><c>0x14211dfc0</c>: the heights the tile at (x, y) could take. An empty entry: the heights of its done
     /// vertices with an open ground. A tile: each done border vertex where the tile's ground is open gives the vertex
     /// height less the tile's own; else each real edge whose neighbour across it is done gives the neighbour's offset
     /// plus the height step between the two tiles at the edge point; else the done corners as for the border. Several
@@ -116,7 +116,7 @@ sealed class HeightLevels(TileGrid grid, int offsetX, int offsetY, int width, in
         }
         if (Entry(ox, oy) is not { } e)
         {
-            // 0x142117e10.
+            // 0x14211e710.
             foreach (var (dx, dy) in new[] { (0, 0), (0, 1), (1, 0), (1, 1) })
                 if (VertexDone(ox + dx, oy + dy) && Open(grid.Corner(ox + dx + offsetX, oy + dy + offsetY).Ground))
                     AddDistinct(VertexHeight(ox + dx, oy + dy));
@@ -125,7 +125,7 @@ sealed class HeightLevels(TileGrid grid, int offsetX, int offsetY, int width, in
         var tile = e.Tile;
         int o = e.Orientation;
         var (w, h) = Size(e);
-        // 0x142117fb0.
+        // 0x14211e8b0.
         void Relative(int u, int v)
         {
             if (VertexDone(ox + u, oy + v)) AddDistinct(VertexHeight(ox + u, oy + v) - tile.VertexHeightAt(o, u, v));
@@ -183,7 +183,7 @@ sealed class HeightLevels(TileGrid grid, int offsetX, int offsetY, int width, in
         return list;
     }
 
-    /// <summary><c>0x1421174f0</c>: the tile (or empty entry) at (x, y) takes the height; its vertices and entries are
+    /// <summary><c>0x14211ddf0</c>: the tile (or empty entry) at (x, y) takes the height; its vertices and entries are
     /// done.</summary>
     void SetTileHeight(int x, int y, int h)
     {
@@ -199,7 +199,7 @@ sealed class HeightLevels(TileGrid grid, int offsetX, int offsetY, int width, in
                 if (ox + u < width && oy + v < height) _tileDone[(oy + v) * width + ox + u] = true;
     }
 
-    /// <summary><c>0x14211b4a0</c>: the origins of the tiles a tile is open to, ordered by x · 65536 + y. An empty
+    /// <summary><c>0x142121da0</c>: the origins of the tiles a tile is open to, ordered by x · 65536 + y. An empty
     /// entry: its four neighbours. A tile: along each side, the entries beside a cell whose two side vertices have a
     /// ground open on the tile (either one), and the entry across each real edge at its edge point.</summary>
     IEnumerable<(int X, int Y)> Neighbours(int x, int y)
@@ -250,7 +250,7 @@ sealed class HeightLevels(TileGrid grid, int offsetX, int offsetY, int width, in
         return set;
     }
 
-    /// <summary><c>0x142118790</c> with <c>0x142118d50</c>: until a pass changes nothing, every vertex not done whose
+    /// <summary><c>0x14211f090</c> with <c>0x14211f650</c>: until a pass changes nothing, every vertex not done whose
     /// done neighbours (left, up, right, down) are exactly one takes that one's height.</summary>
     void FillVertices()
     {
@@ -279,7 +279,7 @@ sealed class HeightLevels(TileGrid grid, int offsetX, int offsetY, int width, in
         while (changed != 0);
     }
 
-    /// <summary><c>0x141ffc700</c> / <c>0x141ffc7d0</c>: the highest and lowest vertex height of the view.</summary>
+    /// <summary><c>0x142002f50</c> / <c>0x142003020</c>: the highest and lowest vertex height of the view.</summary>
     public (int Low, int High) Range()
     {
         int lo = VertexHeight(0, 0), hi = lo;

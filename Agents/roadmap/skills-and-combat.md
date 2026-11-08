@@ -42,9 +42,9 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   and .ao in `scripts/re/anim_contacts.py` instead of `SpectralThrowRelease`'s table.
   Done when: each hit lands as the drawn weapon reaches the monster, out and back, for every class and weapon.
 - **Ice Nova with Spell Echo:** the server sends Ice Nova no `spell_repeat_count`, so Spell Echo only speeds it up.
-  Its action has two repeats: after a ring its update (`0x141c00180`) waits 0.3 s and rings again while +0x320 is under
-  the count and bytes +0x2b8 and +0x2b9 are equal, and its slot 0x460 (`0x1412df740`) jumps to the spell base's replay
-  (`0x1419e3960`), which plays the animation again. Which of them runs, and when, is not readable statically.
+  Its action has two repeats: after a ring its update (`0x141c02c10`) waits 0.3 s and rings again while +0x320 is under
+  the count and bytes +0x2b8 and +0x2b9 are equal, and its slot 0x460 (`0x1412e1ad0`) jumps to the spell base's replay
+  (`0x1419e6370`), which plays the animation again. Which of them runs, and when, is not readable statically.
   Start: cast Ice Nova with Spell Echo linked under `scripts/re/frida/trace-ice-nova-repeat.js` (it logs those fields,
   each ring start, victim and end, and each replay), with `Game_ICE_NOVA_REPEATS=1` set for the Gateway so it sends
   the count, then hit with each ring.

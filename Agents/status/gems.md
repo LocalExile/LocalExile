@@ -123,7 +123,7 @@ Nothing yet.
   Not yet: corruption.
 - **Gem requirements (tested, checked with the real client).** A gem's level requirement is the character level of its
   level (GrantedEffectStatSetsPerLevel `PlayerLevelReq`; Haste 24 at gem level 1 . 70 at 20, the client's tooltips),
-  and its attribute requirements follow the client's own formula (`0x14246fc40`: `trunc((3 * level_req + 11) *
+  and its attribute requirements follow the client's own formula (`0x142476710`: `trunc((3 * level_req + 11) *
   (percent/100)^0.9 * k + 0.5)`, `k` 0.7 for a skill and 0.5 for a support, none below 14;
   fitted against 570 poedb tooltip cells with no mismatch: Haste 20 is 155 Dex, Clarity 20 119 Int, Fireball 20 155).
   Socketing a gem the character is too low or too weak for is refused (0x30, `GemRequirementsUnmet`), and a gem its

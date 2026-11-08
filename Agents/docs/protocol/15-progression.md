@@ -11,7 +11,7 @@ yet confirmed on screen).
 - **The client derives the level from the experience** in the Player component ([04](04-player-entity.md) §4.6):
   S→C 0x2bc to component 6 with flag bit0 + u32 experience (`InstanceEntities.PlayerExperienceUpdate`). Crossing a
   level start (ExperienceLevels.dat) changes the level on the client.
-  Its ClientPlayer callback `0x1415e0b90` publishes the level change but does not itself create the flash.
+  Its ClientPlayer callback `0x1415e2e60` publishes the level change but does not itself create the flash.
   The default flash is MiscAnimated `LevelUp`, HASH32 `0xff248759`,
   `Metadata/Effects/misc/levelup_new/rig.ao`; its default animation is `levelup`.
 - **A kill** (`MonsterKilled`): the player gains experience when alive and within `Game_XP_RANGE` cells (default 150)
@@ -36,7 +36,7 @@ yet confirmed on screen).
 
 ## 2. The Passive Skill Tree
 
-- **S→C 0x33** (dispatcher case 0xf, class `0x1435dca60`, read `0x14219e3f0`, handler `0x141ef2710` on the tree at
+- **S→C 0x33** (dispatcher case 0xf, class `0x1435e7940`, read `0x1421a4d60`, handler `0x141ef8f70` on the tree at
   instance `+0xc2d8`):
 
   | Field | Goes to | Meaning |
@@ -47,14 +47,14 @@ yet confirmed on screen).
   | u8 | +0x26c | **the level**: the client's `points_from_level` = (level − 1) × points per level |
   | u8 | +0x268 | class byte: base IntegerId + packed ClassNo (`CharacterClassByte`), the tree's start |
   | u8 | +0x269 | |
-  | u8 flags | | bit0 → +0x91, bit1 → no lists (then `0x141ef73e0` sets only the numbers) |
+  | u8 flags | | bit0 → +0x91, bit1 → no lists (then `0x141efdcb0` sets only the numbers) |
   | vec16 u16 | +0x180 | **allocated nodes**: PassiveSkills.dat `PassiveSkillGraphId`, raw (little-endian), **sorted** (§2 Gold respec) |
   | vec16 u16 | | (sent empty) |
   | vec16 u16 | +0x1b0 | **the cluster jewel nodes** of the tree's expansion cells: the client's own small layout ids (202, 206 live for a Voices), not PassiveSkillGraphIds; sorted |
   | vec16 u32 | | mastery effects: node \| effect << 16, raw little-endian; effect is the `PassiveSkillMasteryEffects.dat` HASH16 |
   | vec16 u32 | +0x1f8 | **applied tattoos**: node \| `PassiveSkillOverrides.dat` HASH16 << 16, raw little-endian; empty when no tattoo |
 
-  The client's check `0x141ef3e60` logs "character passive skills allocated but only allowed {}.
+  The client's check `0x141efa6c0` logs "character passive skills allocated but only allowed {}.
   points_from_level={}, skill_points_from_passives={}, extra_skill_points={}" and drops unconnected nodes itself.
   The Gateway sends it after the player on entry and after every level or passive change.
 - **C→S 0x34** (7 bytes): `u32 node (big-endian), u8 expansion`. The high half of the node is not a mastery effect.
@@ -81,7 +81,7 @@ yet confirmed on screen).
   (+1% spell block per 5% attack block). The Gateway allocates the mastery node and records the effect, then answers
   with 0x33 and the updated stats.
 - **S→C 0x3d is the Atlas tree**, not the character's: its three presets ([05](05-inventories-and-ui.md) §4; the check
-  `0x141eed000` logs "atlas passive skills allocated but only allowed"). The server populates them from the saved presets,
+  `0x141ef3860` logs "atlas passive skills allocated but only allowed"). The server populates them from the saved presets,
   and handles Atlas allocation/refund as C→S 0x3e/0x3f. The point budget is saved but completion does not award it yet
   (completed maps themselves are tracked: [21](21-hideouts.md) §4).
 - **Masteries**: `PassiveSkillMasteryGroups.dat` maps a mastery node's `MasteryGroup` to its effects and
@@ -93,22 +93,22 @@ yet confirmed on screen).
   pairs), flat and increased life and mana, increased evasion, energy shield and melee physical damage go into the
   pools ([11](11-skills.md) §4); the other stats are sent as they are (the character panel shows them; nothing uses
   them yet).
-- **C→S 0x36** (8 bytes, class `0x1435bf610`, write `0x141f92b00`, built in `0x1403cc410` like 0x34): refund one
+- **C→S 0x36** (8 bytes, class `0x1435ca028`, write `0x141f993f0`, built in `0x1403cc9a0` like 0x34): refund one
   node. u32 the node (big-endian: PassiveSkillGraphId, or a cluster jewel's expansion id), u8 1 for an expansion node,
   u8 1 when the tree was opened as a gold respec (the tree state's +0x17b8 == 2: Bestel's Respecialisation), else 0
   (refund points). "Apply refunds" sends one per picked node; captured `003600001FC70001` and `003600002B780001`
-  (8135, 11128, gold). **C→S 0x37** (id only, `0x1409d03bb` / `0x1409da517`) is "Refund All", sent after its Yes.
-  Apply refunds (lambda `0x140a164f0` → ApplyChanges `0x14098f030`, which sends the 0x36s and clears the picks) and
-  Refund All (`0x1409da470`, drops the picks and sends 0x37) both keep the Respecialisation screen open. The screen
-  leaves its mode (graph view +0x17b8: 2 → 0, `0x14098a360`) when the tree reports a newly allocated node, so 0x33's
-  lists must be **sorted**: the handler diffs them against its own sorted list (set difference `0x141f145b0`), and an
-  unsorted list made kept nodes look newly allocated (`0x141ef69e0` → event → `0x1409dd800` → `0x1409de680` with 0;
+  (8135, 11128, gold). **C→S 0x37** (id only, `0x140a11cdb` / `0x1409db727`) is "Refund All", sent after its Yes.
+  Apply refunds (lambda `0x140a118c0` → ApplyChanges `0x140990bb0`, which sends the 0x36s and clears the picks) and
+  Refund All (`0x1409db680`, drops the picks and sends 0x37) both keep the Respecialisation screen open. The screen
+  leaves its mode (graph view +0x17b8: 2 → 0, `0x14098bec0`) when the tree reports a newly allocated node, so 0x33's
+  lists must be **sorted**: the handler diffs them against its own sorted list (set difference `0x141f1aea0`), and an
+  unsorted list made kept nodes look newly allocated (`0x141efd280` → event → `0x1409dea10` → `0x1409df890` with 0;
   traced with `scripts/re/frida/trace-tree-mode.js`).
   0x34 has the same u32 node + u8 expansion layout (its "u16 0" is the node's high half).
-- **Gold respec**: the client's per-node cost `0x141efb140` is `VillageBalancePerLevelShared.dat` GoldRespecCost at
+- **Gold respec**: the client's per-node cost `0x141f019b0` is `VillageBalancePerLevelShared.dat` GoldRespecCost at
   the character's level (4 gold at level 1, 29119 at 100) times the node's multiplier: 1, 0 for an `IsMultipleChoice`
   node, an `IsExpansion` node's own value (unnamed i32 at +0xb2). The full cost (`GetFullGoldRespecCost`, lambda
-  `0x141f1b500`) skips ascendancy nodes. The Gateway (`PassiveTree.GoldRespecCost`, `ChangePassives` with
+  `0x141f21df0`) skips ascendancy nodes. The Gateway (`PassiveTree.GoldRespecCost`, `ChangePassives` with
   `goldRespec`) refunds only allocated nodes, refuses when the gold is short, removes the nodes' mastery effects,
   saves the passives, takes the gold from the account (`AccountStash.TrySpendGold`, nothing when refused), and answers with the gold (0x2aa), the stats and the tree (0x33). Refund All
   refunds every non-ascendancy node.

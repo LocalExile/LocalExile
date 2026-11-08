@@ -1,4 +1,4 @@
-/// <summary>Player Actor stat projection; native formula 0x1427ecc30, not a Positioned wire extension.</summary>
+/// <summary>Player Actor stat projection; native formula 0x1427f37e0, not a Positioned wire extension.</summary>
 static class ActorScale
 {
     public const uint Base = 720, Final = 1973, Capped = 1974, Limit = 1975, Permyriad = 10778;

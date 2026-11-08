@@ -51,8 +51,8 @@ The client computes none of this: the keys appear only in two unrelated function
 ## Undeniable
 
 The stat's id says 200, but its text says "per 150 Accuracy Rating" and so does the client.
-Main hand `0x142701d20` and off hand `0x142703500`: `floor(accuracy / 150) x value`, added to increased attack speed.
-Accuracy (`0x1426f9f80`): `strength x (flag 0x3496 ? 200 : 0 + flag 0x1de7 ? 100 : 0) / 100` joins the flat sum.
+Main hand `0x1427088d0` and off hand `0x14270a0b0`: `floor(accuracy / 150) x value`, added to increased attack speed.
+Accuracy (`0x142700b30`): `strength x (flag 0x3496 ? 200 : 0 + flag 0x1de7 ? 100 : 0) / 100` joins the flat sum.
 
 ## Untiring
 

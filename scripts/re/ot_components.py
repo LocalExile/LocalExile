@@ -2,13 +2,13 @@
 #        ot_components.py --items --json data/item-types.json   (every BaseItemTypes row from the .it files)
 #
 # Merged component list per object type, as the client builds it from the .ot/.otc files:
-#   1. the object-type constructor 0x141ec1360 creates "Positioned" first, for every type, before it loads the file
-#      (0x142474ae0 -> parser 0x142475bd0);
-#   2. "extends" chains are loaded parent-first (0x142476300 -> 0x142474fc0, recursive; "nothing" ends the chain);
-#   3. the common pass (0x142476580, mode 0) appends each top-level section in file order; a name already present
-#      keeps its first position (lookup in the name map at type+0x28, append 0x142474d10). "client"/"server" blocks are
+#   1. the object-type constructor 0x141ec7c10 creates "Positioned" first, for every type, before it loads the file
+#      (0x14247b5b0 -> parser 0x14247c6a0);
+#   2. "extends" chains are loaded parent-first (0x14247cdd0 -> 0x14247ba90, recursive; "nothing" ends the chain);
+#   3. the common pass (0x14247d050, mode 0) appends each top-level section in file order; a name already present
+#      keeps its first position (lookup in the name map at type+0x28, append 0x14247b7e0). "client"/"server" blocks are
 #      skipped in this pass and GEAL blocks are scripts, not components;
-#   4. type+0x80 = the count after the common pass: 0x141ebe190 calls slot 17 (+0x88) on exactly these components,
+#   4. type+0x80 = the count after the common pass: 0x141ec4a40 calls slot 17 (+0x88) on exactly these components,
 #      in this order, when it reads the 0x2bb blob;
 #   5. the client pass (mode 1) then appends the sections of every "client { }" block in the chain (parent-first)
 #      and, unverified, the sections of .otc files (none of the traced types has one). They are never deserialized.
@@ -31,13 +31,13 @@ RAW_DATS = ["Data/MonsterVarieties.datc64", "Data/Chests.datc64"]
 # Live component vtables, in deserialize order (Frida, scripts/re/frida/trace-player-blob.js).
 GROUND_TRUTH = {
     # Agents/docs/protocol/04-player-entity.md section 3 (12 components, the last two not reached by the read loop)
-    "Metadata/Characters/Int/Int": ["0x1435a0f18", "0x1435dd4e8", "0x1435a6ba0", "0x14359f5f8", "0x1435a7340",
-                                    "0x1435a5030", "0x143466450", "0x1435a0078", "0x14359e078", "0x14346e558",
-                                    "0x143468920", "0x14346c238"],
+    "Metadata/Characters/Int/Int": ["0x1435ab608", "0x1435e7f88", "0x1435b3800", "0x1435a7a20", "0x1435b0d98",
+                                    "0x1435af9c0", "0x143470e78", "0x1435aa590", "0x1435a6cb8", "0x14347a818",
+                                    "0x1434730b8", "0x143476978"],
     # Agents/docs/protocol/08-area-transitions.md section 2 (InstanceEntities.AreaTransitionObject.ComponentOrder)
-    "Metadata/MiscellaneousObjects/AreaTransition": ["0x1435a0f18", "0x1435a55e8", "0x1435a5030", "0x14346de00",
-                                                     "0x1435dd4e8", "0x1435a6ae0", "0x1435a7018", "0x14359f7d0",
-                                                     "0x143468920", "0x14346c238"],
+    "Metadata/MiscellaneousObjects/AreaTransition": ["0x1435ab608", "0x1435afee8", "0x1435af9c0", "0x143479f98",
+                                                     "0x1435e7f88", "0x1435b3740", "0x1435b0828", "0x1435a7c28",
+                                                     "0x1434730b8", "0x143476978"],
 }
 # Components the read loop reaches (type+0x80), traced.
 GROUND_TRUTH_READ = {"Metadata/Characters/Int/Int": 10, "Metadata/MiscellaneousObjects/AreaTransition": 8}
@@ -282,7 +282,7 @@ _QUEST_FLAGS = None
 
 
 def quest_flag(name):
-    """A quest flag named in an .ot/.it: "minus" stands for "-" (the client's name lookup 0x141de7b20), but only where the
+    """A quest flag named in an .ot/.it: "minus" stands for "-" (the client's name lookup 0x141deb180), but only where the
     literal name is not a flag itself ("a3q10-KilledDominus" keeps its "minus"); QuestFlags.json decides."""
     global _QUEST_FLAGS
     if _QUEST_FLAGS is None:
@@ -371,7 +371,7 @@ def parse(text):
 
 
 def state_machine(toks, r):
-    """Networked StateMachine data (0x141e3ee40 reads it): `define_shared_state = "a; b = 2;"` -> [(a, 0), (b, 2)],
+    """Networked StateMachine data (0x141e42430 reads it): `define_shared_state = "a; b = 2;"` -> [(a, 0), (b, 2)],
     `define_shared_timer = "t;"` -> [t]. Plain define_state / define_timer stay on the client. Only top-level
     tokens of the section: nested blocks (event handlers) are skipped."""
     depth = 0
@@ -471,8 +471,8 @@ def merge(type_path, files, otc, first=("Positioned",)):
             if name not in timers:
                 timers.append(name)
     # Transitionable (type +0xb0 = num_states; states run 1..num_states, num_states = fully transitioned): later files
-    # in the chain override. Without the key the type's constructor (0x141e42d50) sets 2, and the key itself only takes
-    # 2..127 (0x141e42a80), so 1 below means "not given": state 1 is then the untransitioned state, 2 the transitioned.
+    # in the chain override. Without the key the type's constructor (0x141e46340) sets 2, and the key itself only takes
+    # 2..127 (0x141e46070), so 1 below means "not given": state 1 is then the untransitioned state, 2 the transitioned.
     trans = {}
     for _, f in ch:
         trans.update((f or {}).get("transitionable", {}))
@@ -486,7 +486,7 @@ def merge(type_path, files, otc, first=("Positioned",)):
             "animated_object": next((f["animated"]["animated_object"] for _, f in reversed(ch)
                                      if f and "animated_object" in f.get("animated", {})), None),
             "shared_states": [[k, v] for k, v in states.items()], "shared_timers": timers,
-            # The Actor's basic actions (ClientActor ctor 0x142192860 adds one skill per name, id = HASH16 & 0x3fff),
+            # The Actor's basic actions (ClientActor ctor 0x1421991d0 adds one skill per name, id = HASH16 & 0x3fff),
             # parents first: e.g. Monster.ot's Move, and "Emerge" for monsters that rise from the ground.
             "basic_actions": list(dict.fromkeys(a for _, f in ch for a in (f or {}).get("basic_actions", []))),
             # The client scripts of Transitionable (later files override each event) and Targetable's `targetable`
@@ -497,7 +497,7 @@ def merge(type_path, files, otc, first=("Positioned",)):
             "transitionable": {"num_states": num_states,
                                "no_serialise": str(trans.get("no_serialise", "false")).lower() == "true"}}
     if "Life" in comps[:read]:
-        # Life type constructor 0x141e254f0, store 0x141e25645: e4..e7 = 00 00 00 01.
+        # Life type constructor 0x141e28b50, store 0x141e28ca5: e4..e7 = 00 00 00 01.
         # A missing parent can override these defaults; only subsequent explicit keys resolve that uncertainty.
         life = {"corpse_usable": True, "prevent_corpse_sinking": False}
         for _, f in ch:
@@ -505,7 +505,7 @@ def merge(type_path, files, otc, first=("Positioned",)):
                 life = dict.fromkeys(life)
             else:
                 life.update(f.get("life", {}))
-        # Life finalizer 0x141e66ec0 sets config+e6 when the type's component map contains Player.
+        # Life finalizer 0x141e6d460 sets config+e6 when the type's component map contains Player.
         life["corpse_use_veto"] = True if "Player" in comps else (None if result["missing"] else False)
         result["life"] = life
     return result
@@ -695,7 +695,7 @@ def all_types():
 def item_types():
     """BaseItemTypes rows -> {Id: InheritsFrom}. Item types are not object types: the client's
     Metadata/ItemTypeRegister files each BaseItemTypes row under its HASH32 (MurmurHash2 of the Id, the same hash as
-    object types; FUN_1421ec390 looks it up) and builds it from the .it chain. Most leaf rows have no .it file of their
+    object types; FUN_1421f2d00 looks it up) and builds it from the .it chain. Most leaf rows have no .it file of their
     own: their chain is InheritsFrom's."""
     rows = json.load(open(os.path.join(ROOT, "data", "tables", "BaseItemTypes.json"), encoding="utf-8"))
     return {r["Id"]: r.get("InheritsFrom") or "nothing" for r in rows}
@@ -703,7 +703,7 @@ def item_types():
 
 def merge_items():
     """Component lists of every BaseItemTypes row from the .it files. Unlike object types nothing comes first (the item
-    reader FUN_1421ec390 calls slot 5 (+0x28) on the type's first type+0x80 components; no Positioned for items), and
+    reader FUN_1421f2d00 calls slot 5 (+0x28) on the type's first type+0x80 components; no Positioned for items), and
     the "client" blocks (RenderItem) are never read. Verified live for Wand1, the flasks and the glyphs (05 §6)."""
     rows = item_types()
     files, _ = load(sorted(set(rows) | {v for v in rows.values() if v != "nothing"}), ext=".it", companion=None)

@@ -42,7 +42,7 @@ Refunding a Paladin Aura option costs five refund points; the shell itself refun
   and not in a town (hideouts are not towns).
   While stationary, one consecrated ground of the stationary radius (18 cells, 1.8 m) stays where he stands, with the
   Sulphur Flask's ground art; it is removed (0x2bd) when he moves or dies, and a new one is made where he stops.
-- **Radius.** As the client derives `virtual_consecrated_ground_while_stationary_radius` (0x1428d43a0): the plain stat,
+- **Radius.** As the client derives `virtual_consecrated_ground_while_stationary_radius` (0x1428db1d0): the plain stat,
   the Strength variant when Strength is the highest attribute (ties count), the Crusader variant with two or more
   Crusader items; the largest wins. No area modifier applies.
 - **Linger.** The ground's effect stays for `your_consecrated_ground_effect_lingers_for_ms_after_leaving_the_area` after
@@ -55,9 +55,9 @@ Refunding a Paladin Aura option costs five refund points; the shell itself refun
   (`PlayerStatsWithCleared`); `RunPlayerTick` starts the flask-ground ticker when a radius is present, and the ticker
   keeps running while it is. `FlaskGroundsTick` does one 100 ms step. A new area has a fresh state.
 
-Client evidence (decompile dump, checked against the disassembly): the client derives the radius at 0x1428d43a0 and
-the linger at 0x142890140 (`0x230d`, plus `0x2461` while affected by Zealotry); both are registered virtual-stat
-derivations (0x1400e5c70, 0x1400db900) with no other direct reader in the dump. The client does not predict the
+Client evidence (decompile dump, checked against the disassembly): the client derives the radius at 0x1428db1d0 and
+the linger at 0x142896d00 (`0x230d`, plus `0x2461` while affected by Zealotry); both are registered virtual-stat
+derivations (0x1400e5d50, 0x1400db9d0) with no other direct reader in the dump. The client does not predict the
 ground or the linger; it shows the server's effect object and the `ground_consecration` buff (208).
 `consecrated_ground_effect_+%` (0x23f8) has no direct client reader.
 BuffDefinitions row 1262 `consecrated_ground_while_stationary` is invisible and has no stats; it is not sent.
@@ -86,8 +86,8 @@ It joins the player's skills after the socketed gems ([11](../protocol/11-skills
 - **One per family.** A Determination gem and the granted Determination cannot both run (the engine's rule for two gems).
   Whether the game lets both reserve is unverified.
 
-Client evidence: the skill record (0x142196ce0) has no item field, so a granted skill's record is the same as a gem
-skill's, which the client already lists and binds by id. The aura frame lookup (0x141e11180, checked in the disassembly)
+Client evidence: the skill record (0x14219d650) has no item field, so a granted skill's record is the same as a gem
+skill's, which the client already lists and binds by id. The aura frame lookup (0x141e147e0, checked in the disassembly)
 matches only the buff's skill id (+0x48) and action hash (+0x4a). Not checked live yet: that the client shows the
 granted skill in the skill picker and does not grey it out below level 90.
 
@@ -110,12 +110,12 @@ granted skill in the skill picker and does not grey it out below level 90.
   on a taunted monster near the player takes 145%. Spell Resistant's less spell damage stays a separate multiplier.
 - **Infinite power.** `warcries_have_infinite_power` makes a warcry's power 999999 (PoB CalcPerform's override).
   Enduring Cry near one normal monster then grants the maximum Endurance Charges (the grant of 199999 is clamped) and
-  the regeneration of its 25-power cap. The client works warcry power out itself for its display (0x141abd120 reads
+  the regeneration of its 25-power cap. The client works warcry power out itself for its display (0x141abfb30 reads
   `0x302e`); the stat goes out with the player's stats.
 - **No consumer.** `taunted_enemies_damage_+%_final_vs_non_taunt_target`: monsters only ever hit the player, who is
   the taunter, so there is no hit for it to reduce.
   Taunt immunity (`cannot_be_taunted`, map mods) is not modelled, and neither is the warcry-only
-  `taunted_enemies_by_warcry_damage_taken_+%` that the client adds for warcry skills (0x1428b0450); nothing in the
+  `taunted_enemies_by_warcry_damage_taken_+%` that the client adds for warcry skills (0x1428b7010); nothing in the
   engine grants it.
 - **Other warcries.** Infernal, Seismic, Intimidating, Rallying, Ancestral, Battlemage's and General's Cry pay, cool
   down and taunt; their own buffs, exerted attacks and summons are not implemented yet.
@@ -171,7 +171,7 @@ game measures "nearby" to the monster's centre, as here, or to its edge; that th
   An area change or a logout ends them with the connection. The instance never keeps them and nothing saves them.
 
 Client evidence (decompile dump, checked against the disassembly): the client knows a monster as the player's minion
-by its own stats `is_player_minion` (0x48a) and `is_semantic_minion` (0x3cf8); the link-target filter 0x141bf8490 reads
+by its own stats `is_player_minion` (0x48a) and `is_semantic_minion` (0x3cf8); the link-target filter 0x141bfaf20 reads
 both. The Gateway sends them on the relic's Stats component.
 
 Unverified: the explosion radius (the data has no explosion skill for the relic; 22 cells is Path of Building's
@@ -193,7 +193,7 @@ There is no party play, so a link can only take one of the player's minions, and
 - **Cast.** Every cast route (0x24 on an object or on the player, 0x25 at the ground) ends in `CastGemSkill`. A link
   gem links at the end of its cast time (500 ms, with cast speed) and costs nothing up front.
 - **Target.** The aimed object when it qualifies, else the nearest one that does, preferring one without a link. It
-  qualifies as in the client's filter (0x141bf8490): it is not the player, it is within (100 + `link_skill_range_+%`)
+  qualifies as in the client's filter (0x141bfaf20): it is not the player, it is within (100 + `link_skill_range_+%`)
   × 80 / 100 cells, and, with `link_skills_can_target_minions`, it is one of the player's living minions. With no
   target the cast does nothing and the log says `no link target`.
 - **One link each.** A new link from the same skill, or onto a target that already has one of the player's links,
@@ -217,7 +217,7 @@ There is no party play, so a link can only take one of the player's minions, and
   are minions) without a death. Unverified: the wiki names only a minion expiring or being resummoned, so our rule
   keeps a Hardcore character alive in both cases rather than kill it on a guess.
 - **Absolution.** `non_curse_aura_effect_+%_while_linked` counts in `Pools.AuraEffectPct` only while
-  `number_of_active_links` is nonzero, as in the client's aura effect (0x142822db0). The pools and the auras' stats are
+  `number_of_active_links` is nonzero, as in the client's aura effect (0x142829960). The pools and the auras' stats are
   worked out again whenever a link starts or ends.
 - **Field Medicine.** With `flasks_apply_to_your_linked_targets`, a non-unique utility flask the player uses puts its
   effect on every linked target for the flask's duration (`FlaskToLinkedTargets`; Path of Building's
@@ -228,15 +228,15 @@ There is no party play, so a link can only take one of the player's minions, and
   A minion target walks at its variety's speed × (1 + its mods' and the flasks' `base_movement_velocity_+%`): a magic
   Quicksilver (40%) and a Silver Flask's Onslaught (20%) make a relic walk 60% faster. The server's walk and the
   client's `movement_velocity_+%` (0xf5, sent in 0x1b3; the client walks every mover at its base × (1 + 0xf5 / 100),
-  `0x141e7c0b0`) change together when an effect starts or ends (`MinionFlaskSpeedLocked`).
+  `0x141e827a0`) change together when an effect starts or ends (`MinionFlaskSpeedLocked`).
   The relics follow the player and use no skill but their aura, so a flask's attack and cast speed do nothing on them.
   Path of Building's relic data has `untargetable_by_monster_ai` and `set_cannot_be_afflicted`, and no monster here
   damages a minion, so its resistances, armour, evasion, suppression and ailment immunities have nothing to act on.
 
-Client evidence (decompile dump): the filter 0x141bf8490 also accepts a monster with `monster_is_valid_link_target`
-and refuses a minion with `cannot_be_damaged`; the relics have neither. The candidate list 0x141bf8080 is read only by
-0x141bf8020, which returns whether any target exists, so the server picks the target.
-The beam is MiscBeams 484 `SoulLinkBeam` and its siblings, through SkillArtVariations. Its client code (0x1414e6f50,
+Client evidence (decompile dump): the filter 0x141bfaf20 also accepts a monster with `monster_is_valid_link_target`
+and refuses a minion with `cannot_be_damaged`; the relics have neither. The candidate list 0x141bfab10 is read only by
+0x141bfaab0, which returns whether any target exists, so the server picks the target.
+The beam is MiscBeams 484 `SoulLinkBeam` and its siblings, through SkillArtVariations. Its client code (0x1414e9350,
 `Link_Point`, `link_idle_01`) reads a byte stream, so the beam looks like a separate effect object. It is not
 reverse engineered and not sent.
 

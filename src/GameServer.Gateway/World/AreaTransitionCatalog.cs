@@ -425,7 +425,7 @@ static class AreaTransitionCatalog
     /// live 2026-10-18, The Mud Flats' Metadata/QuestObjects/WaterCave/WaterCaveAreaTransition (adds Transitionable)
     /// is read with only AreaTransition's components, so a Transitionable byte in the blob became the task count
     /// (Buffer Underflow), and without it the component kept state 0 and its post-create event crashed the client
-    /// (0x141ded7b9, as for monsters sent state 0). How the real server sets that state is open (08 §5).</summary>
+    /// (0x141df0e19, as for monsters sent state 0). How the real server sets that state is open (08 §5).</summary>
     static string Resolve(string? type, string what, List<string> notes)
     {
         if (type is null or AreaTransitionObject.MetadataPath) return AreaTransitionObject.MetadataPath;

@@ -78,7 +78,7 @@ static partial class Game
         conn.GuildStashOpen = false;
         var stash = StashOf(conn);
         // The panel keeps its tab while this connection lasts; only its first open here is moved to the account's last tab.
-        // A second 0x7b while it is open would close it (0x140dc4db0 toggles), so the choice is made now.
+        // A second 0x7b while it is open would close it (0x140dc2640 toggles), so the choice is made now.
         if (!conn.StashOpened)
         {
             conn.StashOpened = true;

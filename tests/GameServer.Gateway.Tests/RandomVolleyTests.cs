@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class RandomVolleyTests
 {
     // random_projectile_direction: a volley turns each projectile from the aim by its own 0–2π draw of one seeded
-    // generator (0x141bb9280); a lone projectile ignores the aim and flies along (sin a, cos a) (0x141bb13a0).
+    // generator (0x141bbbd10); a lone projectile ignores the aim and flies along (sin a, cos a) (0x141bb3e30).
     [Fact]
     public void A_volley_turns_from_the_aim_and_a_lone_projectile_ignores_it()
     {

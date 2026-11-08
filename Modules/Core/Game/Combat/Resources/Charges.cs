@@ -213,7 +213,7 @@ static partial class Game
     const int InfiniteWarcryPower = 999999;
 
     // A warcry's use time (PoB CalcOffence calcWarcryCastTime): its cast time over warcry speed (the player's and the
-    // gem's) and action speed, at least a server tick. The client times the cry from the same warcry_speed_+% (0x141abcaa0).
+    // gem's) and action speed, at least a server tick. The client times the cry from the same warcry_speed_+% (0x141abf4b0).
     internal static double WarcryCastSeconds(ClientState conn, int effect, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int> own)
     {

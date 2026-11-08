@@ -210,7 +210,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         foreach (var actor in actors.OrderBy(a => a.Key.Id).ThenBy(a => a.Key.Generation))
         {
             if (actor.Team == p.Use.Team || actor.Key == p.Use.Owner || actor.Key == p.TurnaroundTarget) continue;
-            // The client's contact (0x141e47ca0, 11-skills.md): Chebyshev cells against reach + the actor's size, with
+            // The client's contact (0x141e4b3a0, 11-skills.md): Chebyshev cells against reach + the actor's size, with
             // cells centred on integers, so the square's half-width is half a cell wider.
             int? cells = p.Profile.ContactCells;
             if (cells is not null && actor.Size < 0) continue;

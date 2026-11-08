@@ -6,12 +6,12 @@ Watch, and clicking the ground walks her there at normal speed. Evidence:
 
 ## 1. Tick and ack: C→S 0x1b, S→C 0x1c
 
-The client sends **0x1b** every 100–500 ms in state 3 (u8 counter + 4 bytes, 7 bytes in all; `0x142148880`) and pushes
+The client sends **0x1b** every 100–500 ms in state 3 (u8 counter + 4 bytes, 7 bytes in all; `0x14214f1d0`) and pushes
 the send time onto a queue at instance `+0xc458`. Each frame it sets `latency = now − queue.front` (or 0 when empty);
 that is the perf overlay's "network: N ms". Without an answer the queue only grows, so the value climbs forever.
 
-**0x1c** (instance group, dispatcher case 5, class `0x1435dc8c0`, read `0x141fa0720`): `u16 server delay ms`,
-`u16 index`, `u32 HNC carrier`, all big-endian. `0x142155930` drops queue entries 0..index and returns entry `index`'s
+**0x1c** (instance group, dispatcher case 5, class `0x1435e77a0`, read `0x141fa7150`): `u16 server delay ms`,
+`u16 index`, `u32 HNC carrier`, all big-endian. `0x14215c280` drops queue entries 0..index and returns entry `index`'s
 send time; an index ≥ the queue's size clears the queue and returns `+0xc470`, the latest tick's send time (live Frida
 2026-10-19). `+0xc488` is not a round trip: every client send stamps it with the time. One 0x1c with index 0 per
 received 0x1b keeps the queue at the one tick in flight (`InstanceProtocol.Pong`).
@@ -21,13 +21,13 @@ unframed bytes. Index 0 then always pops a stale entry. Live in The Coast the qu
 167 ms), and the meter read ~400 ms. The first 0x1c of each connection, and the first after an unframed read, therefore
 sends index 0xFFFF (`ClientInbox.NextAckIndex`). After that the queue held 1 at every 0x1c.
 
-**What the latency graph shows.** The network update `0x142148880` runs once per client frame on the network thread:
+**What the latency graph shows.** The network update `0x14214f1d0` runs once per client frame on the network thread:
 it reads the socket, handles each 0x1c, sets the sample `+0xc480` = now − queue front (0 when empty), and sends a 0x1b
 every 100 ms (500 ms after more than 100 ms without a client send, `+0xc488`). The graph and "latency N ms" show
-`+0xc490` (`0x140d57cd0` feeds it to the perf ring). Two places move it:
+`+0xc490` (`0x140d551f0` feeds it to the perf ring). Two places move it:
 
 - the network update raises it to the sample when the sample exceeds it by a margin (a tick overdue);
-- the 0x1c handler (`0x14214b8dc`, after the pop) computes rtt = now − the popped send time, subtracts the 0x1c's
+- the 0x1c handler (`0x14215222c`, after the pop) computes rtt = now − the popped send time, subtracts the 0x1c's
   u16 server delay from rtt and from the sample, and clamps the value into [sample − delay, rtt − delay]: it only
   drops when an rtt comes in below it.
 
@@ -78,15 +78,15 @@ requirement list. One build now resolves each once (`SkillBuildScope`) and the r
 
 ## 2. HNC, the hidden side channel
 
-The 0x1c u32 is not free data. `0x141fa0720` feeds its bits 9..31 then 0..8 (LSB first) into a byte accumulator on the
-stream (`+0xd0`). Every completed byte is decrypted and run through `0x14299de50`:
+The 0x1c u32 is not free data. `0x141fa7150` feeds its bits 9..31 then 0..8 (LSB first) into a byte accumulator on the
+stream (`+0xd0`). Every completed byte is decrypted and run through `0x1429a71b0`:
 
 - idle: a byte must decrypt to 0; otherwise it must be a packet type `0xDA`–`0xDD`
 - then a length byte (≠ 0), then that many payload bytes, queued as a packet
 - anything else throws **"HNC Protocol Violated"** (an exception dialog; a 0x1c with u32 = 0 did exactly that)
 
 The HNC cipher is the login-style Salsa20 pair keyed with **km'** = the 64-byte 0x14 key XOR the table at
-`0x142fe0da0`, then byte swaps 0↔0x15, 4↔2, 0xd↔0x2a, 0x30↔1, 0x1d↔0x1e, 0x32↔0x13 (`0x14299db60`); the client receives
+`0x142feaed0`, then byte swaps 0↔0x15, 4↔2, 0xd↔0x2a, 0x30↔1, 0x1d↔0x1e, 0x32↔0x13 (`0x1429a6ec0`); the client receives
 with IV `km'[48:56]`. So an idle carrier is the keystream itself: `v = rotl(LE32(keystream[4]), 9)`
 (`HncSender.NextIdleU32`, tested by replaying the client's unpacking in `HncTests`). The client also sends HNC packets
 (type `0xDD` from the tick); the server ignores them for now.
@@ -94,47 +94,47 @@ with IV `km'[48:56]`. So an idle carrier is the keystream itself: `v = rotl(LE32
 ## 3. Visibility: the wake zone (S→C 0x1a9)
 
 An object created with 0x2bb exists (position, components, camera follow, teleports) but is **not drawn and does not
-update** until it is in the wake zone. **0x1a9** (world group, class `0x1435dd838`, object header only: `u16 id, u32
-object id, u32 0, u16 0`) sets object `+0x8d |= 2` and calls `0x141ec0aa0` ("ObjectInWakeZone"); 0x1aa removes it. The
+update** until it is in the wake zone. **0x1a9** (world group, class `0x1435e8238`, object header only: `u16 id, u32
+object id, u32 0, u16 0`) sets object `+0x8d |= 2` and calls `0x141ec7350` ("ObjectInWakeZone"); 0x1aa removes it. The
 Gateway sends 0x1a9 for the player right after 0x21. That alone made the model appear (in the washed-up pose) and let
 actions run.
 
-A create can wake the object itself: for a 0x2bb whose blob's first byte has bit 0x02, `0x141ebe190` sets `+0x8d |= 2`
-and the create's handler (`0x142187480`) then calls `0x141ec0aa0`, as a 0x1a9 does. A 0x1a9 to an object that is awake
+A create can wake the object itself: for a 0x2bb whose blob's first byte has bit 0x02, `0x141ec4a40` sets `+0x8d |= 2`
+and the create's handler (`0x14218ddf0`) then calls `0x141ec7350`, as a 0x1a9 does. A 0x1a9 to an object that is awake
 and not waiting to leave changes nothing but a `[CRIT]` line in `Client.txt` saying the object was already in the wake
-zone (`0x141ec0aa0`, log id 0xaed1d716); after a 0x1aa, which lists the object to leave (World `+0xa48`), it takes the
+zone (`0x141ec7350`, log id 0xaed1d716); after a 0x1aa, which lists the object to leave (World `+0xa48`), it takes the
 object off that list instead. So a 0x1a9 goes only to an object created with the bit clear, or after a 0x1aa. GGG sent
 none of its 4 726 0x1a9 (four lockstep recordings) to an awake object: it creates effects, items and some monsters awake
 (2 095 creates) and wakes them again only after a 0x1aa. Of the Gateway's objects only projectiles are created awake
 (`CreateInWakeZone`), in both modes.
 
-Also sent, not proven necessary: Positioned `flags1 0x02` with (hidden 0, shown 1) (`0x141e2f0b0` → vtable +0xb0), and
+Also sent, not proven necessary: Positioned `flags1 0x02` with (hidden 0, shown 1) (`0x141e323f0` → vtable +0xb0), and
 Animated bit0 with the path `Metadata/Characters/Int/Int.ao` (the type already supplies it; the Animated deserializer
 only reloads when the path differs or none is set). Neither made the model appear before 0x1a9 was added.
 
 ## 4. World-group object messages
 
-The world handler `0x142187480` looks up `u32 object id` (message `+0x10`) and routes by id:
+The world handler `0x14218ddf0` looks up `u32 object id` (message `+0x10`) and routes by id:
 
 | Ids | Goes to | Notes |
 |---|---|---|
-| 0x51, 0x1ab–0x1b0, 0x1b4–0x1b6, 0x1ce–0x1d2, 0x1f0/0x1f1, 0x261, 0x2c8 | Actor `0x1421940a0` | actions |
-| 0x1b7–0x1c0, 0x2b2 | Positioned `0x141e30c90` | position / movement |
+| 0x51, 0x1ab–0x1b0, 0x1b4–0x1b6, 0x1ce–0x1d2, 0x1f0/0x1f1, 0x261, 0x2c8 | Actor `0x14219aa10` | actions |
+| 0x1b7–0x1c0, 0x2b2 | Positioned `0x141e33fd0` | position / movement |
 | 0x1a9 / 0x1aa | wake zone in / out | |
 | 0x2bc | component update by component index | |
 | 0x2bd | remove object | |
 
-Object header (all these messages): `u16 id, u32 object id (+0x10), u32 (+0x14), u16 (+0x18)`, written by `0x141f91f60`.
+Object header (all these messages): `u16 id, u32 object id (+0x10), u32 (+0x14), u16 (+0x18)`, written by `0x141f98850`.
 
 ## 5. Movement
 
-**C→S 0x25** "use skill at location" (sender `0x142166300`, class `0x1435bfbd8`, 16 bytes): `u32 x, u32 y` (target grid
+**C→S 0x25** "use skill at location" (sender `0x14216ccb0`, class `0x1435ca5f0`, 16 bytes): `u32 x, u32 y` (target grid
 cell), `u16 skill id` (Move = 0x2909 for the Witch), `u16` action `+0x11a` (an action sequence number: 0x1001, 0x1002, …;
 only sent when ≥ 0), `u16` action `+0x122` (flags: 0x0400, and 0x0008 when the client's `auto_equip` option is on;
 §6, "Action flags"). 0x24 is the same aimed at an object id. The client starts the
 action itself (prediction) but will not send another until the server echoes it.
 
-**S→C 0x1ab** "action started" (class `0x1435c2340`, read `0x141fdda70`): object header, `u16 flags` (+0x38 → action
+**S→C 0x1ab** "action started" (class `0x1435ccc18`, read `0x141fe4290`): object header, `u16 flags` (+0x38 → action
 +0x122; bit 0x80 adds a `u32 target object id`), compact ints **actor position** (+0x2c/+0x30 → action +0x158) and
 **target** (+0x24/+0x28 → action +0x130), `u16 skill id`, `u16 sequence` (+0x36 → action +0x11a). For the local,
 predicted player (sequence ≥ 0) the handler compares the position pair with where the client thinks the player is and
@@ -150,8 +150,8 @@ its own copy of the player's walk, and since 2026-10-21 that copy is the client'
 13 cells and up to 50 on held-mouse walks: it walked zig-zag cell paths where the client walks straight lines, rounded
 to whole cells on every re-order, walked through NPCs and refused detours the client takes.
 
-**The client's pathfinder** (`0x141e4d890`, from the Pathfinding component's MoveTo `0x141e7b530` → `0x141e7b920` →
-`0x141e4ef90`). Arguments seen (Frida, `scripts/re/frida/trace-movement.js`): a Move click or a monster's move has
+**The client's pathfinder** (`0x141e50f90`, from the Pathfinding component's MoveTo `0x141e81c20` → `0x141e82010` →
+`0x141e52690`). Arguments seen (Frida, `scripts/re/frida/trace-movement.js`): a Move click or a monster's move has
 precision 1, min and max range 0, tolerance −1, no phasing; a walk up to an object to use it has max range = the
 object's size + 3 and tolerance = its size (an NPC, size 4: 7 and 4; the stash, 2: 5 and 2; a waypoint, 5: 8 and 5).
 
@@ -175,7 +175,7 @@ way ([11](11-skills.md) §6). With that, 8 % of the client's searches
 found no path (6 % given 0), and the pack ran p90 4–17 cells from the estimate instead of 19–28, with 0–2 snaps a run
 instead of 1–7.
 
-- **Grid and size.** Walk values are 4 bits per cell in 3 layers (`0x141d85260`: map `+0xd0 + 0x18 × layer`, row stride
+- **Grid and size.** Walk values are 4 bits per cell in 3 layers (`0x141d888f0`: map `+0xd0 + 0x18 × layer`, row stride
   `+0x100`, size `+0x18/+0x20` in 23-cell tiles). A mover of size *s* (Positioned `+0x1e3` = `object_size − 1`: the
   player 1, NPCs 4, the stash 2, monsters 1–3) may stand on a cell whose value is ≥ *s* + 1, so a monster of size 2
   needs ≥ 3 where the player needs ≥ 2. The player uses layer 0
@@ -183,16 +183,16 @@ instead of 1–7.
   is the projectile grid (`<area>_seed<n>.projectile.bin`: 0 stops projectiles, 1 … 5 a distance from what does): the
   goal's line test reads it (below).
 - **Search.** A* in a 272 × 272-cell window (`0x110`, centred on the start). 8 neighbours in the order (0,1), (1,0),
-  (0,−1), (−1,0), (1,1), (1,−1), (−1,−1), (−1,1) (`DAT_142fbf350`); no corner rule. Costs are 1 / 1.4142 and the
-  heuristic is `|cell − target| + 0.001 × |cross(target − start, cell − target)|` (`0x141e4d7d0`; the distance less the
+  (0,−1), (−1,0), (1,1), (1,−1), (−1,−1), (−1,1) (`DAT_142fc93e0`); no corner rule. Costs are 1 / 1.4142 and the
+  heuristic is `|cell − target| + 0.001 × |cross(target − start, cell − target)|` (`0x141e50ed0`; the distance less the
   tolerance, then the part outside [min, max], 0 inside), all in float32. The open list is MSVC `push_heap`/`pop_heap` on
-  `{node, f}` with `a.f > b.f` (`0x141beb420`, `0x141beb2b0`), stale entries are skipped, and the goal is the first
+  `{node, f}` with `a.f > b.f` (`0x141bedeb0`, `0x141bedd40`), stale entries are skipped, and the goal is the first
   popped node with h = 0 whose Bresenham line to the target, both ends included, holds the order's precision on layer 1
-  (`0x141d87160`; the precision is MoveTo's `+0x528`, 1 … 5: 1 for a Move or a melee attack, 3 for a bow's attack). A
+  (`0x141d8a7f0`; the precision is MoveTo's `+0x528`, 1 … 5: 1 for a Move or a melee attack, 3 for a bow's attack). A
   node in range without that line is expanded like any other, so a bow's attack walks to the nearest cell it can
   shoot from. When no node had it and the best node was the start, a monster's second search goes to the target itself
   (min and max range 0).
-- **The player's limit is an ellipse.** For a mover with a Player component (`0x14013f1e0`) there is no expansion
+- **The player's limit is an ellipse.** For a mover with a Player component (`0x14013f510`) there is no expansion
   count; a neighbour n is searched only if `clamp(2 |target − start|, 20, 136) > |n − target| + |n − start|`.
 - **Other movers stop after 100 expansions** (1000 for a unique, ObjectMagicProperties `+0x144` = 3, or a pet with
   PetAi). When that search does not reach the target and the straight line to it is blocked, a **coarse pass** runs:
@@ -200,52 +200,52 @@ instead of 1–7.
   neighbours where a straight line reaches them, costs 11.5 / 16.2634, only through cells within 136 of the target and
   a straight line apart, at most 300 expansions; the first coarse cell with h < 23 that sees the target ends it. Its
   chain back (goal first, with the path length from each to the target) then guides a second fine search: a cell heads
-  for the next coarse waypoint once it is within √143 and in sight (`0x141e4ee90`), and its heuristic becomes the
-  distance to that waypoint plus the length left (`DAT_1445bb850`, `0x1445bb868`).
-- **Objects** (`0x141e61370` → `0x141e61540`). Objects are found in the 23-cell tiles within *s* + 4 of the cell; one
+  for the next coarse waypoint once it is within √143 and in sight (`0x141e52590`), and its heuristic becomes the
+  distance to that waypoint plus the length left (`DAT_1445c69c0`, `0x1445c69d8`).
+- **Objects** (`0x141e65910` → `0x141e65ae0`). Objects are found in the 23-cell tiles within *s* + 4 of the cell; one
   blocks when `max(|dx|, |dy|) − its size < s + 1`, a square (an NPC: Chebyshev distance ≤ 5 from its cell). Objects
   with `blocking = false` (waypoints, area transitions) are never tested. Layer, team and phase flags can exempt an
   object; a walker that starts inside a footprint may cross object cells at cost 21.
 - **Unreachable targets.** The search ends at the explored cell with the lowest heuristic.
-- **Waypoints.** Walking back from the end, a cell is kept where the Bresenham line (`0x141d87160`, terrain; `0x141e616a0`,
+- **Waypoints.** Walking back from the end, a cell is kept where the Bresenham line (`0x141d8a7f0`, terrain; `0x141e65c40`,
   objects) from its parent to the last kept waypoint is blocked. At most 136 waypoints.
 
-**The client's walk** (Positioned `0x141e34400` → `0x141e4d180`, ticked by `0x141e32710` → `0x141e4d390`). Each segment
+**The client's walk** (Positioned `0x141e37740` → `0x141e50880`, ticked by `0x141e35a50` → `0x141e50a90`). Each segment
 between waypoints is a Bresenham line of cells; one step takes `(√(dx² + dy²) / speed) / max(|dx|, |dy|)` seconds,
 and the grid cell (`+0x294`) only changes a step at a time. Each frame adds its time to the accumulator (`+0x244`: a
 predictive client's own frame, a whole number of milliseconds of its clock; a lockstep client's server frame, below)
 and steps while it holds a whole step time (`+0x240`); before every
 step the next cell is checked again (terrain, objects) and a blocked step ends the walk: the walker stands, with no new
-path and no message (`0x141e7bc20`). A new segment, including the first one of a new order, rescales the accumulator to
+path and no message (`0x141e82310`). A new segment, including the first one of a new order, rescales the accumulator to
 its own step time (`A × s_new / s_old`), so a re-order keeps the
-elapsed fraction of the step in progress. A stop (`0x141e350e0`) takes effect in the next tick, after that tick's
+elapsed fraction of the step in progress. A stop (`0x141e38420`) takes effect in the next tick, after that tick's
 steps, and keeps the accumulator: the tick clears only the step time, so the next walk, with no step time to rescale
 from, starts with it as it is and steps that much sooner.
 Verified on a capture (2026-10-21): the per-tick rule held in 55,915 of 56,069 player
-ticks (the rest are counter resets), the rescale on 575 of 575 clicks. Speed (`0x141e7c0b0`) is the Pathfinding base
+ticks (the rest are counter resets), the rescale on 575 of 575 clicks. Speed (`0x141e827a0`) is the Pathfinding base
 (`+0x548`, `base_speed` 37 for the player, times the Actor's run-speed roll `+0x1a8`) × (1 + `movement_velocity_+%`
 / 100) × (1 + stat 0xce6 / 100), capped by stat 0x44f.
 
 **The lockstep tick** (live 2026-11-03, `scripts/re/frida/trace-lockstep-tick.js` on a bow pack fight). On a
-lockstep client the walk above runs per server frame. The world update (`0x142183930`) runs each queued frame through
-`0x142183ce0` with the frame's length as float seconds (33 ms → 0.033f); that walks the object tree (`+0xa28`, keyed by
-object id) in ascending id and, per object (`0x142184680`; ids with the top bits `0xc0000000` afterwards, through
-`0x142184870`), applies the records keyed below the object's id and calls each component's slot `+0x40` with the delta.
-Positioned's slot is the walk tick itself (vtable `0x1435a0f18`, `0x141e32710`). So the player (0x1000) ticks before
+lockstep client the walk above runs per server frame. The world update (`0x14218a2a0`) runs each queued frame through
+`0x14218a650` with the frame's length as float seconds (33 ms → 0.033f); that walks the object tree (`+0xa28`, keyed by
+object id) in ascending id and, per object (`0x14218aff0`; ids with the top bits `0xc0000000` afterwards, through
+`0x14218b1e0`), applies the records keyed below the object's id and calls each component's slot `+0x40` with the delta.
+Positioned's slot is the walk tick itself (vtable `0x1435ab608`, `0x141e35a50`). So the player (0x1000) ticks before
 every monster, a monster before those created after it, and a walker takes all of its steps due in the frame before the
 next object ticks (1 488 frames with walker ticks, every one in ascending id). The accumulator gains exactly the frame's
 length (18 574 of 18 917 ticks; the rest ended a walk or changed segment), keeps its remainder across steps and
-segments (a segment's setup, `0x141e4d180`, rescales it by new/old only when the old step time is above zero: all
+segments (a segment's setup, `0x141e50880`, rescales it by new/old only when the old step time is above zero: all
 1 627 mid-walk re-orders rescaled, all 3 231 segment transitions carried) and is zeroed when the step loop ends the
 walk (its path's end, a blocked step), not by a stop: in per-frame traces of six fights (2026-11-04), 28 of 28 player
 walks from a stand an action's stop left mid-step started with it unscaled, and 43 of 43 after a path's end or a
 blocked step started at 0. A walk set up in the stop's own frame is not traced: by the decompile the client's MoveTo
-then clears the deferred stop (`0x141e34400`) and rescales the step time still set (`0x141e4d180`). The estimate gives
-such a walk no kept time, and Shield Charge (`0x141a6bae0` → `0x141e9a3c0`, its first step from a stand not traced)
+then clears the deferred stop (`0x141e37740`) and rescales the step time still set (`0x141e50880`). The estimate gives
+such a walk no kept time, and Shield Charge (`0x141a6e4f0` → `0x141ea0c60`, its first step from a stand not traced)
 none at all. Each step's
-body check (`0x141e47ca0`) reads the other objects' cells as they are at that moment, so an object that ticked earlier
+body check (`0x141e4b3a0`) reads the other objects' cells as they are at that moment, so an object that ticked earlier
 in the frame is seen where that frame's steps put it and a later one where the frame before left it. The forced
-position set of an action start (`0x141e8e7e0` → `0x141e31800`: in lockstep whenever the actor's cell is not the 0x1ab's
+position set of an action start (`0x141e95080` → `0x141e34b40`: in lockstep whenever the actor's cell is not the 0x1ab's
 pair, predictive at 46+ cells) ends the walk in progress and zeroes the accumulator (713 sets in the fight, every one
 with the cell differing, 601 on a walking actor, all 601 zeroed; on a standing walker it keeps it, 9 of 9 on
 2026-11-04): an order whose from cell is the client's cell keeps
@@ -270,15 +270,15 @@ still differ by one cell.
 server sent it (median 17 ms), and the client paths it at once (1,235 of 1,235 recorded monster paths match
 `ClientPathfinder` with `SearchLimit.Expansions100`, all other objects as blockers and the size's walk threshold). Each
 step is checked like the player's. A path that began on a blocked cell steps through bodies until its first free step
-(`0x141e4d890`'s out flag → Positioned `+0x1e5 & 4`). A path the expansion limit cut short is walked to its end and then
-paths again from there at once (`0x141e7bec0` → `0x141e7b920`). Starting a non-pathing action ends the Move with
-`0x141e90740(…, 0)`, which leaves the pathing running, so a ranged monster shoots while it walks on to the Move's target
+(`0x141e50f90`'s out flag → Positioned `+0x1e5 & 4`). A path the expansion limit cut short is walked to its end and then
+paths again from there at once (`0x141e825b0` → `0x141e82010`). Starting a non-pathing action ends the Move with
+`0x141e96fe0(…, 0)`, which leaves the pathing running, so a ranged monster shoots while it walks on to the Move's target
 (on a lockstep client too: §6).
 Monsters far from the player keep their walk but do not tick. Their speeds vary by a few percent (7.60–8.40 for a base of
 8): the Actor's run-speed roll `+0x1a8`. Actor
-setup `0x141e9ca20` seeds a TinyMT32 state (`0x1413cbe50`, init_by_array) with the key [object id, the object type's
+setup `0x141ea32d0` seeds a TinyMT32 state (`0x1413ce240`, init_by_array) with the key [object id, the object type's
 u32 at its data +8] and, when the MonsterVarieties row's two unnamed i32 columns before `AilmentThreshold` (`__col75`,
-`__col76`) differ, draws a uniform integer in that range (`0x1404d03d0`); the roll multiplies the Pathfinding speed by
+`__col76`) differ, draws a uniform integer in that range (`0x1404d0990`); the roll multiplies the Pathfinding speed by
 1 + roll / 100. Of the 10 691 rows, 8 694 have (0, 0), 875 (−10, 10) and 855 (−5, 5) (every plain Goatman: 8 × 0.95
 to 1.05 is the band measured), then (−5, 10), (0, 10), (−30, 15), (−5, 8), (−15, 15). The server draws the same roll
 (`MonsterSpeedRoll.cs`, `AnimationVariantSelector.NativeRandom`) with the monster's 0x2bb type hash as the type word
@@ -286,7 +286,7 @@ and walks its estimate at that speed (the Gateway's create log prints the speed 
 2026-11-03 (the lockstep tick trace, each walker's step times): four Drowned walked at 8.16, 7.92, 7.60 and 7.84
 cells/s, the Gateway's rolls of +2, −1, −5 and −2 % for them; Hungry Corpses at 8.000, Sand Spitters at 20.000, the
 player at 37.000. `scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier.
-Equal bounds skip the random draw but retain that percent (`0x141e9ccb2` → `0x141e9ccc2`–`0x141e9ccd9`).
+Equal bounds skip the random draw but retain that percent (`0x141ea3562` → `0x141ea3572`–`0x141ea3589`).
 The extracted nonzero cases are AbyssCurseBot/AbyssDebuffBot (30/30, factor 1.30) and SareshFleshPillar
 (−20/−20, factor 0.80). `MonsterSpeedRoll.Percent` preserves these fixed values; zero/zero remains zero.
 Prepared-client Actor setup readback confirms all three factors (float 1.29999995/1.29999995/0.80000001);
@@ -297,7 +297,7 @@ Decompiled in the research branch's `re/server-gaps-3.29.3b.md` §3.
 far (flags 0x80, the position pair is where it has the monster and the player); Move is for everything that is not a
 chase. A server-created attack that paths is not played at once: the action walks the monster up to its target, as far
 as the attack's reach (MoveTo with max range reach − 1 and the target's size as the tolerance, so distance ≤ reach), and
-waits there until S→C 0x1ac sets the Actor's flag 0x10 (`0x141e94720`). The tick paths a waiting action again every
+waits there until S→C 0x1ac sets the Actor's flag 0x10 (`0x141e9afc0`). The tick paths a waiting action again every
 0.25 s. So 0x1ac is what starts the swing, and when it arrives first the swing starts on arrival. GGG sends it when its
 own copy arrives, or with the 0x1ab in the same tick when the monster is already in reach, and that sets the
 swing's timing on both sides. `skill_is_non_pathing` on the skill skips all of this: the action plays where the monster
@@ -306,22 +306,22 @@ It chases the same way (`PlanMonsterAi`, `InstanceProtocol.ActionStartedNow`), a
 with `PlayerWalk.Approach` at the search budget of §5.
 
 Whether a walk-up has got there (a monster's chase, the player's attack on a monster) is MoveTo's goal test
-(`0x141e7b260`) on the target's own cell: the action's target (`0x14123d600`) is the target object's Positioned cell
+(`0x141e81950`) on the target's own cell: the action's target (`0x14123f9c0`) is the target object's Positioned cell
 itself, so the goal follows it as it walks (51 of 51 traced setups of the player's actions on an object). It is tested
-where the walker stands when the order applies (`0x141e7b530`), after the walker's steps in every tick (Pathfinding's
-tick, `0x141e7bfb0`), and at every waypoint of its path it steps into (`0x141e7bec0`). Objects tick in ascending id,
+where the walker stands when the order applies (`0x141e81c20`), after the walker's steps in every tick (Pathfinding's
+tick, `0x141e826a0`), and at every waypoint of its path it steps into (`0x141e825b0`). Objects tick in ascending id,
 so a monster tests the player's cell as his steps this tick left it, and the player a monster's as the tick before
-left it (2 951 and 181 traced ticks). Met, `0x141e7bc20` stops the walk and fires
-the arrival (`0x141e942f0` → `0x141e94720`): at a waypoint the walker stands at once, since the piece's step time is
-spent; mid-piece the stop (`0x141e350e0`) waits for the next tick's steps. A blocked step reaches `0x141e7bc20` too
-(listener table `0x1435a6728` slot 2, `0x141e7bf80`), which tests the goal again where the walker stopped: met, that is
+left it (2 951 and 181 traced ticks). Met, `0x141e82310` stops the walk and fires
+the arrival (`0x141e9ab90` → `0x141e9afc0`): at a waypoint the walker stands at once, since the piece's step time is
+spent; mid-piece the stop (`0x141e38420`) waits for the next tick's steps. A blocked step reaches `0x141e82310` too
+(listener table `0x1435b3388` slot 2, `0x141e82670`), which tests the goal again where the walker stopped: met, that is
 an arrival; otherwise, as when a search finds no path, the action ends. At the path's end out of reach it searches
-again from there toward the target's cell in the same tick (`0x141e7b920`). Mid-path out of reach it searches again
+again from there toward the target's cell in the same tick (`0x141e82010`). Mid-path out of reach it searches again
 only for a target that has left the cell it last searched toward (`+0x550`), 2.0 s after that search, or 0.7 s after it
-once the target is 64 cells from that cell (`0x141e7bfb0`: each tick adds its frame to `+0x55c`, which the search
-zeroes); decompiled, not reached in the traces (the oldest search at a tick 0.76 s). `0x141e94720` also waits for the
+once the target is 64 cells from that cell (`0x141e826a0`: each tick adds its frame to `+0x55c`, which the search
+zeroes); decompiled, not reached in the traces (the oldest search at a tick 0.76 s). `0x141e9afc0` also waits for the
 actor to face its target, but only for an action with `action_required_target_facing_angle_tolerance_degrees` (slots
-+0x230 and +0x238, `0x14123d650` and `0x14193ebc0`: 0 reads as a full turn); no granted effect, skill level or monster
++0x230 and +0x238, `0x14123fa10` and `0x141944310`: 0 reads as a full turn); no granted effect, skill level or monster
 variety has it, so no monster here waits for it.
 A monster told to swing while the player is out of its reach does not stand: on the client it walks after the player
 until it can swing. So on a predictive client the Gateway calls a swing off when the player is out of reach in its first
@@ -341,24 +341,24 @@ within the reach, 54 % one cell beyond it, 30 % two beyond and 4 % farther. Its 
 reach (2 of 3 swings), and in none of 5 swings 3 cells or more beyond.
 
 **The player's own walk-up.** The client's action goes on until the target is in reach and needs no word from the
-server to swing. A predictive client's paths again every 0.05 s for a player (0.25 s for a monster, `0x141e8eb60`, which
-`0x141e8ef50` runs again only in that mode), and the Gateway's estimate every 100 ms, for up to 3 s
+server to swing. A predictive client's paths again every 0.05 s for a player (0.25 s for a monster, `0x141e95400`, which
+`0x141e957f0` runs again only in that mode), and the Gateway's estimate every 100 ms, for up to 3 s
 (`FollowMonsterToSwing`; neither number is the client's). A lockstep client's is the walk-up above, set up once by its
 order (1 446 of 1 447 traced setups of the player's actions came in the frame of an order's apply). In reach means the
 walk-up's own goal: the distance less the target's size within the weapon's range less one (WeaponTypes RangeMax: a bow
 or wand 120, the Rusted Sword 11;
-`0x141e8eb60` gives MoveTo `+0x168` − 1 as the max range and `+0x158` − 1 as the min (a 0 counts as 1), so the client's
+`0x141e95400` gives MoveTo `+0x168` − 1 as the max range and `+0x158` − 1 as the min (a 0 counts as 1), so the client's
 search runs with max range 119 for the bow and 10 for the sword, live 2026-11-03), with the line to the target. MoveTo
-(`0x141e7b530`) first tests where the player stands (`0x141e7b260`): in range, and the line to the target on layer 1
-(the projectile grid) holding the action's precision (`0x141e8eb60` → MoveTo `+0x528`: 3 for the bow's attack, 1 for
+(`0x141e81c20`) first tests where the player stands (`0x141e81950`): in range, and the line to the target on layer 1
+(the projectile grid) holding the action's precision (`0x141e95400` → MoveTo `+0x528`: 3 for the bow's attack, 1 for
 the sword's and for a Move) up to the target's body: the last cell at or above the precision within size + 1 of the
-target (`0x141d87500`). Met there while a lockstep client's player walks, the action goes on to the swing at once:
-`0x141e7bc20` puts the stop off until the frame's steps (`0x141e350e0`) but tests that same cell again, so the player
+target (`0x141d8ab90`). Met there while a lockstep client's player walks, the action goes on to the swing at once:
+`0x141e82310` puts the stop off until the frame's steps (`0x141e38420`) but tests that same cell again, so the player
 swings from where the steps leave him even when they carry him out of reach, walking away from the target
 (`PlaceLockstepAttack`). Failing that, the search's goal is the first cell in range whose whole line to the target holds
 the precision (the pathfinder above): the bow's attack walks to where it can shoot (in reach at 35 cells on the Strand the client
 walked 17 cells round a rock, then shot). When the ellipse holds no such cell the search returns nothing, and the goal
-is tested where the player stands at precision 1, which the order then keeps (`0x141e7b920`): a line without a 0 lets
+is tested where the player stands at precision 1, which the order then keeps (`0x141e82010`): a line without a 0 lets
 the shot go from there, a wall in it leaves the action without a path. The Gateway does the same
 (`ClientPathfinder.InReach`, `PlayerWalk.Approach`'s precision, `Combat.SwingInReach`) from the capture's
 `.projectile.bin` or the generated level's grid (`AreaLayout.Sight`). Live 2026-11-03 on the Strand: ten bow shots
@@ -415,13 +415,13 @@ client and server walk at the same speed. `ApplyMovementSpeed` runs on login, le
 Only unconditional `increased Movement Speed` passives are modelled: action speed, more multipliers, gear/buff
 `movement_velocity_+%`, conditional nodes and the `movement_velocity_cap` constant are not applied yet.
 `movement_speed_cannot_be_reduced_below_base` bounds the total below by 0 (PoB `max(MovementSpeedMod, 1)`).
-The client's lower bound for `movement_velocity_+%` is 0 instead of -100 from the same raw flag (`0x14251cbd0`).
+The client's lower bound for `movement_velocity_+%` is 0 instead of -100 from the same raw flag (`0x142523780`).
 
-**Compact int** (writer `0x141fa3c50`): signed, 1 byte for −0x40..0x3f (value & 0x7f), else 2/3/4 bytes with first-byte
+**Compact int** (writer `0x141faa680`): signed, 1 byte for −0x40..0x3f (value & 0x7f), else 2/3/4 bytes with first-byte
 prefixes 0x80/0xc0/0xe0 carrying the top 6/5/4 bits, else 0xf0 + 4 bytes; big-endian (`InstanceProtocol.CompactInt`).
 
-**S→C 0x1ba** move (class `0x1435dd7b8`, read `0x141fe0ff0`): header, `i32 x, i32 y, u32 +0x28, f32 speed, u8`; the
-Positioned handler calls `0x141e34120` with duration = distance / speed. With speed 37 it overrode the client's own walk
+**S→C 0x1ba** move (class `0x1435e85f8`, read `0x141fe7810`): header, `i32 x, i32 y, u32 +0x28, f32 speed, u8`; the
+Positioned handler calls `0x141e37460` with duration = distance / speed. With speed 37 it overrode the client's own walk
 and crawled (~1 cell per 1.5 s), so it is not sent for the local player (`Game_MOVE_MODE=move` to test).
 **S→C 0x1b7** teleport: header, `i32 x, i32 y, u32 → +0x290, u32 → +0x2b4`; works (`Game_MOVE_MODE=teleport`).
 
@@ -465,15 +465,15 @@ a 0x25, so the client predicts nothing. `skill-clicks` plays the skill on the ri
 Negative footprints do not block; zero is a valid small body.
 Monsters with a negative footprint do not avoid living bodies.
 Targetability does not determine whether an existing body blocks: created, untargetable buried monsters remain
-in the native body query (`0x141e61540`) in both network modes. Predictive mode zero directly blocks ordinary
+in the native body query (`0x141e65ae0`) in both network modes. Predictive mode zero directly blocks ordinary
 monster searches on still-buried bodies, subject to the same layer, priority and phasing filters. Predictive local
-input (`0x14215f700`) reaches the shared MoveTo search (`0x141e4d890`), including its player-specific exemptions.
+input (`0x1421660b0`) reaches the shared MoveTo search (`0x141e50f90`), including its player-specific exemptions.
 Resolved `Positioned.blocking = false` suppresses the body without suppressing its own movement checks.
-The ordinary Positioned creation reader (`0x141e2f0b0`) copies the supplied cell directly, so saved monsters retain
+The ordinary Positioned creation reader (`0x141e323f0`) copies the supplied cell directly, so saved monsters retain
 their established cells, including overlaps.
 `AreaLayout.WalkableFor` retains the captured terrain clearance values instead of treating every actor as player-sized.
 Monster orders use the bounded native pathfinder with the client's budget: 1000 expansions for a
-unique, 100 for any other monster (`0x141e4d890`).
+unique, 100 for any other monster (`0x141e50f90`).
 Their blockers include stationary objects, other living monsters, the local player and published instance players.
 Only chasers on Move orders use surround slots: ranged monsters and the player's minions.
 Surround candidates, including retained slots, must clear the player's Chebyshev footprint.
@@ -486,7 +486,7 @@ Moved bodies update the index before later movers use it.
 The indexes are discarded after the pass; normal/unique expansion budgets, stationary hulls and phasing remain intact.
 AI and correction passes advance prior projectile contacts before taking the body snapshot, using the shared
 projectile mutation scope and its experience-before-combat lock order.
-The client stops a walker at the first cell a body blocks (`0x141e32710`, `0x141e47a40`), whatever its path said, and a
+The client stops a walker at the first cell a body blocks (`0x141e35a50`, `0x141e4b140`), whatever its path said, and a
 walker that started inside a body steps through until its first free step. `StepWalkers` does the same to the server's
 estimates, every 50 ms and before each AI decision (an order would drop the steps it replaces): the steps taken since the
 last pass, the player's and every monster's in time order, each against the cells the others hold at that moment; on a
@@ -527,8 +527,8 @@ stays the preferred mode.
 Everything above is the client's **Predictive** network mode (Options → Game → Network Mode;
 `[NETWORKING] networking_type=predictive` in `Documents\My Games\Path of Exile\production_Config.ini`; the mode is
 `+0x984` of the world: 0 predictive, 2 lockstep, 3 auto). The client alone chooses it: no message sets or reports it.
-"Auto" starts at lockstep (`0x14449e7f0` holds 2), drops to predictive when connecting took over 90 ms and returns under
-70 ms (`0x142148880`), so it picks lockstep on localhost. A fourth value, `hybrid`, is disabled in the client.
+"Auto" starts at lockstep (`0x1444a9800` holds 2), drops to predictive when connecting took over 90 ms and returns under
+70 ms (`0x14214f1d0`), so it picks lockstep on localhost. A fourth value, `hybrid`, is disabled in the client.
 
 The Gateway has no mode setting: every connection serves both, and follows what its client sends (a player switches by
 changing the option and entering again). The first sign of lockstep logs once per connection that Predictive is the
@@ -543,12 +543,12 @@ server replies. The client reads its socket once per update, so one round trip s
 on loopback with the window in the background), and the lowest of the last 16 is the network's.
 
 **Server frames.** In lockstep the client's world does not run on its own clock: it runs **server frames**. S→C
-**0x2b8** (u8) sets the frame length in ms (`0x141645fa0` stores the zero-extended byte as u32 at world `+0x11c`);
+**0x2b8** (u8) sets the frame length in ms (`0x141648b50` stores the zero-extended byte as u32 at world `+0x11c`);
 S→C **0x2b7** (id only) ends a frame. In nonzero mode, after activation sets world `+0xa00`, the embedded message
-intake (`0x1421872b0`, this=world `+0x1c8`) appends a null delimiter to the record vector (`+0x9e0`) and queues
+intake (`0x14218dc20`, this=world `+0x1c8`) appends a null delimiter to the record vector (`+0x9e0`) and queues
 the current frame length (deque map at world `+0x9c0`, count `+0x9d8`). Before activation it adds neither.
 Each client update adds its time to world `+0x988` and runs every queued frame it covers
-(`0x142183930` → world vtable `+0x360` = `0x142183ce0`). Nonzero-mode core updates apply initial ordering-key-zero
+(`0x14218a2a0` → world vtable `+0x360` = `0x14218a650`). Nonzero-mode core updates apply initial ordering-key-zero
 messages, then interleave eligible messages with object/component checkpoints; objects use the frame's delta.
 The common header's ordering object/checkpoint fields control those insertion points, independently of the update
 target. See [World message inputs](../re/projectiles/world-message-inputs.md) and
@@ -565,7 +565,7 @@ opposite). Without both, lockstep frame ends went out 0 to 16 ms late (31 and 47
 is in game (`WindowsTimerResolution`), and `RunLockstepFrames` woken at each frame end, 77 to 93 % went out under 2 ms
 late (on loopback, in town and The Mud Flats); its earlier poll every third of a frame sent them 22 and 44 ms apart.
 
-**Client moves** (`0x14215f700`, `0x14215fb10`, `0x14215fcb0`, `0x14215fe50` send them when `+0x984` is 2):
+**Client moves** (`0x1421660b0`, `0x1421664c0`, `0x142166660`, `0x142166800` send them when `+0x984` is 2):
 
 | Id | Bytes | Fields |
 |---|---|---|
@@ -576,15 +576,15 @@ late (on loopback, in town and The Mud Flats); its earlier poll every third of a
 | 0x0196 | 4 | u16 skill id: release that skill |
 
 The client creates no action of its own: nothing moves until a 0x1ab comes, for the player as for a monster, because
-Actor `+0x1c8` is set only outside lockstep (`0x142156d80`). What else changes in the client:
+Actor `+0x1c8` is set only outside lockstep (`0x14215d6d0`). What else changes in the client:
 
-- Each action start puts the actor on the 0x1ab's position pair at any distance (`0x141e8e7e0`; predictive: 46+ cells).
+- Each action start puts the actor on the 0x1ab's position pair at any distance (`0x141e95080`; predictive: 46+ cells).
   That is what holds the two copies together; between action starts the client still walks its own.
-- 0x1ac does nothing (the handler returns unless `0x14164dc70` gives 1), and a queued action starts without waiting
-  for one (`0x141e94720`). 0x128 is skipped (case 0x50 of `0x14214a190`).
+- 0x1ac does nothing (the handler returns unless `0x1416502e0` gives 1), and a queued action starts without waiting
+  for one (`0x141e9afc0`). 0x128 is skipped (case 0x50 of `0x142150ae0`).
 - S→C **0x1ad** (object header, u16 sequence, i32 x, i32 y, `InstanceProtocol.ActionTarget`) reaches only an active
   channelled action with that sequence. The sequence is the server's own, so a walk gets a new 0x1ab instead.
-- A skill's pay check runs for every actor (`0x141e9d930`, `0x141e9dc10`), not only the local one.
+- A skill's pay check runs for every actor (`0x141ea41e0`, `0x141ea44c0`), not only the local one.
 
 **What GGG sends a lockstep client.** What it sends a predictive one, including 0x1ac and 0x128, which do nothing here;
 no 0x2b8. A click gets its 0x1ab with key 0 at the next frame start. Its target is the client's cell when it clicked plus
@@ -602,7 +602,7 @@ next use follows that swing. The Gateway does the same (`LockstepAttackStart`) w
 0x1ab, and the walk-up with it, at the start of the frame it goes out in, and its step pass runs that walk-up with the
 monsters' (§5, `StepWalkUp`). The swing begins in the goal frame (46 of 46 traced). No timer of the player's own swing
 was found (Actor `+0x26c` stays 0 for him), so his is dated as a monster's, whose attack time is taken as its swing
-starts (`0x141e95e60`): the hit, a shot's release and the next attack from the goal frame's start, the Move cut-in from
+starts (`0x141e9c700`): the hit, a shot's release and the next attack from the goal frame's start, the Move cut-in from
 its end, all at the attack time the swing begins with. The client's own wand bolt or arrow leaves on the frame tick in
 which its clip clock passes the release, counted in whole frames from the start of the frame its action began in:
 frame 12 for the wand (0.367 s on the clip model, [11](11-skills.md) §4) and 9 for the bow's 0.268 s (live
@@ -618,16 +618,16 @@ played its last Move meanwhile and was then put on that cell, up to 35 cells awa
 skill's repeats came at the attack time from the request, each cancelling the walk-up before it. Live after: 18 bow
 attacks in 52 s started at most 3.2 cells off the client's cell, none cancelled.
 
-Pickup arrival also starts Interaction's default 0.1 s completion (`0x141942160`).
-A Move queued inside it starts in `0x141e8f670`, then `0x141e94fc0` discards its new path.
+Pickup arrival also starts Interaction's default 0.1 s completion (`0x1419478b0`).
+A Move queued inside it starts in `0x141e95f10`, then `0x141e9b860` discards its new path.
 The Gateway holds subsequent lockstep input through that completion, only after arrival; walking up stays interruptible.
 Readiness uses the client frame start: live, a Move at arrival +3 frames (99 ms) lost its path, while +4 frames
 preserved it. The projectile clock can already exceed 100 ms during that third frame and must not release the hold.
 
 A held attack whose target died goes on at the ground. The stationary GGG sample (101 attacks aimed 18–29 cells
-away) does not establish that every ground attack stands still. Actor `0x141e8eb60` uses flag 1 to force a stationary
+away) does not establish that every ground attack stands still. Actor `0x141e95400` uses flag 1 to force a stationary
 swing; otherwise it starts MoveTo toward the aim. A default melee ground use has the weapon's range minus one,
-tolerance -1 and precision 1 (`0x141e7b530`): live, an aim 17 cells right and 9 up with range 10 walked 8 right and
+tolerance -1 and precision 1 (`0x141e81c20`): live, an aim 17 cells right and 9 up with range 10 walked 8 right and
 5 up before swinging, both near a monster and on empty ground. The swing's hold and repeat timer begin on arrival.
 
 The tutorial support chest's Interaction uses MoveTo max range 6, tolerance 3, precision 1. Its blocking footprint
@@ -640,8 +640,8 @@ send gate, after stepping earlier frames; clearing it when Life reaches zero can
 A Move whose target is within two cells (Chebyshev) of the walker's cell is not taken by the client at all: no path
 search, no step and no move onto the 0x1ab's position pair, even when the pair is not the walker's cell, and the action
 the walker is in goes on (the Move before, under a shot too). The test is the admission of `Move` and `MoveSpecial`
-(vtable slot +0x130, `0x1419442d0`): dx² + dy² ≥ 9 from the walker's own cell to the target, which `0x141e8e060` runs
-before it ends the current action and before `0x141e8e7e0` sets the pair; a refused Move is destroyed there.
+(vtable slot +0x130, `0x141949a20`): dx² + dy² ≥ 9 from the walker's own cell to the target, which `0x141e94900` runs
+before it ends the current action and before `0x141e95080` sets the pair; a refused Move is destroyed there.
 `MoveForced` (0x3f1f) has no such test. Every Move 3 or more cells away searched a path and took the pair first. Live,
 with the 0x1ab apply and the path search hooked: the player 308 of 308 such Moves in two near-Move fights (2026-11-04;
 127 of them with a pair other than the client's cell), monsters 317 of 317 in six pack fights, and 8 244 of 8 244
@@ -655,21 +655,21 @@ dropped at each retry, so a monster whose reach is under 3 cells (only the two B
 the client walking on and preceded 76 of
 126 monster starts 2–3 cells off. The player's used to stop the estimate while the client walked on. A near Move still
 replaces a queued Move that can be cancelled (its vtable +0x190 and +0x208, flag 0x1000): the offer
-(`0x141e8cf10`) destroys that one before the test runs. A queued non-Move it replaces only when it carries flag 0x400
+(`0x141e937b0`) destroys that one before the test runs. A queued non-Move it replaces only when it carries flag 0x400
 and the walker's Player component, if it has one, has +0x2e9 other than 2 or 3; otherwise the offer refuses the Move.
 
-**Action flags.** A 0x1ab's u16 flags become action `+0x122` in both modes (`0x1421940a0`), less 0x80, which only says
-a target id follows (the reader `0x141fdda70` reads the id and clears the bit). Starting the action (`0x141e8e7e0`)
+**Action flags.** A 0x1ab's u16 flags become action `+0x122` in both modes (`0x14219aa10`), less 0x80, which only says
+a target id follows (the reader `0x141fe4290` reads the id and clears the bit). Starting the action (`0x141e95080`)
 reads none of them. The client reads:
-- 0x0400: on a Move, the queued non-Move replacement above (the offer `0x141e8cf10`). For an actor without a Monster
-  component the gate `0x141e8d900` also tests it before it lets an action in over the current one; a monster's gate
+- 0x0400: on a Move, the queued non-Move replacement above (the offer `0x141e937b0`). For an actor without a Monster
+  component the gate `0x141e941a0` also tests it before it lets an action in over the current one; a monster's gate
   returns before that test.
 - 0x8000: the gate starts the action at once, before its tests of the current and queued actions. 0x0001, for an actor
   without a Monster component: start with no reach or path check (the same gate). 0x1000: a queued action nothing
-  replaces (the offer). 0x0800: a Player-owned action skips the `virtual_action_speed_+%` block (`0x14193c9e0`).
-  0x0100 has readers (`0x141942c60`, `0x141942160`) whose effect is not traced.
-- 0x0008: read by no decompiled function (8 functions did not decompile, among them `0x141ec7790` and
-  `0x141947e70`). The client sets it on its own requests when its `auto_equip` option is on (`0x14011e950`), so an echo
+  replaces (the offer). 0x0800: a Player-owned action skips the `virtual_action_speed_+%` block (`0x141942130`).
+  0x0100 has readers (`0x1419483b0`, `0x1419478b0`) whose effect is not traced.
+- 0x0008: read by no decompiled function (8 functions did not decompile, among them `0x141ece040` and
+  `0x14194c880`). The client sets it on its own requests when its `auto_equip` option is on (`0x14011ecb0`), so an echo
   of them carries it. No reader was found for the input bits 0x0002, 0x0004 or 0x0200.
 
 GGG sets neither 0x0400 nor 0x0008 on any monster order (56 175 in four lockstep recordings): Moves 0 (13 768), skills
@@ -678,7 +678,7 @@ request's bits (Moves 0x0400 21 014, 0 2 654), and other characters' Moves come 
 sends a lockstep client's monster orders the same (`MonsterOrderFlags`), so a monster's Move over a queued non-Move
 action is refused there as on GGG; a predictive client still gets 0x0408.
 
-A Move that reaches the client during a swing is taken (`0x141e8cf10`) but queued: the actor runs it when the clip's
+A Move that reaches the client during a swing is taken (`0x141e937b0`) but queued: the actor runs it when the clip's
 `lock_cancelling` keyframe has played, or its contact keyframe for a clip without one, and only then (live 2026-11-03,
 the first Move the client ran at once: a wand's 0.334 s into a 0.667 s attack whose clip contact is at 0.300 s; a
 one-hand sword's 0.58 s into a 0.645 s attack whose contact plays at 0.56 s; Moves 0.40 to 0.57 s into the sword's swing
@@ -691,16 +691,16 @@ the ground, waits for the attack time of the one before (`NextAttackAt`): one se
 0.4 s into a 0.645 s swing and was queued to its end, with the server's swing and hit ahead of the client's by as much.
 
 A melee monster's chase order (an attack aimed at the player) swings by itself on a lockstep client in the tick its goal
-test passes (§5, "A melee monster's chase"), since in lockstep `0x141e94720` waits for no 0x1ac and sets no 0.25 s
+test passes (§5, "A melee monster's chase"), since in lockstep `0x141e9afc0` waits for no 0x1ac and sets no 0.25 s
 repath: in the order's own frame when the monster stands in reach as it applies, else in the frame its own steps
 or the player's bring them within reach. With the player gone on, its action goes on after the live player, pathing
 again until he is in reach (per-frame traces of six fights: 85 of 85 walk-ups that came within reach). The Gateway
 runs the same test, at the order's apply (`TakeLockstepChase`) and in each frame of the step pass against the player's
 cell as his tick left it (`StepWalkUp`), and takes the swing as its own from that frame's start, with no order
-(`MonsterAiPlan.ArrivedSwings`): a second one only waits behind the swing (`0x141e8cf10`), and GGG's next 0x1ab to
+(`MonsterAiPlan.ArrivedSwings`): a second one only waits behind the swing (`0x141e937b0`), and GGG's next 0x1ab to
 the same object after its 0x1ac comes 0.96 s later at the median. The swing runs the whole frame it starts in: its
-timer, Actor `+0x26c`, set to the attack time on the way into the swing (`0x141e95e60`) and counted down by the actor's
-tick (`0x141e8ef50`), is one frame below the attack time at that frame's end (48 of 48 walk-up swings). A lockstep
+timer, Actor `+0x26c`, set to the attack time on the way into the swing (`0x141e9c700`) and counted down by the actor's
+tick (`0x141e957f0`), is one frame below the attack time at that frame's end (48 of 48 walk-up swings). A lockstep
 melee monster standing in reach gets the chase, not a swing order; one that never walks (MovementSpeed 0) gets no chase
 and keeps the swing order. A ranged monster's
 in-place attack leaves its Move running on a lockstep client as on a predictive one: per-frame, the shot's clip starts on
@@ -713,8 +713,8 @@ pack fights 70 of 2 700 shot orders went out with the estimate one to eight cell
 yet traced (the forced set below may account for those a cell ahead).
 
 A monster in a 0x1d1 TakeHit's recovery starts no action (Actor `+0x219` & 2, tested by the action gate
-`0x141e8d900`). An order that comes meanwhile waits (`0x141e8cf10`), and the monster's own tick starts it in the frame
-that ends the recovery (`0x141e934b0`), after the player has taken that frame's steps. That frame comes as many frames
+`0x141e941a0`). An order that comes meanwhile waits (`0x141e937b0`), and the monster's own tick starts it in the frame
+that ends the recovery (`0x141e99d50`), after the player has taken that frame's steps. That frame comes as many frames
 after the 0x1d1's own as the duration needs at 33 ms each: 31 for 1.0 s, the only duration in the bench data (orders
 sent 30 frames after it still waited after their own frame's step; none of 114 sent 31 after did). A chase sent in that
 frame, with the player in reach at its start and out of it after his step, walked up where the server took a swing
@@ -731,7 +731,7 @@ goes out, in the send gate, at the start of the frame being sent, after the step
 in the frames before it (`LockstepOrderFrom`; the frame itself advances in the frame end's gate): placed by the plan, a walk whose
 0x1ab a frame end overtook (the AI pass and the frame loop are separate tasks: 14 of 1 193 chase orders in a traced
 fight) started a frame early on the server. The chase walk-up such an order replaces runs on in those frames, goal
-test included; when it swings there, the order is not sent, as it would only wait behind the swing (`0x141e8cf10`).
+test included; when it swings there, the order is not sent, as it would only wait behind the swing (`0x141e937b0`).
 What the server cannot see
 is the forced set: an order whose from cell is not the client's cell puts the client's monster onto it and zeroes its
 accumulator, while the estimate keeps its fraction of the step in progress, so from then on the client steps that
@@ -770,7 +770,7 @@ own phase. GGG's server has none of this: it is the client's own simulation.
 | Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |
 | A spell at the ground holds everything for its cast time | Not measured | A Move during a cast is not traced; attacks hold until their contact as GGG's do (`LockstepActionHold`) |
 | A skill is echoed at any key 0, from the handlers Predictive uses | From the tick, keyed by the player | As for Moves |
-| The server simulates a mortar's flight, and the player's wand bolt or arrow, and lands its hit where that lands; the client draws each from its own action | One simulation, the client's | The server is a port: the client's spread (`projectile_spread_radius`) is seeded by the order's sequence and owner (`0x141bb13a0`) |
+| The server simulates a mortar's flight, and the player's wand bolt or arrow, and lands its hit where that lands; the client draws each from its own action | One simulation, the client's | The server is a port: the client's spread (`projectile_spread_radius`) is seeded by the order's sequence and owner (`0x141bb3e30`) |
 
 Still to do: monsters' order keys, a trace of a frozen monster, and a walk set up in a stop's own frame and Shield
 Charge's first step from a stand (§5). A movement skill's landing comes from the server's
@@ -782,7 +782,7 @@ own estimate; the client's snap at the next action settles any difference, and i
 |---|---|---|
 | 0x015a | 2 | id only, after entering |
 | 0x01ef | 2 | id only |
-| 0x0099 | 4 | `0099 0000`: two u8 (class `0x1435c0258`); meaning unknown. The 20 bytes once taken for it were 0x99, the two chat channel joins 0x134 ([10](10-chat-and-commands.md) §2) and 0x129 (id only) |
+| 0x0099 | 4 | `0099 0000`: two u8 (class `0x1435cac90`); meaning unknown. The 20 bytes once taken for it were 0x99, the two chat channel joins 0x134 ([10](10-chat-and-commands.md) §2) and 0x129 (id only) |
 | 0x004e | 5 | `004E 00 2909`: u8 + Move skill id, after a click (skill released?) |
 
 ## Open

@@ -10,9 +10,9 @@ Native verification is pending; this change has automated model, parsed-dispatch
 30 base maximum, 1% more attack damage per Rage, shared half-second hit-gain interval and two-second loss delay.
 It also removes inherent attack/movement speed and distinguishes loss speed from the delay.
 Extracted `BuffDefinitions` row 1060 (`rage`) describes individual losses every 0.1 seconds.
-The supplied 3.29.3b client analysis identifies `0x142877ac0` as dividing the loss delay by its recovery rate;
+The supplied 3.29.3c client analysis identifies `0x14287e680` as dividing the loss delay by its recovery rate;
 it does not multiply the loss speed.
-`0x142878250` checks cannot-gain key 14363 with soul-gain-prevention key 8855.
+`0x14287ee10` checks cannot-gain key 14363 with soul-gain-prevention key 8855.
 Those native findings were provided with this task; this child did not run a client or reverse-engineering tools.
 
 - Maximum is `max(0, 30 + maximum_rage)`, then integer-halved by `maximum_rage_is_halved`.

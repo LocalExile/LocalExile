@@ -12,7 +12,7 @@ public static class GgpkMaintenance
 {
     /// <summary>
     /// SHA-256 hash stored on the root directory record. The patch client compares it with the hash in the patch server's
-    /// first reply; if they are equal it logs "No patching required" and skips patching (client 0x1428ead70).
+    /// first reply; if they are equal it logs "No patching required" and skips patching (client 0x1428f31c0).
     /// </summary>
     public static byte[] RootHash(string ggpkPath)
     {

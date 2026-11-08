@@ -7,7 +7,7 @@ is modified."
 
 ## State
 
-- The foreseeing flag is the **Mods component's `u16` bit 8 (`0x0100`)**. The Mods reader `0x1421df6e0` stores it at
+- The foreseeing flag is the **Mods component's `u16` bit 8 (`0x0100`)**. The Mods reader `0x1421e6050` stores it at
   item `+0x2c0`; the client then shows the purple glow and the Lock tooltip text.
 - A non-zero `ForeseeSeed` is kept server-side and in the character save. The client does not need it: the preview and
   the committed result are computed by the server from `seed ^ currencyTypeHash` (`ItemRolls.ForeseeRandom`).
@@ -32,7 +32,7 @@ u32 target item id (BE)
 ```
 
 Captured: `029C 0001 00000001 0000054D 00000001 0000054F` = key 1, Orb of Alchemy 1357 on Driftwood Wand 1359.
-Sender `0x14216d5f0` (callers `0x1402cfcb8`, `0x1402cffea`), reader `0x141f9e8a0`. The sender only sends when both
+Sender `0x142173fa0` (callers `0x1402d0248`, `0x1402d057a`), reader `0x141fa52d0`. The sender only sends when both
 inventories equal `client+0xc9d0` (the player inventory).
 
 The client sends C→S `0x71` immediately after the `0x29d` on the same use: `0x29d` asks for the preview, `0x71` is
@@ -48,14 +48,14 @@ u64 count (raw LE)
 count × item (u16 BE length + Item.Payload)
 ```
 
-Handler `0x1421544c1`, reader `0x141fa1c50`, writer `0x141fa1b50`, class vtable `0x1435bfcf8`. The handler builds
-`{u16 keyA, u16 status, vector<Item> at +8}` and dispatches it through `0x14019a240` to the item popup's listener.
-The client logs `CurrencyApplicationForesightResult recieved` (`0x1435d96a0`).
+Handler `0x14215ae11`, reader `0x141fa8680`, writer `0x141fa8580`, class vtable `0x1435ca730`. The handler builds
+`{u16 keyA, u16 status, vector<Item> at +8}` and dispatches it through `0x14019a5e0` to the item popup's listener.
+The client logs `CurrencyApplicationForesightResult recieved` (`0x1435e3b30`).
 
-The second field is a **result status**, not the target id. The client's handler `0x1402d0120` matches only keyA
+The second field is a **result status**, not the target id. The client's handler `0x1402d06b0` matches only keyA
 against the pending request and then branches on `status == 0`: the success path adds the preview element and loads
 `HinekorasLockFutureSight` / `HinekorasLockLoop`, while any non-zero status plays `HinekorasLockFail`. The client's
-own local failure path (`0x1402cfb70`) uses `0x04FA`, so that is the failure status the server sends when no preview
+own local failure path (`0x1402d0100`) uses `0x04FA`, so that is the failure status the server sends when no preview
 can be computed.
 
 A correct success response is therefore `029F 0001 0000 0100000000000000 37 2F62B1D9...`: keyA 1, status 0, one
@@ -82,9 +82,9 @@ Native run 2026-10-31:
 ## Preview UI
 
 The client has the complete preview UI: `HinekoraForesightPopupIcon`, `HinekorasLockFutureSight`,
-`HinekorasLockLoop` and `HinekorasLockFail`. The item popup's controller sends C→S `0x29d` (`0x1402cfb70` →
-`0x1402cfe60`) when the player uses a currency in use mode on a foreseeing item; the `0x2a0` handler
-`0x1421544c1` builds `{keyA, status, vector<Item>}` and dispatches it to the popup's listener `0x1402d0120`.
+`HinekorasLockLoop` and `HinekorasLockFail`. The item popup's controller sends C→S `0x29d` (`0x1402d0100` →
+`0x1402d03f0`) when the player uses a currency in use mode on a foreseeing item; the `0x2a0` handler
+`0x14215ae11` builds `{keyA, status, vector<Item>}` and dispatches it to the popup's listener `0x1402d06b0`.
 Status 0 adds the preview element; any other status plays the fail animation. The earlier "empty +0x48f0 bus"
 observation was taken while the popup's listener was not registered (the `0x2a0` was injected without an open item
 popup); it was not a client gap.

@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 static partial class Game
 {
     // Shield Charge's movement (11-skills.md "Shield Charge"). The client moves the charge at the player's own movement
-    // speed: 0x141e7c0b0 reads movement_velocity_+% from the player's Stats, not the skill's. The game adds the gem's
+    // speed: 0x141e827a0 reads movement_velocity_+% from the player's Stats, not the skill's. The game adds the gem's
     // base_movement_velocity_+% through the invisible buff shield_charge_movement_speed_while_charging (BuffDefinitions
     // 1352) for as long as the charge runs, and network stats run no calculators, so the server puts that bonus into the
     // movement_velocity_+% it sends (the pools) from the use until its own walk arrives, and walks its estimate to the aimed
@@ -21,7 +21,7 @@ static partial class Game
         SkillsFor(conn).IsMovement(effect) && SkillsFor(conn).RequiresShield(effect)
             && Stats.Key("base_movement_velocity_+%") is uint key ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(key) : 0;
 
-    // The client's setup 0x141a6bae0 stops a charge aimed further away at 75 cells × (1 + shield_charge_range_+% / 100)
+    // The client's setup 0x141a6e4f0 stops a charge aimed further away at 75 cells × (1 + shield_charge_range_+% / 100)
     // from where it starts (integer, (100 + range) * 75 / 100), along the aim: the "Maximum Charge Distance" of the gem's
     // damage line. shortcut: the setup also adds shield_charge_extra_distance past the aim and uses 14 cells while an
     // action counter (+0x2d0 below +0x2d4) is short; neither is modelled.

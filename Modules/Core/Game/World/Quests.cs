@@ -264,7 +264,7 @@ static partial class Game
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, WorldQuestFlagLookup> WorldQuestFlagLookups = new();
 
     // The first ground click in WashedUp sends this action instead of Move, and any other request to move gets it from the
-    // server (0x141e94fc0). It plays getup in place; treating a target as a walk would move only the server's position estimate.
+    // server (0x141e9b860). It plays getup in place; treating a target as a walk would move only the server's position estimate.
     internal static async Task WakeUpOnBeach(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y)? target, ushort sequence, ushort flags, double requestedAt)
     {

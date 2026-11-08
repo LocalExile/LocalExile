@@ -26,7 +26,7 @@ const stamp = () => Date.now();
 // The last accepted S->C message ids, for the exception report (the clock messages would push everything out).
 const lastMessages = [];
 const skipped = new Set([0, 0x1c, 0x2b7]);
-Interceptor.attach(at('0x14299e300'), {
+Interceptor.attach(at('0x1429a7660'), {
   onEnter(args) { this.id = args[1].toUInt32() & 0xffff; },
   onLeave(accepted) {
     if (skipped.has(this.id) || (accepted.toUInt32() & 0xff) === 0) return;
@@ -37,7 +37,7 @@ Interceptor.attach(at('0x14299e300'), {
 
 // Skills added to an ActiveSkillManager: the id at +0x40 is what the 0x1ab action carries.
 const skillName = s => { try { return s.add(0x48).readPointer().readPointer().readPointer().readUtf16String(); } catch (e) { return '?'; } };
-Interceptor.attach(at('0x141eea6a0'), {
+Interceptor.attach(at('0x141ef0f00'), {
   onEnter(args) {
     const s = args[1];
     send({ts: stamp(), kind: 'skill-added', mgr: args[0].toString(), id: u16(s, 0x40), w42: u16(s, 0x42),
@@ -45,10 +45,10 @@ Interceptor.attach(at('0x141eea6a0'), {
   }
 });
 
-// The action lookup behind S->C 0x1ab: 0x141ee97f0(manager, id). It returns the actor's action for that skill id,
+// The action lookup behind S->C 0x1ab: 0x141ef0050(manager, id). It returns the actor's action for that skill id,
 // or null when the manager has no such skill, which is why an unknown 0x4000+ id plays nothing. Log only the King's
 // ids (0x0102 default attack and 0x4000-0x4014) to keep the rest of the client's lookups out of the trace.
-Interceptor.attach(at('0x141ee97f0'), {
+Interceptor.attach(at('0x141ef0050'), {
   onEnter(args) {
     this.mgr = args[0].toString();
     this.id = args[2].toUInt32() & 0xffff;
@@ -68,7 +68,7 @@ Interceptor.attach(at('0x141ee97f0'), {
 // actually plays (the .act's stance2 Idle is call_loop_01 = 3, stance1 Idle is idle_01 = 17, ChangeToStance1 is
 // call_end_01 = 2).
 let kingActor = null, kingUntil = 0;
-Interceptor.attach(at('0x1421940a0'), {
+Interceptor.attach(at('0x14219aa10'), {
   onEnter(args) {
     const m = args[1];
     if (u16(m, 8) !== 0x1ab) return;
@@ -96,7 +96,7 @@ function kingClip(actor) {
       from: c.add(0x1b8).readFloat(), to: c.add(0x1bc).readFloat()};
   } catch (e) { return null; }
 }
-Interceptor.attach(at('0x141e8e060'), {
+Interceptor.attach(at('0x141e94900'), {
   onEnter(args) {
     if (kingActor === null || Date.now() > kingUntil) return;
     try { if (!args[0].equals(kingActor)) return; } catch (e) { return; }
@@ -104,9 +104,9 @@ Interceptor.attach(at('0x141e8e060'), {
   }
 });
 
-// Action begin (0x141e8cf10): the type at +0x118 and the skill at +0x11a of the started action. Log the stance
+// Action begin (0x141e937b0): the type at +0x118 and the skill at +0x11a of the started action. Log the stance
 // change (type 0x16c7) and the King's own skills only, so the rest of the client's actions stay out of the trace.
-Interceptor.attach(at('0x141e8cf10'), {
+Interceptor.attach(at('0x141e937b0'), {
   onEnter(args) {
     const p = args[1].readPointer();
     const type = u16(p, 0x118), skill = u16(p, 0x11a);
@@ -117,7 +117,7 @@ Interceptor.attach(at('0x141e8cf10'), {
 
 // GeometryChannelBase::StartChannelling: the crash location. Log the channel object, its action pointer (normally set
 // by the client from the action that starts the channel), the action fields and the caller.
-Interceptor.attach(at('0x1419e0c70'), {
+Interceptor.attach(at('0x1419e3680'), {
   onEnter(args) {
     const self = args[0], action = ptrAt(self, 8);
     send({ts: stamp(), kind: 'start-channelling', self: self.toString(), action: action ? action.toString() : null,
@@ -130,7 +130,7 @@ Interceptor.attach(at('0x1419e0c70'), {
 });
 
 // The Buffs component's S->C 0x1c1 add: the buff row, source, skill and duration fields live in the message.
-Interceptor.attach(at('0x141e11720'), {
+Interceptor.attach(at('0x141e14d80'), {
   onEnter(args) {
     const m = args[1], raw = {};
     for (let off = 0x10; off <= 0x50; off += 2) raw['u16@' + off.toString(16)] = u16(m, off);
@@ -152,19 +152,19 @@ function typePath(rec) {
   }
   return '?';
 }
-Interceptor.attach(at('0x141ebe190'), {
+Interceptor.attach(at('0x141ec4a40'), {
   onEnter(args) { send({ts: stamp(), kind: 'server-create', id: args[2].toInt32() >>> 0, type: typePath(args[1].readPointer())}); }
 });
-Interceptor.attach(at('0x141ebdf30'), {
+Interceptor.attach(at('0x141ec47e0'), {
   onEnter(args) { send({ts: stamp(), kind: 'client-create', type: typePath(args[1].readPointer())}); }
 });
-Interceptor.attach(at('0x141e37850'), {
+Interceptor.attach(at('0x141e3ab90'), {
   onEnter() { send({ts: stamp(), kind: 'projectile', bt: Thread.backtrace(this.context, Backtracer.ACCURATE).slice(0, 4).map(va)}); }
 });
 
 // Area milestones, so object ids and skill managers can be grouped by the fight that owns them.
-for (const [addr, name] of [['0x142186fa0', 'SetLocalPlayerId'], ['0x142156d80', 'EnterArea'],
-                            ['0x142183670', 'WorldActivate']])
+for (const [addr, name] of [['0x14218d910', 'SetLocalPlayerId'], ['0x14215d6d0', 'EnterArea'],
+                            ['0x142189fe0', 'WorldActivate']])
   Interceptor.attach(at(addr), { onEnter() { send({ts: stamp(), kind: 'area', event: name}); } });
 
 // A first-chance exception is usually the crash that follows; the report includes the last message ids, registers and

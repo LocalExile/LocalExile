@@ -47,7 +47,7 @@ static partial class Game
         return (armour, evasion, (int)Math.Min(int.MaxValue, energyShield), ward);
     }
 
-    // Native 0x142523ab0: flag selects 100%, otherwise use the percentage; truncate each item's local ES separately.
+    // Native 0x14252a660: flag selects 100%, otherwise use the percentage; truncate each item's local ES separately.
     // The conversion removes all armour-item ES, even when the Life gained is only 50% of its value.
     internal static (int Life, int EnergyShield) ConvertEquipmentEnergyShield(ClientState conn, Func<string, int> get, int energyShield)
     {

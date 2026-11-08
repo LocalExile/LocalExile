@@ -181,7 +181,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Deathrattle's warcry explosion is the first consumer: a dead zero-Life eligible monster explodes once and is marked
   `SpawnedMonster.CorpseConsumed` and removed ([11](../docs/protocol/11-skills.md) section 10i).
   Code: `MonsterLifeData.cs`, `MonsterObject`, `MonsterCatalog.cs`, `Program.Monsters.cs`, `ot_components.py`.
-  Docs: [04](../docs/protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).
+  Docs: [04](../docs/protocol/04-player-entity.md#44-life-0x141e72890-55-bytes).
 - Player hits on monsters: each one records the time on the monster (`PlayerHitAt`), and the player's death clears it.
   `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` (Devout of Ryslatha) scales a monster's regeneration for 4 s
   after a hit.

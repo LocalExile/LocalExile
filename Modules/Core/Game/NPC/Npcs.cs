@@ -223,7 +223,7 @@ static partial class Game
         // ClientStrings IdentifyItemsChatMessage / IdentifyItemsChatMessageSingle, as a chat line (S→C 0x17).
         string text = identified.Count == 1 ? "1 Item identified" : $"{identified.Count} Items identified";
         await Send(remote, stream, ciphers, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
-        // The client decides itself whether the option is usable (NPCTalkCategory IdentifyItems, 0x141e754b0: gray with
+        // The client decides itself whether the option is usable (NPCTalkCategory IdentifyItems, 0x141e7bb90: gray with
         // "No items in your inventory can be identified" when nothing is unidentified), but only when the options are
         // listed: list them again.
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(conn.TalkingTo), $"0x0084 npc 0x{conn.TalkingTo:x}: options again");

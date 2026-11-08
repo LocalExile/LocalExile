@@ -30,7 +30,7 @@ public class DormantMonsterTests
             Assert.Contains(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
             Assert.Contains(new ClientPathfinder.Blocker(52, 47, 2), conn.Blockers);
 
-            // Native 141e61540 blocks on these untargetable neighbours.
+            // Native 141e65ae0 blocks on these untargetable neighbours.
             // Translate its exact native six-waypoint route; an empty-body control is straight.
             static List<(int X, int Y)> Path(IReadOnlyList<ClientPathfinder.Blocker> bodies) =>
                 ClientPathfinder.FindPath((50, 50), (50, 39), (_, _) => true, 300, 300, bodies,
@@ -215,7 +215,7 @@ public class DormantMonsterTests
             // This test drives creation only. Reserve the watch owner without starting its real-time loop.
             lock (conn.Monsters) Assert.True(MonsterEmerge.StartWatch(conn));
             var variety = Assert.IsType<MonsterCatalog.Variety>(new MonsterCatalog().Find("Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake1"));
-            // SavedMonster keeps active actors before the dormant set. The native Positioned reader (141e2f0b0)
+            // SavedMonster keeps active actors before the dormant set. The native Positioned reader (141e323f0)
             // restores their recorded cells directly, even when their footprints overlap.
             var active = new SpawnedMonster("active", new PlayerWalk(50, 50, 8), 60, 2, 23)
             {

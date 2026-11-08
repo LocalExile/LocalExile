@@ -391,7 +391,7 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
         }
     }
     # The client runs at most two copies per PC: it takes one of two machine-wide mutexes (Global\PoERunMutexA, B;
-    # 0x140101d85) and otherwise waits on "You may only run up to two copies of Path of Exile at a time." Session clients
+    # 0x1401020d5) and otherwise waits on "You may only run up to two copies of Path of Exile at a time." Session clients
     # use session-local names instead, so only the default client needs a free slot: the callers check it first
     # (Assert-GlobalSlot), before anything was stopped or started.
     # The record goes first as a pending launch (pid 0, the time before the start): until it has the PID, nobody takes

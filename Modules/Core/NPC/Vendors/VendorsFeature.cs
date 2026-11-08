@@ -245,9 +245,9 @@ static class VendorsFeature
                 NpcShops.Manager, tabs[i].Items, nativeTabs ? (byte)0x60 : null),
                 $"0x00c0 shop tab {ids[i]} \"{tabs[i].Name}\" (manager {NpcShops.Manager}) of {npc.Npc.Name}: {tabs[i].Items.Count} items");
         conn.InNpcTalk = false;
-        // 0x8c's u16 is the window kind (0x14073ee60, +0x5f0: 0 buy, 1-4 haggle/deal/exchange/expedition, 9 Azmeri, 10 black
-        // market, 11 unset), its u8 the async trade mode ("Merchant" title, +78 height, 0x14073d570). The NPC's DialogueStyle
-        // picks the window, not the u8 (0x140dcccf0). A tab's compact value is its colour (0x14073d570: ARGB, 0 the default).
+        // 0x8c's u16 is the window kind (0x140740840, +0x5f0: 0 buy, 1-4 haggle/deal/exchange/expedition, 9 Azmeri, 10 black
+        // market, 11 unset), its u8 the async trade mode ("Merchant" title, +78 height, 0x14073ef50). The NPC's DialogueStyle
+        // picks the window, not the u8 (0x140dca580). A tab's compact value is its colour (0x14073ef50: ARGB, 0 the default).
         await Send(remote, stream, ciphers, InstanceNpcs.Dialogue(npcObject, 0, false, ids,
             nativeTabs ? [] : [.. tabs.Select(t => new InstanceNpcs.Choice(unchecked((int)t.TabColour), t.Name))]),
             $"0x008c open the buy window of {npc.Npc.Name} with tabs {string.Join(", ", tabs.Select(t => t.Name))}");

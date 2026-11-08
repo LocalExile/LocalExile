@@ -22,7 +22,7 @@ sealed class LinkSkills
     /// <summary>Links break after this long out of range (wiki Link skill).</summary>
     internal const double BreakSeconds = 4;
 
-    /// <summary>The link range in cells, as the client's link-target filter (0x141bf8490): 80 × (100 +
+    /// <summary>The link range in cells, as the client's link-target filter (0x141bfaf20): 80 × (100 +
     /// <c>link_skill_range_+%</c>) / 100, integer division.</summary>
     internal static int Range(int increasedPct) => (int)Math.Max(0, (100L + increasedPct) * 80 / 100);
 

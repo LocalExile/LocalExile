@@ -60,17 +60,17 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
 - Toughened Skin, action speed: `PlayerElementalAilments` floors its action factor at 1, so chill and freeze slow and
   stop nothing (the wiki's Action speed page treats Freeze as 100% less action speed).
   A passive change reconciles an ailment that is already running.
-  The client bounds `intermediary_combined_action_speed_+%` below by 0 from the same raw stat (`0x14281c510`), and
+  The client bounds `intermediary_combined_action_speed_+%` below by 0 from the same raw stat (`0x1428230c0`), and
   the server sends 0 for it.
 - Toughened Skin, movement speed: after flasks and auras, `MovementVelocityPct` is at least 0 (PoB CalcDefence
   `max(MovementSpeedMod, 1)`).
   The walk estimate and the sent `movement_velocity_+%` follow it.
-  The client bounds `movement_velocity_+%` below by 0 instead of -100 from the raw flag (`0x14251cbd0`, checked
+  The client bounds `movement_velocity_+%` below by 0 instead of -100 from the raw flag (`0x142523780`, checked
   against the disassembly), so both sides agree.
 - Toughened Skin, body armour: PoB reads the line as `Armour MORE 100` for the Body Armour slot, so the body armour's
   local armour counts twice after the Ward conversion, before the global increases.
   With Iron Reflexes the body armour's evasion, converted to armour under the same modifier, counts twice too.
-  The client's own calculator for `physical_damage_reduction_rating` (`0x142731060`, registered at `0x1400b82e0`)
+  The client's own calculator for `physical_damage_reduction_rating` (`0x142737c10`, registered at `0x1400b83a0`)
   applies the same `(1 + flag)` factor to the body armour share, its converted evasion included.
   The Defence tab is expected to show the server's sent final rating rather than doubling it again; check it live.
 - Ancestral Defiance: once an enemy hit is decided not evaded, before it is rolled, Life gains 10% of
@@ -82,15 +82,15 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
 - Call of the Ancestors, speed: a warcry's use time is its GrantedEffects CastTime over
   `1 + warcry_speed_+% / 100` (the player's and the gem's) and over action speed, at least one server tick
   (`WarcryCastSeconds`, PoB `calcWarcryCastTime`; Enduring Cry 0.8 s becomes 0.267 s).
-  The client times the cry from the same CastTime (row offset `+0x5f`) and `warcry_speed_+%` at `0x141abcaa0`
+  The client times the cry from the same CastTime (row offset `+0x5f`) and `warcry_speed_+%` at `0x141abf4b0`
   (checked against the disassembly); it applies action speed to the actor's animation itself.
 - Call of the Ancestors, cooldown: warcries now use the generic one-use cooldown (`SingleUseCooldown`), whose
   recovery for a Warcry-type skill adds `warcry_cooldown_speed_+%` (PoB: cooldown recovery for the Warcry type).
   Enduring Cry's 8 s recovers at 70%, and its skill record carries `virtual_cooldown_speed_+%` -30.
-  The client's own virtual (`0x14281dfa0`) adds the same stat when the skill has `is_warcry`, so both agree.
+  The client's own virtual (`0x142824b50`) adds the same stat when the skill has `is_warcry`, so both agree.
   A spell's or attack's recovery is unchanged.
 - Deathrattle runs at every warcry release (`WarcryReleased`), within the warcry's own radius around the player:
-  the client's warcry action (`0x141abd120`) scans that radius for Chest objects and corpses when
+  the client's warcry action (`0x141abfb30`) scans that radius for Chest objects and corpses when
   `nearby_corpses_explode_dealing_%_maximum_life_physical_damage_on_warcry` or `open_nearby_chests_on_warcry` is set.
   Only Enduring Cry has an executor, so only it explodes corpses and opens chests so far.
   - Corpses: a monster killed in this area visit, at zero Life, whose Life type allows corpse use and that no
@@ -109,7 +109,7 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
     as an effect object at its cell, removed after 2 s; which art the client's warcry wave plays is unverified.
     Not modelled: global flat added damage and flat critical strike chance, which the wiki's Explode page says apply to
     non-skill explosions (so on the server it never crits), on-hit effects and ailments,
-    the client's wave delay (distance / radius × 0.22 s in `0x141abd490`; the wave list's consumer
+    the client's wave delay (distance / radius × 0.22 s in `0x141abfea0`; the wave list's consumer
     was not found) and the other warcries (only Enduring Cry has an executor).
   - Chests: the Twilight Strand support gem chest (saved `Tutorial.ChestOpened` first, as when walked up to) and the
     Mud Flats Rhoa Nests (`InstanceStore.OpenChest`) open when they are within the radius.
@@ -211,7 +211,7 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   lightning bolt, Kaom's fire fist): like every server monster it uses only its first granted effect; the player's
   minion stats changing while it lives (they are read at its summon); the Spirit skill in the client's skill list (no
   record is sent, so the client shows neither the skill nor its cooldown, only the buff; the client's own cooldown
-  virtual at `0x14281dfa0` reads the record's `skill_cooldown_does_not_tick`); and the minion following the player
+  virtual at `0x142824b50` reads the record's `skill_cooldown_does_not_tick`); and the minion following the player
   through an area change: an area change ends the buff and the chieftain and starts a fresh cooldown, as every skill
   cooldown on the server.
 

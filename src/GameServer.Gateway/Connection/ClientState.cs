@@ -70,7 +70,7 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
     public IReadOnlyList<(uint, int)> SkillStats() => InPlace ? InPlaceSkillStats() : Stats();
 
     /// <summary>An attack's <see cref="Stats"/> or a spell's cast time, plus skill_is_non_pathing: the action starts at once
-    /// where the actor stands (the Melee action's begin, 0x141938830). Only on the skill: on the monster's Stats component
+    /// where the actor stands (the Melee action's begin, 0x14193df80). Only on the skill: on the monster's Stats component
     /// it also stops its Move action from pathing (live 2026-10-17: the monsters stood still).</summary>
     public IReadOnlyList<(uint, int)> InPlaceSkillStats() => [.. Spell ? SpellStats() : Stats(), (StatKeys.SkillIsNonPathing, 1)];
 
@@ -633,8 +633,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public ushort NextActionSequence() => (ushort)Interlocked.Increment(ref _nextActionSequence);
     // The flags of a server order to a monster (0x1ab → action +0x122; ActionStarted adds 0x80 with a target id). GGG's
     // are 0: none of 56 175 monster orders in four lockstep recordings carries 0x400 or 0x8. On a monster the client reads
-    // 0x400 only in the offer (0x141e8cf10: a Move without it is refused while a non-Move action waits queued at +0x1c0)
-    // and 0x8 nowhere (it is the client's own auto_equip bit on its requests, 0x14011e950). A predictive client keeps
+    // 0x400 only in the offer (0x141e937b0: a Move without it is refused while a non-Move action waits queued at +0x1c0)
+    // and 0x8 nowhere (it is the client's own auto_equip bit on its requests, 0x14011ecb0). A predictive client keeps
     // 0x0408, the form it has always had.
     public ushort MonsterOrderFlags => LockstepClient ? (ushort)0 : (ushort)0x0408;
     // Room server objects a quest keeps in the area until its flag is set (The Twilight Strand's force wall), by id.

@@ -4,7 +4,7 @@ namespace GameServer.Core.Protocol.Instance;
 
 public static class InstanceHideouts
 {
-    // HideoutSelectionWindow 0x140bbae90; serializer 0x141f9d070 packs guild in bit15 of the row.
+    // HideoutSelectionWindow 0x140bbbb20; serializer 0x141fa3aa0 packs guild in bit15 of the row.
     public const ushort SelectId = 0x254;
     public const int SelectLength = 4;
 

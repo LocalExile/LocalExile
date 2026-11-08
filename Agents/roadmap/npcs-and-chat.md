@@ -17,10 +17,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 - **Known:** NPC objects, every campaign town's NPCs and the dialogue window (S→C 0x84, C→S 0x85) work
   ([17](../docs/protocol/17-npcs.md)).
-  The client picks the NPCTalk row itself (`0x141e76d40`).
+  The client picks the NPCTalk row itself (`0x141e7d430`).
   Dialogue quest flags and the class gem choices in reward offers 0 and 8 are implemented and live-checked.
 - **Start:** the remaining quest reward offers and offer 8's magic-armour choices.
-  NPCDialogueWindow's option handler is `0x140723d60` / `0x14071f6d0`.
+  NPCDialogueWindow's option handler is `0x1407253a0` / `0x140720d10`.
   Ordinary shops now persist generated assortments and partial rotation; map Kirac's native refresh button.
   Measure generation weights and progression transitions against the documented local assumptions.
   Common vendor recipes and transactional quoted settlement are implemented.

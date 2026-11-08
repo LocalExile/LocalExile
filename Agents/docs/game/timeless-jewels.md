@@ -50,7 +50,7 @@ The mod has six stats, and the item's values are passed in this order:
 All six stats are `IsLocal`, so the existing `ItemModStats.Global` path does not treat them as character stats. The
 client reads them from the item's mod list and computes the conquered nodes itself. **No new protocol field and no
 changed node ids in 0x33 are needed**; a correct item is enough for the client to draw the transformed tree. The client
-address `0x141f035e0` reads the three tree stats from the item and `0x141f07ff0` builds the alternate passive; this was
+address `0x141f09e50` reads the three tree stats from the item and `0x141f0e8e0` builds the alternate passive; this was
 confirmed by decompiling the 3.29.3b client.
 
 The seed stored in the mod is the **real** seed. `Elegant Hubris` stores 100..8000 and the client shows it as
@@ -220,8 +220,8 @@ The client must be launched only through `scripts/dev/live.ps1`; the verificatio
 
 - Client data: `data/tables/Mods.json`, `AlternateTreeVersions.json`, `AlternatePassiveSkills.json`,
   `AlternatePassiveAdditions.json`, `PassiveSkills.json`, `PassiveJewelSlots.json`, `UniqueJewelLimits.json`.
-- Client code: `0x141f035e0` (reads the item's tree stats and iterates the tree), `0x141f07ff0` (alternate passive
-  generation), `0x1421df6e0` (Mods component reader).
+- Client code: `0x141f09e50` (reads the item's tree stats and iterates the tree), `0x141f0e8e0` (alternate passive
+  generation), `0x1421e6050` (Mods component reader).
 - Path of Building: `src/Modules/DataLegionLookUpTableHelper.lua`, `src/Classes/PassiveSpec.lua`,
   `src/Data/Uniques/jewel.lua`, `src/Data/TimelessJewelData/`.
 - Reference generator: `https://github.com/Vilsol/timeless-jewels` (`calculator/tree_manager.go`,

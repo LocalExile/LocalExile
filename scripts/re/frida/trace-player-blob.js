@@ -1,12 +1,12 @@
 // Paste after common.js. Logs the 0x2bb blob, the created object's component vtables in order, and the blob reader
 // position on entry/exit of each component deserializer (Agents/docs/protocol/04-player-entity.md).
-const names = {'0x1435a0f18':'Positioned','0x1435dd4e8':'Comp1','0x1435a6ba0':'Pathfinding','0x14359f5f8':'Comp3',
-  '0x1435a7340':'Life','0x1435a5030':'Animated','0x143466450':'Player','0x1435a0078':'Comp7','0x14359e078':'Inventories',
-  '0x14346e558':'Comp9','0x143468920':'Comp10','0x14346c238':'Comp11'};
-const hooks = {'0x141ebe190':['CreateObject',3],'0x141dea920':['BaseData',1],'0x141e2f0b0':['Positioned',1],
-  '0x1421c2f40':['Comp1',1],'0x141e114d0':['Comp3',1],'0x141e6c2f0':['Life',1],'0x141e56a80':['Animated',1],
-  '0x141e7dc10':['Player',1],'0x141e1ee30':['Inventories',1],'0x142192a80':['Comp9',1],'0x1421932b0':['Comp9Slot20',1],
-  '0x141ee00f0':['Tasks',1]};
+const names = {'0x1435ab608':'Positioned','0x1435e7f88':'Comp1','0x1435b3800':'Pathfinding','0x1435a7a20':'Comp3',
+  '0x1435b0d98':'Life','0x1435af9c0':'Animated','0x143470e78':'Player','0x1435aa590':'Comp7','0x1435a6cb8':'Inventories',
+  '0x14347a818':'Comp9','0x1434730b8':'Comp10','0x143476978':'Comp11'};
+const hooks = {'0x141ec4a40':['CreateObject',3],'0x141dedf80':['BaseData',1],'0x141e323f0':['Positioned',1],
+  '0x1421c98b0':['Comp1',1],'0x141e14b30':['Comp3',1],'0x141e72890':['Life',1],'0x141e5afd0':['Animated',1],
+  '0x141e84300':['Player',1],'0x141e22490':['Inventories',1],'0x1421993f0':['Comp9',1],'0x142199c20':['Comp9Slot20',1],
+  '0x141ee6950':['Tasks',1]};
 for (const [a, [name, ri]] of Object.entries(hooks)) {
   Interceptor.attach(at(a), {
     onEnter(args) {

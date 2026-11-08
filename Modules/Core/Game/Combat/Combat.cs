@@ -80,7 +80,7 @@ static partial class Game
         return (byte)((int)Math.Round(a * 256.0 / (2 * Math.PI)) & 0xff);
     }
 
-    // The 0x1af presentation type (code & 7; 3.29.3b table 0x1435d2110: 0 Physical, 1 Cold, 2 Fire, 3 Lightning,
+    // The 0x1af presentation type (code & 7; 3.29.3c table 0x1435d7520: 0 Physical, 1 Cold, 2 Fire, 3 Lightning,
     // 4 Chaos): the hit's largest damage component, Physical on a tie or an empty packet. One type, not the amounts.
     internal static byte HitCode(GameServer.Core.World.DamagePacket packet)
     {
@@ -175,12 +175,12 @@ static partial class Game
     }
 
     // How often a predictive client's walk-up estimate paths again, and when it stops following. Neither is the client's
-    // (its actor paths again every 0.05 s for the player, 0x141e8eb60, run again by 0x141e8ef50 only in that mode, and gives
+    // (its actor paths again every 0.05 s for the player, 0x141e95400, run again by 0x141e957f0 only in that mode, and gives
     // a walk-up no time limit): the Gateway's guesses, not yet sourced. A lockstep walk-up runs on its frames (StepWalkUp).
     const double SwingFollowSeconds = .1, SwingFollowLimitSeconds = 3;
 
     // The projectile grid value a ranged attack's line to its target must hold, the action's precision for the walk-up and
-    // the swing (0x141e8eb60 → MoveTo +0x528): 3 for the bow's and the wand's default attack, 1 for a one-hand sword's
+    // the swing (0x141e95400 → MoveTo +0x528): 3 for the bow's and the wand's default attack, 1 for a one-hand sword's
     // and for a Move (live 2026-11-03, the client's searches). Attack gems' are taken to be the bow's.
     const int RangedPrecision = 3;
 
@@ -192,14 +192,14 @@ static partial class Game
     static bool SwingInReach(ClientState conn, SpawnedMonster m, (int X, int Y) from, (int X, int Y) target, double reach) =>
         conn.Walk.InReachOf(from, target, (int)reach, m.StopRange - 2);
 
-    // The walk-up's max range: the weapon's range less one, as the client's action gives its MoveTo (0x141e8eb60: max
+    // The walk-up's max range: the weapon's range less one, as the client's action gives its MoveTo (0x141e95400: max
     // range +0x168() − 1, min range +0x158() − 1, each from 1 when 0; tolerance +0x180, precision +0x170; live
     // 2026-11-03: max range 10 for the Rusted Sword's 11, 119 for a bow's 120), as a monster's chase walk-up takes it.
     // The swing's hit still tests the whole range (+ 2).
     static int WalkUpRange(SkillCatalog.Unarmed weapon) => Math.Max(weapon.Range, 1) - 1;
 
     // A predictive client's walk-up to a monster for a swing at it, from where the estimate has the player at `now`. Swing:
-    // the swing starts at once, when MoveTo finds its goal where the player stands (0x141e7b530 → 0x141e7b260). A walk-up
+    // the swing starts at once, when MoveTo finds its goal where the player stands (0x141e81c20 → 0x141e81950). A walk-up
     // with steps swings once it is over at a cell in reach. A lockstep client's is PlaceLockstepAttack's.
     internal static ((int X, int Y) Here, (int X, int Y) Stop, double At, bool Swing) WalkUpToSwing(ClientState conn,
         SpawnedMonster m, (int X, int Y) target, SkillCatalog.Unarmed weapon, double now, int precision)
@@ -488,7 +488,7 @@ static partial class Game
             ChargesOnHit(conn, m, critical, spell: false);
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
             if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, target);
-            // At 0 the client's Life tick (0x141e6a190) stops notifying its listeners, so the mini life bar would keep the last
+            // At 0 the client's Life tick (0x141e70730) stops notifying its listeners, so the mini life bar would keep the last
             // value: hide it with the stat its listener watches (hide_mini_life_bar).
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(targetId, [(StatKeys.HideMiniLifeBar, 1)]),
@@ -1268,7 +1268,7 @@ static partial class Game
     }
 
     // An area spell's centre: the aimed point, but a self-targeted spell (Ice Nova, Discharge, Vaal Cold Snap) goes off
-    // around the caster wherever it was aimed, as the client's action does (FUN_14193e290). A Nova among them goes off at
+    // around the caster wherever it was aimed, as the client's action does (FUN_1419439e0). A Nova among them goes off at
     // the aim when the caster has nova_spells_cast_at_target_location (Devout of Lunaris: "Nova Spells Cast at the
     // targeted location instead of around you"; the client's 0x2a6e).
     internal static (int X, int Y) SpellCentre(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) to) =>

@@ -119,7 +119,7 @@ static partial class SurvivorsSkills
     }
 
     // A run skill's stats: the gem's own at its rank. The client creates the bar's cooldown record only with a stored use
-    // and the record's duration (0x141eea6a0), and the run pays no mana.
+    // and the record's duration (0x141ef0f00), and the run pays no mana.
     internal static IReadOnlyList<(uint, int)> SurvivorsSkillStats(ClientState conn, SurvivorsSkill skill, int rank)
     {
         var stats = SkillsFor(conn).EffectStats(skill.Effect, rank).ToDictionary(s => s.Item1, s => s.Item2);

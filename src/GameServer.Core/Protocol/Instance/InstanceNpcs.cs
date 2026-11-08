@@ -6,14 +6,14 @@ namespace GameServer.Core.Protocol.Instance;
 public static class InstanceNpcs
 {
     public const ushort TalkId = 0x84;
-    // HideoutSelectionWindow in the native screen-name table at 0x142fc5920.
+    // HideoutSelectionWindow in the native screen-name table at 0x142fd89f0.
     public const byte HideoutSelectionUi = 0x22;
 
     /// <summary>C→S 0x85 (id only): the dialogue window was closed (Goodbye, Esc or walking away). Live 2026-10-19: sent
     /// after every 0x84, alone in its chunk.</summary>
     public const ushort DialogueClosedId = 0x85;
 
-    /// <summary>C→S 0x82 (3 bytes, class 0x14345ef10 "u8 message", sent by NPCDialogueWindow 0x140722960): u8 = the chosen
+    /// <summary>C→S 0x82 (3 bytes, class 0x14346cd80 "u8 message", sent by NPCDialogueWindow 0x140723fa0): u8 = the chosen
     /// NPCTalk row's index among the NPC's rows (column 1). The client handles NPCTalkCategory 5 (Topic), 0x19 and 0x26
     /// itself and sends 0x82 for the others.</summary>
     public const ushort OptionId = 0x82;
@@ -25,7 +25,7 @@ public static class InstanceNpcs
 
     /// <summary>S?C 0x87: u32 reward inventory id (manager 1), u16 QuestRewardOffers row, with bit 15 an optional flag.
     /// Send 0xc0 for that inventory before opening it. The first field is NOT the NPC object id: a missing inventory
-    /// crashes the reward window at 0x140c2bc20. Live verified 2026-10-25 with offers 0 and 8, inventory 0x600.
+    /// crashes the reward window at 0x140c2ff60. Live verified 2026-10-25 with offers 0 and 8, inventory 0x600.
     /// Selecting a reward uses C?S 0x88 (or Ctrl+click 0x8a), as with a shop.</summary>
     public static byte[] OpenQuestReward(uint inventoryId, ushort offer, bool flag = false) =>
         new LoginWriter().U16(TalkTextId).U32(inventoryId).U16((ushort)((offer & 0x7fff) | (flag ? 0x8000 : 0))).ToArray();
@@ -39,7 +39,7 @@ public static class InstanceNpcs
     public sealed record Buy(uint ItemId, uint InventoryId, byte X, byte Y, byte U8, byte Flags, uint Extra);
 
     /// <summary>
-    /// C→S 0x88 (class 0x1435c0778, write 0x141f95380, sent by 0x140314320; live 2026-10-19 on a click in Nessa's shop):
+    /// C→S 0x88 (class 0x1435cb1b0, write 0x141f9bdb0, sent by 0x1403148b0; live 2026-10-19 on a click in Nessa's shop):
     /// u32 BE shop item id (+0x10), u32 BE destination inventory (+0x14, the window's +0x5c0: 1 = main inventory; masked like
     /// 0x28's), u8 x, u8 y (the free cell the client chose), u8 (+0x1e), u8 flags (bit0 +0x1f, bit1 +0x20), compact uint
     /// (+0x18).
@@ -91,29 +91,29 @@ public static class InstanceNpcs
         _ => (uint)(b[1] << 24 | b[2] << 16 | b[3] << 8 | b[4]),
     };
 
-    /// <summary>S→C 0x7b kind 0x5f: the character's passive tree (UI +0x650; listener on instance +0x2078 = 0x140dc8750). A
-    /// non-zero first u32 shows it in mode 2 (0x1409de680), the NPC script's SendOpenScreen( CharacterPassiveTreeScreen, 1 ).
-    /// Not 0x11 (Atlas passive tree, UI +0x668, 0x140dcdf80) and not 0x45 (UI +0x678, 0x140dc7e90).</summary>
+    /// <summary>S→C 0x7b kind 0x5f: the character's passive tree (UI +0x650; listener on instance +0x2078 = 0x140dc5fe0). A
+    /// non-zero first u32 shows it in mode 2 (0x1409df890), the NPC script's SendOpenScreen( CharacterPassiveTreeScreen, 1 ).
+    /// Not 0x11 (Atlas passive tree, UI +0x668, 0x140dcb810) and not 0x45 (UI +0x678, 0x140dc5720).</summary>
     public const byte PassiveTreeUi = 0x5f;
 
     /// <summary>S→C 0x7b kind 0x1c: the Delve chart (Niko's SendOpenScreen( DelveMapScreen, 1 )). The client's screen
-    /// table at 0x142fc5920 (24-byte entries: UTF-16 name, its length, the 0x7b kind) lists it; the same table gives
+    /// table at 0x142fd89f0 (24-byte entries: UTF-16 name, its length, the 0x7b kind) lists it; the same table gives
     /// CharacterPassiveTreeScreen 0x5f and AtlasPassiveTreeScreen 0x11, as known.</summary>
     public const byte DelveMapUi = 0x1c;
 
     public const ushort TradeOpenId = 0xb8, TradeCloseId = 0xb9;
 
     /// <summary>
-    /// S→C 0xb8 (instance group, class 0x1435dbf00, write 0x1421a2960 → 0x141d6acc0, read → 0x141d6aeb0; dispatcher case
-    /// 0x2f stores the struct at instance +0xce90 and calls the listeners at +0x81f0, the in-game UI's 0x140dccdf0): open a
+    /// S→C 0xb8 (instance group, class 0x1435e6e20, write 0x1421a92d0 → 0x141d6e350, read → 0x141d6e540; dispatcher case
+    /// 0x2f stores the struct at instance +0xce90 and calls the listeners at +0x81f0, the in-game UI's 0x140dca680): open a
     /// trade. Wire: u32 BE <paramref name="other"/> (struct +0x08; 0 = an NPC sale: the UI closes the dialogue, plays
     /// "SellingItem" and shows VendorSell, UI +0x7c8), u32 BE <paramref name="mine"/> (+0x00), u32 BE <paramref name="theirs"/>
     /// (+0x04), u8 flags (+0x50), wstr name (+0x10), u32 BE NPCs row (+0x30, 0xffffffff none), u16 (+0x52), u32 BE
     /// TradeWindowVisuals row (+0x40, 0xffffffff none), u16 (+0x54), u16 (+0x56). Being tested: mine/theirs as the offer
     /// inventories (manager 1).
     /// </summary>
-    /// <summary>S→C 0xb9 (class 0x1435bf6f0, read 0x141f905e0; dispatcher case 0x30 → listeners at instance +0x8270, the
-    /// in-game UI's 0x140dcd370): the trade ended. u32 BE trade (0 = the NPC sale: VendorSell closes), u8 accepted (plays
+    /// <summary>S→C 0xb9 (class 0x1435ca108, read 0x141f96ed0; dispatcher case 0x30 → listeners at instance +0x8270, the
+    /// in-game UI's 0x140dcac00): the trade ended. u32 BE trade (0 = the NPC sale: VendorSell closes), u8 accepted (plays
     /// "AcceptItem").</summary>
     public static byte[] TradeClose(uint other, bool accepted) => new LoginWriter().U16(TradeCloseId).U32(other).U8((byte)(accepted ? 1 : 0)).ToArray();
 
@@ -124,7 +124,7 @@ public static class InstanceNpcs
     public sealed record TradeOffer(uint InventoryId, uint ItemId, ushort U16, byte X, byte Y, ushort Token);
 
     /// <summary>
-    /// C→S 0xb2 (16 bytes; class 0x1435bfc78, write 0x141f95b40, sent by 0x142166560; live 2026-10-19 on a drop into the
+    /// C→S 0xb2 (16 bytes; class 0x1435ca6b0, write 0x141f9c570, sent by 0x14216cf10; live 2026-10-19 on a drop into the
     /// sell window's "Your Offer"): u32 BE source inventory (13 = the cursor), u32 BE item id, u16 BE (0), u8 x, u8 y (the
     /// offer cell), u16 (the sender's last argument, also passed to the listeners at instance +0xa178; it changed between
     /// drops). The target is the open trade's own offer.
@@ -139,9 +139,9 @@ public static class InstanceNpcs
     public const int TradeTakeBackLength = 12, TradeMoveAllLength = 12;
 
     /// <summary>
-    /// C→S 0xb3 (12 bytes, sent by 0x142166750) and 0xb5 (12 bytes, class 0x1435bf828, write 0x141f95e50, sent by
-    /// 0x142166830): Shift + click and Ctrl + Shift + click on an item in a grid while a trade is open (the grid click
-    /// handler 0x1402ddbc0). 0xb3: u32 BE item id, u32 BE the grid's inventory id, u16. 0xb5: u32 BE item id, u32 BE the
+    /// C→S 0xb3 (12 bytes, sent by 0x14216d100) and 0xb5 (12 bytes, class 0x1435ca240, write 0x141f9c880, sent by
+    /// 0x14216d1e0): Shift + click and Ctrl + Shift + click on an item in a grid while a trade is open (the grid click
+    /// handler 0x1402de150). 0xb3: u32 BE item id, u32 BE the grid's inventory id, u16. 0xb5: u32 BE item id, u32 BE the
     /// grid's inventory id, u8, u8. The item moves to the other side (inventory ↔ offer). Live 2026-10-19 a click on an
     /// item in "Your Offer" sent 0xb3 with inventory 0.
     /// </summary>
@@ -152,21 +152,21 @@ public static class InstanceNpcs
     public const ushort TradeAcceptId = 0xb6, TradeUnacceptId = 0xb7;
     public const int TradeAcceptLength = 6, TradeUnacceptLength = 4;
 
-    /// <summary>C→S 0xb6 (6 bytes, class 0x14316c420 "u32 message", sent by the Accept button 0x140c378d0 when 0xb8's flags
+    /// <summary>C→S 0xb6 (6 bytes, class 0x1431767e8 "u32 message", sent by the Accept button 0x140c37a50 when 0xb8's flags
     /// have 0x10 and not 0x04): u32 BE the revision of the other side's offer inventory (its +0x1e8, the last 0xbf
-    /// revision), so the server can tell the player accepted what it showed. C→S 0xb7 (4 bytes, class 0x1435bf7e8):
+    /// revision), so the server can tell the player accepted what it showed. C→S 0xb7 (4 bytes, class 0x1435ca200):
     /// Accept pressed again after accepting (un-accept), u16.</summary>
     public static uint ReadTradeAccept(ReadOnlySpan<byte> m) => System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
 
-    /// <summary>0xb8 flags (struct +0x50) bit 4: the trade window's status (0x140c37140) does not ask to mouse over each
+    /// <summary>0xb8 flags (struct +0x50) bit 4: the trade window's status (0x140c372c0) does not ask to mouse over each
     /// of the other side's items before Accept; without it Accept stays disabled ("Mouse over each item to enable
     /// accept").</summary>
     public const byte TradeNoMouseOver = 0x10;
 
-    /// <summary>0xb8 flags bit 0: the trade is the active one. The UI state's listener (0x140d62ec0) keeps the first u32
+    /// <summary>0xb8 flags bit 0: the trade is the active one. The UI state's listener (0x140d60630) keeps the first u32
     /// (struct +0x08, the other party; 0 for an NPC sale) at +0x984 with +0x988 = 1, which Ctrl + click on an inventory
-    /// item (0x14030e3e0) needs to send 0xb2 with x = y = 0xff ("into the offer"); without it the click goes through the
-    /// other panels' checks and sends nothing (live 2026-10-19). S→C 0xb9 with the same id clears it (0x140d62e90).</summary>
+    /// item (0x14030e970) needs to send 0xb2 with x = y = 0xff ("into the offer"); without it the click goes through the
+    /// other panels' checks and sends nothing (live 2026-10-19). S→C 0xb9 with the same id clears it (0x140d60600).</summary>
     public const byte TradeActive = 0x01;
 
     public const ushort TradeAnswerId = 0xb1;
@@ -187,11 +187,11 @@ public static class InstanceNpcs
     public sealed record Choice(int Id, string Text, bool Enabled = true);
 
     /// <summary>
-    /// S→C 0x8c (instance group, class 0x1435dc720, read 0x1421a1f60, dispatcher case 0x1f): u32 BE NPC object id (+0x28),
+    /// S→C 0x8c (instance group, class 0x1435e7600, read 0x1421a88d0, dispatcher case 0x1f): u32 BE NPC object id (+0x28),
     /// u16 BE (+0x2c, passed to the listeners at instance +0x1570), u8 flag (+0x2e), u16 BE n + n × u32 BE (+0x10, being tested
     /// as NPCTextAudio rows), u16 BE m + m × (compact int, wstr, u8) choices (+0x30). The dispatcher sets the dialogue state
-    /// (+0xd7b8 = 2) and calls the listeners at +0x15f0 with both lists and the NPC (0x142171be0); the in-game UI's
-    /// (0x140dcccf0) closes the dialogue windows, opens the inventory and a dialogue panel (UI +0x7b0, or +0x7b8 for the new
+    /// (+0xd7b8 = 2) and calls the listeners at +0x15f0 with both lists and the NPC (0x142178550); the in-game UI's
+    /// (0x140dca580) closes the dialogue windows, opens the inventory and a dialogue panel (UI +0x7b0, or +0x7b8 for the new
     /// style) with them. Live 2026-10-19 (lines [9], no choices) the client stopped. Not used.
     /// </summary>
     public static byte[] Dialogue(uint npcObjectId, ushort value, bool flag, IReadOnlyList<uint> lines, IReadOnlyList<Choice> choices)
@@ -208,15 +208,15 @@ public static class InstanceNpcs
         return w.ToArray();
     }
 
-    /// <summary>S→C 0x84 "NPC dialogue" byte that opens the NPC's dialogue window (0x142149db0: the +0x13f8 listeners →
-    /// 0x140dcc720 → NPCDialogueWindow).</summary>
+    /// <summary>S→C 0x84 "NPC dialogue" byte that opens the NPC's dialogue window (0x142150700: the +0x13f8 listeners →
+    /// 0x140dc9fb0 → NPCDialogueWindow).</summary>
     public const byte OpenDialogue = 0xff;
 
     /// <summary>
-    /// S→C 0x84 (world group, class 0x1435dd7d8, read 0x141fddcb0; world handler 0x142187480 → 0x142149db0): object header
+    /// S→C 0x84 (world group, class 0x1435e84d8, read 0x141fe44d0; world handler 0x14218ddf0 → 0x142150700): object header
     /// (u16 id, u32 BE object id → +0x10, u32, u16), u8 → +0x20. Object id 0 closes the dialogue. With 0xff the client opens
     /// the NPC's dialogue window on its option list; with an NPCTalk index (column 1) it looks the row up for the NPC
-    /// (0x14225e4b0) and opens the window on that row's talk (dialogue state 2); an unknown row makes it answer 0x85.
+    /// (0x142264e40) and opens the window on that row's talk (dialogue state 2); an unknown row makes it answer 0x85.
     /// </summary>
     public static byte[] Talk(uint npcObjectId, byte mode = OpenDialogue) =>
         new LoginWriter().U16(TalkId).U32(npcObjectId).U32(0).U16(0).U8(mode).ToArray();
@@ -226,7 +226,7 @@ public static class InstanceNpcs
 /// An NPC (Agents/docs/protocol/17-npcs.md): a 0x2bb object of an NPCs.dat type such as <c>Metadata/NPC/Act1/Tarkleigh</c>.
 /// <c>Metadata/NPC/NPC</c> deserializes Positioned, Animated, BaseEvents, InteractionAction, NPC and MinimapIcon (client
 /// Render + Targetable); 190 NPC types have exactly that list, others add Transitionable and StateMachine.
-/// <para>NPC (slot 17 0x141e75050) reads two u8 (→ +0x20 has dialogue, +0x21 a component index or 0xff). BaseEvents reads nothing.</para>
+/// <para>NPC (slot 17 0x141e7b6e0) reads two u8 (→ +0x20 has dialogue, +0x21 a component index or 0xff). BaseEvents reads nothing.</para>
 /// <para><paramref name="Model"/>: an .ao for Animated when the type's own is missing or not the one the town room places
 /// (Irasha's type is <c>Metadata/NPC/NPC</c>); <paramref name="Height"/>: a fixed world z (Positioned flags0 bit2), as the
 /// room's record gives it.</para>
@@ -264,7 +264,7 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
                 // 0: the type supplies the model; bit0: a u32-counted UTF-16 .ao path.
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "InteractionAction": w.U8(0); break;
-                // +0x20: has dialogue (0x141e76d40 offers NPCTalk rows only when set); +0x21: index of a component that
+                // +0x20: has dialogue (0x141e7d430 offers NPCTalk rows only when set); +0x21: index of a component that
                 // must be alive (its +0x1a8 > 0) for the NPC to talk, 0xff = none.
                 case "NPC": w.U8(1).U8(0xff); break;
                 case "MinimapIcon": w.U8(0); break;

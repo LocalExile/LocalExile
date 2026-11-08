@@ -97,7 +97,7 @@ static partial class Game
 
     // Baited Breath (always_crit_while_holding_fishing_rod): while holding a Fishing Rod every hit is a critical strike
     // without a roll, whatever its base chance; a cannot-crit prohibition still wins (wiki). The client's
-    // virtual_always_crit calculator (0x14275ba00) reads the stat only for main_hand_weapon_type 15; PoB: CritChance
+    // virtual_always_crit calculator (0x1427625b0) reads the stat only for main_hand_weapon_type 15; PoB: CritChance
     // OVERRIDE 100.
     static bool AlwaysCritical(ClientState conn, Func<string, int> get) =>
         get("always_crit_while_holding_fishing_rod") != 0 && HoldingFishingRod(conn);

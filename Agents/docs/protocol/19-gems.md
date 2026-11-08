@@ -14,13 +14,13 @@ Supported level bonuses and family sources sum before clamping to at least one.
 Actor skill records and skill stats use that same effective level without changing SkillGem experience or quality.
 Intrinsic requirements remain unchanged; see [scope and checks](../game/ascendancies.md#family-gem-levels).
 
-The SkillGem component's reader `0x14246eb00` (writer `0x14246ea40`) takes, in order:
+The SkillGem component's reader `0x1424755d0` (writer `0x142475510`) takes, in order:
 
 | Data | Stored at | Use |
 |---|---|---|
 | i32 experience | +0x28 | -1 when the gem is one level over the cap (the writer sends -1 when its level is above the type's) |
 | u32 | +0x3c | the variant: an index into the SkillGems row's `GemVariants` (0 the normal gem) |
-| u8 | +0x10 | flags (read through `0x140e28cf0`); bit 2 = the level is locked (right-click, §4); bit 5 is set by the client when the variant is not 0, bit 7 when it builds the component empty |
+| u8 | +0x10 | flags (read through `0x140e27590`); bit 2 = the level is locked (right-click, §4); bit 5 is set by the client when the variant is not 0, bit 7 when it builds the component empty |
 | u16 | +0x40 | an IndexableSupportGems row's `Index` (0: none); not used for gems yet |
 
 The reader zeroes the level (+0x2c) and two experience thresholds (+0x30, +0x34) first. Then:
@@ -28,7 +28,7 @@ The reader zeroes the level (+0x2c) and two experience thresholds (+0x30, +0x34)
 - **Experience -1:** experience 0 and level = the gem type's +0x28 + 1. The gem type's +0x28 is the maximum level
   (below), so this is one level over the cap; the writer produces it for a level above the cap (a corrupted level 21
   gem is the likely case).
-- **Any other experience:** `0x14246f900` derives the level. From level 0, while the level is under the maximum (gem
+- **Any other experience:** `0x1424763d0` derives the level. From level 0, while the level is under the maximum (gem
   type +0x28) and the next threshold (+0x34) is not above the experience, the level goes up by one, +0x30 takes the old
   threshold and +0x34 the next level's from the gem's experience table (ItemExperiencePerLevel, the row's +0x14).
 
@@ -52,15 +52,15 @@ keeps the stale gem (live 2026-10-23). One item change per row per kill; the cli
 level's costs, damage and reservation ride the skills, so a level-up also re-sends the skills (the 0x20 Actor update,
 `SendSkills`), the same thing an equipment change does.
 
-The variant: the copy `0x14246fa50` checks +0x3c against the `GemVariants` count (the SkillGems row's +0x77, the list's
-count in the 3.29 layout) and keeps 0 when it is outside the list. The u16: `0x14246fae3` and `0x1424732c3` look it up
+The variant: the copy `0x142476520` checks +0x3c against the `GemVariants` count (the SkillGems row's +0x77, the list's
+count in the 3.29 layout) and keeps 0 when it is outside the list. The u16: `0x1424765b3` and `0x142479d93` look it up
 in `Data/IndexableSupportGems.dat` when it is not 0.
 
 The server writes the component as `i32 experience, u32 variant, u8 flags, u16 0` (`Item.Payload`, `GemVariant`).
 Serialization derives flag bit 5 (`0x20`) from a positive variant and clears a stale bit 5 for variant 0, including
 gems nested inside sockets. Level-lock and other flags are preserved; saves retain the original `GemFlags`.
-The network reader copies the raw flags byte into +0x10 (`0x14246eb46..0x14246eb5b`), without applying the native
-copy's bit-5 normalization (`0x14246fab8..0x14246fae3`). A variant index alone therefore leaves the native variant
+The network reader copies the raw flags byte into +0x10 (`0x142475616..0x14247562b`), without applying the native
+copy's bit-5 normalization (`0x142476588..0x1424765b3`). A variant index alone therefore leaves the native variant
 marker unset even though the server grants the correct variant skill. Wire regression tests cover both item paths;
 the transfigured item-name display still needs a native retest.
 
@@ -96,7 +96,7 @@ the transfigured item-name display still needs a native retest.
 - **Quality:** GrantedEffectQualityStats, per GrantedEffect: stats and their values per 1% quality, in thousandths
   (`StatsValuesPermille`). The wiki: non-integer results usually round down.
 - **Requirements:** the level requirement is GrantedEffectStatSetsPerLevel `PlayerLevelReq` of the gem's level (the
-  same values as GrantedEffectsPerLevel's). The client checks it itself (0x14246fff0): a gem the character is too low
+  same values as GrantedEffectsPerLevel's). The client checks it itself (0x142476ac0): a gem the character is too low
   for is drawn red, "Requires level 70", and the item it is socketed in with it (checked live 2026-10-23: a level 20
   Fireball in an equipped wand, then `/set_level 10`). It still sends uses of the skill, though — it plays the cast
   animation and takes the mana off its bar before the server hears of it — so the server is the one that refuses. The
@@ -118,7 +118,7 @@ the transfigured item-name display still needs a native retest.
   tooltips (poedb, 3.26 data, matching GrantedEffectStatSetsPerLevel): Haste level 1 needs character level 24 and
   58 Dex, level 20 needs 70 and 155; Clarity level 1 needs 10 and 22 Int, level 20 needs 70 and 119; Fireball level 20
   needs 70 and 155 Int.
-- **Attribute requirements** are the client's computation in `0x14246fc40` (per attribute; `0x14246fff0` is the level
+- **Attribute requirements** are the client's computation in `0x142476710` (per attribute; `0x142476ac0` is the level
   requirement and clamps the level the same way): for one attribute at the gem's level, with `g` the level requirement
   of that level (`PlayerLevelReq`) and `p` the gem's SkillGems share in percent
   (Strength/Dexterity/IntelligenceRequirementPercent),
@@ -205,12 +205,12 @@ level the character does not meet still shows the "+", and the click is answered
 32; then with 70 Int, level 10 needing 75). A gem lying in the inventory, not in a socket, sent nothing in the captures.
 
 The lock: a right-click on a socketed gem sends C→S 0xd7 (15 bytes): the same three u32s and a u8, 1 to lock and 0 to
-unlock. The client keeps the lock in the SkillGem flags +0x10 bit 2 — its level-up check `0x142472db0` returns false
+unlock. The client keeps the lock in the SkillGem flags +0x10 bit 2 — its level-up check `0x142479880` returns false
 when the bit is set, so the "+" goes away — and the server writes the bit into the item (`GemFlags`) and saves it, so
 the lock is back after a login. Checked live 2026-10-23: the "+" appears with `/gem_xp near`, the click levels the gem
 (level 1 → 2, 9–14 → 10–16 damage), right-click locks it, the lock survives a relogin, unlocking brings the "+" back.
 
-The client's level-up check `0x142472db0` (reached from `0x1402169c0`, a vtable slot at `0x143036de8`) does not only
+The client's level-up check `0x142479880` (reached from `0x140216d60`, a vtable slot at `0x143040fd0`) does not only
 test the threshold: with `remaining = next − experience` it wants `remaining <= 10 × v` and
 `remaining <= (next − current) / 4`, `v` being a field of the next level's stat set. Only the last condition was
 exercised live (experience one below the threshold); whether the client also draws the "+" for the last quarter of a

@@ -7,9 +7,9 @@ namespace GameServer.Core.Protocol.Instance;
 /// <summary>
 /// The instance (game server) connection, Agents/docs/re/010. Same framing as login (u16 BE id, fields, no length prefix) and
 /// the same field encodings (<see cref="LoginWriter"/> / <see cref="LoginReader"/>). The client opens it after login
-/// 0x14 and sends two plaintext messages (0x142148500): 0x0F ticket and 0x0E hello. The server answers 0x11 in
+/// 0x14 and sends two plaintext messages (0x14214ee50): 0x0F ticket and 0x0E hello. The server answers 0x11 in
 /// plaintext. From the byte after it, both directions are Salsa20 keyed by the 64 bytes from 0x14 (client case 1 of
-/// dispatcher 0x14214a190 → 0x140e03a30(key, isClient=1), the same construction as login).
+/// dispatcher 0x142150ae0 → 0x140e022d0(key, isClient=1), the same construction as login).
 /// </summary>
 public static class InstanceProtocol
 {
@@ -18,14 +18,14 @@ public static class InstanceProtocol
     /// <summary>Length of the client's plaintext opening: 0x0F (2 + 4) followed by 0x0E (2 + 12 + 4 + 4 + 1 + 1).</summary>
     public const int OpeningLength = 30;
 
-    /// <summary>S→C 0x11 (no fields, class 0x14316c930): switches both directions to Salsa20.</summary>
+    /// <summary>S→C 0x11 (no fields, class 0x1431768d8): switches both directions to Salsa20.</summary>
     public static byte[] StartEncryption() => new LoginWriter().U16(StartEncryptionId).ToArray();
 
     /// <summary>
-    /// S→C 0x21 (class 0x1435dcb80, write 0x1421a2da0; dispatcher case 10): enter the area. Two stash tab lists
+    /// S→C 0x21 (class 0x1435e65c8, write 0x1421a9710; dispatcher case 10): enter the area. Two stash tab lists
     /// (<see cref="InstanceStash.WriteTabs"/>: the personal stash → instance +0xc498, the trade tabs → +0xc4c8), vec16 of
     /// (u32, u32), wstr, 24 flag bits, u8 +0x7e, u8 bits (+0x7b/+0x7c/+0x7d), the rest empty or zero. Its handler
-    /// (0x142156d80) needs the local player entity (0x22 + 0x2bb) to exist already.
+    /// (0x14215d6d0) needs the local player entity (0x22 + 0x2bb) to exist already.
     /// </summary>
     /// <remarks>Flag bit 0 (+0x78) is the active weapon set: set = the second (Weapon2 / Offhand2). The handler copies it
     /// to the session's +0xcd31 (the dispatcher's r13 is the session + 8, so its "[r13+0xcd29]"), as S→C 0xde does.</remarks>
@@ -36,7 +36,7 @@ public static class InstanceProtocol
         return w.U16(0).U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(0).U8(0).ToArray();
     }
 
-    /// <summary>C→S 0xdd (3 bytes, built by 0x1421690f0): swap the weapon set. u8: the set wanted (1 the second, 0 the
+    /// <summary>C→S 0xdd (3 bytes, built by 0x14216faa0): swap the weapon set. u8: the set wanted (1 the second, 0 the
     /// first; the client sends "current set is the first"). It then waits (session +0xcfa4 = 1) for S→C 0xde.</summary>
     public const ushort SwapWeaponsId = 0xdd;
 
@@ -47,7 +47,7 @@ public static class InstanceProtocol
     public static (int X, int Y) ReadChannelUpdate(ReadOnlySpan<byte> m) =>
         ((int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]), (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[6..]));
 
-    /// <summary>S→C 0xde (3 bytes, class 0x14345ef10, dispatcher case 0x42 at 0x14214eb65): the weapon set. u8 flags: bit 0
+    /// <summary>S→C 0xde (3 bytes, class 0x14346cd80, dispatcher case 0x42 at 0x1421554b5): the weapon set. u8 flags: bit 0
     /// the active set (→ session +0xcd31; a change tells the listeners at +0x72f8), bit 1 keeps the client waiting
     /// (session +0xcfa4 = 2), else the wait ends (0). Verified with a live trace, 2026-10-22.</summary>
     public const ushort WeaponSetId = 0xde;
@@ -57,7 +57,7 @@ public static class InstanceProtocol
     public const ushort TickId = 0x1b, PongId = 0x1c, AreaGeneratedId = 0x7d;
 
     /// <summary>
-    /// S→C 0x1c (class 0x1435dc8c0, read 0x141fa0720; dispatcher case 5 → 0x142155930): acknowledges the client's 0x1b
+    /// S→C 0x1c (class 0x1435e77a0, read 0x141fa7150; dispatcher case 5 → 0x14215c280): acknowledges the client's 0x1b
     /// ticks. Fields: u16 server delay (ms, subtracted from the measured round trip), u16 index into the client's queue
     /// of send times (+0xc458; entries up to and including it are dropped), u32 (fed bit by bit into the stream's side
     /// channel at +0xd0; 0 for us). The client's "network: N ms" is now − oldest unacknowledged send, so without 0x1c it
@@ -67,12 +67,12 @@ public static class InstanceProtocol
         new LoginWriter().U16(PongId).U16(serverDelayMs).U16(ackIndex).U32(sideChannel).ToArray();
 
     /// <summary>Encrypted C→S messages whose length is known: 0x1b tick (u8 counter, 4 bytes; 7 in all, sent every
-    /// 100–500 ms in state 3 by 0x142148880) and 0x7d area generated (two u32 hashes; 10 in all).</summary>
+    /// 100–500 ms in state 3 by 0x14214f1d0) and 0x7d area generated (two u32 hashes; 10 in all).</summary>
     public const ushort UseSkillAtLocationId = 0x25, ActionStartedId = 0x1ab;
 
     /// <summary>Encrypted C→S messages whose length is known (live captures 2026-10-16): 0x1b tick, 0x7d area generated,
-    /// 0x25 use skill at location (16), 0x015a and 0x01ef (id only). 0x0099 is 4 bytes (class 0x1435c0258, write
-    /// 0x141f95200: two u8, meaning unknown), sent after entering an area together with the chat channel joins
+    /// 0x25 use skill at location (16), 0x015a and 0x01ef (id only). 0x0099 is 4 bytes (class 0x1435cac90, write
+    /// 0x141f9bc30: two u8, meaning unknown), sent after entering an area together with the chat channel joins
     /// (<see cref="InstanceChat.JoinChannelId"/>) and 0x0129 (id only); the 20 bytes once taken for 0x0099 were all four.</summary>
     public static int? KnownClientLength(ushort id) => id switch
     {
@@ -80,7 +80,7 @@ public static class InstanceProtocol
         TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2, 0x0099 => 4, 0x0129 => 2,
         InstanceChat.LinkItemId => InstanceChat.LinkItemLength, InstanceChat.LinkOtherId => InstanceChat.LinkOtherLength,
         InstanceChat.LinkAnotherId => InstanceChat.LinkAnotherLength,
-        // Primary 3.29.3b writers: 0x140e29080 (u16 + u8), 0x141f935a0 (u16 + 4/2/2/4/1/1 bytes).
+        // Primary 3.29.3c writers: 0x140e27920 (u16 + u8), 0x141f99e90 (u16 + 4/2/2/4/1/1 bytes).
         0x020a => 3, 0x0059 => 16, InstanceSocial.TradeRequestId => InstanceSocial.TradeRequestLength,
         InstanceSocial.TradeRequestAcceptId => InstanceSocial.TradeRequestAcceptLength,
         InstanceSocial.PartyAcceptId => InstanceSocial.PartyAcceptLength,
@@ -111,7 +111,7 @@ public static class InstanceProtocol
 
     /// <summary>
     /// C→S 0x190 (12 bytes): use an instant skill at a ground point, without an action sequence.
-    /// 0x1401232e0 selects target mode 4; vtable 0x1435c0718's writer 0x141f91f60 writes id, x, y and skill
+    /// 0x140123640 selects target mode 4; vtable 0x1435cb150's writer 0x141f98850 writes id, x, y and skill
     /// in network byte order. Frostblink Q captured 0190 0000011A 000000DC 0103.
     /// </summary>
     public const ushort UseInstantSkillAtLocationId = 0x190;
@@ -125,7 +125,7 @@ public static class InstanceProtocol
     /// <summary>
     /// C→S 0x191 (8 bytes, live 2026-10-21): u32 target object id (the player's own for a self-cast), u16 skill id.
     /// An instant skill (Haste, Purity of Elements, Righteous Fire) has no action sequence.
-    /// Sender 0x1401232e0 uses target modes 5/6; captured Haste: 0191 00001000 0105.
+    /// Sender 0x140123640 uses target modes 5/6; captured Haste: 0191 00001000 0105.
     /// </summary>
     public const ushort UseInstantSkillId = 0x191;
 
@@ -137,7 +137,7 @@ public static class InstanceProtocol
 
     public const ushort LockstepMoveStartId = 0x018e, LockstepMoveUpdateId = 0x0192, LockstepMoveStopId = 0x0195;
 
-    /// <summary>C→S 0x018f (11 bytes, writer 0x141f924b0: u32 object, u16 skill, u16 flags, u8): lockstep's use of a skill on
+    /// <summary>C→S 0x018f (11 bytes, writer 0x141f98da0: u32 object, u16 skill, u16 flags, u8): lockstep's use of a skill on
     /// an object, instead of 0x24. C→S 0x0196 (u16 skill): release that skill.</summary>
     public const ushort LockstepUseOnObjectId = 0x018f, LockstepSkillStopId = 0x0196;
 
@@ -172,9 +172,9 @@ public static class InstanceProtocol
     public static bool IsLockstepRequest(ushort id) => IsLockstepMovement(id) || id is LockstepUseOnObjectId or LockstepSkillStopId;
 
     /// <summary>
-    /// C→S 0x018e (lockstep; sender 0x14215f700 when the network mode +0x984 is 2): use a skill at a location, the target
+    /// C→S 0x018e (lockstep; sender 0x1421660b0 when the network mode +0x984 is 2): use a skill at a location, the target
     /// given relative to the player's cell (i32 dx, i32 dy), then u16 skill id, u16 action flags, u8. 0x0192 (sender
-    /// 0x14215fb10) carries a new (dx, dy) while the button is held; 0x0195 (0x14215fcb0) is the release.
+    /// 0x1421664c0) carries a new (dx, dy) while the button is held; 0x0195 (0x142166660) is the release.
     /// </summary>
     public static (int Dx, int Dy, ushort SkillId, ushort Flags, byte Extra) ReadLockstepMoveStart(byte[] b) =>
         (BinaryPrimitives.ReadInt32BigEndian(b.AsSpan(2)), BinaryPrimitives.ReadInt32BigEndian(b.AsSpan(6)),
@@ -183,12 +183,12 @@ public static class InstanceProtocol
     public const ushort FrameEndId = 0x02b7, FrameLengthId = 0x02b8;
 
     /// <summary>S→C 0x02b7 (world group, id only): the end of a server frame. In lockstep (network mode 2) the world's
-    /// message intake 0x1421872b0 then queues one frame of the current length (world +0x11c) behind the messages received
-    /// so far; the world runs its messages and steps its objects one queued frame at a time (0x142183930 → 0x142183ce0).
+    /// message intake 0x14218dc20 then queues one frame of the current length (world +0x11c) behind the messages received
+    /// so far; the world runs its messages and steps its objects one queued frame at a time (0x14218a2a0 → 0x14218a650).
     /// Ignored in predictive mode.</summary>
     public static byte[] FrameEnd() => [FrameEndId >> 8, FrameEndId & 0xff];
 
-    /// <summary>S→C 0x02b8 (world group): u8, the length in ms of the server frames that follow (0x141645fa0 stores it
+    /// <summary>S→C 0x02b8 (world group): u8, the length in ms of the server frames that follow (0x141648b50 stores it
     /// at world +0x11c).</summary>
     public static byte[] FrameLength(byte ms) => [FrameLengthId >> 8, FrameLengthId & 0xff, ms];
 
@@ -199,11 +199,11 @@ public static class InstanceProtocol
     public const ushort SkillBarId = 0x53, SkillBarSlots = 13;
 
     /// <summary>
-    /// S→C 0x53 (instance group, class 0x1435dc4c0, read 0x14219f600, dispatcher case 0x13): the skill bar, being tested.
+    /// S→C 0x53 (instance group, class 0x1435e73a0, read 0x1421a5f70, dispatcher case 0x13): the skill bar, being tested.
     /// 26 raw bytes = 13 × u16 skill ids by slot (+0x10, copied with memcpy, so little-endian like the blobs), then two
     /// raw (little-endian) u16 slot bitmasks: +0x2a, "Always Attack Without Moving" (bit = slot, C→S 0x4f), and +0x2c
     /// (C→S 0x52). Case 0x13 copies them to instance +0xcfd0 / +0xcfd2 after the rebuild, so a bar sent with 0 clears
-    /// both options. The skill bar's rebuild 0x140ae0fb0 (bar vtable +0x390, subscribed to instance
+    /// both options. The skill bar's rebuild 0x140ae1d00 (bar vtable +0x390, subscribed to instance
     /// +0xaf78) takes exactly such an array: each id is looked up in the ActiveSkillManager (+0x158, by +0x40) and put in
     /// its slot (vtable +0x398), an unknown id clears the slot (+0x3a0). Slot 2 is the right mouse button (C→S 0x4e).
     /// </summary>
@@ -221,9 +221,9 @@ public static class InstanceProtocol
     public const ushort AttackInPlaceId = 0x4f, SlotMask52Id = 0x52;
 
     /// <summary>
-    /// C→S 0x4f and 0x52 (4 bytes, class 0x1435bf968, writer 0x141f93160): u8 slot, u8 on. 0x4f is a slot's "Always
-    /// Attack Without Moving" (sender 0x140aed580; the client sets bit slot of instance +0xcfd0 itself, live 2026-11-02
-    /// 004F0301). 0x52 sets bit slot of +0xcfd2 (0x142165750; binding a skill, 0x140ade430, clears it), meaning unknown.
+    /// C→S 0x4f and 0x52 (4 bytes, class 0x1435ca380, writer 0x141f99a50): u8 slot, u8 on. 0x4f is a slot's "Always
+    /// Attack Without Moving" (sender 0x140aecf00; the client sets bit slot of instance +0xcfd0 itself, live 2026-11-02
+    /// 004F0301). 0x52 sets bit slot of +0xcfd2 (0x14216c100; binding a skill, 0x140adf180, clears it), meaning unknown.
     /// </summary>
     public static (byte Slot, bool On) ReadSlotOption(ReadOnlySpan<byte> m) => (m[2], m[3] != 0);
 
@@ -237,7 +237,7 @@ public static class InstanceProtocol
         (m[2], System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(m[3..]));
 
     /// <summary>
-    /// C→S 0x25 (class 0x1435bfbd8, sender 0x142166300): use a skill at a ground location, e.g. Move on a left click.
+    /// C→S 0x25 (class 0x1435ca5f0, sender 0x14216ccb0): use a skill at a ground location, e.g. Move on a left click.
     /// u32 x, u32 y (target grid cell, action +0x130/+0x134), u16 skill id (the granted skill's +0x40; Move = 0x2909 for
     /// the Witch), u16 action +0x11a (sent only when >= 0), u16 action +0x122. The client does not move until the server
     /// echoes the action (0x1ab).
@@ -251,16 +251,16 @@ public static class InstanceProtocol
     }
 
     /// <summary>
-    /// S→C 0x1ab (world group, class 0x1435c2340, read 0x141fdda70; Actor handler 0x1421940a0): an object starts an
+    /// S→C 0x1ab (world group, class 0x1435ccc18, read 0x141fe4290; Actor handler 0x14219aa10): an object starts an
     /// action. Object header (u16 id, u32 object id, u32 +0x14, u16 +0x18), u16 flags (+0x38 → action +0x122; bit 0x80 adds
     /// a u32 target object id), compact ints: the actor's position when the action starts (+0x2c/+0x30 → action +0x158)
     /// and the target (+0x24/+0x28 → action +0x130, where the client's own 0x25 keeps its target), u16 skill id (+0x34),
     /// u16 sequence (+0x36 → action +0x11a). For a predicted local actor (sequence ≥ 0) the handler only compares the
     /// position pair with where the client thinks the actor is and teleports it there when they are 92+ grid cells apart
     /// (live 2026-10-16: sending the target in that pair teleported the player on long clicks, onto unwalkable cells).
-    /// Otherwise it looks the skill up in the actor's granted skills and starts the action (0x141ee97f0 → 0x141e8cf10).
+    /// Otherwise it looks the skill up in the actor's granted skills and starts the action (0x141ef0050 → 0x141e937b0).
     /// </summary>
-    /// <summary>S→C 0x1ac "action ended" (read 0x141f92000): the world object header only (u32 object id, u32 0, u16 0);
+    /// <summary>S→C 0x1ac "action ended" (read 0x141f988f0): the world object header only (u32 object id, u32 0, u16 0);
     /// the object's current action stops. Ignored for the local player's predicted actions (07 §5).</summary>
     public static byte[] ActionEnded(uint objectId) => new LoginWriter().U16(0x1ac).U32(objectId).U32(0).U16(0).ToArray();
 
@@ -277,7 +277,7 @@ public static class InstanceProtocol
 
     /// <summary>
     /// A server-driven action that starts now: 0x1ab, then 0x1ac in the same tick, as GGG sends them. A server-created
-    /// action that paths waits at its target for that 0x1ac (0x141e94720, Actor flag 0x10); one still walking swings when
+    /// action that paths waits at its target for that 0x1ac (0x141e9afc0, Actor flag 0x10); one still walking swings when
     /// it gets there.
     /// </summary>
     public static byte[] ActionStartedNow(uint objectId, int posX, int posY, int targetX, int targetY, ushort skillId, ushort sequence,
@@ -287,7 +287,7 @@ public static class InstanceProtocol
     public const ushort ActionTargetId = 0x1ad;
 
     /// <summary>
-    /// S→C 0x1ad (class 0x1435c22a8, read 0x141fdde20; Actor handler 0x1421940a0): a new target for the action in
+    /// S→C 0x1ad (class 0x1435ccca8, read 0x141fe4640; Actor handler 0x14219aa10): a new target for the action in
     /// progress. Object header, u16 action sequence (+0x20; must match the action's +0x11a), i32 x, i32 y (+0x24),
     /// big-endian. The Actor passes the cell to the action (vtable +0x110), which walks there instead: the held-mouse
     /// update of a lockstep walk (the answer to C→S 0x0192). Ignored for a predicted local action.
@@ -298,13 +298,13 @@ public static class InstanceProtocol
     public const ushort ActionHitId = 0x1af;
 
     /// <summary>
-    /// S→C 0x1af "action hit" (class 0x1435ddb38, read 0x141fddba0 → 0x1419bd6f0; Actor handler 0x1421940a0 → 0x141e90f50):
+    /// S→C 0x1af "action hit" (class 0x1435e8558, read 0x141fe43c0 → 0x1419c2100; Actor handler 0x14219aa10 → 0x141e977f0):
     /// the hit result of an action. The object header names the attacker; then u16 action sequence (+0x40, must match the
     /// action's +0x11a), u8 (+0x43), u8 skill index (+0x42, 0 = the actor's current action), u32 target object id (+0x44),
     /// u16 flags (+0x36), u8 kind bits (bit 0: the message belongs to an action, bit 1: the hit data follows, bits 2/3: a
     /// further u16 each), then u8 (+0x39) and u8 hit angle (+0x3a: 0..255 = a full turn). The handler looks the action up,
     /// picks the damage stat container (or the one the action's sequence names) and calls the attacker Actor's
-    /// ProcessDamagePackageInternal (vtable +0x230, 0x141e91580): the client applies the hit locally, which is what plays
+    /// ProcessDamagePackageInternal (vtable +0x230, 0x141e97e20): the client applies the hit locally, which is what plays
     /// the blood particles and the weapon impact sound ("bonk") on the target. Server life (0x1b1) stays authoritative.
     /// </summary>
     public static byte[] ActionHit(uint objectId, ushort sequence, uint targetObjectId, byte actionByte = 0,
@@ -326,7 +326,7 @@ public static class InstanceProtocol
     public const ushort InstantActionId = 0x1ce;
 
     /// <summary>
-    /// S→C 0x1ce (class 0x1435c2360, read 0x141fde150; Actor handler 0x1421940a0 → 0x142195880): an instant or triggered
+    /// S→C 0x1ce (class 0x1435ccd40, read 0x141fe4970; Actor handler 0x14219aa10 → 0x14219c1f0): an instant or triggered
     /// action from the server, the answer to C→S 0x191. Object header, u16 skill id (+0x20), u16 action sequence (+0x22 →
     /// action +0x11a; 0xffff = none), u16 flags (+0x38 → action +0x122; 0x20 adds a u32 target object id +0x24, 0x2000 two
     /// compact ints +0x30/+0x34, 0x10 a further struct; a negative low byte makes it a triggered action), then the target
@@ -346,9 +346,9 @@ public static class InstanceProtocol
     public const ushort LifeUpdateId = 0x1b1;
 
     /// <summary>
-    /// S→C 0x1b1 (world group, class 0x1435dd878, read 0x141fe0790; world handler 0x142187480 → the object's Life
+    /// S→C 0x1b1 (world group, class 0x1435e8258, read 0x141fe6fb0; world handler 0x14218ddf0 → the object's Life
     /// component): object header, u32 current (+0x20), u32 reserved (+0x24), u8 pool (+0x28: 0 life, 1 mana, 2 energy
-    /// shield), u16 (+0x2a → pool +0x14, probably reserved percent), u8 (+0x2c), all big-endian. 0x141e69fb0 stores the
+    /// shield), u16 (+0x2a → pool +0x14, probably reserved percent), u8 (+0x2c), all big-endian. 0x141e70550 stores the
     /// values in the pool. For the life pool the handler also calls the Life component's death slot (vtable +0xe8, with
     /// the +0x2c byte) when life drops from ≥ 1 to &lt; 1, and its revive slot (+0x100) on the way back.
     /// </summary>
@@ -360,7 +360,7 @@ public static class InstanceProtocol
     public const ushort ActorAnimationId = 0x1d1;
 
     /// <summary>S→C 0x1d1: object header, BE float duration, Animation.dat row (not a rig clip index), bool.
-    /// Actor handler 0x1421949c3 calls 0x141e95e60, which cancels predictive actions, selects the current stance's
+    /// Actor handler 0x14219b333 calls 0x141e9c700, which cancels predictive actions, selects the current stance's
     /// animation and blocks action starts until recovery ends. Row 5 is TakeHit. The optional bool enables the
     /// client's avoid-interruption check; the server normally decides eligibility itself.</summary>
     public static byte[] ActorAnimation(uint objectId, float seconds, byte animationType, bool checkInterruption = false) =>
@@ -369,9 +369,9 @@ public static class InstanceProtocol
 
     /// <summary>
     /// S→C 0x1b2 "InstanceClientAnimationUpdate" (world group; the handler maps it and 0x26f/0x270/0x271 to the
-    /// Animated component's <c>0x141e58ef0</c>): object header, u8 kind, then per kind — 0/1: u32 animation index
+    /// Animated component's <c>0x141e5d440</c>): object header, u8 kind, then per kind — 0/1: u32 animation index
     /// (+0x24) and u32 float bits (+0x28), 2: u32 float bits (+0x2c), 3: u32 float bits (+0x28). Kind 0 calls
-    /// <c>0x141dba530</c> ("play animation"), which bails when the index is past the actor's animation count, so a
+    /// <c>0x141dbdbc0</c> ("play animation"), which bails when the index is past the actor's animation count, so a
     /// wrong index is ignored rather than fatal (live 2026-10-25).
     /// </summary>
     public static byte[] AnimationUpdate(uint objectId, byte kind, uint index, float speed) =>
@@ -384,8 +384,8 @@ public static class InstanceProtocol
     public const ushort TeleportId = 0x1b7, MoveToId = 0x1ba, EnterWakeZoneId = 0x1a9, LeaveWakeZoneId = 0x1aa;
 
     /// <summary>
-    /// S→C 0x1a9 (world group, class 0x1435dd838, header only): the object entered the wake zone. The world handler sets
-    /// object +0x8d |= 2 and calls 0x141ec0aa0 ("ObjectInWakeZone"), which adds it to the set of objects that update and
+    /// S→C 0x1a9 (world group, class 0x1435e8238, header only): the object entered the wake zone. The world handler sets
+    /// object +0x8d |= 2 and calls 0x141ec7350 ("ObjectInWakeZone"), which adds it to the set of objects that update and
     /// animate. Without it an object exists (position, components, camera follow, teleports work) but is never drawn and
     /// its actions and movement never advance. 0x1aa is the reverse.
     /// </summary>
@@ -395,17 +395,17 @@ public static class InstanceProtocol
 
     public const ushort RemoveObjectId = 0x2bd;
 
-    /// <summary>S→C 0x2bd (world group, header only, read 0x141f92000): remove an object (the world handler's "remove
+    /// <summary>S→C 0x2bd (world group, header only, read 0x141f988f0): remove an object (the world handler's "remove
     /// object" case, Agents/docs/protocol/07 §4).</summary>
     public static byte[] RemoveObject(uint objectId) => new LoginWriter().U16(RemoveObjectId).U32(objectId).U32(0).U16(0).ToArray();
 
     /// <summary>
-    /// S→C 0x1ba (world group, class 0x1435dd7b8, read 0x141fe0ff0; Positioned handler 0x141e30c90): move an object to a
+    /// S→C 0x1ba (world group, class 0x1435e85f8, read 0x141fe7810; Positioned handler 0x141e33fd0): move an object to a
     /// grid cell. Object header, i32 x, i32 y, u32 height marker (+0x28: 0x7fffffff = follow the terrain;
     /// otherwise signed i32 marker = -world z / 7.8125). The native endpoint is z = -marker * 7.8125, so positive
     /// markers are above sea level and negative ones below. This is the Positioned blob's i32, not the opposite-sign
     /// ProjectileObject.Height API argument. The float is duration
-    /// (+0x2c, seconds: the handler passes distance / duration as the speed to 0x141e34120; Positioned +0x23c = that
+    /// (+0x2c, seconds: the handler passes distance / duration as the speed to 0x141e37460; Positioned +0x23c = that
     /// speed, +0x240 = the time per cell step = duration / the path's longest axis in cells. Live 2026-10-18: sending
     /// 95.7 meant "~1 s per cell" and the fireball crawled), u8 (+0x30). 0x1b7 (teleport) is the same header, x, y, u32
     /// +0x28 (→ +0x290), u32 +0x2c (→ +0x2b4).
@@ -415,7 +415,7 @@ public static class InstanceProtocol
             .U32((uint)x).U32((uint)y).U32(u28).U32(BitConverter.SingleToUInt32Bits(speed)).U8(u30).ToArray();
 
     /// <summary>S→C 0x1b9: Positioned orientation in radians, then the orientation-lock flag.
-    /// Writer 0x141fdf370; Positioned 0x141e30c90 calls SetOrientation (0x141e325e0).</summary>
+    /// Writer 0x141fe5b90; Positioned 0x141e33fd0 calls SetOrientation (0x141e35920).</summary>
     public static byte[] Orientation(uint objectId, float radians, bool locked = false) =>
         new LoginWriter().U16(0x1b9).U32(objectId).U32(0).U16(0)
             .U32(BitConverter.SingleToUInt32Bits(radians)).U8(locked ? (byte)1 : (byte)0).ToArray();
@@ -423,9 +423,9 @@ public static class InstanceProtocol
     public const ushort DeathScreenId = 0x55, ResurrectId = 0x54;
 
     /// <summary>
-    /// S→C 0x55 (instance group, class 0x1435dce40, read 0x14219f820, dispatcher case 0x14 → listeners at +0xf78): the
+    /// S→C 0x55 (instance group, class 0x1435e68a8, read 0x1421a6190, dispatcher case 0x14 → listeners at +0xf78): the
     /// death screen. u8 flags: bit0, bit1 = hide, bit2, bit3, bit4; unless hidden: u32 BE (+0x18), a u8 when that u32 is
-    /// non-zero, u16 BE. The HUD (0x140d5d6a0 → HUD slot +0x4d0 = 0x140d86180 → panel 0x140290820(bit0, bit2, bit3))
+    /// non-zero, u16 BE. The HUD (0x140d5adf0 → HUD slot +0x4d0 = 0x140d838f0 → panel 0x140290db0(bit0, bit2, bit3))
     /// shows the "death_screen" panel (title ClientStrings "You have died!"). Its left button: "Exit" with bit0 (hardcore:
     /// it sends C→S 0x153, exit to character selection), "Resurrect in Town" with bit3, else "Resurrect" (shown when no
     /// flag is set); its right button "Resurrect at Checkpoint" with bit2 (without bit0); a third "Spectate" (PvP).
@@ -438,15 +438,15 @@ public static class InstanceProtocol
         return w.ToArray();
     }
 
-    /// <summary>C→S 0x153 (id only): Esc → "Exit to Character Selection" (0x140cf1ab0) and the hardcore death screen's
-    /// Exit (0x140290bf0); the client skips it while its instance connection is already down (state +0xc3a0 = 1). The
+    /// <summary>C→S 0x153 (id only): Esc → "Exit to Character Selection" (0x140cf1a20) and the hardcore death screen's
+    /// Exit (0x140291180); the client skips it while its instance connection is already down (state +0xc3a0 = 1). The
     /// server answers by closing the instance connection. Disconnected in game (instance at app+0x348), the client's
-    /// frame update 0x140d57cd0 empties the state stack and pushes the login state (id 7, 0x140d0c8c0) without deleting
-    /// the login object; that state's enter (0x140d0d190) sees the login connection still logged in (login+0xde8 = 3)
-    /// and pushes character select (id 9, 0x140d12140), which asks for the list again with login 0x18.</summary>
+    /// frame update 0x140d551f0 empties the state stack and pushes the login state (id 7, 0x140d0c8f0) without deleting
+    /// the login object; that state's enter (0x140d0d1c0) sees the login connection still logged in (login+0xde8 = 3)
+    /// and pushes character select (id 9, 0x140d12170), which asks for the list again with login 0x18.</summary>
     public const ushort ExitToCharacterSelectId = 0x153;
 
-    /// <summary>C→S 0x54 (class 0x1435bffa0, write 0x141f932b0), sent by the death screen's buttons (0x140290bf0):
+    /// <summary>C→S 0x54 (class 0x1435ca9d8, write 0x141f99ba0), sent by the death screen's buttons (0x140291180):
     /// u8 flags, bit0 set by the "Resurrect in Town" button, clear for the checkpoint one.</summary>
     public static bool ReadResurrectInTown(ReadOnlySpan<byte> m) => (m[2] & 1) != 0;
 
@@ -459,8 +459,8 @@ public static class InstanceProtocol
         new LoginWriter().U16(TeleportId).U32(objectId).U32(0).U16(0).U32((uint)x).U32((uint)y)
             .U32(height).U32(BitConverter.SingleToUInt32Bits(worldZ)).ToArray();
 
-    /// <summary>S→C 0x128 (class 0x1435dc7c0, read 0x1421a64b0): where objects are, in grid cells: compact count, then
-    /// u32 object, u32 x, u32 y. The client (case 0x50 of 0x14214a190, not in lockstep) puts the player on the first record
+    /// <summary>S→C 0x128 (class 0x1435e7680, read 0x1421ace20): where objects are, in grid cells: compact count, then
+    /// u32 object, u32 x, u32 y. The client (case 0x50 of 0x142150ae0, not in lockstep) puts the player on the first record
     /// when it is 20 or more cells from it, and then puts every listed object on its record; otherwise only the objects
     /// 20 or more cells from theirs. It logs "Resyncing id" for each. The first record must be the player.</summary>
     public const ushort ResyncId = 0x128;
@@ -477,7 +477,7 @@ public static class InstanceProtocol
     public static byte[] StopBlocking(uint objectId) =>
         new LoginWriter().U16(0x2b2).U32(objectId).U32(objectId).U16(0x7000).U8(0).U8(0).ToArray();
 
-    /// <summary>The network's signed compact int (writer 0x141fa3c50, reader 0x141fa3d60): 1 byte for -0x40..0x3f, then
+    /// <summary>The network's signed compact int (writer 0x141faa680, reader 0x141faa790): 1 byte for -0x40..0x3f, then
     /// 2/3/4 bytes with prefixes 0x80/0xc0/0xe0 (6/5/4 value bits in the first byte), else 0xf0 + 4 bytes, big-endian.</summary>
     public static void CompactInt(LoginWriter w, int v)
     {
@@ -489,7 +489,7 @@ public static class InstanceProtocol
         w.U8(0xf0).U32(u);
     }
 
-    /// <summary>Unsigned compact int (client reader 0x14089cad0, in-memory 0x141e61010): &lt; 0x80 one byte; 0x80 + 14 bits;
+    /// <summary>Unsigned compact int (client reader 0x14089dc40, in-memory 0x141e655b0): &lt; 0x80 one byte; 0x80 + 14 bits;
     /// 0xc0 + 21 bits; 0xe0 + 28 bits; else 0xf0 + u32 big-endian.</summary>
     public static void CompactUInt(LoginWriter w, uint v)
     {
@@ -549,11 +549,11 @@ public static class InstanceProtocol
 }
 
 /// <summary>
-/// S→C 0x1d (class 0x1435da180, write 0x1421415c0; dispatcher case 6): the instance's area. The client logs
+/// S→C 0x1d (class 0x1435e4c20, write 0x142147f10; dispatcher case 6): the instance's area. The client logs
 /// "Client-Safe Instance ID = {InstanceId}" and "Generating level {Level} area "{id}" with seed {Seed}", then queues area
 /// generation. AreaHash is WorldAreas.HASH16 (unknown: "Instance sent world area that does not exist"). Level 0 means
 /// the area's own level. LeagueStats enables flag 0x21.6 and the first compact pair list (+0x100), copied to world
-/// stats at +0x120 by 0x142183130. Other optional parts remain off. Defaults follow the constructor (0x14219d940).
+/// stats at +0x120 by 0x142189aa0. Other optional parts remain off. Defaults follow the constructor (0x1421a42b0).
 /// </summary>
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
@@ -596,8 +596,8 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
 
 /// <summary>
 /// C→S 0x0F + 0x0E. Ticket is login 0x14's u32 at +0x38. Digest: 12 bytes the client computes over a constant 8 bytes,
-/// 0x14's Data8 and the u32 _time64 (0x141fe1570 family, algorithm not identified yet). Address is 0x14's u32 at +0x34.
-/// U32_128 is always 0, Realm is 0x40 (international) and Flag is global 0x14458e79f.
+/// 0x14's Data8 and the u32 _time64 (0x141fe7d90 family, algorithm not identified yet). Address is 0x14's u32 at +0x34.
+/// U32_128 is always 0, Realm is 0x40 (international) and Flag is global 0x1445998ce.
 /// </summary>
 public sealed record InstanceOpening(uint Ticket, byte[] Digest, uint Address, uint U32_128, byte Realm, byte Flag);
 

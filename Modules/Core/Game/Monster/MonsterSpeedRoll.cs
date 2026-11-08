@@ -2,9 +2,9 @@ using GameServer.Core.Protocol.Instance;
 
 
 /// <summary>
-/// The client's per-monster movement speed roll (3.29.3b Actor setup 0x141e9ca20; the research branch's
-/// re/server-gaps-3.29.3b.md §3). A TinyMT32 state seeded by init_by_array (0x1413cbe50) with the key
-/// [object id, the object type's u32 at its data +8] draws a uniform integer percent (0x1404d03d0) in the
+/// The client's per-monster movement speed roll (3.29.3c Actor setup 0x141ea32d0; the research branch's
+/// re/server-gaps-3.29.3b.md §3). A TinyMT32 state seeded by init_by_array (0x1413ce240) with the key
+/// [object id, the object type's u32 at its data +8] draws a uniform integer percent (0x1404d0990) in the
 /// MonsterVarieties row's range (<see cref="MonsterCatalog.Variety.SpeedRollMin"/>,
 /// <see cref="MonsterCatalog.Variety.SpeedRollMax"/>), and the Pathfinding speed is multiplied by 1 + roll / 100.
 /// Most rows have a fixed zero range (nothing is drawn); equal bounds retain their fixed percent. Goatmen roll in

@@ -1,15 +1,15 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary><c>0x1421193d0</c> (after the second overlay pass, before the mirror seams; the height levels' view and
+/// <summary><c>0x14211fcd0</c> (after the second overlay pass, before the mirror seams; the height levels' view and
 /// state object): the plain tiles take their height from the tiles around them. A tile is plain for ground g
-/// (<c>0x142119260</c>) when it has no tag, no real edge (only none or wildcard ones) and all four key corners have
-/// ground g (a ground left out of keys counting as none); for <c>0x142119060</c> g is the key's first corner. Every
+/// (<c>0x14211fb60</c>) when it has no tag, no real edge (only none or wildcard ones) and all four key corners have
+/// ground g (a ground left out of keys counting as none); for <c>0x14211f960</c> g is the key's first corner. Every
 /// cell of a tile that is not plain is marked done. Then, row by row, stepping by the width of the tile at each cell,
-/// a plain tile with a ground g that is not flag 1 collects (<c>0x142119600</c>) each height a neighbour that is not
+/// a plain tile with a ground g that is not flag 1 collects (<c>0x14211ff00</c>) each height a neighbour that is not
 /// plain offers: the tile left of the cell (its turned key's corners on its right side), right of the tile, above the
 /// cell and below the tile, each corner whose ground is g and that lies along this tile's side giving the neighbour's
-/// offset plus the corner's height. One distinct height: the tile takes it (<c>0x1421174f0</c>) and is done. Then
-/// (<c>0x14211aca0</c>), until a sweep changes nothing, each plain tile not done takes the one distinct offset of the
+/// offset plus the corner's height. One distinct height: the tile takes it (<c>0x14211ddf0</c>) and is done. Then
+/// (<c>0x1421215a0</c>), until a sweep changes nothing, each plain tile not done takes the one distinct offset of the
 /// done neighbours (left, right, above, below) plain for its ground. No draws.</summary>
 sealed class Storeys(TileGrid grid, int offsetX, int offsetY, int width, int height, TerrainCache files)
 {
@@ -52,7 +52,7 @@ sealed class Storeys(TileGrid grid, int offsetX, int offsetY, int width, int hei
         while (FromPlain() != 0) { }
     }
 
-    // 0x1421174f0: the tile covering (x, y) takes the height and is done.
+    // 0x14211ddf0: the tile covering (x, y) takes the height and is done.
     void Apply(int x, int y, int value)
     {
         var e = Entry(x, y);
@@ -63,7 +63,7 @@ sealed class Storeys(TileGrid grid, int offsetX, int offsetY, int width, int hei
         MarkDone(ox, oy, w, h);
     }
 
-    // 0x142119600.
+    // 0x14211ff00.
     void FromSteps()
     {
         for (int y = 0; y < height; y++)
@@ -107,7 +107,7 @@ sealed class Storeys(TileGrid grid, int offsetX, int offsetY, int width, int hei
             }
     }
 
-    // 0x14211aca0: one sweep; how many tiles took a height.
+    // 0x1421215a0: one sweep; how many tiles took a height.
     int FromPlain()
     {
         int changed = 0;

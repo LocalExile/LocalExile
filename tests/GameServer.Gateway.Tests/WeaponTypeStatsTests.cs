@@ -14,7 +14,7 @@ public sealed class WeaponTypeStatsTests
         Assert.Equal(14, empty);
         Assert.Equal(empty, WeaponTypeStats.Of("Quiver"));
 
-        // As the client's calculator 0x142521190: a sceptre and a shield do not dual wield, so Shield Charge, which only
+        // As the client's calculator 0x142527d40: a sceptre and a shield do not dual wield, so Shield Charge, which only
         // the off hand fits, stays usable (11-skills.md §10a); two weapons do, an empty off hand does not, and two empty
         // hands only with unarmed_counts_as_dual_wielding.
         Assert.False(WeaponTypeStats.IsDualWielding(sceptre, shield, false));

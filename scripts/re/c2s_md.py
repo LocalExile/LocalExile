@@ -12,49 +12,49 @@ OUT = os.path.join(REPO, "Agents", "docs", "protocol", "c2s.md")
 EXE = os.path.join(REPO, "Client", "Game.exe")
 D = os.path.join(OUTDIR, "decomp-all")
 
-# Senders that SendSites.java does not cover: no 0x14216e940 call, or a site it cannot resolve. Each was read in the
+# Senders that SendSites.java does not cover: no 0x1421752b0 call, or a site it cannot resolve. Each was read in the
 # decompile. (protocol, id, class vtable or None for an inline write, sender function, note)
 HAND = [
-    ("instance", 0x85, None, "0x1403a8d30", "inline id only, from about 21 functions (htons(0x85) to instance+0xc288)"),
-    ("instance", 0xcc, "0x1435c0438", "0x1421670f0", "calls the class writer directly"),
-    ("instance", 0xcf, "0x1435c0298", "0x1421676c0", "calls the class writer directly"),
-    ("instance", 0x26e, "0x1435bfdf8", "0x14216ca20", "calls the class writer directly"),
-    ("instance", 0x20a, "0x14345ef10", "0x140a92540", "site 0x140a925a7: rdx merges 0 with a heap message"),
-    ("instance", 0x20a, "0x14345ef10", "0x140d49f20", "site 0x140d4a1ce, in a .pdata chunk outside any Ghidra function"),
+    ("instance", 0x85, None, "0x1403a92c0", "inline id only, from about 21 functions (htons(0x85) to instance+0xc288)"),
+    ("instance", 0xcc, "0x1435cae70", "0x14216daa0", "calls the class writer directly"),
+    ("instance", 0xcf, "0x1435cacd0", "0x14216e070", "calls the class writer directly"),
+    ("instance", 0x26e, "0x1435ca830", "0x1421733d0", "calls the class writer directly"),
+    ("instance", 0x20a, "0x14346cd80", "0x140a92ba0", "site 0x140a92c07: rdx merges 0 with a heap message"),
+    ("instance", 0x20a, "0x14346cd80", "0x140d4aba0", "site 0x140d4ae4e, in a .pdata chunk outside any Ghidra function"),
     # Login: writes to login+0xdd0. Fields: ../re/009-login-messages.md.
-    ("login", 0x1, None, "0x14213e210", "keepalive, id only, every 10 s (its this is the login object's +8 base, so the stream is +0xdc8)"),
-    ("login", 0x2, "0x1435c0038", "0x14213e610", ""),
-    ("login", 0x3, "0x1435d8b88", "0x14213ea10", "also 0x140d05f70"),
-    ("login", 0x5, "0x1435d8b30", "0x14213eda0", ""),
-    ("login", 0x6, "0x1435d8ae8", "0x14213eba0", ""),
-    ("login", 0x7, "0x1435d8ae8", "0x14213ef90", ""),
-    ("login", 0x8, None, "0x140d60410", "u32, raw64; through *(global+0x350)+0xdd0, not the login object *(global+0x358)"),
-    ("login", 0xa, "0x1435d8aa0", "0x140cf3150", ""),
-    ("login", 0xc, "0x1435bfcd8", "0x140cfafa0", ""),
-    ("login", 0xe, "0x1435c0898", "0x1421406f0", ""),
-    ("login", 0x12, "0x1435d8b10", "0x142140490", ""),
-    ("login", 0x18, None, "0x140d13060", ""),
-    ("login", 0x19, None, "0x140d166a0", ""),
-    ("login", 0x1c, None, "0x142140a80", "u16, u16"),
-    ("login", 0x21, None, "0x140d285d0", ""),
-    ("login", 0x22, "0x1435d8ac8", "0x142140b40", ""),
-    ("login", 0x23, None, "0x140d268b0", ""),
-    ("login", 0x2a, None, "0x140d26780", "wstr, u8"),
-    ("login", 0x2b, None, "0x140d26650", "wstr, u8"),
-    ("login", 0x2c, "0x1435d8a80", "0x140d01a60", ""),
-    ("login", 0x39, None, "0x140d264b0", ""),
-    ("login", 0x3a, None, "0x140d08c80", "u8; also 0x140d08de0"),
-    ("login", 0x3d, "0x1435d8b68", "0x142140890", ""),
-    ("login", 0x3f, None, "0x142140d70", "wstr"),
-    ("login", 0x40, None, "0x142140e60", "wstr"),
-    ("login", 0x42, None, "0x142140810", "u8"),
-    ("login", 0x45, None, "0x1400f50f0", "blob16 string; the same function sends instance 0x2fc when in an instance"),
-    ("login", 0x46, None, "0x140d14690", "u32 (0)"),
+    ("login", 0x1, None, "0x142144b60", "keepalive, id only, every 10 s (its this is the login object's +8 base, so the stream is +0xdc8)"),
+    ("login", 0x2, "0x1435caa70", "0x142144f60", ""),
+    ("login", 0x3, "0x1435e3658", "0x142145360", "also 0x140d060a0"),
+    ("login", 0x5, "0x1435e3568", "0x1421456f0", ""),
+    ("login", 0x6, "0x1435e3540", "0x1421454f0", ""),
+    ("login", 0x7, "0x1435e3540", "0x1421458e0", ""),
+    ("login", 0x8, None, "0x140d5db80", "u32, raw64; through *(global+0x350)+0xdd0, not the login object *(global+0x358)"),
+    ("login", 0xa, "0x1435e3630", "0x140cf30c0", ""),
+    ("login", 0xc, "0x1435ca710", "0x140cfaf60", ""),
+    ("login", 0xe, "0x1435cb2d0", "0x142147040", ""),
+    ("login", 0x12, "0x1435e35c0", "0x142146de0", ""),
+    ("login", 0x18, None, "0x140d13090", ""),
+    ("login", 0x19, None, "0x140d166d0", ""),
+    ("login", 0x1c, None, "0x1421473d0", "u16, u16"),
+    ("login", 0x21, None, "0x140d291c0", ""),
+    ("login", 0x22, "0x1435e3520", "0x142147490", ""),
+    ("login", 0x23, None, "0x140d27220", ""),
+    ("login", 0x2a, None, "0x140d270f0", "wstr, u8"),
+    ("login", 0x2b, None, "0x140d26fc0", "wstr, u8"),
+    ("login", 0x2c, "0x1435e3610", "0x140d01b40", ""),
+    ("login", 0x39, None, "0x140d26e20", ""),
+    ("login", 0x3a, None, "0x140d08cb0", "u8; also 0x140d08e10"),
+    ("login", 0x3d, "0x1435e35a0", "0x1421471e0", ""),
+    ("login", 0x3f, None, "0x1421476c0", "wstr"),
+    ("login", 0x40, None, "0x1421477b0", "wstr"),
+    ("login", 0x42, None, "0x142147160", "u8"),
+    ("login", 0x45, None, "0x1400f5380", "blob16 string; the same function sends instance 0x2fc when in an instance"),
+    ("login", 0x46, None, "0x140d146c0", "u32 (0)"),
     # Patch: u8 id at +8, stream at patch+0x60. Every flush in the three patch senders is one of these.
-    ("patch", 0x1, "0x14363ea68", "0x1428e9f40", "u8 id, u8 (7)"),
-    ("patch", 0x3, "0x14363eae8", "0x1428ea9d0", "u8 id, wstr; also 0x1428eade0 (ctor 0x1428e8320). The class is S→C 0x6's"),
-    ("patch", 0x5, "0x14363eb08", "0x1428eade0", "u8 id only, sent from two places"),
-    ("patch", 0x8, "0x14363e9e0", "0x1428eade0", "u8 id, u16 length, bytes. The class is S→C 0xa's"),
+    ("patch", 0x1, "0x143649780", "0x1428f2390", "u8 id, u8 (7)"),
+    ("patch", 0x3, "0x1436495e0", "0x1428f2e20", "u8 id, wstr; also 0x1428f3230 (ctor 0x1428f0770). The class is S→C 0x6's"),
+    ("patch", 0x5, "0x143649630", "0x1428f3230", "u8 id only, sent from two places"),
+    ("patch", 0x8, "0x1436496f8", "0x1428f3230", "u8 id, u16 length, bytes. The class is S→C 0xa's"),
 ]
 
 import pefile
@@ -73,9 +73,9 @@ def writer(fa):
     t = src("%09x" % fa)
     if not t or "{" not in t: return None
     body = t.split("{", 1)[1]
-    fixed = sum(int(n, 0) for n in re.findall(r"FUN_140dfb760\([^,]+,[^,]+,(0x[0-9a-f]+|\d+)\)", body))
-    var = re.search(r"FUN_140dfb760\([^,]+,[^,]+,[^)0-9][^)]*\)", body)
-    calls = set(re.findall(r"(FUN_1[0-9a-f]{8})\([^;]*param_2", body)) - {"FUN_140dfb760"}
+    fixed = sum(int(n, 0) for n in re.findall(r"FUN_140dfa000\([^,]+,[^,]+,(0x[0-9a-f]+|\d+)\)", body))
+    var = re.search(r"FUN_140dfa000\([^,]+,[^,]+,[^)0-9][^)]*\)", body)
+    calls = set(re.findall(r"(FUN_1[0-9a-f]{8})\([^;]*param_2", body)) - {"FUN_140dfa000"}
     branch = re.search(r"\b(if|for|while|do)\b", body)
     return fixed, not var and not calls and not branch
 
@@ -106,7 +106,7 @@ def gateway_lengths():
 def main():
     sites = json.load(open(SRC, encoding="utf-8"))["sites"]
     s2c = collections.defaultdict(list)
-    names = {"0x1421b5c40": "instance", "0x1421c6150": "world", "0x14219c350": "login", "0x1428f74d0": "patch"}
+    names = {"0x1421bc5b0": "instance", "0x1421ccac0": "world", "0x1421a2cc0": "login", "0x1428ff920": "patch"}
     for m in json.load(open(os.path.join(OUTDIR, "readschema.json"), encoding="utf-8"))["messages"]:
         if m["vtable"]: s2c[m["vtable"]].append(f"{names[m['factory']]} {m['id']}")
 
@@ -156,21 +156,21 @@ def main():
          "Generated by `scripts/re/ghidra/SendSites.java` and `python -I scripts/re/c2s_md.py`. Do not edit by hand.",
          "The S→C side is in [schema.md](schema.md).", "",
          "## How the list is complete", "",
-         "Every message the client sends goes through the stream flush `0x140dfb8c0` (Winsock `send`). Its callers are the",
-         "senders: instance messages go through `0x14216e940` (it calls the message's vtable slot 1, the writer, on",
+         "Every message the client sends goes through the stream flush `0x140dfa160` (Winsock `send`). Its callers are the",
+         "senders: instance messages go through `0x1421752b0` (it calls the message's vtable slot 1, the writer, on",
          "`instance+0xc288`); a few senders write the id inline or call a writer directly. `SendSites.java` resolves every",
-         "`0x14216e940` call over the control-flow graph (Ghidra's resolved jump tables included): from the call it walks",
+         "`0x1421752b0` call over the control-flow graph (Ghidra's resolved jump tables included): from the call it walks",
          "backwards path by path to the stores of the message's vtable (`[slot]`) and u16 id (`[slot+8]`), so ids set in",
          "different branches or switch cases before one shared send each keep their own path's vtable. Constructor-built",
-         "messages are read from the constructor's stores. The remaining senders (no `0x14216e940` call, or a site the",
+         "messages are read from the constructor's stores. The remaining senders (no `0x1421752b0` call, or a site the",
          "script cannot resolve) were read by hand and are listed in `HAND` in `scripts/re/c2s_md.py`.", "",
-         f"`0x14216e940` call sites: {len(sites)}, resolved {len(sites) - len(unresolved)}. Unresolved, covered by `HAND` or noted:", ""]
+         f"`0x1421752b0` call sites: {len(sites)}, resolved {len(sites) - len(unresolved)}. Unresolved, covered by `HAND` or noted:", ""]
     for s in unresolved:
         L.append(f"- `{s['site']}` in " + (f"`{s['func']}`" if s["func"] else "no Ghidra function") + ": "
                  + f"{'; '.join(s['notes']) or 'no pair'}"
                  + (f" (also resolved: {', '.join(p['id'] for p in s['pairs'] if p['id'] and p['vtable'])})" if any(p['id'] and p['vtable'] for p in s['pairs']) else ""))
     L += ["", "A class shared with an S→C message (same vtable) is named in the S→C column: the client also builds some",
-          "S→C classes locally (S→C instance 0xc0 is fed to the client's own handler through `0x141d625f0`; that is not a",
+          "S→C classes locally (S→C instance 0xc0 is fed to the client's own handler through `0x141d65c80`; that is not a",
           "send and is not listed here).", "",
           "**Length** is the whole message in bytes, id included, when the writer is exact (only fixed-size stream writes,",
           "no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable or conditional parts.", "",

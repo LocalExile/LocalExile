@@ -7,7 +7,7 @@ using GameServer.Core.Protocol.Instance;
 /// resolve, which the client's Microtransactions panel (N) and the store's ALREADY OWNED marks read
 /// (23-microtransactions.md). A record's <c>MtxTypeHash</c> is the row's HASH32 and its <c>Id</c> the row index + 1,
 /// unique per record as the client's model needs. The panel looks each hash up in <c>MTXTypeGameSpecific.dat</c>
-/// (0x1408e4fb0 → 0x142222170), and a hash that is not there leaves a null the row build faults on (live 2026-10-23:
+/// (0x1408e1550 → 0x142228b00), and a hash that is not there leaves a null the row build faults on (live 2026-10-23:
 /// all 8411 MtxTypes rows crashed the client; 690 of them have no MtxTypeGameSpecific row), so only rows with one are
 /// sent. Names stay empty: the client names a record from its catalogue.
 /// Game data, loaded on first use; without <c>data/tables</c> the list is empty.
@@ -103,7 +103,7 @@ sealed class CosmeticEffects(string folder = "data")
 
     public sealed record SkillRestriction(int SlotType, IReadOnlyList<int> Gems, IReadOnlyList<int> Classes);
 
-    // The same eligibility fields the client checks in 0x1424ac1e0. In particular a record from a stale picker
+    // The same eligibility fields the client checks in 0x1424b2cb0. In particular a record from a stale picker
     // must not attach A's art to B merely because it is an owned record.
     public bool FitsSkill(uint hash, ItemCatalog.BaseType gem, byte slotType) =>
         Of(hash)?.Skill is { } skill && skill.SlotType == slotType
@@ -159,7 +159,7 @@ sealed class CosmeticEffects(string folder = "data")
         }
         // Pets have no ItemisedVisualEffect row; each Pet row names its MtxTypeGameSpecific row. The server spawns the
         // pet object (PetObject); the player's pet_slot1 / pet_slot2 stat (a Pet.dat row + 1) is what the client's
-        // talking-pet audio reads (0x1401093a0 → 0x14010f530).
+        // talking-pet audio reads (0x1401096e0 → 0x14010f890).
         var petTypes = PetTypes(folder);
         int petRow = 0;
         foreach (var row in Rows(Path.Combine(dir, "Pet.json")))
