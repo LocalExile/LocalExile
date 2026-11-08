@@ -5,7 +5,6 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core.Accounts;
 using GameServer.Storage;
 using GameServer.Core.Diagnostics;
-using GameServer.Modding;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
 partial class Program
