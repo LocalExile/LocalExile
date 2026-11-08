@@ -109,7 +109,9 @@ puzzles and traps there (`RoomFile.Links`, `ServerLevels.Level.RoomLinks`):
 `Counter_Handler` and `Counter_Handler_Any` are server-only lines with a stand-in model (a palm tree): nothing to
 send. The links give the wiring only; the timings are the `.ot`s', the names' (`Switch_Reset_16`: a crank that
 comes back up after 16 s, our reading) or fitted live. `LabyrinthWiring` follows `next`, `counter`, `transitionN`
-and `disable`.
+and `disable`. A toggling `Switch` drives what its `next` and `transitionN` reach and, through its `TimerGears`, what
+their `next` reaches (`RT_branch_bottleneck_2`: Switch → TimerGears → Door_Closed, live); where a room has links, a
+`Switch` stops only the sawblades its `pause` links name.
 
 ## Unblocking a door
 
