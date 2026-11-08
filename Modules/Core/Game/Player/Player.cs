@@ -322,7 +322,16 @@ static partial class Game
                 cost = (uint)Math.Max(0, Math.Round(cost * Math.Max(0, 1 + inspirationCost / 100.0),
                     MidpointRounding.AwayFromZero));
             int life;
-            if (Lifetap.ConvertsCostToLife(own))
+            // Blood Magic (the keystone, or an item that grants it): every skill's Mana cost becomes a Life cost.
+            // Lifetap Support's conversion and Petrified Blood's share do not stack on top of it, since the Mana cost
+            // it would divide no longer exists.
+            bool bloodMagic = Stats.Key("keystone_blood_magic") is uint bloodKey && player.GetValueOrDefault(bloodKey) != 0;
+            if (bloodMagic)
+            {
+                life = (int)Math.Min(cost, int.MaxValue);
+                cost = 0;
+            }
+            else if (Lifetap.ConvertsCostToLife(own))
             {
                 // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
                 // therefore zero: the two conversions do not stack into 140%.
