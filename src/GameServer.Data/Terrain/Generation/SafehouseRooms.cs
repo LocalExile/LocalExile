@@ -1,10 +1,10 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The BetrayalSafehousePlugin's part in the generation (<c>0x141f29730</c>, run on a Syndicate safehouse's Arena
+/// <summary>The BetrayalSafehousePlugin's part in the generation (<c>0x141f30020</c>, run on a Syndicate safehouse's Arena
 /// child graph, <c>Leagues/Betrayal/SafeHouses/Arena/Graphs/_SafeHouse_*.dgr</c>, before its exist rolls): the server
 /// sends the safehouse's roster in 0x1d's TerrainPluginState (8-byte slots after a lead byte; byte 0 = rank | job &lt;&lt;
 /// 4, byte 1 = the BetrayalTargets row). The graph's "targetroom1" node (the last one) and its "targetroom2" nodes in
-/// node order are collected, draw(#targetroom2) at <c>0x141f29874</c> then the hidden forward Fisher-Yates over the
+/// node order are collected, draw(#targetroom2) at <c>0x141f30164</c> then the hidden forward Fisher-Yates over the
 /// targetroom2 nodes, targetroom1 in front; the n-th node takes the n-th member: its tag becomes the member's Arena
 /// room's (BetrayalTargets +0x59, room_&lt;member&gt;.arm, "targetroom_&lt;member&gt;"; the Arena room set already
 /// lists every member room at 100, so the chooser draws draw(100) over the one candidate). A node beyond the roster,

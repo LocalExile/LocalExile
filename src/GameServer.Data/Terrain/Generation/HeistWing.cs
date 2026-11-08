@@ -1,9 +1,9 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The HeistPlugin's hooks in the dungeon pipeline: the wing block (<c>0x141f41620</c>: one placed room per wing
+/// <summary>The HeistPlugin's hooks in the dungeon pipeline: the wing block (<c>0x141f47f10</c>: one placed room per wing
 /// room, picked from the wing master's room set by the room's type name and its door ring with the logged draw at
-/// <c>0x141f41e66</c>) and the door pass after every block (<c>0x141f42a00</c>: each wing door's tile re-picked from the
-/// door type's tile group, then the HeistDoors side tiles beside it, <c>0x141f43140</c>).</summary>
+/// <c>0x141f48756</c>) and the door pass after every block (<c>0x141f492f0</c>: each wing door's tile re-picked from the
+/// door type's tile group, then the HeistDoors side tiles beside it, <c>0x141f49a30</c>).</summary>
 static class HeistWing
 {
     public const string PathEt = "Metadata/Terrain/Leagues/Heist/PathRooms.et";
@@ -12,7 +12,7 @@ static class HeistWing
 
     static bool Same(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary><c>0x141f42140</c>: the 2(w + h) exit ring of wing room k: PathRooms.et at every door on its sides, PathRoomsIn /
+    /// <summary><c>0x141f48a30</c>: the 2(w + h) exit ring of wing room k: PathRooms.et at every door on its sides, PathRoomsIn /
     /// PathRoomsOut when the room has a hazard and both rooms of the door are path rooms (index &lt; nPath); the ring order
     /// is the record's exit order (north left to right, east top to bottom, south right to left, west bottom to top).</summary>
     static string?[] RoomKey(HeistWingLayout wing, int k, int nPath)
@@ -38,7 +38,7 @@ static class HeistWing
                 et = flag ? PathInEt : PathEt;
             }
             else continue;
-            // 0x141f422b0's side code from the delta.
+            // 0x141f48ba0's side code from the delta.
             int idx;
             if (dx > 0 && dx > Math.Abs(dy)) idx = w + y;
             else if (dx < 0 && -dx > Math.Abs(dy)) idx = 2 * (w + h) - y - 1;
@@ -49,7 +49,7 @@ static class HeistWing
         return ring;
     }
 
-    /// <summary><c>0x141ff8a50</c>(room set, name, key, mode): the set's rooms tagged <paramref name="name"/> in every allowed
+    /// <summary><c>0x141fff2a0</c>(room set, name, key, mode): the set's rooms tagged <paramref name="name"/> in every allowed
     /// orientation (set order) of the key's size whose turned exits match the ring: mode 0 every slot equal (a null slot
     /// needs no exit), mode 2 the ring's non-null slots equal.</summary>
     static List<(DungeonRoom Room, int O, int W, int H, int Weight)> KeyLookup(DungeonRoomSet set, string name, int w, int h, string?[] ring, int mode, Func<string, bool> directional)
@@ -74,8 +74,8 @@ static class HeistWing
         return result;
     }
 
-    /// <summary>Per wing room in order: the strict pass, else mode 2 (<c>0x141f42430</c>), else the hazard fallbacks of
-    /// <c>0x141f41620</c> (the In/Out-only key, then the all-PathRooms key).</summary>
+    /// <summary>Per wing room in order: the strict pass, else mode 2 (<c>0x141f48d20</c>), else the hazard fallbacks of
+    /// <c>0x141f47f10</c> (the In/Out-only key, then the all-PathRooms key).</summary>
     static List<(string Name, string?[] Ring, List<(DungeonRoom Room, int O, int W, int H, int Weight)> Cands, string How)> Candidates(
         HeistWingLayout wing, DungeonRoomSet set, TerrainCache files, Func<string, bool> directional)
     {
@@ -110,9 +110,9 @@ static class HeistWing
         return result;
     }
 
-    /// <summary><c>0x141f41620</c>: one placed room per wing room, the LOGGED draw(total weight) at <c>0x141f41e66</c>, the weighted
-    /// pick (<c>0x141f4f970</c>), <c>0x1420fe780</c> at the room's unit position with the PathRooms.et door type; then the
-    /// entry's exits are REPLACED by the room's door ring (<c>0x141f41620</c>+0x9b0 after <c>0x1420fe780</c>), so a room
+    /// <summary><c>0x141f47f10</c>: one placed room per wing room, the LOGGED draw(total weight) at <c>0x141f48756</c>, the weighted
+    /// pick (<c>0x141f56260</c>), <c>0x142105080</c> at the room's unit position with the PathRooms.et door type; then the
+    /// entry's exits are REPLACED by the room's door ring (<c>0x141f47f10</c>+0x9b0 after <c>0x142105080</c>), so a room
     /// admitted in mode 2 with more typed exits than the ring opens no extra door.</summary>
     public static void PlaceRooms(DungeonMap map, DungeonRoomSet set, HeistWingLayout wing, TerrainCache files, LevelRandom rng, List<string> notes)
     {
@@ -144,7 +144,7 @@ static class HeistWing
     // dword_142fbf730: the direction code's unit vector.
     static readonly (int X, int Y)[] Dirs = [(0, -1), (1, 0), (0, 1), (-1, 0)];
 
-    /// <summary><c>0x141f42a00</c>'s direction code of a wing door from (A − B): 0 north, 1 east, 2 south, 3 west.</summary>
+    /// <summary><c>0x141f492f0</c>'s direction code of a wing door from (A − B): 0 north, 1 east, 2 south, 3 west.</summary>
     static int DoorDirection(HeistDoor d)
     {
         int dx = d.Ax - d.Bx, dy = d.Ay - d.By;
@@ -163,12 +163,12 @@ static class HeistWing
         return (cands[^1].Tile, cands[^1].Orientation);
     }
 
-    /// <summary><c>0x141f42a00</c> after every block: each wing door's tile (the door stage's "door" tile at the unit centre
+    /// <summary><c>0x141f492f0</c> after every block: each wing door's tile (the door stage's "door" tile at the unit centre
     /// between the two rooms, a 1 × 3) is re-picked from the door type's tile group by the tile's own key turned by its
-    /// orientation: draw(total weight) at <c>0x141f42d1d</c>, placed with the door's direction as orientation (turned
+    /// orientation: draw(total weight) at <c>0x141f4960d</c>, placed with the door's direction as orientation (turned
     /// round for an "out" type); then per side-tile tag of the HeistDoors row (+56: the 5-cell line one cell on the door's
     /// +dir side; +72: the −dir side) the first origin cell whose tile has no tag of its own and whose turned key has
-    /// candidates under the tag is re-picked (draw at <c>0x141f43344</c>, the pick's orientation, the cell's height).</summary>
+    /// candidates under the tag is re-picked (draw at <c>0x141f49c34</c>, the pick's orientation, the cell's height).</summary>
     public static void DoorPass(HeistLevel level, IReadOnlyList<WingRecord> records, TileGrid grid, LevelRandom rng, List<string> notes)
     {
         foreach (var wing in level.Wings)
@@ -181,7 +181,7 @@ static class HeistWing
                 int cx = (u * (d.Ax + d.Bx) + 2 * (half + rec.ViewX)) / 2;
                 int cy = (u * (d.Ay + d.By) + 2 * (half + rec.ViewY)) / 2;
                 var e = grid[cx, cy];
-                // 0x141f42970: a 1 × 3 / 3 × 1 tile whose name starts with "door".
+                // 0x141f49260: a 1 × 3 / 3 × 1 tile whose name starts with "door".
                 if (e is not { } cell || cell.Tile.Width * cell.Tile.Height != 3)
                 {
                     notes.Add($"heist door pass: Failed to find door tile at ({cx}, {cy}) for {d} - {(e is { } t ? Path.GetFileName(t.Tile.Path) : "empty")}");
@@ -217,8 +217,8 @@ static class HeistWing
         }
     }
 
-    /// <summary><c>0x141f43140</c>(ctx, tag, rect): the first cell of the rect (x inner, y outer) holding a tile's ORIGIN whose
-    /// turned key has candidates under the tag gets one of them: draw(total weight) at <c>0x141f43344</c>, the pick's own
+    /// <summary><c>0x141f49a30</c>(ctx, tag, rect): the first cell of the rect (x inner, y outer) holding a tile's ORIGIN whose
+    /// turned key has candidates under the tag gets one of them: draw(total weight) at <c>0x141f49c34</c>, the pick's own
     /// orientation, the cell's height. A tile with a tag of its own (tile data +16: a door, or a side tile a neighbouring
     /// door already placed) is skipped.</summary>
     static bool SideTile(TileGrid grid, TileStore store, LevelRandom rng, List<string> notes, HeistDoor d, string tag, int x0, int y0, int x1, int y1)

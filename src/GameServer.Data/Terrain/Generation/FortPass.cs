@@ -1,23 +1,23 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The late feature pass (<c>0x14202eaf0</c>, after every subgraph block and before the outer buffers): every
+/// <summary>The late feature pass (<c>0x142035340</c>, after every subgraph block and before the outer buffers): every
 /// extra feature row with the +0x61 flag and exactly one room (the Betrayal forts) that the fill-area pass left unplaced
-/// is set on an island carved out of the water beside a straight run of a shore edge (<c>0x14202c120</c> per feature).
-/// The doors (<c>0x14202b710</c>) are the tile-origin cells of the primary record's inner rectangle whose untagged
+/// is set on an island carved out of the water beside a straight run of a shore edge (<c>0x142032970</c> per feature).
+/// The doors (<c>0x142031f60</c>) are the tile-origin cells of the primary record's inner rectangle whose untagged
 /// square tile has exactly two walkable corner grounds and, turned by its orientation, exactly two edges, the same real
-/// type on opposite sides (<c>0x14202a790</c>: no height step, exactly one walkable ground, no split edges, no inside
+/// type on opposite sides (<c>0x142030fe0</c>: no height step, exactly one walkable ground, no split edges, no inside
 /// ground, and the store holding its corner tiles both ways round and its straight tile), of the tile's size, with
 /// square untagged tiles of that size one tile away along the edge; the door's side is the free side whose two corners
-/// are not both walkable. The candidates (<c>0x14202b1e0</c>) are rects of the feature's size rounded up to the type's
+/// are not both walkable. The candidates (<c>0x142031a30</c>) are rects of the feature's size rounded up to the type's
 /// unit plus one unit each side, laid along the outside of each door by its side, kept when every cell lies inside the
 /// inner rectangle on untagged, edgeless tiles whose four corner grounds are the type's non-walkable one
-/// (<c>0x1420354e0</c>); <c>Next(count)</c> (unused) then the hidden shuffle. The first candidate that works places the
+/// (<c>0x14203bd30</c>); <c>Next(count)</c> (unused) then the hidden shuffle. The first candidate that works places the
 /// fort: the twelve store keys of the type's grounds must all have tiles; the tiles overhanging the rect are noted, every
 /// tile covering the rect removed, the interior vertices cleared, the fort's and the door's vertices re-grounded with a
 /// walkable ground among the door tile's corners, and the ring re-tiled by weighted picks (the door cell and the cell
-/// across it, the two corner pieces beside them, two chisels on the door's axis (<c>0x14202e6c0</c>), the rect's corners,
+/// across it, the two corner pieces beside them, two chisels on the door's axis (<c>0x142034f10</c>), the rect's corners,
 /// its edge runs, the 1-cell inner ring), the overhang refilled with the other ground's plain tile, null vertices
-/// re-grounded, and the fort tiled by the fill-room routine (<c>0x141fe89e0</c>). Verified on the server corpus's
+/// re-grounded, and the fort tiled by the fill-room routine (<c>0x141fef200</c>). Verified on the server corpus's
 /// Promenade 3238478791, the only load with the pass.</summary>
 sealed class FortPass(TerrainCache files, LevelRandom rng, List<string> notes, TileGrid grid, TileStore store,
     Dictionary<string, List<(int Weight, string Path, int Orientation)>> fills, Fill fill, (int X0, int Y0, int X1, int Y1) inner,
@@ -27,16 +27,16 @@ sealed class FortPass(TerrainCache files, LevelRandom rng, List<string> notes, T
 
     int Flags(string? g) => g is null ? 0 : files.Ground(g)?.Flags ?? 0;
 
-    /// <summary>A ground with .gt bits 2 and 3; a null ground counts as walkable (<c>0x14202a790</c> / <c>0x14202a910</c>).</summary>
+    /// <summary>A ground with .gt bits 2 and 3; a null ground counts as walkable (<c>0x142030fe0</c> / <c>0x142031160</c>).</summary>
     bool Walkable(string? g) => g is null || ((Flags(g) & 4) != 0 && (Flags(g) & 8) != 0);
 
     static bool Same(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     readonly Dictionary<string, bool> _doorOk = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary><c>0x14202a790</c>: a real edge type without a height step, exactly one of its two grounds walkable, not
-    /// virtual, no inside ground, and the store holds its corner tile (<c>0x142029e90</c>), the corner with the grounds
-    /// swapped (<c>0x14202a190</c>) and its straight tile (<c>0x14202a490</c>), all untagged.</summary>
+    /// <summary><c>0x142030fe0</c>: a real edge type without a height step, exactly one of its two grounds walkable, not
+    /// virtual, no inside ground, and the store holds its corner tile (<c>0x1420306e0</c>), the corner with the grounds
+    /// swapped (<c>0x1420309e0</c>) and its straight tile (<c>0x142030ce0</c>), all untagged.</summary>
     bool DoorTypeOk(string? path)
     {
         if (path is null) return false;
@@ -72,13 +72,13 @@ sealed class FortPass(TerrainCache files, LevelRandom rng, List<string> notes, T
         return k;
     }
 
-    /// <summary><c>0x14202b940</c>(side, A, B): a unit × unit key with the type on sides `side` and `side + 1`, the connection
+    /// <summary><c>0x142032190</c>(side, A, B): a unit × unit key with the type on sides `side` and `side + 1`, the connection
     /// points centred there, corner A at `side + 1` and B at the three others.</summary>
     static (int[] Sides, Dictionary<int, string?> Special, string? Default) CornerKey(int side, string? a, string? b) =>
         ([side, (side + 1) & 3], new() { [(side + 1) & 3] = a }, b);
 
     /// <summary>The twelve lists: per side the corner keys walkable/other and other/walkable, and the edge-run key
-    /// (<c>0x14202bc60</c>: the type on `side` and `side − 2`, A at side + 1 and side − 2, B at the other two).</summary>
+    /// (<c>0x1420324b0</c>: the type on `side` and `side − 2`, A at side + 1 and side − 2, B at the other two).</summary>
     (List<(TileDef, int, int)>[] Cw, List<(TileDef, int, int)>[] Co, List<(TileDef, int, int)>[] Ed) KeyLists(int unit, string et, string? walk, string? other)
     {
         var cw = new List<(TileDef, int, int)>[4];
@@ -95,7 +95,7 @@ sealed class FortPass(TerrainCache files, LevelRandom rng, List<string> notes, T
         return (cw, co, ed);
     }
 
-    /// <summary><c>0x14202bf80</c>(ground, size): no edges, four corners = the ground, points 3 (the raw bytes 0x03030303).</summary>
+    /// <summary><c>0x1420327d0</c>(ground, size): no edges, four corners = the ground, points 3 (the raw bytes 0x03030303).</summary>
     static TileKey GroundKey(string? ground, int size)
     {
         var k = new TileKey { Width = (byte)size, Height = (byte)size };
@@ -103,7 +103,7 @@ sealed class FortPass(TerrainCache files, LevelRandom rng, List<string> notes, T
         return k;
     }
 
-    /// <summary><c>0x14202a910</c> for the tile whose origin is (x, y): (type path, side, height) or null.</summary>
+    /// <summary><c>0x142031160</c> for the tile whose origin is (x, y): (type path, side, height) or null.</summary>
     (string Type, int Side, short Height)? DoorEntry(TileEntry e, int x, int y)
     {
         if (!e.IsOrigin) return null;
@@ -140,8 +140,8 @@ sealed class FortPass(TerrainCache files, LevelRandom rng, List<string> notes, T
         return (passing[0].Path, side, e.HeightOffset);
     }
 
-    /// <summary><c>0x14202b710</c>: the straight-edge tiles of the inner rectangle, then in (x, y) order (the door map
-    /// <c>0x142030190</c> is keyed by position, and the candidates are built in that order).</summary>
+    /// <summary><c>0x142031f60</c>: the straight-edge tiles of the inner rectangle, then in (x, y) order (the door map
+    /// <c>0x1420369e0</c> is keyed by position, and the candidates are built in that order).</summary>
     List<(int X, int Y, string Type, int Side, short Height)> DoorList()
     {
         var result = new List<(int, int, string, int, short)>();
@@ -166,7 +166,7 @@ sealed class FortPass(TerrainCache files, LevelRandom rng, List<string> notes, T
         return result.OrderBy(d => d.Item1).ThenBy(d => d.Item2).ToList();
     }
 
-    /// <summary><c>0x1420354e0</c>: every cell of the rect inside the inner rectangle; a tiled cell's tile untagged, without a
+    /// <summary><c>0x14203bd30</c>: every cell of the rect inside the inner rectangle; a tiled cell's tile untagged, without a
     /// real edge (a wildcard one passes) and with all four raw corner grounds equal to the type's non-walkable ground.</summary>
     bool RectOnWater((int X0, int Y0, int X1, int Y1) rect, string? water)
     {
@@ -183,7 +183,7 @@ sealed class FortPass(TerrainCache files, LevelRandom rng, List<string> notes, T
         return true;
     }
 
-    /// <summary><c>0x14202b1e0</c>: the rects beside each door, then <c>Next(count)</c> and the hidden shuffle.</summary>
+    /// <summary><c>0x142031a30</c>: the rects beside each door, then <c>Next(count)</c> and the hidden shuffle.</summary>
     List<((int X, int Y) Door, (int X0, int Y0, int X1, int Y1) Rect, int Side, short Height, string Type)> Candidates(
         List<(int X, int Y, string Type, int Side, short Height)> doors, int fw, int fh)
     {
@@ -252,7 +252,7 @@ sealed class FortPass(TerrainCache files, LevelRandom rng, List<string> notes, T
         return true;
     }
 
-    /// <summary>The first tile of a ground's fill group (<c>0x142025080</c> → <c>0x141feffb0</c>), as the outer buffer takes it.</summary>
+    /// <summary>The first tile of a ground's fill group (<c>0x14202b8d0</c> → <c>0x141ff67d0</c>), as the outer buffer takes it.</summary>
     (TileDef Tile, int Orientation)? FirstFill(string? ground)
     {
         string name = ground is null ? "default" : files.Ground(ground)?.Name ?? "default";
@@ -414,7 +414,7 @@ sealed class FortPass(TerrainCache files, LevelRandom rng, List<string> notes, T
         return true;
     }
 
-    /// <summary><c>0x14202e6c0</c>(x, y, side, flip, other): the untagged tile at (x, y) gets its key turned by its orientation,
+    /// <summary><c>0x142034f10</c>(x, y, side, flip, other): the untagged tile at (x, y) gets its key turned by its orientation,
     /// the edge of `side` moved to `side − 2(flip ^ 1) + 1` (its connection centred) and cleared on `side`, the corner
     /// across that side copied (flip: side + 1 → the moved side; else side → side + 1); the store lookup (then with the
     /// flag-0x10 corners cleared; with nothing both cells are cleared and the client throws), <c>Next(total)</c>, placed

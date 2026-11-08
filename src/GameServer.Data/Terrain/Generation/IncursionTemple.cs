@@ -1,6 +1,6 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The IncursionTemplePlugin's part in the generation (<c>0x141f466b0</c>, OnCreateDungeonGraph on the Temple of
+/// <summary>The IncursionTemplePlugin's part in the generation (<c>0x141f4cfa0</c>, OnCreateDungeonGraph on the Temple of
 /// Atzoatl's graph, <c>Leagues/Incursion/Graphs/temple_3.dgr</c>): the server sends, in 0x1d's TerrainPluginState, the
 /// temple's layout as eleven u16 IncursionRooms keys (the row's HASH16 at +0x38, the same keys the Chronicle of Atzoatl
 /// item carries) and 26 door bits. The graph's eleven "room" nodes (the PRESENT tag of TEMPLATE_BlankRoom), sorted by y
@@ -84,7 +84,7 @@ public sealed class IncursionTemple(IReadOnlyList<int> keys, uint doorBits)
         return extra;
     }
 
-    /// <summary><c>0x141f45aa0</c> then <c>0x141f45ab0</c>: by y ascending, then by x inside each row of the layout.</summary>
+    /// <summary><c>0x141f4c390</c> then <c>0x141f4c3a0</c>: by y ascending, then by x inside each row of the layout.</summary>
     static void Sort(List<GraphNode> nodes, (int From, int To)[] rows)
     {
         var sorted = nodes.OrderBy(n => n.Y).ToList();

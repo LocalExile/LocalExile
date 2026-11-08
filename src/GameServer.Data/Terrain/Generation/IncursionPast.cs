@@ -1,6 +1,6 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The IncursionPastPlugin's part in the generation (<c>0x141f45d00</c>, OnCreateDungeonGraph): the server
+/// <summary>The IncursionPastPlugin's part in the generation (<c>0x141f4c5f0</c>, OnCreateDungeonGraph): the server
 /// names, in 0x1d's TerrainPluginState, one 6-byte blob per Incursion room of the area (u16 IncursionRooms key, then
 /// the room's slot in the 13-room temple in byte 2's low nibble); each blob queues a past-room world area
 /// (Incursion_Room1..10, every one <c>roomsingle_1.dgr</c>). When the n-th such record's graph is read, the n-th blob's

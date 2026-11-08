@@ -1,7 +1,7 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>An Expedition LOGBOOK area's terrain features (<c>0x141f362c0</c>, called by the Expedition plugin's feature
-/// registration <c>0x141f36940</c> when the plugin's flag byte +0x18 has bit 1; a plain map or act area registers the
+/// <summary>An Expedition LOGBOOK area's terrain features (<c>0x141f3cbb0</c>, called by the Expedition plugin's feature
+/// registration <c>0x141f3d230</c> when the plugin's flag byte +0x18 has bit 1; a plain map or act area registers the
 /// single ExpeditionEncounter row instead). In word order: the ExpeditionBalancePerLevel row (byte +4 = 1, the greatest
 /// level at or below the area level: +0x1d the boss chance in 10 000ths, +0x21 / +0x25 the min / max feature count);
 /// unless stat 14744, <c>Next(10000)</c> below the chance = a boss (an "exclusive" row); count = stat 14803 + min + one

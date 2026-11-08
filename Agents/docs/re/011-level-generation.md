@@ -99,59 +99,59 @@ goes over the extra room pool's rows (generator +0x88, §3b): a row naming a wor
 area's topologies are drawn from: `Next(count)`, `Next(840)`; its further rooms add records of their own, not
 ported). MapWorldsGorge 758818886 (HarvestEncounter → HarvestLeague, `night_garden.dgr` as record 1; 2026-10-26).
 Then a sub-area named by stat 0x13ae (not ported). **The plugins' own sub-areas (the server corpus, §8):**
-the terrain plugins queue world areas at generator +0x1f0 as they run (step 1 of `0x14204d820`, so before the first
+the terrain plugins queue world areas at generator +0x1f0 as they run (step 1 of `0x142054070`, so before the first
 record's "subarea=" descriptions): one `Incursion_Room1..10` (all `roomsingle_1.dgr`) per IncursionPastPlugin blob of
 the area load (The Dread Thicket 432732553 has three past rooms beside it, the Beach 2523510818 four under it), the
 Ultimatum arena (`UltimatumBossArena` / `MapWorldsUltimatumBossArena`) for an UltimatumPlugin. The past-room record's
-plugin pass (`0x141f45d00`, `IncursionPast.cs`): the blob's u16 IncursionRooms key names the row whose PAST room
+plugin pass (`0x141f4c5f0`, `IncursionPast.cs`): the blob's u16 IncursionRooms key names the row whose PAST room
 (+0x4c) replaces the room set's `room_blank_past.arm` at weight 1, the graph's "room" node takes that room's tag, and
 the six door nodes ("doorclosed" / "2doorclosed", the tags of the TEMPLATE_LockedDoor1 / 2 past rooms), sorted by y
 descending and pairwise by x ascending, take exist 100 or 0 from the temple layout table `byte_142fdd570` (row = the
 blob's slot, byte 2 & 15; a 0 = no neighbour across that door). Both loads then match every draw and tile.
 **The Deepwater board (`DeepwaterBoard.cs`):** the DeepwaterPlugin queues the hub (`DeepwaterHub`) and
-its generation hook (`0x141f2c180`, the plugin's vtable +0x30, called by `0x14203c900` after the graph load of a record
+its generation hook (`0x141f32a70`, the plugin's vtable +0x30, called by `0x142043150` after the graph load of a record
 whose area has +0x1e4 = 52) replaces the graph: record 0's `Deepwater_01.dgr` (its record sized N × N units) becomes
 an N × N graph of "graph" nodes at (23x, 23y), each with the cell's biome area's topology (DeepwaterRooms +0x28 →
-DeepwaterBiomes +8 → WorldAreas; `Next(count)` at `0x141f2c29d`, one topology each) and "1", "1"; each `Biome_*.dgr`
+DeepwaterBiomes +8 → WorldAreas; `Next(count)` at `0x141f32b8d`, one topology each) and "1", "1"; each `Biome_*.dgr`
 record becomes one node tagged with the cell room's .arm tag, turned by the cell's rotation, "default" (+ "killzone=3"
-on cell 0). After every record (before the AO placements and the outer buffers) the post-level hook `0x141f2e5f0`
+on cell 0). After every record (before the AO placements and the outer buffers) the post-level hook `0x141f34ee0`
 tiles the seams of an N > 1 board: rows outer, columns inner, the cell's DeepwaterRooms door bits (+0x10) turned by
 its rotation; bit 4 with a cell to the right re-keys the last 3 × 3 column of this cell and the first of the next on
-every row block (`0x141f2d4f0`), bit 2 with a cell below scans the seam row from the left and from the right for the
-column where both tiles carry the same real edge on their facing side (`0x141f2d910`: the room connection edge = the
+every row block (`0x141f33de0`), bit 2 with a cell below scans the seam row from the left and from the right for the
+column where both tiles carry the same real edge on their facing side (`0x141f34200`: the room connection edge = the
 door; the originals saved, the edge moved to the seam side, both re-picked), then the columns strictly between the two
-doors take the straight-through keys, or the saved originals go back (`0x141f2e010`). A seam tile is re-picked by
-`0x141f2cc70`: a plain key (no tag, no edge, four equal corners) from the fill tiles of its ground (3 × 3 tiles
+doors take the straight-through keys, or the saved originals go back (`0x141f34900`). A seam tile is re-picked by
+`0x141f33560`: a plain key (no tag, no edge, four equal corners) from the fill tiles of its ground (3 × 3 tiles
 `Next(total)` + `Next(8)`, else 1 × 1 tiles nine times at the key's first corner height), any other from the tile
 store under the tile's tag; a corner ground with flag 0x10 is cleared and the pick retried. The seam keys are the tile
 data's (+0x40: the grounds left out of keys included, `TileDef.KeyGrounds`), so a fill request for such a ground finds
 nothing until the retry. The board comes from the area load (a corpus trace's `deepwater`); all 181 Deepwater
 loads of the corpus (133 missions, 13 voyages, the hubs) match every generation draw and tile.
 **The Viridian Wildwood (`AzmeriWoods.cs`):** the AzmeriPlugin queues `AzmeriLeagueArea` (`woods_0N.tgr`, a primary
-record packed beside the map like the Harvest garden) and its graph hook (`0x141f29070`, for a record whose area kind
-is 47) retypes the woods' "clearing" nodes from the area load's blob (`0x141f293e0`: 4 × u8 AzmeriFeatureRooms row,
+record packed beside the map like the Harvest garden) and its graph hook (`0x141f2f960`, for a record whose area kind
+is 47) retypes the woods' "clearing" nodes from the area load's blob (`0x141f2fcd0`: 4 × u8 AzmeriFeatureRooms row,
 then the IntroTunnel flag): the clearings in node order, slot k taking the one from the END (slot 0 = the last), each
 to the row's room (+8, its .arm tag) with "accessible" and the row's +0x10 tokens appended to its descriptions. The
 woods take no share of the map's feature rows (the root's pass empties the pool before the record runs). 13 of the
 corpus's 15 woods loads match every draw and tile.
 **The extra room pool's own tile store (+0x90, `ExtraRoomPool.Store`):** a row's tiles (+0x18, .tdt / .tst) are filed
 as a TileSet's (a .tst by its list, a .tdt at weight 1 in every orientation) and are the second store a tagged slot
-falls back to when the master's store has no tile for it (`0x141fe89e0`, the fill rooms; the dungeon room tiliser;
+falls back to when the master's store has no tile for it (`0x141fef200`, the fill rooms; the dungeon room tiliser;
 the area unique rooms): the Betrayal forts' towers (`fortress_med_outpost.arm`'s `tower_small`), the laboratory's
-`labentrance`, the Ultimatum encounter's `ultimatum_altar`. **The Betrayal jobs** (stat 8609, `0x14204bbf0` per job
+`labentrance`, the Ultimatum encounter's `ultimatum_altar`. **The Betrayal jobs** (stat 8609, `0x142052440` per job
 after the shrines): −1 = job 1, else a bit per BetrayalJobs row 1..4; a job's ExtraTerrainFeatures row (+0x10) goes
 in (LabDefence's BetrayalLaboratory names the laboratory's world area, so its record follows as a sub-area); job 1
 picks a fort from the BetrayalForts rows whose level range (+0xc..+0x10) holds the area level, `Next(total weight)`
-(+8), `BetrayalFortFallback` with none. **The Vaal side area across a composite map's records (`0x14203c900`,
+(+8), `BetrayalFortFallback` with none. **The Vaal side area across a composite map's records (`0x142043150`,
 settled from the decompile and the corpus):** every dungeon record reads the generator's +0xa; a graph
-with side area nodes picks an entrance (`0x142031d10`) and clears it; a graph without them, while it is set, adds the
-VaalSideArea row for its own layout and, at the end of its block, takes the row back (`0x141d8b2c0`, uncounted)
+with side area nodes picks an entrance (`0x142038560`) and clears it; a graph without them, while it is set, adds the
+VaalSideArea row for its own layout and, at the end of its block, takes the row back (`0x141d8e950`, uncounted)
 unless the block placed it, which clears the flag. So the Sceptre of God 1_3_18_2 and the pyramid 1_2_14_3 (whose
 earlier records have mission-room sets that leave the row unplaced) pick in a child record, while the Lunaris Temple
 1_3_14_1 and the Grand Arena 2_8_13 (whose root places the room) do not. The forts' late pass is `FortPass.cs`
 (below).
-**An Expedition logbook's features (`ExpeditionLogbook.cs`, `0x141f362c0` from the plugin's registration
-`0x141f36940` when its flag byte +0x18 has bit 1):** the ExpeditionBalancePerLevel row (byte +4 = 1, the greatest
+**An Expedition logbook's features (`ExpeditionLogbook.cs`, `0x141f3cbb0` from the plugin's registration
+`0x141f3d230` when its flag byte +0x18 has bit 1):** the ExpeditionBalancePerLevel row (byte +4 = 1, the greatest
 level at or below the area level; +0x1d the boss chance in 10 000ths, +0x21 / +0x25 the min / max count); unless
 stat 14744 `Next(10000)` below the chance rolls a boss; count = stat 14803 + min + one direct `Uniform(max − min + 1)`;
 the ExpeditionTerrainFeatures rows in table order (faction +0x18 none or the logbook's, level in +0x28..+0x2c, the
@@ -161,7 +161,7 @@ cumulative pick, then count × `Next(sum)` over the normal rows, a row that reac
 ExtraTerrainFeatures row (+8) goes in, boss first, and its +0x34 world area (the underground, the boss arena) is
 queued as a sub-area. The faction is the logbook item's; the corpus fits it from the logged bounds. The three
 logbook loads of the corpus (Bluffs, Dried Riverbed, Utzaal Outskirts) match every draw and tile.
-**The Temple of Atzoatl (`IncursionTemple.cs`, `0x141f466b0` on `temple_3.dgr`):** the IncursionTemplePlugin blob
+**The Temple of Atzoatl (`IncursionTemple.cs`, `0x141f4cfa0` on `temple_3.dgr`):** the IncursionTemplePlugin blob
 (36 bytes: u32, eleven u16 IncursionRooms keys at +4, u16, u8, the 26 door bits at +29) lays the temple out: the eleven
 "room" nodes (TEMPLATE_BlankRoom's present tag), sorted by y then by x inside rows of 2 / 4 / 3 / 2, take the n-th
 key's PRESENT room (+0x30) as their tag, and a room the set lacks joins it at weight 1 (`DungeonRoomSet`'s extra
@@ -169,17 +169,17 @@ rooms; generate.rs's own door and entrance weights stay); the 26 door nodes (TEM
 of 2 / 6 / 3 / 6 / 2 / 4 / 1 / 2: a clear bit n makes door n TEMPLATE_LockedDoor1 / 2's room, and with a TrapRoomI /
 II / III among the keys (the first, tier 1..3) every set-bit door becomes OpenDoor1Trap / OpenDoor2Trap&lt;tier&gt;'s
 room. "Incorrect number of room nodes" unless 11 / 26 / 4 (the other typed nodes). Both temples of the corpus match.
-**A Syndicate safehouse (`SafehouseRooms.cs`, `0x141f29730` on the Arena child graph):** the BetrayalSafehousePlugin
+**A Syndicate safehouse (`SafehouseRooms.cs`, `0x141f30020` on the Arena child graph):** the BetrayalSafehousePlugin
 blob's 8-byte slots (byte 1 = the BetrayalTargets row) are the roster; the "targetroom1" node (the last) and the
-"targetroom2" nodes (node order, `Next(count)` at `0x141f29874` then the hidden forward shuffle) take the members'
+"targetroom2" nodes (node order, `Next(count)` at `0x141f30164` then the hidden forward shuffle) take the members'
 Arena rooms (BetrayalTargets +0x59, `room_<member>.arm`) as their tags; the nodes left over get exist 0. Without a
 roster every target room drops after the same draw. Both safehouses of the corpus match.
-**A Heist contract (`HeistLayout.cs`, `HeistWing.cs`; `0x141f3d980`):** the HeistPlugin blob (u32 seed, u8
+**A Heist contract (`HeistLayout.cs`, `HeistWing.cs`; `0x141f44270`):** the HeistPlugin blob (u32 seed, u8
 HeistGeneration key, u8 HeistContracts row - above 0xfd a blueprint -, u8 objective, the wings: flag / jobs / NPCs /
 reward types) drives a TinyMT (`HeistRng`: init_by_array over {seed, wing} with the client's pre-folded status words,
 eight warm-up steps; every choice a reservoir `cnt += weight, Draw(cnt) < weight`, RandomElement = Draw(n) when n > 1,
 ranged(lo, hi) drawing only when lo != hi, the entrance orientation a raw word's bit 0; the intro pick seeds wing
-0xff). Per wing (`0x141f37150`, `HeistWingBuilder`): the hazard counts from the HeistGeneration row (the last with
+0xff). Per wing (`0x141f3da40`, `HeistWingBuilder`): the hazard counts from the HeistGeneration row (the last with
 that key and level &lt;= the area level), the room lists by type (HeistRooms of the area, ids 0.. until a gap; type-2
 rooms without a job by size), the door types (HeistDoors with a job, not "door", not the area's own), the entrance
 (type 0), the goal (type 1, hazard reservoir else plain), the main path of ranged(gen+8) rooms grown from the last
@@ -190,24 +190,24 @@ then ranged(gen+16) random ones with a weighted HeistChestRewardTypes reservoir)
 box. The level (`HeistLevel`): the intro (weighted over the area's HeistIntroAreas rows with that wing count), the
 prune, the packing (wings then intros, each at the right-of / below corner of a placed rect keeping the bounding box
 smallest, then mirrored so the first intro sits top-left); the main graph is rebuilt as the packed size with one
-"graph" node per intro and wing at (23x + 11, 23y + 11) and [path, w, h] (`0x141f3eea0`), a wing's record sized by its
-room bounding box (`0x141f405f0`). An intro graph takes `0x141f3f650`'s edits before its layout (the main intro's
+"graph" node per intro and wing at (23x + 11, 23y + 11) and [path, w, h] (`0x141f45790`), a wing's record sized by its
+room bounding box (`0x141f46ee0`). An intro graph takes `0x141f45f40`'s edits before its layout (the main intro's
 "entrance" node loses "telepad" / "teleport" and gains "default", the nodes east or south of it come first - the
 chooser order -, an escape intro loses "default"; the nodes tagged with the HeistAreas id become the wing exits with
 "telepad{n}" / "teleport{m}-%areaname%", the rest exist 0). A wing's graph is not laid out: per wing room the
 room set's rooms of the .arm's tag whose turned exits match the room's door ring (PathRooms.et at every door;
 PathRoomsIn / Out on a hazard room between path rooms; strict, then the ring's non-null slots, then the In/Out-only and
-all-PathRooms keys for a hazard room) and `Next(total weight)` at `0x141f41e66`, placed at the room's unit position
-with the ring as its exits (`0x141f41620`); then the tiler, doors and fill as for any record. After every block
-(`0x141f42a00`) each wing door's 1 × 3 door tile at the unit centre between its rooms is re-picked from the door type's
-tile group (`Next(total)` at `0x141f42d1d`, the door's direction as orientation, turned round for an out type), then
+all-PathRooms keys for a hazard room) and `Next(total weight)` at `0x141f48756`, placed at the room's unit position
+with the ring as its exits (`0x141f47f10`); then the tiler, doors and fill as for any record. After every block
+(`0x141f492f0`) each wing door's 1 × 3 door tile at the unit centre between its rooms is re-picked from the door type's
+tile group (`Next(total)` at `0x141f4960d`, the door's direction as orientation, turned round for an out type), then
 per side-tile tag of the HeistDoors row (+0x38 the line one cell on the door's +dir side, +0x48 the −dir side; a
 5-cell line across) the first origin cell whose tile has no tag of its own and whose turned key has candidates under
-the tag is re-picked (`0x141f43344`). All 12 heist contracts of the corpus (Bunker, Mansion, three Libraries, Records
+the tag is re-picked (`0x141f49c34`). All 12 heist contracts of the corpus (Bunker, Mansion, three Libraries, Records
 Office, two Laboratories, Tunnels, two Repositories, Underbelly) match every generation draw and tile. The Canals
 intro also settled the overlay spot grid of a dungeon record: a size-3 key's 3-step grid runs over the view inside
 the margins and is anchored one RoomOverlap before its origin (`Overlays.Spots`).
-**The Elder boss arena (`0x142047540`'s end):** stat 6675 (map_elder_boss_variation) names an ElderBossArenas
+**The Elder boss arena (`0x14204dd90`'s end):** stat 6675 (map_elder_boss_variation) names an ElderBossArenas
 variation (+0x10); the rows of that variation in table order, `Next(count)`, and the picked row's world area (+0) is
 queued like a sub-area: the Cemetery 3468054408 (variation 2 = Sceptre / Tower / Refinery, n(3) = 0 →
 MapWorldsElder_Sceptre's `sceptre_main.dgr` beside the Harvest garden).
@@ -215,7 +215,7 @@ MapWorldsElder_Sceptre's `sceptre_main.dgr` beside the Harvest garden).
 layout's mission search left (its uncovered tail) are retried in the fill area with the others (the Pit 433005992:
 seven Blight rows, five on mission tiles, the two uncovered tried - draw(10480) then two orientations); without it a
 mission-room set keeps the pass to the oversize rows (the Rotting Core 780755267's row waits for a later record).
-**The fill's map rectangle (`Fill.Bound`, `0x141d84ed0`):** a record's own rectangle, buffer strips included, not the
+**The fill's map rectangle (`Fill.Bound`, `0x141d88560`):** a record's own rectangle, buffer strips included, not the
 level's (the Sarn Ramparts 1906049691: two stacked 96 × 96 records, a 3 × 3 ledge at row 94 refused and the retry
 drawn); a record after the first takes the FIRST record's master's buffer strips around its own (the Temple of
 Atzoatl's `_outdoor.dgr` child at (1, 1) fills the level's ring).
@@ -230,20 +230,20 @@ carry a height step.
 record (the Fellshrine Ruins' `macro_ruins2.tgr` under `fellshrine_reaper_shrine_2.dgr`, 4044540761) runs its passes
 as the primary does - its walkability pass before its area unique rooms, whose openings leave out the flagged corners
 (1721 of 105 × 63, not 3365; the Deepwater room then lands where the client put it).
-**The late feature pass (`FortPass.cs`, `0x14202eaf0` after every block, before the outer buffers):** every pool row
+**The late feature pass (`FortPass.cs`, `0x142035340` after every block, before the outer buffers):** every pool row
 with the +0x61 flag and one room still waiting (the Betrayal forts the fill area could not place) goes on an island
-carved out of the water beside a straight shore edge of the primary record: the doors (`0x14202b710`: untagged square
+carved out of the water beside a straight shore edge of the primary record: the doors (`0x142031f60`: untagged square
 tile-origin cells of the inner rectangle with two walkable corner grounds whose turned key has the same real edge type
-on two opposite sides - `0x14202a790`: no height step, one walkable ground, not virtual, no inside ground, the store
+on two opposite sides - `0x142030fe0`: no height step, one walkable ground, not virtual, no inside ground, the store
 holding its corner tiles both ways and its straight tile - with square untagged tiles of the type's size one tile
 away along the edge; the side = the free side whose corners are not both walkable; the list in (x, y) order), the
-candidate rects (`0x14202b1e0`: the feature size rounded up to the unit plus one unit each side, laid along the
+candidate rects (`0x142031a30`: the feature size rounded up to the unit plus one unit each side, laid along the
 outside of each door, kept on untagged edgeless tiles whose raw corner grounds are the type's non-walkable ground;
 `Next(count)` unused, then the hidden shuffle), and for the first candidate whose twelve corner / edge-run keys and
 the ground key all have tiles: the overhanging tiles noted, every tile covering the rect removed, the interior
 vertices cleared, the fort's and the door's vertices re-grounded with a walkable ground among the door tile's corners,
 then weighted picks for the door cell and the cell across it, the two corner pieces beside them, two chisels on the
-door's axis (`0x14202e6c0`: its placement alone uses the unconditional corner setter, the place call's last argument,
+door's axis (`0x142034f10`: its placement alone uses the unconditional corner setter, the place call's last argument,
 so a corner the chiselled tile has no ground for turns null), the rect's corners, its edge runs and the 1-cell inner
 ring, the overhang refilled with the other ground's plain tile, the vertices still without a ground re-grounded over
 the rect and the door square (both half-open: [dx, dx + unit) × [dy, dy + unit), unlike the earlier inclusive
@@ -281,8 +281,8 @@ area, the 3.29 league's 22838 included): `is_blighted_map` 10498 (seven Blight r
 (Expedition / Ultimatum / Mercenary, by the plugin names 0x1d carries), `map_spawn_envoy` 15661 (2 Tangle, 3 Cleansing
 Fire), `map_nuke_everything` 10209 (nothing more), 21265 / 16965 (memory line, excursions), then the **Deepwater
 encounters**: with 22838 and neither 8213 nor 20553, the chances row's +180 (100 everywhere seen: no draw) admits one
-of `DeepwaterEncounterGiantCoral` / `CursedTreasure` / `BrinerotStores`, two when +184 rolls (`0x14204ab7e`), picked
-by `Next(3)` (`0x14204aba5`, unused) and k direct `Uniform` draws of a partial forward Fisher-Yates (`0x141f5d130`,
+of `DeepwaterEncounterGiantCoral` / `CursedTreasure` / `BrinerotStores`, two when +184 rolls (`0x1420513ce`), picked
+by `Next(3)` (`0x1420513f5`, unused) and k direct `Uniform` draws of a partial forward Fisher-Yates (`0x141f63a20`,
 invisible to a `Next`-only tracer); then unless 10048: the Vaal side area at `clamp((2362 + 100) · (13838 + chance
 +96) / 100)` or stat 5945, StoneCircle 3421, the trial by 4874 or (map, level ≥ 73, `13839 + chance +108`), Harvest by
 17031 or the CoreLeagues 18 count (area type 35 excluded); and for the non-special areas the hideout (or 8705), the
@@ -292,14 +292,14 @@ the 0x1b count), the breach (21776 / 22774 / 22591 / 22590 / 5575 decide the hiv
 sky hive by `1600 · (22592 + 100) / 100` against `Next(10000)` unless 22611; without a hive the breach count takes
 5575 and the rolls 17608 +10 / 17607 +3 / 17606 +2 / 17605 +1), two `EmptyRoom` for the 21 Abyss areas (by HASH16)
 with 6758 / 6759; the fishing mission unless 2360 / 20139 / 20140 / 20142 / 20143. The league count
-(`0x14204a310` → `0x141ea1f50` / `0x141ea2290` / `0x141ea1bb0` / `0x141ea1c80` → `0x141ea2400`,
+(`0x142050b60` → `0x141ea8800` / `0x141ea8b40` / `0x141ea8460` / `0x141ea8530` → `0x141ea8cb0`,
 `ExtraTerrainFeatures.LeagueStruct` / `LeagueCount`): the chances-row column per CoreLeagues row (28 rows; 4 and 8 take
 stat 16357 alone) scaled by `(16341 + 100) / 100` plus 16357; excluded by 17190's bit, 10209, 20235, 8213 (unless row
 byte +8), 10073 (unless +9), any stat of the row's +0x1a list, or its disable stat +0xa with no base count; base =
 the +0x5a list's stats plus the +0x6a override stat; the first chance = (the +0x8f override stat, else chance + 20393
 when +0xb1) plus +0x2a, times (+0x4a + 100) / 100; the follow-up chance times (+0xb2 + 100) / 100; the bonus +0x3a;
 the most per area +0x8a; a row with +0x8e and no chance, or +0xa0 = 1, gives none. Not ported: the generation
-params' feature list (+0x70), the Betrayal forts (8609 → `0x14204bbf0`) and the plugins' own sub-area records (the
+params' feature list (+0x70), the Betrayal forts (8609 → `0x142052440`) and the plugins' own sub-area records (the
 Ultimatum arena: `UltimatumEncounter` names no world area; the plugin queues it).
 
 **The extra room pool** (generator +0x40, `ExtraRoomPool.cs`). Each rolled feature that is an `ExtraTerrainFeatures`
@@ -1202,14 +1202,14 @@ are the doodads, `0x1420497fe`).
    flags; the same room again only ORs in the orientation bit. An exclusion grid marks rooms of nodes with
    descriptions (0x10), rooms with a tag (4 shrunk by RoomOverlap, 8: room data +0x20, the length of the tag at +0x10;
    the Azmeri arena's untagged maze rooms take overlays, `AzmeriLeagueBoss`, 2026-10-27), tagged tiles (2), the extra room pool's placed rooms
-   (0x20: the unique rooms and shrines placed so far, pool +0x60, `0x141d8abb0`) and placed overlays (1); a cell takes an overlay only if the group's flags have every bit set there. Per group (FileOrder),
+   (0x20: the unique rooms and shrines placed so far, pool +0x60, `0x141d8e240`) and placed overlays (1); a cell takes an overlay only if the group's flags have every bit set there. Per group (FileOrder),
    every view position (every third when a key edge has size 3: for a tile graph from the view origin, MapWorldsSteppes;
    for a dungeon record over the view inside its margins from (margin − RoomOverlap) mod 3 - the Canals heist intro
    of the server corpus; a dungeon's every-cell view is its whole record, margins included, ExpeditionCemetery; a room's
-   limit counts across the groups its orientations went to, the Expedition sulphite overlays; 2026-10-27) where it fits (`0x141ffef60`: no excluded bits, the
-   area holds tiles lying inside it (`0x141d850b0`); `0x141ffa7b0`: the four corner grounds match (`0x141ffa470`), the
-   heights agree, each side inside the map matches the edges across it (`0x141ffa390` / `0x141ff9cb0` /
-   `0x141ff9ee0`)) is a spot of the group's weight. `0x141fffb70` draws spots (`Next(total)`), a group that still fits
+   limit counts across the groups its orientations went to, the Expedition sulphite overlays; 2026-10-27) where it fits (`0x1420057b0`: no excluded bits, the
+   area holds tiles lying inside it (`0x141d88740`); `0x142001000`: the four corner grounds match (`0x142000cc0`), the
+   heights agree, each side inside the map matches the edges across it (`0x142000be0` / `0x142000500` /
+   `0x142000730`)) is a spot of the group's weight. `0x1420063c0` draws spots (`Next(total)`), a group that still fits
    (`Next`), a room under its limit padded to 100 with nothing (`Next`; nothing closes the spot), its orientation
    (`Next(840)`), the room's height offset (`0x142005030`: per slot with a key, row by row, each key corner on the
    room's border whose map vertex has a height (flag 2) gives map height − corner height − slot height; corners with
@@ -1409,10 +1409,10 @@ heights").
 ## 6c. Doodads (`DoodadStage.cs`, `DoodadHull.cs`)
 
 **The server's half of the stage (`AreaObjects.ServerObjects`, `ObjectTypes.cs`):** the stage creates a line's object on
-the client only when its type's BaseEvents is `no_serialise` or `client_only` and not `server_only` (`0x142041960`,
+the client only when its type's BaseEvents is `no_serialise` or `client_only` and not `server_only` (`0x1420481b0`,
 flags merged down the `.ot`'s `extends` chain, the type's own block last); every other room line, typed room point and
 tile record is the server's: created by it and, unless `no_serialise` (a `server_only` spawner, ambush or teleport
-marker, the town portal: server-internal), sent in a 0x2b9 spawn. A level lists them all (`Level.ServerObjects`, one
+marker, the town portal: server-internal), sent in a 0x2bb spawn. A level lists them all (`Level.ServerObjects`, one
 per type and sub-cell, with the placing file and the sent flag): the tiles' records as the tile doodads below (the mesh
 .tmd or the master's Reskin copy, per sub-tile for a tile made of them, none for flags bit 3 or a tile inheriting neither
 mesh nor objects, then the .tdt's own .tmd), the rooms' lines and points turned by the room's code. Heights: a tile
@@ -1426,7 +1426,7 @@ generated object the server never sent is unverifiable, not wrong. The Positione
 truncated toward zero (`InstanceProtocol.HeightMarker`; 6731 of 6793 of the server's pairs, the rest at exact
 multiples one off either way).
 
-`0x1420425d0` ("Generating doodads...", step +0x58 of §1) over the subgraph records (generator +0x30 → +0x10, 0x98
+`0x142048e20` ("Generating doodads...", step +0x58 of §1) over the subgraph records (generator +0x30 → +0x10, 0x98
 bytes; `GenerationResult.Records`: rectangle +0x40…+0x4c, master +0x50, placed rooms +0x58 at 0x38 bytes: +8 x, +0xc
 y, +0x18 height, +0x1b orientation code). Order:
 
@@ -1932,15 +1932,15 @@ the target open, so the recorder's write of the fourth object threw and left the
   and `subgraphs`, each record as 0x14204bb30 starts it); `LEVELGEN_DUMP=<file>` writes the port's grid as the trace's `tiles` (to line it up with the client's,
   e.g. to find where rooms land).
 - **The recorded corpus:** recorded loads (their area load packet beside a hardware-breakpoint draw tracer on
-  `0x141ff9720`, the generating thread) carry what no local trace has: the packet's area stats, its
+  `0x141ffff70`, the generating thread) carry what no local trace has: the packet's area stats, its
   league rolls and its plugin blobs (Harvest, Incursion, Heist, Betrayal, Deepwater, …). Each such load is a
   `.gen.json` under `data/corpus-traces/` (git-ignored, produced outside this repository) with `"kinds": "n"` (only
   the bounded draws were logged; `levelgen generate` then compares the port's 'n' draws alone), and
   `scripts/re/levelgen/corpus_check.py` runs them all into `data/corpus-check.tsv` and groups the first-difference
   callers. The corpus can also stand in for the client log (`Client/logs/Client-corpus-archive.txt` for the oracle). A load whose
-  first difference is at the league rolls (`0x14204aba5`, `0x142054a6b`, …) needs the server's inputs, not a
+  first difference is at the league rolls (`0x1420513f5`, `0x14205b2bb`, …) needs the server's inputs, not a
   generator fix. The traces log through the doodad stage and the client-only stages after it (the mesh variation
-  `0x141530658`, the ground clutter `0x141544f0c`, the critters `0x14154526b`: no tiles, no doodads, not ported);
+  `0x141532978`, the ground clutter `0x14154722c`, the critters `0x14154758b`: no tiles, no doodads, not ported);
   `corpus_check.py --doodads` runs the stage after the generation (`generate --doodads`) and counts the loads whose
   every draw matches up to those stages: all 1142 (the last one, the Promenade 3238478791, took two fort-pass rules:
   the chisel's placement uses the unconditional corner setter, so a corner its tile has no ground for turns null,
@@ -1948,6 +1948,6 @@ the target open, so the recorder's write of the fourth object threw and left the
   beside an empty default list drops a random-doodad attempt with no draw). An empty list's pick there is logged as Next(0) in some loads and Next(1) in others of the same
   table; neither takes a word, so the comparison takes 0 and 1 alike (`SameDraw`). `LEVELGEN_DOODAD_AT=x,y` prints
   why the stage keeps or drops an attempt at a sub-cell.
-- **Probe:** candidate lists can be read live by hooking `0x141d902d0` (list: begin, end of 0x18-byte entries: tile
-  handle (+8 → path), u8 orientation, i32 weight; +0x18 total weight) and `0x142005ee0` (fill lists, same layout)
+- **Probe:** candidate lists can be read live by hooking `0x141d93960` (list: begin, end of 0x18-byte entries: tile
+  handle (+8 → path), u8 orientation, i32 weight; +0x18 total weight) and `0x14200c730` (fill lists, same layout)
   on the generating thread.

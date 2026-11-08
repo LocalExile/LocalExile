@@ -7,7 +7,7 @@ namespace GameServer.Data.Terrain.Generation;
 /// on every area, map mods and atlas passives, which this port follows in the client's order (the server corpus,
 /// re/011 §8). Not ported here: the plugins' own feature rows (world +0xe0 plugins with byte +10 — Expedition,
 /// Ultimatum, Mercenary: the server's plugin state), the generation params' feature list (+0x70) and the Betrayal
-/// forts (stat 8609 → <c>0x14204bbf0</c>: the safehouse roster).</summary>
+/// forts (stat 8609 → <c>0x142052440</c>: the safehouse roster).</summary>
 public static class ExtraTerrainFeatures
 {
     public sealed record Feature(string Name, int Count);
@@ -30,7 +30,7 @@ public static class ExtraTerrainFeatures
         if (Stat(10498) != 0) { features.Add(new("BlightEncounter", 7)); return features; }
         // The terrain plugins with byte +10 (world +0xe0; the server names them in 0x1d's TerrainPluginState): each
         // registers its encounter row through its vtable +0x18. An Expedition logbook area's plugin registers the rows
-        // its feature roll picked instead (0x141f362c0, not ported); which MercenaryEncounter* row the Mercenary plugin's
+        // its feature roll picked instead (0x141f3cbb0, not ported); which MercenaryEncounter* row the Mercenary plugin's
         // blob names is not decoded (every one is a 3 × 3 forced-blank piece with the same list, so any stands in).
         foreach (string plugin in area.Plugins ?? [])
             switch (plugin)
@@ -59,8 +59,8 @@ public static class ExtraTerrainFeatures
 
         // The Deepwater encounters (the 3.29 league; stat 22838 on every area the server runs it in): the entry chance
         // (+180, 100 in every area seen: no draw), then one feature, or two when the second chance (+184) rolls, picked
-        // by a partial forward Fisher-Yates over the three rows — one Next(3) whose result is unused (0x14204aba5), then
-        // k direct Uniform draws (0x141f5d130), which the corpus's draw tracer never sees.
+        // by a partial forward Fisher-Yates over the three rows — one Next(3) whose result is unused (0x1420513f5), then
+        // k direct Uniform draws (0x141f63a20), which the corpus's draw tracer never sees.
         if (Stat(22838) != 0 && Stat(8213) == 0 && Stat(20553) == 0 && Roll(Chance(180)))
         {
             var rows = new List<string> { "DeepwaterEncounterGiantCoral", "DeepwaterEncounterCursedTreasure", "DeepwaterEncounterBrinerotStores" };
@@ -113,7 +113,7 @@ public static class ExtraTerrainFeatures
                 else shrines = LeagueCount(area, rng, 1);
             }
             if (shrines != 0) features.Add(new("(shrines)", shrines));
-            // betrayal_job_index (8609): -1 = job 1, else one bit per job 1..4 (0x14204bbf0 per job: the BetrayalJobs
+            // betrayal_job_index (8609): -1 = job 1, else one bit per job 1..4 (0x142052440 per job: the BetrayalJobs
             // row's ExtraTerrainFeatures row goes in (LabDefence's BetrayalLaboratory, a row naming the laboratory's
             // world area: its record follows); job 1 picks a fort from the BetrayalForts rows of the area level
             // (+0x8 weight, +0xc..+0x10 the level range, +0x14 the row): Next(total weight), or BetrayalFortFallback
@@ -207,7 +207,7 @@ public static class ExtraTerrainFeatures
     ];
 
     /// <summary>The CoreLeagues row's chance and follow-up chance columns in the WorldAreaLeagueChances row
-    /// (<c>0x141ea1f50</c>'s switch on the row index); a null entry takes stat 16357 alone; a missing row gives nothing.</summary>
+    /// (<c>0x141ea8800</c>'s switch on the row index); a null entry takes stat 16357 alone; a missing row gives nothing.</summary>
     static readonly Dictionary<int, (int Chance, int Follow)?> ChanceColumns = new()
     {
         [0] = (8, 0), [1] = (36, 40), [2] = (96, 0), [3] = (100, 104), [4] = null, [5] = (12, 16), [6] = (56, 60), [7] = (64, 0),
@@ -218,7 +218,7 @@ public static class ExtraTerrainFeatures
 
     public readonly record struct LeagueRoll(int C0, int C1, int C2, int Base, int Max);
 
-    /// <summary><c>0x14204a310</c> (→ <c>0x141ea1f50</c>, <c>0x141ea2290</c>, <c>0x141ea1bb0</c>, <c>0x141ea1c80</c>): the
+    /// <summary><c>0x142050b60</c> (→ <c>0x141ea8800</c>, <c>0x141ea8b40</c>, <c>0x141ea8460</c>, <c>0x141ea8530</c>): the
     /// roll of a CoreLeagues row for this area and its stats: the first chance, the follow-up chance, the bonus chance,
     /// the base count and the most per area. All zero when the league is excluded.</summary>
     public static LeagueRoll LeagueStruct(AreaInfo area, int row)
@@ -231,7 +231,7 @@ public static class ExtraTerrainFeatures
         int[] Refs(int at) => cl.RefList(row, at).Select(r => r + 1).ToArray();
         static int Div(int a, int b) => a / b;   // C truncation, as C#
 
-        // 0x141ea1f50: the chance from the area's league-chances row (scaled by stat 16341, plus 16357), or stat 16357 alone.
+        // 0x141ea8800: the chance from the area's league-chances row (scaled by stat 16341, plus 16357), or stat 16357 alone.
         int chance, follow = 0;
         if (cols is null) chance = Stat(16357);
         else
@@ -240,7 +240,7 @@ public static class ExtraTerrainFeatures
             chance = Div(area.LeagueChance(cols.Value.Chance) * (Stat(16341) + 100), 100) + Stat(16357);
             follow = cols.Value.Follow != 0 ? area.LeagueChance(cols.Value.Follow) : 0;
         }
-        // 0x141ea2290: the exclusions.
+        // 0x141ea8b40: the exclusions.
         int disable = Ref(10);
         int baseCount = Refs(90).Sum(id => Math.Max(0, Stat(id)));
         int base2Ref = Ref(106);
@@ -249,7 +249,7 @@ public static class ExtraTerrainFeatures
             (!cl.Bool(row, 8) && Stat(8213) != 0) || (!cl.Bool(row, 9) && Stat(10073) != 0)) return zero;
         if (Refs(26).Any(id => Stat(id) != 0)) return zero;
         if (disable != 0 && Stat(disable) != 0 && baseCount + base2 == 0) return zero;
-        // 0x141ea1c80: the struct.
+        // 0x141ea8530: the struct.
         int v10 = cl.Bool(row, 177) ? Stat(20393) : 0;
         if ((cl.Bool(row, 142) && chance + v10 <= 0) || cl.U8(row, 160) == 1) return zero;
         int max = Math.Max(0, cl.I32(row, 138));
@@ -266,9 +266,9 @@ public static class ExtraTerrainFeatures
         return roll with { C0 = c0, C1 = c1 };
     }
 
-    /// <summary><c>0x141ea2400</c>: how many of a league mechanic the area gets: the base count; one roll at the first
+    /// <summary><c>0x141ea8cb0</c>: how many of a league mechanic the area gets: the base count; one roll at the first
     /// chance, then rolls at the follow-up chance while they succeed, up to the most; then one at the bonus chance. Each
-    /// roll is <c>0x142054a50</c>: chance ≥ 100 always, else <c>Next(100)</c> below it.</summary>
+    /// roll is <c>0x14205b2a0</c>: chance ≥ 100 always, else <c>Next(100)</c> below it.</summary>
     public static int LeagueCount(AreaInfo area, LevelRandom rng, int row)
     {
         var s = LeagueStruct(area, row);

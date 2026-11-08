@@ -89,7 +89,7 @@ static class ServerLevels
     // projectiles) get that generation. Never trimmed: one entry per map instance opened.
     static readonly ConcurrentDictionary<(string Area, uint Seed), int> PlayedLevels = new();
     // The area stats an (area, seed) is played with (0x1d's first stat list, 1-based Stats.dat ids): the generator's
-    // league rolls, side area, shrines and features read them (0x14204a570 with the server's stats, re/011 §3b), so the
+    // league rolls, side area, shrines and features read them (0x142050dc0 with the server's stats, re/011 §3b), so the
     // level must be generated with the same list the client gets. Remembered per (area, seed) like PlayedLevels.
     static readonly ConcurrentDictionary<(string Area, uint Seed), IReadOnlyDictionary<uint, int>> PlayedStats = new();
 

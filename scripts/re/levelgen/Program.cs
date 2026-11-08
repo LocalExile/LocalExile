@@ -764,7 +764,7 @@ static void WalkArea(GameFileSystem fs, TerrainCache files, string root, string 
 
 /// <summary>A client draw and a port draw agree: same kind, bound and result, or both a bound of 0 or 1 (neither takes a
 /// generator word, so the result is 0 either way). The doodad stage's pick of an EMPTY list logs bound 0 or 1 at
-/// 0x1420437fd / 0x14204387f per load, with no property of the table deciding which (one .ddt gives both across loads).</summary>
+/// 0x14204a04d / 0x14204a0cf per load, with no property of the table deciding which (one .ddt gives both across loads).</summary>
 static bool SameDraw((char Kind, string Caller, uint Arg, uint Result) client, (char Kind, uint Arg, uint Result) port) =>
     client.Kind == port.Kind && client.Result == port.Result && (client.Arg == port.Arg || client.Arg <= 1 && port.Arg <= 1);
 

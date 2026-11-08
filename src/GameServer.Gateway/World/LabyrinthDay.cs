@@ -269,7 +269,7 @@ static class LabyrinthDay
     }
 
     /// <summary>The area extra data (0x1d's terrain block) naming the node: flags 0x08, 0x00, then u32 seed, u16 node
-    /// (its LabyrinthSectionLayout row), u8 difficulty, little-endian (<c>0x141ec7220</c>).</summary>
+    /// (its LabyrinthSectionLayout row), u8 difficulty, little-endian (<c>0x141ecdad0</c>).</summary>
     public static byte[] ExtraData(LabyrinthNodeKey node) => AreaExtraData.Build(Section(node), null);
 
     /// <summary>The node as the extra data's Labyrinth section (<see cref="AreaExtraData"/>).</summary>

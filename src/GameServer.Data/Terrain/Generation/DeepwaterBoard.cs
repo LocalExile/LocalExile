@@ -2,16 +2,16 @@ namespace GameServer.Data.Terrain.Generation;
 
 /// <summary>The DeepwaterPlugin's voyage board (0x1d's TerrainPluginState 11572: u8 N, then N × N cells of {u8
 /// DeepwaterRooms row, u8 rotation 0-3, stats}; the layout the server corpus decoded). The plugin's generation hook
-/// (<c>0x141f2c180</c>, the terrain plugin's vtable +0x30, called by <c>0x14203c900</c> right after the graph load for
+/// (<c>0x141f32a70</c>, the terrain plugin's vtable +0x30, called by <c>0x142043150</c> right after the graph load for
 /// a record whose WorldAreas row has +0x1e4 = 52: the encounter areas and the four biome areas) replaces the loaded
 /// graph: record 0's <c>Deepwater_01.dgr</c> becomes an N × N graph with one "graph" node per cell (y outer, x inner)
 /// at (23x, 23y), orientation 0, descriptions [the cell's biome area's topology, drawn by <c>Next(count)</c> at
-/// <c>0x141f2c29d</c> (one topology per biome, so no word), "1", "1"]; each cell's <c>Biome_*.dgr</c> record becomes a
+/// <c>0x141f32b8d</c> (one topology per biome, so no word), "1", "1"]; each cell's <c>Biome_*.dgr</c> record becomes a
 /// 1 × 1 graph with one node at (0, 0) tagged with the cell room's header name (the .arm tag), oriented by the cell's
 /// rotation, descriptions "default" (+ "killzone=3" on cell 0). The biome is the room's DeepwaterRooms +0x28 →
 /// DeepwaterBiomes +8 → WorldAreas (Sandy, CoralForest, CoralReef, ThermalVents). The plugin also queues the hub
 /// (DeepwaterHub) as a sub-area. An N × N board (N &gt; 1) ends with the plugin's post-level hook that tiles the
-/// connections between the cells (<c>0x141f2cc70</c>; not ported).</summary>
+/// connections between the cells (<c>0x141f33560</c>; not ported).</summary>
 public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rotation)> cells)
 {
     public int N => n;
@@ -29,7 +29,7 @@ public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rota
     public IReadOnlyList<(string RoomId, int Rotation)> Cells => cells;
 
     /// <summary>The board as the DeepwaterPlugin's state bytes (0x1d's TerrainPluginState 11572, the plugin's constructor
-    /// <c>0x141f2e990</c>): u8 N, then N × N cells of {u8 DeepwaterRooms row, u8 rotation, u8 stat count = 0}, then
+    /// <c>0x141f35280</c>): u8 N, then N × N cells of {u8 DeepwaterRooms row, u8 rotation, u8 stat count = 0}, then
     /// u8 mod count = 0.</summary>
     public byte[] Encode(Func<string, byte[]?> read)
     {
@@ -101,13 +101,13 @@ public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rota
     /// <summary>A board cell's record on the shared map (its view rectangle, its master's tile store and fill tiles).</summary>
     internal sealed record CellRecord(int X, int Y, int W, int H, TileStore Store, Dictionary<string, string> Master, string MasterPath);
 
-    /// <summary>The plugin's post-level hook (<c>0x141f2e5f0</c>, after every record's pipeline call and before the AO
+    /// <summary>The plugin's post-level hook (<c>0x141f34ee0</c>, after every record's pipeline call and before the AO
     /// placements and the outer buffers): rows outer, columns inner over the board, each cell's DeepwaterRooms door
     /// bits (+0x10) turned by its rotation; bit 4 (east) with a cell to the right tiles the seam column
-    /// (<c>0x141f2d4f0</c>: the last 3 × 3 column of this cell and the first of the next, every row block), bit 2
-    /// (south) with a cell below the seam row (<c>0x141f2e010</c>: a door scan from the left and from the right,
-    /// <c>0x141f2d910</c>, then the columns strictly between the two doors get the straight-through keys, or the saved
-    /// originals go back). Each seam tile is re-picked by <c>0x141f2cc70</c>: a plain key from the fill tiles of its
+    /// (<c>0x141f33de0</c>: the last 3 × 3 column of this cell and the first of the next, every row block), bit 2
+    /// (south) with a cell below the seam row (<c>0x141f34900</c>: a door scan from the left and from the right,
+    /// <c>0x141f34200</c>, then the columns strictly between the two doors get the straight-through keys, or the saved
+    /// originals go back). Each seam tile is re-picked by <c>0x141f33560</c>: a plain key from the fill tiles of its
     /// ground (3 × 3, else 1 × 1 nine times), any other from the tile store under the tile's tag. Ported from the
     /// corpus's dungeon_sim (its replay of the two 3 × 3 voyages matched draw for draw).</summary>
     internal void Connections(TileGrid grid, TerrainCache files, IReadOnlyList<CellRecord> records, LevelRandom rng, List<string> notes)
@@ -148,7 +148,7 @@ public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rota
         TileEntry? At(int x, int y) => grid[x, y];
         int Flags(string? ground) => ground is null ? 0 : files.Ground(ground)?.Flags ?? 0;
 
-        /// <summary><c>0x141f2c970</c>: a tile without a tag, without a real edge in its own key, four equal corners.</summary>
+        /// <summary><c>0x141f33260</c>: a tile without a tag, without a real edge in its own key, four equal corners.</summary>
         bool IsPlain(int x, int y)
         {
             if (At(x, y) is not { } e || e.Tile.Tag.Length != 0) return false;
@@ -157,7 +157,7 @@ public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rota
             return k.Grounds.All(g => string.Equals(g, k.Grounds[0], StringComparison.OrdinalIgnoreCase));
         }
 
-        /// <summary><c>0x141f2d3a0</c>: k1's edge on the side folded into k2 (the master's edge combination map is empty
+        /// <summary><c>0x141f33c90</c>: k1's edge on the side folded into k2 (the master's edge combination map is empty
         /// in every Deepwater master: both set gives none).</summary>
         static void Combine(TileKey k1, TileKey k2, int side)
         {
@@ -175,7 +175,7 @@ public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rota
             }
         }
 
-        /// <summary><c>0x141f2c900</c>: edge slot dst = slot src, point A 4 (9 when src's is 9), point B src's.</summary>
+        /// <summary><c>0x141f331f0</c>: edge slot dst = slot src, point A 4 (9 when src's is 9), point B src's.</summary>
         static void Move(TileKey k, int src, int dst)
         {
             if (dst != src) k.Edges[dst] = k.Edges[src];
@@ -189,7 +189,7 @@ public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rota
             k.PointA[side] = k.PointB[side] = 9;
         }
 
-        /// <summary><c>0x141f2d4f0</c>: every row block of the seam column pair.</summary>
+        /// <summary><c>0x141f33de0</c>: every row block of the seam column pair.</summary>
         public void East()
         {
             int x0 = cell.X + cell.W - 3;
@@ -216,7 +216,7 @@ public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rota
             }
         }
 
-        /// <summary><c>0x141f2e010</c>: the seam row below the cell.</summary>
+        /// <summary><c>0x141f34900</c>: the seam row below the cell.</summary>
         public void South()
         {
             int y1 = cell.Y + cell.H, x0 = cell.X, x1 = cell.X + cell.W;
@@ -256,7 +256,7 @@ public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rota
                 foreach (var (x, y, e) in saved) grid.Place(e.Tile, e.Orientation, x, y, e.HeightOffset);
         }
 
-        /// <summary><c>0x141f2d910</c>: the column where both tiles carry the same real edge on their facing side (the
+        /// <summary><c>0x141f34200</c>: the column where both tiles carry the same real edge on their facing side (the
         /// room connection edge = the door): the originals are saved, the edge moved to the seam side and both re-picked.</summary>
         bool DoorScan(int x, int y, int d, ref bool flag, List<(int, int, TileEntry)> saved)
         {
@@ -309,7 +309,7 @@ public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rota
             Connect(colX, y1 - 3, k2, c2.Value, false);
         }
 
-        /// <summary><c>0x141f2ca50</c>'s list: the fill tiles of this ground that are mode × mode; a null or flag-4 ground
+        /// <summary><c>0x141f33340</c>'s list: the fill tiles of this ground that are mode × mode; a null or flag-4 ground
         /// admits only the tiles whose every sub-tile has walk flags 1 and 2 and whose first lacks 8.</summary>
         List<(TileDef Tile, int Weight)> FillCandidates(int mode, string? ground)
         {
@@ -326,7 +326,7 @@ public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rota
                 {
                     if (path.EndsWith(".arm", StringComparison.OrdinalIgnoreCase)) continue;
                     if (files.Tile(path) is not { } t || t.Width != mode || t.Height != mode) continue;
-                    // The tile's own corner ground as the client's key holds it (0x141d813c0 drops the grounds left out of
+                    // The tile's own corner ground as the client's key holds it (0x141d84a50 drops the grounds left out of
                     // keys, flag 0x10): a tile whose raw corners name such a ground has none here, so a request for
                     // it finds nothing until the retry clears it (the voyage 387284895's draw #2436).
                     string? own = t.Key.Grounds.FirstOrDefault(g => g is not null && !(files.Ground(g)?.IgnoredInKeys ?? false));
@@ -355,7 +355,7 @@ public sealed class DeepwaterBoard(int n, IReadOnlyList<(string RoomId, int Rota
             return list[^1].Item;
         }
 
-        /// <summary><c>0x141f2cc70</c>: the re-pick of one seam tile.</summary>
+        /// <summary><c>0x141f33560</c>: the re-pick of one seam tile.</summary>
         void Connect(int x, int y, TileKey key, TileEntry c, bool forced, int depth = 0)
         {
             short h = c.HeightOffset;

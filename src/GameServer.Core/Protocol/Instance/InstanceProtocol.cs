@@ -559,7 +559,7 @@ public static class InstanceProtocol
 /// "Client-Safe Instance ID = {InstanceId}" and "Generating level {Level} area "{id}" with seed {Seed}", then queues area
 /// generation. AreaHash is WorldAreas.HASH16 (unknown: "Instance sent world area that does not exist"). Level 0 means
 /// the area's own level. LeagueStats enables flag 0x21.6 and the first compact pair list (+0x100), copied to world
-/// stats at +0x120 by 0x142183130. Other optional parts remain off. Defaults follow the constructor (0x14219d940),
+/// stats at +0x120 by 0x142189aa0. Other optional parts remain off. Defaults follow the constructor (0x1421a42b0),
 /// except B28 (+0x28 → world +0xd0, the topology variant the generator picks its Topologies rows by): the constructor's
 /// default is 60, but every recorded area load carries 59 (1142 loads; the Deepwater league's Topologies rows), and
 /// the Gateway generates with 59 too (<c>ServerLevels</c>).
@@ -611,7 +611,7 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
 }
 
 /// <summary>
-/// The area extra data (0x1d's terrain block, <see cref="AreaInstance.TerrainData"/>; the decoder <c>0x141ec7220</c>): two
+/// The area extra data (0x1d's terrain block, <see cref="AreaInstance.TerrainData"/>; the decoder <c>0x141ecdad0</c>): two
 /// flag bytes, then the sections the flags name, in flag order. Byte 0 bit 0x08: the Labyrinth node (u32 day seed, u16
 /// LabyrinthSectionLayout row, u8 difficulty, little-endian). Byte 1 bit 0x01: the terrain plugin states - u8 count, then
 /// per plugin u16 LE TerrainPlugins HASH16, u16 LE length and the blob (DeepwaterPlugin 11572: the voyage board;

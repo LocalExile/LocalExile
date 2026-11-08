@@ -503,7 +503,7 @@ public sealed class DoodadStage(TerrainCache files, LevelRandom rng, TileGrid gr
             }
     }
 
-    /// <summary><c>0x141d77c60</c>: the tile is in record <paramref name="index"/> and in no later one.</summary>
+    /// <summary><c>0x141d7b2f0</c>: the tile is in record <paramref name="index"/> and in no later one.</summary>
     static readonly (int X, int Y)? DebugAt = Environment.GetEnvironmentVariable("LEVELGEN_DOODAD_AT") is { Length: > 0 } s
         && s.Split(',') is [var sx, var sy] && int.TryParse(sx, out int dx) && int.TryParse(sy, out int dy) ? (dx, dy) : null;
 

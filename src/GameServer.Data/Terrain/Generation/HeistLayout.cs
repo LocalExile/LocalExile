@@ -1,8 +1,8 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The HeistPlugin's state as the server sends it in 0x1d's TerrainPluginState (parsed by <c>0x1424ba520</c>):
+/// <summary>The HeistPlugin's state as the server sends it in 0x1d's TerrainPluginState (parsed by <c>0x1424c0ff0</c>):
 /// u32 seed, u8 HeistGeneration key, u8 HeistContracts row (above 0xfd = a blueprint), u8 HeistObjectives row (0xff =
-/// none), u8 wing count, then per wing (<c>0x1424bb0e0</c>) u8 b (bit 0 the wing's flag, b &gt;&gt; 1 the job count), the
+/// none), u8 wing count, then per wing (<c>0x1424c1bb0</c>) u8 b (bit 0 the wing's flag, b &gt;&gt; 1 the job count), the
 /// jobs {u8 HeistJobs row, u8}, u8 n NPC rows (0xff = none), u8 m reward types {u8 c: c &gt;&gt; 1 the HeistChestRewardTypes
 /// row, c &amp; 1 kept}; then the per-NPC stat lists and the area's heist stats, which the layout does not read.</summary>
 public sealed class HeistState
@@ -49,10 +49,10 @@ public sealed class HeistWingState
     public bool HasJob(int job) => job >= 0 && Jobs.Any(j => j.Job == job);
 }
 
-/// <summary>The heist generator's own random stream (<c>0x1413cbe50</c>): a TinyMT (the client's step, see
+/// <summary>The heist generator's own random stream (<c>0x1413ce240</c>): a TinyMT (the client's step, see
 /// <see cref="TinyMt"/>) seeded by init_by_array over {seed, wing index} with the client's pre-folded status words and eight
-/// warm-up steps. Draws are <c>0x140484fa0</c>'s bounded draw; <see cref="Raw"/> is one tempered word
-/// (<c>0x140484ed0</c>).</summary>
+/// warm-up steps. Draws are <c>0x140485560</c>'s bounded draw; <see cref="Raw"/> is one tempered word
+/// (<c>0x140485490</c>).</summary>
 sealed class HeistRng
 {
     const uint Mat1 = 0x8f7011ee, Mat2 = 0xfc78ff1f, TMat = 0x3793fdff;
@@ -125,7 +125,7 @@ sealed class HeistRng
         return v % n;
     }
 
-    /// <summary><c>0x1404d03d0</c>(lo, hi): no draw when lo == hi.</summary>
+    /// <summary><c>0x1404d0990</c>(lo, hi): no draw when lo == hi.</summary>
     public int Ranged(int lo, int hi)
     {
         if (lo == hi) return lo;
@@ -144,7 +144,7 @@ sealed class HeistRng
     public int Coin() => (int)(Raw() & 1);
 }
 
-/// <summary><c>0x141a5ef40</c>'s running pick: cnt += weight, r = Draw(cnt) (a raw word when cnt wraps to 0), the
+/// <summary><c>0x141a61950</c>'s running pick: cnt += weight, r = Draw(cnt) (a raw word when cnt wraps to 0), the
 /// candidate is taken when r &lt; weight, so the LAST winner stays.</summary>
 sealed class HeistReservoir<T>(HeistRng rng)
 {
@@ -191,7 +191,7 @@ sealed class HeistTables
         _intros = Load("HeistIntroAreas"); _rewards = Load("HeistChestRewardTypes"); _quests = Load("HeistQuestContracts"); _worldAreas = Load("WorldAreas");
     }
 
-    /// <summary>The HeistAreas row whose WorldAreas list (+8 / +16) holds the area (<c>0x141f3d980</c>'s map at +96), or −1.</summary>
+    /// <summary>The HeistAreas row whose WorldAreas list (+8 / +16) holds the area (<c>0x141f44270</c>'s map at +96), or −1.</summary>
     public int AreaFor(string worldAreaId)
     {
         int wa = _worldAreas.Find(i => _worldAreas.String(i, 0) == worldAreaId);
@@ -202,7 +202,7 @@ sealed class HeistTables
     public (string Id, string WingDgr, int Unit, int Buffer, int Overlap) AreaInfo(int i) =>
         (_areas.String(i, 0), _areas.String(i, 108), _areas.I32(i, 116), _areas.I32(i, 120), _areas.U8(i, 124));
 
-    /// <summary><c>0x1424bbc30</c>: the last HeistGeneration row with +4 == key and +0 &lt;= level (table order).</summary>
+    /// <summary><c>0x1424c2700</c>: the last HeistGeneration row with +4 == key and +0 &lt;= level (table order).</summary>
     public int GenRow(int key, int level)
     {
         int found = -1;
@@ -221,7 +221,7 @@ sealed class HeistTables
     public HeistRoomRow Room(int i) => new(i, _rooms.Ref(i, 0), _rooms.I32(i, 16), _rooms.String(i, 20), _rooms.Ref(i, 28), _rooms.Ref(i, 44),
         _rooms.I32(i, 60), _rooms.I32(i, 64), _rooms.I32(i, 68), _rooms.U8(i, 84), _rooms.U8(i, 85) != 0);
 
-    /// <summary><c>0x141f3a3a0</c>'s walk: ids 0.. of this area until the first id without a row (the map at +32 keyed by
+    /// <summary><c>0x141f40c90</c>'s walk: ids 0.. of this area until the first id without a row (the map at +32 keyed by
     /// (id, area); the first row of an id wins).</summary>
     public List<HeistRoomRow> AreaRooms(int areaRow)
     {
@@ -251,7 +251,7 @@ sealed class HeistTables
     public List<HeistIntroRow> AreaIntros(int areaRow) =>
         Enumerable.Range(0, _intros.Count).Where(i => _intros.Ref(i, 8) == areaRow).Select(Intro).ToList();
 
-    /// <summary>The HeistQuestContracts row of a contract (<c>0x141f3d980</c>'s map at +96), or null.</summary>
+    /// <summary>The HeistQuestContracts row of a contract (<c>0x141f44270</c>'s map at +96), or null.</summary>
     public HeistQuestRow? Quest(int contractRow)
     {
         int i = _quests.Find(r => _quests.Ref(r, 0) == contractRow);
@@ -298,7 +298,7 @@ public sealed class HeistIntroEntry
 
 sealed class HeistException(string message) : InvalidOperationException(message);
 
-/// <summary><c>0x141f37150</c> for one wing, every step in client order: the entrance (a type-0 room, RandomElement), the
+/// <summary><c>0x141f3da40</c> for one wing, every step in client order: the entrance (a type-0 room, RandomElement), the
 /// goal (type 1, a reservoir), the main path of ranged(gen+8) rooms grown from the last room's free ring cells (the
 /// reservoir over the ring, then a size-map entry and a room of it, placed over the chosen cell), a NormalDoor between
 /// each pair, the hazard rooms (type 2 with a job) swapped into path slots of the same area, the hazard door types, the
@@ -316,7 +316,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
     HeistRoomRow _entrance = null!, _goal = null!;
     int _entranceRot, _pathLen, _retries, _inward, _outward, _inward0, _outward0;
 
-    // 0x141f3a3a0: the room lists.
+    // 0x141f40c90: the room lists.
     (SortedDictionary<long, List<HeistRoomRow>> SizeMap, List<HeistRoomRow>[] Lists) RoomLists(int inward, int outward)
     {
         var sizeMap = new SortedDictionary<long, List<HeistRoomRow>>();
@@ -344,7 +344,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         }
     }
 
-    // 0x141f3a7a0: the door types.
+    // 0x141f41090: the door types.
     List<HeistDoorRow> DoorList(int v368, int v369)
     {
         var result = new List<HeistDoorRow>();
@@ -361,7 +361,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         return result;
     }
 
-    // 0x141f3aec0: place a room (decrement the hazard counts, append, mark the cells).
+    // 0x141f417b0: place a room (decrement the hazard counts, append, mark the cells).
     int Place(int x, int y, HeistRoomRow room, bool rot, int kind)
     {
         var (w, h) = rot ? (room.H, room.W) : (room.W, room.H);
@@ -382,7 +382,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         return idx;
     }
 
-    /// <summary><c>0x141f3ac00</c> / <c>0x141f3ad60</c>: the rooms with that hazard leave the lists (the key keeps list 2 only).</summary>
+    /// <summary><c>0x141f414f0</c> / <c>0x141f41650</c>: the rooms with that hazard leave the lists (the key keeps list 2 only).</summary>
     void DropHazardRooms(bool inward)
     {
         bool Keep(HeistRoomRow r) => inward ? r.JobIn < 0 : r.JobOut < 0;
@@ -390,7 +390,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         else for (int k = 0; k < 6; k++) _lists[k] = _lists[k].Where(Keep).ToList();
     }
 
-    // 0x141f3ab00: a w × h rect of free cells.
+    // 0x141f413f0: a w × h rect of free cells.
     bool Free(int x, int y, int w, int h)
     {
         for (int j = 0; j < h; j++)
@@ -399,7 +399,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         return true;
     }
 
-    // 0x141f3b2a0: place a room so that it covers the chosen cell.
+    // 0x141f41b90: place a room so that it covers the chosen cell.
     bool PlaceNear((int X, int Y) cell, HeistRoomRow room, int kind)
     {
         var (cx, cy) = cell;
@@ -420,7 +420,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         return true;
     }
 
-    // 0x141f52990: the free ring cells around a room.
+    // 0x141f59280: the free ring cells around a room.
     HeistReservoir<(int, int)> RingCandidates((int X1, int Y1, int X2, int Y2) rect, bool avoidDoor)
     {
         var (x1, y1, x2, y2) = rect;
@@ -439,7 +439,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         return res;
     }
 
-    // 0x141f501a0: the free ring cells around a path room (the side-room scan).
+    // 0x141f56a90: the free ring cells around a path room (the side-room scan).
     void SideRing((int X1, int Y1, int X2, int Y2) rect, HeistReservoir<(int Slot, (int X, int Y) Cell)> res, int slot)
     {
         var (x1, y1, x2, y2) = rect;
@@ -451,7 +451,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
 
     static readonly (int X, int Y)[] Around = [(0, -1), (1, 0), (0, 1), (-1, 0)];
 
-    // 0x141f3bb80 / 0x141f3c460: a door at a neighbour cell inside a room.
+    // 0x141f42470 / 0x141f42d50: a door at a neighbour cell inside a room.
     bool DoorFrom((int X, int Y) cell, (int X1, int Y1, int X2, int Y2) prev, HeistDoorRow type, int kind)
     {
         bool made = false;
@@ -485,7 +485,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         return made;
     }
 
-    // 0x141f3b6f0: the goal room.
+    // 0x141f41fe0: the goal room.
     HeistRoomRow? PickGoal(int flag)
     {
         var plain = new HeistReservoir<HeistRoomRow>(rng);
@@ -507,7 +507,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         return hazard.Count != 0 ? hazard.Value : plain.Value;
     }
 
-    // 0x141f3b960: the main-path reset.
+    // 0x141f42250: the main-path reset.
     void ResetPath()
     {
         if (++_retries >= 100) throw new HeistException("Failed to generate MainPath");
@@ -520,7 +520,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         Place(0, 0, _entrance, _entranceRot != 0, 1);
     }
 
-    // 0x141f3be30: swap a hazard room into a path slot of the same area.
+    // 0x141f42720: swap a hazard room into a path slot of the same area.
     bool HazardPass(bool wantIn, bool wantOut)
     {
         var res = new HeistReservoir<(HeistRoomRow Room, int Slot)>(rng);
@@ -546,7 +546,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         return res.Count != 0;
     }
 
-    // 0x141f3bcc0: a door type onto a plain wing door (the reservoir runs across door types).
+    // 0x141f425b0: a door type onto a plain wing door (the reservoir runs across door types).
     void DoorSlots(HeistDoorRow type, HeistReservoir<(HeistDoorRow Type, int K)> res)
     {
         for (int k = 0; k < _wing.Doors.Count; k++)
@@ -556,7 +556,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         }
     }
 
-    // 0x141f3c640: the door type of a side room.
+    // 0x141f42f30: the door type of a side room.
     HeistDoorRow SideDoorType()
     {
         int chance = t.GenU32(gen, 40);
@@ -570,7 +570,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         return _normalDoor;
     }
 
-    // 0x141f3c7d0: a reward type for a random reward room.
+    // 0x141f430c0: a reward type for a random reward room.
     HeistRewardRow? PickRewardType()
     {
         var res = new HeistReservoir<HeistRewardRow>(rng);
@@ -585,7 +585,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         return res.Value;
     }
 
-    // 0x141f3c0e0: a side room beside a path room.
+    // 0x141f429d0: a side room beside a path room.
     bool AddSideRoom(HeistRoomRow room, HeistDoorRow type, (int Reward, int Kept)? reward, int kind)
     {
         var res = new HeistReservoir<(int Slot, (int X, int Y) Cell)>(rng);
@@ -755,7 +755,7 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
         return _wing;
     }
 
-    /// <summary><c>0x141f37150</c>'s last phase: every wing job must be used by a room or a door.</summary>
+    /// <summary><c>0x141f3da40</c>'s last phase: every wing job must be used by a room or a door.</summary>
     void EnforceJobs()
     {
         var rooms = _wing.Rooms;
@@ -860,13 +860,13 @@ sealed class HeistWingBuilder(HeistTables t, int area, HeistWingState ws, int ke
     }
 }
 
-/// <summary>The heist contract level the HeistPlugin builds from the server's state (<c>0x141f3d980</c>): the intro
-/// pick (<c>0x141f3e350</c>, a weighted reservoir over the area's HeistIntroAreas rows with that wing count), each wing
-/// (<see cref="HeistWingBuilder"/>), the prune (<c>0x141f3d500</c>) and the packing (<c>0x141f3cc20</c>: wings then intros, each
+/// <summary>The heist contract level the HeistPlugin builds from the server's state (<c>0x141f44270</c>): the intro
+/// pick (<c>0x141f44c40</c>, a weighted reservoir over the area's HeistIntroAreas rows with that wing count), each wing
+/// (<see cref="HeistWingBuilder"/>), the prune (<c>0x141f43df0</c>) and the packing (<c>0x141f43510</c>: wings then intros, each
 /// at the right-of / below corner of a placed rect that keeps the bounding box smallest, then a mirror so the first
 /// intro sits top-left). The intro and the wings become "graph" nodes on the area's empty main graph
-/// (<c>0x141f3eea0</c>), whose size is the packed size; a wing's record is sized by its room bounding box
-/// (<c>0x141f405f0</c>). Verified on the server corpus's 12 contracts.</summary>
+/// (<c>0x141f45790</c>), whose size is the packed size; a wing's record is sized by its room bounding box
+/// (<c>0x141f46ee0</c>). Verified on the server corpus's 12 contracts.</summary>
 public sealed class HeistLevel
 {
     internal readonly HeistTables Tables;
@@ -903,7 +903,7 @@ public sealed class HeistLevel
         return lv;
     }
 
-    // 0x141f3e350.
+    // 0x141f44c40.
     void PickIntro(int wings, int wingIdx, int kept, List<string> notes)
     {
         var rng = new HeistRng(State.Seed, (uint)wingIdx);
@@ -952,7 +952,7 @@ public sealed class HeistLevel
         Pack();
     }
 
-    // 0x141f3d500.
+    // 0x141f43df0.
     void Prune()
     {
         foreach (var w in Wings)
@@ -995,7 +995,7 @@ public sealed class HeistLevel
         return ((a + u - 1) / u, (b + u - 1) / u);
     }
 
-    // 0x141f3cc20 / 0x141f3d220 / 0x141f3d130.
+    // 0x141f43510 / 0x141f43b10 / 0x141f43a20.
     void Pack()
     {
         var placed = new List<(int X1, int Y1, int X2, int Y2)>();
@@ -1065,7 +1065,7 @@ public sealed class HeistLevel
         }
     }
 
-    /// <summary><c>0x141f3eea0</c>'s graph nodes for the main graph: (path, x, y, w, h) in area units, intros then wings,
+    /// <summary><c>0x141f45790</c>'s graph nodes for the main graph: (path, x, y, w, h) in area units, intros then wings,
     /// each tied to its intro entry or wing layout.</summary>
     public IEnumerable<(string Path, int X, int Y, int W, int H, object Part)> GraphNodes()
     {
@@ -1081,7 +1081,7 @@ public sealed class HeistLevel
         }
     }
 
-    /// <summary>Rebuilds the main graph as <c>0x141f3eea0</c> does: the packed size, one "graph" node per intro and wing at the
+    /// <summary>Rebuilds the main graph as <c>0x141f45790</c> does: the packed size, one "graph" node per intro and wing at the
     /// unit centre with [path, w, h].</summary>
     public void MainGraph(TileGraph graph)
     {
@@ -1092,7 +1092,7 @@ public sealed class HeistLevel
             graph.Nodes.Add(new GraphNode { X = 23 * x + 11, Y = 23 * y + 11, Tag = "graph", Orientation = 0, Descriptions = [path, w.ToString(), h.ToString()], Plugin = part });
     }
 
-    /// <summary><c>0x141f21b50</c>: 1 east (dx &gt; |dy|), 3 west (−dx &gt; |dy|), 2 south (dy &gt; 0), 0 north, 4 the same point.</summary>
+    /// <summary><c>0x141f28440</c>: 1 east (dx &gt; |dy|), 3 west (−dx &gt; |dy|), 2 south (dy &gt; 0), 0 north, 4 the same point.</summary>
     static int DirectionCode(int dx, int dy)
     {
         if (dx > 0) return dx > Math.Abs(dy) ? 1 : dy > 0 ? 2 : 0;
@@ -1100,7 +1100,7 @@ public sealed class HeistLevel
         return dy > 0 ? 2 : dy == 0 ? 4 : 0;
     }
 
-    /// <summary><c>0x141f3f650</c> on an intro graph before its layout: the main intro (index 0) strips "telepad" / "teleport"
+    /// <summary><c>0x141f45f40</c> on an intro graph before its layout: the main intro (index 0) strips "telepad" / "teleport"
     /// from the "entrance" node's descriptions and gives it "default", then STABLE-PARTITIONS the node list so the nodes
     /// east or south of the entrance come first; an escape intro (index &gt; 0) strips "default" from every node. Then every
     /// tagged node whose tag is the HeistAreas id (the wing exits) loses "telepad" / "teleport" and gains "telepad{n}" /

@@ -1,9 +1,9 @@
 namespace GameServer.Data.Terrain.Generation;
 
 /// <summary>The BaseEvents flags of an object type (.ot) that decide who creates a level's object line
-/// (<c>0x142041960</c>): the client makes a line's object itself when its type is <c>no_serialise</c> or <c>client_only</c>
+/// (<c>0x1420481b0</c>): the client makes a line's object itself when its type is <c>no_serialise</c> or <c>client_only</c>
 /// and not <c>server_only</c>; every other line is the server's, created by it and (unless <c>no_serialise</c>) sent in a
-/// 0x2b9 spawn. A type that is <c>server_only</c> and <c>no_serialise</c> exists inside the server alone (spawners,
+/// 0x2bb spawn. A type that is <c>server_only</c> and <c>no_serialise</c> exists inside the server alone (spawners,
 /// ambush and teleport markers, the town portal). A type with no .ot file counts as the server's.</summary>
 public sealed record ObjectTypeFlags(bool Found, bool NoSerialise, bool ClientOnly, bool ServerOnly)
 {

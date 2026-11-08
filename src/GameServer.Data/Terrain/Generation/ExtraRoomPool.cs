@@ -90,7 +90,7 @@ sealed class ExtraRoomPool
     readonly List<string> _tiles = [];
     TileStore? _store;
 
-    /// <summary>The pool's own tile store (+0x90, <c>0x141d8d1a0</c>): the rows' tiles filed as a TileSet's are, a .tst
+    /// <summary>The pool's own tile store (+0x90, <c>0x141d90830</c>): the rows' tiles filed as a TileSet's are, a .tst
     /// by its list, a .tdt at weight 1 in every orientation (the Betrayal forts' towers, the Ultimatum altar).</summary>
     public TileStore Store(TerrainCache files)
     {
@@ -104,7 +104,7 @@ sealed class ExtraRoomPool
         return _store = new TileStore(files, entries);
     }
 
-    /// <summary><c>0x141d8bba0</c>: the subgraph's share of the rows by its weight (its master's +0x152): all of them
+    /// <summary><c>0x141d8f230</c>: the subgraph's share of the rows by its weight (its master's +0x152): all of them
     /// when no weight is left to share by; else rows × weight / left, plus one when <c>Next(left)</c> falls below the
     /// remainder; the weight is then taken from what is left.</summary>
     public void Spread(int weight, LevelRandom rng)

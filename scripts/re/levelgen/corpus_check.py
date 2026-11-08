@@ -52,15 +52,15 @@ def run_one(path):
     if m:
         row['first_diff'] = f'#{m.group(1)} client {m.group(2)}{m.group(4).strip()}'
         row['caller'] = m.group(3)
-        # The doodad stage's draws (0x1420425d0 and its helpers) follow the port's last generation draw: a first
+        # The doodad stage's draws (0x142048e20 and its helpers) follow the port's last generation draw: a first
         # difference there with no port draw left means every generation draw matched.
-        if m.group(3) in ('0x142042fae', '0x142042fbc') and 'port made no more draws' in m.group(4):
+        if m.group(3) in ('0x1420497fe', '0x14204980c') and 'port made no more draws' in m.group(4):
             row['caller'] = '(generation draws all matched; doodad stage next)'
-        # After the doodad stage the client runs its own stages (0x14152e730 / 0x1415307bb / 0x141530658 the mesh
-        # variation and object placement, 0x141544f0c / 0x141544f16 the ground clutter, 0x14154526b the critters: no
+        # After the doodad stage the client runs its own stages (0x141530a50 / 0x141532adb / 0x141532978 the mesh
+        # variation and object placement, 0x14154722c / 0x141547236 the ground clutter, 0x14154758b the critters: no
         # tiles, no doodads, not ported): a first difference there with no port draw left means the doodad draws all
         # matched too.
-        elif 0x14152e000 <= int(m.group(3), 16) < 0x141546000 and 'port made no more draws' in m.group(4):
+        elif 0x141530320 <= int(m.group(3), 16) < 0x141548320 and 'port made no more draws' in m.group(4):
             row['caller'] = '(generation and doodad draws all matched; the client-only stages next)'
     elif row['draws'] and ' every draw the port made before stopping matches' in out:
         row['caller'] = '(stopped, every draw matched)'

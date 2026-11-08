@@ -15,7 +15,7 @@ public sealed record PlacedArmRoom(string Path, int X, int Y, int Width, int Hei
 public sealed record PlacedLink(int From, int To, string Name);
 
 /// <summary>An object of a generated level the server creates (<see cref="AreaObjects.ServerObjects"/>): the object, the
-/// file that placed it (a tile's .tdt or a room's .arm) and whether the server sends it in a 0x2b9 spawn (false: a
+/// file that placed it (a tile's .tdt or a room's .arm) and whether the server sends it in a 0x2bb spawn (false: a
 /// server-internal spawner or marker, <see cref="ObjectTypeFlags.ServerSends"/>).</summary>
 public sealed record PlacedServerObject(PlacedTileObject Object, string Source, bool Sent);
 

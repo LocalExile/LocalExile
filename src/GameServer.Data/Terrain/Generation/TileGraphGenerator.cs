@@ -126,7 +126,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         string graphPath, int orientation, TileGrid? shared, int x, int y, bool primary)
     {
         Graph = TileGraph.Parse(files.Text(graphPath) ?? throw new FileNotFoundException(graphPath));
-        // The AzmeriPlugin's graph hook (0x141f29070): the woods' clearing nodes take the blob's rooms.
+        // The AzmeriPlugin's graph hook (0x141f2f960): the woods' clearing nodes take the blob's rooms.
         if (Azmeri is { } woods && AzmeriWoods.IsWoodsGraph(graphPath)) woods.Apply(Graph, files, notes);
         if (orientation != 0) throw new NotSupportedException($"turning a tile graph (orientation {orientation}) is not ported");
         SideAreaKept = Prepare(Graph, rng, vaalSideArea, Hideout, primary, Pool ?? PreparePool, Labyrinth);
@@ -454,7 +454,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         // it here for good; a dungeon record adds it for its own block (DungeonTiler.Layout, vaalRow false) and takes it
         // back when the block did not place it.
         if (sideArea is null && vaalSideArea && vaalRow) (pool ?? throw new InvalidOperationException("no extra room pool")).Add("VaalSideArea", 1);
-        // 0x142032760 / 0x142033e30: the Labyrinth's pass (secret nodes, the gold door, boss overrides).
+        // 0x142038fb0 / 0x14203a680: the Labyrinth's pass (secret nodes, the gold door, boss overrides).
         labyrinth?.Run(graph, rng);
         // 0x14203bba0 / 0x14203b6b0, for the first record only: a node with "subarea=hideout…" or
         // "subareatype=Hideout…" is dropped (exist 0, no descriptions) when no discoverable hideout rolled; with one,
@@ -467,8 +467,8 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
                     n.Exist = 0;
                     n.Descriptions.Clear();
                 }
-        // 0x141f29730, the Betrayal plugin's target rooms, ran before this pass (SafehouseRooms, from DungeonTiler.Layout).
-        // 0x142031390: exist rolls, nodes then edges; failed edges go first, then failed nodes.
+        // 0x141f30020, the Betrayal plugin's target rooms, ran before this pass (SafehouseRooms, from DungeonTiler.Layout).
+        // 0x142037be0: exist rolls, nodes then edges; failed edges go first, then failed nodes.
         var nodesOut = new List<GraphNode>();
         foreach (var n in graph.Nodes)
         {

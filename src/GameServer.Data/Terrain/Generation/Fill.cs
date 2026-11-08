@@ -9,7 +9,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
     /// <summary>A fill choice: a tile or a room, its orientation (8 = any) and weight (0x18 / 0x20-byte entries).</summary>
     sealed record Choice(TileDef? Tile, RoomDef? Room, int Orientation, int Weight);
 
-    /// <summary>The map rectangle of <c>0x141d84ed0</c>'s test (the map view's +0x80): for a dungeon record the record's
+    /// <summary>The map rectangle of <c>0x141d88560</c>'s test (the map view's +0x80): for a dungeon record the record's
     /// rectangle, buffer strips included, not the level's (the server corpus: the Sarn Ramparts 1906049691, two stacked
     /// 96 × 96 records with no buffer, refused a 3 × 3 ledge at (69, 94) reaching into the second and drew the retry).
     /// Absolute map coordinates; null = the map itself.</summary>
@@ -328,7 +328,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
                     }
                 }
                 var list = store.Candidates(slot.Tag, key.Rotate(o));
-                // 0x141fe89e0: no tile in the tile set; a "missiontile" slot takes a mission tile (not ported), any
+                // 0x141fef200: no tile in the tile set; a "missiontile" slot takes a mission tile (not ported), any
                 // other the second store (param_1[2] + 0x90: the extra room pool's tiles, the rows' own .tdt / .tst:
                 // the Betrayal forts' towers, the Ultimatum altar), and a tagged slot with neither fails
                 // (BetrayalMastermindFight seed 1's churchruin_4 'round west').

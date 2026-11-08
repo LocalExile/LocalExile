@@ -441,7 +441,7 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         }
         foreach (var row in used) pool.Remove(row, true);
         if (waiting.Count == 0 || share == 0) return;
-        if (share < waiting.Count) throw new NotSupportedException("more extra feature rooms than the share (0x14212dec0's shuffle) is not ported");
+        if (share < waiting.Count) throw new NotSupportedException("more extra feature rooms than the share (0x1421347c0's shuffle) is not ported");
 
         var saved = Save();
         int left = waiting.Count;

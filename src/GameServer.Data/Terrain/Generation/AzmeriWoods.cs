@@ -2,9 +2,9 @@ namespace GameServer.Data.Terrain.Generation;
 
 /// <summary>The AzmeriPlugin's part in the generation (the Viridian Wildwood beside a map with Affliction content).
 /// The plugin queues the woods' world area (AzmeriLeagueArea: <c>woods_0N.tgr</c>, 48 × 48 plus its buffer, a primary
-/// record packed beside the root like the Harvest garden; <c>0x141f28c40</c>) and, when that graph is read, its hook
-/// (<c>0x141f29070</c>, for a record whose area kind +0x1e4 is 47) retypes the graph's "clearing" nodes from the area
-/// load's blob (<c>0x141f293e0</c>: 4 × u8 AzmeriFeatureRooms row, then a flag byte, IntroTunnel): the clearing nodes
+/// record packed beside the root like the Harvest garden; <c>0x141f2f530</c>) and, when that graph is read, its hook
+/// (<c>0x141f2f960</c>, for a record whose area kind +0x1e4 is 47) retypes the graph's "clearing" nodes from the area
+/// load's blob (<c>0x141f2fcd0</c>: 4 × u8 AzmeriFeatureRooms row, then a flag byte, IntroTunnel): the clearing nodes
 /// are collected in node order and slot k retypes the one taken FROM THE END (slot 0 = the last) to the row's room
 /// (+8, its .arm tag) and appends "accessible" and the row's +0x10 tokens to the node's descriptions; the loop stops
 /// when the clearings run out. The corpus's sim matched all six woods loads with this rule.</summary>
