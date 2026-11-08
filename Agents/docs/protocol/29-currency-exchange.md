@@ -61,4 +61,5 @@ highest ratios swing widely in one hour (Standard, one hour: 555 to 738 chaos a 
 contradict each other (8 of 133 loops chaos → divine → X → chaos paid over 20% in one hour), so everything is priced in chaos and a trade goes at the two items'
 values less the spread, which leaves no loop to profit from.
 
-Nothing in the Gateway contacts GGG: `src/GameServer.Rates` runs elsewhere, and a mod names it with `UseExchangeRates`.
+Nothing in the Gateway contacts GGG: `src/GameServer.Rates` runs elsewhere, and a mod names it with `UseExchangeRates`, with the official league to trade at:
+Standard or the current challenge league, the one with the most priced items among the others. Hardcore leagues have too few markets to price on their own.

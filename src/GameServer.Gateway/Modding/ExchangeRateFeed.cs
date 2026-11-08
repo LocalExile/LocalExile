@@ -16,14 +16,26 @@ static class ExchangeRateFeed
         public void Dispose() => Interlocked.Exchange(ref _undo, null)?.Invoke();
     }
 
-    public static IDisposable Use(string url)
+    static readonly List<object> Asked = [];
+
+    /// <summary>The official league whose prices the mod chose; the last one asked wins, so a reloading mod's new choice stands. With none,
+    /// the current challenge league's.</summary>
+    public static GameServer.Modding.ExchangeRatesLeague League
+    {
+        get { lock (Asked) return Asked.Count == 0 ? default : (GameServer.Modding.ExchangeRatesLeague)Asked[^1]; }
+    }
+
+    public static IDisposable Use(string url, GameServer.Modding.ExchangeRatesLeague league)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var address) || address.Scheme is not ("http" or "https"))
             throw new ArgumentException($"not an http address: {url}");
+        object ask = league;
+        lock (Asked) Asked.Add(ask);
         var stop = new CancellationTokenSource();
         _ = KeepUpdated(address, stop.Token);
         return new Undo(() =>
         {
+            lock (Asked) Asked.RemoveAll(a => ReferenceEquals(a, ask));
             stop.Cancel();
             stop.Dispose();
         });

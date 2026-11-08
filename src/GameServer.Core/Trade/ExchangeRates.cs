@@ -26,9 +26,8 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
 
     public static ExchangeRates? Parse(string json) => JsonSerializer.Deserialize<ExchangeRates>(json, Options);
 
-    /// <summary>The league whose prices a league of this server trades at: Standard at Standard's, every other at the current challenge league's.</summary>
-    public Dictionary<string, ExchangePrice>? PricesFor(string league, string? choice = null) =>
-        Leagues.GetValueOrDefault(string.IsNullOrEmpty(choice) ? league == Standard ? Standard : Current : choice);
+    /// <summary>The prices every league of this server trades at: official Standard's, or the current challenge league's.</summary>
+    public Dictionary<string, ExchangePrice>? Prices(bool standard) => Leagues.GetValueOrDefault(standard ? Standard : Current);
 
     /// <summary>Prices from GGG's digests (<c>/api/currency-exchange/&lt;hour&gt;</c>): each pair's chaos traded over the items traded, over all the
     /// digests, so one outlier trade moves little. An item with no chaos pair is priced through its divine pair.</summary>

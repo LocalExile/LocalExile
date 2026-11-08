@@ -14,14 +14,14 @@ public sealed class CurrencyExchangeModule : IModule
     const string SaveKey = "currency-exchange", Window = "currency-exchange", RatesFile = ExchangeRateFeed.File;
     const double SettleEverySeconds = 30;
 
-    sealed record Choices(double Spread, int OrderSlots, double MaxRateAgeDays, string RatesLeague);
+    sealed record Choices(double Spread, int OrderSlots, double MaxRateAgeDays);
     sealed class Timer { public double Seconds; }
 
     readonly ConditionalWeakTable<IPlayer, Timer> _timers = new();
     readonly object _ratesLock = new();
     ExchangeRates? _rates;
     DateTime _ratesWritten;
-    Choices _choices = new(0.03, 10, 7, "");
+    Choices _choices = new(0.03, 10, 7);
     IModuleContext _module = null!;
 
     /// <inheritdoc/>
@@ -88,7 +88,7 @@ public sealed class CurrencyExchangeModule : IModule
     {
         if (Rates() is not { } rates) return null;
         if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - rates.SourceHour > _choices.MaxRateAgeDays * 86400) return null;
-        return rates.PricesFor(player.League, _choices.RatesLeague) is { } prices ? new(prices, ItemsOf(player), _choices.Spread) : null;
+        return rates.Prices(ExchangeRateFeed.League == ExchangeRatesLeague.Standard) is { } prices ? new(prices, ItemsOf(player), _choices.Spread) : null;
     }
 
     SavedBook BookOf(IPlayer player) => SavedBook.Parse(_module.World(player).AccountData.Get(SaveKey));

@@ -63,8 +63,8 @@ public interface IModContext
     IDisposable UseChatServer(string host, int port);
 
     /// <summary>The Gateway keeps the Currency Exchange's rates up to date from this rates service until the handle is disposed or the mod
-    /// unloads; the mod itself contacts nothing.</summary>
-    IDisposable UseExchangeRates(string url);
+    /// unloads, and every league trades at this official league's prices; the mod itself contacts nothing.</summary>
+    IDisposable UseExchangeRates(string url, ExchangeRatesLeague league);
 
     /// <summary>The settings its <c>settings.json</c> declares, with the user's values (<c>data/mods/&lt;id&gt;.json</c>, for a
     /// module <c>data/modules/&lt;id&gt;.json</c>) over the defaults, read into <typeparamref name="T"/> by name (case does not
@@ -77,6 +77,15 @@ public interface IModContext
     /// left out; the write reloads the mod. Throws <see cref="ArgumentException"/>, writing nothing, when one does not fit
     /// its declaration.</summary>
     void SaveSettings<T>(T settings);
+}
+
+/// <summary>The official league whose Currency Exchange prices are traded at.</summary>
+public enum ExchangeRatesLeague
+{
+    /// <summary>The current challenge league.</summary>
+    Current,
+    /// <summary>Standard.</summary>
+    Standard,
 }
 
 /// <summary>What a module (or a league's own code) can do: everything a mod can, and overhauls. It runs only for the players of

@@ -70,7 +70,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Faustus's Currency Exchange at official prices: the module, window protocol and rates service are written; not yet played with the client.
+- Faustus's Currency Exchange at official prices works through `/exchange` (orders, claims, cancelling; live 2026-11-08).
+  His dialogue option is untested, as Kingsmarch is not built, and the rates service is not deployed yet.
   See [29](../docs/protocol/29-currency-exchange.md).
 - Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.
   Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.

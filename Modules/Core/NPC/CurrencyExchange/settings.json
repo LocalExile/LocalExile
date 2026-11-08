@@ -12,10 +12,6 @@
     "maxRateAgeDays": {
       "type": "number", "default": 7, "min": 1, "max": 365, "unit": "days",
       "label": "Oldest rates", "description": "Rates older than this are not traded at: the market shows no stock until new ones arrive."
-    },
-    "ratesLeague": {
-      "type": "text", "default": "", "maxLength": 64,
-      "label": "Prices of league", "description": "An official league's prices for every league here. Empty: Standard at Standard's, the rest at the current challenge league's."
     }
   }
 }

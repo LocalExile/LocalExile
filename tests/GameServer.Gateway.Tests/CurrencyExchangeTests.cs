@@ -47,12 +47,12 @@ public sealed class CurrencyExchangeTests
         Assert.Equal(7200, rates.SourceHour);
         Assert.Equal("Allflame", rates.Current);
         Assert.DoesNotContain("Private (PL1)", rates.Leagues.Keys);
-        var prices = rates.PricesFor("Hardcore Allflame")!;
+        var prices = rates.Prices(standard: false)!;
         Assert.Equal(450, prices[ExchangeRates.Divine].Chaos); // the volumes of both hours, not one trade's price
         Assert.Equal(0.5, prices[X].Chaos);
         Assert.Equal(450.0 / 200, prices[ViaDivine].Chaos);
         Assert.False(prices.ContainsKey(Thin));
-        Assert.Equal(3, rates.PricesFor(ExchangeRates.Standard)![X].Chaos);
+        Assert.Equal(3, rates.Prices(standard: true)![X].Chaos);
 
         foreach (double rate in new[] { 471.37, 1.5, 1, 0.73, 1.0 / 471.37, 64999.5 })
         {
