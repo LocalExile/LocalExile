@@ -2,7 +2,7 @@
 
 Faustus's option (`NPCTalk` `SendOpenScreen( CurrencyExchangeWindow ); FinishNPCChat()`) opens the window with S→C 0x7b **kind 0x5e**: the
 value after the name in the screen table at `0x142fd80f0` (24-byte rows: name, 0x16, kind), not the row's index. The window is built by
-`0x140b87d10`; `0x140b8ef60` hooks it to the session's lists.
+`0x140b87d10`; `0x140b8ef60` hooks it to the session's lists. Ctrl + click on him is C→S 0x24 with flag 0x0004 (live 2026-11-08: flags 0x040c), and the server opens it at once.
 
 The window asks for everything it shows. No market lives in the client: it computes only the order's gold from 0x2f7.
 
