@@ -1237,8 +1237,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   disconnect.
   Each spread plays the cast circle at the corpse, scaled to the spread radius: MiscAnimated `ContagionCast`, or the
   caster's worn Contagion skin's (Arcane, Celestial, Sunprism, Scientist, Project; matched by MtxTypes Id because no art
-  variation table covers Contagion; `ContagionSkinAo`). Arcane was seen on every spread live on 3.29.3b; to recheck on
-  3.29.3c.
+  variation table covers Contagion; `ContagionSkinAo`). Rechecked live on 3.29.3c (2026-11-08, with the lethal-tick and
+  recast fixes): 33 spreads, 7 kills by Contagion's own damage, the Arcane skin's circle on every spread, no disconnect.
   Not yet: the `contagion` debuff (BuffDefinitions 504) is not sent: the client closed the connection about 3 s after it,
   with or without the source skill id (`ContagionBuffShown` is false); Contagion of Transference (spread on hit); the
   character panel's DoT row; Malevolence's conditional DoT multiplier.
