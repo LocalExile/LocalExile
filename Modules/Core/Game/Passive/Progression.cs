@@ -548,6 +548,7 @@ static partial class Game
                 return new ItemModStats.Worn(x.i.Id, x.i.Item, Req(str), Req(dex), Req(intel),
                     ItemModStats.LevelRequirement(x.i.Item, t.DropLevel, ItemsFor(conn).Mods));
             })
+            .Select(w => ItemModStats.ApplyBaseRequirementOverrides(w, ItemsFor(conn).Mods))
             .Select(WithGems).ToList();
         // Requirements compare virtual_*_for_requirements, as the client and GemRequirementsUnmet do: the attribute unless
         // /set_stat replaced it. The mod catalog lets the resolver see the hidden modifier that waives requirements.

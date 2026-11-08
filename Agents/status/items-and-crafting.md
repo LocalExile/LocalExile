@@ -290,6 +290,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   1,299 generated from Path of Building with their current base, implicits and rolls (`scripts/re/unique_items.py`),
   compared with poedb's item cards, with the differences that remain on the roadmap. Divine and Blessed Orbs reroll
   within a unique's own rolls, and an admin's `/game_data mod` range wins over them.
+  Ordinary uniques get default sockets; Tabula gets six linked whites and hidden overrides (tests; live check pending).
+  Skin of the Loyal gets its six linked random-colour sockets, and the 3.29 hidden no-white-socket property is on it and
+  Dialla's Malefaction (automated; live check pending).
+  Fixed "Has X Sockets" counts (Loreweave, Voidfletcher, The Squire, crests and hats) and Malachai's all-white Unset Ring
+  socket are generated from those rows too; link groups there use the Jeweller's approximation (automated).
   Every definition but the five tinctures creates, writes and reloads by test (the server cannot write the Tincture
   component). Seen in the client 2026-10-30, with their name, art, base, mods and item level: Tulfall, Shimmeron,
   Replica Atziri's Foible, Kalandra's Touch, Emperor's Vigilance, The Broken Elegy, Gorgon's Gaze, Grand Spectrum and
