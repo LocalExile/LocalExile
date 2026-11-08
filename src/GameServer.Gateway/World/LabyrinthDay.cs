@@ -247,6 +247,61 @@ static class LabyrinthDay
         }
     }
 
+    /// <summary>The seed of a UTC day: its number since 1970, as the official server's.</summary>
+    public static uint SeedOf(DateOnly day) => (uint)(day.DayNumber - DateOnly.FromDateTime(DateTime.UnixEpoch).DayNumber);
+
+    /// <summary>
+    /// The day's four Labyrinths as JSON lines for outside tools (`GameServer.Gateway labyrinth [yyyy-mm-dd | seed]`, a
+    /// map like the in-game one): a "day" line (seed, and the date when the seed is a day's), then per tier a "tier" line
+    /// (its Labyrinths name) and one "room" line per node: its index, area id and name, slot (section 0-2) and place, map
+    /// position (LabyrinthSectionLayout +0x54 / +0x58: x 0-3, y 0-2 within the slot), connections (-1: the way out, the
+    /// plaza before the first room, Izaro after the last), its secrets (LabyrinthSecrets Id and Name with the number a
+    /// key shares with its door) and, on a slot's last room, Izaro (slot + 1).
+    /// </summary>
+    public static IEnumerable<System.Text.Json.Nodes.JsonObject> Listing(uint seed, bool dated)
+    {
+        static byte[]? Read(string path) => GamePack.Default.TryRead(path);
+        RawDat Table(string name) => new(Read($"Data/{name}.datc64") ?? throw new FileNotFoundException($"Data/{name}.datc64"));
+        var labyrinths = Table("Labyrinths");
+        var layouts = Table("LabyrinthSectionLayout");
+        var secrets = Table("LabyrinthSecrets");
+        var worldAreas = Table("WorldAreas");
+        var areaNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (int r = 0; r < worldAreas.Count; r++) areaNames.TryAdd(worldAreas.String(r, 0), worldAreas.String(r, 8));
+        float F32(int row, int at) => BitConverter.Int32BitsToSingle(layouts.I32(row, at));
+        System.Text.Json.Nodes.JsonObject Secret(int row, int number) => new()
+        {
+            ["id"] = secrets.String(row, 0), ["name"] = secrets.String(row, 0x75), ["number"] = number,
+        };
+
+        var head = new System.Text.Json.Nodes.JsonObject { ["type"] = "day", ["seed"] = seed };
+        if (dated) head["date"] = DateOnly.FromDateTime(DateTime.UnixEpoch).AddDays((int)seed).ToString("yyyy-MM-dd");
+        yield return head;
+        for (int r = 0; r < labyrinths.Count; r++)
+        {
+            int tier = labyrinths.I32(r, 0);
+            var day = For(seed, tier);
+            yield return new() { ["type"] = "tier", ["tier"] = tier, ["name"] = labyrinths.String(r, 4) };
+            var sections = day.Layout.Sections.ToList();
+            for (int i = 0; i < day.Layout.Nodes.Count; i++)
+            {
+                var n = day.Layout.Nodes[i];
+                var found = new System.Text.Json.Nodes.JsonArray();
+                if (n.Secret1 >= 0) found.Add(Secret(n.Secret1, n.Number1));
+                if (n.Secret2 >= 0) found.Add(Secret(n.Secret2, n.Number2));
+                yield return new()
+                {
+                    ["type"] = "room", ["tier"] = tier, ["index"] = i,
+                    ["area"] = day.Areas[i], ["name"] = day.Areas[i] is { } a ? areaNames.GetValueOrDefault(a) : null,
+                    ["slot"] = sections.IndexOf(n.Section), ["place"] = n.Place,
+                    ["x"] = F32(n.Row, 0x54), ["y"] = F32(n.Row, 0x58),
+                    ["links"] = new System.Text.Json.Nodes.JsonArray([.. n.Links.Select(l => (System.Text.Json.Nodes.JsonNode?)l)]),
+                    ["secrets"] = found, ["izaro"] = n.SectionEnd,
+                };
+            }
+        }
+    }
+
     static Day Build(uint seed, int difficulty)
     {
         static byte[]? Read(string path) => GamePack.Default.TryRead(path);
