@@ -1672,7 +1672,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   its conditional path now also receives aggregate area (0xd7) and radius percentage (0x1591).
   Cyclone's additional melee-range and stage modifiers remain partial.
   Its sweeps follow the player walking toward the aimed cell (C→S 0x197) at the gem's movement speed, not the cursor.
-  Not checked with the real client yet.
+  Checked with the real client (2026-11-08): the sweeps advance with the player.
   See protocol/11-skills.md.
 - **Self-targeted spells (2026-10-29).** Self-targeted spells (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge,
   Shock Nova) hit around the caster wherever they are aimed, as the client draws them; before, an Ice Nova cast on a
