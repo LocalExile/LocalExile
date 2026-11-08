@@ -10,8 +10,9 @@ using GameServer.Core.Protocol.Instance;
 static class ItemModStats
 {
     /// <summary>The equipment rows whose items count: body armour, the first weapon set, helmet, amulet, rings, gloves,
-    /// boots and belt (Inventories.dat rows 1-10). The second weapon set (14, 15) and the flasks (11) do not.</summary>
-    public static readonly byte[] EquipmentRows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    /// boots and belt (Inventories.dat rows 1-10), and the third ring slot (row 102, Ring3, shown by The Unseen Hand's
+    /// <c>enable_ring_slot_3</c>). The second weapon set (14, 15) and the flasks (11) do not.</summary>
+    public static readonly byte[] EquipmentRows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 102];
 
     /// <summary>The item-local stats that raise the effect of the item's own explicit modifiers: every explicit one,
     /// or only that side (Simplex and Focused Amulets, the Simplex ring bases, Subsume the Source). Mods.dat carries no
