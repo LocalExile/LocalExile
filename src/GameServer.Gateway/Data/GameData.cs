@@ -59,6 +59,7 @@ static class GameData
         ModRangeProvider.Default.Replace(Empty.ModRanges);
         LimitSettings.Default.Replace(Empty.Limits);
         UniqueWeightProvider.Default.Reset();
+        GameDataDrops.Reset();
         GameDataCatalog.ResetToSeeds();
         SystemSettings.ResetToSeeds();
         old?.Dispose();
@@ -76,16 +77,21 @@ static class GameData
 
         // Build the catalogues and settings first: a bad payload leaves the previous ranges/limits and catalogues intact.
         GameDataWeights.Seed(store);
+        GameDataDrops.Seed(store);
         GameDataCatalog.Reload(store);
         SystemSettings.Reload(store);
         GameDataWeights.Reload(store);
+        GameDataDrops.Reload(store);
         ModRangeProvider.Default.Replace(ranges);
         LimitSettings.Default.Replace(limits);
         Volatile.Write(ref _snapshot, snapshot);
         var (uniqueWeights, uniqueWeightOverrides) = store.UniqueWeightCounts();
+        var drop = store.DropCounts();
         Console.WriteLine($"[gateway] game data: revision {snapshot.Revision}, {ranges.Count} mod range override(s), " +
             $"{limits.Count} limit override(s), {SystemSettings.Default.Values.Count} system setting(s) ({reason}); " +
-            $"{uniqueWeights} unique weight(s), {uniqueWeightOverrides} unique weight override(s); {GameDataCatalog.Summary}");
+            $"{uniqueWeights} unique weight(s), {uniqueWeightOverrides} unique weight override(s); " +
+            $"{drop.CurrencyWeights} currency weight(s), {drop.Bosses} boss(es), {drop.BossItems} boss item(s), " +
+            $"{drop.CardAreas} card area(s), {drop.ItemWeights} item weight(s); {GameDataCatalog.Summary}");
     }
 
     public static int Limit(string key, int baseValue) =>

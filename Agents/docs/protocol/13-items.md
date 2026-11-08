@@ -249,8 +249,9 @@ changes nothing. Nessa's **Identify Items** identifies the whole main inventory 
 
 ## 2c. Mods on the character
 
-`ItemModStats.cs`. The items in the worn equipment rows (Inventories.dat 1-10: body armour, the first weapon set,
-helmet, amulet, rings, gloves, boots, belt; not the second weapon set or the flasks) count, with every mod list. The
+`ItemModStats.cs`. The items in the worn equipment rows (Inventories.dat rows 1-10: body armour, the first weapon set,
+helmet, amulet, rings, gloves, boots and belt, and row 102 Ring3, the third ring slot the client shows while The Unseen
+Hand's `enable_ring_slot_3` stat is set; not the second weapon set or the flasks) count, with every mod list. The
 client does not let the player equip an unidentified item, so only identified items reach these rows. A stat that
 Stats.dat marks **IsLocal** belongs to its item; every other stat is the character's: it is added to the allocated
 passives' stats (`CharacterStatSources`), so it reaches the pools (`PassiveBonus` → `CharacterStats.For`: life, mana,
