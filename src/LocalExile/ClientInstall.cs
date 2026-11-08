@@ -13,7 +13,7 @@ static class ClientInstall
     static string PatchedExe => Path.Combine(Folder, "Game.patched.exe");
     static readonly string Keys = Path.Combine("data", "login-keys.json");
 
-    /// <summary>The folder's 3.29.3b executable, or why it has none.</summary>
+    /// <summary>The folder's 3.29.3c executable, or why it has none.</summary>
     static string? FindExecutable(string folder, out string problem)
     {
         problem = "";
@@ -36,7 +36,7 @@ static class ClientInstall
             }
             catch (Exception e) when (e is FormatException or InvalidDataException or ArgumentException or IOException or InvalidOperationException) { }
         }
-        problem = $"{folder} does not hold the Path of Exile 3.29.3b executable; other versions do not work";
+        problem = $"{folder} does not hold the Path of Exile 3.29.3c executable; other versions do not work";
         return null;
     }
 
@@ -44,7 +44,7 @@ static class ClientInstall
     {
         string? exe = FindExecutable(folder, out string problem);
         if (exe is null) throw new LauncherException(ExitCode.Client, problem);
-        log.Value("client", $"{exe} is the 3.29.3b client");
+        log.Value("client", $"{exe} is the 3.29.3c client");
     }
 
     /// <summary>Client\ holds the checked client when this returns.</summary>
@@ -63,7 +63,7 @@ static class ClientInstall
         string source = options.Client ?? Ask(log);
         string? found = FindExecutable(source, out string why);
         if (found is null) throw new LauncherException(ExitCode.Client, why);
-        log.Info($"{found} is the 3.29.3b client");
+        log.Info($"{found} is the 3.29.3c client");
 
         string mode = options.ClientMode ?? AskMode(source, log);
         if (mode == "link") Link(source, log);
@@ -74,13 +74,13 @@ static class ClientInstall
     static string Ask(Output log)
     {
         string? guess = Guesses().FirstOrDefault(g => FindExecutable(g, out _) is not null);
-        if (log.Json) throw log.NeedsInput("--client", "which folder holds the Path of Exile 3.29.3b client?", guess);
+        if (log.Json) throw log.NeedsInput("--client", "which folder holds the Path of Exile 3.29.3c client?", guess);
         if (guess is not null)
         {
-            Console.Write($"Found the 3.29.3b client in {guess}. Use it? [Y/n] ");
+            Console.Write($"Found the 3.29.3c client in {guess}. Use it? [Y/n] ");
             if ((Console.ReadLine() ?? "").Trim().ToLowerInvariant() is "" or "y" or "yes") return guess;
         }
-        Console.Write("Folder of your Path of Exile 3.29.3b client: ");
+        Console.Write("Folder of your Path of Exile 3.29.3c client: ");
         string answer = (Console.ReadLine() ?? "").Trim().Trim('"');
         if (answer.Length == 0) throw new LauncherException(ExitCode.NeedsInput, "no client folder given");
         return answer;
@@ -116,7 +116,7 @@ static class ClientInstall
         long needed = Size(source);
         long free = new DriveInfo(Path.GetFullPath(".")).AvailableFreeSpace;
         Console.WriteLine($"LocalExile changes the client's login list and adds two files beside it. A failed write could damage the client,");
-        Console.WriteLine($"and a newer launcher cannot bring 3.29.3b back, so a separate copy is safer. It needs {needed >> 30} GB; {free >> 30} GB are free here.");
+        Console.WriteLine($"and a newer launcher cannot bring 3.29.3c back, so a separate copy is safer. It needs {needed >> 30} GB; {free >> 30} GB are free here.");
         Console.Write("[C]opy the client, or [L]ink to it and use that folder itself? [C/l] ");
         return (Console.ReadLine() ?? "").Trim().ToLowerInvariant() is "l" or "link" ? "link" : "copy";
     }

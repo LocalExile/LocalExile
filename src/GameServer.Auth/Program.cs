@@ -75,7 +75,7 @@ switch (cmd)
 }
 catch (FormatException ex)
 {
-    Console.Error.WriteLine($"[auth] {ex.Message}: the file is not the 3.29.3b client executable (PathOfExile.exe copied to Client/Game.exe).");
+    Console.Error.WriteLine($"[auth] {ex.Message}: the file is not the 3.29.3c client executable (PathOfExile.exe copied to Client/Game.exe).");
     return 1;
 }
 catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
