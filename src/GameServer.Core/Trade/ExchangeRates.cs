@@ -17,8 +17,7 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
     public const string Chaos = "Metadata/Items/Currency/CurrencyRerollRare", Divine = "Metadata/Items/Currency/CurrencyModValues";
     public const string Standard = "Standard";
 
-    /// <summary>A pair below this much chaos in the digests is too thin to price. It bounds what a stray trade can do: a price from little
-    /// volume cannot be above that volume, so a thin item's wrong price is never worth much.</summary>
+    /// <summary>An item below this much chaos traded is too thin to price.</summary>
     public const double MinChaosVolume = 5;
 
     /// <summary>How many of the newest hours make an item's price when it traded enough in them.</summary>
@@ -29,6 +28,9 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
 
     static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
 
+    /// <summary>One digest's trades of an item for chaos or divines.</summary>
+    readonly record struct Trade(double Count, double Paid, bool InDivines, bool Recent);
+
     public string Serialize() => JsonSerializer.Serialize(this, Options);
 
     public static ExchangeRates? Parse(string json) => JsonSerializer.Deserialize<ExchangeRates>(json, Options);
@@ -36,13 +38,11 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
     /// <summary>The prices every league of this server trades at: official Standard's, or the current challenge league's.</summary>
     public Dictionary<string, ExchangePrice>? Prices(bool standard) => Leagues.GetValueOrDefault(standard ? Standard : Current);
 
-    /// <summary>Prices from GGG's digests (<c>/api/currency-exchange/&lt;hour&gt;</c>), <b>newest first</b>: each pair's chaos traded over the items
-    /// traded, so one outlier trade moves little. An item with no chaos pair is priced through its divine pair. An item traded enough in the
-    /// last <see cref="RecentHours"/> has that price, which follows the market; a rarer one has its price over all the digests.</summary>
+    /// <summary>Prices from GGG's digests (<c>/api/currency-exchange/&lt;hour&gt;</c>), <b>newest first</b>. An item traded enough in the last
+    /// <see cref="RecentHours"/> has that price, which follows the market; a rarer one has its price over all the digests.</summary>
     public static ExchangeRates FromDigests(IEnumerable<string> digests)
     {
-        var all = new Dictionary<string, Dictionary<(string A, string B), (double A, double B)>>();
-        var recent = new Dictionary<string, Dictionary<(string A, string B), (double A, double B)>>();
+        var trades = new Dictionary<string, Dictionary<string, List<Trade>>>();
         long newest = 0;
         foreach (string digest in digests)
         {
@@ -50,7 +50,7 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
             var root = document.RootElement;
             long hour = root.GetProperty("next_change_id").GetInt64() - 3600;
             newest = Math.Max(newest, hour);
-            bool isRecent = hour > newest - RecentHours * 3600;
+            bool recent = hour > newest - RecentHours * 3600;
             foreach (var market in root.GetProperty("markets").EnumerateArray())
             {
                 string? league = market.GetProperty("league").GetString();
@@ -58,24 +58,24 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
                 var pair = market.GetProperty("market_pair");
                 string a = pair[0].GetString()!, b = pair[1].GetString()!;
                 var traded = market.GetProperty("volume_traded");
-                if (!traded.TryGetProperty(a, out var va) || !traded.TryGetProperty(b, out var vb)) continue;
-                Add(all);
-                if (isRecent) Add(recent);
+                if (!traded.TryGetProperty(a, out var va) || !traded.TryGetProperty(b, out var vb) || va.GetDouble() <= 0 || vb.GetDouble() <= 0) continue;
+                Add(a, b, va.GetDouble(), vb.GetDouble());
+                Add(b, a, vb.GetDouble(), va.GetDouble());
 
-                void Add(Dictionary<string, Dictionary<(string A, string B), (double A, double B)>> volumes)
+                void Add(string item, string hub, double count, double paid)
                 {
-                    if (!volumes.TryGetValue(league, out var pairs)) volumes[league] = pairs = [];
-                    var sum = pairs.GetValueOrDefault((a, b));
-                    pairs[(a, b)] = (sum.A + va.GetDouble(), sum.B + vb.GetDouble());
+                    if (hub is not (Chaos or Divine)) return;
+                    if (!trades.TryGetValue(league, out var items)) trades[league] = items = [];
+                    if (!items.TryGetValue(item, out var list)) items[item] = list = [];
+                    list.Add(new(count, paid, hub == Divine, recent));
                 }
             }
         }
-        var leagues = all.ToDictionary(l => l.Key, l =>
+        var leagues = trades.ToDictionary(l => l.Key, l =>
         {
-            var prices = Prices(l.Value);
-            if (recent.TryGetValue(l.Key, out var pairs))
-                foreach (var (item, price) in Prices(pairs))
-                    if (!prices.TryGetValue(item, out var week) || price.Volume >= week.Volume * MinRecentShare) prices[item] = price;
+            var prices = PricesOver(l.Value, recentOnly: false);
+            foreach (var (item, price) in PricesOver(l.Value, recentOnly: true))
+                if (!prices.TryGetValue(item, out var week) || price.Volume >= week.Volume * MinRecentShare) prices[item] = price;
             return prices;
         });
         string current = leagues.Where(l => l.Key != Standard && !l.Key.StartsWith("Hardcore", StringComparison.Ordinal))
@@ -83,34 +83,34 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
         return new(newest, current, leagues);
     }
 
-    static Dictionary<string, ExchangePrice> Prices(Dictionary<(string A, string B), (double A, double B)> pairs)
+    static Dictionary<string, ExchangePrice> PricesOver(Dictionary<string, List<Trade>> items, bool recentOnly)
     {
-        // Against the hub, as (the other item's count, the hub's count).
-        Dictionary<string, (double Count, double Hub)> Against(string hub)
-        {
-            var found = new Dictionary<string, (double, double)>();
-            foreach (var ((a, b), (va, vb)) in pairs)
-            {
-                if (va <= 0 || vb <= 0) continue;
-                if (a == hub) found[b] = (vb, va);
-                else if (b == hub) found[a] = (va, vb);
-            }
-            return found;
-        }
-
         var prices = new Dictionary<string, ExchangePrice>();
-        var chaos = Against(Chaos);
-        foreach (var (item, (count, paid)) in chaos)
-            if (paid >= MinChaosVolume) prices[item] = new(paid / count, paid);
-        if (prices.Count == 0) return prices;
-        prices[Chaos] = new(1, chaos.Values.Sum(v => v.Hub));
-        // An item's market is its busiest pair: dear items trade for divines, and their few chaos trades can be far off (The Doctor, in a day:
-        // 9 for 231 chaos each, 96 for 665 in divines).
-        if (prices.GetValueOrDefault(Divine) is { } divine)
-            foreach (var (item, (count, paid)) in Against(Divine))
-                if (item != Chaos && paid * divine.Chaos >= MinChaosVolume && paid * divine.Chaos > (prices.GetValueOrDefault(item)?.Volume ?? 0))
-                    prices[item] = new(paid * divine.Chaos / count, paid * divine.Chaos);
+        bool Counts(Trade t) => !recentOnly || t.Recent;
+        double divine = items.TryGetValue(Divine, out var divines) && Median([.. divines.Where(t => Counts(t) && !t.InDivines).Select(t => (t.Paid / t.Count, t.Count))]) is { } value ? value : 0;
+        double chaosVolume = 0;
+        foreach (var (item, list) in items)
+        {
+            if (item == Chaos) continue;
+            // In chaos, each hour's trades at their own price. A divine pair counts with the chaos pair: dear items trade for divines, and
+            // their few chaos trades can be far off (The Doctor, in a day: 9 at 231 chaos, 96 at 665 in divines).
+            var priced = list.Where(t => Counts(t) && (!t.InDivines || divine > 0)).Select(t => (Chaos: t.InDivines ? t.Paid * divine : t.Paid, t.Count)).ToList();
+            double volume = priced.Sum(t => t.Chaos);
+            chaosVolume += list.Where(t => Counts(t) && !t.InDivines).Sum(t => t.Paid);
+            if (volume >= MinChaosVolume && Median([.. priced.Select(t => (t.Chaos / t.Count, t.Count))]) is { } price) prices[item] = new(price, volume);
+        }
+        if (prices.Count > 0) prices[Chaos] = new(1, chaosVolume);
         return prices;
+    }
+
+    /// <summary>The price of the middle item traded. An average by chaos follows the dear trades, which are what a mistake or a scam looks like
+    /// (The Forward Gaze, in a week: 4 at 1 chaos beside 4 at about 133), and the median by items does not.</summary>
+    static double? Median(IReadOnlyList<(double Price, double Count)> trades)
+    {
+        double half = trades.Sum(t => t.Count) / 2, passed = 0;
+        foreach (var (price, count) in trades.OrderBy(t => t.Price))
+            if ((passed += count) >= half) return price;
+        return null;
     }
 }
 

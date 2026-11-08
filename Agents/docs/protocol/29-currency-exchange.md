@@ -57,7 +57,7 @@ A status string's id in the client is its `ClientStrings` row + 1.
 ## Rates
 
 GGG's public `GET https://web.poecdn.com/api/currency-exchange/<hour>` has hourly digests per league and pair, none of the current hour. A digest's lowest and
-highest ratios swing widely in one hour (Standard, one hour: 555 to 738 chaos a divine), so a price is chaos traded over items traded. Prices of direct pairs
+highest ratios swing widely in one hour (Standard, one hour: 555 to 738 chaos a divine), and an average by chaos follows the dear trades (The Forward Gaze: 4 at 1 chaos, 4 at about 133), so a price is the median by items traded, each hour's chaos and divine trades at their own price. Prices of direct pairs
 contradict each other (8 of 133 loops chaos → divine → X → chaos paid over 20% in one hour), so everything is priced in chaos and a trade goes at the two items'
 values less the spread, which leaves no loop to profit from. Over a day about half of the 461 divination cards trade at all, so a rare item takes its price from the last
 week; the rest show no stock.
