@@ -450,8 +450,16 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     private static Pools Build(ItemCatalog catalog, string folder, bool hardMode, LeagueRules? league)
     {
         var currency = new List<(ItemCatalog.BaseType, double)>();
-        foreach (var (id, weight) in Currency)
-            if (catalog.Find(id) is { Supported: true } t && t.Id == id) currency.Add((t, weight));
+        // The seeded/overridden database table wins; the compiled table is the fallback while it is empty or the
+        // database fails. Either way the client's own DropLevel gates the roll, since that is intrinsic to the base.
+        var seeded = DropDataProvider.Default.Current.CurrencyWeights;
+        foreach (var row in seeded.Values)
+            if (row is { Enabled: true, Weight: > 0 }
+                && catalog.Find(row.CurrencyId) is { Supported: true } t && t.Id == row.CurrencyId)
+                currency.Add((t, row.Weight));
+        if (currency.Count == 0)
+            foreach (var (id, weight) in Currency)
+                if (catalog.Find(id) is { Supported: true } t && t.Id == id) currency.Add((t, weight));
         var equipment = new Dictionary<string, List<ItemCatalog.BaseType>>(StringComparer.Ordinal);
         var flasks = new List<ItemCatalog.BaseType>();
         for (int row = 0; catalog.Row(row) is { } t; row++)

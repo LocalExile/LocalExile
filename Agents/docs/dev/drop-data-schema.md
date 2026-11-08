@@ -97,42 +97,51 @@ drop_penalty_character_level_cap = 68
 
 ## Seed files
 
-The first implementation seeds the tables from the files already collected:
+The seed lives in `Agents/docs/game`, beside the research it came from; the
+Gateway's `GameDataDrops` reads it on the first open of an empty drop table, and
+`scripts/release/build-release.ps1` copies these four files into the package so a
+release seeds itself too:
 
 | Table | Seed |
 |---|---|
 | `drop_currency_weights` | [currency-weights.csv](../game/currency-weights.csv), 24 rows, the current hardcoded table |
-| `drop_bosses` | [bosses.csv](../game/bosses.csv), 997 areas / 630 boss varieties |
+| `drop_bosses` | [bosses.csv](../game/bosses.csv), 997 area rows / 630 distinct boss ids |
 | `drop_boss_items` | [boss-drops.csv](../game/boss-drops.csv), 108 rows: major boss unique pools, boss-only currency, the King in the Mists exact chances |
 | `drop_card_areas` | [divination-card-areas.csv](../game/divination-card-areas.csv), 555 area/card pairs from PoEDB |
-| `drop_card_sources` | the boss/league cards listed in [boss-drops.md](../game/boss-drops.md), with `chance`/`drop_level` |
+| `drop_card_sources` | the boss cards in `boss-drops.csv` (currently The Endless Darkness), derived on seed |
 
 `chance` is `NULL` when the source does not publish it. That is deliberate: it
 means unknown, not zero. The King in the Mists uniques are the only exact boss
 distribution currently seeded (40/35/20/5%); Maven's Orb is an estimated 25%.
+`confidence` is one of the three values in the DDL; a wiki sample is `estimated`
+and the citation stays in `source`/`notes`. The seed files use either decimal
+comma or point (`0,15` or `0.15`).
 
 ## Load and edit rules
 
-- On startup, if a drop table is empty, seed it from the CSV in one transaction;
-  a table that already has rows is left alone. A later extract/seed replaces the
-  reference rows only when they are still empty or when the schema version
-  changes; edits are kept in the table (there is no separate override table for
-  the first slice).
-- Load the tables once into immutable dictionaries:
-  `CoreCurrency`, `CurrencySources`, `Bosses`, `BossItems`, `CardAreas`,
-  `CardSources`. Swap the snapshot under one lock; a roll reads the snapshot
-  reference, never SQLite.
-- The core currency table keeps the current `ItemDrops.Currency` values as the
-  fallback when the table is empty or the database fails.
+- On startup, if the drop seed has not run, seed every table from the CSV in one
+  transaction and record `drop_seeded` in `game_data_meta`. A later extract
+  replaces the reference rows only when they are empty or when the schema
+  version changes; edits are kept in the table (there is no separate override
+  table for the first slice).
+- Load the tables once into immutable dictionaries on
+  `DropDataProvider.Snapshot`: `CurrencyWeights`, `CurrencySources`, `Bosses`,
+  `BossItems`, `CardAreas`, `CardSources`. Swap the snapshot reference; a roll
+  reads it, never SQLite.
+- `ItemDrops.Build` takes the currency pool from `CurrencyWeights` when it is
+  non-empty and enabled/positive, and otherwise from the compiled
+  `ItemDrops.Currency` table. The client's `BaseItemTypes.DropLevel` still gates
+  the roll: `drop_currency_weights.drop_level` mirrors the source and is what a
+  boss/league source layer will use.
 - The boss/card tables are empty in behaviour terms until the roll paths use
   them; the current generic unique/currency/card rolls stay the fallback.
 - A bad row fails the load with a line naming the table, key and value. Accept
-  nothing silently: unknown BaseItemTypes/MonsterVarieties ids, non-finite or
-  negative weights, `chance` outside 0..1, duplicate keys and a missing
-  confidence are errors.
-- `drop_currency_sources` is the boss/league/atlas layer. A boss-only currency
-  must not be added to `drop_currency_weights` without a `core` source; the
-  core table is only the global monster pool.
+  nothing silently: non-finite or negative weights, `chance` outside 0..1,
+  duplicate keys and a confidence outside the three values are errors.
+- `drop_currency_sources` is the boss/league/atlas layer and is not seeded yet.
+  A boss-only currency must not be added to `drop_currency_weights` without a
+  `core` source; the core table is only the global monster pool.
+
 
 ## Commands and tests
 
@@ -146,12 +155,12 @@ counts; editing commands can follow the `unique_weight` pattern:
 /game_data drop_reload
 ```
 
-Tests (at most two in the first code PR):
+Tests (two in this code PR):
 
-1. A fresh store seeds 24 currency rows, 997 bosses, 108 boss items and 555 card
-   areas; a second open does not duplicate them.
-2. A source filter returns only the boss/league/atlas rows for its kind, and an
-   empty table falls back to the hardcoded core table.
+1. A fresh store seeds a fixture folder once (a second seed does nothing) and the
+   provider publishes the currency, boss, boss-item and card-area rows.
+2. A store with no seeded drop table leaves the provider empty, so
+   `ItemDrops.Build` keeps the compiled currency fallback.
 
 ## Future mapping work
 
