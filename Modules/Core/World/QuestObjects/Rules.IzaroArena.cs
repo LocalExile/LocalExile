@@ -15,6 +15,8 @@ static partial class QuestobjectsRules
         public uint Izaro;
         public SpawnedMonster? Boss;
         public bool Over, AllGargoylesDeadSaid, AllPortalsDeadSaid;
+        // Guardians a portal has begun to bring and that are not created yet (IzaroPortals.SummonLimit counts them).
+        public int GuardiansComing;
         public readonly List<(uint Id, AreaPopulation.RoomObject At)> Lifts = [], Railings = [];
         public readonly List<StatueSlot> Statues = [];
         public readonly List<GargoyleSlot> Gargoyles = [];

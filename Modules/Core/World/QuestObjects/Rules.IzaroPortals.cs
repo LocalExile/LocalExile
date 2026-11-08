@@ -106,9 +106,9 @@ static partial class QuestobjectsRules
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} Izaro's portal {p.Effect.Id} stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    // A portal's guardians, until it is destroyed or the trial ends: at its skill's cast time and cooldown, while fewer than
-    // IzaroPortals.SummonLimit of them live. Its action plays nothing on the client (as the Immolator's), so its actor's clip
-    // is played.
+    // A portal's guardians, until it is destroyed or the trial ends: at its skill's cast time and cooldown, while the arena
+    // has fewer than IzaroPortals.SummonLimit of them, the ones on their way counted (the portals cast side by side). Its
+    // action plays nothing on the client (as the Immolator's), so its actor's clip is played.
     static async Task RunIzaroPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena,
         PortalSlot p, Func<bool> here)
     {
@@ -122,9 +122,20 @@ static partial class QuestobjectsRules
         {
             while (!Stopped())
             {
-                int living;
-                lock (conn.Monsters) living = conn.Monsters.Values.Count(s => s.SummonerId == p.Id && !s.Dead && s.Life > 0);
-                if (living < IzaroPortals.SummonLimit)
+                int living, count;
+                lock (conn.Monsters)
+                {
+                    var portals = arena.Portals.Select(o => o.Id).ToHashSet();
+                    living = conn.Monsters.Values.Count(s => s.SummonerId is uint by && portals.Contains(by) && !s.Dead && s.Life > 0);
+                    count = Math.Min(IzaroPortals.SummonCount, IzaroPortals.SummonLimit - living - arena.GuardiansComing);
+                    if (count > 0) arena.GuardiansComing += count;
+                }
+                if (count <= 0)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(summon.CooldownSeconds));
+                    continue;
+                }
+                try
                 {
                     await Send(remote, stream, ciphers, InstanceProtocol.ActorAnimation(p.Id, (float)summon.CastSeconds, SummonAnimation), null);
                     await Task.Delay(TimeSpan.FromSeconds(summon.CastSeconds / 2));
@@ -137,17 +148,16 @@ static partial class QuestobjectsRules
                         double dx = player.X - from.X, dy = player.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy), ahead = summon.Offset / WorldUnits.PerCell;
                         at = length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
                     }
-                    int count = Math.Min(IzaroPortals.SummonCount, IzaroPortals.SummonLimit - living);
                     for (int k = 0; k < count; k++)
                         await SpawnMonster(remote, stream, ciphers, conn, guardian, p.Monster.Level, MonsterRarity.Normal, at.X, at.Y, log: false, owned: (_, s) =>
                         {
                             (s.SummonerId, s.NoRewards) = (p.Id, summon.NoRewards);
                             if (arena.Over) IgnoreThePlayer(s);
                         });
-                    Console.WriteLine($"[gateway] {remote} {p.Effect.Id} 0x{p.Id:x} brings {count} {guardian.Name} at ({at.X}, {at.Y}), {living + count} alive");
-                    await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.2, summon.CooldownSeconds - summon.CastSeconds / 2)));
+                    Console.WriteLine($"[gateway] {remote} {p.Effect.Id} 0x{p.Id:x} brings {count} {guardian.Name} at ({at.X}, {at.Y}), the arena has {living + count}");
                 }
-                else await Task.Delay(TimeSpan.FromSeconds(summon.CooldownSeconds));
+                finally { lock (conn.Monsters) arena.GuardiansComing -= count; }
+                await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.2, summon.CooldownSeconds - summon.CastSeconds / 2)));
             }
             bool allDead;
             lock (conn.Monsters)

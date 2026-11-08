@@ -28,7 +28,7 @@ static class IzaroPortals
     /// <summary>The time between the portals' rises (ours, as <see cref="IzaroStatues.RiseInterval"/>).</summary>
     public const double RiseInterval = IzaroStatues.RiseInterval;
 
-    /// <summary>How many guardians a portal brings at a time and keeps alive at most (the user's numbers).</summary>
+    /// <summary>How many guardians a portal brings at a time, and how many the whole arena has at most (the user's numbers).</summary>
     public const int SummonCount = 4, SummonLimit = 20;
 
     /// <summary>His line after the trial's end line: how many portals are left.</summary>

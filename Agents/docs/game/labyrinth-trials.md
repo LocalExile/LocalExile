@@ -659,8 +659,8 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
   The portals (IzaroPortal.ot: 1 lowered, 2 raising, 3 raised, 4 lowering, 5 lowered, the state a new one is in) rise
   one at a time; `elevator_ascend` and `elevator_descend` are the .ot's server events (0x1b2, rig clips 0 and 1). Each
   brings guardians (`IzaroSummonSkeletonCaster*`, `alternate_minion` 63–65) by its skill (2.17 s cast, 6 s cooldown, 3 s for the
-  "…2" ones). The data says one at a time; the original brings many, so ours brings 4 and keeps 20 alive (the user's
-  numbers). When the trial ends the guardians stay but ignore the player (live).
+  "…2" ones). The data says one at a time; the original brings many, so ours brings 4 and the arena has 20 at most
+  (the user's numbers). When the trial ends the guardians stay but ignore the player (live).
   `PortalSummon1_*` have no tier and no buff; the "…2" ones (IzaroPortal2.ot, untargetable, `base_cannot_be_damaged`)
   give Izaro `izaro_buff_loot_bonus`. A new IzaroPortal2 is in state 3, whose create event plays the closing clip, so the
   server sends 1 and its idle clip.
