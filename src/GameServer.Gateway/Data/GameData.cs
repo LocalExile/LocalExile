@@ -91,7 +91,7 @@ static class GameData
             $"{limits.Count} limit override(s), {SystemSettings.Default.Values.Count} system setting(s) ({reason}); " +
             $"{uniqueWeights} unique weight(s), {uniqueWeightOverrides} unique weight override(s); " +
             $"{drop.CurrencyWeights} currency weight(s), {drop.Bosses} boss(es), {drop.BossItems} boss item(s), " +
-            $"{drop.CardAreas} card area(s); {GameDataCatalog.Summary}");
+            $"{drop.CardAreas} card area(s), {drop.ItemWeights} item weight(s); {GameDataCatalog.Summary}");
     }
 
     public static int Limit(string key, int baseValue) =>

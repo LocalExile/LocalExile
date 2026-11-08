@@ -10,17 +10,20 @@ using GameServer.Storage;
 static class GameDataDrops
 {
     public const string DefaultFolder = "Agents/docs/game";
+    /// <summary>Bump when the seed files change: a database seeded by an older generation is refilled.</summary>
+    public const string SeedVersion = "2";
 
     public static bool Seed(GameDataStore store, string folder = DefaultFolder, bool force = false)
     {
-        if (!force && store.DropSeeded()) return false;
+        if (!force && store.DropSeedVersion() == SeedVersion) return false;
         try
         {
             string Currency = Path.Combine(folder, "currency-weights.csv");
             string Bosses = Path.Combine(folder, "bosses.csv");
             string BossDrops = Path.Combine(folder, "boss-drops.csv");
             string CardAreas = Path.Combine(folder, "divination-card-areas.csv");
-            if (new[] { Currency, Bosses, BossDrops, CardAreas }.Any(path => !File.Exists(path)))
+            string ItemWeights = Path.Combine(folder, "item-weights.csv");
+            if (new[] { Currency, Bosses, BossDrops, CardAreas, ItemWeights }.Any(path => !File.Exists(path)))
             {
                 Console.WriteLine($"[gateway] drop data: seed files missing in {folder}; using the code fallback");
                 return false;
@@ -28,6 +31,7 @@ static class GameDataDrops
             var weights = CurrencyWeights(ReadCsv(Currency));
             var (bosses, bossItems) = BossRows(ReadCsv(Bosses), ReadCsv(BossDrops));
             var cards = CardAreaRows(ReadCsv(CardAreas));
+            var itemWeights = ItemWeightRows(ReadCsv(ItemWeights));
             var cardSources = bossItems.Where(row => row.ItemKind == "card")
                 .Select(row => new GameDataStore.CardSourceRow(row.ItemId, "boss", row.BossId, null, 0,
                     row.Confidence, row.Source, row.Notes)).ToList();
@@ -38,11 +42,14 @@ static class GameDataDrops
                 store.ReplaceBossItems(bossItems);
                 store.ReplaceCardAreas(cards);
                 store.ReplaceCardSources(cardSources);
+                store.ReplaceItemWeights(itemWeights);
             });
             store.MarkDropSeeded();
+            store.MarkDropSeedVersion(SeedVersion);
             var counts = store.DropCounts();
             Console.WriteLine($"[gateway] drop data seed: {counts.CurrencyWeights} currency weight(s), " +
-                $"{counts.Bosses} boss(es), {counts.BossItems} boss item(s), {counts.CardAreas} card area(s)");
+                $"{counts.Bosses} boss(es), {counts.BossItems} boss item(s), {counts.CardAreas} card area(s), " +
+                $"{counts.ItemWeights} item weight(s)");
             return true;
         }
         catch (Exception ex) when (ex is IOException or FormatException or ArgumentException or InvalidDataException
@@ -91,6 +98,12 @@ static class GameDataDrops
             return new GameDataStore.CardAreaRow(area, area, Text(row, "card"),
                 Math.Clamp(Integer(row, "min_map_tier", 1), 1, 16), Text(row, "source"));
         })];
+
+    static List<GameDataStore.ItemWeightRow> ItemWeightRows(List<Dictionary<string, string>> rows) =>
+        [.. rows.Select(row => new GameDataStore.ItemWeightRow(
+            Text(row, "category"), Text(row, "item_id"), Number(row, "weight"), Boolean(row, "enabled", true),
+            Text(row, "source"), Text(row, "confidence", "unknown"), Text(row, "patch"),
+            Text(row, "sampled_at"), Optional(row, "notes")))];
 
     static string Text(IReadOnlyDictionary<string, string> row, string name, string fallback = "") =>
         row.TryGetValue(name, out string? value) && value.Length > 0 ? value : fallback;
@@ -176,7 +189,8 @@ sealed class DropDataProvider
         IReadOnlyDictionary<string, GameDataStore.BossRow> Bosses,
         IReadOnlyDictionary<(string BossId, string ItemId), GameDataStore.BossItemRow> BossItems,
         IReadOnlyDictionary<(string AreaId, string CardId), GameDataStore.CardAreaRow> CardAreas,
-        IReadOnlyDictionary<(string CardId, string SourceKind, string SourceId), GameDataStore.CardSourceRow> CardSources)
+        IReadOnlyDictionary<(string CardId, string SourceKind, string SourceId), GameDataStore.CardSourceRow> CardSources,
+        IReadOnlyDictionary<(string Category, string ItemId), GameDataStore.ItemWeightRow> ItemWeights)
     {
         public static Snapshot Empty { get; } = new(
             new Dictionary<string, GameDataStore.CurrencyWeightRow>(),
@@ -184,7 +198,8 @@ sealed class DropDataProvider
             new Dictionary<string, GameDataStore.BossRow>(),
             new Dictionary<(string, string), GameDataStore.BossItemRow>(),
             new Dictionary<(string, string), GameDataStore.CardAreaRow>(),
-            new Dictionary<(string, string, string), GameDataStore.CardSourceRow>());
+            new Dictionary<(string, string, string), GameDataStore.CardSourceRow>(),
+            new Dictionary<(string, string), GameDataStore.ItemWeightRow>());
     }
 
     public static DropDataProvider Default { get; } = new();
@@ -203,8 +218,10 @@ sealed class DropDataProvider
         var items = store.LoadBossItems().ToDictionary(row => (row.BossId, row.ItemId));
         var areas = store.LoadCardAreas().ToDictionary(row => (row.AreaId, row.CardId));
         var cards = store.LoadCardSources().ToDictionary(row => (row.CardId, row.SourceKind, row.SourceId));
-        Volatile.Write(ref _snapshot, new Snapshot(weights, sources, bosses, items, areas, cards));
-        Volatile.Write(ref _hasTable, weights.Count + sources.Count + bosses.Count + items.Count + areas.Count + cards.Count > 0 ? 1 : 0);
+        var itemWeights = store.LoadItemWeights().ToDictionary(row => (row.Category, row.ItemId));
+        Volatile.Write(ref _snapshot, new Snapshot(weights, sources, bosses, items, areas, cards, itemWeights));
+        Volatile.Write(ref _hasTable, weights.Count + sources.Count + bosses.Count + items.Count + areas.Count + cards.Count
+            + itemWeights.Count > 0 ? 1 : 0);
     }
 
     public void Reset()

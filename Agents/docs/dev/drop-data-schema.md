@@ -85,6 +85,21 @@ CREATE TABLE IF NOT EXISTS drop_card_sources (
     updated_utc TEXT NOT NULL,
     PRIMARY KEY (card_id, source_kind, source_id)
 ) STRICT;
+
+CREATE TABLE IF NOT EXISTS drop_item_weights (
+    category TEXT NOT NULL CHECK (category IN ('scarab', 'card', 'essence', 'fossil', 'catalyst',
+        'delirium-orb', 'breachstone', 'legion-splinter', 'runegraft')),
+    item_id TEXT NOT NULL,                     -- BaseItemTypes.Id
+    weight REAL NOT NULL CHECK (weight >= 0),  -- relative inside its category
+    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+    source TEXT NOT NULL,                      -- the dataset URL
+    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
+    patch TEXT NOT NULL,                       -- the patch the sample is from
+    sampled_at TEXT NOT NULL,                  -- the dataset's date
+    notes TEXT,
+    updated_utc TEXT NOT NULL,
+    PRIMARY KEY (category, item_id)
+) STRICT;
 ```
 
 The penalty constants are ordinary `system_settings` rows, not a table:
@@ -98,9 +113,9 @@ drop_penalty_character_level_cap = 68
 ## Seed files
 
 The seed lives in `Agents/docs/game`, beside the research it came from; the
-Gateway's `GameDataDrops` reads it on the first open of an empty drop table, and
-`scripts/release/build-release.ps1` copies these four files into the package so a
-release seeds itself too:
+Gateway's `GameDataDrops` reads it when the drop tables hold an older seed
+generation, and `scripts/release/build-release.ps1` copies these files into the
+package so a release seeds itself too:
 
 | Table | Seed |
 |---|---|
@@ -109,31 +124,41 @@ release seeds itself too:
 | `drop_boss_items` | [boss-drops.csv](../game/boss-drops.csv), 108 rows: major boss unique pools, boss-only currency, the King in the Mists exact chances |
 | `drop_card_areas` | [divination-card-areas.csv](../game/divination-card-areas.csv), 555 area/card pairs from PoEDB |
 | `drop_card_sources` | the boss cards in `boss-drops.csv` (currently The Endless Darkness), derived on seed |
+| `drop_item_weights` | [item-weights.csv](../game/item-weights.csv), 531 rows: 422 cards and 109 scarabs from the poedata.dev MLE calculations (cards 3.27.0, scarabs 3.28.0) |
 
 `chance` is `NULL` when the source does not publish it. That is deliberate: it
 means unknown, not zero. The King in the Mists uniques are the only exact boss
 distribution currently seeded (40/35/20/5%); Maven's Orb is an estimated 25%.
 `confidence` is one of the three values in the DDL; a wiki sample is `estimated`
 and the citation stays in `source`/`notes`. The seed files use either decimal
-comma or point (`0,15` or `0.15`).
+comma or point (`0,15` or `0.15`). The poedata weights are community MLE
+estimates, so they are `estimated`, and `source`/`patch`/`sampled_at` keep the
+provenance. `GameDataDrops.SeedVersion` is bumped when the seed changes; a
+database seeded by an older generation is refilled once.
 
 ## Load and edit rules
 
-- On startup, if `game_data_meta` has no `drop_seeded`, seed every table from the
-  CSV in one transaction and record `drop_seeded`. Later starts keep the rows as
-  they are, so an edit survives; a new schema version or an explicit reset can
-  re-seed.
+- On startup, if `game_data_meta` has no `drop_seeded`, or its
+  `drop_seed_version` is older than `GameDataDrops.SeedVersion`, seed every table
+  from the CSV in one transaction and record both. Later starts keep the rows as
+  they are, so an edit survives; a new seed generation refills them once.
 - Load the tables once into immutable dictionaries on
   `DropDataProvider.Snapshot`: `CurrencyWeights`, `CurrencySources`, `Bosses`,
-  `BossItems`, `CardAreas`, `CardSources`. Swap the snapshot reference; a roll
-  reads it, never SQLite.
+  `BossItems`, `CardAreas`, `CardSources`, `ItemWeights`. Swap the snapshot
+  reference; a roll reads it, never SQLite.
 - `ItemDrops.Build` takes the currency pool from `CurrencyWeights` when it is
   non-empty and enabled/positive, and otherwise from the compiled
   `ItemDrops.Currency` table. The client's `BaseItemTypes.DropLevel` still gates
   the roll: `drop_currency_weights.drop_level` mirrors the source and is what a
   boss/league source layer will use.
-- The boss/card tables are empty in behaviour terms until the roll paths use
-  them; the current generic unique/currency/card rolls stay the fallback.
+- `ItemDrops.Card` and `ItemDrops.Scarab` pick by `ItemWeights` when the category
+  has enabled rows covering the monster's `DropLevel`, and are uniform over the
+  client's cards/scarabs otherwise. A map kill also rolls the base chances
+  `drop_card_chance_pct` (0.5) and `drop_scarab_chance_pct` (0.2) per kill,
+  scaled by item quantity; both are our own numbers and editable live. The map
+  device's card/scarab stats stay separate.
+- The boss tables are stored but no roll reads them yet; the current generic
+  unique rolls stay the fallback.
 - A bad row fails the load with a line naming the table, key and value. Accept
   nothing silently: non-finite or negative weights, `chance` outside 0..1,
   duplicate keys and a confidence outside the three values are errors.
@@ -149,17 +174,20 @@ Editing commands can follow the `unique_weight` pattern:
 
 ```
 /game_data currency_weight <id> <weight>
+/game_data item_weight <category> <item-id> <weight>
 /game_data boss_drop <boss-id> <item-id> <chance|unknown>
 /game_data card_area <area-id> <card-id> <tier>
 /game_data drop_reload
 ```
 
-Tests (two in this code PR):
+Tests:
 
 1. A fresh store seeds a fixture folder once (a second seed does nothing) and the
-   provider publishes the currency, boss, boss-item and card-area rows.
+   provider publishes the currency, boss, boss-item, card-area and item-weight rows.
 2. A store with no seeded drop table leaves the provider empty, so
    `ItemDrops.Build` keeps the compiled currency fallback.
+3. A seeded card/scarab pool returns only weighted, enabled items at the
+   monster's DropLevel, and the uniform fallback still applies the gate.
 
 ## Future mapping work
 
@@ -167,6 +195,9 @@ Tests (two in this code PR):
   `WorldAreas.Id` (`Maps`/`UniqueMaps` names) before the card roll uses them.
 - `drop_boss_items.item_id` uses a unique's name for uniques and a
   BaseItemTypes Id for currency/gems/cards; the loader must resolve both.
+- Two of the 111 poedata scarab weights name scarabs the 3.29 client no longer
+  has (Abyss Scarab of Edifice, Abyss Scarab of Profound Depth); they are skipped,
+  leaving 109.
 - The 430 map bosses and 140 unique-map bosses still need their own unique pools;
   the 108 rows here are the major bosses and the known extras.
 - Exact boss chances need community samples; the table's `NULL` is the honest
