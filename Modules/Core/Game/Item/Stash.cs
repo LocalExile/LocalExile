@@ -19,13 +19,23 @@ static partial class Game
     // The tabs of that stash whose contents this connection has.
     internal static HashSet<int> TabsSentOf(ClientState conn, AccountStash stash) => stash.IsGuild ? conn.GuildStashTabsSent : conn.StashTabsSent;
 
-    // The town's Stash object (Agents/docs/protocol/18-stash.md §1) where the town has one (StashCatalog).
+    static (StashCatalog.Placement Personal, StashCatalog.Placement Guild)? AdditionalTownStashes(ClientState conn) => conn.Layout.Id switch
+    {
+        "1_2_town" => (new(192, 283, 0), new(182, 283, 0)),
+        "1_4_town" or "2_9_town" => (new(214, 512, 310 * MathF.PI / 180), new(213, 485, 210 * MathF.PI / 180)),
+        "1_5_town" => (new(337, 336, 282 * MathF.PI / 180), new(335, 347, 282 * MathF.PI / 180)),
+        _ => null,
+    };
+
+    // The town's Stash object (Agents/docs/protocol/18-stash.md §1) where it has one.
     internal static async Task SpawnTownStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var scene = HideoutFurniture(conn);
+        var additional = AdditionalTownStashes(conn);
+        var town = additional?.Personal ?? StashCatalog.In(conn.Layout.Hash);
         var at = scene is { } furnished ? new StashCatalog.Placement(furnished.Stash.X, furnished.Stash.Y, furnished.Stash.Rotation)
-            : StashCatalog.In(conn.Layout.Hash) is { } town && StashCatalog.FromArrival(conn.Layout.Hash)
-                ? town with { X = conn.Layout.SpawnX + town.X, Y = conn.Layout.SpawnY + town.Y } : StashCatalog.In(conn.Layout.Hash);
+            : town is not null && StashCatalog.FromArrival(conn.Layout.Hash)
+                ? town with { X = conn.Layout.SpawnX + town.X, Y = conn.Layout.SpawnY + town.Y } : town;
         if (at is null || Environment.GetEnvironmentVariable("Game_STASH") == "0") return;
         uint id = conn.NextObjectId++;
         var stash = new StashObject(at.X, at.Y, at.Rotation);
@@ -36,11 +46,11 @@ static partial class Game
         conn.StashAt = (at.X, at.Y);
         await RegisterStationaryCollision(remote, stream, ciphers, conn, id, StashObject.MetadataPath, at.X, at.Y, at.Rotation,
             scene is not null ? "stash" : null);
-        // Hideouts, Lioneye's Watch (Acts 1 and 6), the Sarn Encampment and the Mine Encampment also get a guild stash.
-        if (HideoutCatalog.ByArea(conn.Layout.Hash) is null
+        // The supplied towns and hideouts also get a guild stash, except in SSF.
+        if (additional is null && HideoutCatalog.ByArea(conn.Layout.Hash) is null
             && conn.Layout.Hash is not (StashCatalog.DelveHub or StashCatalog.MenagerieHub or StashCatalog.SanctumHub or StashCatalog.Kingsmarch or StashCatalog.HeistHub or StashCatalog.ChayulaHub or AreaLayouts.LioneyesWatch
                 or StashCatalog.SarnEncampment or StashCatalog.LioneyesWatchAct6)) return;
-        var townGuild = scene is null ? StashCatalog.GuildIn(conn.Layout.Hash) : null;
+        var townGuild = scene is null ? additional?.Guild ?? StashCatalog.GuildIn(conn.Layout.Hash) : null;
         if (townGuild is { } offset && StashCatalog.FromArrival(conn.Layout.Hash))
             townGuild = offset with { X = conn.Layout.SpawnX + offset.X, Y = conn.Layout.SpawnY + offset.Y };
         var (gx, gy) = scene?.Guild ?? (townGuild is { } tg ? (tg.X, tg.Y) : conn.Layout.Near((at.X, at.Y)));
