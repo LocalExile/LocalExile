@@ -11,10 +11,12 @@ static partial class PortalsRules
     // the sequence.
     internal static Task SpawnMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MapDevice.OpenMap open, int firstAfterMs = 0)
     {
-        HideoutCatalog.Doodad? device;
-        uint deviceId;
-        lock (conn.HideoutDoodads) (deviceId, device) = conn.HideoutDoodads.Select(kv => (kv.Key, (HideoutCatalog.Doodad?)kv.Value)).FirstOrDefault();
-        if (device is null) return Task.CompletedTask;
+        if (MapDeviceHere(conn) is not { } device) return Task.CompletedTask;
+        uint deviceId = device.Id;
+        var centre = (device.X, device.Y);
+        if (device.Campaign && new QuestObjectTypes.AreaPlacements(conn.Layout.Id, conn.Seed, [])
+            .Of(MapDevice.CampaignDeviceType + "_Main").FirstOrDefault() is { } orrery)
+            centre = (orrery.X, orrery.Y);
         int generation = Interlocked.Increment(ref conn.MapPortalGeneration);
         bool Current() => !conn.Closed && conn.MapPortalGeneration == generation;
         uint type = InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath);
@@ -28,7 +30,9 @@ static partial class PortalsRules
                 if (n++ > 0) await Task.Delay(MapPortalGapMs);
                 if (!Current()) return;
                 uint id = conn.NextObjectId++;
-                var (x, y) = MapDevice.PortalCell(device.X, device.Y, index);
+                var ring = MapDevice.PortalCell(centre.X, centre.Y, index);
+                var (x, y) = device.Campaign && conn.Layout.Walkable is { } walk && !walk(ring.X, ring.Y)
+                    ? conn.Layout.Near(ring) : ring;
                 await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, type,
                         new MapPortalObject(x, y, index, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
                     $"0x02bb create map portal 0x{id:x} (place {index}, {n}/{open.PortalsLeft}) to {open.Area.Name} at ({x}, {y})");
@@ -47,8 +51,7 @@ static partial class PortalsRules
         List<uint> ids;
         Interlocked.Increment(ref conn.MapPortalGeneration);   // stops a sequence still placing them
         lock (conn.MapPortals) { ids = [.. conn.MapPortals.Keys]; conn.MapPortals.Clear(); }
-        uint deviceId;
-        lock (conn.HideoutDoodads) deviceId = conn.HideoutDoodads.Keys.FirstOrDefault();
+        uint deviceId = MapDeviceHere(conn)?.Id ?? 0;
         if (ids.Count > 0 && deviceId != 0)
             await Send(remote, stream, ciphers, InstanceMapDevice.Portals(deviceId, [.. ids.Select(id => new InstanceMapDevice.Portal(id, 0))]),
                 $"0x008f map device 0x{deviceId:x}: {ids.Count} portal(s) closed");
