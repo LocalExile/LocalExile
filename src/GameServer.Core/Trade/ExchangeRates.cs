@@ -24,6 +24,9 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
     /// <summary>How many of the newest hours make an item's price when it traded enough in them.</summary>
     public const int RecentHours = 24;
 
+    /// <summary>What share of its volume over all the digests an item needs in those hours: less is a stray trade, not the market moving.</summary>
+    public const double MinRecentShare = 0.05;
+
     static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
 
     public string Serialize() => JsonSerializer.Serialize(this, Options);
@@ -71,7 +74,8 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
         {
             var prices = Prices(l.Value);
             if (recent.TryGetValue(l.Key, out var pairs))
-                foreach (var (item, price) in Prices(pairs)) prices[item] = price;
+                foreach (var (item, price) in Prices(pairs))
+                    if (!prices.TryGetValue(item, out var week) || price.Volume >= week.Volume * MinRecentShare) prices[item] = price;
             return prices;
         });
         string current = leagues.Where(l => l.Key != Standard && !l.Key.StartsWith("Hardcore", StringComparison.Ordinal))
@@ -100,9 +104,11 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
             if (paid >= MinChaosVolume) prices[item] = new(paid / count, paid);
         if (prices.Count == 0) return prices;
         prices[Chaos] = new(1, chaos.Values.Sum(v => v.Hub));
+        // An item's market is its busiest pair: dear items trade for divines, and their few chaos trades can be far off (The Doctor, in a day:
+        // 9 for 231 chaos each, 96 for 665 in divines).
         if (prices.GetValueOrDefault(Divine) is { } divine)
             foreach (var (item, (count, paid)) in Against(Divine))
-                if (!prices.ContainsKey(item) && paid * divine.Chaos >= MinChaosVolume)
+                if (item != Chaos && paid * divine.Chaos >= MinChaosVolume && paid * divine.Chaos > (prices.GetValueOrDefault(item)?.Volume ?? 0))
                     prices[item] = new(paid * divine.Chaos / count, paid * divine.Chaos);
         return prices;
     }
