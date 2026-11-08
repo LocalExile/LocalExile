@@ -1669,8 +1669,12 @@ it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks th
 (§10k).
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
-u32 BE y, the player's cell) every few frames while the button is held, and **C→S 0x199** (2 bytes) when it is let go
-(read from live captures 2026-10-23). The Gateway only moves the player there: 0x197 does not come at the attack rate.
+u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
+2026-10-23). 0x197's cell is where the channel is aimed now (the cursor), not the player's cell: the first one, ~90 ms
+after the start, is already at the 0x1ab target 45–60 cells away, then it drifts as the cursor and camera move
+(live 2026-11-08). Taken as the player's cell it put Cyclone's sweeps around the cursor. Cyclone's player walks toward
+it, an order re-aimed on each update, at the movement speed with the gem's `cyclone_movement_speed_+%_final`
+(`ChannelAimedAt`, `ClientState.ChannelMovement`); a channel that stands ignores it. 0x197 does not come at the attack rate.
 The hits run on the server's own timer (`RunChannel`, started with the channel): the first sweep lands as the channel
 starts, then one sweep around the player's current cell every `SupportedAttackSeconds` (the skill's own speed, its
 supports and the player's attack speed, as the tooltip shows), paying the cost each time, until 0x199, any other action,
