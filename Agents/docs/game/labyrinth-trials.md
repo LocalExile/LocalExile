@@ -638,7 +638,7 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
   goes down on it, and the doors open as he goes. His weapon is the day's and the tier's (wiki); the client does not
   have the pick. A move order sent during his swing was lost on the client. At his trial's floor his boss bar is
   dimmed (live, as Malachai's): the bar draws `UniqueBossFrameImmuneOverlay` once the life is at the
-  `cannot_drop_below_%_life` stat (3.29.3b: client key 0xca8, checked on each life change, 0x14028ec50), sent with 0x1b3.
+  `cannot_drop_below_%_life` stat (client key 0xca8, checked on each life change, 3.29.3c: 0x14028f1e0), sent with 0x1b3.
   `is_hidden_monster`, `cannot_be_damaged`, `base_cannot_be_damaged` and the invisible `cannot_be_damaged` buff did not
   change the bar. No boss bar while he rises (live): `boss_life_bar` 1 goes only as he starts to fight.
   `disable_life_bar` does not hold it: BossLifeBar.ot's `on_state_boss_life_bar_1` shows the bar whatever

@@ -889,7 +889,7 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 /// then the endpoints. The official packet: row 0 (SoulEaterBeam) + 1, flags 0x0C97, start world x/y, start object id,
 /// 0, end world x/y, end object id, 0. The client follows the two objects; the positions are their snapshot.
 /// World coordinates are grid cells times ten. Flag A6 (0x40) puts a name in place of the u32 after the start object
-/// (u32 byte length, then the bytes): the start object's bone the line leaves from (3.29.3b: 0x14166e9c0 → 0x141e5fc10; Izaro's
+/// (u32 byte length, then the bytes): the start object's bone the line leaves from (3.29.3c: 0x1416710c0 → 0x140e276c0; Izaro's
 /// gargoyles' <c>Jnt_jaw</c>). Without it the start stays where it was made; the end, given as here, follows its object.
 /// </summary>
 public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint StartObject, float EndWorldX, float EndWorldY,

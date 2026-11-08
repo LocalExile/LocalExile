@@ -172,8 +172,8 @@ static partial class QuestobjectsRules
     }
 
     // His life's floor in a trial before the last (cannot_drop_below_%_life, S→C 0x1b3; the server's own floor is
-    // LifePhaseGate): the boss bar draws UniqueBossFrameImmuneOverlay once his life is at it (3.29.3b: 0x14028ec50 on each life
-    // change, key 0xca8), as the original dims it while he leaves (live). is_hidden_monster (0x14028ed50's other way to
+    // LifePhaseGate): the boss bar draws UniqueBossFrameImmuneOverlay once his life is at it (3.29.3c: 0x14028f1e0 on each life
+    // change, key 0xca8), as the original dims it while he leaves (live). is_hidden_monster (the client's other way to
     // the overlay), cannot_be_damaged, base_cannot_be_damaged and the invisible cannot_be_damaged buff did not change the
     // bar (live 2026-11-08).
     static byte[] IzaroLifeFloor(uint izaro, IzaroFights.Trial trial) =>
