@@ -166,6 +166,12 @@ once), and a projectile skill's projectile and explosion: `ProjectilesArtVariati
 no .ot, the client builds it from its Projectiles.dat row and its AOFiles, sounds included), and
 `MiscAnimatedArtVariations` the explosion in place of the default .ao (`fireball_standard`: `explode_new2.ao` →
 `stygian/aoe.ao` …). A variation with no row there keeps the default.
+**A skill's own variation.** Holy Sweep's (`sweep`: Default, NoEffect, Holy, Zana, Sirius, Abyssal) is 2: its hammer
+(`sweep_hammer_fall`) has rows only at 2–5, and its effects' values (Originator's 1, Awakener's 2, Abyssal 3) land on
+Zana, Sirius and Abyssal only added to 2 (`SkillArtBase`). Each 0x1af hit makes the client draw the hammer; at 0 it
+logged "GetArtVariationItemInternal failed trying to access data from index 3 of skill art data (sweep:0, )" and
+crashed (live 2026-11-08). In that line the index is the art's place in the row's `AnimatedArt` and the number after
+the Id the variation: "index 2 … (ground_slam_ancestral:1, )" came with Blood Slam (1) worn, a slot that row lacks.
 
 Verified live 2026-10-23: skins, attachments, character effects, footprints, portals, cursors and flask skins.
 

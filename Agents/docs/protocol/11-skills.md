@@ -1657,6 +1657,11 @@ Lunaris) has its self-targeted Novas centred on the aimed point
 ([Polytheist](../game/polytheist.md)). Which point the client sends for a Nova (a ground use at the cursor, or a self
 use) with and without the stat is not checked live yet; the Gateway log's 0x01ab line shows it.
 
+**Melee area attacks** land on the aimed point within the area's radius plus the weapon's range, in front of the
+player beyond it (`MeleeAreaCentre`). Holy Sweep's actions (`Sweep`, `SweepAltX`) swing around the player wherever
+aimed, as the client draws them: centred on the target, the server's circle sat 15 cells towards it (live 2026-11-08).
+Which other melee actions centre on the player is not known from the data (each skill's own client action decides).
+
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
 cell when the skill starts (`Game.LandsAtAim`); it kept the starting cell before, and a later resync pulled the
 player back there (live 2026-10-23). A resync follows at the end of the action, and aimed at a monster the skill lands on
