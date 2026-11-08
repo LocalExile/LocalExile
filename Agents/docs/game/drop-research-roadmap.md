@@ -150,7 +150,7 @@ is not in the client tables needs a source and a confidence note.
 1. **#709 (current, draft):** docs, source collection, `bosses.csv`,
    `divination-card-areas.csv`, boss/card cross-reference, plus the SQLite tables,
    the CSV seed and the currency-weight wiring.
-2. **#710 (stacked on #709):** poedata card/scarab weights and the base map
+2. **#711 (stacked on #709):** poedata card/scarab weights and the base map
    card/scarab chances.
 3. **Next:** card pool filtering by area/tier/`DropLevel` (one code PR, one or
    two tests).
