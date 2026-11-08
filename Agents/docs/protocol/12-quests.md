@@ -133,7 +133,7 @@ porting checklist: [campaign quests](../game/campaign-quests.md).
 | `On.Exit(from, to, flag)` | the exit needs the flag: refused (0x24) and only created once the client has it | 1_1_7_2 → 1_1_8: `a1q2-KilledBrutus` |
 | `On.LevelUp(area, variety, level)` | the kill tops experience up to the level | Hillock → 2 |
 | `On.Threshold(area, variety, lifePct, flags…)` | the monster never dies: the hit that takes it to `lifePct` % or below (a lethal hit and `/kill` too) leaves it at ≥ 1 life, sets the flags and it leaves the fight (removed: no death, drops or experience) | Kitava on the Cathedral Rooftop → `a5q6-CompletedBoss` |
-| `On.Chest(area, chestType, item, opensWith)` | a quest chest where its room or tile puts it; opened once per instance, drops the item while needed; with `opensWith` its Transitionable is 1 (untargetable) until the flag, then 2, and its last state once opened | `AllFlameSlaveGirl` → Allflame; the Strange Device after Helena's rescue |
+| `On.Chest(area, chestType, item, opensWith)` | a quest chest where its room or tile puts it; opened once per instance, drops the item while needed; with `opensWith` its Transitionable is 1 (untargetable) until the flag, then 2, and its last state once opened | `AllFlameSlaveGirl` → Allflame; the Strange Device after Fidelitas' death |
 | `On.Drops(area, variety, item)` | the monster drops the quest item where it dies, while needed | Hailrake → Medicine Chest |
 | `On.Npc(area, npcType, goneWith, transitionedBy, shownBy, freedBy, atObject)` | a room NPC where its room puts it (or where `atObject` stands), until `goneWith`, from `shownBy`; Transitionable 2 with `transitionedBy` or once `freedBy` (a variety) dies; in a town the stage of a town NPC its room lists; created, removed and transitioned live as the flags change (Game `World/Quest/QuestNpcs.cs`) | Fairgraves on his ship; Helena climbing up after Fidelitas; Clarissa freed by her guards' captain; Dialla at Dominus' DeathPortalLocator |
 | `On.Object(area, objectType, transitionedBy)` | a room or tile quest object the engine creates (`QuestObjectTypes`, the generic `QuestObject` blob): Transitionable 1, its last state once the flag is set (0x2ba when it comes); a TriggerableBlockage (no update reader) is created again unblocked | the Thaumetic Seal, PoisonTree, the Ancient Seal, the Dark Altar, the sewer gratings, the BioWall, the Epic Door's lock |
@@ -489,8 +489,8 @@ the data does not say:
   the exits between The Western Forest and Prisoner's Gate appear. Bestel's book (offer 11) gives a passive point.
 - **a2q10**: the Great White Beast seen/killed in The Den.
 - **a2q6**: HelenaSins below the ledge (Transitionable 1, untargetable) climbs up when Fidelitas dies
-  (`a2q6-KilledDemon`); her "Rescued" → `a2q6-RescuedHelena` lets the Strange Device (PoisonCart, Transitionable 1 → 2)
-  be opened: the Baleful Gem. HelenaSins and PietySins come near → `a2q6-SeenHelena`, `a2q6-SeenPiety`. Greust's start
+  (`a2q6-KilledDemon`), which also lets the Strange Device (PoisonCart, Transitionable 1 → 2) be opened: the Baleful
+  Gem. Her "Rescued" → `a2q6-RescuedHelena` is not needed first (NPCTalk 456 is her row with the gem carried, #578). HelenaSins and PietySins come near → `a2q6-SeenHelena`, `a2q6-SeenPiety`. Greust's start
   row needs `a2b-StartNewQuests`, which nothing sets this early (the spike's `extra_flag2` would, later): the quest runs
   without it.
 - **a2q4**: the Weaver drops Maligaro's Spike; Silk's rows look at it without taking it.
