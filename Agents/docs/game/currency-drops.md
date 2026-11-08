@@ -151,7 +151,7 @@ The card's `BaseItemTypes.DropLevel` is its minimum monster level (The Doctor
 tables do not contain the area list: PoEDB's
 [Divination_Cards](https://poedb.tw/us/Divination_Cards) page has an **Areas**
 table of 135 areas and 555 area/card pairs, with `(tier N+)` minimum map tiers.
-It is exported to [divination-card-areas.csv](divination-card-areas.csv).
+It is seeded into `drop_card_areas` (`DropDataSeed.CardAreas`, [drop-data-schema.md](../dev/drop-data-schema.md)).
 
 Examples:
 

@@ -18,9 +18,9 @@ is not in the client tables needs a source and a confidence note.
 - [x] Boss identity: `WorldAreas.Bosses_MonsterVarietiesKeys`,
   `MonsterVarieties`, `Maps`, `MapSeriesTiers`, `UniqueMaps`,
   `AtlasPrimordialBosses`, `AtlasExileBossArenas`, `MavenFights`.
-- [x] Boss inventory exported: [bosses.csv](bosses.csv), 997 areas / 630 boss
+- [x] Boss inventory seeded from `WorldAreas` into `drop_bosses`, 997 areas / 630 boss
   varieties (394 campaign, 430 map, 140 unique-map, 24 Labyrinth, 9 other).
-- [x] Card area table exported: [divination-card-areas.csv](divination-card-areas.csv),
+- [x] Card area table seeded (`DropDataSeed.CardAreas`),
   135 areas / 555 area-card pairs from PoEDB.
 - [ ] A single generated report that joins currency, cards and bosses with
   their known sources; the current files are separate.
@@ -51,7 +51,7 @@ is not in the client tables needs a source and a confidence note.
 
 ## Phase 2. Boss drop tables
 
-- [x] Inventory all client bosses in [bosses.csv](bosses.csv), categorized by
+- [x] Inventory all client bosses (`drop_bosses`, from `WorldAreas`), categorized by
   campaign / map / unique map / Labyrinth / other.
 - [x] Document the major unique pools in [boss-drops.md](boss-drops.md):
   Sirus, Shaper, Elder, Atziri, Maven, Searing Exarch, Eater of Worlds, Olroth,
@@ -63,7 +63,7 @@ is not in the client tables needs a source and a confidence note.
 - [x] Add the community scarab weights: 109 scarabs from the poedata.dev MLE
   calculation (3.28.0; two 3.28 names are gone from the 3.29 client), seeded into
   `drop_item_weights`; the scarab pick follows them.
-- [ ] Parse every boss page's unique tab into `bosses.csv` (major bosses done;
+- [ ] Parse every boss page's unique tab into `DropDataSeed.BossItems` (major bosses done;
   430 map bosses and 140 unique-map bosses next).
 - [ ] Add the **boss-only currency** rows to the currency source model; do not
   put them in the global core table.
@@ -81,7 +81,7 @@ is not in the client tables needs a source and a confidence note.
 
 - [x] Document `DropLevel` for cards (The Doctor 75, House of Mirrors 80, The
   Apothecary 75, The Endless Darkness 81).
-- [x] Export the PoEDB Areas table: [divination-card-areas.csv](divination-card-areas.csv)
+- [x] Seed the PoEDB Areas table (`DropDataSeed.CardAreas`)
   (135 areas, 555 pairs, minimum map tier).
 - [x] Add the community card weights: 422 cards from the poedata.dev MLE
   calculation (3.27.0), seeded into `drop_item_weights`; the card pick follows
@@ -147,9 +147,9 @@ is not in the client tables needs a source and a confidence note.
 
 ## Phase 7. PR sequence
 
-1. **#709 (current, draft):** docs, source collection, `bosses.csv`,
-   `divination-card-areas.csv`, boss/card cross-reference, plus the SQLite tables,
-   the CSV seed and the currency-weight wiring.
+1. **#709 (current, draft):** docs, source collection, the boss inventory,
+   the card area table, boss/card cross-reference, plus the SQLite tables,
+   the seed and the currency-weight wiring.
 2. **#711 (stacked on #709):** poedata card/scarab weights and the base map
    card/scarab chances.
 3. **Next:** card pool filtering by area/tier/`DropLevel` (one code PR, one or
@@ -179,9 +179,9 @@ is not in the client tables needs a source and a confidence note.
 
 - Every core currency has a `DropLevel`, a source kind and a documented weight
   (or an explicit `unknown`).
-- Every boss in `bosses.csv` has its unique pool and a known/estimated chance,
+- Every boss in `drop_bosses` has its unique pool and a known/estimated chance,
   with a source and confidence.
-- Every card in `divination-card-areas.csv` is filtered by area, map tier and
+- Every card in `drop_card_areas` is filtered by area, map tier and
   `DropLevel`; boss/league cards are separate.
 - The drop penalty is implemented and checked against the client.
 - The tables are editable without a rebuild, and the tests cover loading,

@@ -5,65 +5,39 @@ namespace GameServer.Gateway.Tests;
 public sealed class DropDataTests
 {
     [Fact]
-    public void Drop_seed_loads_the_csv_files_and_does_not_duplicate_rows()
+    public void Drop_seed_fills_the_tables_from_the_client_tables_and_the_code_seed()
     {
         string folder = Path.Combine(Path.GetTempPath(), "localexile-drop-seed-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         try
         {
-            File.WriteAllText(Path.Combine(folder, "currency-weights.csv"),
-                """
-                currency_id,weight,drop_level,enabled,source,confidence,notes
-                CurrencyA,10,1,1,test,estimated,
-                CurrencyB,2.5,12,1,test,estimated,note
-                """);
-            File.WriteAllText(Path.Combine(folder, "bosses.csv"),
-                """
-                area_id,area_name,category,act,area_level,bosses,boss_variety_ids,boss_ids
-                area1,Test Area,map,0,80,Test Boss,0,Metadata/TestBoss
-                """);
-            File.WriteAllText(Path.Combine(folder, "boss-drops.csv"),
-                """
-                boss_name,boss_id,item,item_kind,chance,confidence,source,notes
-                Test Boss,Metadata/TestBoss,Unique A,unique,0.5,estimated,test,
-                Test Boss,Metadata/TestBoss,Metadata/Items/Currency/CurrencyIdentification,currency,,unknown,test,
-                """);
-            File.WriteAllText(Path.Combine(folder, "divination-card-areas.csv"),
-                """
-                area,card,min_map_tier,source
-                Test Area,The Doctor,7,test
-                """);
-            File.WriteAllText(Path.Combine(folder, "item-weights.csv"),
-                """
-                category,item_id,weight,enabled,source,confidence,patch,sampled_at,notes
-                card,Metadata/Items/DivinationCards/DivinationCardRainOfChaos,0.5,1,test,estimated,3.27.0,2026-02-08,
-                scarab,Metadata/Items/Scarabs/ScarabAbyssNew1,"0,25",1,test,estimated,3.28.0,2026-03-23,
-                """);
-
             using var store = new GameDataStore(Path.Combine(folder, "drops.db"));
-            Assert.True(GameDataDrops.Seed(store, folder));
-            Assert.False(GameDataDrops.Seed(store, folder));
+            Assert.True(GameDataDrops.Seed(store));
+            Assert.False(GameDataDrops.Seed(store));
 
             var counts = store.DropCounts();
-            Assert.Equal(2, counts.CurrencyWeights);
-            Assert.Equal(1, counts.Bosses);
-            Assert.Equal(2, counts.BossItems);
-            Assert.Equal(1, counts.CardAreas);
-            Assert.Equal(2, counts.ItemWeights);
+            Assert.Equal(24, counts.CurrencyWeights);
+            Assert.Equal(630, counts.Bosses);
+            Assert.Equal(108, counts.BossItems);
+            Assert.Equal(555, counts.CardAreas);
+            Assert.Equal(531, counts.ItemWeights);
 
             GameDataDrops.Reload(store);
+            var drops = DropDataProvider.Default.Current;
             Assert.True(DropDataProvider.Default.HasTable);
-            Assert.Equal(10, DropDataProvider.Default.Current.CurrencyWeights["CurrencyA"].Weight);
-            Assert.Equal(12, DropDataProvider.Default.Current.CurrencyWeights["CurrencyB"].DropLevel);
-            Assert.Equal(0.5, DropDataProvider.Default.Current.BossItems[("Metadata/TestBoss", "Unique A")].Chance);
-            Assert.Null(DropDataProvider.Default.Current.BossItems[("Metadata/TestBoss", "Metadata/Items/Currency/CurrencyIdentification")].Chance);
-            Assert.Equal(7, DropDataProvider.Default.Current.CardAreas[("Test Area", "The Doctor")].MinMapTier);
-            Assert.Equal(0.25, DropDataProvider.Default.Current.ItemWeights[("scarab", "Metadata/Items/Scarabs/ScarabAbyssNew1")].Weight);
-            Assert.Equal("3.27.0", DropDataProvider.Default.Current.ItemWeights[("card", "Metadata/Items/DivinationCards/DivinationCardRainOfChaos")].Patch);
+            // The compiled weight with the client's DropLevel.
+            Assert.Equal(15, drops.CurrencyWeights["Metadata/Items/Currency/CurrencyRerollImplicit"].Weight);
+            Assert.Equal(35, drops.CurrencyWeights["Metadata/Items/Currency/CurrencyRerollImplicit"].DropLevel);
+            // A boss from WorldAreas, categorised by the area's own flags.
+            Assert.Equal("campaign", drops.Bosses["Metadata/Monsters/seawitchillusion/BossMerveil"].Category);
+            Assert.Equal(0.35, drops.BossItems[("Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss", "Pragmatism")].Chance);
+            Assert.Null(drops.BossItems[("Metadata/Monsters/Atziri/Atziri", "The Vertex")].Chance);
+            Assert.Equal("3.27.0", drops.ItemWeights[("card", "Metadata/Items/DivinationCards/DivinationCardRainOfChaos")].Patch);
         }
         finally
         {
             GameDataDrops.Reset();
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             try { Directory.Delete(folder, recursive: true); } catch (IOException) { }
         }
     }

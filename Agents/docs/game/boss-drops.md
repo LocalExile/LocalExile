@@ -2,8 +2,8 @@
 
 Draft, 2026-11-08. A first cross-reference for boss-specific unique drops, boss
 currency and the drop chances that are actually known. The complete client-side
-boss inventory is in [bosses.csv](bosses.csv): `WorldAreas.Bosses_MonsterVarietiesKeys`
-gives 997 areas with a boss and 630 distinct boss varieties (394 campaign, 430
+boss inventory is `WorldAreas.Bosses_MonsterVarietiesKeys` (seeded into `drop_bosses`, [drop-data-schema.md](../dev/drop-data-schema.md)):
+it gives 997 areas with a boss and 630 distinct boss varieties (394 campaign, 430
 map, 140 unique-map, 24 Labyrinth-boss and 9 other areas).
 
 ## 1. What the client data has
@@ -78,7 +78,7 @@ weight:
   [Olroth](https://poedb.tw/us/Olroth%2C_Origin_of_the_Fall),
   [Lycia](https://poedb.tw/us/Lycia%2C_Herald_of_the_Scourge) and
   [The Trialmaster](https://poedb.tw/us/The_Trialmaster).
-- [bosses.csv](bosses.csv) for the client-side inventory.
+- [drop-data-schema.md](../dev/drop-data-schema.md) for the client-side inventory (`drop_bosses`).
 - [currency-drops.md](currency-drops.md) for currency weights, card areas and
   the drop penalty.
 - Community/King data: `ItemDrops.KingInMistsUniques` (wiki 3.26, n=576);
@@ -89,7 +89,7 @@ weight:
 
 - Exact unique chances for every boss: not published; needs a community sample
   or the Prohibited Library data. The table above marks them unknown on purpose.
-- Parse every boss page's unique tab into `bosses.csv` (the current doc lists the
+- Parse every boss page's unique tab into `DropDataSeed.BossItems` (the current doc lists the
   major bosses; the 430 map bosses and 140 unique-map bosses are next).
 - Verify the Maven/Orb of Dominance, Veiled and Eldritch sources and their
   chances.

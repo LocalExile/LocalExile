@@ -210,8 +210,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   mostly gives a rare instead. The 1,527 reference weights are seeded into `unique_weights`; `/game_data unique_weight`
   and `clear_unique_weight` edit the override layer live. Schema upgrades, repeated reference rebuilds and a reopened
   database preserve overrides; invalid or non-finite weights are rejected before writing. The extracted JSON remains the fallback before seeding.
-  The core currency weights also live in `drop_currency_weights` (seeded from `Agents/docs/game/currency-weights.csv`,
-  `GameDataDrops`); `ItemDrops.Build` prefers them and keeps the compiled table as the fallback, still gated by each
+  The core currency weights also live in `drop_currency_weights` (seeded from the compiled table with the client's
+  DropLevels, `GameDataDrops`); `ItemDrops.Build` prefers them and keeps the compiled table as the fallback, still gated by each
   base's DropLevel. Cards and scarabs follow the poedata.dev community weights (`drop_item_weights`: 422 cards, 109
   scarabs), and a map kill rolls our own base `drop_card_chance_pct`/`drop_scarab_chance_pct`; both settings are
   editable live. The boss and divination-card area tables are seeded (630 bosses, 108 boss items, 555 area/card pairs) but

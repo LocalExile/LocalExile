@@ -1,37 +1,28 @@
-using System.Globalization;
-using System.Text;
+using System.Text.Json;
 using GameServer.Storage;
 
 /// <summary>
-/// The drop tables' seed and immutable snapshot. The CSV files in
-/// <c>Agents/docs/game</c> are the researched seed; the SQLite rows are what the
+/// The drop tables' seed and immutable snapshot. The seed is the client's own tables (the bosses of every area from
+/// WorldAreas/MonsterVarieties, each currency's DropLevel from BaseItemTypes), the compiled currency weights
+/// (<see cref="ItemDrops.Currency"/>) and the researched rows in <see cref="DropDataSeed"/>. The SQLite rows are what the
 /// server serves after the first open. A reader takes the snapshot, never SQLite.
 /// </summary>
 static class GameDataDrops
 {
-    public const string DefaultFolder = "Agents/docs/game";
-    /// <summary>Bump when the seed files change: a database seeded by an older generation is refilled.</summary>
-    public const string SeedVersion = "2";
+    /// <summary>Bump when the seed changes: a database seeded by an older generation is refilled.</summary>
+    public const string SeedVersion = "3";
 
-    public static bool Seed(GameDataStore store, string folder = DefaultFolder, bool force = false)
+    public static bool Seed(GameDataStore store, string folder = "data", bool force = false)
     {
         if (!force && store.DropSeedVersion() == SeedVersion) return false;
         try
         {
-            string Currency = Path.Combine(folder, "currency-weights.csv");
-            string Bosses = Path.Combine(folder, "bosses.csv");
-            string BossDrops = Path.Combine(folder, "boss-drops.csv");
-            string CardAreas = Path.Combine(folder, "divination-card-areas.csv");
-            string ItemWeights = Path.Combine(folder, "item-weights.csv");
-            if (new[] { Currency, Bosses, BossDrops, CardAreas, ItemWeights }.Any(path => !File.Exists(path)))
+            if (ReadTables(folder) is not var (weights, bosses))
             {
-                Console.WriteLine($"[gateway] drop data: seed files missing in {folder}; using the code fallback");
+                Console.WriteLine("[gateway] drop data: the game tables are missing; extract them first");
                 return false;
             }
-            var weights = CurrencyWeights(ReadCsv(Currency));
-            var (bosses, bossItems) = BossRows(ReadCsv(Bosses), ReadCsv(BossDrops));
-            var cards = CardAreaRows(ReadCsv(CardAreas));
-            var itemWeights = ItemWeightRows(ReadCsv(ItemWeights));
+            var bossItems = DropDataSeed.BossItems;
             var cardSources = bossItems.Where(row => row.ItemKind == "card")
                 .Select(row => new GameDataStore.CardSourceRow(row.ItemId, "boss", row.BossId, null, 0,
                     row.Confidence, row.Source, row.Notes)).ToList();
@@ -40,9 +31,9 @@ static class GameDataDrops
                 store.ReplaceCurrencyWeights(weights);
                 store.ReplaceBosses(bosses);
                 store.ReplaceBossItems(bossItems);
-                store.ReplaceCardAreas(cards);
+                store.ReplaceCardAreas([.. DropDataSeed.CardAreas]);
                 store.ReplaceCardSources(cardSources);
-                store.ReplaceItemWeights(itemWeights);
+                store.ReplaceItemWeights([.. DropDataSeed.ItemWeights]);
             });
             store.MarkDropSeeded();
             store.MarkDropSeedVersion(SeedVersion);
@@ -52,7 +43,7 @@ static class GameDataDrops
                 $"{counts.ItemWeights} item weight(s)");
             return true;
         }
-        catch (Exception ex) when (ex is IOException or FormatException or ArgumentException or InvalidDataException
+        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException
             or Microsoft.Data.Sqlite.SqliteException)
         {
             Console.WriteLine($"[gateway] drop data seed failed: {ex.Message}; using the code fallback");
@@ -65,120 +56,51 @@ static class GameDataDrops
 
     public static void Reset() => DropDataProvider.Default.Reset();
 
-    static List<GameDataStore.CurrencyWeightRow> CurrencyWeights(List<Dictionary<string, string>> rows) =>
-        [.. rows.Select(row => new GameDataStore.CurrencyWeightRow(
-            Text(row, "currency_id"), Number(row, "weight"), Integer(row, "drop_level"),
-            Boolean(row, "enabled", true), Text(row, "source"), Text(row, "confidence", "unknown"),
-            Optional(row, "notes")))];
-
-    static (List<GameDataStore.BossRow>, List<GameDataStore.BossItemRow>) BossRows(
-        List<Dictionary<string, string>> bossRows, List<Dictionary<string, string>> dropRows)
+    /// <summary>The rows the client's tables give: the compiled currency weights with each base's DropLevel, and every
+    /// area's bosses (a boss in several areas keeps its first). Null when the tables have not been extracted.</summary>
+    static (List<GameDataStore.CurrencyWeightRow>, List<GameDataStore.BossRow>)? ReadTables(string folder)
     {
+        string baseTypes = Path.Combine(folder, "tables", "BaseItemTypes.json");
+        string areas = Path.Combine(folder, "tables", "WorldAreas.json");
+        string varieties = Path.Combine(folder, "tables", "MonsterVarieties.json");
+        if (!File.Exists(baseTypes) || !File.Exists(areas) || !File.Exists(varieties)) return null;
+
+        var dropLevels = new Dictionary<string, int>(StringComparer.Ordinal);
+        using (var doc = JsonDocument.Parse(File.ReadAllBytes(baseTypes)))
+            foreach (var row in doc.RootElement.EnumerateArray())
+                if (row.GetProperty("Id").GetString() is { } id) dropLevels.TryAdd(id, row.GetProperty("DropLevel").GetInt32());
+        var weights = ItemDrops.Currency.Select(c => new GameDataStore.CurrencyWeightRow(c.Id, c.Weight,
+            dropLevels.GetValueOrDefault(c.Id), true, "core", "estimated", "ItemDrops.Currency")).ToList();
+
+        using var varietyDoc = JsonDocument.Parse(File.ReadAllBytes(varieties));
+        var monsters = varietyDoc.RootElement;
+        using var areaDoc = JsonDocument.Parse(File.ReadAllBytes(areas));
         var bosses = new Dictionary<string, GameDataStore.BossRow>(StringComparer.Ordinal);
-        foreach (var row in bossRows)
+        foreach (var area in areaDoc.RootElement.EnumerateArray())
         {
-            string area = Text(row, "area_id");
-            string category = Text(row, "category", "other");
-            string[] names = Text(row, "bosses").Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            string[] ids = Text(row, "boss_ids").Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            for (int i = 0; i < ids.Length; i++)
-                bosses.TryAdd(ids[i], new(ids[i], i < names.Length ? names[i] : ids[i], area, category, true));
-        }
-        var items = dropRows.Select(row => new GameDataStore.BossItemRow(
-            Text(row, "boss_id"), Text(row, "item"), Text(row, "item_kind", "other"),
-            OptionalNumber(row, "chance"), Text(row, "confidence", "unknown"), Text(row, "source"),
-            Optional(row, "notes"))).ToList();
-        return ([.. bosses.Values], items);
-    }
-
-    static List<GameDataStore.CardAreaRow> CardAreaRows(List<Dictionary<string, string>> rows) =>
-        [.. rows.Select(row =>
-        {
-            string area = Text(row, "area");
-            return new GameDataStore.CardAreaRow(area, area, Text(row, "card"),
-                Math.Clamp(Integer(row, "min_map_tier", 1), 1, 16), Text(row, "source"));
-        })];
-
-    static List<GameDataStore.ItemWeightRow> ItemWeightRows(List<Dictionary<string, string>> rows) =>
-        [.. rows.Select(row => new GameDataStore.ItemWeightRow(
-            Text(row, "category"), Text(row, "item_id"), Number(row, "weight"), Boolean(row, "enabled", true),
-            Text(row, "source"), Text(row, "confidence", "unknown"), Text(row, "patch"),
-            Text(row, "sampled_at"), Optional(row, "notes")))];
-
-    static string Text(IReadOnlyDictionary<string, string> row, string name, string fallback = "") =>
-        row.TryGetValue(name, out string? value) && value.Length > 0 ? value : fallback;
-
-    static string? Optional(IReadOnlyDictionary<string, string> row, string name) =>
-        row.TryGetValue(name, out string? value) && value.Length > 0 ? value : null;
-
-    static int Integer(IReadOnlyDictionary<string, string> row, string name, int fallback = 0) =>
-        row.TryGetValue(name, out string? value) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int number)
-            ? number : fallback;
-
-    static double Number(IReadOnlyDictionary<string, string> row, string name) =>
-        ParseNumber(Text(row, name)) ?? throw new FormatException($"{name} is not a finite number");
-
-    static double? OptionalNumber(IReadOnlyDictionary<string, string> row, string name) =>
-        Optional(row, name) is { } text
-            ? ParseNumber(text) ?? throw new FormatException($"{name} is not a finite number")
-            : null;
-
-    /// <summary>The seed files are written by hand in either decimal style, so both <c>0.15</c> and <c>0,15</c> load.</summary>
-    static double? ParseNumber(string text) =>
-        double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
-            || double.TryParse(text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out number)
-            ? double.IsFinite(number) ? number : null
-            : null;
-
-    static bool Boolean(IReadOnlyDictionary<string, string> row, string name, bool fallback) =>
-        row.TryGetValue(name, out string? value)
-            ? value is "1" or "true" or "True" or "yes" or "Yes" ? true
-                : value is "0" or "false" or "False" or "no" or "No" ? false : fallback
-            : fallback;
-
-    /// <summary>A small CSV reader: quoted fields, doubled quotes and commas inside quotes.</summary>
-    internal static List<Dictionary<string, string>> ReadCsv(string path)
-    {
-        if (!File.Exists(path)) throw new FileNotFoundException(path);
-        var lines = File.ReadAllLines(path, Encoding.UTF8);
-        if (lines.Length == 0) return [];
-        var header = ParseLine(lines[0]);
-        var rows = new List<Dictionary<string, string>>();
-        for (int i = 1; i < lines.Length; i++)
-        {
-            if (string.IsNullOrWhiteSpace(lines[i])) continue;
-            var values = ParseLine(lines[i]);
-            var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            for (int column = 0; column < header.Count && column < values.Count; column++) row[header[column]] = values[column];
-            rows.Add(row);
-        }
-        return rows;
-    }
-
-    static List<string> ParseLine(string line)
-    {
-        var values = new List<string>();
-        var value = new StringBuilder();
-        bool quoted = false;
-        for (int i = 0; i < line.Length; i++)
-        {
-            char c = line[i];
-            if (quoted)
+            string areaId = area.GetProperty("Id").GetString() ?? "";
+            string category = Category(area);
+            foreach (var key in area.GetProperty("Bosses_MonsterVarietiesKeys").EnumerateArray())
             {
-                if (c == '"')
-                {
-                    if (i + 1 < line.Length && line[i + 1] == '"') { value.Append('"'); i++; }
-                    else quoted = false;
-                }
-                else value.Append(c);
+                int row = key.GetInt32();
+                if (row < 0 || row >= monsters.GetArrayLength()) continue;
+                var monster = monsters[row];
+                if (monster.GetProperty("Id").GetString() is not { Length: > 0 } bossId) continue;
+                string name = monster.GetProperty("Name").GetString() is { Length: > 0 } n ? n : bossId;
+                bosses.TryAdd(bossId, new(bossId, name, areaId, category, true));
             }
-            else if (c == '"') quoted = true;
-            else if (c == ',') { values.Add(value.ToString()); value.Clear(); }
-            else value.Append(c);
         }
-        values.Add(value.ToString());
-        return values;
+        return (weights, [.. bosses.Values]);
     }
+
+    /// <summary>The area's kind, from WorldAreas' own flags: a unique map, a map, the Labyrinth, an act area, or other
+    /// (act 0: Delve, Synthesis).</summary>
+    static string Category(JsonElement area) =>
+        area.GetProperty("IsUniqueMapArea").GetBoolean() ? "unique-map"
+        : area.GetProperty("IsMapArea").GetBoolean() ? "map"
+        : area.GetProperty("IsLabyrinthArea").GetBoolean() || area.GetProperty("IsLabyrinthBossArea").GetBoolean() ? "labyrinth"
+        : area.GetProperty("Act").GetInt32() > 0 ? "campaign"
+        : "other";
 }
 
 /// <summary>The published drop tables. Empty means the database has not been seeded; callers keep their code fallback.</summary>

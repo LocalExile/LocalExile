@@ -16,91 +16,9 @@ one immutable in-memory snapshot. No drop roll queries SQLite.
 
 ## Tables
 
-```sql
-CREATE TABLE IF NOT EXISTS drop_currency_weights (
-    currency_id TEXT PRIMARY KEY,              -- BaseItemTypes.Id
-    weight REAL NOT NULL CHECK (weight >= 0),  -- relative weight inside the core pool
-    drop_level INTEGER NOT NULL CHECK (drop_level >= 0),
-    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-    source TEXT NOT NULL,
-    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
-    notes TEXT,
-    updated_utc TEXT NOT NULL
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS drop_currency_sources (
-    currency_id TEXT NOT NULL,
-    source_kind TEXT NOT NULL CHECK (source_kind IN ('core', 'boss', 'league', 'atlas', 'vendor')),
-    source_id TEXT NOT NULL,                   -- boss variety id, league id, area id, vendor id, or ''
-    weight REAL NOT NULL CHECK (weight >= 0),
-    drop_level INTEGER NOT NULL CHECK (drop_level >= 0),
-    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
-    source TEXT NOT NULL,
-    notes TEXT,
-    updated_utc TEXT NOT NULL,
-    PRIMARY KEY (currency_id, source_kind, source_id)
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS drop_bosses (
-    boss_id TEXT PRIMARY KEY,                  -- MonsterVarieties.Id (Metadata/...)
-    boss_name TEXT NOT NULL,
-    area_id TEXT,                              -- WorldAreas.Id when known
-    category TEXT NOT NULL,                    -- campaign, map, unique-map, labyrinth, league, pinnacle, other
-    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-    updated_utc TEXT NOT NULL
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS drop_boss_items (
-    boss_id TEXT NOT NULL,
-    item_id TEXT NOT NULL,                     -- BaseItemTypes.Id, or a unique's name
-    item_kind TEXT NOT NULL CHECK (item_kind IN ('unique', 'currency', 'gem', 'card', 'other')),
-    chance REAL CHECK (chance IS NULL OR (chance >= 0 AND chance <= 1)),  -- NULL = unknown, not zero
-    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
-    source TEXT NOT NULL,
-    notes TEXT,
-    updated_utc TEXT NOT NULL,
-    PRIMARY KEY (boss_id, item_id)
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS drop_card_areas (
-    area_id TEXT NOT NULL,                     -- WorldAreas.Id; PoEDB name until mapped
-    area_name TEXT NOT NULL,                   -- PoEDB area name, for review and mapping
-    card_id TEXT NOT NULL,                     -- BaseItemTypes.Id
-    min_map_tier INTEGER NOT NULL CHECK (min_map_tier BETWEEN 1 AND 16),
-    source TEXT NOT NULL,
-    updated_utc TEXT NOT NULL,
-    PRIMARY KEY (area_id, card_id)
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS drop_card_sources (
-    card_id TEXT NOT NULL,
-    source_kind TEXT NOT NULL CHECK (source_kind IN ('area', 'boss', 'league')),
-    source_id TEXT NOT NULL,
-    min_map_tier INTEGER CHECK (min_map_tier IS NULL OR min_map_tier BETWEEN 1 AND 16),
-    drop_level INTEGER NOT NULL,
-    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
-    source TEXT NOT NULL,
-    notes TEXT,
-    updated_utc TEXT NOT NULL,
-    PRIMARY KEY (card_id, source_kind, source_id)
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS drop_item_weights (
-    category TEXT NOT NULL CHECK (category IN ('scarab', 'card', 'essence', 'fossil', 'catalyst',
-        'delirium-orb', 'breachstone', 'legion-splinter', 'runegraft')),
-    item_id TEXT NOT NULL,                     -- BaseItemTypes.Id
-    weight REAL NOT NULL CHECK (weight >= 0),  -- relative inside its category
-    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-    source TEXT NOT NULL,                      -- the dataset URL
-    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
-    patch TEXT NOT NULL,                       -- the patch the sample is from
-    sampled_at TEXT NOT NULL,                  -- the dataset's date
-    notes TEXT,
-    updated_utc TEXT NOT NULL,
-    PRIMARY KEY (category, item_id)
-) STRICT;
-```
+The schema is `GameDataStore.cs` (`drop_currency_weights`, `drop_currency_sources`, `drop_bosses`,
+`drop_boss_items`, `drop_card_areas`, `drop_card_sources`, `drop_item_weights`); each row keeps its `source`,
+`confidence` (`verified`, `estimated`, `unknown`) and notes beside the value.
 
 The penalty constants are ordinary `system_settings` rows, not a table:
 
@@ -110,28 +28,24 @@ drop_penalty_per_level_pct = 2.5     -- 2.5% per level past it
 drop_penalty_character_level_cap = 68
 ```
 
-## Seed files
+## Seed
 
-The seed lives in `Agents/docs/game`, beside the research it came from; the
-Gateway's `GameDataDrops` reads it when the drop tables hold an older seed
-generation, and `scripts/release/build-release.ps1` copies these files into the
-package so a release seeds itself too:
+`GameDataDrops.Seed` fills the tables in one transaction; nothing is read from the docs:
 
 | Table | Seed |
 |---|---|
-| `drop_currency_weights` | [currency-weights.csv](../game/currency-weights.csv), 24 rows, the current hardcoded table |
-| `drop_bosses` | [bosses.csv](../game/bosses.csv), 997 area rows / 630 distinct boss ids |
-| `drop_boss_items` | [boss-drops.csv](../game/boss-drops.csv), 108 rows: major boss unique pools, boss-only currency, the King in the Mists exact chances |
-| `drop_card_areas` | [divination-card-areas.csv](../game/divination-card-areas.csv), 555 area/card pairs from PoEDB |
-| `drop_card_sources` | the boss cards in `boss-drops.csv` (currently The Endless Darkness), derived on seed |
-| `drop_item_weights` | [item-weights.csv](../game/item-weights.csv), 531 rows: 422 cards and 109 scarabs from the poedata.dev MLE calculations (cards 3.27.0, scarabs 3.28.0) |
+| `drop_currency_weights` | `ItemDrops.Currency` (24 rows), each with its `BaseItemTypes.DropLevel` |
+| `drop_bosses` | `WorldAreas.Bosses_MonsterVarietiesKeys` (630 distinct boss ids); the category comes from the area's `IsUniqueMapArea`/`IsMapArea`/`IsLabyrinthArea`/`IsLabyrinthBossArea` flags, else `campaign` (act > 0) or `other` |
+| `drop_boss_items` | `DropDataSeed.BossItems`, 108 rows: major boss unique pools (PoEDB), boss-only currency, the King in the Mists exact chances |
+| `drop_card_areas` | `DropDataSeed.CardAreas`, 555 area/card pairs from PoEDB |
+| `drop_card_sources` | the boss cards in `DropDataSeed.BossItems` (currently The Endless Darkness) |
+| `drop_item_weights` | `DropDataSeed.ItemWeights`, 531 rows: 422 cards and 109 scarabs from the poedata.dev MLE calculations (cards 3.27.0, scarabs 3.28.0) |
 
 `chance` is `NULL` when the source does not publish it. That is deliberate: it
 means unknown, not zero. The King in the Mists uniques are the only exact boss
 distribution currently seeded (40/35/20/5%); Maven's Orb is an estimated 25%.
-`confidence` is one of the three values in the DDL; a wiki sample is `estimated`
-and the citation stays in `source`/`notes`. The seed files use either decimal
-comma or point (`0,15` or `0.15`). The poedata weights are community MLE
+`confidence` is one of the three values above; a wiki sample is `estimated`
+and the citation stays in `source`/`notes`. The poedata weights are community MLE
 estimates, so they are `estimated`, and `source`/`patch`/`sampled_at` keep the
 provenance. `GameDataDrops.SeedVersion` is bumped when the seed changes; a
 database seeded by an older generation is refilled once.
@@ -140,7 +54,7 @@ database seeded by an older generation is refilled once.
 
 - On startup, if `game_data_meta` has no `drop_seeded`, or its
   `drop_seed_version` is older than `GameDataDrops.SeedVersion`, seed every table
-  from the CSV in one transaction and record both. Later starts keep the rows as
+  from the seed in one transaction and record both. Later starts keep the rows as
   they are, so an edit survives; a new seed generation refills them once.
 - Load the tables once into immutable dictionaries on
   `DropDataProvider.Snapshot`: `CurrencyWeights`, `CurrencySources`, `Bosses`,
@@ -179,15 +93,6 @@ Editing commands can follow the `unique_weight` pattern:
 /game_data card_area <area-id> <card-id> <tier>
 /game_data drop_reload
 ```
-
-Tests:
-
-1. A fresh store seeds a fixture folder once (a second seed does nothing) and the
-   provider publishes the currency, boss, boss-item, card-area and item-weight rows.
-2. A store with no seeded drop table leaves the provider empty, so
-   `ItemDrops.Build` keeps the compiled currency fallback.
-3. A seeded card/scarab pool returns only weighted, enabled items at the
-   monster's DropLevel, and the uniform fallback still applies the gate.
 
 ## Future mapping work
 
