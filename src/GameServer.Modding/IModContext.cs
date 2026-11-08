@@ -62,6 +62,10 @@ public interface IModContext
     /// back to the Gateway's local one. The players in game move at once.</summary>
     IDisposable UseChatServer(string host, int port);
 
+    /// <summary>The Gateway keeps the Currency Exchange's rates up to date from this rates service until the handle is disposed or the mod
+    /// unloads; the mod itself contacts nothing.</summary>
+    IDisposable UseExchangeRates(string url);
+
     /// <summary>The settings its <c>settings.json</c> declares, with the user's values (<c>data/mods/&lt;id&gt;.json</c>, for a
     /// module <c>data/modules/&lt;id&gt;.json</c>) over the defaults, read into <typeparamref name="T"/> by name (case does not
     /// matter). A value that does not fit its declaration is logged and its default used. A change to either file reloads

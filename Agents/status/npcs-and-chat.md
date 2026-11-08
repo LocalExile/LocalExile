@@ -70,6 +70,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Faustus's Currency Exchange at official prices: the module, window protocol and rates service are written; not yet played with the client.
+  See [29](../docs/protocol/29-currency-exchange.md).
 - Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.
   Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.
   Support gems are excluded from deterministic rewards and the opening support chest.

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "settings": {
+    "spread": {
+      "type": "number", "default": 0.03, "min": 0, "max": 0.5, "step": 0.01, "format": "percent",
+      "label": "Spread", "description": "How much worse than the official price Faustus trades, on each order."
+    },
+    "orderSlots": {
+      "type": "integer", "default": 10, "min": 1, "max": 100,
+      "label": "Order slots", "description": "How many orders a player can have at once."
+    },
+    "maxRateAgeDays": {
+      "type": "number", "default": 7, "min": 1, "max": 365, "unit": "days",
+      "label": "Oldest rates", "description": "Rates older than this are not traded at: the market shows no stock until new ones arrive."
+    },
+    "ratesLeague": {
+      "type": "text", "default": "", "maxLength": 64,
+      "label": "Prices of league", "description": "An official league's prices for every league here. Empty: Standard at Standard's, the rest at the current challenge league's."
+    }
+  }
+}
