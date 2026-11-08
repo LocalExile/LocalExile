@@ -395,8 +395,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   The character panel gets the chance again within 250 ms of a condition changing (the player tick).
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
-- Movement speed: the passive `base_movement_velocity_+%` is summed into `Pools`, sent as the client's
-  `movement_velocity_+%` and used by the server's walk copy (37 × (1 + pct / 100) cells/s);
+- Movement speed: the passive `base_movement_velocity_+%` and the item/conditional `movement_velocity_+%` are summed
+  into `Pools`, sent as the client's `movement_velocity_+%` and used by the server's walk copy (37 × (1 + pct / 100)
+  cells/s);
   applied on login, level, passive and area changes; `/set_speed` adds its percentage on top.
   `action_speed_-%` from raw sources and dev overrides is composed additively with chill/freeze and multiplied once
   into movement, attack, cast and stun-recovery pacing. New actions are limited to one per frame (30/s, `TickSeconds`);
