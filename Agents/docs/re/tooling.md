@@ -317,3 +317,24 @@ Other formats:
   a third-party DLL), so `NightRetry` drops it and the file says so.
 - A function too big for every decompiler pass (seen once, in a third-party DLL: 413 KB, 24,649 blocks) is written by
   `NightSplit.java` as pieces of C; instructions in no piece that decompiles stay disassembly.
+
+## 11. Porting to a new client build (`scripts/re/port`)
+
+How 3.29.3b → 3.29.3c was ported; every step maps from evidence, nothing by offset guessing.
+
+1. **Address map.** Import and analyze the new executable into a separate Ghidra project, add the old one, and run
+   `AutoVersionTrackingScript.java` with `PortVtOptions.java` as the first post-script (the stock options without the
+   duplicate-function correlator, which ran for hours without finishing). Run `NightRecover.java` and
+   `NightSwitches.java` on both programs (auto-analysis left the instance dispatcher's jump table unrecovered in
+   3.29.3c only, so the two bodies did not align). Then `PortMap.java <session> <out dir> <addresses.txt>`: it aligns
+   every accepted function pair instruction by instruction, pairs the functions Version Tracking left (unanimous call
+   targets and vtable slots, each checked by alignment), and resolves each listed address with how it was proven.
+   3.29.3b → 3.29.3c: 75,880 accepted + 17,119 propagated functions; 9,641 of 10,321 repository addresses.
+2. **Message ids.** Run `ComponentRegistry.java`, `ReadSchema.java` and `SendSites.java` (addresses rewritten through
+   the map) on the new program, then `compare_messages.py`: S→C factory cases pair by mapped class, C→S sends by
+   mapped function and class. Classless ids routed by a handler's own byte table (the world group's Positioned
+   `0x2b0`) are checked in that table.
+3. **Tables.** `compare_tables.py` on both decoded table folders: row moves by key and reordered columns. A saved
+   row index needs a migration (`mtx_remap.py` made `CosmeticMigration`).
+4. **Rewrite.** `rewrite_addresses.py <resolved.tsv> <report.tsv> [--apply]` replaces mapped address tokens in tracked
+   files and lists the rest; generated docs (section 7) are regenerated on the new build instead.
