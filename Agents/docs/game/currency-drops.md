@@ -177,6 +177,9 @@ flag for the special hooks), then the intersection of the area table,
 `DropLevel <= monster level` and the special source. `MapRun.CardDropChance` and
 `PacksDropCards` only change the chance, not the pool.
 
+Boss unique pools and the known chances are in [boss-drops.md](boss-drops.md);
+the full work plan is in [drop-research-roadmap.md](drop-research-roadmap.md).
+
 ## 6. Community spreadsheets and datasets
 
 Searched for 2024-2026 community Excel/Google Sheets. There is **no public

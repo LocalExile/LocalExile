@@ -84,6 +84,8 @@ This research does not change the production simulator or certify native/officia
 | [game/arcane-might.md](game/arcane-might.md) | spell increased/reduced transfer to attacks, source inventory and implementation boundaries |
 | [game/maps.md](game/maps.md) | 3.29 maps and the Atlas: the 20 generic map bases, tiers, drops, Voidstones (rules to build to) |
 | [game/currency-drops.md](game/currency-drops.md) | currency DropLevels, the hardcoded weights, the 3.26-3.29 changes and the drop penalty |
+| [game/boss-drops.md](game/boss-drops.md) | boss unique pools, boss-only currency, known drop chances and `bosses.csv` |
+| [game/drop-research-roadmap.md](game/drop-research-roadmap.md) | the working checklist for currency, card, boss and penalty research |
 | [game/king-in-the-mists.md](game/king-in-the-mists.md) | The King in the Mists: Crux entry, both forms, phase data, skills, loot and implementation boundaries |
 | [game/gambler.md](game/gambler.md) | Gambler node checklist, incoming elemental ailments and read-only opt-in |
 | [game/aristocrat.md](game/aristocrat.md) | Aristocrat node checklist: gem levels/quality, attribute requirements and conditional immunities |
