@@ -41,8 +41,13 @@ What differs from the sections below:
   lift with it. `a7q1-SeenBlockage` / `a7q4-SeenBlockage` / `a7q8-SeenShrine` are proximity rules.
 - The seven Fireflies' chests have no placement in the data: `On.ScatteredChest` spreads them over The Dread Thicket's
   walk map (the same cells for the same seed).
+  `FireflyChestBase` disables targeting in `create_transitioned`: unopened chests must be sent in Transitionable
+  state 1, not state 2; the latter makes visible fireflies impossible to click.
 - Maligaro's portal (`MaligaroPortalTransition`, spawned by the device beside itself) is a quest portal (`On.Portal`)
   shown with `a7q2-DeliveredItem`. Played live 2026-10-31 (all nine quests, no `/goto`).
+- Arakaali's return gate is on the balcony outside the closed arena web. Arriving beside that gate leaves the player
+  trapped; the campaign arena entrance uses the placed `boss.arm` footprint's walkable centre until the scripted entrance
+  is implemented. Return gates retain their ordinary destination.
 - Not created: the arena machinery (Arakaali's turrets, Maligaro's door), Yeena
   after Arakaali. The Crossroads (`2_7_2`) plays at a seed the client builds; its BanditBlock is placed by no room the
   generation keeps at seed 1, so its sight (`a7q1-SeenBlockage`) is optional.

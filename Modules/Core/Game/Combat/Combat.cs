@@ -1348,9 +1348,11 @@ static partial class Game
         double waveHalfAngle = wave ? GroundSlamWave.HalfAngle(Stat) : 0;
         (double X, double Y) waveDir = wave ? GroundSlamWave.Direction(from, to) : (0, 0);
         // A wave starts where the player stands and only takes its direction from the aim; a melee skill aimed far away
-        // still lands in front of the player; a self-targeted spell goes off around the caster.
-        var centre = wave || VaalExecutor(conn, gem.Effect) || !spell && Dist(from, to) > radius + weapon.Range ? from
-            : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
+        // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
+        // around the caster.
+        var centre = wave || VaalExecutor(conn, gem.Effect) ? from
+            : spell ? SpellCentre(conn, gem.Effect, from, to)
+            : MeleeAreaCentre.Of(SkillsFor(conn).ActionHash(gem.Effect), from, to, radius + weapon.Range);
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         // A later action (a Move, another use) replaces the swing; nothing of it lands from then on. The ordinary attack
         // says so at its own contact (Attack's HitTarget); this says so for a gem skill's sweep, whose drop was otherwise

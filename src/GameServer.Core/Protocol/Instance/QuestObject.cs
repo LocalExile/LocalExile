@@ -13,13 +13,16 @@ namespace GameServer.Core.Protocol.Instance;
 /// <item>Chest (0x141e16f10): u8 opened (bit 0), u8, u8; Stats and ObjectMagicProperties as an area transition's;</item>
 /// <item>TriggerableBlockage (0x141e47880): u8 blocked, and only while blocked a u8 count (0 here);</item>
 /// <item>NPC: has dialogue 0, no component that must be alive (0xff), as a boss that speaks;</item>
-/// <item>InteractionAction, MinimapIcon: one flags byte, 0; BaseEvents: nothing.</item>
+/// <item>InteractionAction: flags 0; MinimapIcon: flags 0, or 6 for an explicitly hidden marker; BaseEvents: nothing.</item>
 /// </list>
 /// Types with any other deserialized component are not written (<see cref="CanSerialize"/>).
 /// </summary>
 public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Components, float Rotation = 0, float? Height = null,
     string? Model = null, byte TransitionState = 1, bool Opened = false, bool Blocked = false, ushort Team = 0)
 {
+    /// <summary>Suppress the object's own map marker without removing its model or interaction.</summary>
+    public bool HideMinimapIcon { get; init; }
+
     static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "Transitionable", "InteractionAction", "MinimapIcon",
         "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement"];
 
@@ -55,7 +58,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                 case "TriggerableBlockage": if (Blocked) w.U8(1).U8(0); else w.U8(0); break;
                 case "NPC": w.U8(0).U8(0xff); break;
                 case "InteractionAction": w.U8(0); break;
-                case "MinimapIcon": w.U8(0); break;
+                case "MinimapIcon": w.U8((byte)(HideMinimapIcon ? 0x06 : 0)); break;
                 // BaseEvents: no data.
             }
         }
