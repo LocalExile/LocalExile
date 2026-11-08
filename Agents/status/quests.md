@@ -8,7 +8,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Quests: a1q1: new characters
   start on The Twilight Strand's beach and log in there until they reach a town;
   coming within 60 cells of Hillock sets `a1q1-SeenHillock` ("Kill Hillock");
-  Hillock has the boss life bar at the top of the screen once he aggroes (StateMachine `boss_life_bar`, 0x2ba), unique
+  Hillock has the boss life bar at the top of the screen once he aggroes (StateMachine `boss_life_bar`, 0x2bc), unique
   life (311 at level 1) and a second stage: at half life he pulls out his sword (ZombieBossExtract, Transitionable → 2)
   and heals at its extracted contact (~750 ms), with separate 3 s recovery; the force wall stands across the
   way to the gate until he dies, and the server closes the way on its own walk map too (`QuestBarriers`), so its
@@ -22,7 +22,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   tile records and each drops its glyph once per instance while the character still needs it.
   Picking a glyph up sets `a1q4-KnowsAboutGlyphs` and `a1q4-HaveGlyphN`; coming near the Glyph Wall sets
   `a1q4-SeenGlyphWall`.
-  Using the wall with all three glyphs takes them, sets `a1q4-PlacedGlyphs` and plays the wall's transition (0x2ba to
+  Using the wall with all three glyphs takes them, sets `a1q4-PlacedGlyphs` and plays the wall's transition (0x2bc to
   Transitionable).
   The client's invisible wall then opens, and the exit into The Submerged Passage appears; until then the server's
   walk estimate stops at the same invisible wall as the client.

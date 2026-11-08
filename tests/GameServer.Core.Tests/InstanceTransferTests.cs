@@ -19,7 +19,7 @@ public class InstanceTransferTests
     [Fact]
     public void Change_area_is_hash_and_loading_screen()
     {
-        Assert.Equal("02B2" + "7AD2" + "0000", Convert.ToHexString(InstanceTransfer.ChangeArea(0x7ad2)));
+        Assert.Equal("02B4" + "7AD2" + "0000", Convert.ToHexString(InstanceTransfer.ChangeArea(0x7ad2)));
     }
 
     [Fact]

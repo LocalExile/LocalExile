@@ -1,11 +1,11 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The mirror seams (<c>0x142025440</c> on the view: a tile graph's after the overlays, a dungeon's after its
-/// fill, <c>0x1420f3480</c>, with its placed rooms as the room list): row by row, a
+/// <summary>The mirror seams (<c>0x14202bc90</c> on the view: a tile graph's after the overlays, a dungeon's after its
+/// fill, <c>0x1420f9d80</c>, with its placed rooms as the room list): row by row, a
 /// tile larger than one entry, without a tag and not a plain fill tile, none of whose vertices took a room's own
-/// vertex ground (room data +0xe8 of every room in the list, fill rooms included, <c>0x142025fb0</c>), whose neighbour one tile size away is the same tile mirrored is re-picked among
-/// its key's tiles that make no seam with their up and left neighbours (<c>0x142027670</c>). With none, outside rooms,
-/// a neighbour's shared edge point moves instead (<c>0x142026bc0</c>).</summary>
+/// vertex ground (room data +0xe8 of every room in the list, fill rooms included, <c>0x14202c800</c>), whose neighbour one tile size away is the same tile mirrored is re-picked among
+/// its key's tiles that make no seam with their up and left neighbours (<c>0x14202dec0</c>). With none, outside rooms,
+/// a neighbour's shared edge point moves instead (<c>0x14202d410</c>).</summary>
 sealed class Seams(TerrainCache files, LevelRandom rng, TileGrid grid, int offsetX, int offsetY, int width, int height, TileStore store,
     IReadOnlyList<PlacedRoom> rooms, IReadOnlySet<(int X, int Y)> roomVertices, (string? A0, string? A8, string? B0) grounds, List<string> notes)
 {
@@ -22,7 +22,7 @@ sealed class Seams(TerrainCache files, LevelRandom rng, TileGrid grid, int offse
             for (int y = r.Y; y < r.Y + r.Height; y++)
                 for (int x = r.X; x < r.X + r.Width; x++)
                     if ((uint)(x - offsetX) < (uint)width && (uint)(y - offsetY) < (uint)height) _roomCells[(y - offsetY) * width + x - offsetX] = true;
-        // 0x142025440's vertex set: every listed room's inner vertices that have a ground of the room's own, turned.
+        // 0x14202bc90's vertex set: every listed room's inner vertices that have a ground of the room's own, turned.
         foreach (var r in rooms)
             if (r.Room.VertexGrounds.Length > 0)
                 for (int v = 1; v < r.Room.Height; v++)
@@ -54,7 +54,7 @@ sealed class Seams(TerrainCache files, LevelRandom rng, TileGrid grid, int offse
         grid.CheckGrounds = check;
     }
 
-    /// <summary><c>0x142025fb0</c>: some vertex of the w × h area at map (x, y) took a room's own vertex ground.</summary>
+    /// <summary><c>0x14202c800</c>: some vertex of the w × h area at map (x, y) took a room's own vertex ground.</summary>
     internal static bool TouchesRoomVertex(IReadOnlySet<(int X, int Y)> roomVertices, int x, int y, int w, int h)
     {
         for (int v = y; v <= y + h; v++)
@@ -63,12 +63,12 @@ sealed class Seams(TerrainCache files, LevelRandom rng, TileGrid grid, int offse
         return false;
     }
 
-    // 0x14201d800 on the tile's own key (tile data +0x40, grounds left out of keys included): no edge types but
+    // 0x142024050 on the tile's own key (tile data +0x40, grounds left out of keys included): no edge types but
     // wildcard ones (.et +0x48 bit 7) and one ground on every corner.
     internal static bool PlainFill(TerrainCache files, TileDef tile) =>
         tile.Key.Edges.All(e => e is null || files.Edge(e)?.Wildcard == true) && tile.KeyGrounds.Distinct().Count() == 1;
 
-    /// <summary><c>0x142025e60</c>: some entry of the area belongs to a tilised room.</summary>
+    /// <summary><c>0x14202c6b0</c>: some entry of the area belongs to a tilised room.</summary>
     bool InRoom(int x, int y, int w, int h)
     {
         for (int v = y; v < y + h; v++)
@@ -77,7 +77,7 @@ sealed class Seams(TerrainCache files, LevelRandom rng, TileGrid grid, int offse
         return false;
     }
 
-    /// <summary><c>0x142027670</c>.</summary>
+    /// <summary><c>0x14202dec0</c>.</summary>
     void Repair(int x, int y, TileEntry e, int direction, TileEntry neighbour)
     {
         var key = e.Tile.Key.Rotate(e.Orientation);
@@ -108,7 +108,7 @@ sealed class Seams(TerrainCache files, LevelRandom rng, TileGrid grid, int offse
         return list[^1];
     }
 
-    /// <summary><c>0x142026100</c>: the tile at (x, y) would face a mirrored copy of itself (up and left only, unless all).</summary>
+    /// <summary><c>0x14202c950</c>: the tile at (x, y) would face a mirrored copy of itself (up and left only, unless all).</summary>
     bool Seam(int x, int y, TileDef tile, int o, bool allDirections)
     {
         var (w, h) = Orientation.Size(o, tile.Width, tile.Height);
@@ -121,7 +121,7 @@ sealed class Seams(TerrainCache files, LevelRandom rng, TileGrid grid, int offse
         return false;
     }
 
-    /// <summary><c>0x142026bc0</c>: for each other side with a (non-virtual) edge whose neighbour has the same size, no tag
+    /// <summary><c>0x14202d410</c>: for each other side with a (non-virtual) edge whose neighbour has the same size, no tag
     /// and lies outside rooms, every other edge point on that side gives the tiles of the changed key that make no seam
     /// up or left; drawn by weight (<c>Next(total)</c>), a choice stands when the neighbour, its key's opposite point
     /// moved to meet it, has tiles making no seam in any direction other than the choice mirrored: both are replaced
@@ -187,7 +187,7 @@ sealed class Seams(TerrainCache files, LevelRandom rng, TileGrid grid, int offse
         }
     }
 
-    /// <summary><c>0x141d80030</c>: the ground of a tile's vertex at (u, v) relative to its origin on the map, under its
+    /// <summary><c>0x141d836c0</c>: the ground of a tile's vertex at (u, v) relative to its origin on the map, under its
     /// orientation.</summary>
     static string? VertexAt(TileDef tile, int o, int u, int v)
     {
@@ -197,7 +197,7 @@ sealed class Seams(TerrainCache files, LevelRandom rng, TileGrid grid, int offse
         return null;
     }
 
-    /// <summary><c>0x142026370</c>: no other tile around vertex (x, y) has a ground there.</summary>
+    /// <summary><c>0x14202cbc0</c>: no other tile around vertex (x, y) has a ground there.</summary>
     bool Unowned(int x, int y, int ox, int oy)
     {
         foreach (var (dx, dy) in new[] { (0, 0), (-1, 0), (-1, -1), (0, -1) })
@@ -210,7 +210,7 @@ sealed class Seams(TerrainCache files, LevelRandom rng, TileGrid grid, int offse
         return true;
     }
 
-    /// <summary><c>0x1420264b0</c>: the tile at (x, y) is replaced (same height offset). Vertices only it gives a ground
+    /// <summary><c>0x14202cd00</c>: the tile at (x, y) is replaced (same height offset). Vertices only it gives a ground
     /// that the new tile leaves without one take the most common ground among the old tile's groundless vertices (or,
     /// with none, among their outside neighbours; with none either, by height: the graph's grounds).</summary>
     void Replace(int x, int y, TileDef tile, int o)

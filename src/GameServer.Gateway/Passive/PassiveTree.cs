@@ -9,7 +9,7 @@ using System.Text.Json;
 /// effects' stats. The client's 0x3d list carries the selected effects as node | effect &lt;&lt; 16; the effect is the
 /// effect row's HASH16 (the value in the client's passive tree data), not its data-table row index.
 /// Gold respec (Bestel's Respecialisation): a node costs VillageBalancePerLevelShared.dat's GoldRespecCost at the
-/// character's level times the node's multiplier, as the client's per-node cost 0x141efb140 computes it.
+/// character's level times the node's multiplier, as the client's per-node cost 0x141f019b0 computes it.
 /// </summary>
 sealed class PassiveTree(string folder = "data", bool hardMode = false)
 {
@@ -177,7 +177,7 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
     public int PointsGranted(IEnumerable<ushort> nodes) => nodes.Sum(n => Find(n)?.PointsGranted ?? 0);
 
     /// <summary>
-    /// The gold a respec of these nodes costs at the character's level (client 0x141efb140): GoldRespecCost of the
+    /// The gold a respec of these nodes costs at the character's level (client 0x141f019b0): GoldRespecCost of the
     /// VillageBalancePerLevelShared.dat row for the level, times each node's multiplier (1; 0 for a multiple-choice
     /// node; an expansion node's own value). Ascendancy nodes are not part of a gold respec (the client's full cost
     /// skips them too). Unknown nodes cost nothing.

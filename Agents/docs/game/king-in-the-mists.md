@@ -229,7 +229,7 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
   `Metadata/Projectiles/BugSoulrend` (six projectiles), matching the official capture; the earlier
   `PlayAnimation failed [SpellProjectileChaos]` was a stale Debug build, not the skill.
 - The hex, teleport, effigy, ritual and maze actions are **spells** and send their own cast-time stats
-  (`MonsterAttack.Spell`). The crash first put down to the missing cast time (`0xc0000005` at `0x19e0daf`, live
+  (`MonsterAttack.Spell`). The crash first put down to the missing cast time (`0xc0000005` at `0x19e37bf`, live
   2026-10-31) is inside `GeometryChannelBase::StartChannelling`: the ritual's missing GeometryChannel row (below).
 - Skips both forms, the Mystic Fetishes and the Guiding Lights in the ordinary `PlanMonsterAi` loop; the controller
   serializes one action at a time. The current AI stage (`Game_KING_BASIC`, default on) makes only the humanoid's default
@@ -306,7 +306,7 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
   action with those fields. The base-data links and the staff are still open: the humanoid's Inventories component is
   empty, so `VoodooKingBossWeapon.ao` is never created.
 - Every King action carries a **fresh sequence** (`0x8000+`), as the official server does (`0x8011`, `0x8012`, …). Reusing
-  `0xffff` for every action was blamed for the `0x19e0daf` crash (live 2026-10-31); its cause was the channel's missing
+  `0xffff` for every action was blamed for the `0x19e37bf` crash (live 2026-10-31); its cause was the channel's missing
   GeometryChannel row (below). The ritual is the client's own `0x400e` channel.
 - Phase 1: creates the three `VoodooKingBoss2RitualPillar` Mystic Fetishes at the official create positions
   (mapboss-relative `(-68, -52)`, `(68, -51)` and `(-2, 64)`; world `(232, 490)`, `(368, 491)` and `(298, 606)` at
@@ -323,12 +323,12 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
   ritual is `GSVoodooKingRitual` (`0x400e`) as an ordinary `0x1ab` action aimed at the fetish (its object and cell); the
   King's `.act` plays `call_start_01` and `call_loop_01`, and the action's end (`0x1ac`, about 3.4 s on) `call_end_01`
   (live 2026-11-07: all three rituals, no crash). The client builds the action's channel from a GeometryAttack row: the
-  action's constructor (`0x141512810`) reads the record's `skill_behaviour_variation` (`0x1921`), and `0x141962640` takes
+  action's constructor (`0x141514b10`) reads the record's `skill_behaviour_variation` (`0x1921`), and `0x141967050` takes
   the GeometryAttack row with that Id and its GeometryChannel. The value is the GrantedEffects row's `SkillID` (1116 →
   GeometryAttack 1116 → GeometryChannel 29 `GSVoodooKingRitual`), which the client's own skill-stat builder adds but a
   record from the server must carry (`SkillCatalog.BehaviourVariation`, sent on every monster record without a
-  projectile). Without it the client took Id 0, a row with no GeometryChannel, and `StartChannelling` (`0x1419e0c70`)
-  read the null row's `+0x28` (`0xc0000005` at `0x1419e0daf`). The King is immune to damage for the whole sequence, so no ordinary
+  projectile). Without it the client took Id 0, a row with no GeometryChannel, and `StartChannelling` (`0x1419e3680`)
+  read the null row's `+0x28` (`0xc0000005` at `0x1419e37bf`). The King is immune to damage for the whole sequence, so no ordinary
   damage can interrupt the cast; the controller still checks the fetish, but it cannot be destroyed before the
   vulnerability window. A completed ritual spawns that fetish's hazard actors (rats or toads); its `active` state (RitualPillarTrio: the
   activation pulse and `effigybeam.ao`) and the central shrine's `active_pillars` (its `idle_active_01`–`_03` clips) are
@@ -566,7 +566,7 @@ VineSlam -> Meditation -> Melee -> VineSlam -> Melee -> SummonDeathAuraEffigy
 |---|---|---|---|
 | Fetish activation | `GSVoodooKingRitual` **targeted at the player first, then the fetish**, then `EASVoodooKingReturnFromEdge` self | Implemented: `VoodooKingTeleportFlee` approach, the `0x400e` channel aimed at the fetish and ended with `0x1ac`, a server-side ritual; the fetish stays immune through the animation and becomes attackable at `call_end_01`, and the King is immune throughout; `0x1b7` return to the centre | The channel's first target (the player); the fetish/shrine `active` states; the exact dash movement sequence |
 | Fetish hazards | Fetish actors cast `RatSwarm`, `CorruptedBloodDegen`, `SummonFrogSwamps`; toads/swamp/blood objects | Implemented: state-machine activation + rats/toads; no raw hazard `0x1ab` (the ACT lacks the default-stance `SpellAreaOfEffect` clip) | `VoodooKingSwampGround` and blood/caustic ground objects; hazard DoT |
-| Central shrine | `RitualPillar2` actor and `HugeRitualShrine01_01.ao`; `active_pillars` 0–3 | Implemented: server object at the `arena.arm` point, state update per completed ritual (`idle_inactive` → `idle_active_01`–`_03`) | Exact official state timing (capture logged actor creation, not 0x2ba) |
+| Central shrine | `RitualPillar2` actor and `HugeRitualShrine01_01.ao`; `active_pillars` 0–3 | Implemented: server object at the `arena.arm` point, state update per completed ritual (`idle_inactive` → `idle_active_01`–`_03`) | Exact official state timing (capture logged actor creation, not 0x2bc) |
 | Phase 1 hexes | Meditation `0x4006` on the player | Implemented as `hex_01` (clip 11) + BuffDefinitions 2358/2359 for 8 s, alternating every 25 s | Imprisonment/maim rule and the actual action/channel contract |
 | Phase 2 | Same area; `GuidingLightDaemonMaze_`, `WerewolfMaze`, `MeleeSpiderMaze`; Guiding Lights move along the route | Implemented: room-graph BFS route with walkable legs; real `GuidingLightDaemonMaze_` actors move along it; one werewolf and one spider spawn at the middle | Exact route/wisp curve and the full maze population |
 | Phase 3 skills | Slam, Meditation, Dance, Effigy, BugBomb, Punishment, BugRend/BugRendSingle, BugBombImpact, SwarmPulse | Implemented: Slam, BugBomb, BugRend, Effigy, Meditation/Dance, Punishment; BugBombImpact/SwarmPulse are in the actor list | Shadow Surge, BugBombImpact/SwarmPulse action tuning |

@@ -1,4 +1,4 @@
-// Read-only 3.29.3b evidence: the received world stats, graph family, class byte and applied passive/point state.
+// Read-only 3.29.3c evidence: the received world stats, graph family, class byte and applied passive/point state.
 // Run standalone: python scripts/re/frida/run.py <pid> --log logs/ascendancies.jsonl scripts/re/frida/trace-ascendancies.js
 // No replacement, writes, or calls into game functions. Relog/area entry records graph selection; P records tree use.
 (() => {
@@ -20,7 +20,7 @@
     return { world: world.toString(), stats: pairs(world.add(0x120)), areaLevel: world.add(0xd4).readU8() };
   }
 
-  Interceptor.attach(at('0x142148880'), {
+  Interceptor.attach(at('0x14214f1d0'), {
     onEnter(args) {
       instance = args[0];
       try {
@@ -33,7 +33,7 @@
     }
   });
 
-  Interceptor.attach(at('0x141ec5750'), {
+  Interceptor.attach(at('0x141ecc000'), {
     onEnter(args) { this.world = args[0]; },
     onLeave(result) {
       try {
@@ -47,7 +47,7 @@
     }
   });
 
-  Interceptor.attach(at('0x141ef2710'), {
+  Interceptor.attach(at('0x141ef8f70'), {
     onEnter(args) { this.tree = args[0]; },
     onLeave() {
       try {

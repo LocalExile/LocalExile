@@ -9,19 +9,19 @@ After 0x21 activates the world and binds the player, the listeners build the in-
 
 ## 1. The player inventory manager
 
-`instance+0xc890` (dispatcher `this+0xc888`). `0x14216aa30(instance, sel)` picks a manager: 0 → `+0xc890` (the
+`instance+0xc890` (dispatcher `this+0xc888`). `0x1421713e0(instance, sel)` picks a manager: 0 → `+0xc890` (the
 player's), 1 → `+0xca10`, 2 → `+0xcb90`, anything else null.
 
 | Manager field | Meaning |
 |---|---|
 | `+0x150..+0x158` | u32 array of **0x75 (117) entries: inventory id by Inventories.dat row**. Created on the first registration |
 | `+0x168..+0x170` | sorted vector of 0x18-byte entries `{u32 id; ptr inventory; ctrl}` (id → inventory) |
-| `+0x148` | a pointer the gem/socket walker (`0x142173fc0`) checks before using stats |
+| `+0x148` | a pointer the gem/socket walker (`0x14217a930`) checks before using stats |
 
-- Register `0x141d625f0(manager, msg)`: id = msg `+0x14`, row = `*(msg+0x18)+0x144`. If row < 0x75 and ≠ 0x1a:
-  `ids[row] = id`. Then the id → inventory entry is inserted (`0x141d6b330`) and listeners are notified (`0x141d6c1c0`).
-- Lookup `0x141d621a0(manager, &out, id)`: binary search, null if not found.
-- UI pattern (example `0x14029dfc0` → `0x1402bafb0` → `0x1402d0500`, the flask frame "SapFlaskFrame"):
+- Register `0x141d65c80(manager, msg)`: id = msg `+0x14`, row = `*(msg+0x18)+0x144`. If row < 0x75 and ≠ 0x1a:
+  `ids[row] = id`. Then the id → inventory entry is inserted (`0x141d6e9c0`) and listeners are notified (`0x141d6f850`).
+- Lookup `0x141d65830(manager, &out, id)`: binary search, null if not found.
+- UI pattern (example `0x14029e550` → `0x1402bb540` → `0x1402d0a90`, the flask frame "SapFlaskFrame"):
   `id = (ids.size > 11) ? ids[11] : 0; inv = lookup(id)`, then `inv->field` with **no null check**.
 - A scan of all 409 call sites of the lookup found about 50 distinct rows used (0x03, 0x05, 0x07, 0x09, 0x0b flask,
   0x0c cursor (26 sites), 0x0d, 0x0e, 0x10, 0x17, 0x18, 0x1b, 0x21, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x37, 0x38,
@@ -31,30 +31,30 @@ player's), 1 → `+0xca10`, 2 → `+0xcb90`, anything else null.
 
 ## 2. S→C 0xc0: add inventory
 
-Dispatcher case 0x35. Class `0x1431ab2f0` (0x30 bytes, ctor `0x140b18270`), write `0x140b182a0`, read `0x140b18360`.
+Dispatcher case 0x35. Class `0x1431b4368` (0x30 bytes, ctor `0x140b17880`), write `0x140b178b0`, read `0x140b17970`.
 
 ```
 u16  0x00c0
-u8   manager            +0x10   0 = player (0x14216aa30)
+u8   manager            +0x10   0 = player (0x1421713e0)
 u32  inventory id       +0x14
-inventory object        +0x18   write 0x1421f4a40 / read 0x1421f4cc0 → ctor 0x1421edc10
+inventory object        +0x18   write 0x1421fb3d0 / read 0x1421fb650 → ctor 0x1421f45a0
   u8  kind              +0x140  Inventories.dat column 1 (InventoryType enum)
   u8  row               +0x144  Inventories.dat row = the manager slot
   u8  width             +0x150
   u8  height            +0x154
   u8  flags             bit0 +0x148 single-item slot, bit1 +0x149 the character's own slot (13 §3), bit2 +0x14a, bit3 → raw u64 +0x158 follows,
                         bit4 → 4 × u32 BE follow (+0x1f0 block), bit5 +0x160, bit6 +0x161
-  compact int n items   (0x14089e520 / 0x1421f4f80), then n × (u32 id, u8 x, u8 y, item 0x1421ec1d0; 13 §2-3)
+  compact int n items   (0x14089f790 / 0x1421fb910), then n × (u32 id, u8 x, u8 y, item 0x1421f2b40; 13 §2-3)
 u8                      +0x28   (bool)
 u8                      +0x29   (bool)
 ```
 
 `AddInventory(id, slot)` = `00C0 00 <id BE> <kind> <row> <w> <h> 00 00 00 00`. The Gateway sends ids 1..117, one per
-row, after 0x2b9 and before 0x21. Live: all 117 registered, and no lookup returned null afterwards.
+row, after 0x2bb and before 0x21. Live: all 117 registered, and no lookup returned null afterwards.
 
-The other inventory messages: 0xc1 (case 0x36, `0x141d62700` → `0x141d623b0`, removes an inventory and notifies its listeners; used for stash tabs), 0xc2 (case 0x37,
-`0x141d62710`), 0xc3 (case 0x38, `0x142173fc0`: walks inventories for socketed skill gems, "Sockets"/"SkillGem"),
-0xc4 (case 0x39, a list of 4-byte entries (u8 at +0, u16 at +2) → `0x142174500` each), 0xc6 (case 0x3a, type 0xb lookup).
+The other inventory messages: 0xc1 (case 0x36, `0x141d65d90` → `0x141d65a40`, removes an inventory and notifies its listeners; used for stash tabs), 0xc2 (case 0x37,
+`0x141d65da0`), 0xc3 (case 0x38, `0x14217a930`: walks inventories for socketed skill gems, "Sockets"/"SkillGem"),
+0xc4 (case 0x39, a list of 4-byte entries (u8 at +0, u16 at +2) → `0x14217ae70` each), 0xc6 (case 0x3a, type 0xb lookup).
 
 ## 3. Inventories.dat (3.29.3b, `Data/Inventories.datc64`, 117 rows × 43 bytes)
 
@@ -125,20 +125,20 @@ height, …. Rows 0–15 are the character's own inventories (main, equipment, f
 
 ## 4. S→C 0x3d: passive slots
 
-Dispatcher case 0x11. Class `0x1435dcd00` (0x38 bytes, ctor `0x14219eb10`), write `0x14219eb40`.
+Dispatcher case 0x11. Class `0x1435e6708` (0x38 bytes, ctor `0x1421a5480`), write `0x1421a54b0`.
 
 ```
 u16  0x003d
 u16                       +0x28
 u16                       +0x2a
 u8   flags                bit0 +0x2c, bit1 +0x2d (no list), bit2 +0x2e, bit3 +0x2f, bit4 +0x30
-vec16<u16> (raw)          +0x10   only if bit1 is clear (0x1421b8fe0), likely allocated passive node ids
+vec16<u16> (raw)          +0x10   only if bit1 is clear (0x1421bf950), likely allocated passive node ids
 ```
 
-Handler: bit2/3/4 → `0x142155bf0(…, 0/1/2)`, which **creates slot 0/1/2** at instance `+0xc2f8` (3 × 16 bytes). Then, if
-the computed active index differs from `+0xc2f0`, it switches and notifies (`0x14019a1b0(+0xb1f0, old, new)`). UI code
-`0x140785160` reads `slots[+0xc2f0]` without a null check (crash at `0x140785acf` when they are missing). The three
-slots are the **Atlas** passive tree's three presets (their check `0x141eed000` logs "atlas passive skills allocated
+Handler: bit2/3/4 → `0x14215c540(…, 0/1/2)`, which **creates slot 0/1/2** at instance `+0xc2f8` (3 × 16 bytes). Then, if
+the computed active index differs from `+0xc2f0`, it switches and notifies (`0x14019a550(+0xb1f0, old, new)`). UI code
+`0x14078a490` reads `slots[+0xc2f0]` without a null check (crash at `0x14078adff` when they are missing). The three
+slots are the **Atlas** passive tree's three presets (their check `0x141ef3860` logs "atlas passive skills allocated
 but only allowed"; the character's tree is S→C 0x33, [15](15-progression.md) §2). The server sends one message per
 preset (`flags` 0x04/0x08/0x10), with `u28` = that preset's allocated count and `u2a` = the point budget; the list is
 the preset's PassiveSkillGraphIds. Allocation is **C→S 0x3e** (7 bytes: u8 preset, u32 BE node) and refund **0x3f**
@@ -147,11 +147,11 @@ completion does not award points yet (dev: `/atlas_points <n>`).
 
 ## 5. What the UI did not need (so far)
 
-With 0x22 + 0x2b9 + 117 × 0xc0 + 0x3d + 0x21 the HUD came up: life/mana orbs, flask bar (5 empty slots), skill bar
+With 0x22 + 0x2bb + 117 × 0xc0 + 0x3d + 0x21 the HUD came up: life/mana orbs, flask bar (5 empty slots), skill bar
 (Q W E R T, mouse), minimap, clock, "MENU", "SHOP". The chat logged "Timeout while joining trade chat channel" and "Timeout while joining
 global chat channel". There's no chat server, which is harmless. One C++ exception was
-thrown and caught during the UI build; its backtrace went through `0x1421cc54e` → `0x140e4a5f2` → `0x14220d7c3` →
-`0x14094193d`, probably the chat join, and it was not investigated.
+thrown and caught during the UI build; its backtrace went through `0x1421d2ebe` → `0x140e4c912` → `0x142214153` →
+`0x14094368d`, probably the chat join, and it was not investigated.
 
 ## Open
 

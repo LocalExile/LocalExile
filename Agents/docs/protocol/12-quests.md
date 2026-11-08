@@ -61,14 +61,14 @@ Reward").
 
 ## 2. The objects in The Mud Flats (1_1_3)
 
-| Object | Type (`.ot`) | Where it comes from | Components the 0x2b9 blob carries |
+| Object | Type (`.ot`) | Where it comes from | Components the 0x2bb blob carries |
 |---|---|---|---|
 | Rhoa Nest ×3 | `Metadata/Chests/QuestChests/RhoaChest`, `RhoaChest2`, `RhoaChest3` (Chests rows 183–185; model `Metadata/Chests/QuestChests/beach_rhoanest_v01_01_chest.ao`) | tile `Metadata/Terrain/Beach/Features/rhoanest_v01_01.tdt` (tag `rhoanest`): its `.tmd` has one record `beach_rhoanest_v01_01_chest`, type `RhoaChest`, at tile cell (34.5, 34.5). Only `RhoaChest` appears in tile data, so the server picks which nests become `RhoaChest2`/`3` (one per glyph). The walk-map recorder captures the records (The Mud Flats seed 1: (793, 563), (425, 609), (678, 770), z −57.5) | Positioned, BaseEvents, Animated, **Chest**, Stats, ObjectMagicProperties, InteractionAction, MinimapIcon (extends `Chests/QuestChests/QuestChest` → `Chests/Chest`; all 8 read). Blob: the tutorial chest's ([§ opening encounter](#opening-encounter-2026-10-25)) with the record's fixed height and one more u8 (MinimapIcon flags 0) before the tasks |
 | the glyphs | `Metadata/Items/QuestItems/Glyphs/Glyph1` **Haliotis Glyph** (1×1), `Glyph2` **Ammonite Glyph** (1×1), `Glyph3` **Roseus Glyph** (1×2); BaseItemTypes 1531–1533, item class 31 | each nest chest's `BaseItemTypesKey` | items with Base, Quest, RenderItem (Quest has no data): ordinary ground items, picked up into the main inventory |
 | Glyph Wall (the thing on the wall the player clicks) | `Metadata/QuestObjects/WaterCave/GlyphWall` (`object_size 8`, MinimapIcon icon 5 `hide_on_transition`, Render "ObjectDisplayTextGlyphWall" ("Strange Glyph Wall"), display type Quest) | cave tile `Metadata/Terrain/Beach/Transitions/BeachToWatercave_v2/beach_to_watercave_v2.tdt`: record `…_stone_switch` at tile cell (38.5, 70.5), z −165.6, model `…/beach_to_watercave_v2_stone_switch.ao`; captured (seed 1: (829, 375), code 3) | Positioned, BaseEvents, Animated, **Transitionable**, MinimapIcon, InteractionAction (`extends "nothing"`, so Transitionable is read). Blob: Positioned with the record's height, Animated with the record's model, u8 state (1 waiting, 2 placed), MinimapIcon `00`, InteractionAction `00`, tasks `00` |
 | the waterfall | `Metadata/QuestObjects/WaterCave/WaterTransition` (`waterdrop.ao`; client events: `create_untransitioned` pauses animation 0, `on_transition` plays it, `create_transitioned` goes to its end) | room `Metadata/Terrain/Act1/Area3/Rooms/to_cave.arm`, server object at room (71, 147). The room shares its cells with the cave tile: the wall's record is room cell (38, 70), so the waterfall is placed through the wall's record and its code (seed 1: (906, 342)) | Positioned, BaseEvents, Animated, **Transitionable**. Blob: Positioned (terrain height), Animated `waterdrop.ao`, u8 state, tasks |
 | the cave entrance | `Metadata/QuestObjects/WaterCave/WaterCaveAreaTransition` (extends AreaTransition + empty Transitionable) | cave tile record `…_area_transition` at (55.5, 174.5), z −61.3 | live: the client reads only AreaTransition's components (§4) |
-| **the invisible wall** | `Metadata/QuestObjects/WaterCave/SunkenPassageBlocker`: `object_size 4`, **`blocking = true`**, **`unblock_quest_flag = "a1q4minusPlacedGlyphs"`**, BaseEvents `no_serialise` | room `to_cave.arm`: 19 of them on a staircase line across the path (room (55..109, 60..114)), model `dead_seagull_v01_03.ao` (not drawn; the doodad capture lists them, seed 1 from (819, 304) to (873, 358)) | **client-side**: the client spawns them from the room and removes the blocking when the flag is set. `minus` stands for `-` (the `.ot` parser `0x141de7b20` replaces it): the flag is `a1q4-PlacedGlyphs`. **Live 2026-10-25: the flag alone opens the way** (`/quest_flag a1q4-PlacedGlyphs`): before it the client stopped at (862, 351) on the line, after it walked on to (881, 335) and entered 1_1_4_1 |
+| **the invisible wall** | `Metadata/QuestObjects/WaterCave/SunkenPassageBlocker`: `object_size 4`, **`blocking = true`**, **`unblock_quest_flag = "a1q4minusPlacedGlyphs"`**, BaseEvents `no_serialise` | room `to_cave.arm`: 19 of them on a staircase line across the path (room (55..109, 60..114)), model `dead_seagull_v01_03.ao` (not drawn; the doodad capture lists them, seed 1 from (819, 304) to (873, 358)) | **client-side**: the client spawns them from the room and removes the blocking when the flag is set. `minus` stands for `-` (the `.ot` parser `0x141deb180` replaces it): the flag is `a1q4-PlacedGlyphs`. **Live 2026-10-25: the flag alone opens the way** (`/quest_flag a1q4-PlacedGlyphs`): before it the client stopped at (862, 351) on the line, after it walked on to (881, 335) and entered 1_1_4_1 |
 | other cave doodad | `…_waterfall` (Doodad, client) | cave tile record | — |
 
 The nest rooms (`to_cave` excluded) carry the tag `rhoanest` and named points `"%area%-nestpack"` (monster packs
@@ -92,13 +92,13 @@ glyph, "Take the Glyphs to the Glyph Wall" with all three and the wall seen, "Ta
 | Piece | How |
 |---|---|
 | The Rhoa Nests | created at the captured records (`<area>_seed<seed>.objects.json`, the same capture as the tutorial chest's); the nests in cell order are shuffled by the seed, and then the first becomes `RhoaChest` (glyph 1), the next `RhoaChest2`, then `RhoaChest3`. They block the server's walk estimate like the client's (Chest.ot `blocking`, size 1). a1q4's objects have ids of their own (0x2e80: nests, 0x2e90 wall, 0x2e91 waterfall, 0x2ea0: opened nests), clear of the ids other code takes |
-| Open a nest (0x24), drop its glyph, pick it up | the player walks up (size 1); the nest is opened once per instance (`InstanceState.OpenChest`) and replaced by an opened one under an id of its own (the same id made the client log "Replacing awake object"). Its glyph drops on the nest unless the character no longer needs it (the engine's quest item rules, §5: `PlacedGlyphs` set, or a copy carried or on this instance's ground; the stash no longer counts since the engine, as for a1q5's chest). A glyph lost another way (dropped in another instance, destroyed, sold) drops again. The pickup puts the glyph and sets the flags the save lacks (`KnowsAboutGlyphs`, `HaveGlyphN`) in one save transaction (`QuestItems.Claim`); once the glyphs are placed a glyph is not picked up but removed (a copy left in another instance), and carried ones are removed on entering an area (the `.it` `remove_flag`; on the message path, so the 0xbf keeps its order with the other inventory changes). About once a second the player tick sets and clears the HaveGlyph flags to follow the glyphs carried (`QuestItems.Sync`), so a dropped, sold or stashed glyph clears its flag; it changes no inventory. Quest flags are changed under the Monsters lock and read from other threads as a copy (`ClientState.QuestFlagsSnapshot`, `HasQuestFlag`); a change and its 0x2ba send run one at a time per connection (`ClientState.QuestGate`, held by `SetQuestFlags` and the sync, which calls `SetQuestFlagsHeld`), so an older flag set is never sent last. Live 2026-10-25: the client drops a glyph from the cursor like any item (0x29), the flag cleared within a second, and in a new instance its nest dropped it again; a glyph given after the placement was removed (since then: on the next area entry) |
-| Quest flags S→C | 0x2ba to the Player component with update flag 0x02 replaces the set ([16](16-waypoints.md) §3, `InstanceEntities.PlayerQuestFlagsUpdate`); the client unblocks the blockers and updates the tracker by itself (§2, §3). Decompile pointers: Positioned's `.ot` keys `unblock_quest_flag` / `block_quest_flag` (`0x141e2dbb0`), flag name lookup (`0x141de7b20`, `Data/QuestFlags.dat`), interaction `required_quest_flag` / `disable_quest_flag` (`0x141e1cab0`, `0x141e5c790`) |
+| Open a nest (0x24), drop its glyph, pick it up | the player walks up (size 1); the nest is opened once per instance (`InstanceState.OpenChest`) and replaced by an opened one under an id of its own (the same id made the client log "Replacing awake object"). Its glyph drops on the nest unless the character no longer needs it (the engine's quest item rules, §5: `PlacedGlyphs` set, or a copy carried or on this instance's ground; the stash no longer counts since the engine, as for a1q5's chest). A glyph lost another way (dropped in another instance, destroyed, sold) drops again. The pickup puts the glyph and sets the flags the save lacks (`KnowsAboutGlyphs`, `HaveGlyphN`) in one save transaction (`QuestItems.Claim`); once the glyphs are placed a glyph is not picked up but removed (a copy left in another instance), and carried ones are removed on entering an area (the `.it` `remove_flag`; on the message path, so the 0xbf keeps its order with the other inventory changes). About once a second the player tick sets and clears the HaveGlyph flags to follow the glyphs carried (`QuestItems.Sync`), so a dropped, sold or stashed glyph clears its flag; it changes no inventory. Quest flags are changed under the Monsters lock and read from other threads as a copy (`ClientState.QuestFlagsSnapshot`, `HasQuestFlag`); a change and its 0x2bc send run one at a time per connection (`ClientState.QuestGate`, held by `SetQuestFlags` and the sync, which calls `SetQuestFlagsHeld`), so an older flag set is never sent last. Live 2026-10-25: the client drops a glyph from the cursor like any item (0x29), the flag cleared within a second, and in a new instance its nest dropped it again; a glyph given after the placement was removed (since then: on the next area entry) |
+| Quest flags S→C | 0x2bc to the Player component with update flag 0x02 replaces the set ([16](16-waypoints.md) §3, `InstanceEntities.PlayerQuestFlagsUpdate`); the client unblocks the blockers and updates the tracker by itself (§2, §3). Decompile pointers: Positioned's `.ot` keys `unblock_quest_flag` / `block_quest_flag` (`0x141e30ef0`), flag name lookup (`0x141deb180`, `Data/QuestFlags.dat`), interaction `required_quest_flag` / `disable_quest_flag` (`0x141e20110`, `0x141e60ce0`) |
 | Glyph Wall | coming within 60 cells, or using it, sets `SeenGlyphWall`. Used (0x24, walk-up size 7) while the client lacks `PlacedGlyphs`, with the three glyphs in the main inventory or on the cursor: one transaction looks them up, removes them and sets `PlacedGlyphs` (clearing `HaveGlyph1–3`); transactions run one at a time, so a second quick use finds nothing. 0xbf removes them in the client |
-| The transition | **0x2ba to Transitionable** (component index 3 for both; data u8 target state, §6): the wall 1 → 2 runs `on_transition` (`DisableTargetable` and the animation: the label went away live), the waterfall 1 → 2 likewise. Created later with state 2 they run `create_transitioned`. Whether the waterfall's animation shows was not confirmed in screenshots |
+| The transition | **0x2bc to Transitionable** (component index 3 for both; data u8 target state, §6): the wall 1 → 2 runs `on_transition` (`DisableTargetable` and the animation: the label went away live), the waterfall 1 → 2 likewise. Created later with state 2 they run `create_transitioned`. Whether the waterfall's animation shows was not confirmed in screenshots |
 | The invisible wall on the server | the 19 blockers (from the wall's record through `to_cave.arm`) are blocking objects of size 3 on the server's walk estimate until `PlacedGlyphs`: live, the server and the client both stopped at (862, 351), 0 cells apart (without them the server walked on and was 20 cells off) |
 | The exit | `Quests.BreakingSomeEggs.FlagToEnter(1_1_3 → 1_1_4_1)` = `PlacedGlyphs`: the Gateway refuses the cave entrance without the flag and creates it when the flag is set (as a1q1's gate, §6). Every quest check reads the flag as the client has it (`Quests.ClientHas`): the character's own flags plus the World panel's access flags, e.g. `PlacedGlyphs` from an activated Submerged Passage waypoint ([16](16-waypoints.md) §4). Exits, room objects and the passage change only when that changes (`Quests.EffectiveChanges`), so a flag the client already had creates nothing twice, and clearing it (dev) removes nothing the client still opens. Not checked live for a waypoint-only character |
-| The cave entrance's Transitionable | live 2026-10-18: `WaterCaveAreaTransition` inherits AreaTransition and adds Transitionable, but the client reads only the parent's components (a Transitionable byte became the task count: Buffer Underflow) and the component keeps state 0, whose post-create event crashes (`0x141ded7b9`). The Gateway creates it as a plain AreaTransition ([08](08-area-transitions.md) §7). How the real server sets that state is open |
+| The cave entrance's Transitionable | live 2026-10-18: `WaterCaveAreaTransition` inherits AreaTransition and adds Transitionable, but the client reads only the parent's components (a Transitionable byte became the task count: Buffer Underflow) and the component keeps state 0, whose post-create event crashes (`0x141df0e19`). The Gateway creates it as a plain AreaTransition ([08](08-area-transitions.md) §7). How the real server sets that state is open |
 | Tarkleigh | his NPCTalk row 40 "Glyph Reward" (needs `PlacedGlyphs`, not `QuestRewardTaken`) opens QuestRewardOffers 3: six level 1 skill gems per class, claimed like Hillock's (live: Frost Bomb, then `a1q4-QuestRewardTaken`). Row 32 "Rhoas" (Tarkleigh's clue; its QuestFlag5 is `TarkleighClue`) is listed by the client; that the generic dialogue finish sets the flag was not checked live |
 
 ## 5. The quest engine
@@ -106,10 +106,10 @@ glyph, "Take the Glyphs to the Glyph Wall" with all three and the wall seen, "Ta
 **Quest flags are the truth.** A character's quest progress is the set of its quest flags, `QuestFlags.dat` Ids (e.g.
 `a1q1-KilledHillock`), saved by name in its save (`data/saves.db`, `QuestFlags`; [saves](../saves.md)): names are
 readable and survive game patches, where row numbers do not. The client keeps its own copy as QuestFlags **rows** in the
-Player component ([16](16-waypoints.md) §3): the Gateway sends them with the player object and again (0x2ba, flag 0x02,
+Player component ([16](16-waypoints.md) §3): the Gateway sends them with the player object and again (0x2bc, flag 0x02,
 `PlayerQuestFlagsUpdate`) whenever one changes, together with the World panel's visit and access flags
 (`PlayerQuestFlags`; WorldAreas `StartQuestFlags`, the `Visited-` flags, come from there). The client acts on them by
-itself: an area is reachable only when its WorldAreas `EndQuestFlags` are set (`0x140797750`), blockers with
+itself: an area is reachable only when its WorldAreas `EndQuestFlags` are set (`0x14077ecf0`), blockers with
 `unblock_quest_flag` read them (§2), and the quest log and tracker follow `QuestStates` (§1). `/quest_flag [<id> [off]]`
 lists, sets or clears them (dev). Session flags (`SessionQuestFlags.dat`, e.g. `a1q6-FairgravesAggro`) are kept in
 memory only: never saved, gone on the next area.
@@ -136,7 +136,7 @@ porting checklist: [campaign quests](../game/campaign-quests.md).
 | `On.Chest(area, chestType, item, opensWith)` | a quest chest where its room or tile puts it; opened once per instance, drops the item while needed; with `opensWith` its Transitionable is 1 (untargetable) until the flag, then 2, and its last state once opened | `AllFlameSlaveGirl` → Allflame; the Strange Device after Fidelitas' death |
 | `On.Drops(area, variety, item)` | the monster drops the quest item where it dies, while needed | Hailrake → Medicine Chest |
 | `On.Npc(area, npcType, goneWith, transitionedBy, shownBy, freedBy, atObject)` | a room NPC where its room puts it (or where `atObject` stands), until `goneWith`, from `shownBy`; Transitionable 2 with `transitionedBy` or once `freedBy` (a variety) dies; in a town the stage of a town NPC its room lists; created, removed and transitioned live as the flags change (Game `World/Quest/QuestNpcs.cs`) | Fairgraves on his ship; Helena climbing up after Fidelitas; Clarissa freed by her guards' captain; Dialla at Dominus' DeathPortalLocator |
-| `On.Object(area, objectType, transitionedBy)` | a room or tile quest object the engine creates (`QuestObjectTypes`, the generic `QuestObject` blob): Transitionable 1, its last state once the flag is set (0x2ba when it comes); a TriggerableBlockage (no update reader) is created again unblocked | the Thaumetic Seal, PoisonTree, the Ancient Seal, the Dark Altar, the sewer gratings, the BioWall, the Epic Door's lock |
+| `On.Object(area, objectType, transitionedBy)` | a room or tile quest object the engine creates (`QuestObjectTypes`, the generic `QuestObject` blob): Transitionable 1, its last state once the flag is set (0x2bc when it comes); a TriggerableBlockage (no update reader) is created again unblocked | the Thaumetic Seal, PoisonTree, the Ancient Seal, the Dark Altar, the sewer gratings, the BioWall, the Epic Door's lock |
 | `On.Spawns(area, objectType, variety)` | the object's use brings the monster where it stands; the area's population leaves it out | the Dark Altar → the Vaal Oversoul |
 | `On.HandIn(npc, option, item)` | a dialogue row of the NPC with the option takes every carried copy and sets its remove_flag | Hargan's busts (`a3q11-DeliveredBust1`–`3` have no NPCTalk setter) |
 | `On.Exists(objectType, from, until)` | the type exists only from / until a flag in every area: its `.ot` BaseEvents `serialisation_start_flag` / `serialisation_stop_flag`. Area transitions (by tile type), NPCs | Act 5 Lilly after `a5q6-CompletedBoss`; the Control Blocks' two exits |
@@ -229,7 +229,7 @@ first enter a town ([09](09-area-change.md) §4). Hillock stands before Lioneye'
 |---|---|---|
 | the start point | the `washedup` room (`washed_up3.arm`, graph node `washedup` in `macro_beach4.tgr`), point `default` | the area's spawn (`AreaLayouts.For`: a room's `default` point, else the deepest cell) |
 | Hillock | WorldAreas `Bosses`: `Metadata/Monsters/ZombieBoss/ZombieBossHillockNormal` (MonsterVarieties 1166) | placed at `mapboss` of `town_entrance_exclude.arm` like any unique boss; within 60 cells (`Quests.SightRange`) he sets `a1q1-SeenHillock`; his death sets `a1q1-KilledHillock` and levels the character to 2 (below) |
-| the force wall | `Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_3` in `town_entrance_exclude.arm` at room (92, 127), angle −0.988, **scale 2.7** (model `…/twilight_strand/force_wall/force_wall.ao`) | created blocked while the character lacks `a1q1-KilledHillock`, removed (0x2bb) when it is set (below) |
+| the force wall | `Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_3` in `town_entrance_exclude.arm` at room (92, 127), angle −0.988, **scale 2.7** (model `…/twilight_strand/force_wall/force_wall.ao`) | created blocked while the character lacks `a1q1-KilledHillock`, removed (0x2bd) when it is set (below) |
 | the Doorman | `Metadata/NPC/Act1/Doorman` in the same room at (130, 156): Transitionable `num_states 3`, state 3 plays `door_open` | not created yet (below) |
 | the gate into Lioneye's Watch | a tile record of `beachtown_south_entrance_test.tdt`: `Metadata/QuestObjects/SouthBeachTownEntrance` (extends AreaTransition, Transitionable `num_states 3`: states 1–2 not targetable, 3 opens and becomes targetable after 0.8 s) | captured by the walk-map recorder; created as a plain AreaTransition (see below). The client lets the player click it once its own quest flags hold `a1q1-KilledHillock` (Lioneye's Watch's `EndQuestFlags`); the Gateway also refuses it without the flag |
 
@@ -245,7 +245,7 @@ with contact at 458 ms (AO slow span 440–557 ms). The contact fraction of the 
 - **Boss life bar.** `ZombieBoss.ot` extends `Metadata/Monsters/BossLifeBar` (MonsterVarieties `BossHealthBar` set): its
   StateMachine shared states are `boss_life_bar`, `disable_life_bar`, `global_first_aggro`, then ZombieBoss's `aggro`.
   `on_state_boss_life_bar_1` calls `SetStaticLifeBarVisibilty(True)`. The StateMachine has an update reader
-  (`0x141e3f4a0`, slot +0xa0): 0x2ba with the same data as the creation blob (state count, timer count, per state a
+  (`0x141e42a90`, slot +0xa0): 0x2bc with the same data as the creation blob (state count, timer count, per state a
   compact int + u8 flags, per timer u32 + u8); a changed value runs that state's events; a state whose flags lack 0x02
   may take the type's default instead (a check on the state's name). When Hillock aggroes the Gateway sends
   `boss_life_bar` 1 and `aggro` 1 (flags 0x02).
@@ -257,10 +257,10 @@ with contact at 458 ms (AO slow span 440–557 ms). The contact fraction of the 
   life; he stops and uses the skill (0x1ab, skill id 0x0103 in his Actor list, with the attack's skill stats and a 3 s
   time: without `skill_is_non_pathing` the client played nothing and kept him in the action, frozen, live 2026-10-21;
   S→C 0x1ac, the object header only, ends the action after the stage), cannot drop below 1 life during the
-  cast. At the extracted animation contact (458/1833 of the cast), 0x2ba steps his Transitionable to 2
+  cast. At the extracted animation contact (458/1833 of the cast), 0x2bc steps his Transitionable to 2
   (`on_transition`: `HideMeshSegment(…Sword…)` +
   `AddAttached(OneHandSwordZombieHeld.ao, R_Weapon)`: the sword from his back into his hand) and 0x1b1 fills his life.
-  Transitionable's `num_states` must be ≥ 2 when an .ot gives it (`0x141e42a80` throws "That number of states is
+  Transitionable's `num_states` must be ≥ 2 when an .ot gives it (`0x141e46070` throws "That number of states is
   unsupported" otherwise); `Transitionable {}` takes the type's default, which the sword step treats as 2.
   The effect and recovery use separate area-clock deadlines; recovery remains 3 seconds and never heals again.
   A paused area keeps the remaining time. Send-gate guards and retained one-shot state reject stale effects after
@@ -273,11 +273,11 @@ with contact at 458 ms (AO slow span 440–557 ms). The contact fraction of the 
 
 **The force wall** (live 2026-10-21): created at the room fit's place with the room's angle and scale (Positioned flags0
 0x20's uniform scale, the x / y stretches at 1: [04](04-player-entity.md) §4.0; `BlockerObject`); `data/room-points.json` (version 2) carries each server object's angle and
-scale. The client blocks cells from the wall model's own footprint where the object stands (`0x141d876e0`, through the
+scale. The client blocks cells from the wall model's own footprint where the object stands (`0x141d8ad70`, through the
 Animated model), so without the 2.7 scale the wall was a third of its size, standing beside the gap (2026-10-19). Until 2026-10-23 the 2.7 went into all three scale floats, which the client
 multiplies, so the wall was drawn 7.3 times as wide (and blocked that footprint); now only the uniform scale carries
 it (not yet seen live).
-TriggerableBlockage has no update reader: the Gateway removes the object (0x2bb) when Hillock dies.
+TriggerableBlockage has no update reader: the Gateway removes the object (0x2bd) when Hillock dies.
 
 The client blocks the wall by itself, but the server's walk estimate did not: it walked on through the wall, and the
 next echo (≥ ~92 units apart) snapped the player to the far side (live 2026-10-21). The wall's centre (1403, 679) is in
@@ -302,16 +302,16 @@ Order 3, "Enter through the gate for a reward" ("Enter town for your reward").
 **What was tried for the wall and the Doorman** (live 2026-10-19; the code was not kept, the layouts below are enough to
 write it again): both were created
 from the room's place and angle (the room fit is exact), the wall blocked while Hillock lived and removed after; the
-Doorman in state 1, then S→C 0x2ba → 3. The wall showed up beside the gap, not across it, and did not block (with
+Doorman in state 1, then S→C 0x2bc → 3. The wall showed up beside the gap, not across it, and did not block (with
 `object_size 0`, its blocking probably comes from cells the terrain marks for TriggerableBlockage); the Doorman was
 never drawn, though the client read his blob and the update. Their blobs, as the client read them
 (`scripts/re/frida/check-components.js`):
 - `Tutorial_Blocker_3`: Positioned (16 bytes), BaseEvents, Animated (u8 0: the type's own model), **TriggerableBlockage**
-  (`0x141e44290`: u8 blocked, then **only while blocked** a u8 count and that many u8; a count after an unblocked 0
+  (`0x141e47880`: u8 blocked, then **only while blocked** a u8 count and that many u8; a count after an unblocked 0
   shifted the blob: Buffer Underflow), Transitionable (u8 state 1, `num_states` 1).
 - `Doorman`: Positioned, Animated (u8 0), BaseEvents, Transitionable (u8 state). 21 bytes, all read.
 
-**S→C 0x2ba to a Transitionable** (update reader `0x1421c2310`, vtable `0x1435dd290` slot +0xa0): data = u8 target
+**S→C 0x2bc to a Transitionable** (update reader `0x1421c8c80`, vtable `0x1435e7d30` slot +0xa0): data = u8 target
 state. The client steps its state (`+0x120`) one at a time toward the target and runs each step's events (the
 type's `on_transition` and `on_transition_to_N` going up, the matching events going down). TriggerableBlockage has no
 update reader (+0xa0 is a `ret`).
@@ -319,9 +319,9 @@ update reader (+0xa0 is a `ret`).
 **The gate** (live 2026-10-19): without `a1q1-KilledHillock` in the client's quest flags it shows shut with nothing to
 hover; once the Gateway sends the flag (Hillock's death) it can be clicked and leads into Lioneye's Watch. It opens
 without its animation: created as a plain AreaTransition, it has no Transitionable. Created as its own type it crashed
-the client at once (access violation `0x141df4a96`, right after the blob's tasks): the creation blob stops before
-Transitionable (index 8), so its state stays 0, and the post-create step runs before any 0x2ba can arrive. The blob's
-**tasks** (`0x141ee00f0`: u8 count, then per task a u16 task type looked up in a registry, `0x141ee0ba0`, and that
+the client at once (access violation `0x141df80f6`, right after the blob's tasks): the creation blob stops before
+Transitionable (index 8), so its state stays 0, and the post-create step runs before any 0x2bc can arrive. The blob's
+**tasks** (`0x141ee6950`: u8 count, then per task a u16 task type looked up in a registry, `0x141ee7400`, and that
 type's data; an unknown type throws "Unrecognised task serialised by server; missing registration?") are the next place
 to look for how the real server sets such a state.
 
@@ -330,25 +330,25 @@ to look for how the real server sets such a state.
 The gate works without it, so this is cosmetic; the notes are here so the next attempt starts from them.
 
 - **Proven live (Frida):** sent as its own type `SouthBeachTownEntrance` with the 8-component AreaTransition blob, its
-  Transitionable (vtable `0x1435dd290`, the client-side subclass) runs its post-create (`0x1421c26f0`, slot 1) with
+  Transitionable (vtable `0x1435e7d30`, the client-side subclass) runs its post-create (`0x1421c9060`, slot 1) with
   **state 0** and `num_states` 3; the post-create then runs the event at index state − 1 and the client crashes in the
-  event-script interpreter (`0x141df4a96`, a null `[r12]`). The base Transitionable constructor (`0x141e42410`) sets
+  event-script interpreter (`0x141df80f6`, a null `[r12]`). The base Transitionable constructor (`0x141e45a00`) sets
   state 1, but this subclass is left at 0 when the blob does not reach it.
-- **Creation order** (`0x141ebe190`): every component's slot 2 (+0x10; a `ret` for Transitionable), the u8 header
-  (bit0 → object `+0x8c |= 0x80`, bit1 → `+0x8d |= 2`), the **base data** (`0x141dea920`: u8 count, then entries of
+- **Creation order** (`0x141ec4a40`): every component's slot 2 (+0x10; a `ret` for Transitionable), the u8 header
+  (bit0 → object `+0x8c |= 0x80`, bit1 → `+0x8d |= 2`), the **base data** (`0x141dedf80`: u8 count, then entries of
   u32 hash + u8 …; they set and remove the object's **script variables**, "Attempted to remove variable '{}' on
   read-only variable container"), the type's first N components (N = type `+0x80`: 8 here, Transitionable is index 8),
-  the **tasks** (`0x141ee00f0`), then every component's post-create (`0x141ebe420`, slot 1). Only the base data and
+  the **tasks** (`0x141ee6950`), then every component's post-create (`0x141ec4cd0`, slot 1). Only the base data and
   the tasks run before the post-create, so one of them must set the state if the real server sends this type.
-- **Tasks:** a hash map at `0x1445cd8b0` (getter `0x141643780`, lookup `0x141ee0ba0`, FNV-1a of the u16 id) filled by
-  139 registrations around `0x141637133`, each `mov edx, <u16 id>` and two function pointers (+0x18, +0x20; the lookup
-  calls +0x20, the stub `0x1400f22f0` marks the side a type does not have). The ids look like 16-bit name hashes; the
+- **Tasks:** a hash map at `0x1445d8a20` (getter `0x1416473c0`, lookup `0x141ee7400`, FNV-1a of the u16 id) filled by
+  139 registrations around `0x14163abb3`, each `mov edx, <u16 id>` and two function pointers (+0x18, +0x20; the lookup
+  calls +0x20, the stub `0x1400f2570` marks the side a type does not have). The ids look like 16-bit name hashes; the
   factories build their objects through helpers, so the classes' RTTI names were not reached yet.
-- **Script commands:** the GEAL function table (registered around `0x141ed56a6`) has `SetTransitionPerPlayerQuestFlag`
+- **Script commands:** the GEAL function table (registered around `0x141edbf94`) has `SetTransitionPerPlayerQuestFlag`
   and `SetTransitionPerPlayerLeagueQuestFlag`, and `GetTransitionState`. A Transitionable that follows the player's
   quest flags is what this gate is; no cached `.ot` uses them, so they may live in server-side scripts or other files.
 - **Next:** decompile (Ghidra) the tasks' +0x20 factories and the `SetTransitionPerPlayerQuestFlag` implementation;
-  or try base-data script variables on the gate, watching with `check-components.js` plus a Frida hook on `0x1421c26f0`
+  or try base-data script variables on the gate, watching with `check-components.js` plus a Frida hook on `0x1421c9060`
   that logs `+0x120` (the state the post-create sees).
 
 **The Doorman** (paused, low priority): why a created and updated object is not drawn (maybe its `.ao` is the gate's
@@ -675,7 +675,7 @@ radians, rather than the previous fixed zero (the opposite direction).
 The Player WashedUp flag and Actor stance 68 must both be sent ([04](04-player-entity.md) §4.6 and §4.9).
 The first ground click sends basic action `WashedUp` (ActionTypes HASH16 47065, skill id `0x37d9`), which plays getup
 in place; the server echoes that action without walking its position estimate toward the click.
-A first click on an object takes the server's path instead: `0x141e94fc0` answers a washed-up player's move request
+A first click on an object takes the server's path instead: `0x141e9b860` answers a washed-up player's move request
 with `WashedUp` at the player's own cell and a top-bit sequence, so the object is not walked to.
 `Tutorial.WakeUpShown` saves the introduction once the player is sent; later logins and progressed saves start standing.
 Talking without an equipped weapon plays the weapon prompt and saves `Tutorial.WeaponPromptHeard`.
@@ -701,7 +701,7 @@ StartSkillGem; it is not pre-granted. A disconnect after the conversation resume
 The support chest is a **named point**, not a tile object: `tutorial_01.arm` has
 `41 64 5.84685 "Metadata/Chests/TutorialSupportGemChest"`. Room-points manifest version 3 retains this point and its
 angle. The room has no ordinary room doodads, so it cannot use the usual doodad fit. The recorder captures actual
-.arm placements at `0x142040770` (placed room in argument 3: resource handle +0, tile origin +8/+0xc, code +0x1b;
+.arm placements at `0x142046fc0` (placed room in argument 3: resource handle +0, tile origin +8/+0xc, code +0x1b;
 resource data +0x138/+0x139 = untouched room dimensions). `<area>_seed<seed>.rooms.json` stores these placements with
 area/seed identity. Seed 1's tutorial room is at (759,483), 138×207 cells, code 0: its chest is therefore **(800,547)**.
 Its model comes from Chests.dat AOFiles (`Metadata/Chests/Chests/TutorialChest.ao`). Without the relevant capture the
@@ -709,7 +709,7 @@ server waits briefly and logs the missing placement. Use `live.ps1 -Walkmaps` an
 The hook's offsets were located using PR #136's DoodadStage/SpecialNodes notes and verified against native code and the
 captured washed-up room's existing NPC positions.
 
-Chest's reader `0x141e138b0` consumes three bytes; bit 0 of the first is opened. Its update slot is empty, so opening
+Chest's reader `0x141e16f10` consumes three bytes; bit 0 of the first is opened. Its update slot is empty, so opening
 replaces the closed object with an opened one, then drops StartSupportGem. The player must reach interaction range;
 a failed path cannot open it remotely. Gem claims and their saved flags commit atomically and cannot be repeated
 after reconnect. Ground rollback preserves the item id used by the pending reward.

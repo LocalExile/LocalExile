@@ -5,6 +5,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- The 3.29.3c client: login, characters, town, inventory and stash, cosmetics, kills, items, flasks and skills,
+  waypoints and transitions, NPCs and shops, the hideout, chat and relog (live run, 2026-11-08).
+  Port tools: `scripts/re/port`, `PortMap.java`; docs: [tooling](../docs/re/tooling.md) §11.
 - Game data extracted from the GGPK in one step: `scripts/dev/extract-data.ps1` (run by `live.ps1` on every start,
   `-NoExtract` to skip) regenerates each data file that is missing or whose manifest version changed (stamps in
   `data/extract-stamps.json`), and the Gateway warns once at startup about any missing file.
@@ -194,13 +197,13 @@ if something is missing, fix the guide.
 Every network message of the client is listed, in both directions, generated from the binary.
 S→C: [schema.md](../docs/protocol/schema.md), the four factories (instance 272, world 63, login 27, patch 6 classes),
 each equal to its factory switch's explicit cases.
-C→S: [c2s.md](../docs/protocol/c2s.md), instance 352, login 28 and patch 4 ids, from every caller of the stream flush.
-Its exact lengths match all 61 comparable ids of the Gateway's `KnownClientLength`.
+C→S: [c2s.md](../docs/protocol/c2s.md), instance 354, login 28 and patch 4 ids, from every caller of the stream flush.
+Its exact lengths match all 87 comparable ids of the Gateway's `KnownClientLength`.
 Code: `scripts/re/ghidra/ReadSchema.java`, `SendSites.java`, `scripts/re/schema_md.py`, `c2s_md.py`.
 
 Optional [native client control](../docs/dev/client-control.md) provides CLI/JSON RPC for development without repeated
 UI input.
-It targets the copied standalone 3.29.3b client and local services only.
+It targets the copied standalone 3.29.3c client and local services only.
 Login keeps waiting within its existing timeout when success 0 precedes authenticated state 3.
 Mocked execute/RPC regressions cover this wait, rejection 6 and timeouts; this fix has no new native verification.
 It also creates and deletes characters, travels by waypoint (by WorldAreas Id too), waits for an area and knows the

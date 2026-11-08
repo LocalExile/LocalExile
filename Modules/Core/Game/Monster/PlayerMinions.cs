@@ -225,7 +225,7 @@ static partial class Game
             (aura is null ? "" : $", {aura.EffectId} within {aura.Radius} cells: {string.Join(", ", aura.Stats.Select(s => $"{Stats.Name(s.Key)} {s.Value}"))}"));
     }
 
-    // The stats that mark a monster as the player's minion for the client (0x141bf8490 reads both).
+    // The stats that mark a monster as the player's minion for the client (0x141bfaf20 reads both).
     static IReadOnlyList<(uint Key, int Value)> MinionStats =>
         [.. new[] { "is_player_minion", "is_semantic_minion" }.Select(Stats.Key).OfType<uint>().Select(k => (k, 1))];
 

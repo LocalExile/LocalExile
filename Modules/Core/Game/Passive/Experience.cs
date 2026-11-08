@@ -51,7 +51,7 @@ static partial class Game
         ClientState conn, ExperienceChange change, string why)
     {
         var updates = LevelUpdatesFor(conn);
-        await Send(remote, stream, ciphers, [], $"0x02ba current player experience ({why})", atGate: () =>
+        await Send(remote, stream, ciphers, [], $"0x02bc current player experience ({why})", atGate: () =>
         {
             lock (updates.Gate)
             lock (conn.Monsters)

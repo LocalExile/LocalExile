@@ -15,7 +15,7 @@ static class PortalsFeature
         uint id = conn.NextObjectId++;
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
-            $"0x02b9 create the portal back to the {hideout.Name} 0x{id:x} at ({x}, {y})");
+            $"0x02bb create the portal back to the {hideout.Name} 0x{id:x} at ({x}, {y})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
         conn.ReturnPortal = (id, x, y);
         conn.ReturnPortalTo = 0;
@@ -149,7 +149,7 @@ static class PortalsFeature
 
     // C→S 0xe8: Ctrl + click with the Atlas map device open. A map/fragment in the inventory goes into Map1's first
     // free cell; an item already in the slots goes back to the inventory. The client only sends this after the window's
-    // +0x10b8 check (0x14030e3e0 → 0x142167da0).
+    // +0x10b8 check (0x14030e970 → 0x14216e750).
     internal static async Task MoveToMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceMapDevice.Move request)
     {
@@ -182,7 +182,7 @@ static class PortalsFeature
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX + 4, conn.Layout.SpawnY));
         uint id = conn.NextObjectId++;
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
-            new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02b9 create the portal back 0x{id:x} at ({x}, {y}) to 0x{open.Area:x4}");
+            new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the portal back 0x{id:x} at ({x}, {y}) to 0x{open.Area:x4}");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
         conn.BackPortal = (id, x, y);
         string owner = CharacterName(conn);
@@ -240,7 +240,7 @@ static class PortalsFeature
         var (x, y) = !replace || conn.Layout.Walkable is not { } walkable || !walkable(px + 3, py) ? (px, py) : (px + 3, py);
         uint id = conn.NextObjectId++;
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
-            new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02b9 create the Portal Scroll's portal 0x{id:x} at ({x}, {y})");
+            new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the Portal Scroll's portal 0x{id:x} at ({x}, {y})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
         conn.ReturnPortal = (id, x, y);
         conn.ReturnPortalTo = toHideout ? (ushort)0 : town;
@@ -286,7 +286,7 @@ static class PortalsFeature
             var obj = new HideoutObject(d.X, d.Y, d.Rotation, components, new HideoutDoodad(d.Hash, (byte)d.Variation),
                 [.. states.Select(s => s == "active" ? 1 : 0)]);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(d.Type!), obj.Blob()),
-                $"0x02b9 create hideout doodad 0x{id:x} {d.Name} ({d.Type}) at ({d.X}, {d.Y}), components {string.Join(", ", components)}");
+                $"0x02bb create hideout doodad 0x{id:x} {d.Name} ({d.Type}) at ({d.X}, {d.Y}), components {string.Join(", ", components)}");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 hideout doodad 0x{id:x} enters wake zone");
             lock (conn.HideoutDoodads) conn.HideoutDoodads[id] = d;
             await RegisterStationaryCollision(remote, stream, ciphers, conn, id, d.Type!, d.X, d.Y, d.Rotation, "map-device", d.Model);

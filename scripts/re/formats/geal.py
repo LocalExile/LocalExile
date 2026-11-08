@@ -1,9 +1,9 @@
 # GEAL: the script language in the on_xxx = { ... } blocks of .ot/.otc/.ao/.aoc/.it files.
 #
-# The grammar follows the client's compiler: statements 0x141df4bb0, assignment 0x141df5120, local 0x141df5b40,
-# if 0x141df6020, expression 0x141df69f0, binary operators 0x141df7260, unary 0x141df7110, lambda/argument block
-# 0x141de6e20, [x, y] Location constant 0x141de6b30, the argument list 0x141df9d20.
-# Binary precedence comes from the table at 0x142fbf1d0 (token types 0..13).
+# The grammar follows the client's compiler: statements 0x141df8210, assignment 0x141df8780, local 0x141df91a0,
+# if 0x141df9680, expression 0x141dfa050, binary operators 0x141dfa8c0, unary 0x141dfa770, lambda/argument block
+# 0x141dea480, [x, y] Location constant 0x141dea190, the argument list 0x141dfd380.
+# Binary precedence comes from the table at 0x142fc8558 (token types 0..13).
 #
 # parse() returns plain dicts and lists, so the result goes straight to JSON. source() prints a tree back as GEAL;
 # decode_all.py compares its tokens with the original's, so a parser that drops anything fails loudly.
@@ -17,7 +17,7 @@ TOKEN = re.compile(r'''
   | (?P<op>\[\+\]|\[-\]|==|!=|<=|>=|\+=|-=|\|\||&&|[-+*/<>=!&|^%(){}\[\],;.:?~])
 ''', re.X | re.S)
 
-# Lower binds looser. 0x142fbf1d0: 3 3 4 4 4 4 6 6 7 7 5 5 1 2 for == != < > <= >= + - * / [+] [-] || &&
+# Lower binds looser. 0x142fc8558: 3 3 4 4 4 4 6 6 7 7 5 5 1 2 for == != < > <= >= + - * / [+] [-] || &&
 BINARY = {"||": 1, "&&": 2, "==": 3, "!=": 3, "<": 4, ">": 4, "<=": 4, ">=": 4, "[+]": 5, "[-]": 5, "+": 6, "-": 6,
           "*": 7, "/": 7}
 UNARY = {"-", "!"}
@@ -140,7 +140,7 @@ class Parser:
         return self.postfix(self.primary())
 
     def is_lambda(self):
-        # "(" name? ")" "{" or a parameter list: 0x141df69f0 looks at the next tokens for ")" (token 0x1d).
+        # "(" name? ")" "{" or a parameter list: 0x141dfa050 looks at the next tokens for ")" (token 0x1d).
         j = self.i + 1
         while j < len(self.t) and (self.t[j][0] == "id" or self.t[j][1] == ","):
             j += 1
@@ -174,7 +174,7 @@ class Parser:
             self.expect(")")
             return {"t": "paren", "v": e}
         if v == "[":
-            # [x, y] Location constant, 0x141de6b30; the client wants integers but the scripts also negate them.
+            # [x, y] Location constant, 0x141dea190; the client wants integers but the scripts also negate them.
             self.next()
             x = self.expression()
             self.expect(",")

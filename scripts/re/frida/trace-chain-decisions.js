@@ -1,8 +1,8 @@
 // Self-contained (Frida 17 gives each script its own scope). How a client projectile continues or ends where its flight
-// stops (Agents/docs/re/projectiles/continuation-and-memory.md §2): each call of the shared terminal 0x141ba68c0 with its
+// stops (Agents/docs/re/projectiles/continuation-and-memory.md §2): each call of the shared terminal 0x141ba9350 with its
 // action's vtable, and, the first time an action vtable is seen, hooks on that vtable's skill-specific continuation
 // (+0x680, +0x520), final stage (+0x590), bounce (+0x768) and chain budget (+0x638) entries, each logged with its result.
-// The ordinary chain path (0x141bb0250 → 0x141baea60 → 0x141baf2a0) is hooked too. Observation only.
+// The ordinary chain path (0x141bb2ce0 → 0x141bb14f0 → 0x141bb1d30) is hooked too. Observation only.
 // Rolling Magma (3.29.3b, 2026-11-01): its ground bounces never reached the ordinary chain path; cast at empty ground,
 // then at monsters, and compare.
 const m = Process.getModuleByName('Game.patched.exe');
@@ -26,7 +26,7 @@ function hook(name, address) {
   } catch (e) { send({hookFailed: name, at: va(address), error: e.message}); }
 }
 const vtables = new Set();
-Interceptor.attach(at('0x141ba68c0'), {
+Interceptor.attach(at('0x141ba9350'), {
   onEnter(args) {
     const action = args[0];
     let vt = null;
@@ -54,8 +54,8 @@ Interceptor.attach(at('0x141ba68c0'), {
   },
   onLeave(ret) { send({t: now(), fn: 'terminal-return', ret: ret.toString()}); }
 });
-hook('eligible', at('0x141bb0250'));
-hook('search', at('0x141baea60'));
-hook('chain', at('0x141bb2ae0'));
-hook('bounceShared', at('0x141bb09c0'));
+hook('eligible', at('0x141bb2ce0'));
+hook('search', at('0x141bb14f0'));
+hook('chain', at('0x141bb5570'));
+hook('bounceShared', at('0x141bb3450'));
 send('trace-chain-decisions ready');

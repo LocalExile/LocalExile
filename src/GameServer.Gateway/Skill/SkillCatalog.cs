@@ -13,7 +13,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 {
     /// <summary>The ids the server gives its skills (+0x40). Basic actions use their ActionTypes HASH16 instead, so these
     /// must not collide with the type's basic actions (Character.ot: Move 0x2909, Interaction 0x0266 …). 0x0101 did: a
-    /// Monster.ot basic action masks to it. 0x0102 is no ActionType's id in 3.29.3b.</summary>
+    /// Monster.ot basic action masks to it. 0x0102 is no ActionType's id in 3.29.3b or 3.29.3c.</summary>
     public const ushort FirstSkillId = 0x0102;
 
     private readonly Lazy<Tables?> _tables = new(() => Tables.Load(folder));
@@ -79,7 +79,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     }
 
     /// <summary>Skill ids for the server's skills from <see cref="FirstSkillId"/> on, skipping every id an ActionType's
-    /// HASH16 masks to (0x3fff): 0x0106, 0x010a and 0x0114 are basic actions in 3.29.3b, and a gem skill numbered after
+    /// HASH16 masks to (0x3fff): 0x0106, 0x010a and 0x0114 are basic actions in 3.29.3c, and a gem skill numbered after
     /// the default attack would replace one.</summary>
     public IEnumerable<ushort> SkillIds()
     {
@@ -158,7 +158,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         // A non-attack is not necessarily a spell (warcries, for example); use the actual ActiveSkillType.
         Put("casting_spell", IsSpell(effectRow) && !IsAttack(effectRow) ? 1 : 0);
         // The Nova type's flag. The client casts a Nova at the cursor only when this, casting_spell and the caster's
-        // nova_spells_cast_at_target_location are all set (FUN_142896650); otherwise it stays around the caster.
+        // nova_spells_cast_at_target_location are all set (FUN_14289d210); otherwise it stays around the caster.
         if (IsNova(effectRow)) Put("skill_is_nova_skill", 1);
         // ActiveSkillType Brand's FlagStat is skill_is_brand_skill. It belongs to this selected skill, not the actor.
         Put("skill_is_brand_skill", IsBrand(effectRow) ? 1 : 0);
@@ -289,7 +289,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return row >= 0 ? t.SpellCritChances[row] : null;
     }
 
-    /// <summary>A gem's requirement for one attribute at a level (0x14246fc40): the level requirement of that level
+    /// <summary>A gem's requirement for one attribute at a level (0x142476710): the level requirement of that level
     /// (PlayerLevelReq) through the client's curve (3 x requirement + 11), the gem's percentage share (SkillGems
     /// Strength/Dexterity/IntelligenceRequirementPercent) raised to the power 0.9, and 0.5 for a support or 0.7 for a
     /// skill, truncated. Below 14 the client hides it and the requirement is 0. Anchors from the client's tooltips:
@@ -310,11 +310,11 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>
     /// A GrantedEffects row's SkillID, 0 for none: the value the client's own skill-stat builder adds as
-    /// <c>skill_behaviour_variation</c> (0x1921; 0x141ee9383 loads the row's +0xbe). An action takes its data row from it:
+    /// <c>skill_behaviour_variation</c> (0x1921; 0x141eefbe3 loads the row's +0xbe). An action takes its data row from it:
     /// a mortar its MonsterMortar row, a geometry channel its GeometryAttack row (by Id) and that row's GeometryChannel.
     /// A record sent over the network does not run that builder, so a record without it reads Id 0, whose GeometryAttack
     /// row has no GeometryChannel: the King in the Mists' GSVoodooKingRitual (SkillID 1116) then crashed the client in
-    /// GeometryChannelBase::StartChannelling (0xc0000005 at 0x1419e0daf, the null row's +0x28).
+    /// GeometryChannelBase::StartChannelling (0xc0000005 at 0x1419e37bf, the null row's +0x28).
     /// </summary>
     public int BehaviourVariation(int effectRow) => _skillIds.Value.GetValueOrDefault(effectRow);
 
@@ -504,7 +504,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);
 
     /// <summary>A Strike skill: ActiveSkillType MeleeSingleTarget, whose FlagStat is <c>skill_is_strike_skill</c>, the
-    /// stat the client's own strike virtuals test (<c>0x142896310</c>, <c>0x1428b12d0</c>). The default attack is one
+    /// stat the client's own strike virtuals test (<c>0x14289ced0</c>, <c>0x1428b7e90</c>). The default attack is one
     /// (PoB's Default Attack has MeleeSingleTarget too).</summary>
     public bool IsStrike(int effectRow) => _strikeEffects.Value.Contains(effectRow);
 
@@ -516,7 +516,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public bool IsNova(int effectRow) => _novaEffects.Value.Contains(effectRow);
 
     /// <summary>A self-targeted skill (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge, Vaal Cold Snap), whose use
-    /// the client centres on the caster (FUN_14193e290). Totems, mines and traps are left out: their effect goes off at
+    /// the client centres on the caster (FUN_1419439e0). Totems, mines and traps are left out: their effect goes off at
     /// the object they place.</summary>
     public bool IsSelfTargeted(int effectRow) => _selfTargetedEffects.Value.Contains(effectRow);
 
@@ -758,7 +758,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
 
     /// <summary>A Projectiles.dat row's max(CollisionRadius, CollisionCandidateRadius): the reach of the client's object
-    /// contact for a projectile it draws itself (0x141e32710 → 0x141e47a40, 11-skills.md "Hit").</summary>
+    /// contact for a projectile it draws itself (0x141e35a50 → 0x141e4b140, 11-skills.md "Hit").</summary>
     public int? ProjectileContactCells(string id) => _projectileContacts.Value.TryGetValue(id, out int cells) ? cells : null;
 
     private readonly Lazy<Dictionary<string, int>> _projectileContacts = new(() =>
@@ -870,7 +870,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// SkillID: 183 for the Sand Spitter's, 55 for a Cannibal's ThrowFire); 0 for any other projectile, for the spell
         /// forms (<c>monster_mortar</c>, not traced) and for the skills whose SkillID is row 0.</summary>
         public int Variation { get; init; }
-        /// <summary>The skill's <c>projectile_minimum_range</c> in grid cells (0x141b69ba0; the Spitter's 50).</summary>
+        /// <summary>The skill's <c>projectile_minimum_range</c> in grid cells (0x141b6c630; the Spitter's 50).</summary>
         public int MinimumRange { get; init; }
         public int SpreadRadius { get; init; }
         /// <summary>The spread of a multi-projectile release: a fan by default, a full turn for a ring.</summary>
@@ -958,7 +958,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             MinimumRange = Get("projectile_minimum_range"), SpreadRadius = Get("projectile_spread_radius"),
             Count = Math.Max(1, count),
             // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
-            // (141b69ba0 -> 141bacf60) selects a straight path unless a ballistic stat requests an arc.
+            // (141b6c630 -> 141baf9f0) selects a straight path unless a ballistic stat requests an arc.
             Lobbed = projectile.Variation == 0 || Get("projectile_ballistic_angle_from_reference_event") != 0
                 || Get("projectile_ballistic_angle_from_target_distance") != 0,
         };
@@ -1040,7 +1040,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 || !mortarRows.TryGetValue(k.GetInt32(), out var mortar) || mortar.Projectile < 0 || mortar.Projectile >= rows.Count) continue;
             var p = rows[mortar.Projectile];
             if (p.Id.Length == 0 || p.Speed <= 0) continue;
-            // Only the attack form's action (0x141b69900) is traced and checked live drawing its own; the spell forms
+            // Only the attack form's action (0x141b6c390) is traced and checked live drawing its own; the spell forms
             // (monster_mortar, monster_mortar_around_caster) keep the server's object.
             result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius))
                 { AnimationKey = mortar.AnimationKey, Variation = attackForm ? k.GetInt32() : 0 };

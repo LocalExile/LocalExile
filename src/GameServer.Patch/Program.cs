@@ -189,7 +189,7 @@ static int GgpkTool(string[] args)
         if (rest.Contains("--save")) SaveRootHash(ggpk);
         return 0;
     }
-    // The client reads gateway_list.txt, then Bundles2/gateway_list.txt if that exists (0x140cfc2d0); the last one wins.
+    // The client reads gateway_list.txt, then Bundles2/gateway_list.txt if that exists (0x140cfc290); the last one wins.
     string? file = new[] { "Bundles2/gateway_list.txt", "gateway_list.txt" }.FirstOrDefault(f => GgpkMaintenance.TryReadFile(ggpk, f) is not null);
     if (file is null) { Console.Error.WriteLine("[patch] no gateway_list.txt in the GGPK"); return 1; }
     byte[] current = GgpkMaintenance.TryReadFile(ggpk, file)!;

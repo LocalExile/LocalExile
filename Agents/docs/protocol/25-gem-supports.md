@@ -24,8 +24,8 @@ Each support contains a full granted-effect reference followed by a u32 source f
 The reference contains a flagged GEPL row, a flagged GESSPL row and any extra stat-set references.
 A normal support therefore occupies 14 bytes, including the source field, which is currently zero.
 Omitting the stat-set reference desynchronizes the Actor record and crashes the client.
-The native reader is `0x142196ce0`, calling `0x1424a0dc0` and `0x1424a0990`.
-The constructor at `0x141ee73d0` receives a support vector with stride 0x78.
+The native reader is `0x14219d650`, calling `0x1424a7890` and `0x1424a7460`.
+The constructor at `0x141eedc30` receives a support vector with stride 0x78.
 GrantedEffects supplies the native skill-bar letter and attribute colour; no client assets are changed.
 Item supports use those same references, including the white `d` of the Delve socketed attack/spell damage effects.
 Effects with an empty native letter do not acquire an invented badge.

@@ -11,13 +11,13 @@ namespace GameServer.Core.Protocol.Instance;
 /// from time 0 at speed 1 (its fall);</item>
 /// <item>Transitionable 1; StateMachine: one shared state (<c>blade_type</c> 0), no timer; LimitedLifespan reads nothing.</item>
 /// </list>
-/// About a second later the original server sets its Animated back to the type's own (0x2ba, <see cref="Landed"/>).
+/// About a second later the original server sets its Animated back to the type's own (0x2bc, <see cref="Landed"/>).
 /// </summary>
 public sealed record GroundBladeObject(int GridX, int GridY, float Rotation, uint MiscAnimatedRow, int BladeType = 0)
 {
     public const int FallAnimation = 2;
 
-    /// <summary>The Animated component's index in the type's component order, for its 0x2ba update.</summary>
+    /// <summary>The Animated component's index in the type's component order, for its 0x2bc update.</summary>
     public const byte AnimatedIndex = 2;
 
     public byte[] Blob()
@@ -32,6 +32,6 @@ public sealed record GroundBladeObject(int GridX, int GridY, float Rotation, uin
         return w.ToArray();
     }
 
-    /// <summary>The 0x2ba data that sets the blade's Animated back to the type's own model once it has fallen.</summary>
+    /// <summary>The 0x2bc data that sets the blade's Animated back to the type's own model once it has fallen.</summary>
     public static byte[] Landed() => [0];
 }

@@ -30,7 +30,7 @@ public sealed class LabyrinthLayoutTests
             "End_1_BranchN#4 [7,9] SilverKey:42 SilverDoorReward:43",
             "End_1_BranchN#5 [7,8,-1] ToggleStatuesNormal2:45 Lieutenants2:48",
         ], got);
-        // The node the client reads from the area's extra data (0x141ec7220 flag 0x08): seed, row, difficulty.
+        // The node the client reads from the area's extra data (0x141ecdad0 flag 0x08): seed, row, difficulty.
         Assert.Equal(new byte[] { 0x08, 0, 0, 0, 0, 0, 0x34, 0x12, 1 }, LabyrinthDay.ExtraData(new(0, 0x1234, 1)));
     }
 

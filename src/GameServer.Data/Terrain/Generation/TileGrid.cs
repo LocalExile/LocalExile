@@ -1,6 +1,6 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>One grid entry (the client's 0x38-byte entries of the tile map, <c>0x141d833e0</c>): the tile covering it,
+/// <summary>One grid entry (the client's 0x38-byte entries of the tile map, <c>0x141d86a70</c>): the tile covering it,
 /// the tile's orientation and height offset, and the entry's offset inside the tile (0, 0 at the tile's origin).</summary>
 public readonly record struct TileEntry(TileDef Tile, byte Orientation, short HeightOffset, byte OffsetX, byte OffsetY)
 {
@@ -9,7 +9,7 @@ public readonly record struct TileEntry(TileDef Tile, byte Orientation, short He
 
 /// <summary>One vertex of the tile map (the client's 3-byte corners at map +0x50: ground index into the map's ground
 /// list +0x68, height, flags). Flag 1: a ground was written; 2: a height was written; 4: written before the ground
-/// flood fill (<c>0x142116600</c> sets it from flag 1 and clears it after the edge points).</summary>
+/// flood fill (<c>0x14211cf00</c> sets it from flag 1 and clears it after the edge points).</summary>
 public struct TileCorner
 {
     public string? Ground;
@@ -27,17 +27,17 @@ public sealed class TileGrid(int width, int height)
     public int Width { get; } = width;
     public int Height { get; } = height;
 
-    /// <summary>Map +0x10: ground writes over written vertices are checked (<c>0x141d85640</c>). Room tilising
-    /// (<c>0x141fea780</c>) and the edge points (<c>0x141feed20</c>) turn it off while they run.</summary>
+    /// <summary>Map +0x10: ground writes over written vertices are checked (<c>0x141d88cd0</c>). Room tilising
+    /// (<c>0x141ff0fa0</c>) and the edge points (<c>0x141ff5540</c>) turn it off while they run.</summary>
     public bool CheckGrounds = true;
 
-    /// <summary>View +0x20: a tile went in with a height offset (<c>0x141ffb870</c>).</summary>
+    /// <summary>View +0x20: a tile went in with a height offset (<c>0x1420020c0</c>).</summary>
     public bool HasHeights { get; private set; }
 
     /// <summary>The ground flags (.gt line 2 numbers as bits) by ground path; null for the null ground.</summary>
     public Func<string?, int> GroundFlags = _ => 0;
 
-    /// <summary><c>0x141ffb870</c>'s test: the tile keeps only its turn, not its mirror (<see cref="TerrainCache.Unmirrored"/>).</summary>
+    /// <summary><c>0x1420020c0</c>'s test: the tile keeps only its turn, not its mirror (<see cref="TerrainCache.Unmirrored"/>).</summary>
     public Func<TileDef, bool> Unmirrored = _ => false;
 
     public bool Inside(int x, int y) => x >= 0 && y >= 0 && x < Width && y < Height;
@@ -52,17 +52,17 @@ public sealed class TileGrid(int width, int height)
         return ref _corners[y * (Width + 1) + x];
     }
 
-    /// <summary><c>0x141d833e0</c>: writes every entry the tile covers under its orientation, then every vertex's
+    /// <summary><c>0x141d86a70</c>: writes every entry the tile covers under its orientation, then every vertex's
     /// ground (<see cref="SetGround"/>, or <see cref="ForceGround"/> when <paramref name="force"/>) and, where the
     /// vertex ground has no ground or one with flag 1, the vertex height plus the height offset.</summary>
-    /// <summary>The tiles placed at a height so far (a map view's +0x20 is set by such a place, <c>0x141ffb870</c>).</summary>
+    /// <summary>The tiles placed at a height so far (a map view's +0x20 is set by such a place, <c>0x1420020c0</c>).</summary>
     public int RaisedPlacements { get; private set; }
 
     public void Place(TileDef tile, int orientation, int x, int y, short heightOffset, bool force = false)
     {
         HasHeights |= heightOffset != 0;
         if (heightOffset != 0) RaisedPlacements++;
-        // 0x141ffb870, before the map's place (0x141d833e0): such a tile goes in at its orientation & 3.
+        // 0x1420020c0, before the map's place (0x141d86a70): such a tile goes in at its orientation & 3.
         if (Unmirrored(tile)) orientation &= 3;
         for (int v = 0; v < tile.Height; v++)
             for (int u = 0; u < tile.Width; u++)
@@ -82,17 +82,17 @@ public sealed class TileGrid(int width, int height)
                 // The height goes in when the tile's vertex has no ground or a flag-1 ground, or the vertex had none.
                 if (g is null || (GroundFlags(g) & 1) != 0 || before is null || (GroundFlags(before) & 1) != 0)
                 {
-                    // 0x141d7ff50 with code 0: the file's vertex height (0 without heights).
+                    // 0x141d835e0 with code 0: the file's vertex height (0 without heights).
                     c.Height = (sbyte)(tile.VertexHeight(u, v) + heightOffset);
                     c.Flags |= 2;
                 }
             }
     }
 
-    /// <summary>View +0x20 is also set by the height levels (<c>0x142118470</c>, <c>0x142118790</c>).</summary>
+    /// <summary>View +0x20 is also set by the height levels (<c>0x14211ed70</c>, <c>0x14211f090</c>).</summary>
     public void MarkHeights(bool any) => HasHeights |= any;
 
-    /// <summary><c>0x141d82d00</c>: the tile covering entry (x, y) (an empty entry counts as 1 × 1) takes a
+    /// <summary><c>0x141d86390</c>: the tile covering entry (x, y) (an empty entry counts as 1 × 1) takes a
     /// height offset: every entry it covers, then every vertex of it: the offset plus the tile's own vertex height.</summary>
     public void SetHeight(int x, int y, short height)
     {
@@ -108,7 +108,7 @@ public sealed class TileGrid(int width, int height)
                 Corner(x + u, y + v).Height = (sbyte)(height + (e is { } t2 ? t2.Tile.VertexHeightAt(t2.Orientation, u, v) : 0));
     }
 
-    /// <summary><c>0x141d83060</c>: the tile whose origin is entry (x, y) has its height offset multiplied by
+    /// <summary><c>0x141d866f0</c>: the tile whose origin is entry (x, y) has its height offset multiplied by
     /// <paramref name="storey"/>; every vertex of it becomes the new offset plus the tile's own vertex height times
     /// <paramref name="storey"/> (a byte, wrapping).</summary>
     public void ScaleHeight(int x, int y, int storey)
@@ -132,7 +132,7 @@ public sealed class TileGrid(int width, int height)
         return h < -0x78 ? h + 0x100 : h;
     }
 
-    /// <summary><c>0x141d83d60</c>: the tile covering entry (x, y) leaves every entry it covers.</summary>
+    /// <summary><c>0x141d873f0</c>: the tile covering entry (x, y) leaves every entry it covers.</summary>
     public void Remove(int x, int y)
     {
         if (this[x, y] is not { } e) return;
@@ -143,7 +143,7 @@ public sealed class TileGrid(int width, int height)
                 if (Inside(ox + u, oy + v)) _entries[(oy + v) * Width + ox + u] = null;
     }
 
-    /// <summary><c>0x141d85640</c>: a vertex's ground, unless the vertex already has a different one that the checks
+    /// <summary><c>0x141d88cd0</c>: a vertex's ground, unless the vertex already has a different one that the checks
     /// keep ("Mismatching ground types"): with <see cref="CheckGrounds"/> or flag 4 set, a different ground goes in only
     /// when one of the two is null-or-flag-8 against null-or-flag-8, or neither has flag 1 or 4.</summary>
     public void SetGround(int x, int y, string? ground)
@@ -164,7 +164,7 @@ public sealed class TileGrid(int width, int height)
         else ForceGround(x, y, ground);
     }
 
-    /// <summary><c>0x141d85840</c>: the vertex takes the ground (flag 1).</summary>
+    /// <summary><c>0x141d88ed0</c>: the vertex takes the ground (flag 1).</summary>
     public void ForceGround(int x, int y, string? ground)
     {
         ref var c = ref Corner(x, y);

@@ -1,10 +1,10 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary><c>0x1421148c0</c>: the logical links are resolved. A link's live end nodes that lie on one spot are
-/// joined (<c>0x142113ec0</c> pairs them, <c>0x142114aa0</c> moves one node's edge onto the other); a link with no
-/// such pair reconnects its lone end to the nearer of the other end's two split nodes (<c>0x142114270</c>). Nodes
-/// left with more than two edges join the plain list (<c>0x142114de0</c>), emptied nodes are removed
-/// (<c>0x142036640</c>).</summary>
+/// <summary><c>0x14211b1c0</c>: the logical links are resolved. A link's live end nodes that lie on one spot are
+/// joined (<c>0x14211a7c0</c> pairs them, <c>0x14211b3a0</c> moves one node's edge onto the other); a link with no
+/// such pair reconnects its lone end to the nearer of the other end's two split nodes (<c>0x14211ab70</c>). Nodes
+/// left with more than two edges join the plain list (<c>0x14211b6e0</c>), emptied nodes are removed
+/// (<c>0x14203ce90</c>).</summary>
 sealed class LinkMerge(TileGraph graph, List<GraphNode> plain)
 {
     readonly List<GraphNode> _remove = [];
@@ -60,7 +60,7 @@ sealed class LinkMerge(TileGraph graph, List<GraphNode> plain)
         TileGraph.Slot(to, e);
     }
 
-    // 0x142113ec0.
+    // 0x14211a7c0.
     static List<(GraphNode, GraphNode)> Pairs(LogicalLink link)
     {
         if (link.A is null || link.B is null || link.A == link.A2 || link.B == link.B2)
@@ -88,7 +88,7 @@ sealed class LinkMerge(TileGraph graph, List<GraphNode> plain)
         return pairs;
     }
 
-    // 0x142114270.
+    // 0x14211ab70.
     void Reconnect(LogicalLink link)
     {
         GraphNode lone, p, p2;

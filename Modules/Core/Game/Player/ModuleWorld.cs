@@ -34,7 +34,7 @@ static partial class Game
             uint id = conn.NextObjectId++;
             var obj = new HideoutObject(x, y, rotation, components, new HideoutDoodad(0, 0));
             await Send(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(metadataPath), obj.Blob()),
-                $"0x02b9 create {name} 0x{id:x} at ({x}, {y})");
+                $"0x02bb create {name} 0x{id:x} at ({x}, {y})");
             await Send(InstanceProtocol.EnterWakeZone(id), null);
             await RegisterStationaryCollision(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, id, metadataPath, x, y, rotation, editorKey);
             return id;

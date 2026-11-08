@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The "Tile hash" the client logs after generating an area and sends in C→S 0x7d (<c>0x141d8a460</c>,
+/// <summary>The "Tile hash" the client logs after generating an area and sends in C→S 0x7d (<c>0x141d8daf0</c>,
 /// Agents/docs/re/011-level-generation.md §6). Equal hashes mean the same tiles in the same places.</summary>
 public static class TileHash
 {
@@ -39,7 +39,7 @@ public static class TileHash
         return (k >> 24 ^ k) * M;
     }
 
-    /// <summary>MurmurHash2 (32-bit) over bytes: <c>0x140df8570</c>; over a UTF-16 string <c>0x1406db330</c> is the
+    /// <summary>MurmurHash2 (32-bit) over bytes: <c>0x140df6e10</c>; over a UTF-16 string <c>0x1406db8f0</c> is the
     /// same function on its bytes.</summary>
     public static uint Murmur2(ReadOnlySpan<byte> data, uint seed)
     {

@@ -35,7 +35,7 @@ sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int Spawn
     /// <summary>Whether the Gateway generated this layout from the seed (<see cref="ServerLevels"/>).</summary>
     public bool ServerGenerated => CellHeights is not null;
 
-    /// <summary>The ground height at a cell in world units (the client's 0x141d84be0 at the cell's centre: the cell's
+    /// <summary>The ground height at a cell in world units (the client's 0x141d88270 at the cell's centre: the cell's
     /// height × 7.8125), or null without heights or outside the grid.</summary>
     public float? GroundHeight(int x, int y) =>
         CellHeights is { } h && x >= 0 && y >= 0 && x < GridW && y < GridH ? h[y * GridW + x] * 7.8125f : null;
@@ -292,7 +292,7 @@ static class AreaLayouts
         }
     }
 
-    // 1 byte per cell, 0 … 5; a cell off the grid reads 0, as the client's does (0x141d85260).
+    // 1 byte per cell, 0 … 5; a cell off the grid reads 0, as the client's does (0x141d888f0).
     static Func<int, int, int> SightOf(byte[] cells, int w, int h) =>
         (x, y) => x >= 0 && y >= 0 && x < w && y < h ? cells[y * w + x] : 0;
 

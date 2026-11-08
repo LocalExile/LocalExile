@@ -53,8 +53,8 @@ static partial class Game
     }
 
     // To every other client in the instance that has the object (and has it awake), through its own send gate. A
-    // client without it cannot read a message about it: an object's component update (0x2ba) is read by the object's
-    // components, and a buried Gravel Eater's rise (0x2ba Transitionable) sent to a client it was never created on broke
+    // client without it cannot read a message about it: an object's component update (0x2bc) is read by the object's
+    // components, and a buried Gravel Eater's rise (0x2bc Transitionable) sent to a client it was never created on broke
     // its stream ("Unable to deserialise packet", live 2026-11-05 01:15:27). SyncInstanceMonsters creates it there.
     internal static void ToOthers(ClientState conn, uint id, byte[] bytes)
     {

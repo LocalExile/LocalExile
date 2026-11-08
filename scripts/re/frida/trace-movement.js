@@ -4,15 +4,15 @@
 //   python scripts/re/frida/run.py Game.patched.exe --log logs/movement.jsonl scripts/re/frida/trace-movement.js
 // Records (field q = QPC ticks; ids are server object ids, learned from the Actor and Positioned message handlers):
 // - qpf: the QPC frequency, once.
-// - msg: an Actor (0x1421940a0) or Positioned (0x141e30c90) message as handled: id, message id, raw first 0x40 bytes.
-// - frame: the player's Positioned tick (0x141e32710) started: once per frame (the frame's time).
+// - msg: an Actor (0x14219aa10) or Positioned (0x141e33fd0) message as handled: id, message id, raw first 0x40 bytes.
+// - frame: the player's Positioned tick (0x141e35a50) started: once per frame (the frame's time).
 // - cell: an object's grid cell changed during its tick (a Bresenham step), with its step time (+0x240).
 // - stop: an object's walk ended in its tick (step time went to 0) and where.
-// - path: a pathfinder call (0x141e4d890): mover, size, start, target, the 13 other arguments, result, waypoints, and
-//   every object its collision test (0x141e61540) looked at, with cell, size, flags and whether it blocked.
-// - seg: a straight move (0x141e34400): mover, from, to, the float at +8 (speed), the int at +0xc (height).
-// - moveTo / inRange: Pathfinding MoveTo 0x141e7b530 and its range check 0x141e7b260, with their arguments.
-// - use: the C→S 0x24/0x25 sender 0x142166300 ran (the click).
+// - path: a pathfinder call (0x141e50f90): mover, size, start, target, the 13 other arguments, result, waypoints, and
+//   every object its collision test (0x141e65ae0) looked at, with cell, size, flags and whether it blocked.
+// - seg: a straight move (0x141e37740): mover, from, to, the float at +8 (speed), the int at +0xc (height).
+// - moveTo / inRange: Pathfinding MoveTo 0x141e81c20 and its range check 0x141e81950, with their arguments.
+// - use: the C→S 0x24/0x25 sender 0x14216ccb0 ran (the click).
 // - tick: an object's movement state before and after its tick (the player every frame; others while moving).
 // - speedRoll: an Actor's run speed multiplier and the TinyMT32 inputs it came from.
 const m = Process.getModuleByName('Game.patched.exe');
@@ -32,7 +32,7 @@ const idOf = new Map();   // Positioned pointer → server object id
 let playerPos = null;
 const name = p => idOf.has(p.toString()) ? idOf.get(p.toString()) : p.toString();
 
-Interceptor.attach(at('0x1421940a0'), {
+Interceptor.attach(at('0x14219aa10'), {
   onEnter(a) {
     const actor = a[0], msg = a[1], id = msg.add(0x10).readU32();
     const pos = actor.add(8).readPointer().add(0x98).readPointer();
@@ -41,7 +41,7 @@ Interceptor.attach(at('0x1421940a0'), {
     send({q: q(), msg: msg.add(8).readU16(), id, hex: hex(msg, 0x40)});
   }
 });
-Interceptor.attach(at('0x141e30c90'), {
+Interceptor.attach(at('0x141e33fd0'), {
   onEnter(a) {
     const pos = a[0], msg = a[1], id = msg.add(0x10).readU32();
     idOf.set(pos.toString(), id);
@@ -54,7 +54,7 @@ Interceptor.attach(at('0x141e30c90'), {
 // the segment's finish flag +0x1f0, the time curve +0x308 and its length +0x2f0.
 const tickState = p => [p.add(0x244).readFloat(), p.add(0x240).readFloat(), p.add(0x238).readFloat(), p.add(0x23c).readFloat(),
   p.add(0x1f0).readU8(), p.add(0x308).readPointer().isNull() ? 0 : 1, p.add(0x2f0).readFloat()];
-Interceptor.attach(at('0x141e32710'), {
+Interceptor.attach(at('0x141e35a50'), {
   onEnter(a) {
     this.p = a[0];
     this.cell = xy(a[0].add(0x294));
@@ -72,9 +72,9 @@ Interceptor.attach(at('0x141e32710'), {
   }
 });
 
-// Actor setup 0x141e9ca20: the run speed multiplier +0x1a8 = 1 + v / 100, v drawn by TinyMT32 in [range +0xa0, +0xa4]
+// Actor setup 0x141ea32d0: the run speed multiplier +0x1a8 = 1 + v / 100, v drawn by TinyMT32 in [range +0xa0, +0xa4]
 // of the actor data (+0x188), seeded with (entity → +8 → +0x28 → +8, entity +0x88).
-Interceptor.attach(at('0x141e9ca20'), {
+Interceptor.attach(at('0x141ea32d0'), {
   onEnter(a) { this.actor = a[0]; },
   onLeave() {
     try {
@@ -88,7 +88,7 @@ Interceptor.attach(at('0x141e9ca20'), {
 });
 
 let inPath = null;
-Interceptor.attach(at('0x141e4d890'), {
+Interceptor.attach(at('0x141e50f90'), {
   onEnter(a) {
     const pos = a[1].add(0x98).readPointer();
     this.out = a[8]; this.count = a[9]; this.reached = a[10]; this.flag = a[11];
@@ -107,7 +107,7 @@ Interceptor.attach(at('0x141e4d890'), {
     send(this.info);
   }
 });
-Interceptor.attach(at('0x141e61540'), {
+Interceptor.attach(at('0x141e65ae0'), {
   onEnter(a) {
     if (inPath === null) return;
     this.o = a[1];
@@ -122,14 +122,14 @@ Interceptor.attach(at('0x141e61540'), {
   }
 });
 
-Interceptor.attach(at('0x141e34400'), {
+Interceptor.attach(at('0x141e37740'), {
   onEnter(a) {
     const p = a[0], mv = a[1];
     send({q: q(), seg: name(p), from: xy(p.add(0x294)), to: xy(mv.readPointer()), speed: mv.add(8).readFloat(),
           height: mv.add(0xc).readS32(), caller: va(this.returnAddress)});
   }
 });
-Interceptor.attach(at('0x141e7b530'), {
+Interceptor.attach(at('0x141e81c20'), {
   onEnter(a) {
     const pos = a[0].add(8).readPointer().add(0x98).readPointer();
     send({q: q(), moveTo: name(pos), target: xy(a[1].readPointer()), min: a[2].toInt32(), max: a[3].toInt32(),
@@ -137,13 +137,13 @@ Interceptor.attach(at('0x141e7b530'), {
           flags54c: a[0].add(0x54c).readU8(), caller: va(this.returnAddress)});
   }
 });
-Interceptor.attach(at('0x141e7b260'), {
+Interceptor.attach(at('0x141e81950'), {
   onEnter(a) {
     const pos = a[0].add(8).readPointer().add(0x98).readPointer();
     send({q: q(), inRange: name(pos), target: [a[1].toInt32(), a[1].shr(32).toInt32()], min: a[2].toInt32(),
           max: a[3].toInt32(), precision: a[4].toInt32(), tolerance: a[5].toInt32(), caller: va(this.returnAddress)});
   }
 });
-Interceptor.attach(at('0x142166300'), { onEnter() { send({q: q(), use: 1, caller: va(this.returnAddress)}); } });
+Interceptor.attach(at('0x14216ccb0'), { onEnter() { send({q: q(), use: 1, caller: va(this.returnAddress)}); } });
 
 send('trace-movement ready');

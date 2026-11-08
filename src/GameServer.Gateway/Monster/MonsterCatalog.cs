@@ -87,7 +87,7 @@ sealed class MonsterCatalog(string folder = "data")
 
     /// <summary>
     /// The maximum life the client gives a monster of this variety at this level, before mods: the client's Monster type
-    /// (0x141e701d0) sets stat 0x7d to max(1, column × LifeMultiplier / 100) from DefaultMonsterStats row level − 1 (0x48-byte
+    /// (0x141e76860) sets stat 0x7d to max(1, column × LifeMultiplier / 100) from DefaultMonsterStats row level − 1 (0x48-byte
     /// rows). The column depends on the variety's MonsterTypes row: AltLife1 → AltLife1, else AltLife2 → AltLife2, else
     /// IsPlayerMinion → MinionLife, else MonsterLife. Null when the tables are missing.
     /// </summary>

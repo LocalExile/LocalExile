@@ -25,7 +25,7 @@ Interceptor.replace(getCursorPos, new NativeCallback(out => {
   return 1;
 }, 'int', ['pointer']));
 
-// The engine reads the mouse only for the foreground window (0x140e68220), and this one is never activated.
+// The engine reads the mouse only for the foreground window (0x140e6a540), and this one is never activated.
 for (const name of ['GetForegroundWindow', 'GetActiveWindow', 'GetFocus']) {
   const real = new NativeFunction(user32.getExportByName(name), 'pointer', []);
   Interceptor.replace(user32.getExportByName(name), new NativeCallback(() => active ? hwnd : real(), 'pointer', []));

@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 
 static partial class Game
 {
-    // Creates one NPC (0x2b9, its NPCs.dat Id is an .ot type) and puts it in the wake zone; kept for clicks and /npcs.
+    // Creates one NPC (0x2bb, its NPCs.dat Id is an .ot type) and puts it in the wake zone; kept for clicks and /npcs.
     internal static async Task<uint> SpawnNpc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Npc npc,
         int x, int y, float rotation)
     {
@@ -12,7 +12,7 @@ static partial class Game
         var obj = new NpcObject(x, y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState, npc.Model, npc.Height);
         uint type = InstanceEntities.ObjectTypeHash(npc.Id);
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, type, obj.Blob()),
-            $"0x02b9 create npc 0x{id:x} {npc} type=0x{type:x8} at ({x}, {y}) rotation {rotation:0.##}, components {string.Join(", ", npc.Components!)}");
+            $"0x02bb create npc 0x{id:x} {npc} type=0x{type:x8} at ({x}, {y}) rotation {rotation:0.##}, components {string.Join(", ", npc.Components!)}");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 npc 0x{id:x} enters wake zone");
         lock (conn.Npcs) conn.Npcs[id] = new SpawnedNpc(npc, x, y);
         await RegisterStationaryCollision(remote, stream, ciphers, conn, id, npc.Id, x, y, rotation,
@@ -223,7 +223,7 @@ static partial class Game
         // ClientStrings IdentifyItemsChatMessage / IdentifyItemsChatMessageSingle, as a chat line (S→C 0x17).
         string text = identified.Count == 1 ? "1 Item identified" : $"{identified.Count} Items identified";
         await Send(remote, stream, ciphers, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
-        // The client decides itself whether the option is usable (NPCTalkCategory IdentifyItems, 0x141e754b0: gray with
+        // The client decides itself whether the option is usable (NPCTalkCategory IdentifyItems, 0x141e7bb90: gray with
         // "No items in your inventory can be identified" when nothing is unidentified), but only when the options are
         // listed: list them again.
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(conn.TalkingTo), $"0x0084 npc 0x{conn.TalkingTo:x}: options again");

@@ -411,7 +411,7 @@ static partial class Game
                 });
                 // No 0x1a9: an object created with the header's u32 at 0xffffffff is in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of
-                // Poison Arrow Trap bolts in The Upper Sceptre of God) broke its object list until it crashed at 0x14012946a
+                // Poison Arrow Trap bolts in The Upper Sceptre of God) broke its object list until it crashed at 0x1401297ca
                 // on an object that was gone (live 2026-11-04 and 2026-11-05, with traps firing).
                 if (presentation.FlightClip is { } clip)
                     Packet(() => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed) : null);

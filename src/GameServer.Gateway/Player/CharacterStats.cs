@@ -200,7 +200,7 @@ static class CharacterStats
         // Iron Reflexes' converted evasion keeps it, as PoB's converted branch reads the same Evasion INC bucket).
         int armourPct = b.ArmourPct;
         // Native slot calculations add slot-specific increases to the applicable global bucket. Sum fractional
-        // contributions before rounding the final rating (AR 0x142732ee7, EV 0x14272a59b, ES 0x14252c6e7).
+        // contributions before rounding the final rating (AR 0x142739a97, EV 0x14273114b, ES 0x142533297).
         decimal Increased(decimal total, decimal shield, decimal body, long increase, long shieldIncrease,
             long bodyIncrease = 0, bool bodyAsArmour = false)
         {
@@ -238,7 +238,7 @@ static class CharacterStats
             // Iron Reflexes converts all evasion rating to armour and removes dexterity's evasion bonus. The converted
             // evasion keeps the armour, evasion and shared defence increases (each once), but not dexterity.
             long convertedPct = armourPct + ordinaryEvasionPct - b.SharedDefencesPct;
-            // Native 0x142731a7b also doubles converted body EV, or suppresses it with the no-body-AR flag.
+            // Native 0x14273862b also doubles converted body EV, or suppresses it with the no-body-AR flag.
             decimal converted = More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, convertedPct,
                 (long)b.ShieldArmourPct + b.ShieldEvasionPct + b.SharedShieldDefencesPct, bodyAsArmour: true),
                 b.EvasionMorePct), b.ArmourMorePct);
@@ -274,7 +274,7 @@ static class CharacterStats
         // PoB CalcOffence: rate = base rate * (1 + increased / 100) * more. The client takes one integer
         // main_hand_attack_speed_+%, so send the equivalent increased value (93 for 75% increased and 10% more).
         // attack_speed_+%_per_200_accuracy_rating is per 150 in its own text and in the client: floor(accuracy / 150) x value
-        // joins increased (0x142701d20). shortcut: the off hand uses this accuracy and a gem's own accuracy does not count,
+        // joins increased (0x1427088d0). shortcut: the off hand uses this accuracy and a gem's own accuracy does not count,
         // until a weapon's local accuracy feeds the pools per hand.
         int attackSpeedPct = (int)Math.Round(
             ((1 + (b.AttackSpeedPct + accuracy / 150 * b.AttackSpeedPer150Accuracy) / 100.0) * (1 + b.AttackSpeedMorePct / 100.0) - 1) * 100,

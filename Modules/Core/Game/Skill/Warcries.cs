@@ -6,7 +6,7 @@ using GameServer.Core.World;
 static partial class Game
 {
     // What every warcry does at its release besides its own effect, within its own radius around where it was used: the
-    // client's warcry action (0x141abd120) scans that radius for Chest objects and corpses when Deathrattle's stats are set.
+    // client's warcry action (0x141abfb30) scans that radius for Chest objects and corpses when Deathrattle's stats are set.
     internal const string CorpseExplosionStat = "nearby_corpses_explode_dealing_%_maximum_life_physical_damage_on_warcry",
         OpenChestsStat = "open_nearby_chests_on_warcry";
 
@@ -14,7 +14,7 @@ static partial class Game
     const int CorpseExplosionRadius = 22;
 
     // shortcut: the generic gore burst (MiscAnimated SuicideExplodeNoGibs) at its own size; which art the client's warcry
-    // wave (0x141abd490) plays for an exploding corpse is not found yet. Upgrade once that consumer is traced.
+    // wave (0x141abfea0) plays for an exploding corpse is not found yet. Upgrade once that consumer is traced.
     internal const string CorpseExplosionAo = "Metadata/Effects/Spells/monsters_effects/gore_explode/gore_explosion_no_gibs.ao";
     const int CorpseExplosionArtMs = 2000;
 
@@ -66,7 +66,7 @@ static partial class Game
             double now = ProjectileWorldTime(conn);
             foreach (var (id, corpse) in conn.Monsters.Where(e => IsCorpse(e.Value) && Dist(e.Value.Walk.Position(now), at) <= radius).ToList())
             {
-                // Gone for the client (0x2bb below), so gone here too: a later removal (a projectile kill's) must not send it again.
+                // Gone for the client (0x2bd below), so gone here too: a later removal (a projectile kill's) must not send it again.
                 corpse.CorpseConsumed = true;
                 conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
                 conn.Monsters.Remove(id);
@@ -94,9 +94,9 @@ static partial class Game
             lock (conn.Monsters) effect = conn.NextObjectId++;
             art.Add(effect);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()), $"0x02b9 create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})");
+                new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()), $"0x02bb create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb corpse 0x{id:x} ({label}) explodes (Deathrattle)");
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd corpse 0x{id:x} ({label}) explodes (Deathrattle)");
         }
         if (art.Count > 0)
             _ = Task.Run(async () =>

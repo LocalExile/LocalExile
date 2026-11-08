@@ -1,6 +1,6 @@
 /// <summary>A transient Rage balance advanced only by the caller's game clock. The caller serializes access.
 /// Character.ot supplies 30 maximum and a 2000 ms loss delay; BuffDefinitions 1060 loses one Rage per 0.1 s.
-/// Client 3.29.3b 0x142877ac0 divides the delay by its recovery rate. No stat getters or wall clocks run here.</summary>
+/// Client 3.29.3c 0x14287e680 divides the delay by its recovery rate. No stat getters or wall clocks run here.</summary>
 sealed class RageState
 {
     public readonly record struct Inputs(int MaximumBonus = 0, bool HalfMaximum = false, int EffectPercent = 0,

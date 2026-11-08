@@ -4,8 +4,8 @@ using System.Text;
 namespace GameServer.Data.Terrain.Generation;
 
 /// <summary>A ground type (.gt): its name (fill tile lists name grounds) and the five flag numbers on its second line
-/// as bits (number i → bit i, <c>0x1429f6a80</c>; numbers left out are 1, 1, 1, 1, 0; bit 4 = the ground is left out
-/// of tile keys, <c>0x141d813c0</c>).</summary>
+/// as bits (number i → bit i, <c>0x1429ffde0</c>; numbers left out are 1, 1, 1, 1, 0; bit 4 = the ground is left out
+/// of tile keys, <c>0x141d84a50</c>).</summary>
 public sealed record GroundType(string Path, string Name, int Flags)
 {
     public bool IgnoredInKeys => (Flags & 0x10) != 0;
@@ -14,7 +14,7 @@ public sealed record GroundType(string Path, string Name, int Flags)
 /// <summary>A tile (.tdt, version 10) as the generator uses it: its key (after the table: u32 "", u32 .tgt, u32 tag,
 /// 4 × u32 edges, u8 w, u8 h, 4 × u32 grounds, 4 × i8 heights, 4 × u8 points a, 4 × u8 points b).
 /// <see cref="VertexGrounds"/> are the grounds of all (w + 1) × (h + 1) vertices, row by row (the tile data's +0xa8,
-/// written to the map's corner grid on placement by <c>0x141d833e0</c>), as the file has them (grounds left out of
+/// written to the map's corner grid on placement by <c>0x141d86a70</c>), as the file has them (grounds left out of
 /// keys included); empty when the file has none. <see cref="VertexHeights"/> likewise (empty = all 0).</summary>
 public sealed record TileDef(string Path, string Tag, TileKey Key)
 {
@@ -23,10 +23,10 @@ public sealed record TileDef(string Path, string Tag, TileKey Key)
     public string?[] VertexGrounds { get; init; } = [];
     public sbyte[] VertexHeights { get; init; } = [];
     /// <summary>The key's corner grounds as the file gives them, grounds left out of keys included (tile data +0x40's
-    /// key; <see cref="Key"/> leaves them out, as <c>0x141d813c0</c> does for lookups). Null for the key's.</summary>
+    /// key; <see cref="Key"/> leaves them out, as <c>0x141d84a50</c> does for lookups). Null for the key's.</summary>
     public string?[]? RawGrounds { get; init; }
     public string?[] KeyGrounds => RawGrounds ?? Key.Grounds;
-    /// <summary>The tile's mesh (.tgt, u32 4 of the header; tile data +0x20, <c>0x141d7d700</c>), null for none.</summary>
+    /// <summary>The tile's mesh (.tgt, u32 4 of the header; tile data +0x20, <c>0x141d80d90</c>), null for none.</summary>
     public string? Mesh { get; init; }
     /// <summary>The second objects file (tile data +0x180): the .tmd the file names, the first of the two strings after the
     /// vertex block. Found as the string table's .tmd string (the table holds only the header's strings).</summary>
@@ -34,27 +34,27 @@ public sealed record TileDef(string Path, string Tag, TileKey Key)
     /// <summary>A tile over a base tile with neither a mesh (flags bit 0) nor a .tmd (bit 1) of its own places none of its mesh's
     /// objects, only the base's .tmd: the Lake causeway slopes (HideoutLake, LakePrototype) show no column doodad where
     /// the base tile and the slopes naming their own .tmd do; HallsOfTheDead's walls, with a mesh of their own, place its glowing eyes.
-    /// Where the loader (<c>0x1429f31a0</c>) drops them was not found.</summary>
+    /// Where the loader (<c>0x1429fc500</c>) drops them was not found.</summary>
     public bool NoMeshObjects { get; init; }
     /// <summary>The orientations the tile may take (tile data +0x171; 0 or 0xff = no restriction).</summary>
     public byte Restriction { get; init; }
 
-    /// <summary><c>0x141d81590</c>: a TileSet line's orientation mask (0 = none given) with the tile's restriction.</summary>
+    /// <summary><c>0x141d84c20</c>: a TileSet line's orientation mask (0 = none given) with the tile's restriction.</summary>
     public int AllowedOrientations(int mask) =>
         Restriction is 0 or 0xff ? mask : mask == 0 ? Restriction : mask & Restriction;
 
     public string? VertexGround(int u, int v) => VertexGrounds.Length == 0 ? null : VertexGrounds[v * (Width + 1) + u];
     public sbyte VertexHeight(int u, int v) => VertexHeights.Length == 0 ? (sbyte)0 : VertexHeights[v * (Width + 1) + u];
 
-    /// <summary><c>0x141d7ff50</c>: the height of vertex (u, v) of the tile turned by an orientation code (the vertex
-    /// in the turned tile's frame, mapped back through the inverse code, table 0x142fb7f98).</summary>
+    /// <summary><c>0x141d835e0</c>: the height of vertex (u, v) of the tile turned by an orientation code (the vertex
+    /// in the turned tile's frame, mapped back through the inverse code, table 0x142fc2028).</summary>
     public int VertexHeightAt(int code, int u, int v)
     {
         var (tu, tv) = Unturn(code, u, v);
         return VertexHeight(tu, tv);
     }
 
-    /// <summary><c>0x141d80030</c>: the ground of vertex (u, v) of the turned tile.</summary>
+    /// <summary><c>0x141d836c0</c>: the ground of vertex (u, v) of the turned tile.</summary>
     public string? VertexGroundAt(int code, int u, int v)
     {
         var (tu, tv) = Unturn(code, u, v);
@@ -70,8 +70,8 @@ public sealed record TileDef(string Path, string Tag, TileKey Key)
     }
 }
 
-/// <summary>An edge type (.et, parser <c>0x1429f78f0</c>, built by <c>0x141d7b3b0</c> / <c>0x141d7b570</c> /
-/// <c>0x141d7b6e0</c>): its name (first word of line 1), the ground on each side (null = "wildcard"), then
+/// <summary>An edge type (.et, parser <c>0x142a00c50</c>, built by <c>0x141d7ea40</c> / <c>0x141d7ec00</c> /
+/// <c>0x141d7ed70</c>): its name (first word of line 1), the ground on each side (null = "wildcard"), then
 /// "n0 size n2" and either "virtual" with two (sub-edge, chirality) lines (chirality: flag bits 1 and 2) and the default min / max width, or the
 /// wiggle, can_end, force_height_zero and a centre ground. <see cref="Wildcard"/> is flag 0x80 (the name starts with
 /// "Wildcard": such edges are left out of tile edge keys and removed from the graph after the special nodes).</summary>
@@ -86,7 +86,7 @@ public sealed record EdgeType(string Path, string Name, string? Ground1, string?
 public sealed record RoomSlot(char Kind, int Column, int Row, TileKey? Key, string Tag, int Height)
 {
     /// <summary>The key's last number (slot +0x73, version > 18): the corner of the key at the slot's cell, 0 top left,
-    /// 1 top right, 2 bottom right, 3 bottom left. <c>0x1420ef310</c> moves the key by 1 − w for 1 and 2 (any value
+    /// 1 top right, 2 bottom right, 3 bottom left. <c>0x1420f5c10</c> moves the key by 1 − w for 1 and 2 (any value
     /// not a multiple of 3) and by 1 − h for 2 and 3 (above 1), in the room's own (unturned) cells.</summary>
     public int Corner { get; init; }
 
@@ -104,7 +104,7 @@ public sealed record RoomDef(string Path, string Tag, TileKey Key, RoomSlot[,] S
     public int Overlap { get; init; }
 
     /// <summary>The grounds of the room's inner vertices (u = 1 … w − 1, v = 1 … h − 1, row by row; room data +0xe8),
-    /// null where none: the file's last numbers, each a dictionary index (<c>0x142a0f3a0</c> reads them to the end of
+    /// null where none: the file's last numbers, each a dictionary index (<c>0x142a18700</c> reads them to the end of
     /// the file); empty when the file has none.</summary>
     public string?[] VertexGrounds { get; init; } = [];
 
@@ -146,7 +146,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
     public GroundType? Ground(string? path) => path is null ? null : Get("gt", path, d =>
     {
         var lines = TerrainText.Lines(TerrainText.Decode(d)).Where(l => l.Trim().Length > 0).ToArray();
-        // 0x1429f6a80 reads five numbers in turn; one the file leaves out keeps its default (1, 1, 1, 1, 0).
+        // 0x1429ffde0 reads five numbers in turn; one the file leaves out keeps its default (1, 1, 1, 1, 0).
         int flags = 0b01111;
         if (lines.Length > 1)
         {
@@ -184,7 +184,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
             maxW = Number(0);
         }
         int wiggle = !isVirtual ? Number(0) : 0;
-        // Then can_end (flag 0x10, 0x141d7b6e0) and force_height_zero.
+        // Then can_end (flag 0x10, 0x141d7ed70) and force_height_zero.
         bool canEnd = !isVirtual && Number(0) != 0;
         return new EdgeType(path, words[0], g1, g2, n0, size, n2 != 0, isVirtual, sub, chirality, minW, maxW, wiggle, canEnd);
     });
@@ -199,7 +199,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
     readonly Dictionary<string, int> _tileFlags = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The u16 flags word after a .tdt's key (tile data +0x16c / +0x16d; bit 4: doodads may go on the tile;
-    /// bit 0x200: made of sub-tiles). The reader (<c>0x1429f31a0</c>) clears 0x100 before version 14 and 0x200 before 13.</summary>
+    /// bit 0x200: made of sub-tiles). The reader (<c>0x1429fc500</c>) clears 0x100 before version 14 and 0x200 before 13.</summary>
     public int TileFlags(string path)
     {
         if (_tileFlags.TryGetValue(path, out int known)) return known;
@@ -234,16 +234,16 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
     readonly Dictionary<string, bool> _transitionTiles = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, bool> _transitionTypes = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Tile data +0x16f bit 0 (<c>0x141d7cc50</c>, run on both object files as they load): one of the tile's
+    /// <summary>Tile data +0x16f bit 0 (<c>0x141d802e0</c>, run on both object files as they load): one of the tile's
     /// objects (<see cref="TileObjects"/> or <see cref="SecondObjects"/>) is of a type with an AreaTransition component
-    /// or the "waypoint" interaction (<c>0x141ebedf0</c>).</summary>
+    /// or the "waypoint" interaction (<c>0x141ec56a0</c>).</summary>
     public bool HasTransition(TileDef tile)
     {
         if (_transitionTiles.TryGetValue(tile.Path, out bool known)) return known;
         return _transitionTiles[tile.Path] = TileObjects(tile).Concat(SecondObjects(tile)).Any(o => IsTransitionType(o.Type));
     }
 
-    /// <summary><c>0x141ffb870</c>: a tile with tile data +0x16f bit 1 (<c>0x141d7cc50</c>: one of its objects' type path
+    /// <summary><c>0x1420020c0</c>: a tile with tile data +0x16f bit 1 (<c>0x141d802e0</c>: one of its objects' type path
     /// contains "Spawner") and no key edge other than none or a wildcard (.et +0x48 bit 7) is placed at its orientation
     /// &amp; 3, its mirror dropped (the Labyrinth's statue spawners).</summary>
     public bool Unmirrored(TileDef tile) =>
@@ -260,7 +260,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         return _objectFiles[path] = data is null ? null : TileObjectFile.Parse(data);
     }
 
-    /// <summary><c>0x141d7fcb0</c>: the .tmd of mesh <paramref name="index"/> (<c>0x141d7f990</c>: the index-th part of the
+    /// <summary><c>0x141d83340</c>: the .tmd of mesh <paramref name="index"/> (<c>0x141d83020</c>: the index-th part of the
     /// ';' list for a tile made of sub-tiles, else the whole mesh string), its last four characters replaced by ".tmd".</summary>
     string? MeshObjectsPath(TileDef tile, int index)
     {
@@ -273,7 +273,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         return mesh is { Length: >= 4 } ? mesh[..^4] + ".tmd" : null;
     }
 
-    /// <summary>Tile data +0x178 (<c>0x141d7fb60</c>): for each part of the mesh's ';' list, the .tmd beside it; the last
+    /// <summary>Tile data +0x178 (<c>0x141d831f0</c>): for each part of the mesh's ';' list, the .tmd beside it; the last
     /// one that exists. None when the flags word has bit 3.</summary>
     public IReadOnlyList<TileObject> TileObjects(TileDef tile)
     {
@@ -284,12 +284,12 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         return objects ?? [];
     }
 
-    /// <summary>Tile data +0x180 (<c>0x141d7e060</c>): the .tmd the .tdt names (<see cref="TileDef.ObjectsFile"/>), e.g.
+    /// <summary>Tile data +0x180 (<c>0x141d816f0</c>): the .tmd the .tdt names (<see cref="TileDef.ObjectsFile"/>), e.g.
     /// a goat spawner's or a wall chest's objects. Placed after +0x178's, with no Reskin.</summary>
     public IReadOnlyList<TileObject> SecondObjects(TileDef tile) =>
         tile.ObjectsFile is { } p ? ObjectFile(p) ?? [] : [];
 
-    /// <summary><c>0x141d7f430</c>: the objects of a sub-tile's mesh <paramref name="index"/>, from the master's Reskin copy
+    /// <summary><c>0x141d82ac0</c>: the objects of a sub-tile's mesh <paramref name="index"/>, from the master's Reskin copy
     /// when there is one; null when neither exists.</summary>
     public IReadOnlyList<TileObject>? SubTileObjects(TileDef tile, int index, string? reskin)
     {
@@ -297,8 +297,8 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         return (reskin is { Length: > 0 } ? ReskinObjects(p, tile.Path, reskin) : null) ?? ObjectFile(p);
     }
 
-    /// <summary><c>0x141d7f700</c> with a master's Reskin: the tile's .tmd under "alttiles/&lt;reskin&gt;/&lt;reskin&gt;_"
-    /// beside it (<c>0x141d88810</c>), null when there is none.</summary>
+    /// <summary><c>0x141d82d90</c> with a master's Reskin: the tile's .tmd under "alttiles/&lt;reskin&gt;/&lt;reskin&gt;_"
+    /// beside it (<c>0x141d8bea0</c>), null when there is none.</summary>
     public IReadOnlyList<TileObject>? ReskinObjects(TileDef tile, string reskin) =>
         ReskinObjects(tile.Mesh is { } m && m.EndsWith(".tgt", StringComparison.OrdinalIgnoreCase) ? m : tile.Path, tile.Path, reskin);
 
@@ -367,7 +367,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
             }
             return (Str(t) ?? "", key, raw);
         }
-        // 0x1429f31a0: a tile naming a base tile (u32 0) takes the base's data; a flags byte follows, each bit a group of
+        // 0x1429fc500: a tile naming a base tile (u32 0) takes the base's data; a flags byte follows, each bit a group of
         // fields the file gives itself, in this order from byte 5: bit 3 its own tag and key (as above, 50 bytes), bit 1
         // a string (the file's own .tmd), bit 2 a string (setter +0x50, not read by the generator), bit 5 its orientation
         // restriction byte (setter +0x58, tile data +0x171; its unique-mesh data follows later). Bit 4 marks its packed
@@ -417,8 +417,8 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         ushort flags = h.Length >= 60 ? BinaryPrimitives.ReadUInt16LittleEndian(h.AsSpan(58)) : (ushort)0;
         var (grounds, heights) = (flags & 2) != 0 ? VertexBlock(h, table.Length, key.Width, key.Height, (flags & 1) != 0)
             : (flags & 1) != 0 ? (null, HeightBlock(h, table.Length, key)) : (null, null);
-        // 0x1429f31a0: from version 10, a tile without a base tile has one more byte after the flags word, its
-        // orientation restriction mask (tile data +0x171, set by 0x141d7d7e0).
+        // 0x1429fc500: from version 10, a tile without a base tile has one more byte after the flags word, its
+        // orientation restriction mask (tile data +0x171, set by 0x141d80e70).
         int version = (int)BinaryPrimitives.ReadUInt32LittleEndian(data);
         byte restriction = version > 9 && h.Length >= 61 ? h[60] : (byte)0;
         return new TileDef(path, tag, key)
@@ -440,9 +440,9 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         return s.Length == 0 ? null : s;
     }
 
-    /// <summary>The vertex block of a .tdt (<c>0x1429f31a0</c>: (w + 1) × (h + 1) u32 ground strings when the flags
+    /// <summary>The vertex block of a .tdt (<c>0x1429fc500</c>: (w + 1) × (h + 1) u32 ground strings when the flags
     /// word has bit 2, then as many i8 heights with bit 1, then two u32 strings and a byte). It follows the sub-tile
-    /// records, whose packing (<c>0x1429f59a0</c>) is not ported, so the block is found by a scan from the end: the
+    /// records, whose packing (<c>0x1429fed00</c>) is not ported, so the block is found by a scan from the end: the
     /// last place where every value is a string offset and the four corners are the key's corner grounds (the header's,
     /// grounds left out of keys included), followed by two string offsets (after the heights when
     /// <paramref name="hasHeights"/>).</summary>
@@ -487,9 +487,9 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         return null;
     }
 
-    /// <summary>A tile list (.tst, <c>0x1429f7040</c>): per line an optional weight (1), the .tdt and orientation
+    /// <summary>A tile list (.tst, <c>0x142a003a0</c>): per line an optional weight (1), the .tdt and orientation
     /// words (I, R90, FR180, …) as a mask of allowed orientations (none: all, 0xff); nested lists through "include"
-    /// lines. A line starting with "//" is a comment (<c>0x1429f7040</c>, and the .rs reader <c>0x142a0d950</c>):
+    /// lines. A line starting with "//" is a comment (<c>0x142a003a0</c>, and the .rs reader <c>0x142a16cb0</c>):
     /// 94 room sets comment rooms out as <c>//!100 "…"</c>.</summary>
     public List<(int Weight, string Path, int Mask)> TileList(string path)
     {
@@ -525,7 +525,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         {
             var t = TerrainText.Tokenize(line);
             if (t.Count == 1 && t[0].Quoted) current = groups.TryGetValue(t[0].Text, out var had) ? had : groups[t[0].Text] = [];
-            // An edge type header ("path.et" mode, 0x141fef920) files its lines under its own key (+0x40 / +0xc0),
+            // An edge type header ("path.et" mode, 0x141ff6140) files its lines under its own key (+0x40 / +0xc0),
             // which no ported stage reads.
             else if (t.Count == 2 && t[0].Quoted && t[1].IsNumber) current = null;
             else if (t.Count >= 2 && t[0].IsNumber && t[1].Quoted && current is not null) current.Add((t[0].Int, TerrainText.Resolve(path, t[1].Text), t.Count > 2 ? Orientation.Parse(t[2].Text) : 8));
@@ -537,7 +537,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
     }) ?? [];
 
     /// <summary>A fill tile list's edge type headers ("path.et" mode), in file order: the FillTiles object's +0x140 list
-    /// (<c>0x141fef920</c>), whose edge tiles get their open sides filled (<c>0x141feed20</c>).</summary>
+    /// (<c>0x141ff6140</c>), whose edge tiles get their open sides filled (<c>0x141ff5540</c>).</summary>
     public List<EdgePoint> FillEdgeTypes(string path) => Get("gft-et", path, d =>
     {
         var list = new List<EdgePoint>();
@@ -555,7 +555,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
     /// <summary>A room file as <see cref="Terrain.RoomFile"/> reads it (its named points), parsed once (AreaExits).</summary>
     public Terrain.RoomFile? ArmFile(string path) => Get<Terrain.RoomFile>("armfile", path, d => Terrain.RoomFile.Parse(TerrainText.Decode(d)));
 
-    /// <summary><c>0x142a0f3a0</c>'s header up to the unit overlap (room data +1): version, dictionary, unit size (x, then
+    /// <summary><c>0x142a18700</c>'s header up to the unit overlap (room data +1): version, dictionary, unit size (x, then
     /// y before version 31), then the overlap after version 21 (0 before).</summary>
     static int HeaderOverlap(string text)
     {
@@ -601,7 +601,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
                     key.Heights[i] = (sbyte)v[18 + i];
                 }
                 OrderPoints(key);
-                // 0x142a0e2a0: the corners keep their heights above the lowest, which becomes the slot's height (+0x132).
+                // 0x142a17600: the corners keep their heights above the lowest, which becomes the slot's height (+0x132).
                 // The last number (version > 18, "corner") is not the height but the key's anchor corner.
                 int low = key.Heights.Min();
                 for (int i = 0; i < 4; i++) key.Heights[i] -= (sbyte)low;
@@ -621,7 +621,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
             roomKey.Grounds[i] = Path(file, rk.Grounds[i]);
             roomKey.Heights[i] = (sbyte)rk.Heights[i];
         }
-        // As for the slots, the corners keep their heights above the lowest (0x142a0e2a0).
+        // As for the slots, the corners keep their heights above the lowest (0x142a17600).
         int roomLow = roomKey.Heights.Min();
         for (int i = 0; i < 4; i++) roomKey.Heights[i] -= (sbyte)roomLow;
         // The inner vertex grounds: the file's last line, when it holds exactly (w − 1) × (h − 1) whole numbers (rooms
@@ -634,7 +634,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
         return new RoomDef(path, file.Tag, roomKey, grid) { PointCount = file.Points.Count(p => p.Section == 0), VertexGrounds = vertexGrounds, Overlap = HeaderOverlap(text), Doodads = file.Doodads, Points = file.Points, Links = file.Links };
     }
 
-    /// <summary><c>0x141d808c0</c>, as <c>0x141ff3210</c> turns a room slot into its key: per side, no edge puts both
+    /// <summary><c>0x141d83f50</c>, as <c>0x141ff9a60</c> turns a room slot into its key: per side, no edge puts both
     /// points at the side's length (3 per tile), an edge that is not virtual (.et +0x48 flag 4) its second point there,
     /// and a virtual edge's points go in ascending order (rooms write some descending; tiles never do, and the store's
     /// lookup compares the keys byte for byte).</summary>
@@ -684,7 +684,7 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
                         i += 2;
                         break;
                     case "s":
-                        // "s": a 1 × 1 slot with no edges, grounds or tag (the fill takes it, 0x141fe89e0).
+                        // "s": a 1 × 1 slot with no edges, grounds or tag (the fill takes it, 0x141fef200).
                         var e = new int[24];
                         e[0] = e[1] = 1;
                         for (int k = 6; k < 14; k++) e[k] = 3;

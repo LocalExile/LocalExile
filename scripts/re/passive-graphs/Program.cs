@@ -34,11 +34,11 @@ using var decoder = new NodeOodleDecoder("node", Path.GetFullPath("Tools/ooz/ooz
 using var fs = GameFileSystem.Open(ggpkPath, decoder);
 byte[] normalBytes = fs.ReadFile("metadata/passiveskillgraph.psg");
 if (Convert.ToHexString(SHA256.HashData(normalBytes)) != OriginalNormalHash)
-    throw new InvalidDataException("The ordinary PSG is not the pinned original 3.29.3b graph. The client archive was not changed.");
+    throw new InvalidDataException("The ordinary PSG is not the pinned original 3.29.3c graph. The client archive was not changed.");
 byte[] phreciaBytes = fs.ReadFile(Target);
 string alternateHash = Convert.ToHexString(SHA256.HashData(phreciaBytes));
 if (alternateHash != OriginalPhreciaHash && alternateHash != CombinedHash)
-    throw new InvalidDataException("The alternate PSG is neither the pinned original nor the pinned compatible 3.29.3b graph. The client archive was not changed.");
+    throw new InvalidDataException("The alternate PSG is neither the pinned original nor the pinned compatible 3.29.3c graph. The client archive was not changed.");
 using var passives = JsonDocument.Parse(File.ReadAllBytes("data/tables/PassiveSkills.json"));
 HashSet<uint> ascendancyIds = passives.RootElement.EnumerateArray()
     .Where(r => r.GetProperty("AscendancyKey").ValueKind == JsonValueKind.Number)
@@ -47,7 +47,7 @@ var merged = alternateHash == CombinedHash ? PassiveSkillGraph.Read(phreciaBytes
     : AdditionalAscendancyGraph.Merge(PassiveSkillGraph.Read(normalBytes), PassiveSkillGraph.Read(phreciaBytes), ascendancyIds);
 byte[] mergedBytes = merged.Write();
 if (Convert.ToHexString(SHA256.HashData(mergedBytes)) != CombinedHash)
-    throw new InvalidDataException("The derived graph differs from the pinned compatible 3.29.3b graph.");
+    throw new InvalidDataException("The derived graph differs from the pinned compatible 3.29.3c graph.");
 object Extract(string path, byte[] bytes)
 {
     var graph = PassiveSkillGraph.Read(bytes);
@@ -74,7 +74,7 @@ object Extract(string path, byte[] bytes)
 }
 var output = new
 {
-    revision = "3.29.3b",
+    revision = "3.29.3c",
     analysisOnly = true,
     mergedGraphFile = Artifact,
     originalPhreciaSha256 = OriginalPhreciaHash,

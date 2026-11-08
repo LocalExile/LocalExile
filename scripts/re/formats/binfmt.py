@@ -261,7 +261,7 @@ def skeleton(b):
     return r.finish(out)
 
 
-# The vertex layout of a mesh, from its flags (0x14105b090). The names are what the fields look like; only position is proven.
+# The vertex layout of a mesh, from its flags (0x14105d450). The names are what the fields look like; only position is proven.
 VERTEX_FIELDS = [(0x200, "position", 12), (0x10, "normal", 4), (0x20, "tangent", 4), (0x08, "uv", 4), (0x80, "uv1", 8),
                  (0x100, "uv2", 8), (0x04, "skin", 8), (0x01, "color0", 4), (0x02, "color1", 4), (0x40, "wind", 4)]
 LIGHT_SIZE = {2: 0x2d, 3: 0x46, 4: 0x4e, 5: 0x52, 6: 0x53}  # a .fmt or old .tgm version's record; the others are 0x57
@@ -294,7 +294,7 @@ def geometry(r, flags, triangles, vertices, shapes=0, indices_first=True):
 
 
 def dolm(r):
-    """A "DOLm" chunk (0x1429eb550): the LODs of a mesh."""
+    """A "DOLm" chunk (0x1429f48b0): the LODs of a mesh."""
     if r.take(4) != b"DOLm":
         raise FormatError(f"no DOLm at {r.i - 4}")
     version, lod_count = r.u16(), r.u8()
@@ -323,7 +323,7 @@ def bbox(r):
 
 
 def light(d):
-    """A light by its record size (0x1429e2160). Size 0x2d and 0x46 hold the colour as 4 bytes of which it uses 3, 8 less
+    """A light by its record size (0x1429eb4c0). Size 0x2d and 0x46 hold the colour as 4 bytes of which it uses 3, 8 less
     than the three floats, so every later field is 8 lower; the client turns them into the longer layout. Tools saved uninitialised memory
     in unused fields of some old records. Only colour, position and direction are named from their use."""
     r = Reader(d)
@@ -375,7 +375,7 @@ def string_table(r):
 
 
 def fixed_mesh(b):
-    """.fmt (0x1429e8fd0): counts and the bounding box, the mesh (a DOLm from version 9, one LOD before), the names of its
+    """.fmt (0x1429f2330): counts and the bounding box, the mesh (a DOLm from version 9, one LOD before), the names of its
     shapes and point groups, the points, lights, a string table."""
     r = Reader(b)
     out = {"kind": "fixed", "version": r.u8()}
@@ -405,7 +405,7 @@ def fixed_mesh(b):
 
 
 def tile_mesh(b):
-    """.tgm (0x1429e2160): the render mesh, its records, the ground mesh."""
+    """.tgm (0x1429eb4c0): the render mesh, its records, the ground mesh."""
     r = Reader(b)
     out = {"kind": "tile", "version": r.u8()}
     v = out["version"]
@@ -425,7 +425,7 @@ def tile_mesh(b):
         out["records"] = [tile_record(r.take(0x22)) for _ in range(records)]
         out["mesh"] = {"flags": flags, "lods": [geometry(r, flags, triangles, vertices, indices_first=False)]}
         out["ground_records"] = [tile_record(r.take(0x22)) for _ in range(ground_records)]
-        # 0x143014ad0 by ground kind; the strides are measured, its flags are not read from the table
+        # 0x14301ec20 by ground kind; the strides are measured, its flags are not read from the table
         stride = {1: 20, 2: 24, 3: 28}.get(out["ground_kind"], 0)
         if ground_vertices and not stride:
             raise FormatError(f"ground kind {out['ground_kind']}")
@@ -439,7 +439,7 @@ def tile_mesh(b):
 
 
 def skinned_mesh(b):
-    """.smd (0x1429e6ec0): the mesh, then a table of (0x2c) entries and four sections the client reads into an object
+    """.smd (0x1429f0220): the mesh, then a table of (0x2c) entries and four sections the client reads into an object
     with vtable slots 0x48 to 0x50. Sections hold 0x40 or 0x14 byte records, with a name from sub version 4."""
     r = Reader(b)
     out = {"kind": "skinned", "version": r.u8()}
@@ -514,7 +514,7 @@ def utf16_table(b):
 
 
 def tile_grid(r, version, size):
-    """A packed grid of a .tdt (0x1429f5ca0): before version 10 the raw bytes. After that a byte with the kind in its low 3
+    """A packed grid of a .tdt (0x1429ff000): before version 10 the raw bytes. After that a byte with the kind in its low 3
     bits, the number of extra size bytes in the next 2 and the low bits of the size in the top 3. Kind 0 stores no data,
     its "size" is the value of every cell; kinds 1 to 4 hold size packed bytes."""
     if version < 10:
@@ -533,7 +533,7 @@ def tile_grid(r, version, size):
 
 
 def tile_definition(b):
-    """.tdt (0x1429f31a0): u32 version, u32 string table length (UTF-16 units), the table, the parent .tdt. A file with a
+    """.tdt (0x1429fc500): u32 version, u32 string table length (UTF-16 units), the table, the parent .tdt. A file with a
     parent has a mask byte saying which groups it overrides: 1 tgt and sub tile data, 2 tag, 4 third name, 8 size and
     sub tiles, 0x10 grids and sub tile grids, 0x20 the nibble list, 0x40 the trailing pairs. See also
     src/GameServer.Data/Terrain/TerrainFiles.cs (TileDefinition)."""
@@ -598,7 +598,7 @@ def tile_definition(b):
                 sub["bytes"] = list(r.take(3))
             if mask & 0x10:
                 if not sub_flags & 4:
-                    sub["grid"] = tile_grid(r, version, 0x211)  # 0x1429f59a0
+                    sub["grid"] = tile_grid(r, version, 0x211)  # 0x1429fed00
                 if not sub_flags & 1 or not sub_flags & 2:
                     sub["extra"] = r.take(r.u16()).hex()
             sub_tiles.append(sub)
@@ -614,7 +614,7 @@ def tile_definition(b):
         out["name3"] = s(r.u32())
     if mask & 0x20:
         out["byte3"] = r.u8()
-    # The client reads the rest only under two global switches (0x1445b38cd, 0x14458159b); the bytes are always in the file.
+    # The client reads the rest only under two global switches (0x1445bea15, 0x144591506); the bytes are always in the file.
     if mask & 0x20:
         if version < 10:
             out["nibbles"] = r.take(2).hex()
@@ -651,7 +651,7 @@ def header_text(r):
 
 
 def header_mesh(r):
-    """The common part of a .fmt or .smd .header (0x1411cc510)."""
+    """The common part of a .fmt or .smd .header (0x1411ce8d0)."""
     out = {"triangles": r.u32(), "vertices": r.u32(), "n": r.u32(), "bbox": bbox(r), "byte": r.u8(), "flags": r.u32() | 0x200}
     out["lods"] = [r.take(6).hex() for _ in range(r.u64())]
     out["value"] = r.u32()
@@ -659,7 +659,7 @@ def header_mesh(r):
 
 
 def header_tile_mesh(r):
-    """One mesh of a .tgm .header (0x1411cd180)."""
+    """One mesh of a .tgm .header (0x1411cf540)."""
     out = {"records": [{"bbox": r.floats(6), "values": [r.u32() for _ in range(4)]} for _ in range(r.u64())], "values": [r.u32() for _ in range(r.u64())],
            "lods": [r.take(6).hex() for _ in range(r.u64())]}
     out.update(triangles=r.u32(), vertices=r.u32(), a=r.u32(), b=r.u32(), flags=r.u32() | 0x200, bytes=list(r.take(3)))
@@ -667,7 +667,7 @@ def header_tile_mesh(r):
 
 
 def mesh_summary(b, kind):
-    """<mesh>.header: what the client needs of a mesh before streaming it (0x1411cc630, 0x1411ccb30, 0x141146e60). It is
+    """<mesh>.header: what the client needs of a mesh before streaming it (0x1411ce9f0, 0x1411ceef0, 0x141149220). It is
     the mesh's own data again, without the geometry, in a layout with u64 counts."""
     r = Reader(b)
     if kind == ".tgm":
@@ -782,7 +782,7 @@ def murmur2(text):
 
 
 def compact(r):
-    """Signed compact (0x141e490e0): 7, 14, 21 or 28 bits by the leading bits of the first byte, else 4 more bytes."""
+    """Signed compact (0x141e4c7e0): 7, 14, 21 or 28 bits by the leading bits of the first byte, else 4 more bytes."""
     first = r.u8()
     for extra, prefix in ((0, 0), (1, 0x80), (2, 0xc0), (3, 0xe0)):
         bits = 7 - extra
@@ -836,7 +836,7 @@ def item_mod_list(r):
 
 
 def item_magic(r):
-    """ObjectMagicProperties (0x142201d70, protocol/13-items.md 2a)."""
+    """ObjectMagicProperties (0x142208700, protocol/13-items.md 2a)."""
     flags = r.u16()
     out = {"rarity": flags & 7, "identified": bool(flags & 8), "fractured": r.u8()}
     if flags & 0x200:
@@ -855,7 +855,7 @@ def item_magic(r):
 
 
 def item_body(r, model):
-    """An item (0x1421ec390) in one of the layouts blobs were saved in. model: flags width, Mods flags width, bytes after
+    """An item (0x1421f2d00) in one of the layouts blobs were saved in. model: flags width, Mods flags width, bytes after
     Mods, bytes after SkillGem. Components without a known layout raise FormatError with the name."""
     flag_width, mods_flags, mods_tail, gem_tail = model[:4]
     old_mods = len(model) > 4 and model[4]
@@ -1050,7 +1050,7 @@ def json_key(item):
 
 
 def minimap_atlas(b):
-    """.mtp (0x141176370): a texture atlas. Version 1: u32 1, u32 count, count u32 texture name offsets. Version 0 has no
+    """.mtp (0x141178730): a texture atlas. Version 1: u32 1, u32 count, count u32 texture name offsets. Version 0 has no
     version field and one name offset. Then u32 count and the entries, u32 string table length (UTF-16 units), the table.
     A version 1 entry is 20 bytes: name offset, frame, texture index, then u16s the client keeps only from offset 10; a
     version 0 entry is 32 bytes: name offset, frame (u32), two i32, four floats."""
@@ -1078,7 +1078,7 @@ def minimap_atlas(b):
 
 
 def jewel_distances(b):
-    """.pjd (0x141efd480): u16 first, u16 second, u16 pair counts; first and second records of (u16 id, u16 start, u16
+    """.pjd (0x141f03cf0): u16 first, u16 second, u16 pair counts; first and second records of (u16 id, u16 start, u16
     count); the pairs: f32, u16 passive id, u16. Each record's range points into the pairs."""
     r = Reader(b)
     first, second, pairs = r.u16(), r.u16(), r.u16()
@@ -1089,7 +1089,7 @@ def jewel_distances(b):
 
 
 def sentinel_links(b):
-    """.slg (0x1424da230): 16 raw bytes, kept at +0x10 of the graph."""
+    """.slg (0x1424e0d00): 16 raw bytes, kept at +0x10 of the graph."""
     r = Reader(b)
     return r.finish({"bits": r.take(16).hex()})
 
@@ -1168,7 +1168,7 @@ def dxbc_chunks(b):
 
 
 def compiled_shader(b):
-    """cachedhlslshaders/<api>/<hash> (path 0x141124ee0). First byte: 0x0f DX11, 0x0a DX12, 0x12 Vulkan. Reflection, then
+    """cachedhlslshaders/<api>/<hash> (path 0x1411272a0). First byte: 0x0f DX11, 0x0a DX12, 0x12 Vulkan. Reflection, then
     the bytecode. The first three u32 are the compute thread group, zero for other stages. The bytecode is left in the
     file: "bytecode" gives where."""
     r = Reader(b)
@@ -1262,7 +1262,7 @@ def opaque(b):
 
 
 def mat_table(b):
-    """data/mat_table.dat (0x1410f5dd0, version 2): material hash pairs, keyed entries, and a u16 list."""
+    """data/mat_table.dat (0x1410f8190, version 2): material hash pairs, keyed entries, and a u16 list."""
     r = Reader(b)
     if r.u32() != 2:
         raise FormatError("mat table version")

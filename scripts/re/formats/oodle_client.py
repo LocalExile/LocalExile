@@ -1,4 +1,4 @@
-"""OodleLZ_Decompress (0x142c93fa0) of Client/Game.exe, run in the Unicorn emulator: the client's own decoder, for blocks
+"""OodleLZ_Decompress (0x142c9d520) of Client/Game.exe, run in the Unicorn emulator: the client's own decoder, for blocks
 ooz-wasm rejects and to check what it unpacks. Slow, so it is only for those. Needs `pip install unicorn pefile`."""
 import os
 import struct
@@ -8,7 +8,7 @@ from unicorn import UC_ARCH_X86, UC_HOOK_MEM_FETCH_UNMAPPED, UC_HOOK_MEM_READ_UN
 from unicorn.x86_const import (UC_X86_REG_GS_BASE, UC_X86_REG_R8, UC_X86_REG_R9, UC_X86_REG_RAX, UC_X86_REG_RCX, UC_X86_REG_RDX,
                                UC_X86_REG_RIP, UC_X86_REG_RSP)
 
-DECOMPRESS = 0x142c93fa0
+DECOMPRESS = 0x142c9d520
 STACK, STACK_SIZE = 0x7000_0000, 0x10_0000
 HEAP, HEAP_SIZE = 0x8000_0000, 0x1000_0000
 TEB = 0x6000_0000

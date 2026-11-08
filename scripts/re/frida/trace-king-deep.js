@@ -1,4 +1,4 @@
-// Deep read-only trace of the King's start: every world message that touches the King, the 0x2b9 create blobs (the
+// Deep read-only trace of the King's start: every world message that touches the King, the 0x2bb create blobs (the
 // Animated/StateMachine/Inventories bytes), skill lookups, action begins, the body controller's clip timeline, and
 // memory snapshots of the actor and its animation controller at creation and at the intro.
 //   python scripts/re/frida/run.py Game.patched.exe --log logs/frida-king-deep.jsonl scripts/re/frida/trace-king-deep.js
@@ -85,15 +85,15 @@ function sample(reason) {
   send({ts: now, kind: 'clip', reason, ...s});
 }
 
-// World messages: 0x1ab actions, 0x2b9 create blobs, and the King's animation/state/stats/buff/position messages.
-Interceptor.attach(at('0x142187480'), {
+// World messages: 0x1ab actions, 0x2bb create blobs, and the King's animation/state/stats/buff/position messages.
+Interceptor.attach(at('0x14218ddf0'), {
   onEnter(args) {
     const m = args[1];
     const op = u16(m, 8);
     if (op === null) return;
     const id = u32(m, 0x10);
     try {
-      if (op === 0x2b9) {
+      if (op === 0x2bb) {
         const type = u32(m, 0x20);
         const begin = ptrAt(m, 0x28), end = ptrAt(m, 0x30);
         let len = null;
@@ -117,7 +117,7 @@ Interceptor.attach(at('0x142187480'), {
       if (op === 0x1b2) send({ts: stamp(), kind: 'anim-msg', id, kind2: u8(m, 0x20), index: u32(m, 0x24),
         speed: f32(m, 0x28), raw: [u16(m, 0x18), u16(m, 0x1a), u16(m, 0x1c), u16(m, 0x1e), u16(m, 0x20),
           u16(m, 0x22), u16(m, 0x24), u16(m, 0x26), u16(m, 0x28), u16(m, 0x2a)]});
-      else if (op === 0x2ba) send({ts: stamp(), kind: 'component', id, raw: [u16(m, 0x18), u16(m, 0x1a),
+      else if (op === 0x2bc) send({ts: stamp(), kind: 'component', id, raw: [u16(m, 0x18), u16(m, 0x1a),
         u16(m, 0x1c), u16(m, 0x1e), u16(m, 0x20), u16(m, 0x22), u16(m, 0x24), u16(m, 0x26),
         u16(m, 0x28), u16(m, 0x2a), u16(m, 0x2c), u16(m, 0x2e), u16(m, 0x30), u16(m, 0x32),
         u16(m, 0x34), u16(m, 0x36)]});
@@ -136,12 +136,12 @@ Interceptor.attach(at('0x142187480'), {
 });
 
 // Object creation: the type of every server create (the King's attached weapon/effects included).
-Interceptor.attach(at('0x141ebe190'), {
+Interceptor.attach(at('0x141ec4a40'), {
   onEnter(args) { send({ts: stamp(), kind: 'server-create', id: args[2].toInt32() >>> 0, type: typePath(args[1].readPointer())}); }
 });
 
 // Actor setup: the King's actor and its type data (MonsterVarieties row / ACT / stance strings) at creation.
-Interceptor.attach(at('0x141e9ca20'), {
+Interceptor.attach(at('0x141ea32d0'), {
   onEnter(args) {
     const actor = args[0];
     const ent = ptrAt(actor, 8), type = ent ? ptrAt(ent, 0x78) : null;
@@ -157,7 +157,7 @@ Interceptor.attach(at('0x141e9ca20'), {
 });
 
 // The Animated component reader: the server's Animated flags and, for bit 3, the initial clip fields.
-Interceptor.attach(at('0x141e56a80'), {
+Interceptor.attach(at('0x141e5afd0'), {
   onEnter(args) {
     const flags = u8(args[1], 0);
     if (flags === null || flags === 0) return;
@@ -167,7 +167,7 @@ Interceptor.attach(at('0x141e56a80'), {
 });
 
 // Skill lookups behind S->C 0x1ab: manager, id and the action pointer the client found (null = no such skill).
-Interceptor.attach(at('0x141ee97f0'), {
+Interceptor.attach(at('0x141ef0050'), {
   onEnter(args) { this.mgr = args[0].toString(); this.id = args[2].toUInt32() & 0xffff; this.out = args[1]; },
   onLeave() {
     if (this.id < 0x4000 || this.id > 0x4014) return;
@@ -178,7 +178,7 @@ Interceptor.attach(at('0x141ee97f0'), {
 });
 
 // Action begin: the actor, the action type/skill and the result.
-Interceptor.attach(at('0x141e8cf10'), {
+Interceptor.attach(at('0x141e937b0'), {
   onEnter(args) { this.actor = args[0].toString(); this.action = args[1].readPointer(); },
   onLeave(ret) {
     const type = u16(this.action, 0x118), skill = u16(this.action, 0x11a);
@@ -190,7 +190,7 @@ Interceptor.attach(at('0x141e8cf10'), {
 });
 
 // The body controller (actor +0x1a0): the clip the client actually plays.
-Interceptor.attach(at('0x141e8e060'), {
+Interceptor.attach(at('0x141e94900'), {
   onEnter(args) {
     if (kingActor === null) return;
     try { if (!args[0].equals(kingActor)) return; } catch (e) { return; }
@@ -199,7 +199,7 @@ Interceptor.attach(at('0x141e8e060'), {
 });
 
 // Any animation played on the King's controller: the descriptor the client passes in.
-Interceptor.attach(at('0x141dba530'), {
+Interceptor.attach(at('0x141dbdbc0'), {
   onEnter(args) {
     if (kingController === null) return;
     try { if (!args[0].equals(kingController)) return; } catch (e) { return; }
@@ -211,7 +211,7 @@ Interceptor.attach(at('0x141dba530'), {
 
 // First-chance exceptions, with the last messages for the crash case.
 const lastMessages = [];
-Interceptor.attach(at('0x14299e300'), {
+Interceptor.attach(at('0x1429a7660'), {
   onEnter(args) { this.id = args[1].toUInt32() & 0xffff; },
   onLeave(accepted) {
     if ((accepted.toUInt32() & 0xff) === 0) return;

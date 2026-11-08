@@ -1,9 +1,9 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary><c>0x142113c10</c>: every virtual edge becomes its two sub-edges side by side. Ends on the map border get
-/// their two end points first (<c>0x142111880</c>), then each chain of virtual edges is split from an end with end
-/// points (<c>0x142112d00</c>): the edge keeps one sub-edge type, a copy takes the other, the internal points move
-/// apart by a random width (<c>0x142111f60</c>), and new nodes join the copies.</summary>
+/// <summary><c>0x14211a510</c>: every virtual edge becomes its two sub-edges side by side. Ends on the map border get
+/// their two end points first (<c>0x142118180</c>), then each chain of virtual edges is split from an end with end
+/// points (<c>0x142119600</c>): the edge keeps one sub-edge type, a copy takes the other, the internal points move
+/// apart by a random width (<c>0x142118860</c>), and new nodes join the copies.</summary>
 sealed class EdgeSplitting(TileGraph graph, LevelRandom rng, Func<GraphEdge, EdgeType> type,
     List<GraphNode> plain, Func<string, EdgeType> edgeType)
 {
@@ -30,7 +30,7 @@ sealed class EdgeSplitting(TileGraph graph, LevelRandom rng, Func<GraphEdge, Edg
             if (!e.Split && !e.Flag4a) Split(e, end == 0 ? e.A : e.B);
     }
 
-    /// <summary><c>0x142111880</c>: a virtual edge's end at a node with only this edge, on the map border, gets its two
+    /// <summary><c>0x142118180</c>: a virtual edge's end at a node with only this edge, on the map border, gets its two
     /// end points along the border, a random width (<c>Next(max − min + 1) + min</c>) either side of the node (in a
     /// corner, along both borders).</summary>
     void BorderEnd(GraphEdge e, int end)
@@ -124,7 +124,7 @@ sealed class EdgeSplitting(TileGraph graph, LevelRandom rng, Func<GraphEdge, Edg
         return e.Points.Count == 0 ? (e.A.X, e.A.Y) : e.Points[^1];
     }
 
-    /// <summary><c>0x142112d00</c>: splits the chain of virtual edges starting at <paramref name="node"/>.</summary>
+    /// <summary><c>0x142119600</c>: splits the chain of virtual edges starting at <paramref name="node"/>.</summary>
     void Split(GraphEdge e, GraphNode node)
     {
         GraphEdge? prevOrig = null, prevCopy = null;
@@ -252,7 +252,7 @@ sealed class EdgeSplitting(TileGraph graph, LevelRandom rng, Func<GraphEdge, Edg
         }
     }
 
-    /// <summary><c>0x142112480</c>: the node's logical link gains the node the split put next to it.</summary>
+    /// <summary><c>0x142118d80</c>: the node's logical link gains the node the split put next to it.</summary>
     void Join(GraphNode n, GraphNode created, int index)
     {
         var link = graph.Links[index];
@@ -267,7 +267,7 @@ sealed class EdgeSplitting(TileGraph graph, LevelRandom rng, Func<GraphEdge, Edg
         link.B2 = created;
     }
 
-    /// <summary><c>0x141d7bcf0</c>: a type has a direction unless it has n0 0 and one ground both sides and is not virtual,
+    /// <summary><c>0x141d7f380</c>: a type has a direction unless it has n0 0 and one ground both sides and is not virtual,
     /// or is virtual with one sub-edge type twice that has none or whose two chirality bits differ.</summary>
     bool Directional(EdgeType t) => IsDirectional(t, edgeType);
 
@@ -280,7 +280,7 @@ sealed class EdgeSplitting(TileGraph graph, LevelRandom rng, Func<GraphEdge, Edg
         return IsDirectional(sub, edgeType) && t.SubChirality[0] == t.SubChirality[1];
     }
 
-    /// <summary><c>0x142112600</c>: the split edge and its copy take the virtual type's two sub-edges; which gets which,
+    /// <summary><c>0x142118f00</c>: the split edge and its copy take the virtual type's two sub-edges; which gets which,
     /// and their chirality, follow the end the split started from and the edge's chirality.</summary>
     void SubTypes(GraphEdge e, GraphEdge copy, int r)
     {
@@ -312,7 +312,7 @@ sealed class EdgeSplitting(TileGraph graph, LevelRandom rng, Func<GraphEdge, Edg
         }
     }
 
-    /// <summary><c>0x142111170</c>: the two points w either side of q across the path p → q → r (on the bisector of
+    /// <summary><c>0x142117a70</c>: the two points w either side of q across the path p → q → r (on the bisector of
     /// the corner, or square to p → q when the path is straight or turns the other way), clamped inside the map.</summary>
     (( int X, int Y), (int X, int Y)) OffsetPoints((int X, int Y) p, (int X, int Y) q, (int X, int Y) r, int w)
     {
@@ -351,7 +351,7 @@ sealed class EdgeSplitting(TileGraph graph, LevelRandom rng, Func<GraphEdge, Edg
         return (Clamp(qx + ox, qy + oy), Clamp(qx - ox, qy - oy));
     }
 
-    /// <summary><c>0x142111f60</c>: from the split's start, every internal point of the edge and its copy moves apart:
+    /// <summary><c>0x142118860</c>: from the split's start, every internal point of the edge and its copy moves apart:
     /// a width <c>Next(max − min + 1) + min</c> either side of the path through the points' middles (toward
     /// <paramref name="end"/> or the far end points' middle at the last one).</summary>
     void SplitPoints(GraphEdge e, GraphEdge copy, int r, bool last, (int X, int Y) end)
@@ -395,7 +395,7 @@ sealed class EdgeSplitting(TileGraph graph, LevelRandom rng, Func<GraphEdge, Edg
         }
     }
 
-    /// <summary><c>0x142111590</c>: which of the two parallel edges at <paramref name="node"/> moves over to
+    /// <summary><c>0x142117e90</c>: which of the two parallel edges at <paramref name="node"/> moves over to
     /// <paramref name="created"/>: the one whose last segment would cross the other's, else (when
     /// <paramref name="decide"/>) the one whose segment passes nearer.</summary>
     static void MoveToNew(GraphEdge e1, GraphEdge e2, GraphNode node, GraphNode created, bool decide)
@@ -428,7 +428,7 @@ sealed class EdgeSplitting(TileGraph graph, LevelRandom rng, Func<GraphEdge, Edg
         TileGraph.Slot(created, moved);
     }
 
-    /// <summary><c>0x140df8cc0</c>: the squared distance from p to the segment a–b as a fraction.</summary>
+    /// <summary><c>0x140df7560</c>: the squared distance from p to the segment a–b as a fraction.</summary>
     internal static (long Num, long Den) DistanceToSegment((int X, int Y) p, (int X, int Y) a, (int X, int Y) b)
     {
         if (a.X != b.X)

@@ -1,14 +1,14 @@
-// Self-contained (Frida 17 gives each script its own scope). What an action does while it runs. When 0x141e8cf10
+// Self-contained (Frida 17 gives each script its own scope). What an action does while it runs. When 0x141e937b0
 // (actor, &action, pos) starts an action of class VTABLE (its +0x118 is the action type HASH16, +0x11a the use's
 // sequence; the skill id is not stored there), it snapshots the action's first SNAPSHOT_BYTES every 100 ms for
 // SNAPSHOT_MS, sending the u32 words that changed and whether it is still the actor's current action (+0x1b0); and
 // for the same window counts the calls to the class's own virtual functions (FUNCTIONS) with their last return value.
-// Shield Charge (3.29.3b): VTABLE 0x143324da8, type 0x2bc0; FUNCTIONS are the entries it overrides from Move's
-// 0x1434b2128.
-const VTABLE = '0x143324da8';
-const FUNCTIONS = ['0x1413c6f50', '0x1413c7150', '0x141b56ac0', '0x141b56db0', '0x141a6bae0',
-  '0x141a6c060', '0x1413c7080', '0x141a6ba70', '0x141b56820', '0x141a6cba0', '0x141a6cbd0', '0x1413c6c40',
-  '0x141246380', '0x1419fd360', '0x141a6d340', '0x141a6e410'];
+// Shield Charge (3.29.3c): VTABLE 0x14332f508, type 0x2bc0; FUNCTIONS are the entries it overrides from Move's
+// 0x1434bca70.
+const VTABLE = '0x14332f508';
+const FUNCTIONS = ['0x1413c9340', '0x1413c9540', '0x141b59550', '0x141b59840', '0x141a6e4f0',
+  '0x141a6ea70', '0x1413c9470', '0x141a6e480', '0x141b592b0', '0x141a6f5b0', '0x141a6f5e0', '0x1413c9030',
+  '0x141248740', '0x1419ffd70', '0x141a6fd50', '0x141a70e20'];
 const SNAPSHOT_BYTES = 0x300, SNAPSHOT_MS = 3000;
 const m = Process.getModuleByName('Game.patched.exe');
 const at = va => m.base.add(ptr(va).sub(ptr('0x140000000')));
@@ -22,7 +22,7 @@ for (const f of FUNCTIONS)
       onLeave(r) { if (this.mine) { const c = counts[f] ??= {n: 0, ret: null}; c.n++; c.ret = '0x' + r.toString(16); } }
     });
   } catch (e) { send({unhooked: f, why: e.message}); }  // too short for a hook (a few bytes)
-Interceptor.attach(at('0x141e8cf10'), {
+Interceptor.attach(at('0x141e937b0'), {
   onEnter(args) { this.actor = args[0]; this.action = args[1].readPointer(); },
   onLeave(r) {
     const a = this.action, actor = this.actor;
@@ -37,7 +37,7 @@ Interceptor.attach(at('0x141e8cf10'), {
       let current = '?'; try { current = actor.add(0x1b0).readPointer().equals(a); } catch (e) { }
       const changed = {};
       if (now && last) now.forEach((w, i) => { if (w !== last[i]) changed['+0x' + (i * 4).toString(16)] = '0x' + w.toString(16); });
-      // The moving-attack update 0x141a6c060's own fields: phase flags, the scheduled events (count +0x3fc, next +0x400,
+      // The moving-attack update 0x141a6ea70's own fields: phase flags, the scheduled events (count +0x3fc, next +0x400,
       // elapsed +0x404 against duration +0x420), +0x122's flags, and the mover's speed (Positioned? +0x240) it walks at.
       let fields = null;
       try {

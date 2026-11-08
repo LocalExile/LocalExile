@@ -6,7 +6,7 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class VolleySupportTests
 {
-    // The native client's parallel volley layout function (0x141bb89d0) reads
+    // The native client's parallel volley layout function (0x141bbb460) reads
     // virtual_additional_projectiles_fire_parallel_x_dist (0x18b2); Volley Support must publish it.
     [Fact]
     public void Volley_support_populates_virtual_parallel_projectile_x_distance()

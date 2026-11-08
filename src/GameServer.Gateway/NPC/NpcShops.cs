@@ -15,10 +15,10 @@ static class NpcShops
     public static readonly InstanceInventories.Slot NativeTab = new(117, 71, 12, 11);
 
     /// <summary>A sell offer grid (the player's and the NPC's side of the sell window): the main inventory's row and size,
-    /// so every item fits (the client checks a drop against the row, 0x141d628f0; row 83 refused everything).</summary>
+    /// so every item fits (the client checks a drop against the row, 0x141d65f80; row 83 refused everything).</summary>
     public static readonly InstanceInventories.Slot Offer = new(0, 0x00, 12, 5);
 
-    /// <summary>Inventory manager of NPC inventories (0x14216aa30: 0 player, 1 instance +0xca10, 2 +0xcb90).</summary>
+    /// <summary>Inventory manager of NPC inventories (0x1421713e0: 0 player, 1 instance +0xca10, 2 +0xcb90).</summary>
     public const byte Manager = 1;
 
     /// <summary>Shop tab inventory ids, above the player's 1..117.</summary>

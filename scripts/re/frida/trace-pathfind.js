@@ -1,10 +1,10 @@
 // Self-contained. Traces the client's own pathfinding for the local player's walks (Agents/docs/protocol/07 §5):
 //   python scripts/re/frida/run.py Game.patched.exe --log logs/pathfind.jsonl scripts/re/frida/trace-pathfind.js
-// - moveTo: Pathfinding component MoveTo 0x141e7b530 (component, target, min, max, precision, tolerance, layer flag).
-// - path: the pathfinder 0x141e4d890 (target, entity, 13 more args) with the start cell (Positioned +0x294), the mover's
+// - moveTo: Pathfinding component MoveTo 0x141e81c20 (component, target, min, max, precision, tolerance, layer flag).
+// - path: the pathfinder 0x141e50f90 (target, entity, 13 more args) with the start cell (Positioned +0x294), the mover's
 //   size (+0x1e3), its result, the waypoint list it wrote (goal first, start last) and the reached / out flags.
-// - step: each straight move along the path (Positioned 0x141e34400): from, to, the float at +8 (speed for path walks).
-// - layers: once, the pathfinder's walk map (0x141d85260's map: +0x18/+0x20 size in 23-cell tiles, +0x100 row stride,
+// - step: each straight move along the path (Positioned 0x141e37740): from, to, the float at +8 (speed for path walks).
+// - layers: once, the pathfinder's walk map (0x141d888f0's map: +0x18/+0x20 size in 23-cell tiles, +0x100 row stride,
 //   3 layers of 4-bit cells at +0xd0 + 0x18 i) to Tools/re/out/pathmap-<i>.bin + pathmap.json.
 const m = Process.getModuleByName('Game.patched.exe');
 const at = va => m.base.add(ptr(va).sub(ptr('0x140000000')));
@@ -15,7 +15,7 @@ const now = () => ((Date.now() - t0) / 1000).toFixed(3);
 const xy = p => [p.readS32(), p.add(4).readS32()];
 let depth = 0, dumped = false;
 
-Interceptor.attach(at('0x141e7b530'), {
+Interceptor.attach(at('0x141e81c20'), {
   onEnter(a) {
     send({t: now(), moveTo: va(this.returnAddress), target: xy(a[1].readPointer()), min: a[2].toInt32(), max: a[3].toInt32(),
           precision: a[4].toInt32(), tolerance: a[5].toInt32() << 24 >> 24, layerFlag: a[6].toInt32() & 0xff,
@@ -23,7 +23,7 @@ Interceptor.attach(at('0x141e7b530'), {
   }
 });
 
-Interceptor.attach(at('0x141e4d890'), {
+Interceptor.attach(at('0x141e50f90'), {
   onEnter(a) {
     this.d = depth++;
     const ent = a[1], pos = ent.add(0x98).readPointer();
@@ -42,7 +42,7 @@ Interceptor.attach(at('0x141e4d890'), {
   }
 });
 
-const mapHook = Interceptor.attach(at('0x141d85260'), {
+const mapHook = Interceptor.attach(at('0x141d888f0'), {
   onEnter(a) {
     if (dumped) return;
     dumped = true;
@@ -60,7 +60,7 @@ const mapHook = Interceptor.attach(at('0x141d85260'), {
   }
 });
 
-Interceptor.attach(at('0x141e34400'), {
+Interceptor.attach(at('0x141e37740'), {
   onEnter(a) {
     const p = a[0], mv = a[1];
     send({t: now(), step: xy(p.add(0x294)), to: xy(mv.readPointer()), speed: mv.add(8).readFloat(), caller: va(this.returnAddress)});

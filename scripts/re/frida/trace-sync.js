@@ -9,9 +9,9 @@
 //   client's own cell, before the handler ran, and the distance. Whether it snapped shows in the next sample.
 // - tp: an S→C 0x1b7 for the local player, with the cell and the client's own cell before it.
 // - end: an S→C 0x1ac for the local player.
-// - use: the client sent a C→S 0x24/0x25 (0x142166300): the action's sequence and target, and the client's cell.
-// - click: the client asked for an action (0x14215f700). In lockstep nothing starts until the server answers.
-// - gone: an object was removed (0x2bb): its pointer is no longer read.
+// - use: the client sent a C→S 0x24/0x25 (0x14216ccb0): the action's sequence and target, and the client's cell.
+// - click: the client asked for an action (0x1421660b0). In lockstep nothing starts until the server answers.
+// - gone: an object was removed (0x2bd): its pointer is no longer read.
 const m = Process.getModuleByName('Game.patched.exe');
 const at = va => m.base.add(ptr(va).sub(ptr('0x140000000')));
 const k32 = Process.getModuleByName('kernel32.dll');
@@ -31,7 +31,7 @@ const learn = (id, positioned) => {
   objects.set(id, positioned);
 };
 
-Interceptor.attach(at('0x1421940a0'), {
+Interceptor.attach(at('0x14219aa10'), {
   onEnter(a) {
     const actor = a[0], msg = a[1], type = msg.add(8).readU16(), id = msg.add(0x10).readU32();
     const pos = actor.add(8).readPointer().add(0x98).readPointer();
@@ -49,16 +49,16 @@ Interceptor.attach(at('0x1421940a0'), {
     } else if (type === 0x1ac) send({q: q(), end: cell(pos)});
   }
 });
-Interceptor.attach(at('0x141e30c90'), {
+Interceptor.attach(at('0x141e33fd0'), {
   onEnter(a) {
     const pos = a[0], msg = a[1], type = msg.add(8).readU16(), id = msg.add(0x10).readU32();
     learn(id, pos);
     if (pos.equals(player ?? ptr(0)) && type === 0x1b7) send({q: q(), tp: [msg.add(0x20).readS32(), msg.add(0x24).readS32()], client: cell(pos)});
   }
 });
-Interceptor.attach(at('0x14215f700'), {onEnter(a) { send({q: q(), click: a[3].isNull() ? null : [a[3].readS32(), a[3].add(4).readS32()]}); }});
+Interceptor.attach(at('0x1421660b0'), {onEnter(a) { send({q: q(), click: a[3].isNull() ? null : [a[3].readS32(), a[3].add(4).readS32()]}); }});
 
-Interceptor.attach(at('0x142166300'), {
+Interceptor.attach(at('0x14216ccb0'), {
   onEnter(a) {
     if (player === null) return;
     const action = a[2];
@@ -67,12 +67,12 @@ Interceptor.attach(at('0x142166300'), {
   }
 });
 
-// The world handler routes 0x2bb to the object's removal; the id is at message +0x10 (07 §4).
-Interceptor.attach(at('0x142187480'), {
+// The world handler routes 0x2bd to the object's removal; the id is at message +0x10 (07 §4).
+Interceptor.attach(at('0x14218ddf0'), {
   onEnter(a) {
     for (const arg of [a[1], a[2]]) {
       try {
-        if (arg.add(8).readU16() !== 0x2bb) continue;
+        if (arg.add(8).readU16() !== 0x2bd) continue;
         const id = arg.add(0x10).readU32();
         if (objects.delete(id)) send({q: q(), gone: id});
         return;

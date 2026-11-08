@@ -1,6 +1,6 @@
 # Status
 
-Where the project stands, against client **3.29.3b**.
+Where the project stands, against client **3.29.3c**.
 What to build next is in [Roadmap.md](Roadmap.md).
 How the protocol works is in [docs/README.md](docs/README.md).
 

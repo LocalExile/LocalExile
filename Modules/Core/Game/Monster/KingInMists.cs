@@ -1328,7 +1328,7 @@ static class KingInMists
                 var obj = new EffectObject(ox + roomX, oy + roomY, model) { Scale = scale };
                 await Program.Send(remote, stream, ciphers,
                     InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), obj.Blob()),
-                    $"0x02b9 create arena object 0x{id:x} {type} at ({ox + roomX}, {oy + roomY})");
+                    $"0x02bb create arena object 0x{id:x} {type} at ({ox + roomX}, {oy + roomY})");
                 await Program.Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id),
                     $"0x01a9 arena object 0x{id:x} enters wake zone");
             }
@@ -1354,7 +1354,7 @@ static class KingInMists
             var obj = new RitualPillarObject(x, y, 0f, CentralShrineModel, states);
             await Program.Send(remote, stream, ciphers,
                 InstanceEntities.CreateObject(shrineId, InstanceEntities.ObjectTypeHash(CentralShrine), obj.Blob()),
-                $"0x02b9 create central HugeRitualShrine 0x{shrineId:x} at ({x}, {y}), state active_pillars = 0");
+                $"0x02bb create central HugeRitualShrine 0x{shrineId:x} at ({x}, {y}), state active_pillars = 0");
             await Program.Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(shrineId),
                 $"0x01a9 central HugeRitualShrine 0x{shrineId:x} enters wake zone");
         }
@@ -1367,7 +1367,7 @@ static class KingInMists
             _centralShrineStates = states;
             await Program.Send(remote, stream, ciphers,
                 InstanceEntities.StateMachineUpdate(shrineId, RitualPillarObject.StateMachineComponentIndex, states),
-                $"0x02ba central HugeRitualShrine 0x{shrineId:x} active_pillars = {value}");
+                $"0x02bc central HugeRitualShrine 0x{shrineId:x} active_pillars = {value}");
         }
 
         // The three Mystic Fetishes are room objects of arena.arm (not doodads), so the server has to create them. They
@@ -1515,7 +1515,7 @@ static class KingInMists
             states = states.Set("active", 1);
             lock (conn.Monsters) fetish.States = states;
             await Program.Send(remote, stream, ciphers, InstanceEntities.StateMachineUpdate(fetishId, (byte)index, states),
-                $"0x02ba Mystic Fetish {which + 1} activates");
+                $"0x02bc Mystic Fetish {which + 1} activates");
         }
 
 
@@ -1585,7 +1585,7 @@ static class KingInMists
             var effect = new EffectObject(x, y, ao) { Scale = scale };
             await Program.Send(remote, stream, ciphers,
                 InstanceEntities.CreateObject(effectId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()),
-                $"0x02b9 effect {ao} at ({x}, {y})");
+                $"0x02bb effect {ao} at ({x}, {y})");
             await Program.Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effectId),
                 "0x01a9 effect enters the wake zone");
             return effectId;
@@ -1868,7 +1868,7 @@ static class KingInMists
                 conn.Monsters.Remove(id);
             }
             await Program.Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
-                $"0x02bb remove the King's humanoid form 0x{id:x}");
+                $"0x02bd remove the King's humanoid form 0x{id:x}");
             if (_portentBuff is { } stale)
             {
                 _portentBuff = null;

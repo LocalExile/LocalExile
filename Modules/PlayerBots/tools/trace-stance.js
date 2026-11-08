@@ -1,8 +1,8 @@
-// Which animation set (stance) the client picks per actor: FUN_141e97190 decides, FUN_141e96a90 applies the name
+// Which animation set (stance) the client picks per actor: FUN_141e9da30 decides, FUN_141e9d330 applies the name
 // ("Town", "default", weapon sets). Load on its own (scripts/re/frida/run.py). PlayerBots research, local only.
 const m = Process.getModuleByName('Game.patched.exe');
 const at = v => m.base.add(ptr(v).sub(ptr('0x140000000')));
-const pick = at('0x141e97190'), apply = at('0x141e96a90');
+const pick = at('0x141e9da30'), apply = at('0x141e9d330');
 const wstr = s => {
   try {
     const size = s.add(0x10).readU64().toNumber(), cap = s.add(0x18).readU64().toNumber();

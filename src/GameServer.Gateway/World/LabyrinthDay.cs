@@ -5,7 +5,7 @@ using GameServer.Data.Terrain.Generation;
 /// <summary>
 /// The day's Labyrinth (roadmap world.md "The Labyrinth", the day's layout): its seed, the layout the client builds from
 /// it (<see cref="LabyrinthLayout"/>), the area each room is played in, and the labyrinth node an area's extra data names
-/// (<c>0x141ec7220</c> flag 0x08; with it the client applies the room's LabyrinthNodeOverrides and secrets, and the
+/// (<c>0x141ecdad0</c> flag 0x08; with it the client applies the room's LabyrinthNodeOverrides and secrets, and the
 /// server's level generator must too, <see cref="ServerLevels"/>).
 /// The official server's daily seed and its pick of a room's area are not in the client; poelab.com's layouts show both:
 /// the seed is the UTC day's number since 1970, the same for every tier (<c>Game_LAB_SEED</c> overrides it), and a room's
@@ -193,7 +193,7 @@ static class LabyrinthDay
     public sealed record RevealedRoom(byte[] Progress, int Row);
 
     /// <summary>S→C 0x1cb, the run's progress (dispatcher case 0x84, 96 bits, bit i in byte i / 8): the Labyrinth map
-    /// (LabyrinthMapWindow, <c>0x140bcdf20</c>) shows a room whose bit 0x11 + its index is set, and Izaro's rooms (a
+    /// (LabyrinthMapWindow, <c>0x140bcebb0</c>) shows a room whose bit 0x11 + its index is set, and Izaro's rooms (a
     /// section's last, +0x5a = slot + 1) with his icon until bit slot + 1 is set. The secrets' numbers
     /// (<see cref="LabyrinthLayout.Node.Number1"/>) start after the rooms' bits.</summary>
     public static byte[] Progress(IEnumerable<int> rooms, IEnumerable<int>? izaro = null)
@@ -268,7 +268,7 @@ static class LabyrinthDay
     }
 
     /// <summary>The area extra data (0x1d's terrain block) naming the node: flags 0x08, 0x00, then u32 seed, u16 node
-    /// (its LabyrinthSectionLayout row), u8 difficulty, little-endian (<c>0x141ec7220</c>).</summary>
+    /// (its LabyrinthSectionLayout row), u8 difficulty, little-endian (<c>0x141ecdad0</c>).</summary>
     public static byte[] ExtraData(LabyrinthNodeKey node)
     {
         var bytes = new byte[9];

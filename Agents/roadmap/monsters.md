@@ -18,7 +18,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   and whether the real server walks a fleeing monster with Monster.ot's `Flee` action instead of Move.
   Inherited Life corpse/sinking flags and the source eligibility predicate are implemented for ordinary creation
   ([status](../status/monsters.md#partly-working)); integrated native evidence is scoped in
-  [04](../docs/protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).
+  [04](../docs/protocol/04-player-entity.md#44-life-0x141e72890-55-bytes).
   Native TakeHit recovery stops locomotion and invalidates ordinary pending attacks for the same recovery interval.
   AI decisions now use 50 ms game-time steps with 100 ms bounded repaths and full-duration attack busy periods.
   Historical LocalExile controls verify chase response, turning, pacing and native pause; this port awaits a rerun.
