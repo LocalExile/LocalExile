@@ -1229,10 +1229,16 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Damage: `base_chaos_damage_to_deal_per_minute` with damage, spell, area, chaos, damage over time and chaos damage over
   time increases, the `dot_multiplier_+` and `chaos_dot_multiplier_+` multipliers and the more of Concentrated Effect,
   Controlled Destruction, Void Manipulation, Rapid Decay and Efficacy; duration from `base_skill_effect_duration` and
-  skill effect duration. It does not stack: a recast keeps the stronger damage and the later expiry. A monster that dies
-  affected spreads it to every monster within the cast radius (`SpreadContagion` in `MonsterKilledBy`); Subsiding's
-  spread keeps three quarters of the damage. Live: 86 kills by Contagion, a spread on each, no disconnect.
-  Each spread plays MiscAnimated `ContagionCast` at the corpse, scaled to the spread radius (not yet checked live).
+  skill effect duration. It does not stack: a recast keeps the stronger damage and the later expiry; a recast after the
+  old cast expired (no tick between) replaces it, keeping only the damage owed up to its expiry. A monster that dies
+  affected spreads it to every monster within the cast radius (`SpreadContagion` in `MonsterKilledBy`), also when the
+  final tick that expires it is the one that kills it (`MonsterContagion.Died`); a nonlethal expiry leaves no spread.
+  Subsiding's spread keeps three quarters of the damage. Live (3.29.3b): 86 kills by Contagion, a spread on each, no
+  disconnect.
+  Each spread plays the cast circle at the corpse, scaled to the spread radius: MiscAnimated `ContagionCast`, or the
+  caster's worn Contagion skin's (Arcane, Celestial, Sunprism, Scientist, Project; matched by MtxTypes Id because no art
+  variation table covers Contagion; `ContagionSkinAo`). Arcane was seen on every spread live on 3.29.3b; to recheck on
+  3.29.3c.
   Not yet: the `contagion` debuff (BuffDefinitions 504) is not sent: the client closed the connection about 3 s after it,
   with or without the source skill id (`ContagionBuffShown` is false); Contagion of Transference (spread on hit); the
   character panel's DoT row; Malevolence's conditional DoT multiplier.

@@ -198,7 +198,8 @@ static partial class Game
                     {
                         m.Dead = true;
                         CollectVaalSoulAtDeathLocked(conn, m);
-                        m.Contagion.Clear();
+                        // Its own damage killed it: the cast spreads even if this tick also ended it.
+                        m.Contagion.Died();
                     }
                     hits.Add((id, m, m.Life, damage));
                     if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);

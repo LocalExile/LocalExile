@@ -28,6 +28,33 @@ public sealed class MonsterContagionTests
     }
 
     [Fact]
+    public void Contagion_lethal_final_tick_spreads_and_recast_after_expiry_takes_the_new_cast()
+    {
+        // The final tick's damage kills it (the tick calls Died): the cast that dealt it still spreads.
+        var lethal = new MonsterContagion();
+        lethal.Apply(0, new(100, 1, 18));
+        Assert.Equal(100, lethal.Advance(1, 1));
+        Assert.Null(lethal.Active);
+        lethal.Died();
+        Assert.Equal(new MonsterContagion.Cast(100, 1, 18), lethal.TakeSpread());
+
+        // A nonlethal expiry leaves nothing to spread if the monster dies later.
+        var expired = new MonsterContagion();
+        expired.Apply(0, new(100, 1, 18));
+        Assert.Equal(100, expired.Advance(1, 1));
+        expired.Clear();
+        Assert.Null(expired.TakeSpread());
+
+        // A weaker recast after the old one expired (no Advance between) replaces it; the old one's owed second is kept.
+        var recast = new MonsterContagion();
+        recast.Apply(0, new(100, 1, 18));
+        recast.Apply(1.01, new(1, 5, 18));
+        Assert.Equal(1, recast.Active!.DamagePerSecond);
+        Assert.Equal(6.01, recast.Until, 6);
+        Assert.Equal(100 + 1, recast.Advance(2.01, 1));
+    }
+
+    [Fact]
     public void Contagion_spreads_once_from_a_monster_that_died_affected()
     {
         var unaffected = new MonsterContagion();

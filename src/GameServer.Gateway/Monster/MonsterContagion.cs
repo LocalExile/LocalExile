@@ -14,6 +14,9 @@ sealed class MonsterContagion
 
     // owed: the damage (before mitigation) of the time up to a recast, at the damage it had then.
     double until, last, carry, owed;
+    // The cast whose damage the last Advance returned (null when it returned none). If that damage killed the monster
+    // (Died), it is what spreads, even when the same Advance also expired it.
+    Cast? dealt;
 
     /// <summary>The cast affecting the monster now; null when none is.</summary>
     public Cast? Active { get; private set; }
@@ -31,6 +34,16 @@ sealed class MonsterContagion
     public void Apply(double now, Cast cast)
     {
         if (!(cast.DamagePerSecond > 0) || !(cast.Seconds > 0)) return;
+        if (Active is not null && now >= until)
+        {
+            // The old application expired before this recast (with no Advance in between): it no longer competes, but
+            // the damage it still owed up to its expiry is kept.
+            owed += Active.DamagePerSecond * Math.Max(0, until - last);
+            last = now;
+            Active = cast;
+            until = now + cast.Seconds;
+            return;
+        }
         if (Active is null)
         {
             last = now;
@@ -53,12 +66,14 @@ sealed class MonsterContagion
     /// mitigation <paramref name="factor"/>; the fraction carries to the next advance. Expires the debuff at its end.</summary>
     public int Advance(double now, double factor)
     {
+        dealt = null;
         if (Active is null || !(now > last)) return 0;
         double end = Math.Min(now, until);
         double damage = carry + (owed + Active.DamagePerSecond * Math.Max(0, end - last)) * Math.Max(0, factor);
         owed = 0;
         last = now;
         int whole = (int)Math.Min(int.MaxValue, Math.Floor(Math.Max(0, damage)));
+        if (whole > 0) dealt = Active;
         if (now >= until)
         {
             Active = null;
@@ -74,6 +89,16 @@ sealed class MonsterContagion
         Active = null;
         carry = 0;
         owed = 0;
+        dealt = null;
+    }
+
+    /// <summary>The monster died of the damage the last Advance returned: keeps that cast for the spread on death (also
+    /// when that Advance expired it), then clears. A nonlethal expiry never calls this, so it leaves no spread.</summary>
+    public void Died()
+    {
+        var cast = Active ?? dealt;
+        Clear();
+        DiedWith = cast;
     }
 
     /// <summary>The cast to spread on death, once: the active one or the one it died with.</summary>
