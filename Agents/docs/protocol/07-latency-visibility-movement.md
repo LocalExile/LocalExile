@@ -766,7 +766,8 @@ That connection receives its one create/wake pair from the tutorial transaction;
 replace the same awake object (`0x141ebf760`). Other connections retain shared visibility, and new-drop animation
 and observer birth tracking are preserved.
 
-These corrections do not establish complete predictive nonregression, frame ordering or skill/network parity.
+Held walks, Mud Flats and controlled chargers show no reproduced predictive regression.
+Complete nonregression, frame ordering and skill/network parity remain unverified.
 
 **Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLatency`; `Lockstep.cs` and
 `LockstepHold` follow GGG):

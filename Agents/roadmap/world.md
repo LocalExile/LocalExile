@@ -155,8 +155,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     Pickup completion, one-hand mace recovery, corpse collision, ground melee walk-up and tutorial chest approach
     follow the client. Completed stat snapshots are retired, ordinary lockstep AI orders share each actor's sequence,
     projectile hits retain their releasing action, and tutorial creates retain their initial recipient.
-    Held-walk player and all-monster sync bars pass in the measured cohort; predictive Mud2 drift and standing-start
-    worsening need fresh confirmation, and the Rhoa comparison is incomplete
+    Held-walk player and all-monster sync bars pass; fresh Mud Flats and charger pairs show no predictive regression.
+    Broader coverage and adjusted crowd comparisons remain incomplete
     ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
   - **Start:** validate these corrections together in both modes, then finish frame record ordering, special action
     producers and sequence wrap, and ranged chase behavior before the remaining skills, world interactions and
