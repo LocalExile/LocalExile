@@ -1326,7 +1326,7 @@ static partial class Game
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
-        double radiusMore = 1, int addedChaos = 0, double? swingAt = null)
+        double radiusMore = 1, int addedChaos = 0, double? swingAt = null, HolySweepHammers.Settings? hammer = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -1355,7 +1355,8 @@ static partial class Game
         int? castDuration = spell ? CastMs(conn, gem.Effect, skillId) : 0;
         if (castDuration is null) return;
         // Ruthless: whether this use is its skill's Ruthless Blow, counted as it starts.
-        double ruthless = spell ? 1 : RuthlessBlowMore(conn, skillId, Stat);
+        // A holy hammer (hammer: RunHolyHammers) is a hit of its sweep's use, not a use of its own.
+        double ruthless = spell || hammer is not null ? 1 : RuthlessBlowMore(conn, skillId, Stat);
         double delay;
         // A spell lands at its area cast clip's contact keyframe (a repeat a whole cast later each), an attack at its
         // swing's own clip (GemAttackContactDelay; the player swings where it stands, so without the walk-in offset).
@@ -1406,7 +1407,7 @@ static partial class Game
         List<uint> spirit = [];
         (int X, int Y)? echo = null;
         byte[]? memoryBuff = null;
-        if (!spell && channelGeneration is null)
+        if (!spell && channelGeneration is null && hammer is null)
             using (ProjectileMutation(conn))
                 (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, skillId, gem.Effect, skillStats, from, centre, sequence,
                     targetId, ProjectileWorldTime(conn));
@@ -1468,7 +1469,7 @@ static partial class Game
                 targets.AddRange(conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), at) <= radius && struck.Add(e.Key)).Select(e => (e.Key, e.Value)));
             // Melee Splash: each struck enemy splashes onto the enemies around it, for the support's less damage.
-            if (!spell)
+            if (!spell && hammer is null)
             {
                 var merged = SupportedStats(conn, skillId);
                 int SplashStat(string name) => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
@@ -1487,8 +1488,11 @@ static partial class Game
                     }
             }
         }
-        bool fortificationGranted = false; // One simultaneous sweep, independent of notification latency.
-        bool rageGranted = false; // Only a positive gain takes this sweep's latch.
+        // One simultaneous sweep, independent of notification latency; a holy hammer's hits leave both to its sweep.
+        bool fortificationGranted = hammer is not null;
+        bool rageGranted = hammer is not null; // Only a positive gain takes this sweep's latch.
+        // The enemies this sweep struck and where, for Holy Sweep's hammers (RunHolyHammers).
+        var hammerTargets = new List<(uint Id, (int X, int Y) At)>();
         // Reap's Blood Charges: the charges held scale this sweep's hits; the hits that land and the kills settle them.
         double bloodMore = BloodChargeDamageMore(conn, Stat);
         int landed = 0;
@@ -1534,9 +1538,9 @@ static partial class Game
             {
                 // Catch up earlier projectile contacts before reading Rage or any other live offensive input. Stopping
                 // the sweep keeps the kills it already queued. A released nova or slam wave keeps travelling when the
-                // player moves on: its action was checked at the release.
+                // player moves on: its action was checked at the release, as a fallen hammer's sweep was.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                    || !(ring || wave) && (!Current() || !holdsItsSwing && cooldownUse is null && !PlayerActionCurrent(conn, action))) break;
+                    || !(ring || wave || hammer is not null) && (!Current() || !holdsItsSwing && cooldownUse is null && !PlayerActionCurrent(conn, action))) break;
                 if (m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                 bool freshPlayer = player is null;
                 if (player is null)
@@ -1569,7 +1573,7 @@ static partial class Game
                 if (!spell && SkillsFor(conn).IsMelee(gem.Effect))
                     contactHit = WithMeleeProximityLocked(conn, player, skillStats, m, contactHit, ProjectileWorldTime(conn));
                 int hitChance = spell ? 100 : AttackHitChanceAt(conn, id, m, ProjectileWorldTime(conn), accuracy, player);
-                if (!spell && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, ProjectileWorldTime(conn), conn.AttackAccuracyRandom)) continue;
+                if (!spell && !accuracy.CannotBeEvaded && hammer?.CannotBeEvaded != true && !m.AttackEvasion.Hits(hitChance, ProjectileWorldTime(conn), conn.AttackAccuracyRandom)) continue;
                 if (MonsterBlocks(m, Random.Shared, spell, ProjectileWorldTime(conn), skillStats))
                 {
                     Console.WriteLine($"[gateway] {remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
@@ -1619,6 +1623,7 @@ static partial class Game
                 {
                     if (critical) conn.RecentEvents.Record(StatConditions.Crit, at);
                     landed++;
+                    if (hammer is null) hammerTargets.Add((id, m.Walk.Position(at)));
                     // Item Quantity Support: the kill's loot rolls read the supported skill's share.
                     if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                         m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
@@ -1661,7 +1666,7 @@ static partial class Game
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
             if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, m.Walk.Position(ProjectileWorldTime(conn)));
             await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, hit, damage,
-                $"{gem.Name}{(critical ? " (critical)" : "")}{(resistance is null ? "" : $", {resistance}")}",
+                $"{gem.Name}{(hammer is null ? "" : " (holy hammer)")}{(critical ? " (critical)" : "")}{(resistance is null ? "" : $", {resistance}")}",
                 melee: melee ?? !spell, sequence: sequence, deaths: deaths, stun: stun);
             await SendDotBuff(remote, stream, ciphers, ignited, igniteLog);
             await SendDotBuff(remote, stream, ciphers, bled, bleedLog);
@@ -1680,13 +1685,68 @@ static partial class Game
         string contact = holdsItsSwing
             ? $", contact {contactFraction:0.###} of the attack ({(contactClip is null ? "the attack1 fallback" : contactClip)})"
             : "";
-        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) {shape}{contact} (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(hammer is not null ? "holy hammer" : spell ? "spell" : "attack")} hit {targets.Count} monster(s) {shape}{contact} (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+        // Holy Sweep's hammers fall on enemies this sweep struck; Hammerfalls' waves fall around where it swung.
+        if (hammer is null && !spell && HolySweepHammers.For(Stat) is { } hammers)
+            _ = RunHolyHammers(remote, stream, ciphers, conn, skillId, gem, hammers, skillStats, centre, radius,
+                hammerTargets, damageMore, sequence, repeat);
         if (BloodCharges.Uses(Stat) && player is not null)
         {
             bool changed;
             lock (conn.Monsters) changed = conn.PlayerLife > 0 && SettleBloodChargesLocked(conn, player, deaths.Count, landed - deaths.Count);
             if (changed) await SendBloodCharges(remote, stream, ciphers, conn, $"{gem.Name}: {landed} hit, {deaths.Count} killed");
         }
+    }
+
+    // Holy Sweep's hammers (HolySweepHammers): each falls on its point and slams FallSeconds later, an AreaSkillHit of
+    // its own around that point (the secondary radius, grown by area of effect) for the sweep's hit with the hammers'
+    // less damage. Holy Sweep's land on up to holy_sweep_number_of_holy_bolts_to_create enemies the sweep struck, at
+    // random, once each; Hammerfalls' waves land at random points of the sweep's area, one wave every rate while its
+    // duration lasts. They outlive the swing (a later action does not stop them); a death, an area change or a closed
+    // connection does. The hammer hits send no 0x1af: the client draws a hammer for each of the sweep's own 0x1af hits
+    // (23-microtransactions.md), and its own pick of struck enemies is not known, so it may draw them elsewhere.
+    static async Task RunHolyHammers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, HolySweepHammers.Settings hammers,
+        IReadOnlyDictionary<uint, int> skillStats, (int X, int Y) centre, int sweepRadius,
+        List<(uint Id, (int X, int Y) At)> struck, double damageMore, ushort sequence, int repeat)
+    {
+        try
+        {
+            int epoch = conn.ProjectileEpoch;
+            double start = conn.Clock.Elapsed.TotalSeconds;
+            var areaStats = MergeSkillStats(AreaPlayerStats(conn), skillStats);
+            int Area(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
+            int radius = SkillArea.Radius(hammers.BaseRadius, Area, spell: false);
+            var waves = new List<(double At, List<(int X, int Y)> Points)>();
+            if (!hammers.Hammerfall)
+            {
+                var picked = HolySweepHammers.Pick(struck, hammers.Count, Random.Shared);
+                if (picked.Count == 0) return;
+                waves.Add((HolySweepHammers.FallSeconds, [.. picked.Select(p => p.At)]));
+                Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {picked.Count} holy hammer(s) of "
+                    + $"{hammers.Count} fall on {string.Join(", ", picked.Select(p => $"0x{p.Id:x}"))} of {struck.Count} struck, "
+                    + $"{radius} cells each, {hammers.More:0.##}x damage{(hammers.CannotBeEvaded ? ", cannot be evaded" : "")}");
+            }
+            else
+            {
+                int Own(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
+                double duration = SkillDurationModifiers.Seconds(hammers.DurationMs, Area, Own);
+                foreach (double at in HolySweepHammers.WaveTimes(hammers.RateSeconds, duration))
+                    waves.Add((at + HolySweepHammers.FallSeconds,
+                        [.. Enumerable.Range(0, hammers.Count).Select(_ => HolySweepHammers.PointWithin(centre, sweepRadius, Random.Shared))]));
+                Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: hammerfall at ({centre.X}, {centre.Y}) "
+                    + $"within {sweepRadius} cells for {duration:0.##} s, {waves.Count} wave(s) of {hammers.Count} every "
+                    + $"{hammers.RateSeconds:0.##} s, {radius} cells each, {hammers.More:0.##}x damage");
+            }
+            foreach (var (at, points) in waves)
+            {
+                if (!await WaitProjectileTime(conn, start + at, epoch)) return;
+                foreach (var point in points)
+                    await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, point, point, immediate: true, sequence: sequence,
+                        melee: false, damageMore: damageMore * hammers.More, repeat: repeat, radiusOverride: radius, hammer: hammers);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
     }
 
     internal static async Task<bool> WaitProjectileTime(ClientState conn, double until, int epoch)
