@@ -79,7 +79,7 @@ drew it without a model), Divinia (`SanctumNPCTown`) in the Forbidden Sanctum, J
 Faustus, Isla, Sonja and Raulf in Kingsmarch, Kurai, Faustus, Adiyah, Whakano and the nine rogues in the Rogue Harbour,
 Ailith (`ChayulaFarmerHub`) in the Monastery of the Keepers. Kingsmarch, the Rogue Harbour and the Monastery have not
 been placed live yet: their NPCs, stash and guild stash are offsets from the arrival (`StashCatalog.FromArrival`).
-Every hideout also gets Einhar (`EinharHideout`).
+Every hideout also gets Einhar (`EinharHideout`) and Faustus (`VillageFaustusHideout`: unlike `VillageFaustus`, it has no ControlZone, so it can be serialized).
 
 Several town rooms do not start at (0, 0): the area has a border around the room. The atlas's grid placement for
 fixed layouts ([08](08-area-transitions.md) §6, step 10) assumes (0, 0), so its exits in those towns are probably off

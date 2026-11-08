@@ -70,6 +70,11 @@ static partial class Game
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
         conn.NpcRewardOffer = null;
+        // Ctrl + click goes straight to an NPC's Currency Exchange (Faustus), as picking the option does. An NPC without one, or a
+        // league without the module, talks as usual.
+        if (use.Ctrl && Npcs.Value.TalksOf(npc.Npc).FirstOrDefault(t => t.Category == "CurrencyExchange" && t.Available(Quests.Names(PlayerQuestFlags(conn)))) is { } exchange
+            && await Program.ServerHooks.RunNpcOption(new(PlayerOf(conn), npc.Npc.Name, exchange.Category, exchange.Option, exchange.Script, exchange.TextAudio.Count > 0,
+                exchange.Index, exchange.Row, exchange.OpensGuildHideouts, exchange.RewardOffer))) return;
         if (await GameEvents.AnyNpcTalk(conn, id, npc)) return;
         if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 talk to npc 0x{id:x} {npc.Npc.Name}",
