@@ -19,6 +19,8 @@ static partial class Game
 
     internal static SupportedGem SupportedSkillAt(ClientState conn, ushort skillId, GemRequirementSnapshot? requirements)
     {
+        using var rawSources = new GemSourceScope(conn);
+        rawSources.Enter();
         string name = CharacterName(conn);
         var equipment = requirements?.Equipment ?? ItemsOf(conn).EquipmentSnapshot();
         var places = GemRequirementSnapshot.PlacesIn(equipment);
@@ -91,11 +93,11 @@ static partial class Game
             }
         // Machinations: its "per Keystone" stats count the character's allocated keystones. The chaos gain feeds the
         // plain stat the damage conversion reads; the cost increase has no consumer yet (costs read player stats only).
-        int keystones = KeystoneCount(conn);
+        int? keystones = null;
         foreach (string stat in new[] { "skill_cost_+%_per_keystone", "physical_damage_%_to_add_as_chaos_per_keystone" })
             if (Stats.Key(stat) is uint perKey && own.TryGetValue(perKey, out int per))
             {
-                own[perKey] = per * keystones;
+                own[perKey] = per * (keystones ??= KeystoneCount(conn));
                 if (stat == "physical_damage_%_to_add_as_chaos_per_keystone" && own[perKey] != 0
                     && Stats.Key("physical_damage_%_to_add_as_chaos") is uint plain)
                     own[plain] = own.GetValueOrDefault(plain) + own[perKey];

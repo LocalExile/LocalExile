@@ -1,6 +1,17 @@
 
 static partial class Game
 {
+    // A support resolution is synchronous under Monsters. Its level/quality lookups share raw sources;
+    // the scope ends before any later hit, charge expiry, equipment change or aura reconciliation.
+    sealed class GemSourceScope(ClientState conn) : IDisposable
+    {
+        readonly GemSourceScope? outer = GemSources.Value;
+        public readonly ClientState Conn = conn;
+        public Dictionary<uint, int>? Sources;
+        public void Enter() => GemSources.Value = this;
+        public void Dispose() => GemSources.Value = outer;
+    }
+    static readonly AsyncLocal<GemSourceScope?> GemSources = new();
     // Read raw sources rather than CharacterPlayerStats: reservation/pool calculations can already be resolving
     // this skill. A native developer replacement wins over the aggregate source, without feeding a derived level back.
     internal static int EffectiveGemLevel(ClientState conn, GameServer.Core.Protocol.Instance.Item gem, int supportedBonus)
@@ -23,7 +34,9 @@ static partial class Game
     internal static int RawGemStat(ClientState conn, string stat)
     {
         if (Stats.Key(stat) is not uint key) return 0;
-        var sources = CharacterStatSources(conn).Stats;
+        var scope = GemSources.Value;
+        var sources = scope is not null && ReferenceEquals(scope.Conn, conn)
+            ? scope.Sources ??= CharacterStatSources(conn).Stats : CharacterStatSources(conn).Stats;
         lock (conn.Monsters) return conn.PlayerStats.GetValueOrDefault(key, sources.GetValueOrDefault(key));
     }
 }
