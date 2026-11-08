@@ -96,7 +96,7 @@ Copy-Into 'scripts\re\vendor-stock\ids.json' 'scripts\re\vendor-stock\ids.json'
 Copy-Into 'scripts\re\levelgen\gate-baseline.json' 'scripts\re\levelgen\gate-baseline.json'
 Copy-Into 'Agents\docs\re\components.json' 'Agents\docs\re\components.json'
 # The drop tables' seed source (GameDataDrops): the Gateway keeps its compiled currency table without these.
-foreach ($dropSeed in 'currency-weights.csv', 'boss-drops.csv', 'bosses.csv', 'divination-card-areas.csv') {
+foreach ($dropSeed in 'currency-weights.csv', 'boss-drops.csv', 'bosses.csv', 'divination-card-areas.csv', 'item-weights.csv') {
     Copy-Into "Agents\docs\game\$dropSeed" "Agents\docs\game\$dropSeed"
 }
 

@@ -171,10 +171,12 @@ static partial class Game
         List<ItemDrops.Drop> drops = [];
         if (modded is not { Cancel: true })
         {
+            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
+                ? openMap.Area.Tier : 0;
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
-            drops.AddRange(ExtraDropsFromMap(conn, monster.Rarity, random));
+            drops.AddRange(ExtraDropsFromMap(conn, monster.Level, monster.Rarity, random));
         }
         foreach (string query in modded?.Items ?? [])
             if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);

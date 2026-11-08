@@ -225,7 +225,9 @@ unique, rare or magic, raised by item rarity. A unique is chosen among its base'
 base's weights add up to less than 1 the rest gives a rare, and a unique outside that table does not drop.
 `DropLoot` puts each as a WorldItem
 ([13](13-items.md) §5) 3–6 cells around the corpse, on a walkable cell when the walk map is known. `Game_DROPS=0` turns
-it off.
+it off. In a map, the kill also rolls the base card and scarab chances (`drop_card_chance_pct`, `drop_scarab_chance_pct`,
+our own numbers, scaled by item quantity); a card or scarab pick follows the published community weights when
+`drop_item_weights` covers the monster's level, and is uniform otherwise.
 The client DropLevels, the current hardcoded weights, the recent patch changes and the (unimplemented) currency drop
 penalty are collected in [game/currency-drops.md](../game/currency-drops.md).
 

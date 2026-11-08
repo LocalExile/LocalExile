@@ -60,6 +60,9 @@ is not in the client tables needs a source and a confidence note.
   40/35/20/5%, Hextoad 6%, Hexpass 10%, The Endless Darkness 15%.
 - [x] Record that exact per-boss unique chances are mostly unpublished; mark
   unknown rather than guess.
+- [x] Add the community scarab weights: 109 scarabs from the poedata.dev MLE
+  calculation (3.28.0; two 3.28 names are gone from the 3.29 client), seeded into
+  `drop_item_weights`; the scarab pick follows them.
 - [ ] Parse every boss page's unique tab into `bosses.csv` (major bosses done;
   430 map bosses and 140 unique-map bosses next).
 - [ ] Add the **boss-only currency** rows to the currency source model; do not
@@ -80,6 +83,9 @@ is not in the client tables needs a source and a confidence note.
   Apothecary 75, The Endless Darkness 81).
 - [x] Export the PoEDB Areas table: [divination-card-areas.csv](divination-card-areas.csv)
   (135 areas, 555 pairs, minimum map tier).
+- [x] Add the community card weights: 422 cards from the poedata.dev MLE
+  calculation (3.27.0), seeded into `drop_item_weights`; the card pick follows
+  them and falls back to uniform when no weighted card meets the DropLevel.
 - [x] List boss/league examples: The Endless Darkness, The Breach, The Dreamer,
   The Calling, The Valkyrie, The Undaunted, The Admirer, The Professor.
 - [x] Record the current bug: `ItemDrops.Card(Random rng)` ignores `DropLevel`,
@@ -113,9 +119,10 @@ is not in the client tables needs a source and a confidence note.
 - [x] Define the source kinds and the boss/card schemas in prose.
 - [x] Draft the SQLite schema and the seed files: [drop-data-schema.md](../dev/drop-data-schema.md).
 - [x] Add typed tables for `DropCurrencyWeights`, `DropCurrencySources`,
-  `DropBosses`, `DropBossItems`, `DropCardAreas` and `DropCardSources` in
-  `GameDataStore`, seeded from the CSVs by `GameDataDrops` (schema version 4);
-  the currency table is wired into `ItemDrops.Build`.
+  `DropBosses`, `DropBossItems`, `DropCardAreas`, `DropCardSources` and
+  `DropItemWeights` in `GameDataStore`, seeded from the CSVs by `GameDataDrops`
+  (schema version 5); the currency, card and scarab tables are wired into
+  `ItemDrops`.
 - [x] Keep the current `ItemDrops.Currency` core table as the fallback; no
   boss-only row goes into it without a source.
 - [~] Loader validation: finite non-negative weights, `chance` in 0..1, the
@@ -143,15 +150,17 @@ is not in the client tables needs a source and a confidence note.
 1. **#709 (current, draft):** docs, source collection, `bosses.csv`,
    `divination-card-areas.csv`, boss/card cross-reference, plus the SQLite tables,
    the CSV seed and the currency-weight wiring.
-2. **Next:** card pool filtering by area/tier/`DropLevel` (one code PR, one or
+2. **#710 (stacked on #709):** poedata card/scarab weights and the base map
+   card/scarab chances.
+3. **Next:** card pool filtering by area/tier/`DropLevel` (one code PR, one or
    two tests).
-3. **Next:** boss drop tables and boss-only currency (one code PR, one or two
+4. **Next:** boss drop tables and boss-only currency (one code PR, one or two
    tests).
-4. **Next:** currency baseline recalibration + missing core types (one code PR,
+5. **Next:** currency baseline recalibration + missing core types (one code PR,
    two tests at most).
-5. **Next:** drop penalty (one code PR, one test).
-6. **Next:** `/game_data` edit commands, source rows and re-seeding.
-7. **Later:** collector and MLE recalibration from live samples.
+6. **Next:** drop penalty (one code PR, one test).
+7. **Next:** `/game_data` edit commands, source rows and re-seeding.
+8. **Later:** collector and MLE recalibration from live samples.
 
 ## Open questions
 

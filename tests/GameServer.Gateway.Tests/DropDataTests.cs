@@ -33,6 +33,12 @@ public sealed class DropDataTests
                 area,card,min_map_tier,source
                 Test Area,The Doctor,7,test
                 """);
+            File.WriteAllText(Path.Combine(folder, "item-weights.csv"),
+                """
+                category,item_id,weight,enabled,source,confidence,patch,sampled_at,notes
+                card,Metadata/Items/DivinationCards/DivinationCardRainOfChaos,0.5,1,test,estimated,3.27.0,2026-02-08,
+                scarab,Metadata/Items/Scarabs/ScarabAbyssNew1,"0,25",1,test,estimated,3.28.0,2026-03-23,
+                """);
 
             using var store = new GameDataStore(Path.Combine(folder, "drops.db"));
             Assert.True(GameDataDrops.Seed(store, folder));
@@ -43,6 +49,7 @@ public sealed class DropDataTests
             Assert.Equal(1, counts.Bosses);
             Assert.Equal(2, counts.BossItems);
             Assert.Equal(1, counts.CardAreas);
+            Assert.Equal(2, counts.ItemWeights);
 
             GameDataDrops.Reload(store);
             Assert.True(DropDataProvider.Default.HasTable);
@@ -51,6 +58,8 @@ public sealed class DropDataTests
             Assert.Equal(0.5, DropDataProvider.Default.Current.BossItems[("Metadata/TestBoss", "Unique A")].Chance);
             Assert.Null(DropDataProvider.Default.Current.BossItems[("Metadata/TestBoss", "Metadata/Items/Currency/CurrencyIdentification")].Chance);
             Assert.Equal(7, DropDataProvider.Default.Current.CardAreas[("Test Area", "The Doctor")].MinMapTier);
+            Assert.Equal(0.25, DropDataProvider.Default.Current.ItemWeights[("scarab", "Metadata/Items/Scarabs/ScarabAbyssNew1")].Weight);
+            Assert.Equal("3.27.0", DropDataProvider.Default.Current.ItemWeights[("card", "Metadata/Items/DivinationCards/DivinationCardRainOfChaos")].Patch);
         }
         finally
         {

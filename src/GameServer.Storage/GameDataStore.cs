@@ -30,6 +30,8 @@ public sealed class GameDataStore : IDisposable
     public sealed record CardAreaRow(string AreaId, string AreaName, string CardId, int MinMapTier, string Source);
     public sealed record CardSourceRow(string CardId, string SourceKind, string SourceId, int? MinMapTier,
         int DropLevel, string Confidence, string Source, string? Notes);
+    public sealed record ItemWeightRow(string Category, string ItemId, double Weight, bool Enabled, string Source,
+        string Confidence, string Patch, string SampledAt, string? Notes);
 
     private readonly SqliteConnection _db;
     private readonly object _gate = new();
@@ -217,9 +219,23 @@ public sealed class GameDataStore : IDisposable
                     updated_utc TEXT NOT NULL,
                     PRIMARY KEY (card_id, source_kind, source_id)
                 ) STRICT;
+                CREATE TABLE IF NOT EXISTS drop_item_weights (
+                    category TEXT NOT NULL CHECK (category IN ('scarab', 'card', 'essence', 'fossil', 'catalyst',
+                        'delirium-orb', 'breachstone', 'legion-splinter', 'runegraft')),
+                    item_id TEXT NOT NULL,
+                    weight REAL NOT NULL CHECK (weight >= 0),
+                    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                    source TEXT NOT NULL,
+                    confidence TEXT NOT NULL CHECK (confidence IN ('verified', 'estimated', 'unknown')),
+                    patch TEXT NOT NULL,
+                    sampled_at TEXT NOT NULL,
+                    notes TEXT,
+                    updated_utc TEXT NOT NULL,
+                    PRIMARY KEY (category, item_id)
+                ) STRICT;
                 """);
-            Execute("INSERT OR IGNORE INTO game_data_meta (key, value) VALUES ('schema_version', '4')");
-            Execute("UPDATE game_data_meta SET value = '4' WHERE key = 'schema_version' AND value IN ('1', '2', '3')");
+            Execute("INSERT OR IGNORE INTO game_data_meta (key, value) VALUES ('schema_version', '5')");
+            Execute("UPDATE game_data_meta SET value = '5' WHERE key = 'schema_version' AND value IN ('1', '2', '3', '4')");
         }
         catch
         {
@@ -662,7 +678,13 @@ public sealed class GameDataStore : IDisposable
 
     public void MarkDropSeeded() => SetMeta("drop_seeded", DateTime.UtcNow.ToString("O"));
 
-    public (int CurrencyWeights, int CurrencySources, int Bosses, int BossItems, int CardAreas, int CardSources) DropCounts()
+    /// <summary>The seed-file generation the drop tables were last filled from; a newer one re-seeds them.</summary>
+    public string? DropSeedVersion() => Meta("drop_seed_version");
+
+    public void MarkDropSeedVersion(string version) => SetMeta("drop_seed_version", version);
+
+    public (int CurrencyWeights, int CurrencySources, int Bosses, int BossItems, int CardAreas, int CardSources,
+        int ItemWeights) DropCounts()
     {
         lock (_gate)
         {
@@ -672,7 +694,8 @@ public sealed class GameDataStore : IDisposable
                 return Convert.ToInt32(command.ExecuteScalar());
             }
             return (Count("drop_currency_weights"), Count("drop_currency_sources"), Count("drop_bosses"),
-                Count("drop_boss_items"), Count("drop_card_areas"), Count("drop_card_sources"));
+                Count("drop_boss_items"), Count("drop_card_areas"), Count("drop_card_sources"),
+                Count("drop_item_weights"));
         }
     }
 
@@ -927,6 +950,53 @@ public sealed class GameDataStore : IDisposable
                 command.Parameters["$level"].Value = row.DropLevel;
                 command.Parameters["$confidence"].Value = row.Confidence;
                 command.Parameters["$source"].Value = row.Source;
+                command.Parameters["$notes"].Value = row.Notes ?? (object)DBNull.Value;
+                command.Parameters["$utc"].Value = DateTime.UtcNow.ToString("O");
+                command.ExecuteNonQuery();
+            }
+        });
+    }
+
+    public IReadOnlyList<ItemWeightRow> LoadItemWeights()
+    {
+        lock (_gate)
+        {
+            using var command = Command("""
+                SELECT category, item_id, weight, enabled, source, confidence, patch, sampled_at, notes
+                FROM drop_item_weights ORDER BY category, item_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<ItemWeightRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetDouble(2), reader.GetInt32(3) != 0,
+                    reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetString(8)));
+            return rows;
+        }
+    }
+
+    public void ReplaceItemWeights(IReadOnlyList<ItemWeightRow> rows)
+    {
+        Atomically(() =>
+        {
+            Execute("DELETE FROM drop_item_weights");
+            using var command = Command("""
+                INSERT INTO drop_item_weights (category, item_id, weight, enabled, source, confidence, patch,
+                    sampled_at, notes, updated_utc)
+                VALUES ($category, $item, $weight, $enabled, $source, $confidence, $patch, $sampled, $notes, $utc)
+                """, ("$category", "card"), ("$item", ""), ("$weight", 0.0), ("$enabled", 1), ("$source", ""),
+                ("$confidence", "unknown"), ("$patch", ""), ("$sampled", ""), ("$notes", DBNull.Value), ("$utc", ""));
+            command.Prepare();
+            foreach (var row in rows)
+            {
+                command.Parameters["$category"].Value = row.Category;
+                command.Parameters["$item"].Value = row.ItemId;
+                command.Parameters["$weight"].Value = row.Weight;
+                command.Parameters["$enabled"].Value = row.Enabled ? 1 : 0;
+                command.Parameters["$source"].Value = row.Source;
+                command.Parameters["$confidence"].Value = row.Confidence;
+                command.Parameters["$patch"].Value = row.Patch;
+                command.Parameters["$sampled"].Value = row.SampledAt;
                 command.Parameters["$notes"].Value = row.Notes ?? (object)DBNull.Value;
                 command.Parameters["$utc"].Value = DateTime.UtcNow.ToString("O");
                 command.ExecuteNonQuery();
