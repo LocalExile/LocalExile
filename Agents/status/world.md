@@ -214,6 +214,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   trials (alcove and ledge) and his two end lines; no life bar while he rises, dimmed at his trial's floor; the account's
   stash in the room before each arena and the Ascendancy Chamber. Checked live 2026-11-08: a whole run on 3.29.3c, the
   gargoyles' beam on 3.29.3b.
+  A third mechanic, Portals, brings guardians until destroyed and returns the same way. Not yet checked live.
   Not yet: the other arena mechanics, the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
   Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,

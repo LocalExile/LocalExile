@@ -107,4 +107,26 @@ public sealed class LabyrinthLayoutTests
         Assert.Single(trials.Select(t => t.Trial.Variety).Distinct());
         Assert.Equal(0b0000_0100, LabyrinthDay.Progress([], [2])[2]);
     }
+
+    // PortalSummon rows have no tier, and only the returning ones have a buff; the portals and what they bring can be created.
+    [Fact]
+    public void IzarosPortalsAreEveryTiersAndCanBeCreated()
+    {
+        foreach (int tier in new[] { 1, 4 })
+        {
+            var own = IzaroEffects.Of(IzaroPortals.Mechanic, tier, returning: false);
+            Assert.Equal(["PortalSummon1_Fire", "PortalSummon1_Cold", "PortalSummon1_Lightning"], own.Select(e => e.Id));
+            Assert.All(own, e => Assert.Empty(e.Stats));
+            var returning = own.Select(e => IzaroEffects.ReturningOf(e.Id)!).ToList();
+            Assert.Equal(["PortalSummon2_Fire", "PortalSummon2_Cold", "PortalSummon2_Lightning"], returning.Select(e => e.Id));
+            Assert.All(returning, e => Assert.NotEmpty(e.Stats));
+            foreach (var effect in own.Concat(returning))
+            {
+                var portal = Game.Monsters.Find(effect.Variety)!;
+                Assert.True(portal.Supported, effect.Variety);
+                var summon = Program.Skills.MonsterSummon(portal.GrantedEffects![0], 33)!;
+                Assert.True(Game.Monsters.Find(summon.Variety.ToString())!.Supported, effect.Variety);
+            }
+        }
+    }
 }

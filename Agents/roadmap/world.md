@@ -127,8 +127,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. Izaro's arenas' other mechanics (Toggle Statues and Gargoyles are done: `Rules.IzaroArena.cs` places them and
-     what they leave), one at a time, and the Goddess of Justice.
+  1. Izaro's arenas' other mechanics (Toggle Statues, Gargoyles and Portals are done: `Rules.IzaroArena.cs` places them
+     and what they leave; Normal also rolls Lieutenants and Chrono Statues), one at a time, and the Goddess of Justice.
   2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
   3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
