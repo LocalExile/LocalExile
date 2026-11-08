@@ -11,10 +11,10 @@ namespace GameServer.Modules.CurrencyExchange;
 /// reads the prices from <c>data/</c>, and never connects to anything itself.</summary>
 public sealed class CurrencyExchangeModule : IModule
 {
-    const string SaveKey = "currency-exchange", Window = "currency-exchange", RatesFile = ExchangeRateFeed.File;
+    const string SaveKey = "currency-exchange", Window = "currency-exchange", RatesFile = ExchangeRateStore.File;
     const double SettleEverySeconds = 30;
 
-    static ExchangeOptions Options => ExchangeRateFeed.Options;
+    static ExchangeOptions Options => ExchangeRateStore.Options;
     static long Now => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
     /// <summary>Starts full: the first tick in an area settles, so what filled while the player was away shows as they arrive.</summary>

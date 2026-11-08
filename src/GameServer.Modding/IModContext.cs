@@ -62,10 +62,12 @@ public interface IModContext
     /// back to the Gateway's local one. The players in game move at once.</summary>
     IDisposable UseChatServer(string host, int port);
 
-    /// <summary>The Gateway keeps the Currency Exchange's rates up to date from this rates service until the handle is disposed or the mod
-    /// unloads, and the exchange trades by these options; the mod itself contacts nothing. <paramref name="currentLeague"/> is told the current challenge
-    /// league's name with each new set of rates, for showing it.</summary>
-    IDisposable UseExchangeRates(string url, ExchangeOptions options, Action<string>? currentLeague = null);
+    /// <summary>The Currency Exchange trades by these options until the handle is disposed or the mod unloads.</summary>
+    IDisposable UseExchangeOptions(ExchangeOptions options);
+
+    /// <summary>New rates for the Currency Exchange, as JSON (<c>GameServer.Core.Trade.ExchangeRates</c>). The Gateway saves them, so they outlast the mod.</summary>
+    /// <exception cref="FormatException">They are not rates.</exception>
+    void PublishExchangeRates(string json);
 
     /// <summary>The settings its <c>settings.json</c> declares, with the user's values (<c>data/mods/&lt;id&gt;.json</c>, for a
     /// module <c>data/modules/&lt;id&gt;.json</c>) over the defaults, read into <typeparamref name="T"/> by name (case does not

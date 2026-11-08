@@ -72,5 +72,5 @@ has each hour's price, and the server replays the hours it missed when the playe
 An order between the two sides' prices fills at its own price after a wait, as someone comes to it: none at the market's price, up to 5 minutes for a busy item at the other side's, 12 hours for
 a rare one. A player can earn the spread that way, as in a live market; gold pays for it (a round of a divine, about 9 chaos, costs some 7000 gold).
 
-Nothing in the Gateway contacts GGG: the rates service, which LocalExile-Mods' `liveeconomy` holds, runs elsewhere, and a mod names it with `UseExchangeRates`, with how to trade (`ExchangeOptions`), among it the official league:
+The Gateway itself contacts nothing for them: a mod, LocalExile-Mods' `liveeconomy`, gets the rates and hands them over with `PublishExchangeRates`, and says how to trade with `UseExchangeOptions`, among it the official league:
 Standard or the current challenge league, the one with the most priced items among the others. Hardcore leagues have too few markets to price on their own.
