@@ -70,7 +70,7 @@ Checked: the first draw of Lioneye's Watch seed 1 is 1791095845 in the client tr
 `0x14202e270(area, world +0xd0)` lists the area's Topologies (WorldAreas in-memory +0x68 count / +0x70 rows) whose
 Topologies +0x2c equals world +0xd0, else those with 60 (the default; 59 = Deepwater variants), else retries with 1.
 `0x14204d2c0` picks one (`PickIndexAndOrientation`, mask from Topologies +0x1c, a list of codes, 8 = all; every row
-lists `[0]` in 3.29.3b, so the orientation is 0). `0x14204cb90` then loads the graph (`0x141fffb90`: .dgr sets
+lists `[0]` in 3.29.3b and 3.29.3c, so the orientation is 0). `0x14204cb90` then loads the graph (`0x141fffb90`: .dgr sets
 flag 1, .tgr not) and `0x14204c040` adds it as a subgraph: its master file (`0x1420429e0`: the area's TSI override at
 row +0x192, else the graph's `MasterFile:`, following .tgr/.dgr to their own master; a non-file name picks among
 masters with `Next`), size from the graph (+0x40 / +0x48) scaled by the master's tile units (+0x149 − +0x14b), the

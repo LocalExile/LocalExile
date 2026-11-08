@@ -199,7 +199,7 @@ Code: `scripts/re/ghidra/ReadSchema.java`, `SendSites.java`, `scripts/re/schema_
 
 Optional [native client control](../docs/dev/client-control.md) provides CLI/JSON RPC for development without repeated
 UI input.
-It targets the copied standalone 3.29.3b client and local services only.
+It targets the copied standalone 3.29.3c client and local services only.
 Login keeps waiting within its existing timeout when success 0 precedes authenticated state 3.
 Mocked execute/RPC regressions cover this wait, rejection 6 and timeouts; this fix has no new native verification.
 It also creates and deletes characters, travels by waypoint (by WorldAreas Id too), waits for an area and knows the

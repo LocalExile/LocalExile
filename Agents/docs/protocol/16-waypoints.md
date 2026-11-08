@@ -53,7 +53,7 @@ Class `0x1435e76c0`, read `0x1421a5dd0`, dispatcher case 0x12: u32 BE (+0x10, pa
 at instance +0x73f0; 0 works), then **19 raw bytes** copied to instance +0xcf31.
 
 Bit *i* is the *i*-th WorldAreas row with `HasWaypoint` (+0x15) whose column +0x1e4 (`__col51` in the extracted table)
-is 1, 2, 5 or 11 (mask 0x826), at most 150 (`0x141fe37b0`). 3.29.3b has **90**: Lioneye's Watch (bit 0), The Coast (1),
+is 1, 2, 5 or 11 (mask 0x826), at most 150 (`0x141fe37b0`). 3.29.3b and 3.29.3c have **90**: Lioneye's Watch (bit 0), The Coast (1),
 … The Forest Encampment (9) … Karui Shores (88), Aspirants' Plaza (89). `WorldAreaWaypoints` builds the order.
 
 The handler compares the current area's bit before and after: on the first 0x4c of a connection it shows the waypoint

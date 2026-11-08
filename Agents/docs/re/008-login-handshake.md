@@ -30,9 +30,9 @@ both groups and uses the Crypto++ `DH2` methods: ephemeral key lengths at vtable
 ## Embedded key blobs (.rdata, all referenced only from `0x142144f60`)
 | VA | File offset | Size | Contents |
 |---|---|---|---|
-| 0x142fca1f0 | 0x2fbf550 | 0x346 | X.509 DSA public key (p 2048, q 224), the server key verifier |
-| 0x142fca540 | 0x2fbf8a0 | 384 | client **static private** exponent (not a subgroup element) |
-| 0x142fca6c0 | 0x2fbfa20 | 384 | server **static public** value (passes y^q = 1) |
+| 0x142fca1f0 | 0x2fc91f0 | 0x346 | X.509 DSA public key (p 2048, q 224), the server key verifier |
+| 0x142fca540 | 0x2fc9540 | 384 | client **static private** exponent (not a subgroup element) |
+| 0x142fca6c0 | 0x2fc96c0 | 384 | server **static public** value (passes y^q = 1) |
 
 The DSA key is loaded through `StringSource` into the verifier and validated at level 3 (on failure:
 "General Rhoa Failure #2"). The verifier vtable's accumulator slot (`0x1432013d8`) is `0x140e03310`, which builds a SHA-1
@@ -60,7 +60,7 @@ those can be swapped at the same size:
 - The client static private key in the blob gives us the client static public value.
 
 `GameServer.Auth keygen` / `patch` / `serve` implement this (see `Agents/docs/dev-server.md`). The patched exe differs only at
-file offsets 0x2fbf796–0x2fbfb9f. Its Authenticode signature is then invalid. Integrity checks elsewhere (launcher,
+file offsets 0x2fc9436–0x2fc983f. Its Authenticode signature is then invalid. Integrity checks elsewhere (launcher,
 PackCheck, anti-cheat) are untested.
 
 ## Still unknown

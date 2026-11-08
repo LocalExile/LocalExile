@@ -15,13 +15,13 @@ runs showed.
 - The real client checks a DSA signature on the server's DH key and agrees with a static DH value, both embedded in
   the exe. `GameServer.Auth keygen` makes our own keys over **GGG's DSA domain** (same p, q, g, only y replaced, with x
   chosen so the DER stays exactly 0x346 bytes) and our own static DH key. `GameServer.Auth patch` writes
-  `Game.patched.exe`, which differs from `Game.exe` only at file offsets 0x2fbf796–0x2fbfb9f.
+  `Game.patched.exe`, which differs from `Game.exe` only at file offsets 0x2fc9436–0x2fc983f.
 
 | Blob (.rdata) | VA | File offset | Size | Replaced with |
 |---|---|---|---|---|
-| X.509 DSA public key (p 2048, q 224) | `0x142fca1f0` | 0x2fbf550 | 0x346 | ours, same domain, new y |
-| client static private exponent | `0x142fca540` | 0x2fbf8a0 | 384 | kept: gives us the client static public |
-| server static public | `0x142fca6c0` | 0x2fbfa20 | 384 | `3^s mod p` for our s |
+| X.509 DSA public key (p 2048, q 224) | `0x142fca1f0` | 0x2fc91f0 | 0x346 | ours, same domain, new y |
+| client static private exponent | `0x142fca540` | 0x2fc9540 | 384 | kept: gives us the client static public |
+| server static public | `0x142fca6c0` | 0x2fc96c0 | 384 | `3^s mod p` for our s |
 
 ## 2. Handshake (plaintext, then Salsa20)
 

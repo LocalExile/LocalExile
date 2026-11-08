@@ -7,7 +7,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 ## 5. Project
 
 - Define native graph integration separately from the [read-only analysis exporter](../docs/dev/passive-graph-data.md).
-  Standard startup must preserve the installed 3.29.3b client archive.
+  Standard startup must preserve the installed 3.29.3c client archive.
   Any client archive mutation requires separate maintainer agreement; automatic graph installation is not approved.
   Analysis artifacts alone provide no installed gameplay support or native proof.
 - Generate the Gateway's C→S length table from [c2s.md](../docs/protocol/c2s.md) (285 ids with an exact length;

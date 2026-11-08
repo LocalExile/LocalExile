@@ -1,6 +1,6 @@
 # Documentation index
 
-Protocol reference and reverse-engineering notes for the Path of Exile 3.29.3b client. What works now is in
+Protocol reference and reverse-engineering notes for the Path of Exile 3.29.3c client. What works now is in
 [../Status.md](../Status.md), what to build next in [../Roadmap.md](../Roadmap.md). Start with
 **[protocol/00-overview.md](protocol/00-overview.md)**.
 
@@ -115,4 +115,4 @@ This research does not change the production simulator or certify native/officia
 
 [Recovery timing](re/recovery-timing.md): read-only client pool tracing, native prediction inputs and ES verification limits.
 
-[Native client control](dev/client-control.md): CLI and persistent JSON RPC for local launch, login, character selection, commands and state reads through the 3.29.3b client.
+[Native client control](dev/client-control.md): CLI and persistent JSON RPC for local launch, login, character selection, commands and state reads through the 3.29.3c client.

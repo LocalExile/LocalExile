@@ -1,7 +1,7 @@
 [Join Discord](https://discord.gg/pd2Fd5M6Hd)
 
 # LocalExile
-A local, from-scratch server for the Path of Exile **3.29.3b** client. It is written in C# (.NET 10) from scratch to serve 
+A local, from-scratch server for the Path of Exile **3.29.3c** client. It is written in C# (.NET 10) from scratch to serve 
 the client's network protocol. You play on your own machine against servers running on 127.0.0.1.
 
 It contains **no game files, keys or game data**. You need your own installed copy of the client, and everything the
@@ -9,7 +9,7 @@ servers need is generated locally from it.
 
 ## How to play?
 Download the zip from [Releases](https://github.com/LocalExile/LocalExile/releases), extract it, and run `LocalExile.exe`.
-You need your own standalone Path of Exile 3.29.3b client, and nothing else to install.
+You need your own standalone Path of Exile 3.29.3c client, and nothing else to install.
 Always start the game with `LocalExile.exe`: any other way can update the client, which breaks the setup.
 
 Prefer a launcher? [Waypoint](https://github.com/LocalExile/Waypoint) is a Windows workspace manager for LocalExile:
