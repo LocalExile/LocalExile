@@ -365,6 +365,17 @@ sealed record RighteousFireState(ushort Buff, ushort SelfAura, uint? Ring, ushor
     public ushort? AuraVisual { get; init; }
 }
 
+// A running Bladefall of Trarthus (BladefallVolleys): its two buff instances (skill_cost_over_time, righteous_blades),
+// the skill, the game time of its next volley and the mana it spends per minute (mana_spent_per_minute, as set on the
+// player). Blades: the ground blades still standing, oldest first, with the game time each falls quiet and goes.
+sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, ushort Skill)
+{
+    public double NextVolley;
+    public int ManaPerMinute;
+    public bool Ended;
+    public readonly Queue<(uint Id, double Landed, double Gone)> Blades = new();
+}
+
 // The last instance list shown (0xae); 0xaf picks a row of it.
 sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint = false);
 
@@ -771,6 +782,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool Immune;
     public readonly GracePeriod EntryProtection = new();
     public RighteousFireState? RighteousFire;
+    public BladefallTrarthusState? BladefallTrarthus;
     /// <summary>The hands' part of the player model last sent (Program.HandsKey): null until the area's first model.</summary>
     public string? ModelHands;
     /// <summary>The flasks recovering life and mana (C→S 0x70), applied by the player tick.</summary>
