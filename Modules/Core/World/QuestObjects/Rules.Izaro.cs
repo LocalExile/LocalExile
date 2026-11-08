@@ -9,7 +9,8 @@ static partial class QuestobjectsRules
     // until the player uses it (UseTrialObject): it opens, he says the trial's prefight line and the way into the arena
     // shows. The arena's doors stand open until the trial starts. As the player comes into the arena room he (the day's
     // weapon, unique, the life the earlier trials left) rises on the elevator saying the arena's mechanic's line, the doors
-    // shut, and he is out of the AI and untargetable until the rise has played; then he fights, the life bar showing as he
+    // shut, and he is out of the AI, untargetable and takes no hits (EntranceGrace: area skills reached him, live) until the
+    // rise has played; then he fights, the life bar showing as he
     // aggroes. In a trial before the last his life stops at the next third (LifePhaseGate): he stops fighting, says his
     // line, walks to the elevator's middle once his swing is over, stands, turns untargetable (Transitionable 4) and goes
     // down on it (his Hide clip, the elevator's lower) while the doors open. The last trial he dies saying his line, and the
@@ -140,7 +141,7 @@ static partial class QuestobjectsRules
                 boss = conn.Monsters.GetValueOrDefault(izaro);
                 if (boss is not null)
                 {
-                    (boss.BusyUntil, boss.Aggro) = (double.PositiveInfinity, false);
+                    (boss.BusyUntil, boss.Aggro, boss.EntranceGrace) = (double.PositiveInfinity, false, true);
                     if (!trial.Last) boss.LifePhases = new([trial.LeavesAtPercent]);
                 }
             }
@@ -164,7 +165,7 @@ static partial class QuestobjectsRules
             if (!Here()) return;
             await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(lift, IzaroFights.TransitionableIndex, IzaroFights.Raised),
                 .. InstanceEntities.TransitionableUpdate(izaro, transitionable, IzaroFights.Fighting)], $"0x02ba Izaro 0x{izaro:x} fights");
-            lock (conn.Monsters) (boss.BusyUntil, boss.Aggro) = (conn.Clock.Elapsed.TotalSeconds, true);
+            lock (conn.Monsters) (boss.BusyUntil, boss.Aggro, boss.EntranceGrace) = (conn.Clock.Elapsed.TotalSeconds, true, false);
             // The fight, until he dies (the last trial) or his life reaches the trial's end (the others).
             while (Here())
             {
