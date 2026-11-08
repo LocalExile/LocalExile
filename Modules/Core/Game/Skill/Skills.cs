@@ -33,7 +33,8 @@ static partial class Game
         // the panel's raw sources for the selected-skill aliases (GemSkills).
         var character = CharacterPlayerStatsSnapshot(conn, out _, out var panelSources, capturePanelSources: true);
         var outer = StatsScope.Value;
-        StatsScope.Value = new(conn, character);
+        var build = new SkillBuildScope(conn, character);
+        StatsScope.Value = build;
         try
         {
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
@@ -44,7 +45,7 @@ static partial class Game
             PlayerSkillsInputs.AddOrUpdate(conn, new(inputs, skills));
             return skills;
         }
-        finally { StatsScope.Value = outer; }
+        finally { build.Active = false; StatsScope.Value = outer; }
     }
 
     /// <summary>The PlayerSkills build running on this flow: what it computed once and reuses instead of recomputing.</summary>
@@ -52,6 +53,7 @@ static partial class Game
     {
         Dictionary<uint, int>? character = stats;
         public ClientState Conn => conn;
+        public volatile bool Active = true;
         /// <summary>The one character snapshot of this flow's work: a client message's whole validation, payment and
         /// launch, or one PlayerSkills build. Built on the first read, so a message that reads no stats pays nothing.
         /// (2026-11-05: a cast message built it five or six times, and 154 builds a second cost a full core.)</summary>
@@ -67,16 +69,24 @@ static partial class Game
     internal readonly struct PlayerStatScope : IDisposable
     {
         readonly SkillBuildScope? outer;
+        readonly SkillBuildScope? owned;
         public PlayerStatScope(ClientState conn, bool fresh = false)
         {
             outer = StatsScope.Value;
-            if (fresh || outer is null || !ReferenceEquals(outer.Conn, conn)) StatsScope.Value = new(conn);
+            owned = fresh || outer is null || !outer.Active || !ReferenceEquals(outer.Conn, conn) ? new(conn) : null;
+            if (owned is not null) StatsScope.Value = owned;
         }
-        public void Dispose() => StatsScope.Value = outer;
+        public void Dispose()
+        {
+            // AsyncLocal restoration affects only this flow. A frame loop or delayed action can retain the same
+            // scope, so retire its snapshot too. Native attack timing reads the current skill stats (0x141b55cb0).
+            if (owned is not null) owned.Active = false;
+            StatsScope.Value = outer;
+        }
     }
 
     internal static SkillBuildScope? BuildScopeOf(ClientState conn) =>
-        StatsScope.Value is { } scope && ReferenceEquals(scope.Conn, conn) ? scope : null;
+        StatsScope.Value is { Active: true } scope && ReferenceEquals(scope.Conn, conn) ? scope : null;
 
     // The player's stats as the server sets them: what /set_stat set, then the attack's final values computed from them
     // (the client derives nothing itself: 11-skills.md §4).

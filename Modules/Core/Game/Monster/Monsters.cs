@@ -57,17 +57,24 @@ static partial class Game
     // whether the monster turns its back for it (action_should_face_away_from_target). Without rig data: null, the
     // halfway release and the default point.
     internal static MonsterRelease? MonsterReleaseFor(ClientState conn, MonsterCatalog.Variety variety, int effect, int level,
-        SkillCatalog.MonsterProjectileInfo projectile)
+        SkillCatalog.MonsterProjectileInfo projectile, ushort sequence = MonsterActionSequence)
     {
         var catalog = SkillsFor(conn);
         var stats = catalog.EffectStats(effect, level);
         bool Has(string name) => Stats.Key(name) is uint key && stats.Any(s => s.Item1 == key && s.Item2 != 0);
-        var clip = catalog.MonsterContact(variety.Id, projectile.AnimationKey ?? "Melee", MonsterActionSequence);
+        var clip = catalog.MonsterContact(variety.Id, projectile.AnimationKey ?? "Melee", sequence);
         if (clip is null) return null;
         var point = Has("projectile_uses_contact_position") ? clip.Point : null;
         if (point is { } p && Has("use_scaled_contact_offset")) point = p.Scaled(variety.ModelScale);
         return new(clip.Animation, clip.ContactFraction ?? 0.5, point, Has("action_should_face_away_from_target"));
     }
+
+    // The native selector seeds the clip from this action (0x141e991e0). Keep its contact and launch point together;
+    // another action may start on the actor while this shot is in flight. Scripted releases retain their own recipe.
+    internal static MonsterAttack MonsterAttackForSequence(ClientState conn, SpawnedMonster monster, MonsterAttack attack, ushort sequence) =>
+        attack is { ReleaseEffect: int effect, Projectile: { } projectile } && monster.Variety is { } variety
+            ? attack with { Release = MonsterReleaseFor(conn, variety, effect, monster.Level, projectile, sequence) }
+            : attack;
 
     // Creates one monster: registers its type at this level (0x20, once per connection), creates it (0x2b9) and puts it in
     // the wake zone (0x1a9), and keeps it for the AI. /spawn_mob, the area's packs (PopulateArea) and the player's minions
@@ -184,6 +191,7 @@ static partial class Game
             Ranged = rangedAttack,
             Projectile = projectile,
             Summon = summon,
+            ReleaseEffect = projectile is null || effect < 0 ? null : effect,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(conn, variety, effect, level, projectile),
         };
         var skill = effect >= 0
@@ -930,7 +938,7 @@ static partial class Game
                         if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) leg finds no way from {start}: attack order at the player {aim}");
                         return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, m.Attack!.SkillId, m.NextSequence(), 0, targetObjectId: PlayerId);
                     }
-                    return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, Move, conn.NextActionSequence(), conn.MonsterOrderFlags);
+                    return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, Move, NextMonsterMoveSequence(conn, m), conn.MonsterOrderFlags);
                 },
                 ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases a leg from {from} to {to}" : null);
         foreach (var (id, m, action, from, to) in plan.MoveLegs)
@@ -949,7 +957,7 @@ static partial class Game
                         if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) Move to {aim} within 2 cells of {start}: not sent, its walk goes on");
                         return null;
                     }
-                    return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, Move, conn.NextActionSequence(), conn.MonsterOrderFlags);
+                    return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, Move, NextMonsterMoveSequence(conn, m), conn.MonsterOrderFlags);
                 },
                 ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases from {from} to {to}" : null);
         foreach (var (id, m) in plan.BossBars)
@@ -1193,8 +1201,14 @@ static partial class Game
             if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) {why}: Move to {to} within 2 cells of {start}: not sent, its walk goes on to {m.Walk.Destination}");
             return null;
         }
-        return InstanceProtocol.ActionStarted(id, start.X, start.Y, to.X, to.Y, Move, conn.NextActionSequence(), conn.MonsterOrderFlags);
+        return InstanceProtocol.ActionStarted(id, start.X, start.Y, to.X, to.Y, Move, NextMonsterMoveSequence(conn, m), conn.MonsterOrderFlags);
     }
+
+    // The actor installs each order's sequence on its action (0x1421940a0); its hit lookup matches that sequence
+    // on the same actor (0x141e90f50). Lockstep Moves and chases share the actor's rising order counter.
+    // Called only after admission, under the Monsters lock, so a refused Move consumes no sequence.
+    static ushort NextMonsterMoveSequence(ClientState conn, SpawnedMonster m) =>
+        conn.LockstepClient ? m.NextSequence() : conn.NextActionSequence();
 
     // A lockstep client takes a Move order only when its target is 3 or more cells from the walker's cell. The test is
     // the admission of Move and MoveSpecial (vtable slot +0x130, 0x1419442d0): dx*dx + dy*dy >= 9 from the walker's own
@@ -1374,8 +1388,9 @@ static partial class Game
     // attack time, the monster's and the player's cells there, and the monster's state from it; null when the monster
     // cannot act. A generic swing's action speed is read at `now`, not at the order's start: a freeze or chill sent
     // earlier in the frame reaches the client before the order applies.
-    internal static (double StartedAt, double Seconds, (int X, int Y) From, (int X, int Y) Player)? MonsterSwingOrderLocked(
-        ClientState conn, SpawnedMonster m, MonsterAttack a, int action, bool generic, double seconds, double now)
+    internal static (double StartedAt, double Seconds, (int X, int Y) From, (int X, int Y) Player, ushort Sequence)? MonsterSwingOrderLocked(
+        ClientState conn, SpawnedMonster m, MonsterAttack a, int action, bool generic, double seconds, double now,
+        ushort sequence = MonsterActionSequence)
     {
         double startedAt = LockstepOrderStart(conn, now);
         if (generic)
@@ -1388,7 +1403,10 @@ static partial class Game
         if (a.Summon is { } summoning) m.SummonReadyAt = startedAt + summoning.CooldownSeconds;
         m.SwingGeneration = action;
         m.SwingOrderedAt = startedAt;
-        return (startedAt, seconds, m.Walk.Position(startedAt), conn.Walk.Position(startedAt));
+        // The accepted action owns the sequence that its later hit must name (0x1421940a0, 0x141e90f50).
+        // Assign it after admission and carry it with the order, including through a projectile's flight.
+        if (conn.LockstepClient && a.Summon is null) sequence = m.NextSequence();
+        return (startedAt, seconds, m.Walk.Position(startedAt), conn.Walk.Position(startedAt), sequence);
     }
 
     internal static async Task MonsterSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
@@ -1418,8 +1436,8 @@ static partial class Game
             return;
         }
         // Its attack time now: a chill slows it by its action speed, Devout of Gruthkul by the player's attacker slow.
-        // A King skill carries its own cast time and a fresh sequence; the generic swing keeps the actor's action speed
-        // and the shared 0xffff sequence, and a melee one comes from its walk-up with a rising sequence.
+        // A King skill carries its own cast time. Predictive keeps its existing sequence selection;
+        // lockstep assigns the actor's sequence when the send gate admits the action below.
         double seconds;
         ushort seq;
         if (use is null && !area)
@@ -1442,13 +1460,14 @@ static partial class Game
         bool walkUp = use is null && !area && !a.InPlace;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {
-            if (MonsterSwingOrderLocked(conn, m, a, action, use is null && !area, seconds, AreaTime(conn)) is not { } order) return null;
-            (startedAt, seconds) = (order.StartedAt, order.Seconds);
+            if (MonsterSwingOrderLocked(conn, m, a, action, use is null && !area, seconds, AreaTime(conn), seq) is not { } order) return null;
+            (startedAt, seconds, seq) = (order.StartedAt, order.Seconds, order.Sequence);
             var (from, player) = (order.From, order.Player);
             // The client-drawn straight mortar retains the action order's aim throughout its windup
             // (141ba51a0 -> 141b69ba0). Reacquiring here at release would turn a dodged shot toward the player.
             if (a.Projectile is { Variation: > 0, Lobbed: false }) projectileAim = player;
-            if (walkUp) seq = m.NextSequence();
+            if (walkUp && !conn.LockstepClient) seq = m.NextSequence();
+            a = MonsterAttackForSequence(conn, m, a, seq);
             // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
             // 2026-11-01: the Immolator stayed shut): its actor's clip is played instead (0x1d1, SummonAnimation).
             if (a.Summon is not null) return InstanceProtocol.ActorAnimation(id, (float)seconds, SummonAnimation);

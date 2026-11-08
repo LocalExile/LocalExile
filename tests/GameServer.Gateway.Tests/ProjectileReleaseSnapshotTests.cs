@@ -6,7 +6,7 @@ namespace GameServer.Gateway.Tests;
 public class ProjectileReleaseSnapshotTests
 {
     [Fact]
-    public void Release_refreshes_damage_and_supports_after_windup_inputs_change()
+    public async Task Release_refreshes_damage_and_supports_after_windup_inputs_change()
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-release-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
@@ -82,6 +82,36 @@ public class ProjectileReleaseSnapshotTests
             Assert.Equal(40, Game.AttributeRequirementsPct(conn));
             conn.PlayerStats.Remove(requirement);
             Assert.Equal(Expected(), Game.AttributeRequirementsPct(conn));
+
+            parent.Dispose();
+            uint speed = Program.Stats.Key("attack_speed_+%")!.Value;
+            conn.PlayerStats[speed] = 0;
+            double normalAttack = Game.WeaponFor(conn).AttackSeconds(Game.CharacterPlayerStats(conn));
+            foreach (bool lockstep in new[] { false, true })
+            foreach (bool nestedMessage in new[] { false, true })
+            {
+                conn.LockstepClient = lockstep;
+                using var message = new Game.PlayerStatScope(conn);
+                conn.PlayerStats[speed] = 1000;
+                double fastAttack = Game.WeaponFor(conn).AttackSeconds(Game.CharacterPlayerStats(conn));
+                Assert.Equal(normalAttack / 11, fastAttack, 8);
+                conn.PlayerStats[speed] = 0;
+                Assert.Equal(fastAttack, Game.WeaponFor(conn).AttackSeconds(Game.CharacterPlayerStats(conn)));
+                var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var continuation = Task.Run(async () =>
+                {
+                    await resume.Task;
+                    if (nestedMessage)
+                    {
+                        using var nextMessage = new Game.PlayerStatScope(conn);
+                        return Game.WeaponFor(conn).AttackSeconds(Game.CharacterPlayerStats(conn));
+                    }
+                    return Game.WeaponFor(conn).AttackSeconds(Game.CharacterPlayerStats(conn));
+                });
+                message.Dispose();
+                resume.SetResult();
+                Assert.Equal(normalAttack, await continuation, 8);
+            }
 
             GameServer.Core.Projectiles.ProjectileUse Capture() =>
                 Game.CaptureGemProjectile(conn, session, gem.Id, gem, (120, 100), new SkillCriticalRoll(0));

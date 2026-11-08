@@ -70,7 +70,8 @@ static partial class Game
             + $" aim={aim}{(projectile.Lobbed ? $" lands at {target} ({landing:0.0} cells)" : "")}");
         return new ProjectileUse(profile, owner, owner, 2, origin, target)
             { ProjectileTargets = nativeTargets,
-                Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}") { Presentation = presentation } };
+                Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}")
+                    { Presentation = presentation, Sequence = sequence } };
     }
 
     /// <summary>The flight the server simulates for a monster's shot. A lobbed shot's range is its landing distance; a
@@ -143,6 +144,16 @@ static partial class Game
             return landed ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }
         if (contact.Target.Id != PlayerId || conn.PlayerLife == 0 || InGracePeriod(conn)) return ProjectileHitResult.Miss;
+        var outcome = CommitHostilePlayerHitLocked(session, contact, shot);
+        if (outcome is null) return ProjectileHitResult.Miss;
+        session.Packet(outcome.HitPacket, $"0x01af monster 0x{shot.MonsterId:x} projectile hit on the player ({shot.Label})");
+        session.Enqueue(() => PresentMonsterHit(session.remote, session.stream, session.ciphers, conn, shot.MonsterId, outcome));
+        return outcome.Blocked ? ProjectileHitResult.Blocked : ProjectileHitResult.Hit;
+    }
+
+    internal static MonsterHitOutcome? CommitHostilePlayerHitLocked(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
+    {
+        var conn = session.Conn;
         // The hit pipeline's timers (fortification, recent hits, ailments, evasion entropy) run on the connection clock and
         // refuse to go backwards. The contact's simulated instant lies a few milliseconds behind that clock, which other
         // reads (a stats refresh, a melee swing) may already have advanced, so the hit lands at whichever is later. The
@@ -150,11 +161,8 @@ static partial class Game
         double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, conn.Clock.Elapsed.TotalSeconds);
         var here = conn.Walk.Position(now);
         var from = ((int)Math.Round(contact.Position.X), (int)Math.Round(contact.Position.Y));
-        var outcome = CommitMonsterHitLocked(session.remote, conn, shot.MonsterId, shot.Monster, shot.Attack, now, here, from, checkRange: false);
-        if (outcome is null) return ProjectileHitResult.Miss;
-        session.Packet(outcome.HitPacket, $"0x01af monster 0x{shot.MonsterId:x} projectile hit on the player ({shot.Label})");
-        session.Enqueue(() => PresentMonsterHit(session.remote, session.stream, session.ciphers, conn, shot.MonsterId, outcome));
-        return outcome.Blocked ? ProjectileHitResult.Blocked : ProjectileHitResult.Hit;
+        return CommitMonsterHitLocked(session.remote, conn, shot.MonsterId, shot.Monster, shot.Attack, now, here, from,
+            checkRange: false, sequence: shot.Sequence);
     }
 }
 
@@ -163,6 +171,8 @@ static partial class Game
 /// the flight reaches the player, or, for a mortar, when it lands on them.</summary>
 sealed record HostileProjectileOffense(uint MonsterId, SpawnedMonster Monster, MonsterAttack Attack, int Action, string Label)
 {
+    /// <summary>The action that released this shot, retained for the client's hit lookup (0x141e90f50).</summary>
+    public ushort Sequence { get; init; } = Game.MonsterActionSequence;
     /// <summary>The rig clips the object needs to be seen (Game.MonsterProjectilePresentation).</summary>
     public Game.ProjectilePresentation? Presentation { get; init; }
 }

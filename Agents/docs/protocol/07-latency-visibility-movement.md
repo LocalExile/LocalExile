@@ -405,6 +405,10 @@ at 370 cells/s one 16 ms frame is ~6 cells): the client applies a click from its
 the walk-up arguments, all 246 town paths of a third capture match, NPC, stash and waypoint walks included. Monsters
 walk on `PlayerWalk` too. `Approach` (a melee target, an item pickup, the map device) keeps a reach in cells.
 
+**Action stat lifetime.** Native attack timing reads the current selected skill's stats (`0x141b55cb0`).
+A completed message's stat snapshot is retired even when a background task inherited its execution context;
+reads inside the active message still share that snapshot. A later action rebuilds from the current stats in both modes.
+
 **Speed changes mid-walk.** The client restarts the segment in progress from its cell at the new pace at once
 (`PlayerWalk.SetSpeed`).
 
@@ -750,6 +754,19 @@ differed on the two sides at 11 % of matched chase orders), a step then lands a 
 phase offset it leaves (under a frame now) persists until that walk ends, since a matched order rescales each side's
 own phase. GGG's server has none of this: it is the client's own simulation.
 
+**Action ownership.** Admitted lockstep AI Moves and swings advance the same actor counter; rejected orders do not
+consume a sequence. The client installs the order's sequence on its action (`0x1421940a0`) and resolves a hit against
+that actor and sequence (`0x141e90f50`). A projectile retains its releasing action's sequence after its owner starts
+another action. Its rig clip, contact fraction and launch point are selected together from that sequence
+(`0x141e991e0`); scripted releases retain their separate recipes. Predictive keeps its existing order-sequence choice.
+
+**Tutorial item ownership.** The initial recipient is recorded when a tutorial gem enters shared ground state.
+That connection receives its one create/wake pair from the tutorial transaction; shared synchronization must not
+replace the same awake object (`0x141ebf760`). Other connections retain shared visibility, and new-drop animation
+and observer birth tracking are preserved.
+
+These corrections do not establish complete predictive nonregression, frame ordering or skill/network parity.
+
 **Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLatency`; `Lockstep.cs` and
 `LockstepHold` follow GGG):
 
@@ -768,6 +785,7 @@ own phase. GGG's server has none of this: it is the client's own simulation.
 | A frozen monster gets no stop: its walk goes on, the estimate's too, a chase's walk-up with its goal test | Not traced | The client does not stop the player for `is_frozen` (§5) and takes no Move onto the walker's own cell; the player's freeze plays a recovery of its length (`ShowFreeze`), a monster's does not |
 | An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |
 | Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |
+| Ordinary lockstep AI orders and projectile hits retain actor/action ownership; special producers and wrap remain unverified | Every action and hit names the matching actor sequence | The ordinary paths are corrected; this is not a complete protocol audit |
 | A spell at the ground holds everything for its cast time | Not measured | A Move during a cast is not traced; attacks hold until their contact as GGG's do (`LockstepActionHold`) |
 | A skill is echoed at any key 0, from the handlers Predictive uses | From the tick, keyed by the player | As for Moves |
 | The server simulates a mortar's flight, and the player's wand bolt or arrow, and lands its hit where that lands; the client draws each from its own action | One simulation, the client's | The server is a port: the client's spread (`projectile_spread_radius`) is seeded by the order's sequence and owner (`0x141bb13a0`) |

@@ -30,6 +30,8 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>
     public MonsterRelease? Release { get; init; }
+    /// <summary>The granted effect whose rig contact is selected for each ordered action. Null for a scripted release.</summary>
+    public int? ReleaseEffect { get; init; }
     /// <summary>A ranged skill's projectile (SkillCatalog.MonsterProjectile): the shot flies from the monster at the
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>
@@ -207,7 +209,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public int ActionGeneration;
     public int? SwingGeneration;
     public double SwingOrderedAt;
-    // The sequence of its last melee order, rising with the top bit set as GGG's do: the client picks the swing's clip by it.
+    // The last melee order, or admitted lockstep AI Move/swing: one rising counter for the actor's orders.
+    // The client picks a melee swing's clip by its action sequence.
     public ushort Sequence = 0x8000;
     public ushort NextSequence() => Sequence = (ushort)(0x8000 | ((Sequence + 1) & 0x7fff));
     // The player's debuffs on it (Game.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock

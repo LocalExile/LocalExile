@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Buffers.Binary;
+using GameServer.Core.Protocol.Instance;
 using League = GameServer.Core.Accounts.League;
 
 namespace GameServer.Gateway.Tests;
@@ -38,6 +40,30 @@ public class StartKitTests
                 var tutorial = CharacterSaves.Load(character)!.Tutorial!;
                 Assert.Equal(Gem(row, "StartSkillGem"), Name(tutorial.SkillGem.Type));
                 Assert.Equal(Gem(row, "StartSupportGem"), Name(tutorial.SupportGem.Type));
+                // The initial recipient gets one create/wake pair. Shared-ground sync must know that recipient,
+                // while a later connection still sees the item through the existing shared-ground path.
+                foreach (bool support in new[] { false, true })
+                {
+                    var existingObserver = new object();
+                    conn.Instance.Ground.Observe(existingObserver);
+                    var packets = QuestobjectsRules.CommitTutorialGem(conn, support, 100, 100);
+                    Assert.Equal(2, packets.Count);
+                    Assert.Equal(0x2b9, BinaryPrimitives.ReadUInt16BigEndian(packets[0].Packet));
+                    Assert.Equal(0x1a9, BinaryPrimitives.ReadUInt16BigEndian(packets[1].Packet));
+                    uint id = BinaryPrimitives.ReadUInt32BigEndian(packets[0].Packet.AsSpan(2));
+                    Assert.Equal(id, BinaryPrimitives.ReadUInt32BigEndian(packets[1].Packet.AsSpan(2)));
+                    var origin = conn.Instance.Ground.Origin(id);
+                    Assert.Same(conn, origin.By);
+                    Assert.True(origin.Shared);
+                    var ground = Assert.IsType<WorldItemObject>(conn.Instance.Ground.Get(id));
+                    Assert.Equal(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),
+                        ground.Blob(justDropped: true)), packets[0].Packet);
+                    Assert.True(conn.Instance.Ground.IsNewFor(existingObserver, id));
+                    var laterObserver = new object();
+                    conn.Instance.Ground.Observe(laterObserver);
+                    Assert.False(conn.Instance.Ground.IsNewFor(laterObserver, id));
+                    Assert.Empty(QuestobjectsRules.CommitTutorialGem(conn, support, 100, 100));
+                }
             }
         }
         finally

@@ -149,14 +149,17 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   swap places between client and server ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
 - **Lockstep network mode:** the server decides every action and the client plays it back by server frames, each
   action start putting the client on the server's cell, which ends the parted copies of a crowd.
-  It works locally, off by default; over a network it is not verified ([status](../status/world.md)).
+  It works locally when selected by the client; Predictive remains preferred, and network parity is not verified
+  ([status](../status/world.md)).
   - **Known:** M5's dormant-body membership and saved-cell restoration are accepted with open issues.
     Pickup completion, one-hand mace recovery, corpse collision, ground melee walk-up and tutorial chest approach
-    follow the client.
+    follow the client. Completed stat snapshots are retired, ordinary lockstep AI orders share each actor's sequence,
+    projectile hits retain their releasing action, and tutorial creates retain their initial recipient.
     Held-walk crowd accuracy still trails; predictive drift and standing-start discrepancies remain unresolved
     ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
-  - **Start:** close the remaining held-walk gap, then finish frame record ordering, action ownership and ranged
-    chase behavior before the remaining skills, world interactions and network validation.
+  - **Start:** validate these corrections together in both modes, then finish frame record ordering, special action
+    producers and sequence wrap, and ranged chase behavior before the remaining skills, world interactions and
+    network validation.
   - **Done when:** on a fixed bench every sync figure is within GGG's margin. The bench is pack fights per weapon,
     natural packs and a dense area. The figures are monsters standing per order kind, monsters in a pack, monsters
     walking per speed, the player standing and walking, and snap episodes.

@@ -239,11 +239,15 @@ public class LockstepMonsterTests : IDisposable
         shooting.Monsters[0x3001] = spitter;
         lock (shooting.Monsters)
         {
+            spitter.Sequence = 0x8070;
             var shot = Game.MonsterSwingOrderLocked(shooting, spitter, spitter.Attack!, 7, generic: true, 0, 0.14);
+            Assert.Equal(0x8071, spitter.Sequence);
+            Assert.Equal(0x8071, shot!.Value.Sequence);
             Assert.Equal((0.132, 1.0, (50, 56)), (Math.Round(shot!.Value.StartedAt, 9), shot.Value.Seconds, shot.Value.From));
             Assert.Equal(0.132 + 1.0 + 0.066, spitter.BusyUntil, 9);
             Assert.NotNull(spitter.Ailments.Freeze(2, 0.15, _ => 0, _ => 0));
             Assert.Null(Game.MonsterSwingOrderLocked(shooting, spitter, spitter.Attack!, 8, generic: true, 0, 0.16));
+            Assert.Equal(0x8071, spitter.Sequence);
         }
         Assert.Equal(0.14, Game.LockstepOrderStart(Connection(lockstep: false), 0.14));
 
@@ -454,11 +458,19 @@ public class LockstepMonsterTests : IDisposable
         // takes it: 2 cells from (226, 100) it is not sent, 3 cells away it goes out and ends the walk-up.
         lock (held.Monsters)
         {
+            // An admitted order belongs to this actor, even when other actors have sent more orders.
+            // Refusal spends no sequence; the accepted Move follows this actor's last chase.
+            left.Sequence = 0x8050;
+            held.NextActionSequence();
+            held.NextActionSequence();
             Assert.Null(Game.PlanMoveAtGate(held, plan, 0x3000, left, Game.NextPlannedAction(left), (226, 100), (228, 100), "flees"));
+            Assert.Equal(0x8050, left.Sequence);
             Assert.Equal((218, 100), left.Walk.Destination);
             Assert.True(Game.WalkUpOpen(held, left));
             var sent = Game.PlanMoveAtGate(held, plan, 0x3000, left, Game.NextPlannedAction(left), (226, 100), (229, 100), "flees");
             Assert.NotNull(sent);
+            Assert.Equal(0x8051, BinaryPrimitives.ReadUInt16BigEndian(sent.AsSpan(sent.Length - 2)));
+            Assert.Equal(0x8051, left.Sequence);
             Assert.Equal((229, 100), left.Walk.Destination);
             Assert.False(Game.WalkUpOpen(held, left));
             // It carries GGG's monster flags, 0 (none of its 56 175 monster orders has 0x400 or 0x8): without 0x400 the
@@ -617,6 +629,23 @@ public class LockstepMonsterTests : IDisposable
             Assert.False(Game.MonsterProjectileProfile(bugs, 5, 10, 30).HideVisual);
         }
         var spitter = skills.MonsterProjectile(skills.EffectRow("MMASandSpitterProjectile"))!;
+        var variety = new MonsterCatalog().Find("Metadata/Monsters/SandSpitters/SandSpitter")!;
+        var orderedSource = new SpawnedMonster("Spitter", new(100, 100, 20), 60, 2, 15) { Variety = variety, Level = 70 };
+        var orderedAttack = new MonsterAttack(0x1535, 1, 30, DamagePacket.Empty)
+            { Projectile = spitter, ReleaseEffect = skills.EffectRow("MMASandSpitterProjectile") };
+        var selectedClips = new HashSet<string>();
+        foreach (ushort sequence in new ushort[] { 0x8071, 0x8072, 0x8073, 0x8074 })
+        {
+            var clip = skills.MonsterContact(variety.Id, "SpellProjectile", sequence)!;
+            var release = Game.MonsterReleaseFor(Connection(true), variety,
+                skills.EffectRow("MMASandSpitterProjectile"), 70, spitter, sequence)!;
+            Assert.Equal(clip.Animation, release.Clip);
+            Assert.Equal(clip.ContactFraction, release.Fraction);
+            Assert.Equal(release, Game.MonsterAttackForSequence(Connection(true), orderedSource, orderedAttack, sequence).Release);
+            selectedClips.Add(release.Clip);
+        }
+        Assert.Equal(2, selectedClips.Count);
+        Assert.Null(orderedAttack.Release); // Selecting an action never rewrites the reusable attack recipe.
         Assert.False(spitter.Lobbed);
         Assert.Equal((50, 3), (spitter.MinimumRange, spitter.SpreadRadius));
         // Spitter contact occurs on its twelfth 33 ms frame, not between frames at 0.371 s.
@@ -654,6 +683,48 @@ public class LockstepMonsterTests : IDisposable
                 { ProjectileTargets = [new(50, 0)] });
             runtime.AdvanceTo(ProjectileRuntime.Time(1));
             Assert.Equal(dodge ? 0 : 1, world.Hits);
+        }
+    }
+
+    [Fact]
+    public async Task A_projectile_hit_keeps_its_action_sequence_after_the_monster_starts_another_action()
+    {
+        string saves = Path.Combine(Path.GetTempPath(), $"localexile-shot-sequence-{Guid.NewGuid():N}.db");
+        Saves.Open(saves);
+        try
+        {
+            foreach (bool lockstep in new[] { false, true })
+            {
+                var conn = Connection(lockstep, $"ShotSequence{lockstep}");
+                conn.Clock.Stop();
+                conn.Walk.Teleport(880, 548, 0);
+                var source = new SpawnedMonster("Spitter", new(894, 554, 20), 60, 2, 15) { Sequence = 0x8071 };
+                var skills = new SkillCatalog();
+                var spitter = skills.MonsterProjectile(skills.EffectRow("MMASandSpitterProjectile"))!;
+                var attack = new MonsterAttack(0x1535, 1, 30, DamagePacket.Empty) { Projectile = spitter, Spell = true };
+                var session = new Game.ProjectileSession("shot-sequence", null!, null!, conn);
+                try
+                {
+                    var use = Game.MonsterProjectileUse(session, 0x8000032, source, attack, spitter, 0, sequence: 0x8071);
+                    var runtime = new ProjectileRuntime(new MortarContactWorld(false));
+                    runtime.Release(use);
+                    source.NextSequence();
+                    var contact = new ProjectileDamage(Assert.Single(runtime.Projectiles), new(0x1000),
+                        ProjectileRuntime.Time(1), "direct", new(880, 548));
+                    var outcome = Game.CommitHostilePlayerHitLocked(session, contact,
+                        Assert.IsType<HostileProjectileOffense>(use.Payload));
+                    Assert.NotNull(outcome);
+                    Assert.Equal(0x1af, BinaryPrimitives.ReadUInt16BigEndian(outcome.HitPacket));
+                    Assert.Equal(0x8071, BinaryPrimitives.ReadUInt16BigEndian(outcome.HitPacket.AsSpan(12)));
+                }
+                finally { session.Invalidate(); await session.OutputCompleted; }
+            }
+        }
+        finally
+        {
+            PlayerInventories.Forget("ShotSequenceFalse");
+            PlayerInventories.Forget("ShotSequenceTrue");
+            TestEnvironment.ReleaseSaves(saves);
         }
     }
 
