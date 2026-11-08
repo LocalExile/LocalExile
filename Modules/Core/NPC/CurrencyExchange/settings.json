@@ -1,9 +1,13 @@
 {
   "version": 1,
   "settings": {
-    "spread": {
-      "type": "number", "default": 0.03, "min": 0, "max": 0.5, "step": 0.01, "format": "percent",
-      "label": "Spread", "description": "How much worse than the official price Faustus trades, on each order."
+    "spreadScale": {
+      "type": "number", "default": 1, "min": 0, "max": 5, "step": 0.1, "format": "multiplier",
+      "label": "Spread", "description": "Multiplies how far from the official price Faustus trades: 1% for the busiest items, up to 10% for the rarest."
+    },
+    "volumeShare": {
+      "type": "number", "default": 0.1, "min": 0, "max": 1, "step": 0.01, "format": "percent",
+      "label": "Share of the market", "description": "How much of an item's official hourly trade Faustus takes in an hour; at least one item. 0: no limit, every order fills at once."
     },
     "orderSlots": {
       "type": "integer", "default": 10, "min": 1, "max": 100,

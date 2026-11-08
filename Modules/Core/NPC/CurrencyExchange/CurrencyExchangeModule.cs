@@ -14,14 +14,16 @@ public sealed class CurrencyExchangeModule : IModule
     const string SaveKey = "currency-exchange", Window = "currency-exchange", RatesFile = ExchangeRateFeed.File;
     const double SettleEverySeconds = 30;
 
-    sealed record Choices(double Spread, int OrderSlots, double MaxRateAgeDays);
-    sealed class Timer { public double Seconds; }
+    sealed record Choices(double SpreadScale, double VolumeShare, int OrderSlots, double MaxRateAgeDays);
+
+    /// <summary>Starts full: the first tick in an area settles, so what filled while the player was away shows as they arrive.</summary>
+    sealed class Timer { public double Seconds = SettleEverySeconds; }
 
     readonly ConditionalWeakTable<IPlayer, Timer> _timers = new();
     readonly object _ratesLock = new();
     ExchangeRates? _rates;
     DateTime _ratesWritten;
-    Choices _choices = new(0.03, 10, 7);
+    Choices _choices = new(1, 0.1, 10, 7);
     IModuleContext _module = null!;
 
     /// <inheritdoc/>
@@ -88,26 +90,28 @@ public sealed class CurrencyExchangeModule : IModule
     {
         if (Rates() is not { } rates) return null;
         if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - rates.SourceHour > _choices.MaxRateAgeDays * 86400) return null;
-        return rates.Prices(ExchangeRateFeed.League == ExchangeRatesLeague.Standard) is { } prices ? new(prices, ItemsOf(player), _choices.Spread) : null;
+        var items = ItemsOf(player);
+        return rates.Prices(ExchangeRateFeed.League == ExchangeRatesLeague.Standard) is { } prices
+            ? new(rates, prices, hash => items.ByHash.TryGetValue(hash, out var row) ? row.Id : null, _choices.SpreadScale, _choices.VolumeShare) : null;
     }
 
-    SavedBook BookOf(IPlayer player) => SavedBook.Parse(_module.World(player).AccountData.Get(SaveKey));
+    ExchangeBook BookOf(IPlayer player) => ExchangeBook.Parse(_module.World(player).AccountData.Get(SaveKey));
 
-    bool Save(IPlayer player, Action<SavedBook> change) => _module.World(player).AccountData.Change(SaveKey, json =>
+    bool Save(IPlayer player, Action<ExchangeBook> change) => _module.World(player).AccountData.Change(SaveKey, json =>
     {
-        var book = SavedBook.Parse(json);
+        var book = ExchangeBook.Parse(json);
         change(book);
         return book.Serialize();
     });
 
-    static Wire.Order ToWire(SavedOrder o, string league, ExchangeMarket? market)
+    static Wire.Order ToWire(ExchangeOrder o, string league, ExchangeMarket? market)
     {
         // The row's market ratio is the cheapest competing order: Faustus selling what this order sells.
         var (give, get) = market?.Trade(o.Have, o.Want) ?? ((ushort)0, (ushort)0);
         return new(o.Id, league, o.Have, o.Want, o.HaveCount, o.ClaimHave, o.ClaimWant, o.Remaining, o.RatioHave, o.RatioWant, give, get, o.State);
     }
 
-    Task SendOrder(IPlayer player, SavedOrder order, string why) =>
+    Task SendOrder(IPlayer player, ExchangeOrder order, string why) =>
         player.Send(Wire.OrderChanged(ToWire(order, player.League, MarketOf(player))), $"0x02f3 order {order.Id} {order.State}: {why}");
 
     Task SendOrders(IPlayer player)
@@ -121,7 +125,12 @@ public sealed class CurrencyExchangeModule : IModule
     Task SendFee(IPlayer player, uint item) => ItemsOf(player).ByHash.TryGetValue(item, out var row)
         ? player.Send(Wire.Fee(item, row.Fee, row.ItemsPerGold), $"0x02f7 gold fee of {row.Id}: {row.Fee}") : Task.CompletedTask;
 
-    Task SendPartners(IPlayer player, uint item) => player.Send(Wire.Partners(item, MarketOf(player)?.Partners(item) ?? []), "0x02f2 what trades against an item");
+    Task SendPartners(IPlayer player, uint item)
+    {
+        var market = MarketOf(player);
+        uint[] partners = market is null ? [] : [.. ItemsOf(player).ByHash.Keys.Where(hash => hash != item && market.Trades(hash))];
+        return player.Send(Wire.Partners(item, partners), "0x02f2 what trades against an item");
+    }
 
     Task SendMarket(IPlayer player, (uint Low, uint High) pair)
     {
@@ -147,16 +156,19 @@ public sealed class CurrencyExchangeModule : IModule
         ulong gold = want.ItemsPerGold ? (request.WantCount + (ulong)want.Fee - 1) / Math.Max(want.Fee, 1) : request.WantCount * (ulong)want.Fee;
         if (gold > uint.MaxValue) return;
 
-        SavedOrder? placed = null;
+        ExchangeOrder? placed = null;
+        var filled = new List<ExchangeOrder>();
         bool paid = await _module.World(player).PayCurrency(request.Have, (int)request.HaveCount, (uint)gold, () => Save(player, book =>
         {
-            placed = new SavedOrder
+            // It meets this hour's market at once, with what the book's other orders left of it.
+            placed = new ExchangeOrder
             {
                 Id = book.NextId++, Want = request.Want, Have = request.Have, WantCount = request.WantCount, HaveCount = request.HaveCount,
                 Remaining = request.HaveCount, RatioWant = (ushort)ratioWant, RatioHave = (ushort)ratioHave, State = Wire.OrderState.Listed,
+                LastHour = market.Hour - 3600,
             };
-            placed.TryFill(market);
             book.Orders.Add(placed);
+            filled = book.Settle(market);
         }), $"Currency Exchange order, {gold} gold");
         if (!paid)
         {
@@ -164,12 +176,22 @@ public sealed class CurrencyExchangeModule : IModule
             return;
         }
         await SendOrder(player, placed!, "placed");
+        await SendFilled(player, filled.Where(o => o != placed));
+    }
+
+    async Task SendFilled(IPlayer player, IEnumerable<ExchangeOrder> filled)
+    {
+        foreach (var order in filled)
+        {
+            await SendOrder(player, order, "filled");
+            if (order.State == Wire.OrderState.Completed) await player.Tell("Faustus has completed one of your Currency Exchange orders.");
+        }
     }
 
     /// <summary>The player's X on an order: what is left of it can be claimed. The gold stays paid, as the window warns.</summary>
     async Task Close(IPlayer player, uint id)
     {
-        SavedOrder? closed = null;
+        ExchangeOrder? closed = null;
         Save(player, book =>
         {
             if (book.Orders.Find(o => o.Id == id) is not { } order) return;
@@ -186,7 +208,7 @@ public sealed class CurrencyExchangeModule : IModule
     }
 
     /// <summary>An order with nothing left to claim leaves the book and the window.</summary>
-    static void Forget(SavedBook book, SavedOrder order)
+    static void Forget(ExchangeBook book, ExchangeOrder order)
     {
         if (order.State == Wire.OrderState.Listed || order.ClaimWant + order.ClaimHave + order.Remaining > 0) return;
         order.State = Wire.OrderState.Removed;
@@ -195,11 +217,12 @@ public sealed class CurrencyExchangeModule : IModule
 
     async Task Claim(IPlayer player, Wire.Claim claim)
     {
-        if (BookOf(player).Orders.Find(o => o.Id == claim.Order) is not { } order) return;
+        // As the window says, nothing is claimed until the order is completed or closed.
+        if (BookOf(player).Orders.Find(o => o.Id == claim.Order) is not { } order || order.State == Wire.OrderState.Listed) return;
         bool bought = claim.Side == 1;
         uint item = bought ? order.Want : order.Have, amount = bought ? order.ClaimWant : order.ClaimHave;
         if (amount == 0) return;
-        SavedOrder? changed = null;
+        ExchangeOrder? changed = null;
         int placed = await _module.World(player).ReceiveCurrency(item, (int)amount, into => Save(player, book =>
         {
             if (book.Orders.Find(o => o.Id == claim.Order) is not { } saved) return;
@@ -212,17 +235,14 @@ public sealed class CurrencyExchangeModule : IModule
         if (changed is not null) await SendOrder(player, changed, "claimed");
     }
 
-    /// <summary>A listed order fills when the prices come to it, wherever the player is.</summary>
+    /// <summary>A listed order fills when the prices come to it, wherever the player is, and through the hours they were away.</summary>
     async Task Settle(IPlayer player)
     {
         if (!_module.World(player).PlayerReady || MarketOf(player) is not { } market) return;
-        if (!BookOf(player).Orders.Exists(o => o.State == Wire.OrderState.Listed)) return;
-        var filled = new List<SavedOrder>();
-        Save(player, book => filled.AddRange(book.Orders.Where(o => o.TryFill(market))));
-        foreach (var order in filled)
-        {
-            await SendOrder(player, order, "filled");
-            await player.Tell("Faustus has completed one of your Currency Exchange orders.");
-        }
+        var book = BookOf(player);
+        if (!book.Orders.Exists(o => o.State == Wire.OrderState.Listed && o.LastHour < market.Hour)) return;
+        var filled = new List<ExchangeOrder>();
+        Save(player, saved => filled = saved.Settle(market));
+        await SendFilled(player, filled);
     }
 }

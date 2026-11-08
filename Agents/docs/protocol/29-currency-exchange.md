@@ -62,5 +62,10 @@ contradict each other (8 of 133 loops chaos → divine → X → chaos paid over
 values less the spread, which leaves no loop to profit from. Over a day about half of the 461 divination cards trade at all, so a rare item takes its price from the last
 week; the rest show no stock.
 
+Faustus trades at those prices less a spread by the item's weekly volume, 1% to 10%. Hourly prices cannot drive the orders: a week's replay filled 75% of orders to sell a divine at 20% above
+the market within a day when any trade touching the price counted, because stray trades reach every price, so buying low and selling high would pay for nothing. Against the 24-hour median, none did.
+An hour fills at most 10% of the item's average hourly volume, and always one item of the dearer side. Every hour after an order was placed counts, whether or not the player was there: the file
+has each hour's price, and the server replays the hours it missed when the player returns.
+
 Nothing in the Gateway contacts GGG: `src/GameServer.Rates` runs elsewhere, and a mod names it with `UseExchangeRates`, with the official league to trade at:
 Standard or the current challenge league, the one with the most priced items among the others. Hardcore leagues have too few markets to price on their own.

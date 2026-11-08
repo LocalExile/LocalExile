@@ -72,5 +72,28 @@ public sealed class CurrencyExchangeTests
         }
         Assert.Null(ExchangeRatio.Below(70000));
         Assert.Null(ExchangeRatio.Below(0));
+
+        // An order selling 10 of a card for at least 150 chaos each. The card was 100, reached 200 while the player was away, and is 100 again: it fills
+        // in those hours and no others, one card an hour, at those hours' prices. Above all, the peak before it was placed does not count.
+        const long Now = 500 * 3600;
+        const uint Chaos = 1, Card = 2;
+        var card = new ExchangePrice(100, 1000, [[490, 300], [496, 100], [497, 200], [499, 100]]);
+        var market = new ExchangeMarket(new(Now, "L", [], Hours: 100), new() { [ExchangeRates.Chaos] = new(1, 1e9), ["card"] = card },
+            hash => hash == Chaos ? ExchangeRates.Chaos : hash == Card ? "card" : null, spreadScale: 1, volumeShare: .1);
+        var order = new ExchangeOrder { Id = 1, Want = Chaos, Have = Card, WantCount = 1500, HaveCount = 10, Remaining = 10, RatioWant = 150, RatioHave = 1,
+            State = InstanceCurrencyExchange.OrderState.Listed, LastHour = 495 * 3600 };
+        var book = new ExchangeBook { Orders = [order] };
+
+        Assert.Equal([order], book.Settle(market));
+        Assert.Equal(InstanceCurrencyExchange.OrderState.Listed, order.State);
+        Assert.Equal(Now, order.LastHour);
+        // Hours 497 and 498, 180 chaos a card (200 less the 10% of a thin item), and the room of one card's worth an hour.
+        Assert.Equal((uint)(2 * 200), order.ClaimWant);
+        Assert.Equal(10u - 3, order.Remaining); // 400 chaos at 180 is 2.2 cards, so a third is spoken for
+        Assert.Empty(book.Settle(market)); // the same hour again changes nothing
+
+        // A trade's spread is the thinner item's, and a busy pair's is tight.
+        Assert.Equal(.01, ExchangeMarket.SpreadFor(100_000));
+        Assert.Equal(.10, ExchangeMarket.SpreadFor(999));
     }
 }
