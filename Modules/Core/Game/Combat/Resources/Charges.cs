@@ -392,7 +392,7 @@ static partial class Game
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats (charges {why})");
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerSkillsIfChanged(conn, PlayerSkills(conn)),
-            $"0x02ba player Actor: {skills.Count} skill(s), charge stats");
+            $"0x02bc player Actor: {skills.Count} skill(s), charge stats");
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
     }
 }

@@ -1529,7 +1529,7 @@ static partial class Game
         {
             if (goldRespec)
             {
-                await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02a9 gold: {gold} (respec, {cost} paid)");
+                await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (respec, {cost} paid)");
             }
             await SendCharacterStats(remote, stream, ciphers, conn, "passives");
             await Send(remote, stream, ciphers, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(conn));
@@ -1543,7 +1543,7 @@ static partial class Game
         return error;
     }
 
-    // Experience from a kill: added (up to the last level), sent as the Player component's experience (0x2ba; the client
+    // Experience from a kill: added (up to the last level), sent as the Player component's experience (0x2bc; the client
     // derives the level and plays the level up from it), saved, and at a new level the level's stats, life and passive
     // points from current experience and the account's level (Auth set_level, for the character list).
     internal static async Task GainExperience(string remote, NetworkStream stream, ConnectionCiphers ciphers,

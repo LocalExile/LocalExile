@@ -125,7 +125,7 @@ public sealed record MapPortalObject(int GridX, int GridY, int DeviceIndex, byte
     /// Transitionable …; Frida check-components).</summary>
     public const byte TransitionableIndex = 5;
 
-    /// <summary>S→C 0x2ba to the portal's Transitionable (update reader 0x1421c2310): u8 target state 1, open.</summary>
+    /// <summary>S→C 0x2bc to the portal's Transitionable (update reader 0x1421c2310): u8 target state 1, open.</summary>
     public static byte[] OpenUpdate(uint objectId) => InstanceEntities.ComponentUpdate(objectId, TransitionableIndex, [1]);
 
     public byte[] Blob()

@@ -13,9 +13,9 @@ sequenceDiagram
     participant C as Client
     participant G as Gateway
     C->>G: 0x16 command 45 (/hideout) or 0x17a (World panel Hideout button)
-    G->>C: 0x2b2 change area to the hideout (0xff63), then 0x27 (its instance, seed 1)
-    G->>C: 0x2b9 Player (quest flags, league quest flags, Hideouts key)
-    G->>C: 0x2b9 Waypoint, Stash, Nessa, map device (HideoutDoodad data), 0x1a9 wake zone
+    G->>C: 0x2b4 change area to the hideout (0xff63), then 0x27 (its instance, seed 1)
+    G->>C: 0x2bb Player (quest flags, league quest flags, Hideouts key)
+    G->>C: 0x2bb Waypoint, Stash, Nessa, map device (HideoutDoodad data), 0x1a9 wake zone
     C->>G: 0x24 on the map device
     G->>C: 0x7b kind 5 (map device window)
 ```
@@ -164,10 +164,10 @@ sequenceDiagram
     C->>G: 0x28 / 0x2a a map into inventory 14 (row 13 Map1)
     C->>G: 0x00d8 Activate
     G->>C: 0xbf inventory 14: the slots consumed
-    G->>C: 0x2b9 x 6 MultiplexPortal, 0x1a9
+    G->>C: 0x2bb x 6 MultiplexPortal, 0x1a9
     G->>C: 0x008f the device's portals and their area (1 s later)
     C->>G: 0x24 on a portal
-    G->>C: 0x008f that portal with area 0, 0x2bb, 0x2b2 / 0x27 into the map
+    G->>C: 0x008f that portal with area 0, 0x2bd, 0x2b4 / 0x27 into the map
 ```
 
 **Slots.** Inventories row 13 `Map1` (3 × 2, inventory id 14) is an ordinary grid: items go in and out with the usual
@@ -180,7 +180,7 @@ sends one zero byte). `/item Map (Tier 5)` makes a tier-5 map.
 
 **Activate** is **C→S 0x00d8** (5 bytes): u16 BE, u8. The window's button handler `0x140c2a1c0` (window mode 0xd)
 calls `0x142166480`, which writes a u16 from the target its slots name (+0x7b; 0 seen with a map in the slots) and a
-u8 (0 seen); the writer class is `0x1435bff20`, as C→S 0xc7. Mode 0x5e (another device) sends C→S 0x296 instead.
+u8 (0 seen); the writer class is `0x1435bff20`, as C→S 0xc7. Mode 0x5e (another device) sends C→S 0x297 instead.
 The server checks the slots itself (`MapDevice.Check`): only maps and map fragments, and exactly one map. Otherwise
 nothing is consumed and a chat line (S→C 0x17) gives the reason. Then the slots are emptied (0xbf), the map's area
 opens (Maps.dat `BaseItemTypesKey` → `Regular_WorldAreasKey`), and six portals appear on a ring of 16 cells around
@@ -215,10 +215,10 @@ type (`0x141e2cf40` stores it in the "portal" state; MultiplexPortal.ot: 1 playe
 For each listed portal object the client already has, PortalClient vtable +0xb8 (`0x14161a020`) gives it its area, its
 model and rendering, and the device runs `on_map_portal_opened` (index, object). A portal that was listed before and
 is now missing or has area 0 closes (+0xc0) and runs `on_map_portal_closed`. Seen live:
-- 0x008f in the same burst as the portals' 0x2b9 reaches none of them (they are not created yet); on entering an area
+- 0x008f in the same burst as the portals' 0x2bb reaches none of them (they are not created yet); on entering an area
   the objects also wait for the world to activate. The Gateway sends it 1 s after creating them (2 s on entry).
 - Type 3 (map device) gets its nametag but no model: MultiplexPortal.ot enables its rendering only `on_transition`.
-  Created untransitioned and opened with S→C 0x2ba to Transitionable (component 5, u8 1), the client hung, or
+  Created untransitioned and opened with S→C 0x2bc to Transitionable (component 5, u8 1), the client hung, or
   crashed with the update 2 s later; that was before 0x008f had given the portal its area. **Type 1 (player) renders**,
   so the Gateway uses it (`Game_MAP_PORTAL_TYPE` overrides).
 
@@ -242,7 +242,7 @@ ship as whole portal objects (`Metadata/Effects/Microtransactions/Town_Portals/�
 Positioned, BaseEvents, StateMachine, Animated, Portal, Transitionable, MinimapIcon, InteractionAction, ControlZone);
 the variation route above covers the ones that are effect rigs only.
 
-**Taking a portal** (C→S 0x24): the player walks there, the portal is sent with area 0 in 0x008f and removed (0x2bb),
+**Taking a portal** (C→S 0x24): the player walks there, the portal is sent with area 0 in 0x008f and removed (0x2bd),
 and the player changes area into the map: the first portal makes a new instance (Auth "transfer" New), the others enter
 that one (`MapDevice.Entered`). The open map is kept per character in the Gateway (`MapDevice.OpenOf`; lost on a Gateway
 restart), so the portals left stand at the device again when the player comes back. A new Activate replaces them.
@@ -264,7 +264,7 @@ Maps. Beach's walk map is a `-Walkmaps` capture (2484 × 1656; spawn the deepest
 
 **Portal Scroll** (C→S 0x58, `UsePortalScroll`). Outside towns and hideouts one scroll is spent and the same portal object
 opens 3 cells beside the player, listed in 0x8f with device 0. There is one per player: a new scroll closes the old portal
-(0x8f with area 0, then 0x2bb) and moves it, the map's own portal back included. From a map area it leads to the hideout,
+(0x8f with area 0, then 0x2bd) and moves it, the map's own portal back included. From a map area it leads to the hideout,
 anywhere else to the character's last town (`ClientState.ReturnPortalTo`), at its spawn. In a town or a hideout
 nothing happens and nothing is spent. Live 2026-10-21: in a map and in the acts. Not yet: the portal's other end in the
 town (the way back), and the portal staying after the player leaves the area.
@@ -296,7 +296,7 @@ Selection is implemented as described below.
 After spawning a hideout's guild stash, the Gateway creates the standard HideoutCraftingBench
 from that hideout's existing decoration template. The original Mtx hash, variation and rotation
 are preserved. Placement is relative to the guild stash: grid offset (-12,+12), with nearby
-screen-left alternatives if its 5x5 footprint is blocked. It receives 0x2b9, 0x1a9 and a walk blocker.
+screen-left alternatives if its 5x5 footprint is blocked. It receives 0x2bb, 0x1a9 and a walk blocker.
 The bench is deliberately separate from the map-device dictionary, so portal creation and map
 activation still target only the map device. Towns and the Mine Encampment do not get this bench.
 No generated game-data format changes are needed. Placement was confirmed in the real client.
@@ -454,7 +454,7 @@ This implementation applies translation and rotation; variation and mirroring ch
 
 Save first, then update the runtime interaction coordinates, path blockers, NPC lookup and device placement.
 S→C 0x1b7 moves the existing object with terrain-height marker 0x7fffffff.
-S→C 0x2ba updates Positioned (component 0): LE u16 mask 8 followed by LE f32 radians.
+S→C 0x2bc updates Positioned (component 0): LE u16 mask 8 followed by LE f32 radians.
 The update reader is `0x141e30910`; ordinary furniture/NPC edits preserve the existing object.
 Map devices declare `static = true`, `object_size = 4` and `blocking = false` in CraftingBenchBase.ot;
 client collision comes from their AO Hull, rather than that small Positioned footprint.
@@ -470,7 +470,7 @@ Positioned object_size/blocking/static/block_league_flag plus Animated's model. 
 When local guild storage is spawned, its block_league_flag HaveGuild (native id 2) is included in the player's
 league flags through the ordinary Player component update. GuildStash's native collision predicate checks this
 flag even though the local storage is per-account and no real guild membership is implemented. Disabling the
-Positioned blocking flag through 0x2b0 is incorrect: it also removes the stash from blocking spatial buckets.
+Positioned blocking flag through 0x2b2 is incorrect: it also removes the stash from blocking spatial buckets.
 Blocking objects use object_size minus one (Heist Locker 2, Harvest station 7); static nonblocking objects use
 their model hull (ordinary crafting bench about 9.273 cells). Interaction approaches use the registered clearance.
 A nonblocking object has editor size -1, distinct from a blocking object whose size is 0.
@@ -578,7 +578,7 @@ The native **Monster Statue Creator** item path is DNT-gated and not used. Its c
 **C→S 0x0209**, 10 bytes: u16 BE 0x0209, u32 BE action 911988280, u32 BE target entity id. The native
 panel only offers a dead monster (`0x1400f4930` checks life < 1); the server handler instead accepts a
 known monster in the character's own hideout, creates its stone statue at the monster's position, removes
-the monster (0x2bb) and saves the statue. Live capture: `0209 365BD638 00003040` created statue 0x3041 and
+the monster (0x2bd) and saves the statue. Live capture: `0209 365BD638 00003040` created statue 0x3041 and
 removed monster 0x3040.
 
 ### Arrival on the saved waypoint

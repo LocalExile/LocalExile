@@ -11,7 +11,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Entering Lioneye's Watch: area (0x1d), local player id, world activation, HUD.
   Code: Gateway.
   Docs: [03](../docs/protocol/03-area-and-world.md).
-- Player object (0x2b9) with its component blob; the character's name and class model.
+- Player object (0x2bb) with its component blob; the character's name and class model.
   Code: `InstanceEntities.cs`.
   Docs: [04](../docs/protocol/04-player-entity.md).
 - Inventories and passive slots the UI needs (empty).
@@ -31,7 +31,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   clicks are timed by their socket read; monster paths port 1:1 too (1,235 of 1,235, 100 expansions + coarse pass).
   Code: `GameServer.Core/World/ClientPathfinder.cs`, `PlayerWalk.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §5.
-- Server frames (S→C 0x2b6 frame length, 0x2b5 frame end every 33 ms): what a lockstep client's world runs on;
+- Server frames (S→C 0x2b8 frame length, 0x2b7 frame end every 33 ms): what a lockstep client's world runs on;
   ignored by a predictive client.
   Code: `Game.RunLockstepFrames`, Gateway `WindowsTimerResolution`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §6.
@@ -72,7 +72,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Waypoints: the Waypoint object where the area's layout is captured (Lioneye's Watch built in), activated on entry
   (towns), within 25 cells or on click (the client plays the activation), saved per character;
   clicking opens the World panel in travel mode (S→C 0x7b), its pins and connection lines show from the character's
-  visited areas and activated waypoints (S→C 0x4c, quest flags in the Player component via 0x2ba), and picking a pin
+  visited areas and activated waypoints (S→C 0x4c, quest flags in the Player component via 0x2bc), and picking a pin
   (C→S 0x4d, Ctrl → instance chooser) takes the player next to the destination's waypoint; `/waypoints [all | reset]`.
   Code: `InstanceWaypoints.cs`, `WaypointCatalog.cs`, `AreaVisitFlags.cs`, Gateway.
   Docs: [16](../docs/protocol/16-waypoints.md).

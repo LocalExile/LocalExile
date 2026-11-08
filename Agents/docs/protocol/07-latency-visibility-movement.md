@@ -93,13 +93,13 @@ with IV `km'[48:56]`. So an idle carrier is the keystream itself: `v = rotl(LE32
 
 ## 3. Visibility: the wake zone (S→C 0x1a9)
 
-An object created with 0x2b9 exists (position, components, camera follow, teleports) but is **not drawn and does not
+An object created with 0x2bb exists (position, components, camera follow, teleports) but is **not drawn and does not
 update** until it is in the wake zone. **0x1a9** (world group, class `0x1435dd838`, object header only: `u16 id, u32
 object id, u32 0, u16 0`) sets object `+0x8d |= 2` and calls `0x141ec0aa0` ("ObjectInWakeZone"); 0x1aa removes it. The
 Gateway sends 0x1a9 for the player right after 0x21. That alone made the model appear (in the washed-up pose) and let
 actions run.
 
-A create can wake the object itself: for a 0x2b9 whose blob's first byte has bit 0x02, `0x141ebe190` sets `+0x8d |= 2`
+A create can wake the object itself: for a 0x2bb whose blob's first byte has bit 0x02, `0x141ebe190` sets `+0x8d |= 2`
 and the create's handler (`0x142187480`) then calls `0x141ec0aa0`, as a 0x1a9 does. A 0x1a9 to an object that is awake
 and not waiting to leave changes nothing but a `[CRIT]` line in `Client.txt` saying the object was already in the wake
 zone (`0x141ec0aa0`, log id 0xaed1d716); after a 0x1aa, which lists the object to leave (World `+0xa48`), it takes the
@@ -118,11 +118,11 @@ The world handler `0x142187480` looks up `u32 object id` (message `+0x10`) and r
 
 | Ids | Goes to | Notes |
 |---|---|---|
-| 0x51, 0x1ab–0x1b0, 0x1b4–0x1b6, 0x1ce–0x1d2, 0x1f0/0x1f1, 0x261, 0x2c6 | Actor `0x1421940a0` | actions |
-| 0x1b7–0x1c0, 0x2b0 | Positioned `0x141e30c90` | position / movement |
+| 0x51, 0x1ab–0x1b0, 0x1b4–0x1b6, 0x1ce–0x1d2, 0x1f0/0x1f1, 0x261, 0x2c8 | Actor `0x1421940a0` | actions |
+| 0x1b7–0x1c0, 0x2b2 | Positioned `0x141e30c90` | position / movement |
 | 0x1a9 / 0x1aa | wake zone in / out | |
-| 0x2ba | component update by component index | |
-| 0x2bb | remove object | |
+| 0x2bc | component update by component index | |
+| 0x2bd | remove object | |
 
 Object header (all these messages): `u16 id, u32 object id (+0x10), u32 (+0x14), u16 (+0x18)`, written by `0x141f91f60`.
 
@@ -281,7 +281,7 @@ u32 at its data +8] and, when the MonsterVarieties row's two unnamed i32 columns
 `__col76`) differ, draws a uniform integer in that range (`0x1404d03d0`); the roll multiplies the Pathfinding speed by
 1 + roll / 100. Of the 10 691 rows, 8 694 have (0, 0), 875 (−10, 10) and 855 (−5, 5) (every plain Goatman: 8 × 0.95
 to 1.05 is the band measured), then (−5, 10), (0, 10), (−30, 15), (−5, 8), (−15, 15). The server draws the same roll
-(`MonsterSpeedRoll.cs`, `AnimationVariantSelector.NativeRandom`) with the monster's 0x2b9 type hash as the type word
+(`MonsterSpeedRoll.cs`, `AnimationVariantSelector.NativeRandom`) with the monster's 0x2bb type hash as the type word
 and walks its estimate at that speed (the Gateway's create log prints the speed and the roll). Checked live
 2026-11-03 (the lockstep tick trace, each walker's step times): four Drowned walked at 8.16, 7.92, 7.60 and 7.84
 cells/s, the Gateway's rolls of +2, −1, −5 and −2 % for them; Hungry Corpses at 8.000, Sand Spitters at 20.000, the
@@ -503,7 +503,7 @@ only those that can reach the queried cell (same answers as the full scan).
 The player's own path treats estimated monster bodies as blockers too, so a player the client finds boxed in stays in
 on both sides.
 Alive friendly monsters also block; corpses and removed objects do not.
-S→C 0x2b0 tells the client the same about a corpse, about 165 ms after its life reached 0, as GGG does.
+S→C 0x2b2 tells the client the same about a corpse, about 165 ms after its life reached 0, as GGG does.
 The client takes it live; what it changes in the client's own paths is not measured.
 Phasing removes living bodies from the local player's path checks.
 Large bodies are checked even when their centres lie outside the small query's spatial buckets.
@@ -543,8 +543,8 @@ server replies. The client reads its socket once per update, so one round trip s
 on loopback with the window in the background), and the lowest of the last 16 is the network's.
 
 **Server frames.** In lockstep the client's world does not run on its own clock: it runs **server frames**. S→C
-**0x2b6** (u8) sets the frame length in ms (`0x141645fa0` stores the zero-extended byte as u32 at world `+0x11c`);
-S→C **0x2b5** (id only) ends a frame. In nonzero mode, after activation sets world `+0xa00`, the embedded message
+**0x2b8** (u8) sets the frame length in ms (`0x141645fa0` stores the zero-extended byte as u32 at world `+0x11c`);
+S→C **0x2b7** (id only) ends a frame. In nonzero mode, after activation sets world `+0xa00`, the embedded message
 intake (`0x1421872b0`, this=world `+0x1c8`) appends a null delimiter to the record vector (`+0x9e0`) and queues
 the current frame length (deque map at world `+0x9c0`, count `+0x9d8`). Before activation it adds neither.
 Each client update adds its time to world `+0x988` and runs every queued frame it covers
@@ -555,8 +555,8 @@ target. See [World message inputs](../re/projectiles/world-message-inputs.md) an
 [component checkpoints](../re/projectiles/world-scheduling.md#10-component-checkpoints-can-consume-ordered-incoming-records).
 Behind by 1, 2, 30 or 60 frames, it speeds up × 1.01, 1.5, 2 or 5;
 the most frames it was behind since the last tick goes out as the u8 of C→S 0x1b (world `+0xb98`,
-"lockstep_lag_frames"). Without 0x2b5 nothing runs: the player is created but never drawn. A predictive client ignores
-0x2b5, and 0x2b6 only stores its byte, so the Gateway always sends them (`RunLockstepFrames`, 33 ms, `Game_FRAME_MS`):
+"lockstep_lag_frames"). Without 0x2b7 nothing runs: the player is created but never drawn. A predictive client ignores
+0x2b7, and 0x2b8 only stores its byte, so the Gateway always sends them (`RunLockstepFrames`, 33 ms, `Game_FRAME_MS`):
 a lockstep client is then drawn and its world runs. Found with hardware watchpoints on those fields.
 On Windows a timer wait ends on the clock tick, 15.6 ms unless the
 process asks for less, and Windows 11 drops the request of a process without a window (every launcher starts the
@@ -587,7 +587,7 @@ Actor `+0x1c8` is set only outside lockstep (`0x142156d80`). What else changes i
 - A skill's pay check runs for every actor (`0x141e9d930`, `0x141e9dc10`), not only the local one.
 
 **What GGG sends a lockstep client.** What it sends a predictive one, including 0x1ac and 0x128, which do nothing here;
-no 0x2b6. A click gets its 0x1ab with key 0 at the next frame start. Its target is the client's cell when it clicked plus
+no 0x2b8. A click gets its 0x1ab with key 0 at the next frame start. Its target is the client's cell when it clicked plus
 (dx, dy), that is, where the cursor was, not the server's cell by then. 0x192 only
 updates a held target: the player's own tick starts the Move (key = the player, u16 0x9001), about one per 0x192 while
 walking and one per frame from the same cell while blocked. 0x195 gets no answer and does not cancel a target not yet
@@ -633,7 +633,7 @@ tolerance -1 and precision 1 (`0x141e7b530`): live, an aim 17 cells right and 9 
 The tutorial support chest's Interaction uses MoveTo max range 6, tolerance 3, precision 1. Its blocking footprint
 is only 1; using that footprint for interaction makes the server walk four cells past the native stopping point.
 
-A killed monster's Positioned body still affects path search until its `0x2b0` clear. A Move during that interval
+A killed monster's Positioned body still affects path search until its `0x2b2` clear. A Move during that interval
 can start a different route even when it never touches the corpse. Keep the death-cell blocker through the clear's
 send gate, after stepping earlier frames; clearing it when Life reaches zero can force a position correction on the next action.
 
@@ -761,7 +761,7 @@ own phase. GGG's server has none of this: it is the client's own simulation.
 | Sends 0x194 to time a lockstep client | Not seen in any session; by its handler, an idle timeout | It is the one message found that the client answers by itself |
 | Frames laid over a clock, late ones sent at once | Frames are ticks of its world | The walks run on the clock |
 | Orders a walking monster again only at a frame start right after its estimate's step | On its cadence, from its own simulation | A set after an order whose from cell is off zeroes the client's step accumulator while the estimate keeps its fraction; right after the estimate's step there is under a frame to lose |
-| Sends 0x2b6 | Never | The client's default is not traced |
+| Sends 0x2b8 | Never | The client's default is not traced |
 | Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours stands out there too now (its walk ends at the 0x1aa, no order until it is back); 0x128 is skipped here, so the return places it with LockstepPlace |
 | No 0x1ac when a monster's chase walk-up starts its swing | One when its copy starts the swing | A lockstep client does nothing with a 0x1ac; the swing starts by its own goal test |
 | A monster that gives up a pursuit gets no order: it goes on with its last one as the client's does, a chase's walk-up after the player | Nothing then either, but idle orders after (131 pursuits ended with the player 60+ cells off: a Move of 3+ cells 65, a self-aimed Wait 30, a flight 9, an aimed order again 15, nothing 12) | No idle AI here |

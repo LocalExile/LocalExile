@@ -232,7 +232,7 @@ These are suggestions that have worked well, for people and agents alike; use yo
 [gateway] … => 0x001d AreaInstance { InstanceId = 1, AreaHash = 9052, Seed = 1, … }
 [gateway] … <= 10 bytes: 007D43E6886D8EA8DD43
 [gateway] … => 0x0022 local player 0x1000: 002200001000
-[gateway] … => 0x02b9 create PlayerObject { Name = DevWitch, … } type=0x9c41993e: 02B9…
+[gateway] … => 0x02bb create PlayerObject { Name = DevWitch, … } type=0x9c41993e: 02B9…
 [gateway] … => 0x00c0 inventory 1 row 0: …            (× 117)
 [gateway] … => 0x003d passive slots 0-2: 003D00000000 1C0000
 [gateway] … => 0x0021 enter area: 0021…
@@ -248,11 +248,11 @@ Source [Lioneye's Watch]". Then the HUD appears.
 | Symptom | Meaning |
 |---|---|
 | "Checking resources..." for a long time, with "Queue file to download" in `Client.txt` | a client not started by `live.ps1`, or a patch server advertising a real CDN. **Stop the client** |
-| "Buffer Underflow" dialog | the 0x2b9 blob is shorter than what the client reads. Closing the dialog ends the client. Trace with `trace-player-blob.js` |
+| "Buffer Underflow" dialog | the 0x2bb blob is shorter than what the client reads. Closing the dialog ends the client. Trace with `trace-player-blob.js` |
 | `WerFault.exe` appears / window masked in screenshots | client crash. Event log id 1000 has the fault offset (VA − 0x140000000). Attach Frida before Play next time |
 | "Area reported by instance does not exist" | the 0x14 area hash is not a WorldAreas.HASH16 |
 | client back at the login screen, "An unexpected disconnection occurred" | the instance connection closed (Gateway restarted or crashed) |
-| nothing after 0x7d | 0x21 not sent (`Game_GATEWAY_ENTER` unset). The world queues 0x2b9 and waits |
+| nothing after 0x7d | 0x21 not sent (`Game_GATEWAY_ENTER` unset). The world queues 0x2bb and waits |
 | extra map icons with no label (e.g. three area transition icons at the town gate) | the client's **minimap cache** remembers icons of objects it has seen, per area, in `%LOCALAPPDATA%\Path of Exile\Minimap\` (hash-named, encrypted files). Moving an object around (dev commands, changed defaults) leaves its old icons there, across restarts. Close the client and move the files away; seen 2026-10-17 |
 
 Window position and size change between launches; take a screenshot before clicking. At half scale, the password

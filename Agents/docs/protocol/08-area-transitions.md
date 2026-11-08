@@ -30,7 +30,7 @@ was created without "Unknown object type"). Its `.ot` file:
 | InteractionAction | |
 | client: Render, Targetable | `display_text = "ObjectDisplayTextAreaTransition"` (the label is the destination's name) |
 
-Sent like the player: **0x2b9** (object id 0x2000 for the first exit) before 0x21, which queues it until the world
+Sent like the player: **0x2bb** (object id 0x2000 for the first exit) before 0x21, which queues it until the world
 activates, then **0x1a9** (wake zone) after 0x21.
 
 ## 2. The component blob (traced with Frida, 41 bytes, consumed exactly)

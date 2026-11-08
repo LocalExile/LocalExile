@@ -107,7 +107,7 @@ static class PantheonRules
         byte major, minor;
         lock (conn.Monsters) (major, minor) = (catalog.Wire(conn.PantheonMajor), catalog.Wire(conn.PantheonMinor));
         await Send(remote, stream, ciphers, InstanceEntities.PlayerPantheonUpdate(PlayerId, major, minor),
-            $"0x02ba player Pantheon: major {major}, minor {minor} ({why})");
+            $"0x02bc player Pantheon: major {major}, minor {minor} ({why})");
     }
 
     /// <summary>The chosen gods' stats on top of the character's other sources (PantheonCatalog.ChosenStats): a god whose

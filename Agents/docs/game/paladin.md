@@ -41,7 +41,7 @@ Refunding a Paladin Aura option costs five refund points; the shell itself refun
 - **Stationary.** The walk has ended (`now >= Walk.ArrivesAt`, the same test as the charge gains), the player is alive
   and not in a town (hideouts are not towns).
   While stationary, one consecrated ground of the stationary radius (18 cells, 1.8 m) stays where he stands, with the
-  Sulphur Flask's ground art; it is removed (0x2bb) when he moves or dies, and a new one is made where he stops.
+  Sulphur Flask's ground art; it is removed (0x2bd) when he moves or dies, and a new one is made where he stops.
 - **Radius.** As the client derives `virtual_consecrated_ground_while_stationary_radius` (0x1428d43a0): the plain stat,
   the Strength variant when Strength is the highest attribute (ties count), the Crusader variant with two or more
   Crusader items; the largest wins. No area modifier applies.
@@ -165,7 +165,7 @@ game measures "nearby" to the monster's centre, as here, or to its edge; that th
   The explosion hits every hostile living monster within 22 cells of it and is mitigated as any hit (resistances,
   Light of Divinity's and the taunt's increased damage taken, `MonsterTakesMitigated`).
   Its kills give the player their experience and items and count as a nearby ally's kills for the trigger; they give
-  no on-kill charges, which are the player's own. Minions leave no corpse, so the body goes (0x2bb) a second later.
+  no on-kill charges, which are the player's own. Minions leave no corpse, so the body goes (0x2bd) a second later.
 - **Cleanup.** The player's death, or losing the node, kills the relics without an explosion. Losing the node also
   ends the player's links to them without killing him (see Link skills).
   An area change or a logout ends them with the connection. The instance never keeps them and nothing saves them.

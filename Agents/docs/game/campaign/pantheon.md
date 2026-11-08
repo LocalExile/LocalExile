@@ -30,7 +30,7 @@ built-in league quest flag list, [21](../../protocol/21-hideouts.md) §1). Not n
 ## 2. Unlocking gods in the campaign
 
 A god is unlocked when the character has the row's `QuestFlag`: the client reads it from the quest flags it already
-receives (S→C 0x2ba Player). Every unlock flag is a boss kill the act's quest engine sets anyway:
+receives (S→C 0x2bc Player). Every unlock flag is a boss kill the act's quest engine sets anyway:
 
 | Panel row | God | Major | Unlock flag | Quest | Boss kill (MonsterVarieties Id under `Metadata/Monsters/`, area): placement in the act file |
 |---|---|---|---|---|---|
@@ -107,7 +107,7 @@ The Player component stores the selection in two bytes (debug dump `0x141e80603`
 - **Creation blob** ([04](../../protocol/04-player-entity.md) §4.6): the five u8 after the WashedUp byte are `+0x1ae`
   (major), `+0x1ad` (minor), `+0x1b0`, `+0x1af`, `+0x238`. `PlayerObject` writes the saved gods into the first two (`PantheonMajor`,
   `PantheonMinor`: the row + 1, 0 for none) and zeros into the rest.
-- **Update** S→C 0x2ba to the Player component (index 6): u16 flag word **0x0080**, then u8 → `+0x1ae` (major), u8 →
+- **Update** S→C 0x2bc to the Player component (index 6): u16 flag word **0x0080**, then u8 → `+0x1ae` (major), u8 →
   `+0x1ad` (minor) (reader `0x141e7ee30`, the bit test at `0x141e7f22c`); the reader then calls the component's vtable
   +0x138 (refresh).
 - The panel reads both bytes at `0x14097c83f` and passes them to a virtual (major, minor). The value is very likely the

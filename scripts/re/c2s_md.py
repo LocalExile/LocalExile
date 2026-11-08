@@ -48,7 +48,7 @@ HAND = [
     ("login", 0x3f, None, "0x142140d70", "wstr"),
     ("login", 0x40, None, "0x142140e60", "wstr"),
     ("login", 0x42, None, "0x142140810", "u8"),
-    ("login", 0x45, None, "0x1400f50f0", "blob16 string; the same function sends instance 0x2fa when in an instance"),
+    ("login", 0x45, None, "0x1400f50f0", "blob16 string; the same function sends instance 0x2fc when in an instance"),
     ("login", 0x46, None, "0x140d14690", "u32 (0)"),
     # Patch: u8 id at +8, stream at patch+0x60. Every flush in the three patch senders is one of these.
     ("patch", 0x1, "0x14363ea68", "0x1428e9f40", "u8 id, u8 (7)"),

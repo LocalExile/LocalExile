@@ -119,7 +119,7 @@ static class CosmeticsFeature
         if (pick.Slot == PortraitSlot)
         {
             ushort portrait = WornPortrait(conn);
-            await Send(remote, stream, ciphers, InstanceEntities.PlayerPortraitUpdate(PlayerId, portrait), $"0x02ba player portrait {portrait}");
+            await Send(remote, stream, ciphers, InstanceEntities.PlayerPortraitUpdate(PlayerId, portrait), $"0x02bc player portrait {portrait}");
             // The character screen's list comes from Auth's account store.
             var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait", Ticket = conn.Ticket, Portrait = portrait });
             if (!told.Ok) Console.WriteLine($"[gateway] {remote} set_portrait {portrait}: {told.Error}");
@@ -156,7 +156,7 @@ static class CosmeticsFeature
             uint id = conn.NextObjectId++;
             var pet = new PetObject(x, y, PlayerId, fx.PetComponents, fx.PetStates);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
-                $"0x02b9 create pet 0x{id:x} {type} at ({x}, {y})");
+                $"0x02bb create pet 0x{id:x} {type} at ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
             lock (conn.Pets) conn.Pets[id] = new SpawnedPet(conn.NewWalk(x, y, conn.Walk.Speed), worn.Slot == 18 ? 1 : -1);
         }

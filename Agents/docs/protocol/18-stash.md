@@ -11,7 +11,7 @@ sequenceDiagram
     participant C as Client
     participant G as Gateway
     G->>C: 0x21 enter area (personal stash tab list)
-    G->>C: 0x2b9 Stash object, 0x1a9 wake zone
+    G->>C: 0x2bb Stash object, 0x1a9 wake zone
     C->>G: 0x24 on the Stash (skill 0x0266)
     G->>C: 0x7b kind 1 (Stash object, affinity)
     Note over C: the stash panel opens

@@ -4,8 +4,8 @@ namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// Changing area through an area transition, and the instance chooser (Agents/docs/protocol/09-area-change.md).
-/// <para>Flow: C→S 0x24 (use skill on the area transition object) → S→C 0x2b2 (change area: the client shows the loading screen and
-/// answers C→S 0x2cb, built by 0x142148690) → S→C 0x27 (the destination instance's address, ticket and key, on the
+/// <para>Flow: C→S 0x24 (use skill on the area transition object) → S→C 0x2b4 (change area: the client shows the loading screen and
+/// answers C→S 0x2cd, built by 0x142148690) → S→C 0x27 (the destination instance's address, ticket and key, on the
 /// current instance connection) → the client connects to it. In game nothing listens to login 0x14 (the login
 /// connection's listener list at +0x298 is empty), so an area change cannot come from Auth.
 /// With Ctrl held the 0x24 flags carry 0x0004, and the server answers 0xae (instance list) instead, which opens the
@@ -13,10 +13,10 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class InstanceTransfer
 {
-    public const ushort UseSkillOnObjectId = 0x24, ChangeAreaId = 0x2b2, InstanceListId = 0xae, LeaveAreaAckId = 0x2cb,
+    public const ushort UseSkillOnObjectId = 0x24, ChangeAreaId = 0x2b4, InstanceListId = 0xae, LeaveAreaAckId = 0x2cd,
         ConnectInstanceId = 0x27, ChooseInstanceId = 0xaf;
 
-    /// <summary>The length of a C→S 0x2cb at the start of <paramref name="data"/> (writer 0x141f9fa50): u16 id, u16 BE byte
+    /// <summary>The length of a C→S 0x2cd at the start of <paramref name="data"/> (writer 0x141f9fa50): u16 id, u16 BE byte
     /// count, then that many bytes (u16 6 and 0x360 bytes: 870 in all). Null until its header has arrived.</summary>
     public static int? LeaveAreaAckLength(ReadOnlySpan<byte> data) =>
         data.Length < 4 ? null : 4 + System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[2..]);
@@ -53,9 +53,9 @@ public static class InstanceTransfer
     }
 
     /// <summary>
-    /// S→C 0x2b2 (class 0x1435bfee0, write 0x141f92980; dispatcher case 0xe8): u16 destination WorldAreas.HASH16, u16
+    /// S→C 0x2b4 (class 0x1435bfee0, write 0x141f92980; dispatcher case 0xe8): u16 destination WorldAreas.HASH16, u16
     /// LoadingScreenOverrides row (1-based, 0 = the area's default). The handler notifies the loading-screen listeners
-    /// (+0x6d70) and calls 0x142148690, which sends C→S 0x2cb once and flushes. An unknown hash is fatal ("Instance sent
+    /// (+0x6d70) and calls 0x142148690, which sends C→S 0x2cd once and flushes. An unknown hash is fatal ("Instance sent
     /// change area notification that does not exist").
     /// </summary>
     public static byte[] ChangeArea(ushort destinationHash16, ushort loadingScreen = 0) =>

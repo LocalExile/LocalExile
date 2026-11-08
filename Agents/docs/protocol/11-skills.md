@@ -40,7 +40,7 @@ ground add `Emerge` (16641 = 0x4101, id **0x0101**), which the server starts wit
 ## 3. Granted skills: Actor slot 20, flag 0x40
 
 Real skills (gems, the default attack) come from the server, inside the **Actor component's vtable +0xa0 reader
-`0x1421932b0`** (the part after the main body, [04](04-player-entity.md) §4.9; also what S→C 0x2ba runs). Its first flag
+`0x1421932b0`** (the part after the main body, [04](04-player-entity.md) §4.9; also what S→C 0x2bc runs). Its first flag
 byte f0:
 
 - **f0 0x40 → `0x142197b10`**: the skill list. It adds each record or replaces the one with the same id; it never
@@ -507,7 +507,7 @@ frozen input, preservation and diagnostic boundaries. These controls establish p
 `/set_stat` overrides resolved inputs. The packet, conversion order and damage-over-time model are in
 [20-damage.md](20-damage.md); the panel's older `Unarmed.Damage` tuple is only the physical display range.
 
-**Changing a skill after entering:** S→C **0x2ba** on the player with component index 9 (Actor) and the slot-20 data
+**Changing a skill after entering:** S→C **0x2bc** on the player with component index 9 (Actor) and the slot-20 data
 `f0 0x40, f1 0, skill list`: the list replaces the skill of the same id, new stats included. Live: the swing sped up at
 once. The Gateway now sends the 0x20 update instead (above), which also removes skills and updates the character panel.
 
@@ -1687,7 +1687,7 @@ animation/contact-based emission, fan/Volley layouts, integer motion, local cont
 Those static paths do not establish an official global 30 Hz cadence or a C→S per-projectile result-report contract.
 
 **The client predicts its own spell gem projectiles (Frida 2026-10-29, 2026-10-31).** One Fireball cast built two Projectile
-components: one from the 0x2b9 handler (`0x142187c8a` → `0x141ebe190`), one from the player's action
+components: one from the 0x2bb handler (`0x142187c8a` → `0x141ebe190`), one from the player's action
 (`0x141e938c0` → `0x1419eec90` → `0x141ebdf30`, a client-side object whose id the world assigns) with the same type,
 `Metadata/Projectiles/StygianFireball`, 160 ms before the server's. With `number_of_additional_projectiles` 2 the
 client built three before the server's three, so it predicts every primary projectile of the volley, from its own
@@ -1791,7 +1791,7 @@ The client's Projectile component (vtable `0x1435a0d10`, 0x20 bytes) does little
 slot 17 reads nothing and almost every other slot is a bare `ret`.
 Native flight/contact logic resides in action/Positioned paths, not this small component.
 
-- **Object.** A 0x2b9 of the Projectiles.dat type named after the effect (`Metadata/Projectiles/Fireball`, hash of the
+- **Object.** A 0x2bb of the Projectiles.dat type named after the effect (`Metadata/Projectiles/Fireball`, hash of the
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
   Animated, BaseEvents and Projectile, so the blob is Positioned, one Animated byte and the tasks byte
   (`ProjectileObject`; the Animated component is index 1). Its byte 0 has 0x02, so the create wakes the object itself and
@@ -1968,7 +1968,7 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   bow/collision path needs a fresh live integration check. Broader surface-height accuracy remains open (#182).
   Impact damage is committed under the send gate and a short monster lock, rechecking connection/area/pause and
   target life. Packet writes and hit notifications await outside the monster lock. A transfer invalidates flights
-  even after its pending ticket is consumed and removes outstanding projectile/impact objects before 0x2b2;
+  even after its pending ticket is consumed and removes outstanding projectile/impact objects before 0x2b4;
   a failed transfer permits new flights without reviving old ones or leaving their visuals behind.
   Cast release, flight and the explosion's 1.5-second lifetime use game time and wait through pause.
   Terminal model swaps and removals recheck pause inside the send gate and retry after resume;
@@ -1991,7 +1991,7 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   it yet. Grids exist for Lioneye's Watch and The Coast seed 1.
 - **Explosion (live 2026-10-18).** Projectiles.dat names the impact as an animation of the projectile's own .ao
   (Fireball: ImpactAnimationIds `fireball_explode` → `point_impact.pet`). No server message found yet plays an
-  animation by name, so on a hit the server swaps the projectile's animated object instead: S→C 0x2ba to component 1
+  animation by name, so on a hit the server swaps the projectile's animated object instead: S→C 0x2bc to component 1
   (Animated, in the order Positioned, Animated, BaseEvents) with flags bit0 and the path
   `Metadata/Effects/Spells/fireball/explode_new2.ao`, whose default animation `animate` plays the `splode` particles
   and the End sound (reader `0x141e57490`: bit0 path, bit1 a 0x2c-table index, bit2 `0x141e5adb0` attachments; no
@@ -2298,7 +2298,7 @@ At the send gate, reconciliation precedes player, Actor, mana and initial object
 Rage and Fortification full snapshots share this batch; unchanged Rage still publishes pending aura changes.
 Presentation diffs against the instances actually sent on this connection, so queued adds cannot resurrect old buffs.
 Loading may restore runtime intent before a player object exists; dirty/presented state remains pending until creation.
-Initial 0x2b9 contains reconciled stats/pools, then entry replays each pair once on that object.
+Initial 0x2bb contains reconciled stats/pools, then entry replays each pair once on that object.
 Closed/leaving connections cannot restore or publish aura pairs.
 RF, flasks, Fortification, other temporary effects and foreign received buff instances are outside this owned list.
 
@@ -2436,7 +2436,7 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   `1 + summon_totem_cast_speed_+% / 100` and the action speed (the wiki's Totem page: cast speed does not apply).
   If the use is still current and the player lives, the totem appears at the aimed cell, moved out of walls and
   monsters as a spawn is.
-  The server registers the type (S→C 0x20, `<Id>@<level>`), creates a team-0 monster object (0x2b9) and enters it
+  The server registers the type (S→C 0x20, `<Id>@<level>`), creates a team-0 monster object (0x2bb) and enters it
   in the wake zone (0x1a9) in one gated send, so a later Life update never precedes it.
 - Level and Life: the totem's level is the gem level's `PlayerLevelReq`, as PoB's totem level.
   Its base Life is the variety's minion Life at that level (MonsterTypes `IsPlayerMinion`, `LifeMultiplier` 120:
@@ -2448,7 +2448,7 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   a totem skill below one (`FUN_14195e420`).
 - Death: at Life 0, at the end of its duration, when replaced past the limit, or when the player dies (wiki Totem and
   Soul Mantle).
-  The player tick sends its Life (0x1b1, 0 at death) and removes it (0x2bb) a second after.
+  The player tick sends its Life (0x1b1, 0 at death) and removes it (0x2bd) a second after.
   An area change starts a new connection without totems.
 - Rejuvenation Totem: its aura (BuffDefinitions 172 `totem_aura_life_regen`, base radius 10 with aura and spell area)
   gives the living player within the radius the skill's `base_life_regeneration_rate_per_minute` and the row's other
@@ -2488,7 +2488,7 @@ The Spirit chieftains are the first (section 10f).
   player experience and loot through `MonsterKilled` (no on-kill charges: the player did not kill it).
   A minion's hit does not count as the player hitting.
 - End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
-  removed a second later (0x2bb).
+  removed a second later (0x2bd).
 
 The timed chieftain controller still uses only its first skill. Golems have a separate controller and saved source
 intent (`GolemState`), rather than persisting their area objects. Minion commands and party buff sharing remain partial.
@@ -2540,7 +2540,7 @@ hostiles' power; which code consumes the list was not traced, so the server's re
   radius explodes once.
   A corpse is a dead monster at zero Life whose Life type allows corpse use (`MonsterLifeData.IsUsableAsCorpse`) and
   that no explosion has consumed (`SpawnedMonster.CorpseConsumed`).
-  The corpse is removed (S→C 0x2bb) and leaves `ClientState.Monsters`, so no later removal sends it again.
+  The corpse is removed (S→C 0x2bd) and leaves `ClientState.Monsters`, so no later removal sends it again.
   The explosion hits living hostile monsters within 22 cells of it (PoB `EnemyExplode`, grown by area of effect) for
   the percentage of the corpse's maximum Life as physical damage, scaled by the player's `damage_+%`,
   `physical_damage_+%`, `area_damage_+%` and Frenzy Charge more damage (poewiki Explode).
@@ -2702,7 +2702,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
 
 - **C→S 0x4e** (5 bytes, class `0x1435bfc58`): `u8 slot, u16 skill id` (big-endian). Slot 2 is the right mouse button.
   The skill bar UI (`0x140aecab0`) sends it when the player puts a skill in a slot. The client also does it by itself
-  when a skill is **added** to an existing player (0x2ba): it took the first free slot after socketing Fireball. Skills in
+  when a skill is **added** to an existing player (0x2bc): it took the first free slot after socketing Fireball. Skills in
   the creation blob, or added before the HUD exists, stay unbound.
 - **S→C 0x53** (instance group, class `0x1435dc4c0`, read `0x14219f600`): `13 × u16` skill ids by slot (raw bytes, so
   little-endian; basic actions by their own id, Move = 0x2909), then two raw u16 slot bitmasks +0x2a and +0x2c (below). The bar (vtable `0x14319d870`) rebuilds from such an array in
@@ -2749,7 +2749,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
   have the bool ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)); the buff's shown value is increased
   by +0x82 percent. The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435dd918`): object header, u16 buff instance: removes it.
-  The Buffs component has no 0x2ba update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
+  The Buffs component has no 0x2bc update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
   The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and
   Anticipation repeat backends consume retained Buff `+40/+42/+28` as count, last sequence and a consumed-count
   cache. Existing-instance partial updates copy decoded `+70/+60/+64` into those fields; omitted bit2 count
@@ -3100,7 +3100,7 @@ The client reads these two to know the player's minion (the link-target filter 0
 `ClientState.Minions` keeps each one's skill, kind, end time, aura on the owner and death explosion, under the Monsters
 lock. `RunPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
 
-- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bb) a second later.
+- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bd) a second later.
 - The owner's death or the loss of the granting passive kills it without an explosion; with the passive lost, the
   living owner's links to it end without killing him.
 - The queued summons are made, with the owner's `minion_maximum_life_+%` as the monster's `maximum_life_+%` and his

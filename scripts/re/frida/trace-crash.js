@@ -29,9 +29,9 @@
   // The last S→C message ids, oldest first.
   const Kept = 64;
   const received = [];
-  // The clock messages, several a second, would push the rest out: the 0x1c tick answers and the 0x2b5 frame ends
+  // The clock messages, several a second, would push the rest out: the 0x1c tick answers and the 0x2b7 frame ends
   // (the Gateway's PacketHistory leaves out the same ones). Id 0 is the pump's call without a message.
-  const skipped = new Set([0, 0x1c, 0x2b5]);
+  const skipped = new Set([0, 0x1c, 0x2b7]);
   Interceptor.attach(rebase('0x14299e300'), {
     onEnter(args) { this.id = args[1].toUInt32() & 0xffff; },
     onLeave(accepted) {

@@ -25,7 +25,7 @@ const stamp = () => Date.now();
 
 // The last accepted S->C message ids, for the exception report (the clock messages would push everything out).
 const lastMessages = [];
-const skipped = new Set([0, 0x1c, 0x2b5]);
+const skipped = new Set([0, 0x1c, 0x2b7]);
 Interceptor.attach(at('0x14299e300'), {
   onEnter(args) { this.id = args[1].toUInt32() & 0xffff; },
   onLeave(accepted) {
@@ -138,7 +138,7 @@ Interceptor.attach(at('0x141e11720'), {
   }
 });
 
-// Object creation, with the type's metadata path when it can be found. Server creates are S->C 0x2b9; client ones are
+// Object creation, with the type's metadata path when it can be found. Server creates are S->C 0x2bb; client ones are
 // the predictor's own objects (which is how a local Kinetic Blast shows up).
 function typePath(rec) {
   for (const b of [rec, ptrAt(rec, 0x28)]) {

@@ -48,7 +48,7 @@ static class VendorsFeature
                 items.NextRevision(destination),[],purchase.Bought),"0x00bf vendor item to cursor");
         await Send(remote,stream,ciphers,InstanceItems.InventoryChange(offer.Tab,shop.NextRevision(offer.Tab),[id],
             finite ? [] : [offer.Item],NpcShops.Manager),"0x00bf vendor offer updated");
-        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02a9 vendor gold balance");
+        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02aa vendor gold balance");
         Console.WriteLine($"[gateway] {remote} vendor purchased {id} from {shop.Npc.Npc.Name}; finite={finite}");
     }
 
@@ -283,7 +283,7 @@ static class VendorsFeature
         });
         if (window is null) { await conn.Commands!.Reply($"Kirac's refresh costs {KiracProgress.For(PersonalStashOf(conn)).ShopRerollCost} Gold."); return; }
         var (remote,stream,ciphers) = conn.Wire;
-        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02a9 Kirac refresh");
+        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02aa Kirac refresh");
         uint npcObject = conn.Npcs.FirstOrDefault(p => p.Value == shop.Npc).Key;
         await OpenNpcShop(remote,stream,ciphers,conn,npcObject,shop.Npc,window);
     }

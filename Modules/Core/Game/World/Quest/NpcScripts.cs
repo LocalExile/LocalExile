@@ -36,7 +36,7 @@ static partial class Game
         if (npc.State >= last) return;
         npc.State++;
         await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(npcId, (byte)component, npc.State),
-            $"0x02ba npc 0x{npcId:x} {npc.Npc.Name} transitions to state {npc.State} ({why})");
+            $"0x02bc npc 0x{npcId:x} {npc.Npc.Name} transitions to state {npc.State} ({why})");
     }
 
     // The NPC type's Transitionable num_states (object-types.json; 2 when the type does not say).
@@ -125,6 +125,6 @@ static partial class Game
         foreach (var (id, info) in objects)
             if (GameServer.Core.Protocol.Instance.QuestObject.TransitionableIndex(info.Components) is int index and >= 0)
                 await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, (byte)index, (byte)info.States),
-                    $"0x02ba quest object 0x{id:x} {type.Split('/')[^1]} Transitionable → {info.States} ({why})");
+                    $"0x02bc quest object 0x{id:x} {type.Split('/')[^1]} Transitionable → {info.States} ({why})");
     }
 }

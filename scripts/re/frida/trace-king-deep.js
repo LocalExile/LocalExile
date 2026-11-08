@@ -1,4 +1,4 @@
-// Deep read-only trace of the King's start: every world message that touches the King, the 0x2b9 create blobs (the
+// Deep read-only trace of the King's start: every world message that touches the King, the 0x2bb create blobs (the
 // Animated/StateMachine/Inventories bytes), skill lookups, action begins, the body controller's clip timeline, and
 // memory snapshots of the actor and its animation controller at creation and at the intro.
 //   python scripts/re/frida/run.py Game.patched.exe --log logs/frida-king-deep.jsonl scripts/re/frida/trace-king-deep.js
@@ -85,7 +85,7 @@ function sample(reason) {
   send({ts: now, kind: 'clip', reason, ...s});
 }
 
-// World messages: 0x1ab actions, 0x2b9 create blobs, and the King's animation/state/stats/buff/position messages.
+// World messages: 0x1ab actions, 0x2bb create blobs, and the King's animation/state/stats/buff/position messages.
 Interceptor.attach(at('0x142187480'), {
   onEnter(args) {
     const m = args[1];
@@ -93,7 +93,7 @@ Interceptor.attach(at('0x142187480'), {
     if (op === null) return;
     const id = u32(m, 0x10);
     try {
-      if (op === 0x2b9) {
+      if (op === 0x2bb) {
         const type = u32(m, 0x20);
         const begin = ptrAt(m, 0x28), end = ptrAt(m, 0x30);
         let len = null;
@@ -117,7 +117,7 @@ Interceptor.attach(at('0x142187480'), {
       if (op === 0x1b2) send({ts: stamp(), kind: 'anim-msg', id, kind2: u8(m, 0x20), index: u32(m, 0x24),
         speed: f32(m, 0x28), raw: [u16(m, 0x18), u16(m, 0x1a), u16(m, 0x1c), u16(m, 0x1e), u16(m, 0x20),
           u16(m, 0x22), u16(m, 0x24), u16(m, 0x26), u16(m, 0x28), u16(m, 0x2a)]});
-      else if (op === 0x2ba) send({ts: stamp(), kind: 'component', id, raw: [u16(m, 0x18), u16(m, 0x1a),
+      else if (op === 0x2bc) send({ts: stamp(), kind: 'component', id, raw: [u16(m, 0x18), u16(m, 0x1a),
         u16(m, 0x1c), u16(m, 0x1e), u16(m, 0x20), u16(m, 0x22), u16(m, 0x24), u16(m, 0x26),
         u16(m, 0x28), u16(m, 0x2a), u16(m, 0x2c), u16(m, 0x2e), u16(m, 0x30), u16(m, 0x32),
         u16(m, 0x34), u16(m, 0x36)]});

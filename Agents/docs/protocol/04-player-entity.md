@@ -1,4 +1,4 @@
-# 04 — The player entity: object types, 0x2b9 and the component blob
+# 04 — The player entity: object types, 0x2bb and the component blob
 
 Code: `InstanceEntities.ObjectTypeHash`, `InstanceEntities.CreateObject`, `PlayerObject.Blob()`, `BlobWriter`
 (`src/GameServer.Core/Protocol/Instance/InstanceEntities.cs`). Tests: `InstanceEntitiesTests`. The component order and
@@ -43,12 +43,12 @@ Characters.dat rows (`data/tables/Characters.json`): 0 Marauder `Str/Str`, **1 W
 A key missing from the register makes the world handler log "Unknown object type serialized by server" and create
 nothing.
 
-## 2. S→C 0x2b9: create object
+## 2. S→C 0x2bb: create object
 
 World group (factory `0x1421c6150`, handler `0x142187480`). Class `0x1435dd8f8`, write `0x141fe04d0`, read `0x141fe0520`.
 
 ```
-u16  0x02b9
+u16  0x02bb
 u32  entity id       +0x10   ┐ common entity header (0x141f91f60 / 0x141f92000)
 u32  ordering object +0x14   │ local server sends 0
 u16  checkpoint      +0x18   ┘ local server sends 0
@@ -62,7 +62,7 @@ World/component boundaries in nonzero mode; they are independent of the updated 
 See [World message inputs](../re/projectiles/world-message-inputs.md) for the codec, embedded intake interface,
 ownership/cursor rules and frame-admission gate. Zero values above describe the local server's use.
 
-Handler (`0x142187480`, id 0x2b9): look the type up, build the object with `0x141ebe190(obj, type, id, &blob, world)`
+Handler (`0x142187480`, id 0x2bb): look the type up, build the object with `0x141ebe190(obj, type, id, &blob, world)`
 (0x248 bytes), then if `id == world+0x980` (set by 0x22) the object becomes the **local player** (`world+0x970`,
 `0x141ec2fe0`, event `0xe794fcda`). It is only processed when the world activates, i.e. on 0x21 (see
 [03](03-area-and-world.md#4-world-messages-are-queued-until-the-world-is-active)).
@@ -327,7 +327,7 @@ u32. With 0 nothing else is read.
 | u32 n + n × u32 | → vtable +0x158 | |
 | u8 n + n × (record `0x141e840c0`, u32) | → vtable +0x160 | MicrotransactionCounters.dat |
 
-**Updates (S→C 0x2ba, component index 6):** the vtable +0xa0 reader `0x141e7ee30` (both Player vtables) reads a u16
+**Updates (S→C 0x2bc, component index 6):** the vtable +0xa0 reader `0x141e7ee30` (both Player vtables) reads a u16
 flag word, then one part per set bit; every part is conditional. Bit 0 = u32 **experience**, through the same setter
 `0x141e7f6b0`: it derives the level again and, when it changed, sets "levelled up" (+0x2e8 = new > old) and calls the
 component's vtable +0x108. Other bits: 2 and 8 the two vec16 lists, 0x200 the 9 raw bytes, 4 → +0x1a8 (frame), 0x40 → +0x1aa (portrait),
@@ -383,7 +383,7 @@ stay down on their screens. Peer creation clears the flag and the rotation, and 
 
 ## 6. Gold
 
-S→C **0x2a9** (class `0x14316c420`, read `0x140913050`): u32 BE, the gold shown for the character. The instance dispatcher
+S→C **0x2aa** (class `0x14316c420`, read `0x140913050`): u32 BE, the gold shown for the character. The instance dispatcher
 (case 0xe2, `0x14214dbe1`) keeps it at session +0xc40c (0 in the session constructor `0x142144b50`), where the gold
 respec cost check (`0x140997b10`) and the village gold label (`0x1404ff5d0`) read it, and plays Gold_Spend.ogg when it
 drops. Found with a hardware watchpoint on the field and the dispatcher's disassembly (its decompile fails). The

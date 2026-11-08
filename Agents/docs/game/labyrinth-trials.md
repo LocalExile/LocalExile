@@ -36,8 +36,8 @@ The objects are `server_only` (BaseEvents): the client creates none of them, so 
 
 ## The objects
 
-Each type's 0x2b9 blob follows its own component order (`scripts/re/ot_components.py`); BaseEvents reads nothing
-but counts for the 0x2ba component index.
+Each type's 0x2bb blob follows its own component order (`scripts/re/ot_components.py`); BaseEvents reads nothing
+but counts for the 0x2bc component index.
 
 | Type | Components read | Transitionable index |
 |---|---|---|
@@ -64,7 +64,7 @@ TriggerableBlockage is u8 blocked, then while blocked a u8 count of sections (no
 **What the Gateway does** (`LabyrinthTrials` in the Gateway, `Rules.LabyrinthTrials.cs` in QuestObjects):
 - on entering a trial's area it creates these objects; a door also closes its line across the way between the
   area's spawn and the plaque on the server's walk estimate (`QuestBarriers`, `ClientState.DoorBarriers`);
-- using the trial's door opens it (0x2ba state 2, then 0x1c6 unblocked);
+- using the trial's door opens it (0x2bc state 2, then 0x1c6 unblocked);
 - a lever opens itself and what its room links turn on (below); unlinked (room-points.json's objects), the nearest
   Locked Door that is still closed;
 - the plaque sets the trial's quest flag, opens the portal and opens the Trial Plaque window; a done trial's plaque
@@ -82,7 +82,7 @@ closed (`on_transition_to_2` lowers them, `on_untransition_to_1` lifts them), an
 opens and they run on (live 2026-11-01, the original: as the links say). Without links (`room-points.json`'s objects)
 `LabyrinthTrials.SwitchedSaws` fits it by distance.
 The Gateway pulls the lever both ways (`InstanceState.SetTransitioned`), shuts or opens the nearest `Door_Open` with
-it (0x2ba state 2 or 1, 0x1c6, and its Hull `doorbar_ruinedtemple.ao` ±2.2 × ±8 cells on the server's walk estimate)
+it (0x2bc state 2 or 1, 0x1c6, and its Hull `doorbar_ruinedtemple.ao` ±2.2 × ±8 cells on the server's walk estimate)
 and stops or starts its sawblades; a later entry of the instance finds them as they were left.
 The Crypt's `Switch_Multi` (`num_states = 3`: `create_state_1` and `on_untransition_to_1` play clip 3, state 2 clip 1,
 state 3 disables it) goes both ways as `Switch` does, state 3 unused. Both levers there move the rail switches nearest
@@ -113,7 +113,7 @@ and `disable`.
 
 ## Unblocking a door
 
-TriggerableBlockage has no 0x2ba reader (its vtables' slot 20 is `ret`).
+TriggerableBlockage has no 0x2bc reader (its vtables' slot 20 is `ret`).
 Its own world message is **S→C 0x1c6** (read `0x141fe14b0`, world handler `0x142187480`): the world header, u8
 blocked, and while blocked a u8 count and that many u8 sections.
 Unblocked calls the component's +0xb8 (`0x141e43b60`), which writes back the cells it saved when it blocked unless
@@ -136,7 +136,7 @@ Catacombs, though The Lower Prison's opened. So the Gateway sends the trial door
 (+0x1e7 bit 1: no static position; the client's own Positioned writer `0x141e2fdc0` carries the bit too)
 and 0x08 with 1 (+0x1e6 bit 0x40: a dynamic object that blocks no walker; [04](../protocol/04-player-entity.md)), so
 only the blockage closes their cells.
-The Gateway still removes an opened Locked Door (0x2bb) 1.5 s after its opening, when the bars have lifted, and does
+The Gateway still removes an opened Locked Door (0x2bd) 1.5 s after its opening, when the bars have lifted, and does
 not create it again in that instance.
 
 Where a door's line parts nothing on the server's walk map (the Catacombs: the arrival reached the plaque round some
@@ -268,7 +268,7 @@ in the trial turns it: live 2026-10-31, the lever only opens its door).
 **The blob.** LabyrinthRoomba reads Positioned, Animated, BaseEvents, Stats, Buffs, Movement and Transitionable; the
 flying one Positioned, BaseEvents, Animated, Stats, Buffs and Movement. Movement's reader (`0x141e741e0`) takes u8
 (+0x30), i32 x, i32 y (a cell it sets Positioned to, `0x141e31200`), four u32 (+0x3c, +0x40, +0x4c, +0x50), u8 +0x76
-(non-zero starts its own movement, `0x141e74970`) and u8 +0x77; its 0x2ba slot is `ret`.
+(non-zero starts its own movement, `0x141e74970`) and u8 +0x77; its 0x2bc slot is `ret`.
 The Gateway sends Movement idle at the roomba's cell and moves it itself with **S→C 0x1ba** (rail to rail, following the
 terrain) and 0x1b9 to turn it.
 
@@ -329,8 +329,8 @@ running sawblade cuts as a roomba does: a player within 5 cells (a lane) of its 
 life plus 50% of maximum energy shield a second (our numbers, the roomba's) with that buff on them;
 `/trial_saw_damage <life %> <energy shield %> [<radius>]` (dev) changes them. A stopped one cuts nothing.
 
-**Stopping and starting.** A lever stops a sawblade where it is: 0x2ba Transitionable 2 (its spin winds down) and a
-0x1ba to its own cell. Its `.ot` plays nothing on the way back to state 1, so started again it is removed (0x2bb) and
+**Stopping and starting.** A lever stops a sawblade where it is: 0x2bc Transitionable 2 (its spin winds down) and a
+0x1ba to its own cell. Its `.ot` plays nothing on the way back to state 1, so started again it is removed (0x2bd) and
 created anew there, spinning, and goes on to the rail it was heading for.
 
 ## Spinners

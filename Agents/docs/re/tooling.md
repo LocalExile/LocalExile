@@ -117,12 +117,12 @@ Workflow per run:
 | Script | What it does |
 |---|---|
 | `common.js` | rebases Ghidra VAs (`at(va)`), formats addresses back (`va(p)`), reads the blob reader position (`pos(r)`) and installs `Process.setExceptionHandler` with an image-relative fuzzy backtrace |
-| `trace-player-blob.js` | the 0x2b9 blob bytes, the created object's component vtables in order (`obj+0x10..+0x18`, each slot +0x88) and the reader position around each component deserializer |
+| `trace-player-blob.js` | the 0x2bb blob bytes, the created object's component vtables in order (`obj+0x10..+0x18`, each slot +0x88) and the reader position around each component deserializer |
 | `dump-walkability.js` | hooks `0x1410ddcfd` and writes the area's terrain walkability (`walk-meta.json`, `walk-a.bin` = walkable mask, 5 = walkable; `walk-b.bin`) to `Tools/re/out/`. Used to pick the spawn ([../protocol/03-area-and-world.md](../protocol/03-area-and-world.md) §7) |
 | `trace-pong.js` | the 0x1c read, the send-time queue pop and logger calls after the first 0x1c (used to find the HNC violation) |
 | `trace-missing-files.js` | paths the file lookup `0x1421cc280` fails on (C++ exceptions thrown via `0x1421cc54e`) |
 | `trace-http.js` | every outbound socket send reduced to a plaintext HTTP request line + Host, or the SNI of a TLS ClientHello, plus `connect` targets and `getaddrinfo` names — the shop's web endpoints without decrypting anything. `run.py <name> --follow` waits for a *new* process, so it can catch a client's startup traffic (found `web.poecdn.com` and the empty cosmetics panel) |
-| `check-components.js` | any created object (0x2b9): per component the live vtable, its deserializer and the bytes it consumed, the leftover, and the component that was reading on a Buffer Underflow (section 7) |
+| `check-components.js` | any created object (0x2bb): per component the live vtable, its deserializer and the bytes it consumed, the leftover, and the component that was reading on a Buffer Underflow (section 7) |
 | `trace-skills.js` | every skill added to an ActiveSkillManager (`SkillInstanceAdded` `0x141eea6a0`): id, action id, effect name, backtrace |
 | `trace-skill-stats.js` | stat getter calls (key, value, caller) while a skill action is created or started |
 | `trace-move.js` | server and client Positioned moves (`0x141e34400`): cell, rotation, height, duration, flag bytes |
@@ -167,7 +167,7 @@ call. There is no `cdb`/WinDbg installed.
 - **Component class from a name:** `strexact.py Name` → `Callers.java` on the ASCII address → the static initializer in
   `0x14006xxxx` (`lea rdx,name; lea rcx,pool`) → `Callers.java pool` → factory → ctor vtable. Then confirm with
   Frida, because live objects can use other vtables.
-- **A portal object after the fact:** `python -I scripts/re/portal_capture.py` decodes every `0x02b9` map portal and
+- **A portal object after the fact:** `python -I scripts/re/portal_capture.py` decodes every `0x02bb` map portal and
   `0x008f` portal list in `logs/live-gateway.log` (to `Tools/re/out/portals.json`): position, place index, portal type,
   open flag, the `0x008f` entry's area, portal variation (+0x26) and owner. The Gateway caps a logged hex dump at 96
   bytes, so a six-portal list and a long `.ao` path arrive partial (the capture marks them `truncated`; an effect's
@@ -335,7 +335,7 @@ How 3.29.3b → 3.29.3c was ported; every step maps from evidence, nothing by of
 2. **Message ids.** Run `ComponentRegistry.java`, `ReadSchema.java` and `SendSites.java` (addresses rewritten through
    the map) on the new program, then `compare_messages.py`: S→C factory cases pair by mapped class, C→S sends by
    mapped function and class. Classless ids routed by a handler's own byte table (the world group's Positioned
-   `0x2b0`) are checked in that table.
+   `0x2b2`) are checked in that table.
 3. **Tables.** `compare_tables.py` on both decoded table folders: row moves by key and reordered columns. A saved
    row index needs a migration (`mtx_remap.py` made `CosmeticMigration`).
 4. **The rest by hand.** Code outside any function or in an unmatched one: a masked byte signature found once in each

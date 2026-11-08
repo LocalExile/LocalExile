@@ -200,7 +200,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   none) from a TinyMT32 state keyed by the object id and its type, and the walk estimate, swing range and contact
   checks use that speed; equal bounds retain their fixed percent rather than defaulting to zero.
   The range, the generator and the key order come from the decompile and pass the tests; whether the key's type word
-  is the 0x2b9 type hash, and so whether the exact value matches the client's, is not checked live yet
+  is the 0x2bb type hash, and so whether the exact value matches the client's, is not checked live yet
   (`scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier).
   Code: `MonsterSpeedRoll.cs`, `AnimationVariantSelector.cs`, `MonsterCatalog.cs`, Gateway (`SpawnMonster`).
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §5 ("Monsters on the client").

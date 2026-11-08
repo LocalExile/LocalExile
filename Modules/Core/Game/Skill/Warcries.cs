@@ -66,7 +66,7 @@ static partial class Game
             double now = ProjectileWorldTime(conn);
             foreach (var (id, corpse) in conn.Monsters.Where(e => IsCorpse(e.Value) && Dist(e.Value.Walk.Position(now), at) <= radius).ToList())
             {
-                // Gone for the client (0x2bb below), so gone here too: a later removal (a projectile kill's) must not send it again.
+                // Gone for the client (0x2bd below), so gone here too: a later removal (a projectile kill's) must not send it again.
                 corpse.CorpseConsumed = true;
                 conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
                 conn.Monsters.Remove(id);
@@ -94,9 +94,9 @@ static partial class Game
             lock (conn.Monsters) effect = conn.NextObjectId++;
             art.Add(effect);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()), $"0x02b9 create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})");
+                new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()), $"0x02bb create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb corpse 0x{id:x} ({label}) explodes (Deathrattle)");
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd corpse 0x{id:x} ({label}) explodes (Deathrattle)");
         }
         if (art.Count > 0)
             _ = Task.Run(async () =>

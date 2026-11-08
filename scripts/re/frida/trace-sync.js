@@ -11,7 +11,7 @@
 // - end: an S→C 0x1ac for the local player.
 // - use: the client sent a C→S 0x24/0x25 (0x142166300): the action's sequence and target, and the client's cell.
 // - click: the client asked for an action (0x14215f700). In lockstep nothing starts until the server answers.
-// - gone: an object was removed (0x2bb): its pointer is no longer read.
+// - gone: an object was removed (0x2bd): its pointer is no longer read.
 const m = Process.getModuleByName('Game.patched.exe');
 const at = va => m.base.add(ptr(va).sub(ptr('0x140000000')));
 const k32 = Process.getModuleByName('kernel32.dll');
@@ -67,12 +67,12 @@ Interceptor.attach(at('0x142166300'), {
   }
 });
 
-// The world handler routes 0x2bb to the object's removal; the id is at message +0x10 (07 §4).
+// The world handler routes 0x2bd to the object's removal; the id is at message +0x10 (07 §4).
 Interceptor.attach(at('0x142187480'), {
   onEnter(a) {
     for (const arg of [a[1], a[2]]) {
       try {
-        if (arg.add(8).readU16() !== 0x2bb) continue;
+        if (arg.add(8).readU16() !== 0x2bd) continue;
         const id = arg.add(0x10).readU32();
         if (objects.delete(id)) send({q: q(), gone: id});
         return;

@@ -46,7 +46,7 @@ static partial class Game
         var packets = new List<(byte[] Packet, string? Log)>();
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
         {
-            if (conn.PlayerSent) state.OutputQueue.Add(new([], "0x02ba player quest flags (accepted kill)", Kind: PlayerMinions.OutputKind.QuestFlags));
+            if (conn.PlayerSent) state.OutputQueue.Add(new([], "0x02bc player quest flags (accepted kill)", Kind: PlayerMinions.OutputKind.QuestFlags));
             foreach (var (id, transition) in conn.Layout.AreaTransitions)
             {
                 if (TransitionFlag(conn, transition) is not { } flag || !quest.Effective.Contains(flag)) continue;
@@ -73,7 +73,7 @@ static partial class Game
             xp = (uint)Math.Max(xp, Math.Max(0L, (long)CharacterStats.LevelStarts[required - 1] - conn.Experience));
         if (xp > 0 && RecordExperienceGain(conn, xp) is { } change)
         {
-            state.OutputQueue.Add(new([], $"0x02ba current player experience ({monster.Rarity} {monster.Label} 0x{victimId:x})", Kind: PlayerMinions.OutputKind.Experience));
+            state.OutputQueue.Add(new([], $"0x02bc current player experience ({monster.Rarity} {monster.Label} 0x{victimId:x})", Kind: PlayerMinions.OutputKind.Experience));
             int level = Progression.LevelFor(change.After, CharacterStats.LevelStarts);
             if (level != conn.Pools.Level)
             {
@@ -111,7 +111,7 @@ static partial class Game
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
             state.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-                $"0x02b9 create world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})"));
+                $"0x02bb create world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})"));
             state.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null));
         }
     }

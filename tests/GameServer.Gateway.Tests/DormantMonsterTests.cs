@@ -235,7 +235,7 @@ public class DormantMonsterTests
 
             // PacketHistory owns the plaintext before encryption. Its 48-byte prefix includes the entire initial
             // Positioned XY: common create header18, object/base prefix2, then little-endian X/Y.
-            var creates = Program.HistoryFor(ciphers).Lines().Where(line => line.Contains("=> 0x02b9 ")).Select(line =>
+            var creates = Program.HistoryFor(ciphers).Lines().Where(line => line.Contains("=> 0x02bb ")).Select(line =>
             {
                 var bytes = Convert.FromHexString(line[(line.IndexOf(" B ", StringComparison.Ordinal) + 3)..].TrimEnd('…'));
                 return (Id: BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)),

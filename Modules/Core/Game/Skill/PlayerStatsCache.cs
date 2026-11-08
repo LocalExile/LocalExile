@@ -97,7 +97,7 @@ static partial class Game
 
     // ---- the skill list ----
 
-    // The last full skill list (0x2ba, no removals) this client was sent: the Rage, charge, aura, Fortification, Onslaught,
+    // The last full skill list (0x2bc, no removals) this client was sent: the Rage, charge, aura, Fortification, Onslaught,
     // Rampage and Antiquarian refreshes resend it whole, about 32 KB, at every change of theirs, also when not one skill
     // changed. An unchanged list is left out. The full refresh (SendCharacterStats) always sends and records it.
     sealed class SentSkillList { public byte[]? Bytes; }

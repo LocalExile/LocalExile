@@ -9,7 +9,7 @@ using GameServer.Core.Protocol.Instance;
 /// <see cref="MonsterCatalog.Variety.SpeedRollMax"/>), and the Pathfinding speed is multiplied by 1 + roll / 100.
 /// Most rows have a fixed zero range (nothing is drawn); equal bounds retain their fixed percent. Goatmen roll in
 /// −5..5, so a base of 8 walks at 7.60–8.40, the band measured live. The server draws the same roll for its walk estimate,
-/// so arrival, swing range and contact agree with the client. The type word is taken as the 0x2b9 type hash (the type's
+/// so arrival, swing range and contact agree with the client. The type word is taken as the 0x2bb type hash (the type's
 /// register key), which the client stores at that offset by the research branch's reading; the range is certain,
 /// the exact value is not yet
 /// confirmed live (scripts/re/frida/trace-movement.js prints each monster's seed words, range and multiplier).
@@ -24,7 +24,7 @@ static class MonsterSpeedRoll
         return random.Uniform(min, max);
     }
 
-    /// <summary>The roll for a monster of this variety created with this object id and 0x2b9 type.</summary>
+    /// <summary>The roll for a monster of this variety created with this object id and 0x2bb type.</summary>
     public static int Percent(uint objectId, uint type, MonsterCatalog.Variety variety) =>
         Percent(objectId, type, variety.SpeedRollMin, variety.SpeedRollMax);
 

@@ -223,7 +223,7 @@ public static class InstanceNpcs
 }
 
 /// <summary>
-/// An NPC (Agents/docs/protocol/17-npcs.md): a 0x2b9 object of an NPCs.dat type such as <c>Metadata/NPC/Act1/Tarkleigh</c>.
+/// An NPC (Agents/docs/protocol/17-npcs.md): a 0x2bb object of an NPCs.dat type such as <c>Metadata/NPC/Act1/Tarkleigh</c>.
 /// <c>Metadata/NPC/NPC</c> deserializes Positioned, Animated, BaseEvents, InteractionAction, NPC and MinimapIcon (client
 /// Render + Targetable); 190 NPC types have exactly that list, others add Transitionable and StateMachine.
 /// <para>NPC (slot 17 0x141e75050) reads two u8 (→ +0x20 has dialogue, +0x21 a component index or 0xff). BaseEvents reads nothing.</para>

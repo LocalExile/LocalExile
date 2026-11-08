@@ -202,7 +202,7 @@ static partial class Game
     }
 
     // The totems as the client should see them, from the player tick and after a placement: expired ones die, their Life
-    // (0x1b1), the dead ones' removal (0x2bb), and the aura buff on the player (0x1c1 from the totem, 0x1c2) with his stats.
+    // (0x1b1), the dead ones' removal (0x2bd), and the aura buff on the player (0x1c1 from the totem, 0x1c2) with his stats.
     internal static byte[]? TotemPresentation(ClientState conn)
     {
         lock (conn.Monsters)

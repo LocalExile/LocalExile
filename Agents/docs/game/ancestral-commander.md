@@ -95,7 +95,7 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   Only Enduring Cry has an executor, so only it explodes corpses and opens chests so far.
   - Corpses: a monster killed in this area visit, at zero Life, whose Life type allows corpse use and that no
     explosion has consumed (`SpawnedMonster.CorpseConsumed`).
-    Each explodes once, is removed (S→C 0x2bb, and from the server's monster list, so a projectile kill's later
+    Each explodes once, is removed (S→C 0x2bd, and from the server's monster list, so a projectile kill's later
     removal does not send it again) and hits every living hostile monster within 22 cells of it (PoB's
     `EnemyExplode` radius, grown by area of effect; the game's radius is unverified) for 12% of its maximum Life as
     physical damage.

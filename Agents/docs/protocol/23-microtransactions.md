@@ -87,7 +87,7 @@ worn there). A skin needs an item in its slot.
 
 **Pets.** Pets have no ItemisedVisualEffect row; each `Pet.dat` row names its MtxTypeGameSpecific row and its object
 type (`Id`, e.g. `Metadata/Pet/Kiwi/Basic`). `pet_slot1` / `pet_slot2` (a Pet row + 1, `0x1401093a0` → `0x14010f530`)
-alone spawns nothing (live 2026-10-23): the server creates the pet (0x2b9, `PetObject`). Its .ot chain
+alone spawns nothing (live 2026-10-23): the server creates the pet (0x2bb, `PetObject`). Its .ot chain
 `Metadata/Pet/Pet` deserializes Positioned, Stats, Pathfinding, Buffs, Life, Animated, Actor, PetAi; PetAi (slot 20,
 `0x141e7d410`) is a u32, the owner's object id (→ +0x44), which the client resolves to the entity the pet follows
 (`0x141e7cfb0`). About one pet type in seven adds StateMachine (its shared states and timers from object-types.json),
@@ -108,7 +108,7 @@ the server is expected to start it. The leader's functions (`IdleRelaxed`, `Ente
 rows), which the server spawns. Neither is done yet.
 
 **The portrait.** MicrotransactionSlot 16; `MicrotransactionCharacterPortraitVariations.__col1` is the variation. In
-the world: the Player component's u16 at +0x1aa (the player object, and 0x2ba with flags bit6, reader `0x141e7ee30`);
+the world: the Player component's u16 at +0x1aa (the player object, and 0x2bc with flags bit6, reader `0x141e7ee30`);
 the character panel builds its art from it (`0x14081e730` → `0x142426b00`). On the character selection screen: the
 list entry's U46 (`0x14082e210`), which Auth keeps per character (control op `set_portrait`).
 
@@ -127,7 +127,7 @@ uses `SupporterIconFrame128.dds`). Four rows have no such art, 269, 295, 327 and
 | Party portraits | `0x1402093a0` | the same (`0x14020bdc0`), or the known player's +0xb0 (`0x14020b230`) |
 | Social panel rows | `0x140af6c20` | the known player's +0xb0 |
 
-+0x1a8 is the player object's field and 0x2ba's flags bit 2 (`0x141e7ee30`, which fires the component's listeners when
++0x1a8 is the player object's field and 0x2bc's flags bit 2 (`0x141e7ee30`, which fires the component's listeners when
 it changes). A known player's frame and portrait are 0xa7's second pair ([28](28-player-trade.md) §2).
 
 The client tells the player itself, so the server sends no text. After a pick in slot 16 or 17 the sender's

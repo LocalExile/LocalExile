@@ -584,7 +584,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
             () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
     }
     public bool PlayerSent;
-    // Server frames ended so far (0x2b5).
+    // Server frames ended so far (0x2b7).
     public long ServerFrame;
     public byte[] Carry = [];
     /// <summary>Reads in a row that framed nothing (ClientInbox.UnframedRun).</summary>
@@ -611,8 +611,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public float PortalRotationRadians => PortalRotationDegrees * MathF.PI / 180f;
     public long Ticks;
     public volatile PendingTransfer? PendingTransfer;
-    /// <summary>The 0x29c preview request (Hinekora's Lock): its key, the currency/target it names and the computed
-    /// preview answered by 0x29f. The next 0x71 on that target commits exactly this item.</summary>
+    /// <summary>The 0x29d preview request (Hinekora's Lock): its key, the currency/target it names and the computed
+    /// preview answered by 0x2a0. The next 0x71 on that target commits exactly this item.</summary>
     public (ushort Key, uint InventoryId, uint CurrencyId, uint TargetInventoryId, uint TargetId, uint Seed, Item? Preview)? ForesightRequest;
     public ChooserList? Chooser;
     public ChatCommands? Commands;

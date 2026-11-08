@@ -145,7 +145,7 @@ Other header consumers and indirect notification effects are separate questions.
 - Walk speed (`0x141e7c0b0`): base (`+0x548`) × (1 + key **0xf5** / 100, at least −100). With a flag it is also
   multiplied by (1 + key 0xce6 / 100). It is capped by key **0x44f** (`movement_velocity_cap`) when that is positive.
   Measured live: sending 0xf5 = 200 makes the getter return 200 and the walk visibly faster.
-- The Stats component has no 0x2ba (component update) handler: its vtable slot +0xa0 is a no-op. So 0x1b3 is the way to
+- The Stats component has no 0x2bc (component update) handler: its vtable slot +0xa0 is a no-op. So 0x1b3 is the way to
   change stats.
 
 ## 4. Commands (Gateway, `Program.Commands.cs` `Commands`)
@@ -171,14 +171,14 @@ Both run before `ServerLog`, so their output is JSON lines only.
 | `/atlas_complete <map name or AtlasNode id \| all>`, `/atlas_reset` | Atlas module: marks Atlas maps completed or clears them, saved ([21](21-hideouts.md) §4); one map sends 0x1a4, `all` only saves, reset sends an empty 0x1a3 |
 | `/set_speed <percent>` | 0x1b3 `movement_velocity_+%` = percent − 100 on the player; the server's walk estimate uses 37 × percent / 100 cells/s |
 | `/set_stat <stat name or client key> <value\|off>` | replaces a raw stat or removes its development replacement |
-| `/spawn_mob <row, Id or name>[@level] [friendly] [normal\|magic\|rare\|unique] [name]` | 0x20 + 0x2b9 + 0x1a9 for a MonsterVarieties row at a level (default 1), hostile unless `friendly`, with a rarity and an optional name, a few cells from the player (§5) |
-| `/set_level <1 to 100>` | sets the character's level in the account store (Auth control op `set_level`) and sends it in place: the level's experience to the Player component (0x2ba, [04](04-player-entity.md) §4.6; the client derives the level from it), the level's stats (0x1b3: level, life, mana, accuracy, …, [11](11-skills.md) §4), the skills again (0x2ba Actor) and full life (0x1b1) |
+| `/spawn_mob <row, Id or name>[@level] [friendly] [normal\|magic\|rare\|unique] [name]` | 0x20 + 0x2bb + 0x1a9 for a MonsterVarieties row at a level (default 1), hostile unless `friendly`, with a rarity and an optional name, a few cells from the player (§5) |
+| `/set_level <1 to 100>` | sets the character's level in the account store (Auth control op `set_level`) and sends it in place: the level's experience to the Player component (0x2bc, [04](04-player-entity.md) §4.6; the client derives the level from it), the level's stats (0x1b3: level, life, mana, accuracy, …, [11](11-skills.md) §4), the skills again (0x2bc Actor) and full life (0x1b1) |
 | `/heal` | full life and mana for the player (0x1b1); from 0 it also revives |
 | `/add_xp <amount>` | experience as from a kill: levels up, saved ([15](15-progression.md) §1) |
 | `/passives` | the passive and refund skill points and the allocated passives |
 | `/add_passive_points <n>` | adds n extra passive skill points (the 0x33 `extra_skill_points` field), saved with the character; sends the tree (0x33) |
 | `/add_refund_points <n>` | dev shortcut: adds n refund points (0x33's first u16), saved with the character; sends the tree (0x33). Orbs of Regret also add them (right-click) |
-| `/gold <amount>` | adds gold, or takes it with a negative amount (not below 0); the account's gold (every character of the account shares it), saved and sent as S→C 0x2a9 ([04](04-player-entity.md)); every area entry sends the saved amount too |
+| `/gold <amount>` | adds gold, or takes it with a negative amount (not below 0); the account's gold (every character of the account shares it), saved and sent as S→C 0x2aa ([04](04-player-entity.md)); every area entry sends the saved amount too |
 | `/add_passive <PassiveSkillGraphId>` | allocates one passive node through the same checks as C→S 0x34, saved and sent back (0x33) |
 | `/reset_passives` | refunds every passive, saved, and sends the tree (0x33) |
 | `/resistances` | the character's uncapped and capped fire/cold/lightning/chaos resistance |
@@ -205,7 +205,7 @@ Both run before `ServerLog`, so their output is JSON lines only.
 | `/tp <x> <y> \| <+dx> <+dy> \| <id> \| <name> [n] \| list [filter]` | dev: 0x1b7 teleports the player within the area, for testing without walking. A cell lands on itself when walkable, else on the nearest walkable cell; a value with + or - is relative to the player on that axis. A name (whole, else a part, any case) or id lands next to a monster, NPC, area transition (`transition to <area>`), the `waypoint`, the `arrival` point or an object of the area's walk-map capture (`RhoaChest`, `GlyphWall`: the last part of its object type); `n` picks the n-th of equal names. An NPC also by its type (the NPCs Id's last part: `DiallaRapture`, `SinTukohama`), and the ids `/state` reports for interactive objects (the tutorial chest, Rhoa Nests, Glyph Wall, quest chests and objects) and ground items work too, as do the room objects quest rules watch (`PietyBlockage`), all listed after the others. `/tp list` shows them. The current action ends and the server's position estimate moves with the player (`TeleportTargets.cs`) |
 | `/transition [pos … \| rot <deg> \| z <z \| none> \| model <path \| none> \| index <n>]` | show or change the first area transition (re-created), [08](08-area-transitions.md) §5 |
 | `/mobs` | lists the monsters spawned on this connection; emerge monsters that have not risen are marked "(buried)" or "(lurking)" |
-| `/despawn [all \| <id>]` | S→C 0x2bb (remove object, header only) for the last spawned monster, all of them (buried ones too), or one id |
+| `/despawn [all \| <id>]` | S→C 0x2bd (remove object, header only) for the last spawned monster, all of them (buried ones too), or one id |
 | `/mob_walk [0x<id>] [skill hex]` | 0x1ab: the monster starts its Move action (skill 0x2909) toward the player; it walks, animated, along the client's path |
 | `/mob_move [0x<id>] [cells/s]` | 0x1ba: slides the monster in a straight line (probe; no animation or pathing) |
 | `/mob_tp [0x<id>]` | 0x1b7: teleports the monster next to the player |
@@ -216,7 +216,7 @@ Both run before `ServerLog`, so their output is JSON lines only.
 | `/cosmetic portal <name, number or part of a name>`, `/cosmetic list [filter]`, `/cosmetic off` | the shop's portal effects, as game data ([21](21-hideouts.md) §5). Several effects containing what was typed are listed with their numbers rather than the first being picked |
 
 `/set_stat` names are Stats.dat Ids (client key = row + 1).
-It sends player stats through 0x1b3 with recomputed attack stats, then skills through 0x2ba ([11](11-skills.md)).
+It sends player stats through 0x1b3 with recomputed attack stats, then skills through 0x2bc ([11](11-skills.md)).
 An attribute (`strength`, `dexterity`, `intelligence`) also sets its `virtual_*_for_requirements` value.
 The client's gear and gem checks read that value ([13](13-items.md) section 2d).
 `off` removes the development replacement, including that requirement alias for an attribute name.
@@ -248,7 +248,7 @@ idle (first with an "Unidentified" tag, gone once the identified bit was set). `
 `MonsterCatalog.cs` and the `spawn_mob` command in the Gateway. Tests: `InstanceEntitiesTests.Minimal_monster_blob_layout`,
 `Monster_types_message_and_type_path`.
 
-Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**, **0x1a9**.
+Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**, **0x1a9**.
 
 - **Type.** The object-type register ([04](04-player-entity.md) §1) files every row of the 0x31a-byte table, which is
   **MonsterVarieties.dat** (10 691 rows × 0x31a in 3.29.3b), under the row's `Id` with `BaseMonsterTypeIndex` (row
@@ -265,7 +265,7 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   ```
   Per pair the handler looks the row up (`0x142288c90`, a row index into Data/MonsterVarieties.dat) and registers
   `"<Id>@<level>"` extending the plain Id (`0x141ec2540`; level 0 → the plain Id through `0x141ec28e0`), appending the
-  type to instance `+0xc828`; then it loads the first `preload` new types (`0x140685030`). The 0x2b9 type is then
+  type to instance `+0xc828`; then it loads the first `preload` new types (`0x140685030`). The 0x2bb type is then
   `ObjectTypeHash("<Id>@<level>")`.
   - Without 0x20 (the first live try) the exception is thrown while the components are built (`0x142427510`, before
     the blob is read), and the cleanup then frees a Targetable component that was never created: an access violation
@@ -335,7 +335,7 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
 
     The server raises one:
     In one tick, in GGG's order:
-    1. S→C **0x2ba** to its Transitionable with state 2: `on_transition` makes it targetable.
+    1. S→C **0x2bc** to its Transitionable with state 2: `on_transition` makes it targetable.
     2. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, aimed at itself (flags 0x0880),
        a rising sequence: the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead:
        `grasp_emerge`, 3.7 s).
@@ -371,7 +371,7 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   defaults. Live 2026-10-17: Frost Bishop (1 state, 4 bytes), Arakaali (4 states, 10 bytes) and Haku (8 states, one
   defaulting to 1, and 2 timers: 28 bytes) all consumed exactly. Arakaali showed no hover nameplate: bosses carry
   `boss_life_bar` / `disable_life_bar` / `global_first_aggro` states, probably the top-of-screen boss bar on aggro.
-- **Removal.** S→C **0x2bb** (world group, header only: `u16 id, u32 object id, u32 0, u16 0`) removes the object;
+- **Removal.** S→C **0x2bd** (world group, header only: `u16 id, u32 object id, u32 0, u16 0`) removes the object;
   live 2026-10-17 `/despawn` and `/despawn all` removed spawned monsters.
 - **Movement** (live 2026-10-17). **S→C 0x1ab "action started"** on the monster, with the Move skill **0x2909**
   (the same id as the player's Move: a basic action every Actor has, Monster.ot `basic_action = "Move"`), sequence
@@ -407,10 +407,10 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   pool (`0x141e69fb0`) and calls the Life component's death slot (vtable +0xe8) when life goes from ≥ 1 to < 1, revive
   (+0x100) the other way. Each hit takes the unarmed damage (2–5 for the Witch) at the swing's contact point, after the
   player has walked into range; the timing is in [11](11-skills.md) §5. A dead monster's life bar is hidden
-  (`hide_mini_life_bar`) and the monster is removed (0x2bb) 10 s later. Monsters hit back with
+  (`hide_mini_life_bar`) and the monster is removed (0x2bd) 10 s later. Monsters hit back with
   their own skill ([11](11-skills.md) §6).
 - **Placement.** The nearest walkable cell 6–20 cells from the server's estimate of the player; ids from 0x3000. The
-  world is active, so 0x2b9 is created at once; 0x1a9 puts it in the wake zone.
+  world is active, so 0x2bb is created at once; 0x1a9 puts it in the wake zone.
 
 ## 6. Chat servers
 

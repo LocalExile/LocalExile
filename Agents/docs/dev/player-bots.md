@@ -50,7 +50,7 @@ does not know is deleted, and no other account ever is, whatever its name.
 - **Walking**: a glide (0x1ba MoveTo) slides a standing body; a Move action (0x1ab) makes the client walk it.
 - **Stance**: the client picks an actor's animation set (`FUN_141e97190`: `"Town"` in a town or with `use_town_stance`,
   else the weapon's) when its Inventories component changes, not when the object is created (Frida, 2026-11-01).
-  An observer therefore gets the peer's equipment (0x2ba) right after creating it, for the town stance (not yet verified live).
+  An observer therefore gets the peer's equipment (0x2bc) right after creating it, for the town stance (not yet verified live).
 - **Party kick**: the native member-menu action sends C→S `0x94` with a compact wide string containing the selected
   account (`0x140aba4c0`), not `0x97` (promote leader). Confirmed through the actual party portrait menu.
 

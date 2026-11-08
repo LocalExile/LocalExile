@@ -27,7 +27,7 @@ TRACED = [
     ("ObjectMagicProperties (slot 20)", "0x141e77990", 4, 4, "base part 3 + own flags 1"),
     ("MinimapIcon (slot 20)", "0x141e6f5d0", 1, 1, ""),
     ("InteractionAction", "0x141e1e240", 1, 1, ""),
-    ("S→C 0x2b9 read", "0x141fe0520", 18, 16, "+ the blob16 (u16 length + bytes): 16 + 2"),
+    ("S→C 0x2bb read", "0x141fe0520", 18, 16, "+ the blob16 (u16 length + bytes): 16 + 2"),
 ]
 
 
@@ -83,7 +83,7 @@ def dispatch_cases():
         pe = pefile.PE(EXE, fast_load=True)
         data = open(EXE, "rb").read()
         off = pe.get_offset_from_rva(0x142154e14 - pe.OPTIONAL_HEADER.ImageBase)
-        table = data[off:off + 0x2ed]
+        table = data[off:off + 0x2ef]
         default = max(set(table), key=table.count)
         return {i + 0xd: c for i, c in enumerate(table) if c != default}
     except Exception:

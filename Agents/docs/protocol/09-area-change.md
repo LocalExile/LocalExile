@@ -12,9 +12,9 @@ sequenceDiagram
     participant G as Gateway (instance A)
     participant A as Auth (registry, tickets)
     C->>G: 0x24 use skill 0x0266 on exit object (flags 0x0408)
-    G->>C: 0x2b2 change area (dest HASH16, loading screen)
+    G->>C: 0x2b4 change area (dest HASH16, loading screen)
     Note over C: "Entering The Coast", loading screen
-    C->>G: 0x2cb (870 bytes, once)
+    C->>G: 0x2cd (870 bytes, once)
     G->>A: control "transfer" (ticket, area, instance/new)
     A-->>G: new ticket, instance, seed
     G->>C: 0x27 connect to instance (host, port, ip, ticket, area, key)
@@ -23,11 +23,11 @@ sequenceDiagram
 ```
 
 With Ctrl held, 0x24's flags are 0x040c. The server then answers 0xae (instance list). The client opens the chooser and
-answers 0xaf with the row it picked. After that the flow is the same as a plain click, from 0x2b2 on.
+answers 0xaf with the row it picked. After that the flow is the same as a plain click, from 0x2b4 on.
 
 ## 2. Why 0x27 and not login 0x14
 
-The first attempt pushed login 0x14 from Auth after 0x2cb. The client dispatched it (`0x14213f190`, case 0x14), but the
+The first attempt pushed login 0x14 from Auth after 0x2cd. The client dispatched it (`0x14213f190`, case 0x14), but the
 listener list at login+0x298 is **empty** in game (checked with Frida). Nothing in game listens to the login connection
 for instance details. Login 0x14 is only handled at character select (`0x140d0df10` → `0x140d59b70`).
 
@@ -50,17 +50,17 @@ So the old instance server tells the client where to go next.
 `u32 target object id, u16 skill (0x0266 = interact), u16 sequence, u16 flags`. Flags are 0x0408, or 0x040c with Ctrl
 (bit 0x0004). The client repeats it while nothing happens, so the Gateway ignores repeats while a transfer is pending.
 
-### S→C 0x2b2 — change area
+### S→C 0x2b4 — change area
 
 Class `0x1435bfee0`, write `0x141f92980`, dispatcher case 0xe8. Fields: `u16 destination WorldAreas.HASH16, u16
 LoadingScreenOverrides row` (0 = the area's default). The handler shows the loading screen and calls `0x142148690`. That
-function sends 0x2cb once (flag +0xcd4a) and flushes. An unknown hash is fatal.
+function sends 0x2cd once (flag +0xcd4a) and flushes. An unknown hash is fatal.
 
-### C→S 0x2cb — leaving (870 bytes)
+### C→S 0x2cd — leaving (870 bytes)
 
-Sent once after 0x2b2 (writer `0x141f9fa50`): u16 id, u16 BE byte count, then that many bytes (u16 6 and 0x360 bytes, so
+Sent once after 0x2b4 (writer `0x141f9fa50`): u16 id, u16 BE byte count, then that many bytes (u16 6 and 0x360 bytes, so
 870 in all). Their content is not decoded. The Gateway frames it by that count and takes it as the signal to transfer.
-If no 0x2cb arrives, the Gateway transfers anyway after 2 s.
+If no 0x2cd arrives, the Gateway transfers anyway after 2 s.
 
 ### S→C 0x27 — connect to instance
 
@@ -127,8 +127,8 @@ keeps the ids of the last list it sent (`ChooserList`).
   so a Gateway that stopped without sending `leave` (a restart, a crash) does not keep its players' instances alive.
 - **Gateway**:
   - Ctrl+click → `list` → 0xae.
-  - 0xaf or a plain click → 0x2b2.
-  - 0x2cb → `transfer` → 0x27 with the key for the new ticket.
+  - 0xaf or a plain click → 0x2b4.
+  - 0x2cd → `transfer` → 0x27 with the key for the new ticket.
   - On the new connection, `resolve` gives the area and seed. Layout: `data/walkability/<id>_seed<seed>.bin` + `.json`.
     The player arrives next to the exit leading back to the area they left (`AreaLayout.Arrival`, `SpawnNear`'s
     nearest walkable cell 6–20 cells away). `Transfer` remembers that area per destination ticket
@@ -161,7 +161,7 @@ keeps the ids of the last list it sent (`ChooserList`).
 
 - Named entrance points for the other one-way entries ([Roadmap](../../roadmap/world.md) "One-way entries").
 - The Coast's own exits (back to town, to The Mud Flats) and the exits of other areas.
-- 0x2cb's layout, 0x27's u32 +0x34 and u8 +0x88, 0xae's u8 fields.
+- 0x2cd's layout, 0x27's u32 +0x34 and u8 +0x88, 0xae's u8 fields.
 - After 0x153 the client's log says "Abnormal disconnect: An unexpected disconnection occurred." (nothing on screen).
   The official server probably sends a disconnect message (S→C 0x26? [10](10-chat-and-commands.md)) with a code that
   has no text before it closes; not needed for the exit to work.

@@ -95,7 +95,7 @@ All four groups in the client share the generic handle slot `0x14299e300` and di
 |---|---|---|
 | `0x1435d8b50` | `0x14219c350` | login |
 | `0x1435d9d98` | `0x1421b5c40` | **instance** (about 300 ids) |
-| `0x1435da300` | `0x1421c6150` | **world** (ids 0x51, 0x84, 0x161, 0x1a8–0x1d3, 0x1f0/1, 0x22f/230, 0x261/262, 0x26f–271, 0x285, 0x2b5–0x2c6) |
+| `0x1435da300` | `0x1421c6150` | **world** (ids 0x51, 0x84, 0x161, 0x1a8–0x1d3, 0x1f0/1, 0x22f/230, 0x261/262, 0x26f–271, 0x285, 0x2b7–0x2c8) |
 | `0x14363eb88` | `0x1428f74d0` | NetworkFile mode (`0x1428e9a60`) |
 
 `0x14299e300(group, id, stream)`: id 0 → the group's owner slot 0 with a null message. Otherwise the group's
@@ -111,7 +111,7 @@ for the original factory/header/intake composition and its verification boundari
 
 ## 6. The instance dispatcher
 
-`0x14214a190(this+8, stream, msg)`: `switch(byte_table_0x142154e14[id − 0x0d])` for 0x0d ≤ id < 0x2fa. Ids that hit the
+`0x14214a190(this+8, stream, msg)`: `switch(byte_table_0x142154e14[id − 0x0d])` for 0x0d ≤ id < 0x2fc. Ids that hit the
 default case do nothing. `scripts/re/dispatch_ids.py` prints the mapping. The cases used so far:
 
 | Id | Case | What it does | Doc |
@@ -155,7 +155,7 @@ every 0x1b with 0x1c, whose u32 must carry idle HNC bytes: see [07](07-latency-v
 1. read until `TryReadOpening` succeeds (30 bytes) → `keyring.Ciphers(opening.Ticket)`
 2. send `00 11` plaintext
 3. send `AreaInstance(1, 0x235c, seed 1, level 0)` encrypted (0x1d)
-4. decrypt and hex-log client bytes. On the first chunk starting `00 7D`: send 0x22, 0x2b9, 117 × 0xc0, 0x3d and,
+4. decrypt and hex-log client bytes. On the first chunk starting `00 7D`: send 0x22, 0x2bb, 117 × 0xc0, 0x3d and,
    if `Game_GATEWAY_ENTER=1`, 0x21 (see [03](03-area-and-world.md), [04](04-player-entity.md), [05](05-inventories-and-ui.md))
 
 ### Fixed-message boundaries across TCP reads

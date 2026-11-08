@@ -49,7 +49,7 @@ static partial class Game
                 if (ApplyMonsterHitLocked(conn, m, damage, allyAt: at) is not { } hit) continue;
                 hits.Add((id, m, hit));
             }
-            // The explosion consumes the killed monster: the native client removes its corpse at once (0x2bb), and a
+            // The explosion consumes the killed monster: the native client removes its corpse at once (0x2bd), and a
             // warcry may not use a corpse that an explosion already took.
             corpse.CorpseConsumed = true;
             conn.Monsters.Remove(corpseId);
@@ -59,10 +59,10 @@ static partial class Game
             $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(at.X, at.Y, KillExplosionAo).Blob()),
-            $"0x02b9 create effect 0x{effect:x} {KillExplosionAo} at ({at.X}, {at.Y})");
+            $"0x02bb create effect 0x{effect:x} {KillExplosionAo} at ({at.X}, {at.Y})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
         await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(corpseId),
-            $"0x02bb corpse 0x{corpseId:x} ({corpse.Label}) explodes");
+            $"0x02bd corpse 0x{corpseId:x} ({corpse.Label}) explodes");
         SendAfter(KillExplosionArtMs / 1000.0, async () =>
         {
             if (conn.Closed || conn.LeavingArea) return;

@@ -74,17 +74,17 @@ dispatcher copies it to instance `+0xc804`. We send `0x22 0x00001000`.
 ## 4. World messages are queued until the world is active
 
 The world group's handler `0x142187480` returns at once unless `world+0xb7a` is set. While the world is inactive,
-world messages (0x2b9 among them) go into a list at `world+0x9e0`. `0x142183670` (world vtable +0x1c8) is the
+world messages (0x2bb among them) go into a list at `world+0x9e0`. `0x142183670` (world vtable +0x1c8) is the
 activation:
 
 1. `world+0x968` = the caller (the instance client), then `0x142189120` and `0x141ebf050`
 2. **sets `+0xb7a`, replays every queued message through `0x142187480`, frees them, clears `+0xb7a`**
    and sets `+0xa00=1`, admitting later nonzero-mode frame delimiters; see
    [World message inputs](../re/projectiles/world-message-inputs.md)
-3. takes the local player `world+0x970` (set while replaying 0x2b9, see [04](04-player-entity.md)) and looks up its
+3. takes the local player `world+0x970` (set while replaying 0x2bb, see [04](04-player-entity.md)) and looks up its
    **"Player" component without a null check**, then registers listeners on it
 
-So 0x22 + 0x2b9 without 0x21 is harmless: the client only queues them, which was verified live (no reaction). **0x21 is
+So 0x22 + 0x2bb without 0x21 is harmless: the client only queues them, which was verified live (no reaction). **0x21 is
 what triggers parsing the player.** Sending 0x21 without a valid player object crashes the client.
 
 Other writers of `+0xb7a`: `0x142183ce0` (sets it, at `0x142183d20`) and a clear at `0x142184579`.

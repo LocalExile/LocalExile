@@ -22,7 +22,7 @@ static partial class Game
         Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: league quest flag(s) {string.Join(", ", wanted)} {(on ? "set" : "cleared")}");
         if (!conn.PlayerSent) return;
         await Send(remote, stream, ciphers, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(all)),
-            $"0x02ba player league quest flags: {string.Join(", ", all)}");
+            $"0x02bc player league quest flags: {string.Join(", ", all)}");
     }
 
     // Sets or clears quest flags for the character (saved at once) and sends the player's flag set again; one change at a
@@ -99,7 +99,7 @@ static partial class Game
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "current quest flags", Kind: PlayerMinions.OutputKind.QuestFlags));
         else
-            await Send(remote, stream, ciphers, [], "0x02ba player quest flags (current)", atGate: () => QuestFlagPresentation(conn));
+            await Send(remote, stream, ciphers, [], "0x02bc player quest flags (current)", atGate: () => QuestFlagPresentation(conn));
         if (ChangesResistancePenalty(change.Changed) || ChangesQuestStats(change.Changed))
             await SendCharacterStats(remote, stream, ciphers, conn, "quest static reward stats changed");
         // Quest passive and refund points (QuestStaticRewards) are in the tree's numbers.
@@ -112,7 +112,7 @@ static partial class Game
         // The quest engine's objects and chests whose state follows a flag (World/Quest/QuestEngine.cs).
         await UpdateQuestObjectStates(remote, stream, ciphers, conn, change.Effective);
         foreach (uint id in change.Removed)
-            await Send(remote, stream, ciphers, [], $"0x02bb remove room object 0x{id:x} (quest flag set)", atGate: () =>
+            await Send(remote, stream, ciphers, [], $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
             { lock (conn.Monsters) return conn.Closed || conn.LeavingArea || conn.QuestRoomObjects.ContainsKey(id) ? null : InstanceProtocol.RemoveObject(id); });
     }
 
@@ -216,10 +216,10 @@ static partial class Game
             if (shown)
             {
                 await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()),
-                    $"0x02b9 create area transition 0x{id:x} {transition} ({why})");
+                    $"0x02bb create area transition 0x{id:x} {transition} ({why})");
                 await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             }
-            else await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove area transition 0x{id:x} ({why})");
+            else await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove area transition 0x{id:x} ({why})");
         }
     }
 
@@ -316,7 +316,7 @@ static partial class Game
             else conn.RemoveBlocker(PassageBlockerFirstId + (uint)i);
     }
 
-    // PlacedGlyphs as the client has it changed: the wall and the waterfall play their transition (0x2ba to
+    // PlacedGlyphs as the client has it changed: the wall and the waterfall play their transition (0x2bc to
     // Transitionable), and the invisible blockers leave the server's walk estimate (the client drops its own when it gets
     // the flag). Cleared (dev): the other way.
     internal static async Task ChangeSubmergedPassage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool open)
@@ -330,6 +330,6 @@ static partial class Game
         foreach (var (id, what) in new[] { (conn.GlyphWallId, "Glyph Wall"), (conn.GlyphWaterId, "waterfall") })
             if (id != 0)
                 await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, GlyphQuest.TransitionableIndex, state),
-                    $"0x02ba {what} 0x{id:x} Transitionable → {state}");
+                    $"0x02bc {what} 0x{id:x} Transitionable → {state}");
     }
 }

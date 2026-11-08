@@ -50,7 +50,7 @@ u8                      +0x29   (bool)
 ```
 
 `AddInventory(id, slot)` = `00C0 00 <id BE> <kind> <row> <w> <h> 00 00 00 00`. The Gateway sends ids 1..117, one per
-row, after 0x2b9 and before 0x21. Live: all 117 registered, and no lookup returned null afterwards.
+row, after 0x2bb and before 0x21. Live: all 117 registered, and no lookup returned null afterwards.
 
 The other inventory messages: 0xc1 (case 0x36, `0x141d62700` → `0x141d623b0`, removes an inventory and notifies its listeners; used for stash tabs), 0xc2 (case 0x37,
 `0x141d62710`), 0xc3 (case 0x38, `0x142173fc0`: walks inventories for socketed skill gems, "Sockets"/"SkillGem"),
@@ -147,7 +147,7 @@ completion does not award points yet (dev: `/atlas_points <n>`).
 
 ## 5. What the UI did not need (so far)
 
-With 0x22 + 0x2b9 + 117 × 0xc0 + 0x3d + 0x21 the HUD came up: life/mana orbs, flask bar (5 empty slots), skill bar
+With 0x22 + 0x2bb + 117 × 0xc0 + 0x3d + 0x21 the HUD came up: life/mana orbs, flask bar (5 empty slots), skill bar
 (Q W E R T, mouse), minimap, clock, "MENU", "SHOP". The chat logged "Timeout while joining trade chat channel" and "Timeout while joining
 global chat channel". There's no chat server, which is harmless. One C++ exception was
 thrown and caught during the UI build; its backtrace went through `0x1421cc54e` → `0x140e4a5f2` → `0x14220d7c3` →

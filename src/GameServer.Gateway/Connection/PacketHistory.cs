@@ -29,8 +29,8 @@ sealed class PacketHistory
     /// <summary>Messages recorded since the connection opened (more than Capacity once the oldest are dropped).</summary>
     public long Count { get { lock (gate) return count; } }
 
-    // The clock messages, several a second, would push everything else out: C→S 0x1b ticks and S→C 0x2b5 frame ends.
-    public static bool Kept(bool sent, ushort id) => sent ? id != 0x02b5 : id != 0x001b;
+    // The clock messages, several a second, would push everything else out: C→S 0x1b ticks and S→C 0x2b7 frame ends.
+    public static bool Kept(bool sent, ushort id) => sent ? id != 0x02b7 : id != 0x001b;
 
     public void Received(ushort id, ReadOnlySpan<byte> bytes) => Add(sent: false, id, bytes);
 

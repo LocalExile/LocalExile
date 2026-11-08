@@ -81,7 +81,7 @@ G = global / static data.
 | `0x1400f24b0` / `0x14013f1e0` | Fn | world's first local entity / its "Player" component |
 | `0x1435da300` | Vt | world handler group |
 | `0x1421c6150` | Fn | world S→C factory |
-| `0x142187480` | Fn | world message handler (0x2b9 create, …) |
+| `0x142187480` | Fn | world message handler (0x2bb create, …) |
 | `0x142188cc0` | Fn | registers the world group on the instance pump |
 | `0x142183670` | Fn | world activation (world vtable +0x1c8): replay queue |
 | `0x141d83fb0` → `0x141d7c4c0` | Fn | spatial index insert (23×23 buckets, no bounds check) |
@@ -93,7 +93,7 @@ G = global / static data.
 | `0x141ec18c0` | Fn | build the register from dat tables |
 | `0x1424f7520` / `0x1424f76c0` / `0x1416719b0` | Fn | register add / insert / lookup |
 | `0x1424748a0` → `0x140df8570` | Fn | narrow path → MurmurHash2 |
-| `0x1435dd8f8` (write `0x141fe04d0`, read `0x141fe0520`) | Cls | 0x2b9 create object |
+| `0x1435dd8f8` (write `0x141fe04d0`, read `0x141fe0520`) | Cls | 0x2bb create object |
 | `0x141f91f60` / `0x141f92000` | Fn | entity header write / read |
 | `0x141ebe190` | Fn | create object from blob |
 | `0x141ebdf30` | Fn | create a client-side object (id from the world): the client's own predicted projectiles ([11](11-skills.md#10-projectiles-experimental)) |
@@ -116,14 +116,14 @@ G = global / static data.
 | `0x14346e558` / `0x142192a80`, slot 20 `0x1421932b0` | Vt / Fn | comp9 |
 | `0x1435a6ba0`, `0x1435a0078`, `0x143468920`, `0x14346c238` | Vt | Pathfinding, comp7, comp10, comp11 |
 | `0x1400f0f00` | Fn | empty `ret` (no-op slot) |
-| `0x141e3f4a0` | Fn | StateMachine update reader (vtable `0x1435da8b8` / `0x1435a14e0` +0xa0, S→C 0x2ba): the creation blob's states and timers again; changed values run their events (boss life bar, [12](12-quests.md) §6) |
+| `0x141e3f4a0` | Fn | StateMachine update reader (vtable `0x1435da8b8` / `0x1435a14e0` +0xa0, S→C 0x2bc): the creation blob's states and timers again; changed values run their events (boss life bar, [12](12-quests.md) §6) |
 | `0x141e42410` | Fn | Transitionable component constructor: state `+0x120` = 1, `+0x121` = the type's `transition_on_damage_taken` |
 | `0x141e42a80` | Fn | Transitionable .ot keys: `num_states` (2..127, else "That number of states is unsupported"), `transition_on_damage_taken` |
 | `0x141e42d50` | Fn | Transitionable type constructor (vtable `0x1435a0a60`): `num_states` (`+0xb0`) defaults to **2** ([10](10-chat-and-commands.md) §5, emerge monsters) |
 | `0x141d876e0` | Fn | TriggerableBlockage: blocks the cells of the Animated model's footprint at the object's grid position ([12](12-quests.md) §6) |
-| `0x1421c2310` | Fn | Transitionable update reader (vtable `0x1435dd290` +0xa0, S→C 0x2ba): u8 target state, steps toward it ([12](12-quests.md) §6) |
+| `0x1421c2310` | Fn | Transitionable update reader (vtable `0x1435dd290` +0xa0, S→C 0x2bc): u8 target state, steps toward it ([12](12-quests.md) §6) |
 | `0x141e44290` | Fn | TriggerableBlockage reader: u8 blocked, then only while blocked u8 count + count × u8 |
-| `0x141fe14b0` | Fn | S→C 0x1c6 reader: TriggerableBlockage's own update (it has no 0x2ba reader); u8 0 → +0xb8 `0x141e43b60` (unblock), else +0xb0 with the sections ([labyrinth-trials](../game/labyrinth-trials.md)) |
+| `0x141fe14b0` | Fn | S→C 0x1c6 reader: TriggerableBlockage's own update (it has no 0x2bc reader); u8 0 → +0xb8 `0x141e43b60` (unblock), else +0xb0 with the sections ([labyrinth-trials](../game/labyrinth-trials.md)) |
 | `0x141e43200` | Fn | TriggerableBlockage .ot keys: `start_blocked` +0x10, `disable_save` +0x11, `shunt_objects_away` +0x12 (`save_as_diff` not kept) |
 | `0x141d88690` | Fn | stamps objects' Hulls (`0x141d876e0`): some types always, the others only while their TriggerableBlockage is blocked |
 | `0x141ee0ba0` | Fn | blob task lookup by u16 task type (registry), used by the tasks reader `0x141ee00f0` |
@@ -305,7 +305,7 @@ G = global / static data.
 | `0x140a9a7d0` / `0x140a9aa90` | Fn | connection lines: only between two shown pins |
 | `0x141e83340` | Fn | flag set reader (u16 n × (u8 block, u64 bits)); Player +0x1b8 quest flags, +0x1d0 |
 | `0x14012aae0` | Fn | flag set test `(set, bit)` |
-| `0x141e7ee30` | Fn | Player component update reader (0x2ba): u16 flags, 0x02 quest flags, 0x08 league quest flags, 0x10 Hideouts keys, 0x200 9 bytes, 0x01 experience |
+| `0x141e7ee30` | Fn | Player component update reader (0x2bc): u16 flags, 0x02 quest flags, 0x08 league quest flags, 0x10 Hideouts keys, 0x200 9 bytes, 0x01 experience |
 | `0x141e1c550` | Fn | HideoutDoodad reader: u32 MTX hash, u8 variation, u8 flag, only when the object's data +0x14e is set (in hideouts) |
 
 ## Hideouts ([21](21-hideouts.md))
@@ -327,7 +327,7 @@ G = global / static data.
 | `0x14078fc90` | Fn | AtlasNode set lookup (instance +0xcff0 / +0xd030 / +0xd070) |
 | `0x140786d90` | Fn | Atlas node state updater: completed (+0x9cb/+0x9ce) when the node is in instance +0xd070 |
 | `0x140dcd9a0` / `0x140dce1f0` / `0x140dce290` | Fn | open the map device window (modes 0xd, 0x5e, 0x56; lists +0x1778, +0x17f8, +0x1878) |
-| `0x140c2a1c0` | Fn | map device window: Activate button (mode 0xd → `0x142166480`, mode 0x5e → C→S 0x296) |
+| `0x140c2a1c0` | Fn | map device window: Activate button (mode 0xd → `0x142166480`, mode 0x5e → C→S 0x297) |
 | `0x142166480` | Fn | C→S 0x00d8 Activate: u16 (target +0x7b), u8 (writer class `0x1435bff20`) |
 | `0x1435dcc00` (read `0x1421a0a00`, write `0x1421a08a0`) | Cls | S→C 0x008f the map device's portals (dispatcher case 0x21) |
 | `0x142186070` | Fn | 0x008f handler: per portal PortalClient +0xb8, `on_map_portal_opened` / `on_map_portal_closed` |
@@ -406,8 +406,8 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x14215fb10` / `0x14215fcb0` / `0x14215fe50` | Fn | C→S lockstep 0x0192 (new dx, dy) / 0x0195 (release) / 0x0196 (release a skill) |
 | `0x142183930` | Fn | world update: lockstep runs the queued server frames (deque `+0x9c0`, count `+0x9d8`), catching up × 1.01–5 |
 | `0x142183ce0` | Fn | world step (vtable `+0x360`): one server frame's messages, then the objects' ticks |
-| `0x1421872b0` | Fn | world message intake: queues messages; S→C 0x2b5 ends a frame (pushes world `+0x11c` ms), 0x2b6 sets it |
-| `0x141645fa0` | Fn | S→C 0x2b6: world `+0x11c` = the frame length in ms |
+| `0x1421872b0` | Fn | world message intake: queues messages; S→C 0x2b7 ends a frame (pushes world `+0x11c` ms), 0x2b8 sets it |
+| `0x141645fa0` | Fn | S→C 0x2b8: world `+0x11c` = the frame length in ms |
 | `0x14190faf0` | Fn | config `networking_type` → network mode (0 predictive, 2 lockstep, 3 auto) |
 
 
@@ -590,7 +590,7 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x141e3495b` to `0x141e3496b` | Code | Move endpoint world z = -marker * 7.8125 before render interpolation |
 | `0x141e4d510` | Fn | Render interpolation setup: stores endpoint world z minus current world z |
 | `0x142042360` | Fn | create one client-side doodad from a placed record (grid x, y +0, +4; angle +0x14; type +0x30; .ao +0x38): rooms' doodads too ([14](14-monster-packs.md) §3) |
-| `0x14214dbe1` | Fn | instance dispatcher case 0xe2 (S→C 0x2a9 gold, read `0x140913050`, u32 BE): stores it at session +0xc40c, plays Gold_Spend.ogg when it drops |
+| `0x14214dbe1` | Fn | instance dispatcher case 0xe2 (S→C 0x2aa gold, read `0x140913050`, u32 BE): stores it at session +0xc40c, plays Gold_Spend.ogg when it drops |
 | `0x140d62ec0` | Fn | 0xb8 listener on the UI state: flags bit 0 → +0x984 = other party, +0x988 = 1 (the active trade) |
 | `0x14030e3e0` | Fn | Ctrl + click on an inventory item: with +0x988 set sends 0xb2 x = y = 0xff (`0x142166660`), else the other panels' checks |
 | `0x140dc8750` | Fn | S→C 0x7b kind 0x5f: the character's passive tree (UI +0x650); u32 ≠ 0 → mode 2 (`0x1409de680`) |

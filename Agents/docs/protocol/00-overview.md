@@ -47,7 +47,7 @@ sequenceDiagram
     Note over C: generates 1_1_town
     C->>G: 0x7d tile hash, doodad hash
     G->>C: 0x22 local player id
-    G->>C: 0x2b9 create object (the Witch, component blob)
+    G->>C: 0x2bb create object (the Witch, component blob)
     G->>C: 117 × 0xc0 add inventory (one per Inventories.dat row)
     G->>C: 0x3d Atlas tree presets, 0x33 Passive Skill Tree
     G->>C: 0x21 enter area
@@ -68,11 +68,11 @@ sequenceDiagram
 | [01-login.md](01-login.md) | login connection: handshake, framing, message set, our login server, live flow |
 | [02-instance-connection.md](02-instance-connection.md) | instance connect path, opening, encryption switch, read loop, handler groups, dispatcher, state machine |
 | [03-area-and-world.md](03-area-and-world.md) | 0x1d area, 0x7d, world message queueing, 0x22, 0x21, enter-area handler, spatial index |
-| [04-player-entity.md](04-player-entity.md) | object type register, MurmurHash2 key, 0x2b9, component blob, each component's serializer |
+| [04-player-entity.md](04-player-entity.md) | object type register, MurmurHash2 key, 0x2bb, component blob, each component's serializer |
 | [05-inventories-and-ui.md](05-inventories-and-ui.md) | inventory manager, 0xc0, Inventories.dat, 0x3d Atlas tree presets, UI prerequisites |
 | [07-latency-visibility-movement.md](07-latency-visibility-movement.md) | tick/ack 0x1b/0x1c, the HNC side channel, wake zone 0x1a9 (visibility), movement 0x25/0x1ab, world object messages |
 | [08-area-transitions.md](08-area-transitions.md) | exit objects (AreaTransition) placed in an area |
-| [09-area-change.md](09-area-change.md) | changing area: 0x24 → 0x2b2 → 0x2cb → 0x27, instance chooser 0xae/0xaf, instance registry |
+| [09-area-change.md](09-area-change.md) | changing area: 0x24 → 0x2b4 → 0x2cd → 0x27, instance chooser 0xae/0xaf, instance registry |
 | [10-chat-and-commands.md](10-chat-and-commands.md) | chat input 0x15, server text (0x0d message box, 0x12d notices), stats update 0x1b3, dev slash commands |
 | [06-debugging-log.md](06-debugging-log.md) | chronological log of every live run, crash and fix |
 | [address-index.md](address-index.md) | every client address used, by area |
@@ -86,7 +86,7 @@ are the working notes these documents were consolidated from. When they disagree
 
 - **Message framing** (login and instance): `u16 id` big-endian, then fields, no length prefix and no terminator. A
   reader has to know every layout. Field encodings are in [01-login.md](01-login.md#field-encodings).
-- **Message fields are big-endian. The 0x2b9 component blob is little-endian** (it is read with memcpy).
+- **Message fields are big-endian. The 0x2bb component blob is little-endian** (it is read with memcpy).
 - `+0x…` means a field offset inside the client object named in context (message object, component, instance client).
   Message objects store `u16 id` at `+8` and fields from `+0x10`.
 - "Case N" means a case of the instance dispatcher's switch, which is not the message id. `scripts/re/dispatch_ids.py`

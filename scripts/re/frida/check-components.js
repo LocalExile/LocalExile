@@ -1,4 +1,4 @@
-// Paste after common.js. Verifies any object the server sends (S->C 0x2b9, CreateObject 0x141ebe190): for every
+// Paste after common.js. Verifies any object the server sends (S->C 0x2bb, CreateObject 0x141ebe190): for every
 // component it logs which vtable and deserializer ran and the bytes it consumed, then what was left in the blob.
 //
 // Two kinds of probes:

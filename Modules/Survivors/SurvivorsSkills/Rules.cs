@@ -148,7 +148,7 @@ static partial class SurvivorsSkills
         float remaining = (float)Math.Clamp(interval, 0, total);
         await Send(remote, stream, ciphers,
             InstanceEntities.PlayerSingleUseCooldowns(PlayerId, [new SingleUseCooldownUpdate(id, remaining, total, 1f)]),
-            $"0x02ba survivors cooldown 0x{id:x4} {remaining:0.00}/{total:0.00} s", still: () => ownership.Current);
+            $"0x02bc survivors cooldown 0x{id:x4} {remaining:0.00}/{total:0.00} s", still: () => ownership.Current);
     }
 
     /// <summary>True when a skill id is one of the run's skills: a click on its bar slot must not become a walk.</summary>
@@ -619,7 +619,7 @@ static partial class SurvivorsSkills
         await Send(remote, stream, ciphers,
             InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(x, y, ao).Blob()),
-            $"0x02b9 survivors herald {label} effect 0x{id:x} {ao} at ({x}, {y})", still: () => ownership.Current);
+            $"0x02bb survivors herald {label} effect 0x{id:x} {ao} at ({x}, {y})", still: () => ownership.Current);
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null, still: () => ownership.Current);
         _ = Task.Run(async () =>
         {
@@ -684,7 +684,7 @@ static partial class SurvivorsSkills
         await Send(remote, stream, ciphers,
             InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(at.X, at.Y, SurvivorsOrbArt) { Scale = SurvivorsOrbScale }.Blob()),
-            $"0x02b9 survivors xp orb 0x{id:x} {experience} xp at ({at.X}, {at.Y})",
+            $"0x02bb survivors xp orb 0x{id:x} {experience} xp at ({at.X}, {at.Y})",
             still: () => StateOf(conn).Survivors is not null);
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null,
             still: () => StateOf(conn).Survivors is not null);
@@ -766,7 +766,7 @@ static partial class SurvivorsSkills
         await Send(remote, stream, ciphers,
             InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(x, y, SurvivorsDeathZoneArt).Blob()),
-            $"0x02b9 survivors death zone 0x{id:x} at ({x}, {y})",
+            $"0x02bb survivors death zone 0x{id:x} at ({x}, {y})",
             still: () => StateOf(conn).Survivors is not null);
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null,
             still: () => StateOf(conn).Survivors is not null);

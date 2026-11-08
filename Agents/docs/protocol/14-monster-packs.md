@@ -37,7 +37,7 @@ This is a local seed derivation; the official server population RNG and placemen
 
 ## 2. Spawning
 
-`SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2b9 with the
+`SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2bb with the
 rarity in ObjectMagicProperties, 0x1a9 wake zone, and the monster joins the AI (chase, first granted effect as its
 attack). Its mods (§5) set its life, hit, speed and defences.
 A magic or rare monster then gets its glow, a 0x1c1 buff with no optional fields (`MonsterRarityBuffs`):
@@ -52,7 +52,7 @@ per-rarity mask at type +0xc9 (bits normal 1, magic 2, rare 4, unique 8); what r
 (`InstanceStore`) saves each living monster's variety, level, rarity, mods, team, life and current position (its walk
 estimate, `SavedMonster.Save`); dead ones are not saved. The next connection into that instance re-creates exactly
 those monsters instead of planning the packs: where they were (a dragged group stays a group), idle until the player
-comes within aggro range, and a damaged one gets its life with 0x1b1 right after its 0x2b9. A buried emerge monster
+comes within aggro range, and a damaged one gets its life with 0x1b1 right after its 0x2bb. A buried emerge monster
 is kept buried; one that has risen comes back risen (Transitionable state 2). Only a new instance plans
 fresh packs. The saved state goes with the instance's ground items: kept in the Gateway's memory and wiped when the
 instance expires.

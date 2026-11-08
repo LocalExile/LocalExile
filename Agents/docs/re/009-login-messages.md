@@ -93,7 +93,7 @@ raw64 +0xd0, raw64 +0xd8, raw64 +0xc8, bytes[3] +0xe0..e2, u8 +0xc0, u8 +0xc1, r
 | 0x3d | 0x1435d8b68 / 0x14213cee0 | 0x142140890 | wstr, wstr, bool |
 | 0x3f, 0x40 | 0x1435bf650 (inline) | 0x142140d70, 0x142140e60 | wstr |
 | 0x42 | inline | 0x142140810 | u8 |
-| 0x45 | inline (class 0x1435c01b8's layout) | 0x1400f50f0 | blob string. Sent when not in an instance; in an instance the same function sends instance 0x2fa with the string |
+| 0x45 | inline (class 0x1435c01b8's layout) | 0x1400f50f0 | blob string. Sent when not in an instance; in an instance the same function sends instance 0x2fc with the string |
 | 0x46 | inline | 0x140d14690 | u32 (0) |
 
 The account login (0x03) is written field by field. MachineIdA (struct +0x54) comes **before** the password digest

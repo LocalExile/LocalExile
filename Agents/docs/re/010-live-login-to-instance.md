@@ -93,21 +93,21 @@ The capture decodes completely: `000F 00000000` + `000E 76240850BFE2B4956AD1D6B0
 - **S→C 0x22** (dispatcher case 0xb, class `0x14316c420`, u32): sets `world+0x980` (local player entity id, setter
   `0x142186fa0`) and `instance+0xc7fc`.
 - **World handler group**: vtable `0x1435da300`, factory `0x1421c6150`, handler `0x142187480` (ids 0x51, 0x84, 0x161,
-  0x1a8–0x1d3, 0x1f0/1, 0x22f/230, 0x261/262, 0x26f–271, 0x285, 0x2b5–0x2c6). The four handler groups share the
+  0x1a8–0x1d3, 0x1f0/1, 0x22f/230, 0x261/262, 0x26f–271, 0x285, 0x2b7–0x2c8). The four handler groups share the
   generic handle slot `0x14299e300`: login `0x1435d8b50`, instance `0x1435d9d98`, world `0x1435da300` and
   NetworkFile `0x14363eb88`.
-- **S→C 0x2b9 create object** (class `0x1435dd8f8`, write `0x141fe04d0`): u16 id, entity header (u32 entity id +0x10,
+- **S→C 0x2bb create object** (class `0x1435dd8f8`, write `0x141fe04d0`): u16 id, entity header (u32 entity id +0x10,
   u32 +0x14, u16 +0x18; `0x141f91f60`), u32 object type +0x20, blob16 component data +0x28. The type is looked up in a
   runtime-filled sorted map at `world+0x8d8` (`0x1416719b0`; a missing type → no object), so some message must register
   types first (not found yet). The blob is parsed by `0x141ebe190`: u8 flags (bit0 → +0x8c|0x80, bit1 → +0x8d|2), then
   `0x141dea920`, then each component's vtable+0x88 deserializer in .ot order, then `0x141ee00f0`. If the entity id
   equals `world+0x980`, the object becomes the local player (`world+0x970`).
-- So the target order is: 0x11 → 0x1d → (C→S 0x7d) → 0x22 player id → [type registration] → 0x2b9 player object →
+- So the target order is: 0x11 → 0x1d → (C→S 0x7d) → 0x22 player id → [type registration] → 0x2bb player object →
   0x21 enter area. The real-server log shows "Joined guild …" and "You have entered Highgate." after "Set Source".
 
 ## Player entity (static + live, 2026-10-16)
 Implemented in `src/GameServer.Core/Protocol/Instance/InstanceEntities.cs` (`ObjectTypeHash`, `SetLocalPlayer`,
-`CreateObject`, `PlayerObject.Blob()`), tests `InstanceEntitiesTests`. The Gateway answers C→S 0x7d with 0x22 + 0x2b9,
+`CreateObject`, `PlayerObject.Blob()`), tests `InstanceEntitiesTests`. The Gateway answers C→S 0x7d with 0x22 + 0x2bb,
 and also 0x21 when `Game_GATEWAY_ENTER=1`.
 
 ### Object types need no registration message
@@ -121,10 +121,10 @@ and also 0x21 when `Game_GATEWAY_ENTER=1`.
 ### World messages are queued until 0x21
 - The world handler `0x142187480` drops nothing: while `world+0xb7a` is 0, messages are queued (`world+0x9e0` list).
   `0x142183670` (world vtable +0x1c8, called from the 0x21 handler `0x142156d80`) sets `+0xb7a`, **replays the
-  queue** (so 0x2b9 is only parsed when 0x21 arrives), then reads the local player's Player component without a check.
-- So 0x22 + 0x2b9 without 0x21 is harmless (verified live: no reaction). 0x21 triggers everything.
+  queue** (so 0x2bb is only parsed when 0x21 arrives), then reads the local player's Player component without a check.
+- So 0x22 + 0x2bb without 0x21 is harmless (verified live: no reaction). 0x21 triggers everything.
 
-### 0x2b9 component blob (little-endian; reader `0x141ebe190`)
+### 0x2bb component blob (little-endian; reader `0x141ebe190`)
 u8 object flags · base data (`0x141dea920`: u8 n, n × (raw u32, u8, sub-data)) · for each of the type's components
 its vtable+0x88 deserializer · tasks (`0x141ee00f0`: u8 n, n × (u16 task id, …)).
 Component classes have no RTTI. Each has a static descriptor/pool, registered by name in an initializer
@@ -164,10 +164,10 @@ sequence after the client's 0x7d:
 | # | S→C | What it does |
 |---|---|---|
 | 1 | 0x22 u32 0x1000 | local player id |
-| 2 | 0x2b9 create object | the Witch, blob in the traced component order (167 bytes, consumed exactly) |
+| 2 | 0x2bb create object | the Witch, blob in the traced component order (167 bytes, consumed exactly) |
 | 3 | 117 × 0xc0 | an empty inventory per Inventories.dat row (UI looks inventories up by row from 409 call sites) |
 | 4 | 0x3d flags 0x1c | creates the 3 per-character slots at instance+0xc2f8 (probably passive trees), read by UI `0x140785160` |
-| 5 | 0x21 | enter area → world activation (replays 0x2b9) → `0x142156d80` → state 3 |
+| 5 | 0x21 | enter area → world activation (replays 0x2bb) → `0x142156d80` → state 3 |
 
 How it was found: REA's Frida session (`start_frida_session` attach + `load_frida_script`) with an exception handler
 (`Process.setExceptionHandler`, image-relative backtrace) and `Interceptor` hooks on each component deserializer

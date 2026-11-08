@@ -37,8 +37,8 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
 - **How 0x1d was found:** the real-server log in `Client.txt` (February) has "Client-Safe Instance ID" and "Generating
   level"; `xr.py` on those strings → dispatcher case 6 → factory case 0x1d → write function `0x1421415c0`.
 
-### 3. 0x22 + 0x2b9, no 0x21 (12:09)
-- **Sent:** after 0x7d: 0x22 (player id 0x1000) and 0x2b9 with a static-analysis blob (parent components first).
+### 3. 0x22 + 0x2bb, no 0x21 (12:09)
+- **Sent:** after 0x7d: 0x22 (player id 0x1000) and 0x2bb with a static-analysis blob (parent components first).
 - **Saw:** nothing (no reaction, no error, client stayed connected).
 - **Learned:** world messages are queued until world activation (`world+0xb7a`), which only 0x21 triggers.
 
@@ -162,7 +162,7 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
   `data/ggpk-root-hash.backup.txt`), then `GameServer.Patch gateway --login 127.0.0.1:20493` again.
 
 ### Monster without a level (12:17)
-- **Sent:** 0x2b9 type `ObjectTypeHash("Metadata/Monsters/Zombies/ZombieBite")`, 198-byte blob, 0x1a9.
+- **Sent:** 0x2bb type `ObjectTypeHash("Metadata/Monsters/Zombies/ZombieBite")`, 198-byte blob, 0x1a9.
 - **Saw:** "Not Responding", then an access violation at `0x14161d166` (Targetable's deleter, null component).
   `check-components.js` showed a C++ throw at blob position 0 from `0x141e6fd6f`, the Monster factory: "Creating
   monster with no level". The deleter crash is the cleanup of the half-built object.
@@ -170,7 +170,7 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
   row (dispatcher case 9 → `0x141ec2540`). See [10](10-chat-and-commands.md) §5.
 
 ### Monsters in town (12:40)
-- **Sent:** 0x20 (row 1159, level 13), then 0x2b9 with `ZombieBite@13`, three times.
+- **Sent:** 0x20 (row 1159, level 13), then 0x2bb with `ZombieBite@13`, three times.
 - **Saw:** three Hungry Corpses next to the player, idle, tagged "Unidentified". Each blob: 11 components exactly as
   predicted from the .ot and schema.md, 198 bytes consumed, 0 left.
 

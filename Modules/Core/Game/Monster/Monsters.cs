@@ -69,7 +69,7 @@ static partial class Game
         return new(clip.Animation, clip.ContactFraction ?? 0.5, point, Has("action_should_face_away_from_target"));
     }
 
-    // Creates one monster: registers its type at this level (0x20, once per connection), creates it (0x2b9) and puts it in
+    // Creates one monster: registers its type at this level (0x20, once per connection), creates it (0x2bb) and puts it in
     // the wake zone (0x1a9), and keeps it for the AI. /spawn_mob, the area's packs (PopulateArea) and the player's minions
     // (extra stats on its Stats component; owned runs under the lock that adds it) use it. Its object id.
     internal enum MonsterPlacement { Proposed, Established }
@@ -215,7 +215,7 @@ static partial class Game
         {
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks,
         };
-        // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2b9 type is its hash.
+        // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2bb type is its hash.
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "quest phase monster type", Kind: PlayerMinions.OutputKind.MonsterType,
                 MonsterType: ((ushort)variety.Row, level)));
@@ -236,7 +236,7 @@ static partial class Game
         bool admitted = false;
         byte[] create = InstanceEntities.CreateObject(id, type, monster.Blob());
         string? createLog = !log ? null :
-            $"0x02b9 create {rarity}{(friendly ? " friendly" : "")}{(waits ? $" {emerge.ToString().ToLowerInvariant()}" : "")} monster 0x{id:x} {variety}{(name is null ? "" : $" \"{name}\"")} type=0x{type:x8} at ({x}, {y}), life {life}, speed {walkSpeed:0.##}{(speedRoll == 0 ? "" : $" (roll {speedRoll:+0;-0}%)")}, components {string.Join(", ", variety.ComponentsOrBase)}";
+            $"0x02bb create {rarity}{(friendly ? " friendly" : "")}{(waits ? $" {emerge.ToString().ToLowerInvariant()}" : "")} monster 0x{id:x} {variety}{(name is null ? "" : $" \"{name}\"")} type=0x{type:x8} at ({x}, {y}), life {life}, speed {walkSpeed:0.##}{(speedRoll == 0 ? "" : $" (roll {speedRoll:+0;-0}%)")}, components {string.Join(", ", variety.ComponentsOrBase)}";
         if (owned is not null)
         {
             await Send(remote, stream, ciphers, [], createLog, atGate: () =>
@@ -256,7 +256,7 @@ static partial class Game
             await Send(remote, stream, ciphers, create, createLog);
             // A boss far from the player (Dominus at the top of the Sceptre, created at the area entry) stays out of the
             // wake zone until the player comes near: KeepWakeZone wakes it there. Woken at creation, the client put its far
-            // copy to sleep on its own while the server still had it awake, and the boss life bar (0x2ba boss_life_bar) for
+            // copy to sleep on its own while the server still had it awake, and the boss life bar (0x2bc boss_life_bar) for
             // it crashed the client at 0x14012946a (an Actor lookup on an object without components, live 2026-11-05).
             bool farBoss = variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
             if (farBoss) lock (conn.Monsters) conn.AsleepMonsters.Add(id);
@@ -1074,7 +1074,7 @@ static partial class Game
     // reaction. Paused work keeps its original generation and resumes only while that generation still exists.
     // A lockstep client applies an order at the start of the frame its 0x1ab goes out in, so a lockstep order's walk is
     // placed here, in the send gate under conn.Monsters: at the start of the frame being sent (the frame advances in
-    // the frame end's own gate, so an order written after a 0x2b5 sees the new frame), after the steps the walk the
+    // the frame end's own gate, so an order written after a 0x2b7 sees the new frame), after the steps the walk the
     // client is still running takes in the frames before it (StepWalkers), from the cell they leave the walker on,
     // which the order reports.
     // Placed by the plan instead, a walk whose 0x1ab a frame end overtook (the AI pass and the frame loop are separate
@@ -1232,8 +1232,8 @@ static partial class Game
     // When an order written now in its send gate (under conn.Monsters) starts on the client. A lockstep client starts it at
     // the start of the frame its 0x1ab goes out in, before any object ticks (07 §6), so an in-place attack is dated there
     // (its contact and BusyUntil follow) and placed there, after the steps of the frames before it, as a walk is
-    // (LockstepOrderFrom). Those steps are usually replayed already (the plan's pass and the frame pass after each 0x2b5
-    // step the walkers to the frame's start); a gate that runs between a 0x2b5 and that frame pass still has the frame
+    // (LockstepOrderFrom). Those steps are usually replayed already (the plan's pass and the frame pass after each 0x2b7
+    // step the walkers to the frame's start); a gate that runs between a 0x2b7 and that frame pass still has the frame
     // before it to replay, where a step the client found blocked would otherwise leave the from cell a step ahead.
     internal static double LockstepOrderStart(ClientState conn, double now)
     {

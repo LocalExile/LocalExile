@@ -154,7 +154,7 @@ Nothing yet.
   Not checked live yet: several gems in one item, the second weapon set.
 - **Gem level-up and the lock (checked with the real client).** Clicking the "+" sends C→S 0x31 (inventory, item,
   socket; 14 bytes); the server writes the next threshold into the gem, replaces the item (0xbf) and re-sends the
-  skills (0x02ba Actor), so the client derives the new level and its numbers at once, and refuses a gem at its last
+  skills (0x02bc Actor), so the client derives the new level and its numbers at once, and refuses a gem at its last
   level, a locked one, or one whose next level's requirements the character does not meet (`LevelUpGem`;
   the client's "+" check does not test them, so the server answers with the missing level or attribute).
   A right-click sends C→S 0xd7 (the same three u32s and a u8 lock flag;

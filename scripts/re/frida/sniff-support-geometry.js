@@ -21,7 +21,7 @@
 //           component is [[obj+8]+0x98].
 //   place   0x141e31e90 (Positioned, int cell[2], ...): the cell a recently created effect was placed at. These are
 //           Spell Cascade's extra areas.
-//   create  S->C 0x2b9 object create (0x141ebe190): object id, metadata path and cell.
+//   create  S->C 0x2bb object create (0x141ebe190): object id, metadata path and cell.
 //   proj    Projectile component constructor (0x141e37850): the projectile entity.
 //   path    Positioned movement update (0x141e32710) of a projectile created in this window: cell, at most 24 per
 //           entity.
@@ -40,7 +40,7 @@ const at = va => image.base.add(ptr(va).sub(base));
 const EXPECTED = {
   // 0x1421940a0  Actor 0x1ab handler (trace-actions.js).
   '0x1421940a0': '48895c24085556574154415541564157',
-  // 0x141ebe190  0x2b9 create handler (trace-projectile-create.js).
+  // 0x141ebe190  0x2bb create handler (trace-projectile-create.js).
   '0x141ebe190': '48895c241048894c2408565741564883',
   // 0x141ebdf30  client-side object create (sniff-bloodsoaked-vanguard.js).
   '0x141ebdf30': '48895c241848894c2408555657415641',
@@ -237,7 +237,7 @@ try {
   send({ t: stamp(), attached: '0x141e31e90' });
 } catch (e) { send({ t: stamp(), hookError: 'placeAttach', message: String(e) }); }
 
-// --- 0x2b9: S->C object creation -------------------------------------------
+// --- 0x2bb: S->C object creation -------------------------------------------
 if (check('0x141ebe190')) {
   try {
     Interceptor.attach(at('0x141ebe190'), {
@@ -247,7 +247,7 @@ if (check('0x141ebe190')) {
           let type = '?';
           try { type = typePath(args[1].readPointer()); } catch (e) { }
           const id = hex8(args[2].toInt32() >>> 0);
-          // The 0x2b9 blob carries the object's own fields; an effect's AO path is in it as UTF-16. Dump it so the
+          // The 0x2bb blob carries the object's own fields; an effect's AO path is in it as UTF-16. Dump it so the
           // Arrow Nova payload's effect (not just its generic ServerEffect type) can be named.
           let blob = null, paths = [];
           try {

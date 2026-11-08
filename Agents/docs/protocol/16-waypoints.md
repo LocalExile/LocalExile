@@ -16,14 +16,14 @@ Code: `InstanceWaypoints`, `WaypointObject` (`src/GameServer.Core/Protocol/Insta
 sequenceDiagram
     participant C as Client
     participant G as Gateway
-    G->>C: 0x2b9 Waypoint object (0x2f00) + 0x1a9
+    G->>C: 0x2bb Waypoint object (0x2f00) + 0x1a9
     G->>C: 0x4c activated waypoints (bitset)
     Note over C,G: the player walks within 25 cells
-    G->>C: 0x2ba Player quest flags, 0x4c with the area's bit (client plays the activation)
+    G->>C: 0x2bc Player quest flags, 0x4c with the area's bit (client plays the activation)
     C->>G: 0x24 on 0x2f00 (skill 0x0266)
     G->>C: 0x7b kind 0 (open the World panel for travel)
     C->>G: 0x4d travel (area HASH16, u32, Ctrl)
-    G->>C: 0x2b2 change area … 0x27 (as an area transition, 09 §1)
+    G->>C: 0x2b4 change area … 0x27 (as an area transition, 09 §1)
     Note over C,G: new connection: the player is created next to the destination's waypoint
 ```
 
@@ -75,11 +75,11 @@ waypoint is activated, then changes area like an area transition, or with Ctrl l
 The destination ticket is remembered (`WaypointArrivals`); that connection creates the player on a walkable cell 6–20
 cells from the area's waypoint.
 
-### S→C 0x2ba to the Player component — quest flags
+### S→C 0x2bc to the Player component — quest flags
 
 The Player component (`ClientPlayer`, vtable `0x143466450`, 04 §3) keeps the character's **quest flags**: a set at
 +0x1b8 (and a second one at +0x1d0). Format (`0x141e83340`; test `0x14012aae0`): u16 count, then per block of 64 flags in
-ascending order u8 block (flag >> 6) and u64 LE bits. A flag is a QuestFlags.dat row. The creation blob (0x2b9) carries
+ascending order u8 block (flag >> 6) and u64 LE bits. A flag is a QuestFlags.dat row. The creation blob (0x2bb) carries
 both sets after name, class, experience, u32, u16, u16; the update reader `0x141e7ee30` takes u16 flags, **bit1 (0x02)
 = the quest-flag set again**, bit3 the second set, bit9 the 9 bytes at +0x1e8, bit0 experience (15 §1).
 

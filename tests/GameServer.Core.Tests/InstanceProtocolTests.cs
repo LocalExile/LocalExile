@@ -121,8 +121,8 @@ public class InstanceProtocolTests
         var click = InstanceProtocol.ReadLockstepMoveStart(Convert.FromHexString("018E00000029FFFFFFEF2909040200"));
         Assert.Equal((41, -17, (ushort)0x2909, (ushort)0x0402, (byte)0), click);
         Assert.Equal((-17, -2), InstanceProtocol.ReadLockstepMoveUpdate(Convert.FromHexString("0192FFFFFFEFFFFFFFFE")));
-        Assert.Equal("02B5", Convert.ToHexString(InstanceProtocol.FrameEnd()));
-        Assert.Equal("02B621", Convert.ToHexString(InstanceProtocol.FrameLength(33)));
+        Assert.Equal("02B7", Convert.ToHexString(InstanceProtocol.FrameEnd()));
+        Assert.Equal("02B821", Convert.ToHexString(InstanceProtocol.FrameLength(33)));
         Assert.Equal("01AD00001000000000000000FFFF0000007BFFFFFFFE",
             Convert.ToHexString(InstanceProtocol.ActionTarget(0x1000, 0xffff, 123, -2)));
     }

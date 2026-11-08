@@ -27,7 +27,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     public static bool CanSerialize(IReadOnlyList<string> components) =>
         components.Count > 0 && components[0] == "Positioned" && components.All(Supported.Contains);
 
-    /// <summary>The index of the Transitionable component (for 0x2ba updates), or −1.</summary>
+    /// <summary>The index of the Transitionable component (for 0x2bc updates), or −1.</summary>
     public static int TransitionableIndex(IReadOnlyList<string> components) => components.ToList().IndexOf("Transitionable");
 
     public byte[] Blob()

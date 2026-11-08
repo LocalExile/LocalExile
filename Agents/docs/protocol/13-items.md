@@ -647,8 +647,8 @@ Scroll Fragments → a Scroll of Wisdom.
 
 `Metadata/MiscellaneousObjects/WorldItem` (`WorldItemObject`): Positioned, BaseEvents (nothing), Animated (u8 0),
 WorldItem, InteractionAction (u8 0). WorldItem `0x141ea10a0`: u32 a (non-zero → one more u32), u8 (+0x50), u32
-ItemVisualIdentity HASH16 override (0 = the item's), then the item data without its length prefix. Created with 0x2b9 +
-wake zone 0x1a9 at the player's estimated cell, removed with 0x2bb.
+ItemVisualIdentity HASH16 override (0 = the item's), then the item data without its length prefix. Created with 0x2bb +
+wake zone 0x1a9 at the player's estimated cell, removed with 0x2bd.
 The WorldItem u8 at +0x50 marks a fresh drop: `0x141ea15a0` dispatches it through the client override
 `0x1415e3870`, which permits drop audio only when non-zero. Fresh drops send 1; area replay and partial-stack
 replacement send 0 so already-grounded items do not replay their sound. Filter rules still decide alert/suppression.
@@ -974,18 +974,18 @@ reads the flag at item `+0x2c0` and shows the purple glow and the Lock tooltip t
 (`ItemErrorAlreadyHasHinekorasLock`, 6984); normal, magic, gem, corrupted, mirrored, unmodifiable and
 already-foreseeing items are refused before spending. `Item.Foreseeing`/`ForeseeSeed` are saved with the item.
 
-When a currency is used on a foreseeing item the client sends an **unframed C→S 0x029c** (20 bytes):
+When a currency is used on a foreseeing item the client sends an **unframed C→S 0x029d** (20 bytes):
 
 ```
-u16 0x029c, u16 key (BE, the client's +0xe1fa counter), u32 currency inventory, u32 currency item,
+u16 0x029d, u16 key (BE, the client's +0xe1fa counter), u32 currency inventory, u32 currency item,
 u32 target inventory, u32 target item (all BE)
 ```
 
 Captured: `029C 0001 00000001 0000054D 00000001 0000054F` = key 1, Orb of Alchemy 1357 on wand 1359. Sender
 `0x14216d5f0`, reader `0x141f9e8a0`; it only sends when both inventories are the player inventory (`client+0xc9d0`).
-The client sends 0x71 immediately after the 0x29c on the same use: 0x29c asks for the preview, 0x71 is the commit.
+The client sends 0x71 immediately after the 0x29d on the same use: 0x29d asks for the preview, 0x71 is the commit.
 
-The answer is **S→C 0x029f CurrencyApplicationForesightResult**: `u16 0x029f`, `u16 BE keyA` (the 0x29c key),
+The answer is **S→C 0x02a0 CurrencyApplicationForesightResult**: `u16 0x02a0`, `u16 BE keyA` (the 0x29d key),
 `u16 raw status` (0: preview, non-zero: failure; 0x04FA is the client's own fail code), `u64 raw count`, then
 `count × item` (u16 BE length + `Item.Payload`). Handler `0x1421544c1`, reader `0x141fa1c50`, writer
 `0x141fa1b50`. The handler builds `{keyA, status, vector<Item>}` and dispatches it to the item popup's listener
@@ -999,8 +999,8 @@ preview item and the committed item are byte-for-byte the same payload. Bench, H
 currency clear the state; a refused modification keeps it.
 
 The client's preview popup is the item popup's foresight element (`HinekoraForesightPopupIcon`,
-`HinekorasLockFutureSight`). The item popup's controller sends 0x29c when a currency is used in use mode on a
-foreseeing item; 0x29f status 0 shows the preview, any non-zero status plays `HinekorasLockFail`. The server-side
+`HinekorasLockFutureSight`). The item popup's controller sends 0x29d when a currency is used in use mode on a
+foreseeing item; 0x2a0 status 0 shows the preview, any non-zero status plays `HinekorasLockFail`. The server-side
 preview/commit identity and all refusal/persistence rules are covered by the Gateway tests. See
 [the evidence](../re/hinekora-lock.md).
 
@@ -1096,7 +1096,7 @@ item overrides remain open. No extracted-data changes are required.
 
 ## 6. Equipment on the character: visuals, attributes, gem skills
 
-**What the model wears** is the player's Inventories component (index 8, reader `0x141e1ee30`, also as a 0x2ba update):
+**What the model wears** is the player's Inventories component (index 8, reader `0x141e1ee30`, also as a 0x2bc update):
 u8 n × (u8 slot, record `0x1424f44e0`), then u8 m × u16. The slot is Inventories.dat column 7 (Weapon1 0, Offhand1 1,
 BodyArmour1 2, Helm1 4, Gloves1 5, Boots1 6, Ring1 8, Ring2 9, Belt1 10, Amulet1 11). The record: u8 type (**0 = empty**,
 nothing more; else the item's ItemClasses row + 1, the weapon type skills check, 11-skills.md §10a), two (u16 ItemVisualIdentity HASH16, u32 TieredMicrotransactions key, u8) references (`0x1424f3fc0`,
@@ -1104,7 +1104,7 @@ nothing more; else the item's ItemClasses row + 1, the weapon type skills check,
 ItemVisualIdentity HASH16 (`0x1424f4730`), u8. The Gateway sends every visible slot, empty ones with tag 0: a slot left
 out keeps what the model showed before (the unequipped wand stayed in the hand).
 The player object's own list does not set how a two-handed weapon is held: after every area load it was held one-handed
-(live 2026-10-22). The Gateway sends the same list again as a 0x2ba update right after the player and the skill bar, as
+(live 2026-10-22). The Gateway sends the same list again as a 0x2bc update right after the player and the skill bar, as
 after an equip (verified live 2026-10-22).
 
 **Weapon swap (verified with a live trace, 2026-10-22).** The client sends C→S 0xdd (3 bytes, `0x1421690f0`): u8 the
@@ -1482,7 +1482,7 @@ mods or the jewel's stats, where the player or the struck monster stands (radii 
   the last moment any of the player's grounds covered him (left, or the ground ended); a death ends it.
 - A stationary player with `consecrated_ground_while_stationary_radius` (or its Strength or Crusader variant, the
   largest as the client's 0x1428d43a0) has one consecrated ground of that radius where he stands: made when his walk
-  ends, removed (0x2bb) when he walks, dies or is in a town. `RunPlayerTick` starts the ticker while the radius is set.
+  ends, removed (0x2bd) when he walks, dies or is in a town. `RunPlayerTick` starts the ticker while the radius is set.
   Rational Doctrine's `consecrated_ground_while_stationary_radius_if_highest_attribute_is_strength` is that Strength
   variant; `your_consecrated_ground_effect_lingers_for_ms_after_leaving_the_area` keeps its effect on the player for
   the listed time after he leaves the ground.

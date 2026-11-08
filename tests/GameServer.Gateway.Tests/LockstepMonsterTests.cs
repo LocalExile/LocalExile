@@ -125,7 +125,7 @@ public class LockstepMonsterTests : IDisposable
         // A hit's recovery holds the client's monster (0x141e8d900): a chase that comes meanwhile waits, and the monster's
         // own tick starts it in the frame that ends the recovery, after the player's tick. A 1.0 s 0x1d1 written in the
         // frame from 1.023 ends in the frame 31 later, from 2.046: nothing is ordered in it, even with the clock past its
-        // end before its 0x2b5 has gone out, and the chase in the next frame, from 2.079, starts at once and tests the
+        // end before its 0x2b7 has gone out, and the chase in the next frame, from 2.079, starts at once and tests the
         // player's cell after his step in the frame from 2.046, 8.1 cells off (7.3 before it), so it walks up instead of
         // swinging.
         var hurtConn = Connection(lockstep: true);
@@ -225,7 +225,7 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal([0x3004u], plan.Swings.Select(s => s.Id));
         Assert.True(shooter.Walk.Moving(6.6));
         // Its order starts at the start of the frame it goes out in, from where the steps before it leave it. Written after
-        // the 0x2b5 that ended the frame from 0.099 and before that frame's steps were replayed: the Drowned's step at
+        // the 0x2b7 that ended the frame from 0.099 and before that frame's steps were replayed: the Drowned's step at
         // 0.105 blocks the Spitter's to (50, 55) at 0.100, so it shoots from (50, 56), busy from 0.132. A freeze sent
         // after the frame's start and before the order cancels it; a predictive client's starts when written.
         var shooting = Connection(lockstep: true);

@@ -25,7 +25,7 @@ public static class InstanceProtocol
     /// S→C 0x21 (class 0x1435dcb80, write 0x1421a2da0; dispatcher case 10): enter the area. Two stash tab lists
     /// (<see cref="InstanceStash.WriteTabs"/>: the personal stash → instance +0xc498, the trade tabs → +0xc4c8), vec16 of
     /// (u32, u32), wstr, 24 flag bits, u8 +0x7e, u8 bits (+0x7b/+0x7c/+0x7d), the rest empty or zero. Its handler
-    /// (0x142156d80) needs the local player entity (0x22 + 0x2b9) to exist already.
+    /// (0x142156d80) needs the local player entity (0x22 + 0x2bb) to exist already.
     /// </summary>
     /// <remarks>Flag bit 0 (+0x78) is the active weapon set: set = the second (Weapon2 / Offhand2). The handler copies it
     /// to the session's +0xcd31 (the dispatcher's r13 is the session + 8, so its "[r13+0xcd29]"), as S→C 0xde does.</remarks>
@@ -180,15 +180,15 @@ public static class InstanceProtocol
         (BinaryPrimitives.ReadInt32BigEndian(b.AsSpan(2)), BinaryPrimitives.ReadInt32BigEndian(b.AsSpan(6)),
          BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(10)), BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(12)), b[14]);
 
-    public const ushort FrameEndId = 0x02b5, FrameLengthId = 0x02b6;
+    public const ushort FrameEndId = 0x02b7, FrameLengthId = 0x02b8;
 
-    /// <summary>S→C 0x02b5 (world group, id only): the end of a server frame. In lockstep (network mode 2) the world's
+    /// <summary>S→C 0x02b7 (world group, id only): the end of a server frame. In lockstep (network mode 2) the world's
     /// message intake 0x1421872b0 then queues one frame of the current length (world +0x11c) behind the messages received
     /// so far; the world runs its messages and steps its objects one queued frame at a time (0x142183930 → 0x142183ce0).
     /// Ignored in predictive mode.</summary>
     public static byte[] FrameEnd() => [FrameEndId >> 8, FrameEndId & 0xff];
 
-    /// <summary>S→C 0x02b6 (world group): u8, the length in ms of the server frames that follow (0x141645fa0 stores it
+    /// <summary>S→C 0x02b8 (world group): u8, the length in ms of the server frames that follow (0x141645fa0 stores it
     /// at world +0x11c).</summary>
     public static byte[] FrameLength(byte ms) => [FrameLengthId >> 8, FrameLengthId & 0xff, ms];
 
@@ -393,9 +393,9 @@ public static class InstanceProtocol
 
     public static byte[] LeaveWakeZone(uint objectId) => new LoginWriter().U16(LeaveWakeZoneId).U32(objectId).U32(0).U16(0).ToArray();
 
-    public const ushort RemoveObjectId = 0x2bb;
+    public const ushort RemoveObjectId = 0x2bd;
 
-    /// <summary>S→C 0x2bb (world group, header only, read 0x141f92000): remove an object (the world handler's "remove
+    /// <summary>S→C 0x2bd (world group, header only, read 0x141f92000): remove an object (the world handler's "remove
     /// object" case, Agents/docs/protocol/07 §4).</summary>
     public static byte[] RemoveObject(uint objectId) => new LoginWriter().U16(RemoveObjectId).U32(objectId).U32(0).U16(0).ToArray();
 
@@ -472,10 +472,10 @@ public static class InstanceProtocol
         return w.ToArray();
     }
 
-    /// <summary>S→C 0x2b0 (Positioned): object header, u8, u8; two zeros stop the object blocking paths. GGG sends it about
+    /// <summary>S→C 0x2b2 (Positioned): object header, u8, u8; two zeros stop the object blocking paths. GGG sends it about
     /// 165 ms after a monster's life reaches 0, with the object id repeated in the header's order key.</summary>
     public static byte[] StopBlocking(uint objectId) =>
-        new LoginWriter().U16(0x2b0).U32(objectId).U32(objectId).U16(0x7000).U8(0).U8(0).ToArray();
+        new LoginWriter().U16(0x2b2).U32(objectId).U32(objectId).U16(0x7000).U8(0).U8(0).ToArray();
 
     /// <summary>The network's signed compact int (writer 0x141fa3c50, reader 0x141fa3d60): 1 byte for -0x40..0x3f, then
     /// 2/3/4 bytes with prefixes 0x80/0xc0/0xe0 (6/5/4 value bits in the first byte), else 0xf0 + 4 bytes, big-endian.</summary>

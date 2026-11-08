@@ -1111,8 +1111,8 @@ static partial class Game
         return change.Before;
     }
 
-    // A new level in place, after the Player component's experience (0x2ba; the client derives the level from it and runs
-    // its level change): the level's stats (0x1b3: level, life, mana, accuracy, ...), the skills with them (0x2ba Actor),
+    // A new level in place, after the Player component's experience (0x2bc; the client derives the level from it and runs
+    // its level change): the level's stats (0x1b3: level, life, mana, accuracy, ...), the skills with them (0x2bc Actor),
     // full life, as a level up gives, and the passive skill points (0x33). Passives beyond a lower level's points are
     // taken back, last allocated first.
     internal static async Task ApplyLevel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int level)
@@ -1143,7 +1143,7 @@ static partial class Game
         await SendPassives(remote, stream, ciphers, conn);
     }
 
-    // The player's stats (0x1b3) and the skills computed with them (0x2ba Actor), after the level or the passives changed.
+    // The player's stats (0x1b3) and the skills computed with them (0x2bc Actor), after the level or the passives changed.
     // The inputs the cached skill list (ClientState.PlayerSkillsCache) was built from.
     sealed record PlayerSkillsBuild(SkillSnapshotInputs Inputs, IReadOnlyList<GrantedSkill> Skills);
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, PlayerSkillsBuild> PlayerSkillsInputs = new();
@@ -1220,7 +1220,7 @@ static partial class Game
             conn.ClientSkillIds = [.. skills.Select(s => s.Id)];
             RecordPlayerSkills(conn, skills);
             return PlayerSkillsWithVaalSouls(conn, skills, gone);
-        }, "0x02ba player Actor: current skill stats");
+        }, "0x02bc player Actor: current skill stats");
         if (!CurrentGameRules) return;
         await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         if (gone.Count > 0) await EndSkillEffects(remote, stream, ciphers, conn, gone);

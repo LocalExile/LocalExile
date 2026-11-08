@@ -268,7 +268,7 @@ static partial class Game
     internal static IEnumerable<(uint Stat, int Value)> CosmeticScaleSources(ClientState conn) =>
         CosmeticStats(conn).Where(s => ActorScale.IsInput(s.Stat));
 
-    // What the player wears changed (an item went into or out of a visible equipment row): 0x2ba Inventories for the model,
+    // What the player wears changed (an item went into or out of a visible equipment row): 0x2bc Inventories for the model,
     // then the Actor skill list again, since the gems socketed in the equipment grant skills.
     internal static async Task SendEquipment(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items)
     {
@@ -291,7 +291,7 @@ static partial class Game
     {
         conn.ModelHands = HandsKey(equipped);
         await Send(remote, stream, ciphers, InstanceEntities.PlayerEquipmentUpdate(PlayerId, equipped),
-            $"0x02ba player equipment ({why}): {string.Join(", ", equipped.Select(e => $"slot {e.Slot} visual 0x{e.VisualIdentity:x4} stance {e.Stance}"))}");
+            $"0x02bc player equipment ({why}): {string.Join(", ", equipped.Select(e => $"slot {e.Slot} visual 0x{e.VisualIdentity:x4} stance {e.Stance}"))}");
     }
 
     // The hands' part of the model (main hand 0, off hand 1, a bow's quiver 7) as it was last sent.

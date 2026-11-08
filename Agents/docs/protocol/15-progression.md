@@ -9,7 +9,7 @@ yet confirmed on screen).
 ## 1. Experience and levels
 
 - **The client derives the level from the experience** in the Player component ([04](04-player-entity.md) §4.6):
-  S→C 0x2ba to component 6 with flag bit0 + u32 experience (`InstanceEntities.PlayerExperienceUpdate`). Crossing a
+  S→C 0x2bc to component 6 with flag bit0 + u32 experience (`InstanceEntities.PlayerExperienceUpdate`). Crossing a
   level start (ExperienceLevels.dat) changes the level on the client.
   Its ClientPlayer callback `0x1415e0b90` publishes the level change but does not itself create the flash.
   The default flash is MiscAnimated `LevelUp`, HASH32 `0xff248759`,
@@ -21,7 +21,7 @@ yet confirmed on screen).
 - **Level penalty** (`Progression.LevelPenalty`): safe zone 3 + level / 16; beyond it, with d the levels past it,
   ((L + 5) / (L + 5 + d^2.5))^1.5, at least 0.01 (L = the player's level). The extra penalty above level 95 is not
   modelled.
-- **A new level** (`ApplyLevel`): the level's stats (0x1b3) and skills (0x2ba Actor), full life and mana (0x1b1), the
+- **A new level** (`ApplyLevel`): the level's stats (0x1b3) and skills (0x2bc Actor), full life and mana (0x1b1), the
   Passive Skill Tree with the new level (0x33, §2), and the account's level through Auth's `set_level` control op (the
   character list and the next tickets carry it). Experience stops at the start of level 100.
 - **Saved** in the character's save (`data/saves.db`, `Experience`): added to the character's total in memory and saved within 5 s, at once at a level-up ([saves](../saves.md)); the saved
@@ -110,7 +110,7 @@ yet confirmed on screen).
   node, an `IsExpansion` node's own value (unnamed i32 at +0xb2). The full cost (`GetFullGoldRespecCost`, lambda
   `0x141f1b500`) skips ascendancy nodes. The Gateway (`PassiveTree.GoldRespecCost`, `ChangePassives` with
   `goldRespec`) refunds only allocated nodes, refuses when the gold is short, removes the nodes' mastery effects,
-  saves the passives, takes the gold from the account (`AccountStash.TrySpendGold`, nothing when refused), and answers with the gold (0x2a9), the stats and the tree (0x33). Refund All
+  saves the passives, takes the gold from the account (`AccountStash.TrySpendGold`, nothing when refused), and answers with the gold (0x2aa), the stats and the tree (0x33). Refund All
   refunds every non-ascendancy node.
 - **Refund points** (0x36 flag 0): the Gateway refunds one allocated, non-ascendancy node per message, spends one
   point from 0x33's first u16, removes the node's mastery effect, saves the tree and the points, and answers with the

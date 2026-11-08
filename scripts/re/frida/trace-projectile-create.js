@@ -1,5 +1,5 @@
 // Load after common.js. Which objects the client creates itself (0x141ebdf30: a client-side object, id from the world)
-// and which come from the server (0x141ebe190, the 0x2b9 create), with the object type's metadata path, and every
+// and which come from the server (0x141ebe190, the 0x2bb create), with the object type's metadata path, and every
 // Projectile component (0x141e37850 writes vtable 0x1435a0d10) with an image-relative backtrace. Live 2026-10-29: one
 // Fireball cast built two Projectile components, one per path, so the client predicts the local player's projectile.
 // The type record's path is found by scanning it for a pointer to a UTF-16 "Metadata/" string.
