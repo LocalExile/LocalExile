@@ -92,7 +92,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). It
   handles pickup/attack recovery, corpse collision and ground melee/chest approach, with current background-action
   stats, actor-owned AI sequences and projectile-hit ownership; tutorial gems retain their initial recipient.
-  Complete crowd and predictive validation remains open ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
+  Held-walk player and all-monster sync bars pass in the measured cohort; predictive Mud2 worsening needs confirmation.
+  Complete nonregression and coverage remain open ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
 - League isolation is enforced by full league for towns and instance selection.
   SSF wilderness instances and Gateway ground-item state additionally belong to the stable character ID.
   Another character, including one reusing a deleted name, cannot inherit or join that state.
