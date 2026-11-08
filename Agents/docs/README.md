@@ -73,6 +73,7 @@ This research does not change the production simulator or certify native/officia
 | [dev/campaign-automation.md](dev/campaign-automation.md) | the campaign driver: `campaign.ps1`, the runner, quest step files and verbs, `/state`, `/kill`, `/quest_preset`, its own ports and client session |
 | [dev/headless-client.md](dev/headless-client.md) | cheap clients for agent sessions: the engine's Null renderer, per-client settings, frame cap, process limits, `nullifier.py`, measurements |
 | [dev/live-testing.md](dev/live-testing.md) | the older live-testing notes (GettingStarted supersedes them) |
+| [dev/lan-play.md](dev/lan-play.md) | playing over the LAN: `live.ps1 -Lan`, the remote client's setup, firewall, rules and limits |
 | [dev/ranged-monster-actions-port.md](dev/ranged-monster-actions-port.md) | standalone bow/wand and monster-action port, preserved upstream behavior and validation limits |
 | [dev/passive-graph-data.md](dev/passive-graph-data.md) | pinned PSG format and read-only analysis exports; no client installation or gameplay integration |
 | [dev/issue75-port.md](dev/issue75-port.md) | completed character-stat jobs ported from LocalExile, source revisions, integration decisions and validation limits |

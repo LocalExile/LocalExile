@@ -69,6 +69,8 @@ venv/
 # --- Logs / temp ---
 /logs/
 *.log
+# Published player/host tools (scripts/dev/build-connect-tool.ps1, build-host-tool.ps1)
+/dist/
 *.err
 *.tmp
 

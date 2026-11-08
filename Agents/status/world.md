@@ -87,8 +87,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Unknown message layouts and existing 0x0099 handling remain unchanged.
   Docs: [instance framing](../docs/protocol/02-instance-connection.md#fixed-message-boundaries-across-tcp-reads).
 
-## Partly working
-
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). It
   handles pickup/attack recovery, corpse collision and ground melee/chest approach;
   crowd and predictive gaps remain ([07](../docs/protocol/07-latency-visibility-movement.md) §6).

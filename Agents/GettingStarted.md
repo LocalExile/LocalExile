@@ -435,6 +435,8 @@ all for an issue ([debugging](docs/dev/debugging.md)).
   the builds that are running.
 - `-NoBuild` skips the builds.
 - `-NoExtract` skips the game-data check (step 7).
+- `-Lan` serves the local network: friends on other PCs join the same town
+  ([LAN play](docs/dev/lan-play.md) has their setup and the firewall rule).
 
 ## Troubleshooting
 
@@ -458,7 +460,7 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | `walkmaps: permission denied` | client and Python run at different privilege levels | run both as the same user, not one as administrator |
 | Esc → "Exit to character selection" hangs | not implemented yet | run `.\scripts\dev\live.ps1 -NoClient` (the client drops to the login screen) |
 | The client closes or crashes by itself | usually a message the server sent wrong or left out | read the `DISCONNECT` line and the `last … packet(s)` block above it in `live-gateway.log`; attach `scripts/re/frida/trace-crash.js` and reproduce; report it with `scripts\dev\bugreport.ps1` ([debugging](docs/dev/debugging.md)) |
-| Windows Firewall prompt | should not happen (servers bind to 127.0.0.1) | if it does, deny: nothing needs outside access |
+| Windows Firewall prompt | does not happen by default (servers bind to 127.0.0.1); `live.ps1 -Lan` binds 0.0.0.0 and needs 20493/6112/12995/8080 allowed ([LAN play](docs/dev/lan-play.md)) | with `-Lan`, allow the rule once; otherwise deny: nothing needs outside access |
 
 ## Configuration
 
@@ -468,9 +470,12 @@ Environment variables, read when each server starts:
 |---|---|---|
 | `Game_GATEWAY_ENTER` | `1` (set by `live.ps1`) | `1` = enter the area after creating the player |
 | `Game_BIND` | `127.0.0.1` | address Auth and Gateway listen on |
+| `Game_PATCH_BIND` | `127.0.0.1` | address the Patch server's patching protocol listens on (the web root's URL is `Game_PATCH_URL`) |
+| `Game_GATEWAY_HOST` | `127.0.0.1` | what Auth tells clients to dial for the instance server: an IP or, for a tunnel, a host name ([LAN play](docs/dev/lan-play.md)) |
+| `Game_GATEWAY_PUBLIC_PORT` | `Game_GATEWAY_PORT` | the instance port clients are told, when a tunnel maps another public port ([LAN play](docs/dev/lan-play.md)) |
+| `Game_LOCKSTEP` | off | serve a lockstep client: `1` on a connection confirmed as local, `network` on any connection ([07](docs/protocol/07-latency-visibility-movement.md) §6) |
 | `Game_LOGIN_PORT` | 20493 | login server port (must match step 6) |
 | `Game_GATEWAY_PORT` | 6112 | instance server port |
-| `Game_GATEWAY_HOST` | 127.0.0.1 | address (IP) Auth and the Gateway send the client for its first area and every area change |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth ↔ Gateway control port (localhost only) |
 | `Game_PORT_BASE` | unset | `live.ps1`: this checkout's servers on ports base..base+4 (Patch, Patch web, Auth login, Auth control, Gateway); remembered in `data/stack.json` like `-PortBase` ([live testing](docs/dev/live-testing.md#several-stacks-and-clients)) |
 | `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly` and `client_control.py`: the named client session, like `-Session` / `--session` |

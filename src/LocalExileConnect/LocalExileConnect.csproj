@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- Directory.Build.props turns invariant globalization on for the servers. WinForms reads the system culture at
+         startup, which throws "2052 is an invalid culture identifier" in that mode on a Chinese Windows. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <AssemblyName>LocalExileConnect</AssemblyName>
+    <RootNamespace>LocalExileConnect</RootNamespace>
+    <!-- One file, no runtime install on the player's PC: Agents/docs/dev/lan-play.md describes handing this over. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GameServer.Data\GameServer.Data.csproj" />
+  </ItemGroup>
+
+</Project>

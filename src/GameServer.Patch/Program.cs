@@ -139,7 +139,10 @@ return 0;
 // Answers with the GGPK's root hash, so the client's local data always looks current.
 static async Task ServePatchProtocol(int port, string webRoot, string backupWebRoot)
 {
-    var listener = new TcpListener(IPAddress.Loopback, port);
+    // Loopback by default: remote clients do not patch (the welcome's root hash matches). Game_PATCH_BIND=0.0.0.0
+    // lets a LAN client start with --patching-server <server-ip>:port (Agents/docs/dev/lan-play.md).
+    var bind = IPAddress.Parse(Environment.GetEnvironmentVariable("Game_PATCH_BIND") ?? "127.0.0.1");
+    var listener = new TcpListener(bind, port);
     listener.Start();
     Console.WriteLine($"[patch] patching protocol on tcp/{port}, web root={webRoot}, backup={backupWebRoot}");
     while (true)
@@ -189,24 +192,15 @@ static int GgpkTool(string[] args)
         if (rest.Contains("--save")) SaveRootHash(ggpk);
         return 0;
     }
-    // The client reads gateway_list.txt, then Bundles2/gateway_list.txt if that exists (0x140cfc290); the last one wins.
-    string? file = new[] { "Bundles2/gateway_list.txt", "gateway_list.txt" }.FirstOrDefault(f => GgpkMaintenance.TryReadFile(ggpk, f) is not null);
+    // The client reads gateway_list.txt, then Bundles2/gateway_list.txt if that exists (0x140cfc2d0); the last one wins.
+    string? file = GameServer.Data.Ggpk.GatewayList.Find(ggpk);
     if (file is null) { Console.Error.WriteLine("[patch] no gateway_list.txt in the GGPK"); return 1; }
     byte[] current = GgpkMaintenance.TryReadFile(ggpk, file)!;
     int at = rest.IndexOf("--login");
     if (at >= 0 && at + 1 < rest.Count)
     {
         string backup = Path.Combine("data", "gateway_list.original.txt");
-        Directory.CreateDirectory("data");
-        if (!File.Exists(backup)) File.WriteAllBytes(backup, current);
-        string text = DecodeList(current);
-        string patched = string.Join("\r\n", text.Split("\r\n").Select(line =>
-        {
-            var f = line.Split(';');
-            if (f.Length >= 3) f[2] = rest[at + 1];
-            return string.Join(';', f);
-        }));
-        GgpkMaintenance.ReplaceFile(ggpk, file, [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(patched)]);
+        GameServer.Data.Ggpk.GatewayList.SetLogin(ggpk, rest[at + 1], backup);
         SaveRootHash(ggpk);
         Console.WriteLine($"[patch] {file} now points at {rest[at + 1]} (original saved to {backup})");
         current = GgpkMaintenance.TryReadFile(ggpk, file)!;
@@ -233,8 +227,7 @@ static void SaveRootHash(string ggpk)
     (ClientConstants.Load() with { GgpkRootHash = Convert.ToHexString(GgpkMaintenance.RootHash(ggpk)) }).Save();
 }
 
-static string DecodeList(byte[] b) =>
-    b.Length >= 2 && b[0] == 0xFF && b[1] == 0xFE ? Encoding.Unicode.GetString(b, 2, b.Length - 2) : Encoding.Unicode.GetString(b);
+static string DecodeList(byte[] b) => GameServer.Data.Ggpk.GatewayList.Decode(b);
 
 static string LoadGatewayList()
 {

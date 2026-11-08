@@ -115,8 +115,29 @@ public sealed class LoginServerSession(AccountService accounts)
     /// instance 0x27 (Agents/docs/protocol/09-area-change.md).</summary>
     public InstanceInfo InstanceAssignment(ushort areaHash16, uint ticket)
     {
-        uint ip = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(System.Net.IPAddress.Parse(InstanceHost).GetAddressBytes());
-        return new InstanceInfo(InstanceHost, InstancePort, ip, areaHash16, ticket, Keyring.Key(ticket), new byte[8], 0);
+        return new InstanceInfo(InstanceHost, InstancePort, InstanceHostIp(), areaHash16, ticket, Keyring.Key(ticket), new byte[8], 0);
+    }
+
+    /// <summary>
+    /// The 0x14 field at +0x34, a u32 in network order. An address that is not a literal IP (a tunnel or DDNS name,
+    /// as Agents/docs/dev/lan-play.md describes) is resolved once: the client dials the name itself (doc 02 §2), and
+    /// only the opening's digest and this field carry the number, which the server never checks. An unresolvable name
+    /// sends 0 rather than failing the login.
+    /// </summary>
+    private uint InstanceHostIp()
+    {
+        if (System.Net.IPAddress.TryParse(InstanceHost, out var literal)) return ToU32(literal);
+        try
+        {
+            var resolved = System.Net.Dns.GetHostAddresses(InstanceHost)
+                .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+            if (resolved is not null) return ToU32(resolved);
+        }
+        catch (System.Net.Sockets.SocketException) { }
+        return 0;
+
+        static uint ToU32(System.Net.IPAddress address) =>
+            System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(address.GetAddressBytes());
     }
 
     private ILoginMessage[] Login(AccountLogin m)
