@@ -920,8 +920,9 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
 - **A monster's spell skills carry cast-time stats, not the attack duration.** `MonsterAttack.Spell` sends
   `base_spell_cast_time_ms` (0x2a9), `virtual_base_spell_cast_time_ms` (0x24b9), `hundred_times_casts_per_second`
   (0x2aa) and `casting_spell` (0x1b6); only attacks send `main_hand_attack_duration_ms`. The client's cast-duration
-  path reads the virtual base when the action starts; a utility spell sent with only attack stats crashed the client in
-  that path (`0xc0000005` at `0x19e0daf`, live 2026-10-31, the King's hex/teleport actions).
+  path reads the virtual base when the action starts. (The King crash first put down to this, `0xc0000005` at
+  `0x19e0daf`, is `GeometryChannelBase::StartChannelling` reading a missing GeometryChannel row:
+  [king-in-the-mists](../game/king-in-the-mists.md).)
 - **AI** (`RunMonsterAi`, `MonsterAiCadence`): decisions run at 50 ms intervals of elapsed game time.
   A late wake runs one decision and schedules the next from the current time; it never replays missed steps.
   Pause freezes game time, and disabled AI or a dead player does not accumulate work to replay afterward.

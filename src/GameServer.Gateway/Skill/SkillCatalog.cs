@@ -308,6 +308,32 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>The full ActionTypes HASH16 for a GrantedEffects row, used with its server skill id by skill buffs.</summary>
     public ushort? ActionHash(int effectRow) => _effectActions.Value.TryGetValue(effectRow, out ushort hash) ? hash : null;
 
+    /// <summary>
+    /// A GrantedEffects row's SkillID, 0 for none: the value the client's own skill-stat builder adds as
+    /// <c>skill_behaviour_variation</c> (0x1921; 0x141ee9383 loads the row's +0xbe). An action takes its data row from it:
+    /// a mortar its MonsterMortar row, a geometry channel its GeometryAttack row (by Id) and that row's GeometryChannel.
+    /// A record sent over the network does not run that builder, so a record without it reads Id 0, whose GeometryAttack
+    /// row has no GeometryChannel: the King in the Mists' GSVoodooKingRitual (SkillID 1116) then crashed the client in
+    /// GeometryChannelBase::StartChannelling (0xc0000005 at 0x1419e0daf, the null row's +0x28).
+    /// </summary>
+    public int BehaviourVariation(int effectRow) => _skillIds.Value.GetValueOrDefault(effectRow);
+
+    private readonly Lazy<Dictionary<int, int>> _skillIds = new(() =>
+    {
+        string path = Path.Combine(folder, "tables", "GrantedEffects.json");
+        var result = new Dictionary<int, int>();
+        if (!File.Exists(path)) return result;
+        using var effects = GameTables.Open(path);
+        int row = 0;
+        foreach (var effect in effects.RootElement.EnumerateArray())
+        {
+            int index = row++;
+            if (effect.TryGetProperty("SkillID", out var id) && id.ValueKind == JsonValueKind.Number && id.TryGetInt32(out int value) && value > 0)
+                result[index] = value;
+        }
+        return result;
+    });
+
     private readonly Lazy<Dictionary<int, ushort>> _effectActions = new(() =>
     {
         string PathOf(string name) => Path.Combine(folder, "tables", name + ".json");

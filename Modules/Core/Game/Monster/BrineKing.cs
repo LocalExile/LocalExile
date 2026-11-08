@@ -116,7 +116,7 @@ static class BrineKing
         return [.. Effects.Select(effect =>
         {
             var use = Attack(conn, variety, level, effect);
-            return catalog.FindByRow(Skill(effect), effect, level, use.SkillStats());
+            return catalog.FindByRow(Skill(effect), effect, level, Game.WithBehaviourVariation(conn, effect, use.SkillStats()));
         }).OfType<GrantedSkill>()];
     }
 
