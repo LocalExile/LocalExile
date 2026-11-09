@@ -603,7 +603,9 @@ and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0
 
 Spell duration divides the virtual base cast time by the skill's cast-speed factor (`0x1419eef50`, stat `0x24b9`
 and virtual slot `+0x788` on Freezing Pulse; the getter `0x1419e7500` reads cast-speed stat `0x128`).
-The lockstep ground-spell hold keeps that fractional duration, including action speed, from the frame's start.
+The lockstep spell hold keeps that fractional duration, including action speed, from the frame's start,
+whether the request aims at the ground or an object. A target only changes the action's aim; it does not shorten
+its cast. Sending object-target uses every frame queues new actions faster than the client starts them.
 For ordinary Fireball and Freezing Pulse casts without repeats, a Move uses the clip gate (`0x14193d400`):
 early through `max(0.2 * clip length, contact - 0.3 * clip length)`, then blocked until `lock_cancelling`
 (contact if that event is absent). Early cancellation requires request flag `0x400`; the stat
@@ -614,6 +616,8 @@ Channel aim updates also refresh the server's activity timeout.
 Spell channels use the supported cast interval with fractional milliseconds, without the new-action frame limit;
 FireBeam's duration slot uses the same base-time/cast-speed rule (`0x1419e7660`).
 Attack channels retain their weapon interval, and invalid spell timing stops channel payment.
+The first paid channel use records the held sequence for both ground and object targets, before asynchronous
+output; ground-handler completion alone misses object-target channels and can race a release.
 A replacement Move, object use or skill retains the previous channel's sequence until its `0x1ae` is sent before
 the replacement start; the client's finish handler matches that sequence (`0x1421940a0`).
 

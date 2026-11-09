@@ -61,6 +61,14 @@ public sealed class SpellEchoTests
             conn.LockstepClient = true;
             Assert.Equal(effectId == "Fireball" ? .75 / 1.4 : .5,
                 Game.LockstepActionHold(conn, skill.Id, 0x8001), 6);
+            // A target changes the aim, not the native cast duration or the held spell's repeat gate.
+            foreach (uint? target in new uint?[] { null, 0x3001 })
+            {
+                conn.LockstepSkill.Press((110, 100), target, skill.Id, 0x400, repeats: true);
+                conn.LockstepBusyUntil = 0;
+                Game.HoldLockstepSkill(conn, 0x8001, 10, 10.033);
+                Assert.Equal(10 + Game.LockstepActionHold(conn, skill.Id, 0x8001), conn.LockstepBusyUntil, 6);
+            }
         }
         finally
         {
@@ -107,6 +115,13 @@ public sealed class SpellEchoTests
                 // Attack channels retain the weapon timing; cast speed must not change it.
                 Assert.Equal(Game.SupportedAttackSecondsFor(conn, SkillCatalog.FirstSkillId, null, clampToTick: false),
                     Game.SupportedChannelSeconds(conn, SkillCatalog.FirstSkillId));
+                conn.LockstepSkill.Clear();
+                conn.LockstepSkill.Press((110, 100), 0x3001, skill.Id, 0x400, repeats: false);
+                Assert.True(conn.LockstepSkill.Due(free: true));
+                Game.BeginPaidChannel(conn, skill.Id, skill.Effect, 0, 0x8001);
+                Assert.Equal(lockstep ? (ushort?)0x8001 : null, conn.LockstepSkill.Channel);
+                conn.LockstepSkill.Release();
+                Assert.Equal(lockstep ? (ushort?)0x8001 : null, conn.LockstepSkill.ChannelReleased());
             }
         }
         finally

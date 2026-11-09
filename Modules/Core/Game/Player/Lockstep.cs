@@ -130,7 +130,6 @@ static partial class Game
                 // 2026-11-03: a ground attack sent as soon as the player was free came 0.4 s into a 0.645 s swing, and
                 // the client queued it until the swing's end). A new click goes at the next frame start over an open
                 // walk-up, as over a walk, and its action ends that walk-up (PlayerWalkUpOpen); only a swing holds it.
-                bool monster = conn.LockstepSkill.Target is { } t && t != PlayerId;
                 bool attack = LockstepAttackSkill(conn, conn.LockstepSkill.Skill);
                 if (conn.LockstepUse is { } object_)
                 {
@@ -146,20 +145,7 @@ static partial class Game
                     skill = true;
                     sequence = NextLockstepSequence(conn);
                     conn.LockstepCastWindow = null;
-                    // A spell advances in its first native frame. Preserve its fractional duration, so a cast shorter
-                    // than a frame can repeat in the next one without an integer-ms rounding or extra-frame delay.
-                    // Attack timing retains its separately traced end-of-frame anchor.
-                    if (!monster && !LockstepGroundMelee(conn, conn.LockstepSkill.Skill, conn.LockstepSkill.Flags))
-                    {
-                        ushort requested = conn.LockstepSkill.Skill;
-                        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == requested);
-                        bool spell = gem.Name is not null && SkillsFor(conn).IsSpell(gem.Effect)
-                            && !SkillsFor(conn).IsAttack(gem.Effect);
-                        double start = spell ? frameStart : conn.LockstepFrame?.End ?? at;
-                        double hold = LockstepActionHold(conn, requested, sequence);
-                        conn.LockstepBusyUntil = start + hold;
-                        if (spell) conn.LockstepCastWindow = LockstepSpellMoveWindow(conn, requested, gem.Effect, start, hold);
-                    }
+                    HoldLockstepSkill(conn, sequence, frameStart, at);
                 }
                 else if (conn.LockstepHold.Due(conn.Walk.Moving(at), conn.Walk.Position(at)) is { } due
                     && PlaceLockstepPlayerMove(conn, due, at) is { } placed)
@@ -315,6 +301,23 @@ static partial class Game
             await attack.Decided;
         }
         finally { LockstepAttackOver(conn, attack.Action); }
+    }
+
+    // A spell advances in its first native frame. Preserve its fractional duration so a short cast can repeat on
+    // the next frame. Attacks retain their separately traced end-of-frame anchor and walk-up swing timing.
+    internal static void HoldLockstepSkill(ClientState conn, ushort sequence, double frameStart, double at)
+    {
+        bool monster = conn.LockstepSkill.Target is { } target && target != PlayerId;
+        ushort requested = conn.LockstepSkill.Skill;
+        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == requested);
+        bool spell = gem.Name is not null && SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect);
+        // A spell aimed at an object uses the same cast action and duration as one aimed at the ground.
+        // Only attacks defer their hold until the walk-up reaches its swing.
+        if (monster && !spell || !monster && LockstepGroundMelee(conn, requested, conn.LockstepSkill.Flags)) return;
+        double start = spell ? frameStart : conn.LockstepFrame?.End ?? at;
+        double hold = LockstepActionHold(conn, requested, sequence);
+        conn.LockstepBusyUntil = start + hold;
+        if (spell) conn.LockstepCastWindow = LockstepSpellMoveWindow(conn, requested, gem.Effect, start, hold);
     }
 
     // Whether a held skill is an attack (the default attack or an attack gem): its uses share the attack timer.

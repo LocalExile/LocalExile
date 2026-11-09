@@ -105,9 +105,6 @@ static partial class Game
             try
             {
                 await OnClientMessages(remote, stream, ciphers, [(InstanceProtocol.UseSkillAtLocationId, use)], [], conn);
-                lock (conn.Monsters)
-                    if (!LockstepRepeats(conn, request.Skill) && conn.ChannelSkill == request.Skill && conn.ChannelSkillSequence == sequence)
-                        request.Channelling(sequence);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         });

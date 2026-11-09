@@ -12,6 +12,19 @@ using HitResistances = GameServer.Core.World.HitResistances;
 
 static partial class Game
 {
+    // Record the first paid use of a channel before asynchronous output. Under conn.Monsters.
+    internal static int BeginPaidChannel(ClientState conn, ushort skill, int effect, int action, ushort sequence)
+    {
+        int generation = ++conn.ChannelGeneration;
+        conn.ChannelSkill = skill;
+        conn.ChannelSkillSequence = sequence;
+        conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
+        if (conn.LockstepClient) conn.LockstepSkill.Channelling(sequence);
+        conn.PaidChannel = CombatLifetime is { IsActive: true } rules
+            ? new(skill, effect, action, generation, rules) : null;
+        return generation;
+    }
+
     // Sample both moving actors at the hit time, after the approach and contact delay.
     internal static (int Accuracy, bool Unique, bool CloseRange) AttackAccuracyAt(
         ClientState conn, SpawnedMonster target, double at)
@@ -774,12 +787,7 @@ static partial class Game
                 if (paid) criticalRoll = CaptureSkillCriticalRoll(conn, skillId);
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
                 {
-                    channelGeneration = ++conn.ChannelGeneration;
-                    conn.ChannelSkill = skillId;
-                    conn.ChannelSkillSequence = sequence;
-                    conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
-                    conn.PaidChannel = CombatLifetime is { IsActive: true } rules
-                        ? new(skillId, gem.Effect, action, conn.ChannelGeneration, rules) : null;
+                    channelGeneration = BeginPaidChannel(conn, skillId, gem.Effect, action, sequence);
                 }
                 // Capture at paid admission, before output or release scheduling can catch up other hits.
                 recoveryGeneration = conn.ActionInterruptionGeneration;
