@@ -127,7 +127,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. Izaro's own fight: his skills are in (`IzaroSkills.cs`). Left: `LbBossShield`, his taunt, the Spikes' slow, the
+  1. Izaro's own fight: his skills are in (`IzaroSkills.cs`; `LbBossShield`, in his row, was not seen in the original's
+     fight, so it is left out). Left: his taunt, the Spikes' slow, the
      cooldowns against the original (ours; no `.ais`), and set-backs of his model after an order
      (`scripts/re/sync_report.py`, Game_TRACE=sync with `trace-sync.js`, measures them; the Shield Bash aimed at a cell is
      not live-checked).
