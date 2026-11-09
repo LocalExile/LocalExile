@@ -122,6 +122,24 @@ public sealed class SpellEchoTests
                 Assert.Equal(lockstep ? (ushort?)0x8001 : null, conn.LockstepSkill.Channel);
                 conn.LockstepSkill.Release();
                 Assert.Equal(lockstep ? (ushort?)0x8001 : null, conn.LockstepSkill.ChannelReleased());
+                if (lockstep)
+                {
+                    conn.LockstepBusyUntil = 10.65;
+                    conn.LockstepCastWindow = new(10, .65, .17, .46, 0x4923); // Freezing Pulse's action.
+                    conn.LockstepSkill.Press((110, 100), null, skill.Id, 0x401, repeats: false);
+                    Assert.True(Game.LockstepPlayerFree(conn, 10.1)); // A different spell may replace it early.
+                    Assert.False(Game.LockstepPlayerFree(conn, 10.3));
+                    Assert.False(Game.LockstepPlayerFree(conn, 10.5)); // The late window is only for Move.
+                    conn.LockstepSkill.Press((110, 100), null, skill.Id, 1, repeats: false);
+                    Assert.False(Game.LockstepPlayerFree(conn, 10.1));
+                    conn.LockstepSkill.Press((110, 100), null, skill.Id, 0x401, repeats: false);
+                    Assert.True(conn.LockstepSkill.Due(free: true));
+                    Assert.False(Game.LockstepPlayerFree(conn, 10.1)); // A consumed request does not cancel again.
+                    conn.LockstepSkill.Press((110, 100), null, skill.Id, 0x401, repeats: false);
+                    conn.LockstepCastWindow = conn.LockstepCastWindow.Value with
+                        { ActionHash = Game.SkillsFor(conn).ActionHash(skill.Effect) };
+                    Assert.False(Game.LockstepPlayerFree(conn, 10.1)); // The same action cannot restart early.
+                }
             }
         }
         finally

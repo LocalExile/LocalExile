@@ -76,10 +76,18 @@ static partial class Game
         return (ushort)(conn.LockstepSequence | 0x8000);
     }
 
-    // A Move can cancel a spell in its clip's early/late windows; repeating the spell still waits its full duration.
-    internal static bool LockstepPlayerFree(ClientState conn, double at) => at >= conn.LockstepBusyUntil
-        || conn.LockstepClient && conn.LockstepHold.Active && conn.LockstepCastWindow is { } cast
-            && cast.AllowsMove(at, earlyCancellation: (conn.LockstepHold.Flags & 0x400) != 0);
+    // A Move can cancel at either end of a spell. A different spell can replace it only early; a held repeat waits.
+    internal static bool LockstepPlayerFree(ClientState conn, double at)
+    {
+        if (at >= conn.LockstepBusyUntil) return true;
+        if (!conn.LockstepClient || conn.LockstepCastWindow is not { } cast) return false;
+        if (conn.LockstepHold.Active)
+            return cast.AllowsMove(at, earlyCancellation: (conn.LockstepHold.Flags & 0x400) != 0);
+        if (!conn.LockstepSkill.Pending || (conn.LockstepSkill.Flags & 0x400) == 0) return false;
+        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == conn.LockstepSkill.Skill);
+        return gem.Name is not null && SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect)
+            && cast.AllowsSkill(at, SkillsFor(conn).ActionHash(gem.Effect));
+    }
 
     // The frame pass: starts what the player's requests call for, if anything, at the frame's start. Blocked steps are
     // replayed first, so a walk stopped by a body counts as stopped in this frame. Sequences go up by one with the top bit
@@ -352,8 +360,9 @@ static partial class Game
         bool cannotCancelBeforeContact = Stats.Key("cannot_cancel_skill_before_contact_point") is uint key
             && own.GetValueOrDefault(key) != 0;
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        return Animations.SpellMoveWindow(ao, WeaponProfileFor(conn, activeSet: true), CastAnimationKind.Projectile,
+        var window = Animations.SpellMoveWindow(ao, WeaponProfileFor(conn, activeSet: true), CastAnimationKind.Projectile,
             start, duration, cannotCancelBeforeContact);
+        return window is { } cast ? cast with { ActionHash = SkillsFor(conn).ActionHash(effect) } : null;
     }
 
     // The attack time of a held attack skill, as its handler paces it (Attack, CastGemSkill).

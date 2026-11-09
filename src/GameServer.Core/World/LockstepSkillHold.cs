@@ -29,6 +29,9 @@ public sealed class LockstepSkillHold
     /// <summary>Whether anything is asked for or running.</summary>
     public bool Active => _pending || _held || Channel is not null;
 
+    /// <summary>A new click waiting to start, rather than the automatic repeat of a held skill.</summary>
+    public bool Pending => _pending;
+
     /// <summary>C→S 0x18e or 0x18f.</summary>
     public void Press((int X, int Y) aim, uint? target, ushort skill, ushort flags, bool repeats)
     {

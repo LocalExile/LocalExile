@@ -92,7 +92,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). It
   handles pickup/attack recovery, corpse collision and ground melee/chest approach, with current background-action
   stats, actor-owned AI sequences and projectile-hit ownership; tutorial gems retain their initial recipient.
-  Spells at ground or object targets retain fractional holds; ordinary Fireball/Freezing Pulse have Move cancel windows.
+  Ground/object spells retain fractional holds; Fireball/Freezing Pulse allow Move and early spell replacement.
   Channels retain activity and releases; spell channels use cast speed without a frame cap. Full validation remains open.
   Held-walk player and all-monster sync bars pass; held, Mud Flats and charger checks show no reproduced predictive regression.
   Complete nonregression and coverage remain open ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).

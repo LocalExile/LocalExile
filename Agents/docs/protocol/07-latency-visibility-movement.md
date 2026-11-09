@@ -610,6 +610,9 @@ For ordinary Fireball and Freezing Pulse casts without repeats, a Move uses the 
 early through `max(0.2 * clip length, contact - 0.3 * clip length)`, then blocked until `lock_cancelling`
 (contact if that event is absent). Early cancellation requires request flag `0x400`; the stat
 `cannot_cancel_skill_before_contact_point` suppresses it. A held spell still waits the full cast duration.
+A new request for a different spell action may also use the early window (`0x141e8d900`), with flag `0x400`.
+The comparison is the action hash, not the granted skill ID. The same action cannot restart early, and the late
+window only allows movement; another spell requested there waits for the full cast.
 The Witch's wand projectile clip is 1066 ms, contact 599 ms, cancellation 754 ms; these come from the rig data.
 Repeated casts and other spell action classes retain their full hold pending their additional native gates.
 Channel aim updates also refresh the server's activity timeout.
