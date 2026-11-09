@@ -2785,7 +2785,12 @@ failed I/O, allocation limits, actual official values and every skill's successf
   `using_flask` = 1: the client computes `soul_eater_from_stat` only when that flag is set (0x14282d9d0 in 3.29.3c,
   reading keys 0xea5, 0xf4e and 0xf52), so without it its native flask/Soul Eater visuals stay off. Each kill within 60
   cells is one soul; the player tick presents the changed count and, per soul, a **ServerBeamEffect** from the corpse to
-  the player. The official 3.29.3c capture of that object's Beam component (`0x1416710c0`):
+  the player. Soul Ascension's `gain_soul_eater_stack_on_hit_vs_unique_cooldown_ms` (500 ms in the 3.29.3c tables) adds
+  a second, kill-independent source: the player's own hit on a rare or unique enemy eats one soul, no more than once
+  per that cooldown, with no radius. That source sends no beam: the official server's object for a hit's soul has not
+  been captured, so only the counted buff and the stats it changes go out. Its stat build also does not send
+  `using_flask` (there is no flask), so the client's native soul computation stays off and the server's buffs and stats
+  carry the effect. The official 3.29.3c capture of that object's Beam component (`0x1416710c0`):
   19 bytes of object header + Positioned + Animated, then u16 MiscBeams row + 1 (1 = SoulEaterBeam, row 0), a 16-bit
   flag word `0x0C97` (A0|A1|A2|A4|A7|B2|B3) and a zero third byte, then start world x/y, start object id, 0, end world
   x/y, end object id, 0. The endpoints are **world units (ten per grid cell)**; the client follows the two object ids

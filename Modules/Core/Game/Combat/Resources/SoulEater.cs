@@ -8,6 +8,9 @@ static partial class Game
     /// this radius feed a soul (poedb: 60 units). Each soul gives 5% increased attack and cast speed and 1% character
     /// size; one is lost every 0.5 s after 4 s without a kill.</summary>
     internal const string SoulEaterStat = "gain_soul_eater_during_flask_effect";
+    /// <summary>Soul Ascension's "Eat a Soul when you Hit a Rare or Unique Enemy, no more than once every 0.5 seconds":
+    /// the stat's value is that cooldown in ms (500; the Divergent-like variant 2000), unscalable.</summary>
+    internal const string SoulEaterHitStat = "gain_soul_eater_stack_on_hit_vs_unique_cooldown_ms";
     internal const int SoulEaterRadius = 60;
     /// <summary>BuffDefinitions row "soul_eater_aura" (277): the aura around the eater. Invisible as an icon, its
     /// BuffVisuals 288 EPK draws the soul visuals (the same aura BuffTemplate "MapModPlayerSoulEater" gives a player).</summary>
@@ -18,6 +21,9 @@ static partial class Game
 
     static bool SoulEaterStatPresent(IReadOnlyDictionary<uint, int> stats) =>
         Stats.Key(SoulEaterStat) is uint key && stats.GetValueOrDefault(key) != 0;
+
+    static int SoulEaterHitCooldownMs(IReadOnlyDictionary<uint, int> stats) =>
+        Stats.Key(SoulEaterHitStat) is uint key ? Math.Max(0, stats.GetValueOrDefault(key)) : 0;
 
     // "Any Flask Effect": a running utility flask, a permanent one from a belt's always-apply effect, or a life/mana
     // flask still recovering. Life and mana flasks keep no utility effect here, but their recovery is a flask effect too.
@@ -38,7 +44,7 @@ static partial class Game
     }
 
     internal static bool SoulEaterActive(ClientState conn, IReadOnlyDictionary<uint, int> stats) =>
-        SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
+        SoulEaterHitCooldownMs(stats) > 0 || SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
 
     /// <summary>The buff's attack speed part, added to the final main-hand value without rebuilding the pools.</summary>
     internal static int SoulEaterAttackSpeed(ClientState conn, IReadOnlyDictionary<uint, int> stats)
@@ -51,8 +57,13 @@ static partial class Game
     /// <summary>The stat snapshot's part: the attack/cast speed buckets and the capped character size.</summary>
     internal static void WithSoulEater(ClientState conn, Dictionary<uint, int> stats)
     {
-        bool active = SoulEaterActive(conn, stats);
+        bool flask = SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
+        int hitCooldown = SoulEaterHitCooldownMs(stats);
+        bool active = flask || hitCooldown > 0;
         conn.SoulEater.Enabled = active;
+        conn.SoulEater.FlaskFed = flask;
+        conn.SoulEater.HitFed = hitCooldown > 0;
+        conn.SoulEater.HitCooldownSeconds = hitCooldown / 1000.0;
         if (!active) { conn.SoulEater.Clear(); return; }
         conn.SoulEater.SetMaximum(SoulEaterMaximum(stats));
         // The buff's ShowCount reads this virtual: the base maximum plus the Soul Ascension gloves' increase.
@@ -70,19 +81,39 @@ static partial class Game
         Add("capped_actor_scale_+%", Math.Min(stacks, 50));
     }
 
-    /// <summary>An enemy killed at <paramref name="at"/>: one soul when the buff is active and the player is near.</summary>
+    /// <summary>An enemy killed at <paramref name="at"/>: one soul for the flask source ("during any Flask Effect"),
+    /// when the source is active and the player is near. Soul Ascension's hit source does not feed on kills.</summary>
     internal static void SoulEaterSoul(ClientState conn, uint id, (int X, int Y) at)
     {
-        if (!conn.SoulEater.Enabled) return;
+        if (!conn.SoulEater.FlaskFed) return;
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
             double now = conn.Clock.Elapsed.TotalSeconds;
             if (Dist(at, conn.Walk.Position(now)) > SoulEaterRadius) return;
             conn.SoulEater.Soul(now);
-            if (conn.SoulEater.Souls.Count >= 32) conn.SoulEater.Souls.RemoveAt(0);
-            conn.SoulEater.Souls.Add((id, at.X, at.Y));
+            QueueSoul(conn, id, at);
         }
+    }
+
+    /// <summary>Soul Ascension: a hit on a rare or unique enemy eats one soul, no more than once per the item's
+    /// cooldown (500 ms). No radius: a bow hit far away still eats. No beam: the official server's object for a hit's
+    /// soul has not been captured, so only the counted buff and the stats it changes are published.</summary>
+    internal static void SoulEaterHit(ClientState conn, SpawnedMonster monster)
+    {
+        if (!conn.SoulEater.HitFed) return;
+        lock (conn.Monsters)
+        {
+            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
+            if (monster.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique)) return;
+            conn.SoulEater.TryHitSoul(conn.Clock.Elapsed.TotalSeconds);
+        }
+    }
+
+    static void QueueSoul(ClientState conn, uint id, (int X, int Y) at)
+    {
+        if (conn.SoulEater.Souls.Count >= 32) conn.SoulEater.Souls.RemoveAt(0);
+        conn.SoulEater.Souls.Add((id, at.X, at.Y));
     }
 
     /// <summary>The eaten-soul buff and, when its count or the aura changed, the stats and skills it changes. Sent from the

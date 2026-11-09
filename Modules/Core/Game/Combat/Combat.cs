@@ -1622,6 +1622,8 @@ static partial class Game
                     // Item Quantity Support: the kill's loot rolls read the supported skill's share.
                     if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                         m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
+                    // Soul Ascension: this player hit on a rare or unique enemy eats a soul (its own cooldown).
+                    SoulEaterHit(conn, m);
                     // Devour: a killing blow recovers the support's life/mana.
                     if (applied.Value.Life == 0) DevourOnKill(conn, skillStats);
                     AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
