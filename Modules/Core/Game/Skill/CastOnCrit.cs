@@ -34,45 +34,65 @@ static partial class Game
             && Stats.Key("spell_uncastable_if_triggerable") is uint uncastable && stats.GetValueOrDefault(uncastable) != 0;
     }
 
+    /// <summary>A spell gem Cast On Critical Strike can trigger from an attack, with its cooldown in seconds.</summary>
+    internal readonly record struct CastOnCritSpell((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem,
+        double Cooldown);
+
+    /// <summary>The spells <paramref name="attackSkill"/>'s crits can trigger: every supported spell gem of its link
+    /// group, in socket order, one entry per gem (copies of one spell included).</summary>
+    internal static List<CastOnCritSpell> CastOnCritSpells(ClientState conn, ushort attackSkill)
+    {
+        var spells = new List<CastOnCritSpell>();
+        var attack = SupportedSkill(conn, attackSkill);
+        if (attack.Group < 0 || Stats.Key(CastOnCritState.SpellStat) is not uint spellKey) return spells;
+        var player = CharacterPlayerStats(conn);
+        int Get(IReadOnlyDictionary<uint, int> values, string name) => Stats.Key(name) is uint k ? values.GetValueOrDefault(k) : 0;
+        foreach (var gem in GemSkillEffects(conn))
+        {
+            if (gem.Id == attackSkill) continue;
+            var spell = SupportedSkill(conn, gem.Id);
+            if (spell.Host != attack.Host || spell.Group != attack.Group || !spell.RequirementsMet
+                || spell.Stats.GetValueOrDefault(spellKey) == 0) continue;
+            // The cooldown is the trigger support's own row (0.15 s), with the player's and the spell's recovery.
+            var support = spell.Supports.FirstOrDefault(s => s.Stats.Any(v => v.Key == spellKey));
+            int baseMs = support is null ? 0 : SkillsFor(conn).CooldownMs(support.Effect.Row, support.Gem.Level);
+            long recovery = (long)Get(player, "virtual_cooldown_speed_+%") + Get(spell.Stats, "base_cooldown_speed_+%")
+                + Get(spell.Stats, "virtual_cooldown_speed_+%");
+            spells.Add(new(gem, CastOnCritState.CooldownSeconds(baseMs, recovery)));
+        }
+        return spells;
+    }
+
+    /// <summary>Under the Monsters lock: the spell this crit triggers (the link's rotation, each spell's cooldown
+    /// shared by its copies), or null when all are cooling.</summary>
+    internal static CastOnCritSpell? PickCastOnCritSpellLocked(ClientState conn, ushort attackSkill,
+        IReadOnlyList<CastOnCritSpell> spells, double now)
+    {
+        var attack = SupportedSkill(conn, attackSkill);
+        return conn.CastOnCrit.Pick((attack.Host, attack.Group), [.. spells.Select(s => (s.Gem.Effect, s.Cooldown))], now)
+            is int index ? spells[index] : null;
+    }
+
     static async Task CastOnCritAsync(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort attackSkill, uint targetId)
     {
         try
         {
-            var attack = SupportedSkill(conn, attackSkill);
-            if (attack.Group < 0 || Stats.Key(CastOnCritState.SpellStat) is not uint spellKey) return;
-            var player = CharacterPlayerStats(conn);
-            int Get(IReadOnlyDictionary<uint, int> values, string name) => Stats.Key(name) is uint k ? values.GetValueOrDefault(k) : 0;
-            var spells = new List<((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem, double Cooldown)>();
-            foreach (var gem in GemSkillEffects(conn))
-            {
-                if (gem.Id == attackSkill) continue;
-                var spell = SupportedSkill(conn, gem.Id);
-                if (spell.Host != attack.Host || spell.Group != attack.Group || !spell.RequirementsMet
-                    || spell.Stats.GetValueOrDefault(spellKey) == 0) continue;
-                // The cooldown is the trigger support's own row (0.15 s), with the player's and the spell's recovery.
-                var support = spell.Supports.FirstOrDefault(s => s.Stats.Any(v => v.Key == spellKey));
-                int baseMs = support is null ? 0 : SkillsFor(conn).CooldownMs(support.Effect.Row, support.Gem.Level);
-                long recovery = (long)Get(player, "virtual_cooldown_speed_+%") + Get(spell.Stats, "base_cooldown_speed_+%")
-                    + Get(spell.Stats, "virtual_cooldown_speed_+%");
-                spells.Add((gem, CastOnCritState.CooldownSeconds(baseMs, recovery)));
-            }
+            var spells = CastOnCritSpells(conn, attackSkill);
             if (spells.Count == 0) return;
-            int? picked;
+            CastOnCritSpell? picked;
             (int X, int Y) from, to;
             lock (conn.Monsters)
             {
                 if (conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return;
                 if (!conn.Monsters.TryGetValue(targetId, out var target)) return;
-                var cooldowns = spells.ToDictionary(s => s.Gem.Effect, s => s.Cooldown);
-                picked = conn.CastOnCrit.Pick((attack.Host, attack.Group), [.. spells.Select(s => s.Gem.Effect)],
-                    conn.Clock.Elapsed.TotalSeconds, effect => cooldowns[effect]);
+                picked = PickCastOnCritSpellLocked(conn, attackSkill, spells, conn.Clock.Elapsed.TotalSeconds);
                 double at = ProjectileWorldTime(conn);
                 from = conn.Walk.Position(at);
                 to = target.Walk.Position(at);
             }
-            if (picked is not int index) return;
-            var cast = spells[index].Gem;
+            if (picked is not { } chosen) return;
+            var cast = chosen.Gem;
             if (!PayMana(conn, cast.Id, out uint cost, out uint lifeCost))
             {
                 Console.WriteLine($"[gateway] {remote} cast on crit: {cast.Name} not triggered, not enough mana or life " +
@@ -87,7 +107,7 @@ static partial class Game
                 else await SendSkillCost(remote, stream, ciphers, conn, lifeCost, log);
             }
             Console.WriteLine($"[gateway] {remote} cast on crit: skill 0x{attackSkill:x4} crit 0x{targetId:x}, triggers {cast.Name} " +
-                $"(skill 0x{cast.Id:x4}) at ({to.X}, {to.Y}), cost {cost} mana, cooldown {spells[index].Cooldown * 1000:0} ms " +
+                $"(skill 0x{cast.Id:x4}) at ({to.X}, {to.Y}), cost {cost} mana, cooldown {chosen.Cooldown * 1000:0} ms " +
                 $"(t={conn.Clock.Elapsed.TotalSeconds:0.000})");
             if (CastOnCritSendsAction)
                 await Send(remote, stream, ciphers, InstanceProtocol.InstantAction(PlayerId, cast.Id, to.X, to.Y, targetId, triggered: true),

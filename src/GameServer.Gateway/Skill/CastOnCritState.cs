@@ -10,17 +10,20 @@ sealed class CastOnCritState
     readonly Dictionary<int, double> readyAt = [];
     readonly Dictionary<(uint Host, int Group), int> next = [];
 
-    /// <summary>The index in <paramref name="spells"/> (GrantedEffects rows, socket order) of the spell this crit
-    /// triggers, or null when all are on cooldown. The chosen spell's cooldown starts at <paramref name="now"/>.</summary>
-    public int? Pick((uint Host, int Group) link, IReadOnlyList<int> spells, double now, Func<int, double> cooldownSeconds)
+    /// <summary>The index in <paramref name="spells"/> (one entry per supported spell gem, socket order, with its
+    /// GrantedEffects row and cooldown) of the spell this crit triggers, or null when all are on cooldown. Copies of
+    /// one spell are separate entries that share one cooldown: a copy is skipped while another copy cools. The chosen
+    /// spell's cooldown starts at <paramref name="now"/>.</summary>
+    public int? Pick((uint Host, int Group) link, IReadOnlyList<(int Effect, double Cooldown)> spells, double now)
     {
         if (spells.Count == 0) return null;
         int start = next.GetValueOrDefault(link) % spells.Count;
         for (int i = 0; i < spells.Count; i++)
         {
             int index = (start + i) % spells.Count;
-            if (now < readyAt.GetValueOrDefault(spells[index], double.NegativeInfinity)) continue;
-            readyAt[spells[index]] = now + cooldownSeconds(spells[index]);
+            var (effect, cooldown) = spells[index];
+            if (now < readyAt.GetValueOrDefault(effect, double.NegativeInfinity)) continue;
+            readyAt[effect] = now + cooldown;
             next[link] = index + 1;
             return index;
         }
