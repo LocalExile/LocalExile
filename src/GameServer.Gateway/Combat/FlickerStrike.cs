@@ -23,15 +23,16 @@ static class FlickerStrike
         return d * d <= (float)(range * range);
     }
 
-    /// <summary>The monster Flicker Strike goes to, or null when none is in range.</summary>
-    public static (uint Id, (int X, int Y) At)? Pick(IEnumerable<(uint Id, (int X, int Y) At, int Size)> monsters,
+    /// <summary>The hostile monster Flicker Strike goes to, or null when none is in range.</summary>
+    public static (uint Id, (int X, int Y) At)? Pick(IEnumerable<(uint Id, (int X, int Y) At, int Size, bool Hostile)> monsters,
         (int X, int Y) player, (int X, int Y) aim, int range, uint clicked = 0)
     {
         (uint Id, (int X, int Y) At)? best = null;
         long bestDistance = 0;
-        foreach (var (id, at, size) in monsters)
+        foreach (var (id, at, size, hostile) in monsters)
         {
-            if (!InRange(player, at, size, range)) continue;
+            // Only hostile monsters, a clicked one included: the client's pick checks the factions (0x141a603e0, 0x141a61c00).
+            if (!hostile || !InRange(player, at, size, range)) continue;
             if (clicked != 0 && id == clicked) return (id, at);
             long dx = at.X - aim.X, dy = at.Y - aim.Y, distance = dx * dx + dy * dy;
             // The client keeps a later monster at the same distance (<=).

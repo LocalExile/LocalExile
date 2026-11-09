@@ -77,6 +77,10 @@ static partial class Game
             if (plan is { } cooldown)
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
+                // A use the player cannot pay for is refused here, before it spends a cooldown use or a bypass charge and
+                // before its side effects move the player (a movement skill's landing, Flicker Strike's teleport): its
+                // cost is paid only later, when its effect starts (PayMana).
+                if (reserve && skillId is ushort paying && !CanPaySkillCost(conn, paying)) return false;
                 state = CooldownStateLocked(conn, effect, cooldown, now);
                 if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
                 {
