@@ -888,10 +888,12 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 /// 3.29.3c). The Beam component (0x1416710c0) reads the MiscBeams row + 1, a 16-bit flag word and a third flag byte,
 /// then the endpoints. The official packet: row 0 (SoulEaterBeam) + 1, flags 0x0C97, start world x/y, start object id,
 /// 0, end world x/y, end object id, 0. The client follows the two objects; the positions are their snapshot.
-/// World coordinates are grid cells times ten.
+/// World coordinates are grid cells times ten. Flag A6 (0x40) puts a name in place of the u32 after the start object
+/// (u32 byte length, then the bytes): the start object's bone the line leaves from (3.29.3c: 0x1416710c0 → 0x140e276c0; Izaro's
+/// gargoyles' <c>Jnt_jaw</c>). Without it the start stays where it was made; the end, given as here, follows its object.
 /// </summary>
 public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint StartObject, float EndWorldX, float EndWorldY,
-    uint EndObject, ushort BeamRow = 0)
+    uint EndObject, ushort BeamRow = 0, string? StartBone = null)
 {
     public const string TypePath = "Metadata/Effects/ServerBeamEffect";
     /// <summary>Positioned x/y are cells; the Beam's endpoints are world units (ten per cell).</summary>
@@ -906,9 +908,15 @@ public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint Start
         w.U8(0);                                                        // Animated: the Beam row's art
         // Beam, exactly as the official server's (3.29.3c capture): row + 1, flags A0|A1|A2|A4|A7|B2|B3, then each end's
         // world position and object id (the client follows the objects; the positions are their snapshot).
-        w.U16((ushort)(BeamRow + 1)).U8(0x97).U8(0x0C).U8(0x00)
-            .F32(StartGridX * WorldPerCell).F32(StartGridY * WorldPerCell).U32(StartObject).U32(0)
-            .F32(EndWorldX).F32(EndWorldY).U32(EndObject).U32(0);
+        w.U16((ushort)(BeamRow + 1)).U8((byte)(StartBone is null ? 0x97 : 0xD7)).U8(0x0C).U8(0x00)
+            .F32(StartGridX * WorldPerCell).F32(StartGridY * WorldPerCell).U32(StartObject);
+        if (StartBone is null) w.U32(0);
+        else
+        {
+            byte[] bone = System.Text.Encoding.ASCII.GetBytes(StartBone);
+            w.U32((uint)bone.Length).Bytes(bone);
+        }
+        w.F32(EndWorldX).F32(EndWorldY).U32(EndObject).U32(0);
         w.U8(0);                                                        // tasks
         return w.ToArray();
     }
