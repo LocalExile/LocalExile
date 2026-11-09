@@ -22,7 +22,7 @@ public sealed class GameModule : IModule
         module.OnTick((player, _) => global::VaalOversoul.Tick(Program.ConnOf(player)));
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
         module.OnPlayerLeaving((player, _) => global::VaalOversoul.Leaving(Program.ConnOf(player)));
-        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("BrineKing", global::BrineKing.PlayerStats));
+        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game",global::BrineKing.PlayerStats));
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
         module.Lifetime.Own(GameEvents.Kill.Add("Game", Rules.ReservationKill));
         module.OnPlayerLeaving((player, _) => global::BrineKing.Leaving(Program.ConnOf(player)));
