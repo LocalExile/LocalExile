@@ -192,6 +192,8 @@ public static partial class Game
         {
             Spell = spell,
             Scripted = kingActor || brine,
+            // A weapon in the off hand, not a shield (ItemStances 10) or a quiver (9).
+            DualWielding = ownedLooks?.Any(l => l.Slot == 1 && l.Stance is not (9 or 10)) == true,
             Ranged = rangedAttack,
             Projectile = projectile,
             Summon = summon,
@@ -212,7 +214,7 @@ public static partial class Game
         // The King in the Mists needs its whole granted-effect list on the actor, not only the default attack: each 0x1ab
         // names one of these ids (KingInMists.cs). The three Mystic Fetishes likewise need their hazard list, because the
         // official server sends those actions to the fetish actor.
-        var kingSkills = DepravedTrinity.SkillsFor(conn, variety, level) ?? VaalOversoul.SkillsFor(conn, variety, level) ?? DoedreSewers.SkillsFor(conn, variety, level) ?? BrineKing.SkillsFor(conn, variety, level, attack) ?? KingInMists.SkillsFor(conn, variety, level, attack)
+        var kingSkills = DepravedTrinity.SkillsFor(conn, variety, level) ?? VaalOversoul.SkillsFor(conn, variety, level) ?? DoedreSewers.SkillsFor(conn, variety, level) ?? BrineKing.SkillsFor(conn, variety, level, attack) ?? IzaroSkills.SkillsFor(conn, variety, level, attack, skill) ?? KingInMists.SkillsFor(conn, variety, level, attack)
             ?? (KingInMists.IsFetish(variety) ? KingInMists.FetishSkillsFor(conn, variety, level, attack) : null);
         var skills = kingSkills is { Count: > 0 } ? kingSkills
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
@@ -243,7 +245,7 @@ public static partial class Game
         // The client multiplies this monster's pathing speed by its own roll in the variety's range, drawn from [id, type]
         // (MonsterSpeedRoll.cs); the walk estimate uses the same speed so arrival, swing range and contact agree with it.
         int speedRoll = MonsterSpeedRoll.Percent(id, type, variety);
-        double walkSpeed = mods.Effects.MovementSpeed(variety.MovementSpeed) * MonsterSpeedRoll.Factor(speedRoll);
+        double walkSpeed = mods.Effects.MovementSpeed(variety.MovementSpeed) * MonsterSpeedRoll.Factor(speedRoll) * (IzaroSkills.IsIzaro(variety) ? IzaroSkills.WalkFactor : 1);
         // An owned spawn must not send a native object and then lose its roster callback across reload.
         // Commit the neutral identity with its create/wake bytes at one current send gate.
         bool admitted = false;
@@ -296,7 +298,7 @@ public static partial class Game
             }
         void AddMonsterLocked()
         {
-            MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique),
+            MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique, IzaroSkills.IsIzaro(variety)),
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
                 Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
@@ -757,11 +759,26 @@ public static partial class Game
                 // attack's reach (max range reach - 1, the player's size as the tolerance: 0x141e95400, 0x141e81950).
                 if (m.Hostile && m.Attack is { InPlace: false } melee)
                 {
+                    // Izaro's walk in an open arena: while he is on his way he is ordered again at most this often, as an order
+                    // restarts his walk clip (live: every 200 ms he walked in steps, the clip reset each time).
+                    bool steady = IzaroSkills.IsIzaro(m.Variety);
+                    if (steady && now < m.Walk.ArrivesAt && !cadence.ChaseOverdue(m, now, IzaroSkills.ChaseSeconds - MonsterAiCadence.AttackChaseSeconds))
+                    {
+                        // Between orders the client's walk-up follows the player by itself: so does the estimate, or an
+                        // order's from cell would put him back (live; a lockstep client's estimate has StepWalkUp).
+                        if (!conn.LockstepClient && m.LastTarget is { } aimed && Math.Abs(aimed.X - px) + Math.Abs(aimed.Y - py) >= MonsterAiCadence.TargetChangeCells)
+                        {
+                            var followed = m.Walk.Approach(px, py, melee.Range - 1, now, LivingCollision.PlayerSize);
+                            m.LastTarget = (px, py);
+                            if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) follows from {followed.Here} to {followed.Stop}, arrives in {followed.At - now:0.000} s, speed {m.Walk.Speed:0.#}, player ({px}, {py}) (t={now:0.000})");
+                        }
+                        continue;
+                    }
                     if (!LockstepReorderDue(conn, plan, m, cadence, now) || !cadence.TryAttackChase(m, now)) continue;
                     // Far off, a Move to the cell LegCells along the walk-up instead of the attack aimed at the player,
                     // ordered again on the same cadence; the attack's own walk-up from within a leg of the reach. An
                     // estimate that finds no way at all keeps the attack order: the client's own search may.
-                    if (d > melee.Range - 1 + LegCells)
+                    if (!steady && d > melee.Range - 1 + LegCells)
                     {
                         (int X, int Y) leg = (px, py), start = m.Walk.Position(now);
                         bool placed = !double.IsNaN(plan.FrameStart);
@@ -786,7 +803,7 @@ public static partial class Game
                     {
                         var walk = m.Walk.Approach(px, py, melee.Range - 1, now, LivingCollision.PlayerSize);
                         here = walk.Here;
-                        if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) chase walk from {walk.Here} to {walk.Stop}, arrives in {walk.At - now:0.000} s, "
+                        if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) chase walk from {walk.Here} to {walk.Stop}, arrives in {walk.At - now:0.000} s, speed {m.Walk.Speed:0.#}, "
                             + $"reached goal {m.Walk.ReachedGoal}, player ({px}, {py}) {d:0.0} away (t={now:0.000})");
                     }
                     else

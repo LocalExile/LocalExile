@@ -19,6 +19,9 @@ public sealed class MonsterCatalog(string folder = "data")
     {
         public MonsterLifeData LifeData { get; init; } = new(null, null, null);
         public bool RangedWeapon { get; init; }
+        /// <summary>What its row says it holds (Weapon1, Weapon2: the first of each, with the MainHand and OffHand classes), as
+        /// the Inventories component lists it. Only an encounter that passes it on sends it (Izaro's).</summary>
+        public IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons { get; init; } = [];
         /// <summary>Native Positioned.blocking, independent of targetability. Missing optional metadata retains
         /// the earlier living-body assumption; the extracted resolved type supplies explicit false values.</summary>
         public bool PositionedBlocking { get; init; } = true;
@@ -299,6 +302,22 @@ public sealed class MonsterCatalog(string folder = "data")
                 && values.EnumerateArray().Any(value => value.ValueKind == JsonValueKind.Number && rangedVisuals.Contains(value.GetInt32())));
         static int Column(JsonElement row, string name) =>
             row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
+        var (visualHashes, classStances) = WeaponTables(folder);
+        IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons(JsonElement row)
+        {
+            var held = new List<GameServer.Core.Protocol.Instance.VisibleItem>();
+            void Hold(byte slot, string visuals, string itemClass)
+            {
+                if (!row.TryGetProperty(visuals, out var keys) || keys.ValueKind != JsonValueKind.Array || keys.GetArrayLength() == 0
+                    || !row.TryGetProperty(itemClass, out var c) || c.ValueKind != JsonValueKind.Number) return;
+                int visual = keys[0].GetInt32(), type = c.GetInt32();
+                if (visual < visualHashes.Count && type < classStances.Count && type < 255)
+                    held.Add(new(slot, visualHashes[visual], classStances[type], (byte)(type + 1)));
+            }
+            Hold(0, "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
+            Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
+            return held;
+        }
         var rows = new List<Variety>();
         using (var doc = GameTables.Open(varieties))
         {
@@ -323,7 +342,7 @@ public sealed class MonsterCatalog(string folder = "data")
                     r.GetProperty("DamageMultiplier").GetInt32(), r.GetProperty("ExperienceMultiplier").GetInt32(),
                     r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
                     {
-                        LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
+                        LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r), Weapons = Weapons(r),
                         PositionedBlocking = blocking.GetValueOrDefault(type, true),
                         Hash16 = (ushort)r.GetProperty("HASH16").GetInt32(),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
@@ -335,6 +354,17 @@ public sealed class MonsterCatalog(string folder = "data")
         if (components.Count > 0)
             rows = [.. rows.Select(v => v.Components is null ? v with { Components = [] } : v)];
         return (rows, null);
+    }
+
+    // ItemVisualIdentity HASH16 by row and ItemClasses ItemStance by row (0xff without one).
+    static (List<ushort> Visuals, List<byte> Stances) WeaponTables(string folder)
+    {
+        string visuals = Path.Combine(folder, "tables", "ItemVisualIdentity.json"), classes = Path.Combine(folder, "tables", "ItemClasses.json");
+        if (!File.Exists(visuals) || !File.Exists(classes)) return ([], []);
+        using var v = GameTables.Open(visuals);
+        using var c = GameTables.Open(classes);
+        return ([.. v.RootElement.EnumerateArray().Select(r => (ushort)r.GetProperty("HASH16").GetInt32())],
+            [.. c.RootElement.EnumerateArray().Select(r => r.TryGetProperty("ItemStance", out var s) && s.ValueKind == JsonValueKind.Number ? (byte)s.GetInt32() : (byte)0xff)]);
     }
 
     static HashSet<int> RangedWeaponVisuals(string folder)

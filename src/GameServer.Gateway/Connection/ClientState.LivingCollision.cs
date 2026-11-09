@@ -60,10 +60,11 @@ public sealed partial class ClientState
         }
     }
 
-    public PlayerWalk NewMonsterWalk(uint id, int x, int y, double speed, int size, bool unique) =>
+    /// <param name="throughBodies">Its walk goes through living bodies (Izaro through his minions, the original, live).</param>
+    public PlayerWalk NewMonsterWalk(uint id, int x, int y, double speed, int size, bool unique, bool throughBodies = false) =>
         new(x, y, Math.Max(1, speed), (cx, cy) => Layout.WalkableFor(cx, cy, Math.Max(0, size)) && !Barrier.Contains((cx, cy)),
             Layout.GridW > 0 ? Layout.GridW : 4096, Layout.GridH > 0 ? Layout.GridH : 4096,
-            () => size < 0 ? StationaryBlockers : MonsterBlockers(id), Math.Max(0, size),
+            () => size < 0 || throughBodies ? StationaryBlockers : MonsterBlockers(id), Math.Max(0, size),
             // The client's budget for this mover (0x141e50f90): 1000 expansions for a unique, 100 for any other monster.
             limit: unique ? ClientPathfinder.SearchLimit.Expansions1000 : ClientPathfinder.SearchLimit.Expansions100, sight: Layout.Sight)
         { FrameOf = LockstepFrameOf };

@@ -41,6 +41,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
     public bool Spell { get; init; }
+    /// <summary>It holds a weapon in each hand (<see cref="VisibleItem"/> lists it): the client sets the off hand's strike up
+    /// from that hand's own stats (11-skills.md, "A dual-wielded attack has two hands").</summary>
+    public bool DualWielding { get; init; }
 
     /// <summary>The attack's final stats (the client derives none, 11-skills.md §4): the swing time, reach and damage.
     /// These also go on the monster's Stats component.</summary>
@@ -49,7 +52,7 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
         int ms = (int)Math.Round(Seconds * 1000);
         var physical = Damage[DamageType.Physical];
         int min = (int)Math.Floor(physical.Min), max = (int)Math.Floor(physical.Max);
-        return
+        List<(uint, int)> stats =
         [
             (StatKeys.MainHandMinPhysical, min), (StatKeys.MainHandMaxPhysical, max),
             (StatKeys.MainHandMinTotal, min), (StatKeys.MainHandMaxTotal, max),
@@ -57,6 +60,15 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
             (StatKeys.HundredTimesAttacksPerSecond, (int)Math.Round(100 / Seconds)),
             (StatKeys.MainHandBaseMaxAttackDistance, (int)Range), (StatKeys.MainHandMaxAttackDistance, (int)Range),
         ];
+        if (DualWielding)
+            stats.AddRange(
+            [
+                (StatKeys.OffHandMinPhysical, min), (StatKeys.OffHandMaxPhysical, max),
+                (StatKeys.OffHandMinTotal, min), (StatKeys.OffHandMaxTotal, max),
+                (StatKeys.OffHandAttackDurationMs, ms), (StatKeys.OffHandTotalAttackDurationMs, ms),
+                (StatKeys.OffHandBaseMaxAttackDistance, (int)Range), (StatKeys.OffHandMaxAttackDistance, (int)Range),
+            ]);
+        return stats;
     }
 
     /// <summary>An actor whose actions a controller plays (KingInMists.cs): every skill starts at once, none walks it up.</summary>

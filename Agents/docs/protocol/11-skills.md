@@ -922,6 +922,19 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   which drops a server-driven monster's queued attack in the same frame (traced: created, queued, both checks passed,
   then neither current nor queued). The server walks the monster itself, so the skill is non-pathing. Only on the
   skill: on the monster's Stats component it also stops its Move action from pathing (the monsters stood still).
+- **A monster's skill art is on its record too.** GrantedEffects `__col23` is the effect's `skill_art_variation`
+  (SkillArtVariations' Variants of its skill: Izaro's Upheaval 5 `Ornaments`, his Leap Slam 5 `LabyrinthBoss`); without
+  it his Upheaval drew Glacial Cascade's ice (live). `SkillCatalog.ArtVariation`; only Izaro's records send it so far.
+- **A skill played in place leaves the walk running** on a predictive client too. A Move ends it, but the client refuses a
+  Move under 3 cells from the monster (`0x141949a20`), and then the walk goes on through the cast: measured up to 119
+  cells (`trace-sync.js`), and the next order puts the monster back on the server's cell. An Upheaval or a VollCharge aimed
+  at the player's object (flag 0x80) walks up to the player or dashes where the client's own player is; aimed at a cell, it
+  goes where the server says. VollCharge's dash is about 60 cells at 270 cells/s, from 1.6 s after the order.
+- **An `.ot`'s stats apply on the client:** LabyrinthBoss.ot's `base_movement_velocity_+%` 15 walks Izaro at 41 cells/s where
+  MonsterVarieties says 36 (measured). The estimate takes it for him only (`IzaroSkills.WalkFactor`).
+- **Reordering restarts the walk clip.** A chase ordered every 200 ms showed Izaro's walk clip reset at each order on a
+  predictive client; he is ordered at most once a second while on his way (`IzaroSkills.ChaseSeconds`), the estimate
+  following the player between orders.
 - **A monster's spell skills carry cast-time stats, not the attack duration.** `MonsterAttack.Spell` sends
   `base_spell_cast_time_ms` (0x2a9), `virtual_base_spell_cast_time_ms` (0x24b9), `hundred_times_casts_per_second`
   (0x2aa) and `casting_spell` (0x1b6); only attacks send `main_hand_attack_duration_ms`. The client's cast-duration

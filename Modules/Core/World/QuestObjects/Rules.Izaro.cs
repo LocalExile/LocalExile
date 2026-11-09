@@ -132,6 +132,11 @@ static partial class QuestobjectsRules
         }
     }
 
+    // He walks through his minions (the original, live): the client's Pathfinding reads this stat for its blocker filter
+    // (0x141ea3618, as a Quartz Flask's, 13-items.md); without it they stopped his model while the server's walk went on.
+    static IReadOnlyList<(uint Key, int Value)>? IzaroPhases =>
+        Stats.Key("virtual_phase_through_objects") is uint phases ? [(phases, 1)] : null;
+
     // What Izaro says (S→C 0x1c7), from his object or (0) globally.
     static async Task IzaroSays(string remote, NetworkStream stream, ConnectionCiphers ciphers, uint from, string? line)
     {
@@ -219,7 +224,7 @@ static partial class QuestobjectsRules
             }
             byte level = (byte)Math.Clamp(ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
             uint izaro = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Unique, elevator.X, elevator.Y,
-                placement: MonsterPlacement.Established, lifePercent: trial.StartPercent);
+                placement: MonsterPlacement.Established, lifePercent: trial.StartPercent, ownedLooks: variety.Weapons, extraStats: IzaroPhases);
             SpawnedMonster? boss;
             lock (conn.Monsters)
             {
@@ -261,6 +266,7 @@ static partial class QuestobjectsRules
             }
             await ShowBossLifeBar(remote, stream, ciphers, izaro, boss, conn);
             await StartIzaroMechanics(remote, stream, ciphers, conn, mechanics, izaro, boss, Here);
+            _ = IzaroSkills.Run(remote, stream, ciphers, conn, izaro, boss, Here);
             // The fight, until he dies (the last trial) or his life reaches the trial's end (the others).
             while (Here())
             {

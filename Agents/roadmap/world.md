@@ -127,8 +127,13 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. Izaro's arenas' other mechanics (Toggle Statues, Gargoyles and Portals are done: `Rules.IzaroArena.cs` places them
-     and what they leave; Normal also rolls Lieutenants and Chrono Statues), one at a time, and the Goddess of Justice.
+  1. Izaro's own fight: his skills are in (`IzaroSkills.cs`). Left: `LbBossShield`, his taunt, the Spikes' slow, the
+     cooldowns against the original (ours; no `.ais`), and set-backs of his model after an order
+     (`scripts/re/sync_report.py`, Game_TRACE=sync with `trace-sync.js`, measures them; the Shield Bash aimed at a cell is
+     not live-checked).
+     Izaro's arenas' other mechanics (Toggle Statues, Gargoyles and Portals are done: `Rules.IzaroArena.cs` places them
+     and what they leave; Normal also rolls Lieutenants and Chrono Statues, both on the same day's run on 2026-11-11 and
+     2026-11-18), one at a time, and the Goddess of Justice.
      Her Guardians' circles are done without her (`IzaroGoddess.cs`): when she exists they become her skill, with its
      mortars flying from her. As the original plays (live, the user): the gargoyles' beam ends on her, above Izaro, not
      on him (ours ends on him: move it to her too).
