@@ -5,8 +5,8 @@
 #   connection's last packets to logs/packets/ when it closes (Game_PACKET_DUMPS; scripts/dev/bugreport.ps1 bundles both).
 #   -NoClient   keep a running client (it drops to the login screen; log in again)
 #   -NoBuild    skip the builds
-#   -NoExtract  skip scripts/dev/extract-data.ps1, which otherwise first extracts any missing or outdated game data into
-#               data/ (a quick check when nothing is missing)
+#   -NoExtract  skip scripts/dev/extract-data.ps1 -Servers, which otherwise first extracts the missing or outdated game
+#               data the servers read from the client into data/ (a quick check when nothing is missing)
 #   -Walkmaps   also run scripts/walkmaps/walkmaps.py (needs Python + `pip install frida`): captures the walk map of every
 #               area the client generates into data/walkability/, and lets the Gateway announce each load to it and run
 #               capture tours (Game_WALKMAPS=1). Without it nothing is recorded. Default ports and client session only
@@ -586,10 +586,11 @@ if ($Walkmaps -and ($stack.Base -or $session -ne 'default')) {
 }
 if ($Walkmaps) { $python = Get-Python '-Walkmaps' }
 
-# Game data from the GGPK (data/tables, object-types.json, ...): before the servers start, since they read it once.
+# The game data the servers read from the GGPK (data/game-files.zip, the local root hash): before they start. The client
+# tables and generated files come from client.db, built from sql/; the full extraction is extract-data.ps1 on its own.
 if (-not $NoExtract) {
-    Step 'checking game data (a first run extracts all of it from the client, which can take a long time) ...'
-    & (Join-Path $PSScriptRoot 'extract-data.ps1')
+    Step 'checking game data (a first run extracts it from the client, which takes a few minutes) ...'
+    & (Join-Path $PSScriptRoot 'extract-data.ps1') -Servers
 }
 
 # Without this the Gateway stops after creating the player and the client never enters the area.

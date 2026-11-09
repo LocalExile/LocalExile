@@ -80,7 +80,8 @@ parse what they parsed before. Any other path is read from disk. A rebuilt table
 `client_json_cache` table for the current set of applied updates (a rebuild of `Mods` takes about a second, a cached
 read 0.4 s), and in memory for a few seconds for the catalogues that read the same table in a burst. The Gateway and Auth
 update client.db before their first read; the first build takes about 16 s, a start with nothing new about 1.5 s.
-`extract-data.ps1` still writes `data/tables/` for its other generators and for `client-sql.ps1 diff`.
+`extract-data.ps1` still writes `data/tables/` for its other generators and for `client-sql.ps1 diff`; `live.ps1` and a
+release run only its `-Servers` entries (`game-files.zip` and the local root hash).
 
 The files those generators write that the servers read are in client.db too, in `client_files` (`file`, `part`, `ord`,
 `value`): `area-transitions`, `room-points`, `object-types`, `item-types`, `monster-contacts`, `monster-takehit`,

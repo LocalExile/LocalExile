@@ -57,7 +57,6 @@ static class GameDataFiles
         ("data/monster-contacts.json", "monster projectile release timing/points and boss stage contacts"),
         ("data/projectile-clips.json", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
         ("data/passive-skill-graphs.json", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
-        ("data/phrecia-passive-skillgraph.psg", "merged passive graph analysis artifact (not installed)"),
         ("data/game-files.zip", "levels the Gateway generates itself, the Phrecia classes' passive graph check"),
         ("data/client-constants.json", "the Gateway does not start without its HNC mask"),
         ("data/stat-descriptions.txt", "mod wording for tools' item crafter (the crafter mode)"),
@@ -94,7 +93,14 @@ static class GameDataFiles
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException) { stamps.Clear(); }
         foreach (var (entry, version, feature) in Needed)
-            if (stamps.TryGetValue(entry, out int have) && have < version) yield return (entry, have, version, feature);
+            if (stamps.TryGetValue(entry, out int have) && have < version && !InClientDb(root, entry)) yield return (entry, have, version, feature);
+    }
+
+    // An entry whose output the servers read from client.db (built from sql/, whatever the local extraction's version).
+    static bool InClientDb(string root, string entry)
+    {
+        string file = Path.Combine(root, entry == "tables" ? "data/tables/WorldAreas.json" : $"data/{entry}.json");
+        return ClientTables.TryTable(file, out string table) ? ClientTables.Has(table) : ClientTables.TryFile(file, out _);
     }
 
     /// <summary>One warning naming every generated file older than a feature needs, or null.</summary>

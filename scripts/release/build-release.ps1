@@ -134,7 +134,8 @@ Copy-Into 'Tools\ooz\package.json' 'Tools\ooz\package.json'
 Copy-Into 'Tools\ooz\node_modules' 'Tools\ooz\node_modules'
 
 $exported = Join-Path $out 'extract-manifest.exported.json'
-& $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\dev\extract-data.ps1') -ExportManifest $exported
+# Only what the servers read: the client tables and generated files are in client.db, built from sql\.
+& $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\dev\extract-data.ps1') -ExportManifest $exported -Servers
 Check-Exit 'extract-data.ps1 -ExportManifest'
 # Parsed first: Windows PowerShell's ConvertFrom-Json passes a whole array down a pipeline as one object.
 $parsed = Get-Content $exported -Raw | ConvertFrom-Json

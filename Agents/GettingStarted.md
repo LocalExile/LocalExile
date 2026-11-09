@@ -33,7 +33,7 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 | PowerShell 5.1+ | runs `live.ps1` | `$PSVersionTable.PSVersion` |
 | Path of Exile **3.29.3c**, standalone install | the client you play with | a folder with `PathOfExile.exe` and `Content.ggpk` |
 | [Node.js](https://nodejs.org) (Node 24) + `npm install` in `Tools\ooz` (npm package `ooz-wasm` 2.x) | decompresses the game's bundles for the data extraction (step 7) | `node --version`; `Tools\ooz\node_modules\ooz-wasm` exists |
-| Python 3.9+ | the data extraction (step 7); with `pip install frida`, walk maps (step 9, optional) | `python --version`; `python -c "import frida"` |
+| Python 3.9+ | the full data extraction (maintainers, step 7); with `pip install frida`, walk maps (step 9, optional) | `python --version`; `python -c "import frida"` |
 | ~same free space as the client | you work on a copy of it | |
 
 **Steam installs do not work as is.** The Steam layout has no `Content.ggpk`, and its executables have other names.
@@ -67,7 +67,7 @@ runs under Proton, through [umu-launcher](https://github.com/Open-Wine-Component
 
 ### Third-party tools (only to extend the server)
 
-Playing needs nothing beyond the table above (step 7 extracts the game data with Node and Python). To work out more of the protocol, as
+Playing needs nothing beyond the table above (step 7 extracts the game data with Node). To work out more of the protocol, as
 [docs/re/tooling.md](docs/re/tooling.md) describes, you also need these. Apart from the dat-schema file, none of them are in the repository; install
 them yourself. Programs go under `Tools\` at the repository root (git-ignored), where the scripts look for them.
 
@@ -200,44 +200,38 @@ The lines printed after it all contain `127.0.0.1:20493`.
 
 ## 7. Extract the game data
 
-The Gateway reads the game's tables, object types, hideouts and more from files extracted from `Client\Content.ggpk`
-into `data\` (all git-ignored: they are game data). One script makes all of them:
+The servers read the client's tables and the files generated from them (object types, area transitions, hideouts, the
+stat descriptions, ...) from `data\client.db`, which they build from `sql\` in git (step "The databases" below). From
+your own `Client\Content.ggpk` they need two files, extracted into `data\` (git-ignored: game data):
 
 ```powershell
-.\scripts\dev\extract-data.ps1
+.\scripts\dev\extract-data.ps1 -Servers
 ```
 
 `live.ps1` (step 10) runs it on every start, so you may skip this and let `live.ps1` do it. The first run takes a few
 minutes; later runs only check stamps and finish at once. It reads the GGPK and never writes it, and does not need the
-client closed.
-
-Success: one `extracting <name> ...` and `done in N s` per file, then `game data extracted: tables, object-types, ...`.
-A second run prints `game data up to date`.
+client closed. A second run prints `game data up to date`.
 
 | File | Feature without it |
 |---|---|
-| `data\tables\*.json` (about 940, report in `data\extract-report.json`) | almost everything: stats, areas, waypoints, items, monsters, NPCs |
-| `data\object-types.json` | monsters, NPCs, area transitions |
-| `data\item-types.json` | items (characters start with none, `/item` is off) |
-| `data\area-transitions.json` | the area transitions of fixed layouts |
-| `data\room-points.json` | unique bosses |
-| `data\hideouts.json` | hideouts |
-| `data\animation-contacts.json` | each class's spell timing and where its arrows and wand bolts leave |
-| `data\monster-contacts.json` | when and from where monster projectiles leave (the Sand Spitter's mortar) |
-| `data\projectile-clips.json` | the flight and impact clips of projectile objects (monster mortars are invisible without them) |
-| `data\game-files.zip` (about 126 MB) | the levels the Gateway generates itself, the Phrecia classes' passive graph check |
-| `data\client-constants.json` | the Gateway does not start; the Patch server closes each client's connection |
+| `data\game-files.zip` (about 121 MB) | the levels the Gateway generates itself, the Phrecia classes' passive graph check |
+| `data\client-constants.json` | the root hash of your GGPK: the Patch server closes each client's connection |
 
 After extraction the servers never open `Client\` or need Node: `data\` is enough to run them (`live.ps1 -NoClient`).
 Only the client, its setup steps and this extraction use `Client\`. To run servers on another machine, copy `data\`
 (`data\auth.db` and `data\characters.db` hold the accounts and characters). The capture tour's debug tooling also reads the client's log.
 
+Without `-Servers` the script runs the whole manifest: `data\tables\*.json` and every generator's file. That is the
+maintainer's input to `scripts\dev\client-sql.ps1 diff` after a client patch or a generator change, which writes the SQL
+for what changed ([databases](docs/dev/databases.md)); it needs Python as well.
+
 How it decides: the manifest at the top of `scripts\dev\extract-data.ps1` gives each file its command and a version
 number. The script runs every entry whose file is missing or whose stamp (`data\extract-stamps.json`) has another
 version, and the entries that need one that ran (everything needs the tables). A pull that changes a file's format
-bumps its version, and your next run regenerates it. Options: `-Force` (everything), `-Only hideouts,room-points`
-(just these), `-List` (each entry's state; runs nothing). Each run's output is in `logs\extract-<name>.log`. It
-builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with `dotnet run --no-build`.
+bumps its version, and your next run regenerates it. Options: `-Servers` (only what the servers read), `-Force`
+(everything), `-Only hideouts,room-points` (just these), `-List` (each entry's state; runs nothing). Each run's output
+is in `logs\extract-<name>.log`. It builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
+`dotnet run --no-build`.
 
 | Problem | Meaning |
 |---|---|
@@ -434,7 +428,7 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | "The password is not correct for this account" | wrong password, or an account created after the login server started | check the password; restart with `live.ps1` (it reloads accounts) |
 | "Account does not exist" | the name in the Email field does not match `register name=` | use the registered name |
 | Login hangs, no "Connected to login server" | gateway list not patched (step 6), or the login server is not running | redo step 6; check `logs\live-auth.log` |
-| A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data/tables` and `data/item-types.json` existed, and that empty kit was saved in `data\characters.db` | extract them, stop the Gateway, delete that character's row from `data\characters.db` (or move the whole DB aside to start over), run `live.ps1` again |
+| A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data\client.db` had the tables and item types, and that empty kit was saved in `data\characters.db` | extract them, stop the Gateway, delete that character's row from `data\characters.db` (or move the whole DB aside to start over), run `live.ps1` again |
 | Character select shows no characters | the character was created after the login server started | run `live.ps1` again |
 | `dotnet build` / `dotnet test` fails with `MSB3027` ... `locked by: ".NET Host"` | the servers `live.ps1` started are running from the same `bin\` folders | let `live.ps1` rebuild them (`-Only Gateway` …), or build and test elsewhere with a short path: `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` |
 | Stuck after Play (no area) | `Game_GATEWAY_ENTER` was set to something other than `1` | unset it; `live.ps1` sets it to `1` |
