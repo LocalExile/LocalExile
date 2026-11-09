@@ -36,6 +36,11 @@ tables are the exception: `client-sql.ps1` writes them dated, straight to `sql/u
 into `base/`: a fix is another update. `base/` changes only when a table is added (its CREATE TABLE), and a database
 that already exists gets that table from the new base file, so a new base file may only create.
 
+Every player's server runs a merged update at its next start, so the checks (`.github/scripts/check-sql.py`) refuse
+`ATTACH`, `DETACH`, `VACUUM`, `PRAGMA` and `load_extension` anywhere, and in `auth` and `characters` a `DROP`, or a
+`DELETE` or `UPDATE` without `WHERE`, unless the file holds the line `-- check-sql: destructive`. `base/` and those
+two databases' updates are code-owned (the maintainer reviews them); the other updates are open to maintainers.
+
 ## The updater
 
 `SqlUpdater` (GameServer.Storage) runs in each server when it opens a database: the files of `sql/base/<db>/`, then the
