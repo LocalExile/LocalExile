@@ -98,10 +98,12 @@ public static class SavesMigration
 
         SqliteConnection.ClearAllPools();
         using (var old = SqlUpdater.Open(saves)) SqlUpdater.Execute(old, "PRAGMA wal_checkpoint(TRUNCATE)");
-        File.Move(saves, saves + ".migrated");
+        // A saves.db.migrated from an earlier migration stays: this one gets the time too.
+        string migrated = File.Exists(saves + ".migrated") ? $"{saves}.migrated-{DateTime.UtcNow:yyyyMMdd-HHmmss}" : saves + ".migrated";
+        File.Move(saves, migrated);
         foreach (string suffix in new[] { "-wal", "-shm" })
             if (File.Exists(saves + suffix)) File.Delete(saves + suffix);
-        log($"[migrate] {saves} is now {saves}.migrated; accounts are in {authPath}, characters in {charactersPath}");
+        log($"[migrate] {saves} is now {migrated}; accounts are in {authPath}, characters in {charactersPath}");
         return new Result(backup, rows);
     }
 
