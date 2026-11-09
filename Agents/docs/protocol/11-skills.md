@@ -1432,11 +1432,12 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Not modelled: the final-repeat and per-repeat stats (Greater and Awakened Spell Echo), and whether a repeat re-aims
   at a moving target.
   Catalog instant skills retain their instant flag, zero server cast duration and no finite casts-per-second rate.
-  A channelled spell's native base is also preserved; this does not implement beam damage or change the existing
-  server channel-hit cadence. Attack and non-spell timing paths are unchanged.
+  A channelled spell's native base is preserved; its server interval uses the fractional supported cast duration
+  without a new-action frame limit. This does not implement beam damage. Attack and non-spell timing are unchanged.
   For non-instant spells, a nonpositive speed factor or a duration exceeding signed integer milliseconds has
   no server duration, no hit/effect or mana cost, and zero displayed cast rate. Positive server durations round
-  to milliseconds with a 1 ms numeric floor; this bound is not an official cast-speed cap. Conditional action-speed
+  to milliseconds with a 1 ms numeric floor for integer waits; channel intervals and lockstep spell holds retain
+  fractional seconds. This bound is not an official cast-speed cap. Conditional action-speed
   rules, skill-specific speed substitutions and further native timing mechanics remain outside this fix.
 - **Instant skills.** The client knows an instant skill by its stat **`skill_is_instant`** (0x2064), not by the
   ActiveSkillType `Instant`; the server derives it from the type and sends it with `base_skill_is_instant`

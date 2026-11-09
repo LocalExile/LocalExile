@@ -329,6 +329,16 @@ public class LockstepTests
         Game.OnLockstepRequest("test", conn, 0x18e, Convert.FromHexString("018E00000014000000002909040000"));
         Assert.Equal((ushort)0x8001, conn.LockstepSkill.ChannelReleased());
         Assert.Null(conn.LockstepSkill.ChannelReleased());
+        // A new Move may cancel at either end of a spell; a held repeat still waits for the full cast.
+        conn.LockstepBusyUntil = 10.65;
+        conn.LockstepCastWindow = new(10, .65, .17, .46);
+        Assert.False(Game.LockstepPlayerFree(conn, 9.99));
+        Assert.True(Game.LockstepPlayerFree(conn, 10.1));
+        Assert.False(Game.LockstepPlayerFree(conn, 10.3));
+        Assert.True(Game.LockstepPlayerFree(conn, 10.5));
+        conn.LockstepHold.Clear();
+        Assert.False(Game.LockstepPlayerFree(conn, 10.5));
+        Assert.True(Game.LockstepPlayerFree(conn, 10.65));
     }
 
     [Fact]

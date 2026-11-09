@@ -155,7 +155,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     Pickup completion, one-hand mace recovery, corpse collision, ground melee walk-up and tutorial chest approach
     follow the client. Completed stat snapshots are retired, ordinary lockstep AI orders share each actor's sequence,
     projectile hits retain their releasing action, and tutorial creates retain their initial recipient.
-    Ground-spell holds include supported cast speed; live spell pacing and cast cancellation still need validation.
+    Ground-spell holds retain fractional cast speed; ordinary Fireball/Freezing Pulse use native Move cancel windows.
+    Repeated casts and other action classes still need their cancellation gates verified.
     Channel activity and replacement releases follow the held action; spell channels use their cast interval without
     a new-action frame cap. Full live coverage remains open.
     Held-walk player and all-monster sync bars pass; fresh Mud Flats and charger pairs show no predictive regression.

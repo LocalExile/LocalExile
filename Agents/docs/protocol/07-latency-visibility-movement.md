@@ -603,8 +603,13 @@ and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0
 
 Spell duration divides the virtual base cast time by the skill's cast-speed factor (`0x1419eef50`, stat `0x24b9`
 and virtual slot `+0x788` on Freezing Pulse; the getter `0x1419e7500` reads cast-speed stat `0x128`).
-The lockstep ground-spell hold uses the same supported cast duration as the cast itself, including action speed.
-The exact Move cancel window during a cast still needs a native trace.
+The lockstep ground-spell hold keeps that fractional duration, including action speed, from the frame's start.
+For ordinary Fireball and Freezing Pulse casts without repeats, a Move uses the clip gate (`0x14193d400`):
+early through `max(0.2 * clip length, contact - 0.3 * clip length)`, then blocked until `lock_cancelling`
+(contact if that event is absent). Early cancellation requires request flag `0x400`; the stat
+`cannot_cancel_skill_before_contact_point` suppresses it. A held spell still waits the full cast duration.
+The Witch's wand projectile clip is 1066 ms, contact 599 ms, cancellation 754 ms; these come from the rig data.
+Repeated casts and other spell action classes retain their full hold pending their additional native gates.
 Channel aim updates also refresh the server's activity timeout.
 Spell channels use the supported cast interval with fractional milliseconds, without the new-action frame limit;
 FireBeam's duration slot uses the same base-time/cast-speed rule (`0x1419e7660`).
@@ -799,7 +804,7 @@ Complete nonregression, frame ordering and skill/network parity remain unverifie
 | An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |
 | Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |
 | Ordinary lockstep AI orders and projectile hits retain actor/action ownership; special producers and wrap remain unverified | Every action and hit names the matching actor sequence | The ordinary paths are corrected; this is not a complete protocol audit |
-| A spell at the ground holds everything for its adjusted cast time | Cancel window not measured | Cast speed and action speed share the cast path; a Move during a cast is not traced (`LockstepActionHold`) |
+| Other spell classes and repeated casts hold movement for their full duration | Additional action gates unverified | Ordinary Fireball/Freezing Pulse use native clip windows; broader cancellation remains open |
 | A skill is echoed at any key 0, from the handlers Predictive uses | From the tick, keyed by the player | As for Moves |
 | The server simulates a mortar's flight, and the player's wand bolt or arrow, and lands its hit where that lands; the client draws each from its own action | One simulation, the client's | The server is a port: the client's spread (`projectile_spread_radius`) is seeded by the order's sequence and owner (`0x141bb13a0`) |
 

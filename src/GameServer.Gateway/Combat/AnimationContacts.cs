@@ -16,7 +16,8 @@ readonly record struct ContactPoint(float X, float Y, float Z)
 }
 
 /// <summary>A rig clip's length, its contact keyframe's time (ms) and, when the keyframe carries one, its position.</summary>
-readonly record struct AnimationClip(int Length, int Contact, ContactPoint? Point, uint Index = uint.MaxValue);
+readonly record struct AnimationClip(int Length, int Contact, ContactPoint? Point, uint Index = uint.MaxValue,
+    bool CancellationKnown = false, int? Cancel = null);
 
 /// <summary>The kind of cast a run skill plays: an attack swing, or a spell projectile / area / buff cast.</summary>
 enum CastAnimationKind { Attack, Projectile, Area, Buff }
@@ -60,6 +61,18 @@ sealed class AnimationContacts(string folder = "data")
     public double SpellAreaRelease(string animatedObject) =>
         SpellContact(animatedObject, ["spell_aoe_wand", "spellaoe_wand", "spell_aoe_unarmed", "spellaoe_unarmed"],
             ["spell_aoe", "spellaoe"]) ?? SpellRelease(animatedObject);
+
+    /// <summary>The native cast's early and late Move windows (0x14193d400), scaled from its actual clip events.</summary>
+    public GameServer.Core.World.LockstepCastWindow? SpellMoveWindow(string animatedObject, WeaponProfile weapon,
+        CastAnimationKind kind, double start, double duration, bool cannotCancelBeforeContact)
+    {
+        if (CastClip(animatedObject, weapon, kind) is not { } selected
+            || !_byAo.Value.TryGetValue(animatedObject, out var actor)
+            || !actor.Clips.TryGetValue(selected.Name, out var clip) || !clip.CancellationKnown) return null;
+        double? early = cannotCancelBeforeContact ? null
+            : duration * Math.Max(.2, (double)clip.Contact / clip.Length - .3);
+        return new(start, duration, early, duration * (clip.Cancel ?? clip.Contact) / clip.Length);
+    }
 
     double? SpellContact(string animatedObject, string[] names, string[] prefixes)
     {
@@ -238,7 +251,10 @@ sealed class AnimationContacts(string folder = "data")
             var clips = ao.Value.GetProperty("animations").EnumerateObject()
                 .ToDictionary(a => a.Name, a => new AnimationClip(a.Value[0].GetInt32(), a.Value[1].GetInt32(),
                     positions.TryGetValue(a.Name, out var point) ? point : null,
-                    indices.GetValueOrDefault(a.Name, uint.MaxValue)), StringComparer.OrdinalIgnoreCase);
+                    indices.GetValueOrDefault(a.Name, uint.MaxValue),
+                    ao.Value.TryGetProperty("cancels", out var cancels) && cancels.TryGetProperty(a.Name, out _),
+                    ao.Value.TryGetProperty("cancels", out cancels) && cancels.TryGetProperty(a.Name, out var cancel)
+                        && cancel.ValueKind == JsonValueKind.Number ? cancel.GetInt32() : null), StringComparer.OrdinalIgnoreCase);
             // The default attack's stance pools cover the wand's ACT-selected clip too, which main's "defaultWand" pools
             // served before the stance pools replaced them.
             var pools = new Dictionary<string, DefaultAttackClip[]>(StringComparer.Ordinal);
