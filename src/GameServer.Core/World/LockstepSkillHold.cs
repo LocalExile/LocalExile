@@ -10,6 +10,7 @@ namespace GameServer.Core.World;
 public sealed class LockstepSkillHold
 {
     private bool _pending, _held, _repeats;
+    private ushort? _finishedChannel;
 
     public ushort Skill { get; private set; }
 
@@ -31,6 +32,8 @@ public sealed class LockstepSkillHold
     /// <summary>C→S 0x18e or 0x18f.</summary>
     public void Press((int X, int Y) aim, uint? target, ushort skill, ushort flags, bool repeats)
     {
+        if (Channel is { } channel) _finishedChannel = channel;
+        Channel = null;
         (Aim, Target, Skill, Flags, _repeats) = (aim, target, skill, flags, repeats);
         _pending = _held = true;
     }
@@ -44,9 +47,10 @@ public sealed class LockstepSkillHold
     /// <summary>C→S 0x195, or 0x196 for this skill. A request not yet started still starts.</summary>
     public void Release() => _held = false;
 
-    /// <summary>Another action took over.</summary>
-    public void Clear()
+    /// <summary>Clear input; when another action takes over, retain the old channel's release for the next frame.</summary>
+    public void Clear(bool finishChannel = false)
     {
+        _finishedChannel = finishChannel ? Channel ?? _finishedChannel : null;
         _pending = _held = false;
         Channel = null;
     }
@@ -67,9 +71,14 @@ public sealed class LockstepSkillHold
     /// <summary>The use just started is a channel, under this sequence.</summary>
     public void Channelling(ushort sequence) => Channel = sequence;
 
-    /// <summary>The channel running, if the button has been let go: it ends now.</summary>
+    /// <summary>A replaced channel, or the running channel whose button was released: finish it before a new start.</summary>
     public ushort? ChannelReleased()
     {
+        if (_finishedChannel is { } finished)
+        {
+            _finishedChannel = null;
+            return finished;
+        }
         if (_held || Channel is not { } sequence) return null;
         Channel = null;
         return sequence;

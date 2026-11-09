@@ -316,6 +316,19 @@ public class LockstepTests
         Assert.Equal(250, slow.Lowest);
         for (int i = 0; i < LockstepLatency.Window; i++) slow.Add(LockstepLatency.Lost);
         Assert.Equal(LockstepLatency.Lost, slow.Lowest);
+
+        // A lockstep aim update is also activity for its running channel, as a predictive channel update is.
+        conn.ChannelSkill = 0x0200;
+        conn.ChannelSkillSequence = 0x8001;
+        conn.LockstepSkill.Press((8, 8), null, 0x0200, 0x0401, repeats: false);
+        conn.LockstepSkill.Channelling(0x8001);
+        conn.LastChannelUpdateAt = -10;
+        Game.OnLockstepRequest("test", conn, 0x192, Convert.FromHexString("01920000001400000005"));
+        Assert.True(conn.LastChannelUpdateAt >= 0);
+        Assert.Equal((120, 105), conn.LockstepSkill.Aim);
+        Game.OnLockstepRequest("test", conn, 0x18e, Convert.FromHexString("018E00000014000000002909040000"));
+        Assert.Equal((ushort)0x8001, conn.LockstepSkill.ChannelReleased());
+        Assert.Null(conn.LockstepSkill.ChannelReleased());
     }
 
     [Fact]
@@ -400,5 +413,13 @@ public class LockstepTests
         skill.Release();
         Assert.Equal((ushort)0x8001, skill.ChannelReleased());
         Assert.Equal("01AE00001000000000000000800101", Convert.ToHexString(InstanceProtocol.ChannelFinished(0x1000, 0x8001)));
+
+        // A replacement skill must finish the old channel before its own start can replace the native action.
+        skill.Press((8, 8), null, 0x0200, 0x0401, repeats: false);
+        skill.Channelling(0x8002);
+        skill.Press((9, 9), null, 0x0201, 0x0401, repeats: true);
+        Assert.Equal((ushort)0x8002, skill.ChannelReleased());
+        Assert.Null(skill.ChannelReleased());
+        Assert.True(skill.Due(free: true));
     }
 }

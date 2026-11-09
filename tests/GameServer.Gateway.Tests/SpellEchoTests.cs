@@ -58,6 +58,8 @@ public sealed class SpellEchoTests
             var skill = Game.GemSkillEffects(conn).Single(g => Game.SkillsFor(conn).EffectId(g.Effect) == effectId);
             Assert.Equal(repeats, Game.SpellRepeats(conn, skill.Id, skill.Effect));
             Assert.Equal(castMs, Game.CastMs(conn, skill.Effect, skill.Id)); // 750 and 700 ms at 40% more
+            conn.LockstepClient = true;
+            Assert.Equal(castMs / 1000d, Game.LockstepActionHold(conn, skill.Id, 0x8001), 6);
         }
         finally
         {

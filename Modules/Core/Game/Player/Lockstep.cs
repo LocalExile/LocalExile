@@ -24,7 +24,7 @@ static partial class Game
                 conn.LockstepUse = null;
                 if (SkillsFor(conn).ActionName(click.SkillId) == "Move")
                 {
-                    conn.LockstepSkill.Clear();
+                    conn.LockstepSkill.Clear(finishChannel: true);
                     conn.LockstepHold.Press(aim, click.SkillId, click.Flags);
                 }
                 else
@@ -39,6 +39,8 @@ static partial class Game
                 var (dx, dy) = InstanceProtocol.ReadLockstepMoveUpdate(bytes);
                 conn.LockstepHold.Update((here.X + dx, here.Y + dy));
                 conn.LockstepSkill.Update((here.X + dx, here.Y + dy));
+                if (conn.ChannelSkill != 0 && conn.LockstepSkill.Channel == conn.ChannelSkillSequence)
+                    conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
             }
             else if (id == InstanceProtocol.LockstepMoveStopId)
             {
@@ -53,7 +55,7 @@ static partial class Game
             {
                 var (target, skill, flags, _) = InstanceProtocol.ReadLockstepUseOnObject(bytes);
                 conn.LockstepHold.Clear();
-                conn.LockstepSkill.Clear();
+                conn.LockstepSkill.Clear(finishChannel: true);
                 if (SkillsFor(conn).IsGemSkill(skill) || skill == SkillCatalog.FirstSkillId)
                 {
                     var aim = conn.Monsters.TryGetValue(target, out var m) ? m.Walk.Position(conn.Clock.Elapsed.TotalSeconds) : here;
@@ -300,13 +302,17 @@ static partial class Game
         || GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem && SkillsFor(conn).IsAttack(gem.Effect);
 
     // How long a use started at the ground or on the player holds it: an attack until the client lets a Move cut in
-    // (LockstepAttackCutIn), a spell for its cast time (a Move during a cast is not measured), a channel not at all (it
+    // (LockstepAttackCutIn), a spell for its adjusted cast time (a Move during a cast is not measured), a channel not at all (it
     // runs until the release).
-    static double LockstepActionHold(ClientState conn, ushort skill, ushort sequence)
+    internal static double LockstepActionHold(ClientState conn, ushort skill, ushort sequence)
     {
         if (GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem)
         {
             if (SkillsFor(conn).IsChannelled(gem.Effect)) return 0;
+            // The native spell duration divides the virtual base by cast speed (0x1419eef50).
+            // Reuse the cast path's skill-specific speed and action speed; a refused cast holds no action.
+            if (SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect))
+                return (CastMs(conn, gem.Effect, skill) ?? 0) / 1000d;
             if (!SkillsFor(conn).IsAttack(gem.Effect)) return SkillsFor(conn).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(conn);
         }
         return LockstepAttackCutIn(conn, skill, sequence) + conn.LockstepActionTail;
