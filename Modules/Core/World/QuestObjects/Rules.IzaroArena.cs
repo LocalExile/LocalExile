@@ -15,8 +15,8 @@ static partial class QuestobjectsRules
         public uint Izaro;
         public SpawnedMonster? Boss;
         public bool Over, AllGargoylesDeadSaid, AllPortalsDeadSaid;
-        // Guardians a portal has begun to bring and that are not created yet (IzaroPortals.SummonLimit counts them).
-        public int GuardiansComing;
+        // Izaro's elevator: what rises on the small elevators faces it (the original, live).
+        public AreaPopulation.RoomObject? Centre;
         public readonly List<(uint Id, AreaPopulation.RoomObject At)> Lifts = [], Railings = [];
         public readonly List<StatueSlot> Statues = [];
         public readonly List<GargoyleSlot> Gargoyles = [];
@@ -35,6 +35,7 @@ static partial class QuestobjectsRules
     {
         var arena = new IzaroArena(trial);
         arena.Railings.AddRange(railings);
+        arena.Centre = all.FirstOrDefault(o => o.Type == IzaroFights.Elevator);
         IzaroArenas.AddOrUpdate(conn, arena);
         foreach (var at in all.Where(o => o.Type == IzaroStatues.SmallElevator))
         {
@@ -105,6 +106,10 @@ static partial class QuestobjectsRules
         }
         if (placed > 0) Console.WriteLine($"[gateway] {remote} Izaro's trial {arena.Trial.Number}: {placed} thing(s) the earlier trials left");
     }
+
+    // A small elevator's place with the angle towards Izaro's elevator.
+    static AreaPopulation.RoomObject FacingCentre(IzaroArena arena, AreaPopulation.RoomObject at) => arena.Centre is { } centre
+        ? at with { Angle = (float)Math.Atan2(centre.X - at.X, at.Y - centre.Y) } : at;
 
     static double Distance(AreaPopulation.RoomObject a, AreaPopulation.RoomObject b) =>
         Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
@@ -183,7 +188,6 @@ static partial class QuestobjectsRules
             foreach (var s in risen) s.State = IzaroStatues.Lowering;
         }
         await LowerIzaroStatues(remote, stream, ciphers, conn, risen);
-        await EndIzaroPortals(remote, stream, ciphers, conn, arena);
         return finish;
     }
 }

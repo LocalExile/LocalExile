@@ -68,7 +68,7 @@ public sealed class QuestObjectsModule : IModule
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, WithDartSlow);
         GameEvents.NpcTalk.Add(module.Manifest.Id, async (conn, id, npc) =>
         {
-            if (npc.Npc.Id.StartsWith(LabyrinthTrials.GlyphPrefix, StringComparison.Ordinal))
+            if (LabyrinthTrials.IsGlyph(npc.Npc.Id))
             {
                 var (glyphRemote, glyphStream, glyphCiphers) = conn.Wire;
                 await ReadTrialMonograph(glyphRemote, glyphStream, glyphCiphers, conn, id, npc);

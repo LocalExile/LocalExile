@@ -37,7 +37,7 @@ static partial class QuestobjectsRules
     {
         var gargoyles = IzaroEffects.Of(IzaroGargoyles.Mechanic, arena.Trial.Tier, returning: false);
         for (int i = 0; i < Math.Min(gargoyles.Count, arena.Lifts.Count); i++)
-            if (await SpawnIzaroGargoyle(remote, stream, ciphers, conn, gargoyles[i], arena.Lifts[i].At, null, null) is { } slot)
+            if (await SpawnIzaroGargoyle(remote, stream, ciphers, conn, gargoyles[i], FacingCentre(arena, arena.Lifts[i].At), null, null) is { } slot)
             {
                 slot.Lift = arena.Lifts[i];
                 arena.Gargoyles.Add(slot);

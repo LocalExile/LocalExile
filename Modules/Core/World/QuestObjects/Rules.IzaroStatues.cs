@@ -27,7 +27,7 @@ static partial class QuestobjectsRules
             var (statue, lift) = (statues[i], arena.Lifts[i]);
             uint id = conn.NextObjectId++;
             await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(statue.Type),
-                IzaroStatues.Blob(statue, lift.At.X, lift.At.Y, lift.At.Angle, IzaroStatues.Lowered)), .. InstanceProtocol.EnterWakeZone(id)],
+                IzaroStatues.Blob(statue, lift.At.X, lift.At.Y, FacingCentre(arena, lift.At).Angle, IzaroStatues.Lowered)), .. InstanceProtocol.EnterWakeZone(id)],
                 $"0x02bb {statue.Id} 0x{id:x} under ({lift.At.X}, {lift.At.Y})");
             arena.Statues.Add(new StatueSlot(statue, id, lift));
             lock (conn.Monsters) conn.TrialObjects[id] = lift.At with { Type = statue.Type };

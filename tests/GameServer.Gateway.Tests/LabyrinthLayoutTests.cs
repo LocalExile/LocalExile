@@ -108,6 +108,21 @@ public sealed class LabyrinthLayoutTests
         Assert.Equal(0b0000_0100, LabyrinthDay.Progress([], [2])[2]);
     }
 
+    // EH bottleneck_06: lever 0's numbered disable to lever 1 of the same counter would leave the door shut for good. A
+    // lever's plain disable (a pair) and a door's numbered one count.
+    [Fact]
+    public void ALeverFollowsOnlyAPlainDisable()
+    {
+        const string lever = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Switch_Once";
+        string[] types = [lever, lever, LabyrinthTrials.Door, lever];
+        var wiring = new LabyrinthWiring(types, [new(0, 1, "disable3"), new(2, 1, "disable3"), new(0, 3, "disable")]);
+        wiring.Turn(0, true);
+        Assert.False(wiring.IsDisabled(1));
+        Assert.True(wiring.IsDisabled(3));
+        wiring.Turn(2, true);
+        Assert.True(wiring.IsDisabled(1));
+    }
+
     // PortalSummon rows have no tier, and only the returning ones have a buff; the portals and what they bring can be created.
     [Fact]
     public void IzarosPortalsAreEveryTiersAndCanBeCreated()
