@@ -4,6 +4,7 @@ using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Storage;
+using GameServer.Core;
 
 // GameServer.Auth — the login server the official client talks to (custom TCP, see Agents/docs/re/007 and 008).
 //   keygen <Game.exe> [keys.json]          new signing + static keys over the client's own DSA domain
@@ -54,8 +55,8 @@ switch (cmd)
     case "keygen" when args.Length >= 2:
     {
         string outPath = args.Length > 2 ? args[2] : DefaultKeys;
-        if (File.Exists(outPath)) { Console.Error.WriteLine($"[auth] {outPath} exists; delete it to regenerate."); return 1; }
-        var keys = LoginServerKeys.Generate(new ClientImage(File.ReadAllBytes(args[1])));
+        if (ClientTables.Exists(outPath)) { Console.Error.WriteLine($"[auth] {outPath} exists; delete it to regenerate."); return 1; }
+        var keys = LoginServerKeys.Generate(new ClientImage(ClientTables.ReadAllBytes(args[1])));
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
         File.WriteAllText(outPath, keys.ToJson());
         Console.WriteLine($"[auth] wrote {outPath}");
@@ -65,8 +66,8 @@ switch (cmd)
     {
         if (Path.GetFullPath(args[1]).Equals(Path.GetFullPath(args[2]), StringComparison.OrdinalIgnoreCase))
         { Console.Error.WriteLine("[auth] refusing to overwrite the input; give a different output path."); return 1; }
-        var keys = LoginServerKeys.FromJson(File.ReadAllText(args.Length > 3 ? args[3] : DefaultKeys));
-        var image = new ClientImage(File.ReadAllBytes(args[1]));
+        var keys = LoginServerKeys.FromJson(ClientTables.ReadAllText(args.Length > 3 ? args[3] : DefaultKeys));
+        var image = new ClientImage(ClientTables.ReadAllBytes(args[1]));
         Console.WriteLine($"[auth] login key blobs at file offset 0x{image.Offset:x}");
         image.Patch(keys);
         File.WriteAllBytes(args[2], image.Bytes);
@@ -74,7 +75,7 @@ switch (cmd)
         return 0;
     }
     case "serve":
-        await Serve(LoginServerKeys.FromJson(File.ReadAllText(args.Length > 1 ? args[1] : DefaultKeys)));
+        await Serve(LoginServerKeys.FromJson(ClientTables.ReadAllText(args.Length > 1 ? args[1] : DefaultKeys)));
         return 0;
     default:
         Console.Error.WriteLine("usage: GameServer.Auth keygen <Game.exe> [keys.json] | patch <Game.exe> <out.exe> [keys.json] | serve [keys.json]");
@@ -108,6 +109,9 @@ static async Task Serve(LoginServerKeys keys)
     var listener = new TcpListener(bind, port);
     listener.Start();
     var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
+    // WorldAreas comes from data/client.db (ClientTables): built and updated from sql/ first. The Gateway may be building
+    // it at the same time; the updater applies each file once.
+    SqlUpdater.Update(ClientTables.DefaultPath, "client");
     // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without data/tables.
     // A new instance of an area the Gateway generates itself (ServerLevelAreas) gets a random seed; every other area
     // keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it cannot build seed 1
@@ -281,7 +285,7 @@ static void SetSaveAside(string character)
     string folder = Path.Combine("data", "saves");
     string safe = string.Concat(character.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
     string path = Path.Combine(folder, safe + ".json");
-    if (!File.Exists(path)) return;
+    if (!ClientTables.Exists(path)) return;
     string deleted = Path.Combine(folder, "deleted");
     Directory.CreateDirectory(deleted);
     string to = Path.Combine(deleted, $"{safe}-{DateTime.UtcNow:yyyyMMddHHmmss}.json");

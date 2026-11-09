@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>
@@ -182,7 +183,7 @@ sealed class TimelessJewelEngine(string folder = "data")
 
         var skills = new Dictionary<(int, int), List<AltSkill>>();
         var keystones = new Dictionary<(int, int, int), AltSkill>();
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(skillsPath)))
+        using (var d = JsonDocument.Parse(ClientTables.ReadAllBytes(skillsPath)))
         {
             int row = 0;
             foreach (var r in d.RootElement.EnumerateArray())
@@ -204,7 +205,7 @@ sealed class TimelessJewelEngine(string folder = "data")
         }
 
         var additions = new Dictionary<(int, int), List<AltAddition>>();
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(additionsPath)))
+        using (var d = JsonDocument.Parse(ClientTables.ReadAllBytes(additionsPath)))
         {
             int row = 0;
             foreach (var r in d.RootElement.EnumerateArray())

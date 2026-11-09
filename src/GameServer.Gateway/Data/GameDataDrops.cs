@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Storage;
+using GameServer.Core;
 
 /// <summary>
 /// The drop tables' seed and immutable snapshot. The seed is the client's own tables (the bosses of every area from
@@ -63,18 +64,18 @@ static class GameDataDrops
         string baseTypes = Path.Combine(folder, "tables", "BaseItemTypes.json");
         string areas = Path.Combine(folder, "tables", "WorldAreas.json");
         string varieties = Path.Combine(folder, "tables", "MonsterVarieties.json");
-        if (!File.Exists(baseTypes) || !File.Exists(areas) || !File.Exists(varieties)) return null;
+        if (!ClientTables.Exists(baseTypes) || !ClientTables.Exists(areas) || !ClientTables.Exists(varieties)) return null;
 
         var dropLevels = new Dictionary<string, int>(StringComparer.Ordinal);
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(baseTypes)))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(baseTypes)))
             foreach (var row in doc.RootElement.EnumerateArray())
                 if (row.GetProperty("Id").GetString() is { } id) dropLevels.TryAdd(id, row.GetProperty("DropLevel").GetInt32());
         var weights = ItemDrops.Currency.Select(c => new GameDataStore.CurrencyWeightRow(c.Id, c.Weight,
             dropLevels.GetValueOrDefault(c.Id), true, "core", "estimated", "ItemDrops.Currency")).ToList();
 
-        using var varietyDoc = JsonDocument.Parse(File.ReadAllBytes(varieties));
+        using var varietyDoc = JsonDocument.Parse(ClientTables.ReadAllBytes(varieties));
         var monsters = varietyDoc.RootElement;
-        using var areaDoc = JsonDocument.Parse(File.ReadAllBytes(areas));
+        using var areaDoc = JsonDocument.Parse(ClientTables.ReadAllBytes(areas));
         var bosses = new Dictionary<string, GameDataStore.BossRow>(StringComparer.Ordinal);
         foreach (var area in areaDoc.RootElement.EnumerateArray())
         {

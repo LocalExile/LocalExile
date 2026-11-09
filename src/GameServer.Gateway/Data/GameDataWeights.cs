@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Storage;
+using GameServer.Core;
 
 /// <summary>
 /// Unique drop weights: how likely a unique is once its base rolls one. The client's
@@ -43,9 +44,9 @@ static class GameDataWeights
         var rows = new List<GameDataStore.UniqueWeightRow>();
         string values = Path.Combine(folder, "tables", "VillageUniqueDisenchantValues.json");
         string words = Path.Combine(folder, "tables", "Words.json");
-        if (!File.Exists(values) || !File.Exists(words)) return rows;
-        using var wordsDoc = JsonDocument.Parse(File.ReadAllBytes(words));
-        using var valuesDoc = JsonDocument.Parse(File.ReadAllBytes(values));
+        if (!ClientTables.Exists(values) || !ClientTables.Exists(words)) return rows;
+        using var wordsDoc = JsonDocument.Parse(ClientTables.ReadAllBytes(words));
+        using var valuesDoc = JsonDocument.Parse(ClientTables.ReadAllBytes(values));
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in valuesDoc.RootElement.EnumerateArray())
         {

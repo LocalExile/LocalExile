@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 
 /// <summary>Compatibility uses skill types, not the display tags printed on a gem.</summary>
@@ -159,8 +160,8 @@ sealed class GemSupports(string folder = "data")
     static JsonElement[] Read(string folder, string table)
     {
         string path = Path.Combine(folder, "tables", table + ".json");
-        if (!File.Exists(path)) return [];
-        using var json = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var json = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. json.RootElement.EnumerateArray().Select(r => r.Clone())];
     }
 }

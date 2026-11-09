@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Unique items the server can create. The client data has a unique's name (<c>Words</c>) and artwork
@@ -290,7 +291,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     {
         var result = new Dictionary<string, UniqueName>(StringComparer.OrdinalIgnoreCase);
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!File.Exists(Table("Words")) || !File.Exists(Table("UniqueStashLayout")) || !File.Exists(Table("ItemVisualIdentity")))
+        if (!ClientTables.Exists(Table("Words")) || !ClientTables.Exists(Table("UniqueStashLayout")) || !ClientTables.Exists(Table("ItemVisualIdentity")))
             return result;
         using var words = GameTables.Open(Table("Words"));
         using var layout = GameTables.Open(Table("UniqueStashLayout"));

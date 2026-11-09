@@ -15,6 +15,8 @@ static class TestEnvironment
                     && File.Exists(Path.Combine(dir.FullName, "src", "GameServer.Gateway", "GameServer.Gateway.csproj")))
                 {
                     Directory.SetCurrentDirectory(dir.FullName);
+                    // The client tables come from data/client.db (ClientTables), built from sql/ as a server does.
+                    GameServer.Storage.SqlUpdater.Update(GameServer.Core.ClientTables.DefaultPath, "client", log: _ => { });
                     return;
                 }
         throw new DirectoryNotFoundException("Gateway tests need a LocalExile checkout.");

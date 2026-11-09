@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GameServer.Core;
 
 /// <summary>The ordinary and Legacy of Phrecia trees are separate choices, even when they share a table row/start.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<AscendancyFamily>))]
@@ -70,7 +71,7 @@ sealed class AscendancyCatalog(string folder = "data")
     static IReadOnlyDictionary<AscendancyFamily, HashSet<ushort>> LoadGraphMembership(string folder)
     {
         string path = Path.Combine(folder, GraphFile);
-        if (!File.Exists(path)) return new Dictionary<AscendancyFamily, HashSet<ushort>>();
+        if (!ClientTables.Exists(path)) return new Dictionary<AscendancyFamily, HashSet<ushort>>();
         using var graph = GameTables.Open(path);
         if (graph.RootElement.GetProperty("revision").GetString() != Revision)
             throw new InvalidDataException($"{path}: expected ascendancy data revision {Revision}");

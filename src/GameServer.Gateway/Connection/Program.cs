@@ -15,6 +15,7 @@ using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageRange = GameServer.Core.World.DamageRange;
 using DamageOverTime = GameServer.Core.World.DamageOverTime;
 using GameServer.Core.Diagnostics;
+using GameServer.Core;
 
 // GameServer.Gateway — the instance (game) server the client connects to after login 0x14, or after 0x27 on an area
 // change (Agents/docs/protocol/02, 09).
@@ -24,6 +25,15 @@ using GameServer.Core.Diagnostics;
 // movement and area transition clicks (0x24: change area, or with Ctrl the instance chooser; Agents/docs/protocol/09-area-change.md).
 // Port: Game_GATEWAY_PORT (default 6112). Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET), shared with
 // GameServer.Auth. Auth control: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495); without it every ticket gets Lioneye's Watch.
+
+// The client tables (ClientTables) are in data/client.db, built and brought up to date from sql/ before anything reads
+// them (Agents/docs/dev/databases.md). Its lines go to standard error: the commands below print JSON.
+try { GameServer.Storage.SqlUpdater.Update(ClientTables.DefaultPath, "client", log: Console.Error.WriteLine); }
+catch (Exception e) when (e is GameServer.Storage.SqlUpdateException or IOException or Microsoft.Data.Sqlite.SqliteException)
+{
+    Console.Error.WriteLine($"[gateway] {ClientTables.DefaultPath} can't be built: {e.Message}");
+    return 1;
+}
 
 // `commands`: one JSON line per chat command ({"name", "usage", "args"}) for tools such as the desktop launcher, then
 // exit; nothing starts. `values <kind>`: what an argument of that kind can be ({"value", "detail"}), from the Gateway's
@@ -109,7 +119,7 @@ int port = GatewayEndpoint.Port;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
 
 // The HNC side channel needs a 64-byte table from the client: extracted to data/, not shipped.
-if (!File.Exists(GameServer.Data.Ggpk.ClientConstants.DefaultFile))
+if (!ClientTables.Exists(GameServer.Data.Ggpk.ClientConstants.DefaultFile))
 {
     Console.Error.WriteLine($"[gateway] {GameServer.Data.Ggpk.ClientConstants.DefaultFile} not found; run .\\scripts\\dev\\extract-data.ps1");
     return 1;

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Item types: BaseItemTypes rows from the extracted tables (Id, Name, HASH32, size, visual identity → ItemVisualIdentity
@@ -57,7 +58,7 @@ sealed class ItemCatalog
     static HashSet<uint> LoadWords(string folder)
     {
         string path = Path.Combine(folder, "tables", "Words.json");
-        if (!File.Exists(path)) return [];
+        if (!ClientTables.Exists(path)) return [];
         using var doc = GameTables.Open(path);
         return [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("HASH32").GetUInt32())];
     }
@@ -66,7 +67,7 @@ sealed class ItemCatalog
     {
         var map = new Dictionary<string, ushort>(StringComparer.Ordinal);
         string path = Path.Combine(folder, "tables", "ItemVisualIdentity.json");
-        if (!File.Exists(path)) return map;
+        if (!ClientTables.Exists(path)) return map;
         using var doc = GameTables.Open(path);
         foreach (var r in doc.RootElement.EnumerateArray())
             if (r.GetProperty("Id").GetString() is { Length: > 0 } id
@@ -149,7 +150,7 @@ sealed class ItemCatalog
     {
         var actions = new Dictionary<int, string>();
         string currency = Path.Combine(folder, "tables", "CurrencyItems.json");
-        if (File.Exists(currency))
+        if (ClientTables.Exists(currency))
         {
             using var doc = GameTables.Open(currency);
             foreach (var r in doc.RootElement.EnumerateArray())
@@ -160,7 +161,7 @@ sealed class ItemCatalog
         var quality = new Dictionary<int, byte>();
         int rows = 0;
         string alt = Path.Combine(folder, "tables", "AlternateQualityTypes.json");
-        if (File.Exists(alt))
+        if (ClientTables.Exists(alt))
         {
             using var doc = GameTables.Open(alt);
             byte row = 0;
@@ -350,8 +351,8 @@ sealed class ItemCatalog
     {
         string path = Path.Combine(folder, "tables", "ShieldTypes.json");
         var result = new Dictionary<int, int>();
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
             if (r.GetProperty("BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } b &&
                 r.GetProperty("Block") is { ValueKind: JsonValueKind.Number } block)
@@ -392,8 +393,8 @@ sealed class ItemCatalog
     {
         string path = Path.Combine(folder, "tables", "ArmourTypes.json");
         var result = new Dictionary<int, BaseDefences>();
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
         {
             if (r.GetProperty("BaseItemTypesKey") is not { ValueKind: JsonValueKind.Number } key) continue;
@@ -420,8 +421,8 @@ sealed class ItemCatalog
     {
         string path = Path.Combine(folder, "tables", "WeaponTypes.json");
         var result = new Dictionary<int, int>();
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
             if (r.GetProperty("BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } b &&
                 r.GetProperty("Critical") is { ValueKind: JsonValueKind.Number } crit)
@@ -453,7 +454,7 @@ sealed class ItemCatalog
     {
         string flasks = Path.Combine(folder, "tables", "Flasks.json"), charges = Path.Combine(folder, "tables", "ComponentCharges.json");
         var result = new Dictionary<int, Flasks.Flask>();
-        if (!File.Exists(flasks) || !File.Exists(charges)) return result;
+        if (!ClientTables.Exists(flasks) || !ClientTables.Exists(charges)) return result;
         var perUse = new Dictionary<string, (int Max, int PerCharge)>();
         using (var c = GameTables.Open(charges))
             foreach (var r in c.RootElement.EnumerateArray())
@@ -481,14 +482,14 @@ sealed class ItemCatalog
         string Table(string n) => Path.Combine(folder, "tables", n + ".json");
         var result = new Dictionary<int, GemType>();
         string[] needed = ["SkillGems", "GemEffects", "BaseItemTypes", "ItemExperiencePerLevel", "ItemExperienceTypes"];
-        if (needed.Any(n => !File.Exists(Table(n)))) return result;
+        if (needed.Any(n => !ClientTables.Exists(Table(n)))) return result;
         using var g = GameTables.Open(Table("SkillGems"));
         using var e = GameTables.Open(Table("GemEffects"));
         using var b = GameTables.Open(Table("BaseItemTypes"));
         using var x = GameTables.Open(Table("ItemExperiencePerLevel"));
         using var xt = GameTables.Open(Table("ItemExperienceTypes"));
         // Optional: GemTags' row index for "exceptional" (the Greater supports, Pacts and Awakened exceptional supports).
-        bool hasGemTags = File.Exists(Table("GemTags"));
+        bool hasGemTags = ClientTables.Exists(Table("GemTags"));
         var exceptionalTags = new HashSet<int>();
         if (hasGemTags)
         {
@@ -592,8 +593,8 @@ sealed class ItemCatalog
     {
         string path = Path.Combine(folder, "tables", "ComponentAttributeRequirements.json");
         var result = new Dictionary<string, (int, int, int)>();
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
             result[r.GetProperty("BaseItemTypesKey").GetString() ?? ""] =
                 (r.GetProperty("ReqStr").GetInt32(), r.GetProperty("ReqDex").GetInt32(), r.GetProperty("ReqInt").GetInt32());
@@ -618,12 +619,12 @@ sealed class ItemCatalog
     private static (List<BaseType>, string?) Load(string folder, ModCatalog mods)
     {
         string bases = Path.Combine(folder, "tables", "BaseItemTypes.json"), visuals = Path.Combine(folder, "tables", "ItemVisualIdentity.json");
-        if (!File.Exists(bases) || !File.Exists(visuals)) return ([], $"{bases} is missing: extract the game tables (Tools/PoEDataExtractor)");
+        if (!ClientTables.Exists(bases) || !ClientTables.Exists(visuals)) return ([], $"{bases} is missing: extract the game tables (Tools/PoEDataExtractor)");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var itemTags = new Dictionary<string, IReadOnlyList<string>>();
         var questFlags = new Dictionary<string, QuestItemFlags>();
         string types = Path.Combine(folder, "item-types.json");
-        if (!File.Exists(types)) return ([], $"{types} is missing: run scripts/dev/extract-data.ps1");
+        if (!ClientTables.Exists(types)) return ([], $"{types} is missing: run scripts/dev/extract-data.ps1");
         using (var doc = GameTables.Open(types))
             foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
             {
@@ -639,13 +640,13 @@ sealed class ItemCatalog
                 }
             }
         List<ushort> visualHashes;
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(visuals)))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(visuals)))
             visualHashes = [.. doc.RootElement.EnumerateArray().Select(r => (ushort)r.GetProperty("HASH16").GetInt32())];
         var charges = new Dictionary<string, int>();
         string chargesPath = Path.Combine(folder, "tables", "ComponentCharges.json");
-        if (File.Exists(chargesPath))
+        if (ClientTables.Exists(chargesPath))
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(chargesPath));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(chargesPath));
             foreach (var r in doc.RootElement.EnumerateArray())
                 charges[r.GetProperty("BaseItemTypesKey").GetString() ?? ""] = r.GetProperty("MaxCharges").GetInt32();
         }
@@ -654,7 +655,7 @@ sealed class ItemCatalog
         var stackSizes = new Dictionary<int, ushort>();
         var fullStacks = new Dictionary<int, int>();
         string currencyPath = Path.Combine(folder, "tables", "CurrencyItems.json");
-        if (File.Exists(currencyPath))
+        if (ClientTables.Exists(currencyPath))
         {
             using var doc = GameTables.Open(currencyPath);
             foreach (var r in doc.RootElement.EnumerateArray())
@@ -671,9 +672,9 @@ sealed class ItemCatalog
         var mirrorableClasses = new List<bool>();
         var corruptibleClasses = new List<bool>();
         string classesPath = Path.Combine(folder, "tables", "ItemClasses.json");
-        if (File.Exists(classesPath))
+        if (ClientTables.Exists(classesPath))
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(classesPath));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(classesPath));
             classes = [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
             stances = [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("ItemStance") is { ValueKind: JsonValueKind.Number } s ? (byte)s.GetInt32() : (byte)0xff)];
             unmodifiableClasses = [.. doc.RootElement.EnumerateArray().Select(r =>
@@ -690,13 +691,13 @@ sealed class ItemCatalog
         }
         List<string> tagIds = [];
         string tagsPath = Path.Combine(folder, "tables", "Tags.json");
-        if (File.Exists(tagsPath))
+        if (ClientTables.Exists(tagsPath))
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(tagsPath));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(tagsPath));
             tagIds = [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
         }
         var rows = new List<BaseType>();
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(bases)))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(bases)))
         {
             foreach (var r in doc.RootElement.EnumerateArray())
             {

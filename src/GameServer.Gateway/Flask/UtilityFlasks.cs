@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Utility flasks (Agents/docs/protocol/13-items.md §8a): Quicksilver, Granite, Jade, Ruby, Sapphire, Topaz, Amethyst,
@@ -122,7 +123,7 @@ static class UtilityFlasks
     {
         var result = new Dictionary<int, Utility>();
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (new[] { "Flasks", "BuffDefinitions", "BuffTemplates", "ComponentCharges", "Stats" }.Any(t => !File.Exists(Table(t)))) return result;
+        if (new[] { "Flasks", "BuffDefinitions", "BuffTemplates", "ComponentCharges", "Stats" }.Any(t => !ClientTables.Exists(Table(t)))) return result;
         var stats = new StatCatalog(folder);
         string StatName(JsonElement row) => stats.Name((uint)row.GetInt32() + 1);
 

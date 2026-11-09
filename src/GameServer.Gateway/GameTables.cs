@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// Shared parses of the big game tables (data/tables/*.json) that several catalogues read: Stats.json (the stat and mod
@@ -50,8 +51,9 @@ static class GameTables
     /// <summary>The table at <paramref name="path"/>, parsed now or shared with another user of the same file.</summary>
     public static Lease Open(string path)
     {
+        // A client table (ClientTables) is keyed by client.db's write time; another file by its own size and time.
         var file = new FileInfo(path);
-        var key = (file.FullName, file.Length, file.LastWriteTimeUtc);
+        var key = ClientTables.TryTable(path, out _) ? (file.FullName, -1L, ClientTables.Written) : (file.FullName, file.Length, file.LastWriteTimeUtc);
         lock (Gate)
             if (Entries.TryGetValue(key, out var shared))
             {
@@ -63,7 +65,7 @@ static class GameTables
             }
         // Parsed outside the lock, on a thread of its own (its pool buffers go with it); a concurrent parse of the same
         // file keeps the first one.
-        byte[] bytes = File.ReadAllBytes(path);
+        byte[] bytes = ClientTables.ReadAllBytes(path);
         var document = Isolated(() => JsonDocument.Parse(bytes));
         Interlocked.Increment(ref _parses);
         lock (Gate)

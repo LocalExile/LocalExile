@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The six Legion timeless jewels: their unique name, base type, faction, mod row, real seed range and current
@@ -172,8 +173,8 @@ static class TimelessJewelCatalog
     {
         var result = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
         string path = Path.Combine(folder, "tables", "Words.json");
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var row in d.RootElement.EnumerateArray())
             if (row.GetProperty("Wordlist").GetInt32() == 6)
                 result[row.GetProperty("Text").GetString() ?? ""] = row.GetProperty("HASH32").GetUInt32();

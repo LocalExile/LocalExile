@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Storage;
+using GameServer.Core;
 
 /// <summary>
 /// The app-facing reference tables: every Stats.dat key, every Mods.dat row and each mod's default stat ranges. They
@@ -14,9 +15,9 @@ static class GameDataReference
         if (!force && store.ReferenceSeeded()) return false;
         var stats = new List<GameDataStore.StatRow>();
         string statsPath = Path.Combine(folder, "tables", "Stats.json");
-        if (File.Exists(statsPath))
+        if (ClientTables.Exists(statsPath))
         {
-            using var document = JsonDocument.Parse(File.ReadAllBytes(statsPath));
+            using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(statsPath));
             int row = 0;
             foreach (var stat in document.RootElement.EnumerateArray())
             {

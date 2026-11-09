@@ -1,3 +1,4 @@
+using GameServer.Core;
 /// <summary>
 /// The game data the Gateway reads from data/ (extracted from Client/Content.ggpk by scripts/dev/extract-data.ps1,
 /// which live.ps1 runs on every start). Each feature turns itself off without its file; this lists the missing ones in
@@ -62,7 +63,7 @@ static class GameDataFiles
     ];
 
     public static IEnumerable<(string File, string Feature)> Missing(string root = ".") =>
-        All.Where(f => !File.Exists(Path.Combine(root, f.File)));
+        All.Where(f => !ClientTables.Exists(Path.Combine(root, f.File)));
 
     /// <summary>Generated files whose older versions still load but lack what a feature reads (extract-data.ps1's manifest
     /// entry, the version that added it): with an older one the feature runs without it, silently.</summary>
@@ -81,11 +82,11 @@ static class GameDataFiles
     public static IEnumerable<(string Entry, int Have, int Version, string Feature)> Outdated(string root = ".")
     {
         string file = Path.Combine(root, "data", "extract-stamps.json");
-        if (!File.Exists(file)) yield break;
+        if (!ClientTables.Exists(file)) yield break;
         Dictionary<string, int> stamps = [];
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(file).TrimStart('﻿'));
+            using var doc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllText(file).TrimStart('﻿'));
             foreach (var e in doc.RootElement.EnumerateObject())
                 if (e.Value.ValueKind == System.Text.Json.JsonValueKind.Object && e.Value.TryGetProperty("version", out var v) && v.TryGetInt32(out int n))
                     stamps[e.Name] = n;

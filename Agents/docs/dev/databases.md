@@ -11,6 +11,7 @@ Every database is a SQLite file under `data/` (git-ignored), created and brought
 |---|---|---|---|
 | `auth.db` | accounts | Auth, Host, Gateway (attached to `characters.db`) | `Game_AUTH_DB` |
 | `characters.db` | character saves, stashes, the login character list, friends, deleted characters | Gateway, Auth, Host | `Game_CHARACTERS_DB` |
+| `client.db` | the client's 943 tables (`Mods`, `Stats`, `WorldAreas`, ...), untouched rows plus our corrections | Gateway, Auth | `Game_CLIENT_DB` |
 
 A connection to the player databases opens `characters.db` and attaches `auth.db` as `auth`, so a query names a table of
 either without its database. Rows that must be written together live in one file: a transaction across both files is
@@ -47,6 +48,35 @@ checked again under the lock, so it runs once.
 
 The servers read `sql/` from their working directory (the repository root, or the release folder); `Game_SQL_DIR`
 points elsewhere.
+
+## client.db
+
+The client tables are committed as SQL, the way cMaNGOS commits its DBC data: `sql/base/client/<Table>.sql` holds each
+table's CREATE TABLE, and the rows come as update files in `sql/updates/client/`. The first import was one large file
+per table (97 MB in all, the largest `Mods` at 17 MB). Our corrections are separate updates in
+`sql/updates/client_fixes/` (pending: `pending_client_fixes/`), applied in name order with the client updates, so a
+client patch never loses a fix.
+
+`scripts/dev/client-sql.ps1` is the only writer of `base/client/` and `updates/client/`:
+
+- `diff`, after a client patch and `extract-data.ps1`: builds the untouched client data (base + `updates/client/`,
+  without the fixes) in a scratch database, compares it with `data/tables/*.json` and writes one dated update per
+  changed table with only the differing rows (`INSERT`, `UPDATE` of the changed columns, `DELETE`). A new table gets its
+  base file and a full data file; a table whose columns changed is dropped and recreated in its update. It names the fixes
+  that touch a changed table, to check by hand. On an unchanged client it writes nothing.
+- `full`: the first import; refuses when `base/client/` has tables.
+
+A table has `_row INTEGER PRIMARY KEY` (the row's index: tables refer to each other's rows by index) and one column per
+extracted column, typed `INTEGER`, `REAL`, `TEXT`, `BOOLEAN` (1/0) or `JSON` (lists, and columns that are always null,
+as JSON text). A carriage return inside a string is written as `char(13)`, since the SQL files keep LF line ends.
+
+The servers read a table through `ClientTables` (GameServer.Core), still by the path of its extracted file
+(`data/tables/<Table>.json`): it returns that file's JSON, rebuilt from the rows and the column types, so the catalogues
+parse what they parsed before. Any other path is read from disk. A rebuilt table is kept compressed in client.db's
+`client_json_cache` table for the current set of applied updates (a rebuild of `Mods` takes about a second, a cached
+read 0.4 s), and in memory for a few seconds for the catalogues that read the same table in a burst. The Gateway and Auth
+update client.db before their first read; the first build takes about 16 s, a start with nothing new about 1.5 s.
+`extract-data.ps1` still writes `data/tables/` for its other generators and for `client-sql.ps1 diff`.
 
 ## Migrating data/saves.db
 

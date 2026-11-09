@@ -1,0 +1,5 @@
+-- Client table StaticLifeBarStyle: all 3 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "StaticLifeBarStyle" ("_row", "Id", "FrameLeftArt", "FrameMiddleArt", "FrameRightArt", "BossOrnamentArt") VALUES
+(0, 'Unique', 'Art/2DArt/UIImages/InGame/UniqueBossFrameLeft', 'Art/2DArt/UIImages/InGame/UniqueBossFrameMiddle', 'Art/2DArt/UIImages/InGame/UniqueBossFrameRight', 'Art/2DArt/UIImages/InGame/UniqueBossOrnament'),
+(1, 'MtxBeastman', 'Art/2DArt/UIImages/InGame/MTX/AlternateEnemyLifeBar/BeastmanBossFrameLeft', 'Art/2DArt/UIImages/InGame/MTX/AlternateEnemyLifeBar/BeastmanBossFrameMiddle', 'Art/2DArt/UIImages/InGame/MTX/AlternateEnemyLifeBar/BeastmanBossFrameRight', 'Art/2DArt/UIImages/InGame/MTX/AlternateEnemyLifeBar/BeastmanBossOrnament'),
+(2, 'MtxNethermancer', 'Art/2DArt/UIImages/InGame/MTX/AlternateEnemyLifeBar/NethermancerBossFrameLeft', 'Art/2DArt/UIImages/InGame/MTX/AlternateEnemyLifeBar/NethermanceBossFrameMiddle', 'Art/2DArt/UIImages/InGame/MTX/AlternateEnemyLifeBar/NethermanceBossFrameRight', 'Art/2DArt/UIImages/InGame/MTX/AlternateEnemyLifeBar/NethermanceBossOrnament');

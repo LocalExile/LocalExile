@@ -1,0 +1,21 @@
+-- Client table HeistStorageLayout: all 19 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "HeistStorageLayout" ("_row", "Id", "StoredItem", "__col2", "ButtonFile", "SlotSize", "HeistJobsKey", "Width", "Height", "__col8", "__col9", "__col10", "__col11", "ItemClass") VALUES
+(0, 'ContractsBunker', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Contract1Button', 63, 0, 11, 6, 0, 0, 0, 542, 65),
+(1, 'ContractsMines', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Contract2Button', 63, 1, 11, 6, 11, 0, 0, 542, 65),
+(2, 'ContractsDungeon', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Contract3Button', 63, 2, 11, 6, 22, 0, 0, 542, 65),
+(3, 'ContractsReliquary', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Contract4Button', 63, 3, 11, 6, 33, 0, 0, 542, 65),
+(4, 'ContractsLibrary', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Contract5Button', 63, 4, 11, 6, 44, 0, 0, 542, 65),
+(5, 'ContractsRobotTunnels', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Contract6Button', 63, 5, 11, 6, 55, 0, 0, 542, 65),
+(6, 'ContractsSewers', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Contract7Button', 63, 6, 11, 6, 66, 0, 0, 542, 65),
+(7, 'ContractsCourts', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Contract8Button', 63, 7, 11, 6, 77, 0, 0, 542, 65),
+(8, 'ContractsMansion', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Contract9Button', 63, 8, 11, 6, 88, 0, 0, 542, 65),
+(9, 'BlueprintsBunker', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Blueprint1Button', 63, 0, 11, 6, 0, 6, 0, 542, 70),
+(10, 'BlueprintsMines', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Blueprint2Button', 63, 1, 11, 6, 11, 6, 0, 542, 70),
+(11, 'BlueprintsDungeon', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Blueprint3Button', 63, 2, 11, 6, 22, 6, 0, 542, 70),
+(12, 'BlueprintsReliquary', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Blueprint4Button', 63, 3, 11, 6, 33, 6, 0, 542, 70),
+(13, 'BlueprintsLibrary', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Blueprint5Button', 63, 4, 11, 6, 44, 6, 0, 542, 70),
+(14, 'BlueprintsRobotTunnels', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Blueprint6Button', 63, 5, 11, 6, 55, 6, 0, 542, 70),
+(15, 'BlueprintsSewers', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Blueprint7Button', 63, 6, 11, 6, 66, 6, 0, 542, 70),
+(16, 'BlueprintsCourts', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Blueprint8Button', 63, 7, 11, 6, 77, 6, 0, 542, 70),
+(17, 'BlueprintsMansion', NULL, 1, 'Art/2DArt/UIImages/InGame/Heist/Storage/Blueprint9Button', 63, 8, 11, 6, 88, 6, 0, 542, 70),
+(18, 'Metadata/Items/Heist/HeistCoin', 3921, 0, '', 75, NULL, 7, 3, 99, 0, 96, 960, NULL);

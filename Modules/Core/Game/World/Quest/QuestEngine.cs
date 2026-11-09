@@ -3,6 +3,7 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
+using GameServer.Core;
 
 // The quest engine's hooks (Quests, Agents/docs/protocol/12-quests.md §5, Agents/docs/game/campaign-quests.md): what the
 // quests' tables and the client's data ask of the game on entering an area, on a kill, a pickup, an item move or use, a click
@@ -560,8 +561,8 @@ static partial class Game
     {
         var models = new Dictionary<string, string>(StringComparer.Ordinal);
         string path = Path.Combine("data", "tables", "Chests.json");
-        if (!File.Exists(path)) return models;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return models;
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in doc.RootElement.EnumerateArray())
             if (r.GetProperty("Id").GetString() is { Length: > 0 } id && r.GetProperty("AOFiles").EnumerateArray().FirstOrDefault().GetString() is { Length: > 0 } model)
                 models.TryAdd(id, model);
