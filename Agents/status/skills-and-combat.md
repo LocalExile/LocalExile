@@ -1745,10 +1745,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   glided to its landing cell for the distance over the row's 1500 units/s through `ProjectileSpeed` (projectile speed
   modifiers change the flight, 0.27–0.45 s measured live 2026-11-09). The object is removed on arrival, when the
   explosion art plays and the area hit lands there, so damage lands when the mortar does, not when the button is
-  pressed. The impacts are visibly the client's `projectile_impact.ao` (live 2026-11-09), but the
-  orb object, attached to the player's `<root>`, does not show: where it hangs (the bone the game uses, or Positioned's
-  fixed height) is not resolved, so it stays inside the character while channelling. Damage, crits and kills checked
-  with the real client the same day.
+  pressed. The impacts are visibly the client's `projectile_impact.ao` (live 2026-11-09). Damage, crits and kills were
+  checked with the real client the same day.
 
 ## Not working yet
 
