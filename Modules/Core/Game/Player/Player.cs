@@ -344,17 +344,22 @@ static partial class Game
         }
     }
 
-    // A genuine spell's final server wait; native actions instead receive the unadjusted base milliseconds.
-    // Null refuses an invalid/unrepresentable cast rather than turning it into an immediate hit. A supported skill's
-    // own base_cast_speed_+% (skillId) adds to the player's.
-    internal static int? CastMs(ClientState conn, int effect, ushort skillId = 0)
+    // Shared supported spell timing, before the new-action frame limit or an integer-ms wait is applied.
+    static SpellCastTiming? SpellTimingFor(ClientState conn, int effect, ushort skillId)
     {
         var own = skillId == 0 ? new Dictionary<uint, int>() : SupportedSkill(conn, skillId).Stats;
         var player = CharacterPlayerStats(conn);
         int speed = CastSpeedPct(player);
         if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
         speed = FinalCastSpeedPct(conn, MergeSkillStats(player, own), speed);
-        if (SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed)?.DurationMilliseconds is not int duration) return null;
+        return SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);
+    }
+
+    // A genuine spell's final server wait; native actions instead receive the unadjusted base milliseconds.
+    // Null refuses an invalid/unrepresentable cast rather than turning it into an immediate hit.
+    internal static int? CastMs(ClientState conn, int effect, ushort skillId = 0)
+    {
+        if (SpellTimingFor(conn, effect, skillId)?.DurationMilliseconds is not int duration) return null;
         // A new action starts at most once per server frame (30/s); channelling repeats are exempt and use their own
         // interval. Keep the fractional tick and round the final wait up to whole milliseconds.
         double seconds = Math.Max(TickSeconds, duration / 1000.0 / PlayerActionFactor(conn));

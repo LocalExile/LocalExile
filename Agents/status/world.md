@@ -93,7 +93,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   handles pickup/attack recovery, corpse collision and ground melee/chest approach, with current background-action
   stats, actor-owned AI sequences and projectile-hit ownership; tutorial gems retain their initial recipient.
   Ground spells use their supported cast speed for the action hold; live pacing and cast cancellation remain unverified.
-  Channel aim updates maintain activity, and replacement actions retain the channel release; full validation remains open.
+  Channels retain activity and releases; spell channels use cast speed without a frame cap. Full validation remains open.
   Held-walk player and all-monster sync bars pass; held, Mud Flats and charger checks show no reproduced predictive regression.
   Complete nonregression and coverage remain open ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
 - League isolation is enforced by full league for towns and instance selection.

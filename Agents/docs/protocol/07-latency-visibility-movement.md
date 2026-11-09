@@ -606,6 +606,9 @@ and virtual slot `+0x788` on Freezing Pulse; the getter `0x1419e7500` reads cast
 The lockstep ground-spell hold uses the same supported cast duration as the cast itself, including action speed.
 The exact Move cancel window during a cast still needs a native trace.
 Channel aim updates also refresh the server's activity timeout.
+Spell channels use the supported cast interval with fractional milliseconds, without the new-action frame limit;
+FireBeam's duration slot uses the same base-time/cast-speed rule (`0x1419e7660`).
+Attack channels retain their weapon interval, and invalid spell timing stops channel payment.
 A replacement Move, object use or skill retains the previous channel's sequence until its `0x1ae` is sent before
 the replacement start; the client's finish handler matches that sequence (`0x1421940a0`).
 

@@ -220,10 +220,20 @@ static partial class Game
             conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + mana);
     }
 
-    // Channelling repeats are not limited by the one-new-action-per-frame cap (Action speed, PoE Wiki): they use the
-    // speed-only interval so a very fast channel can hit more than 30 times a second.
-    static double SupportedChannelSeconds(ClientState conn, ushort skillId) =>
-        SupportedAttackSecondsFor(conn, skillId, null, clampToTick: false);
+    // FireBeam's duration slot (0x1419e7660) uses base cast time / cast speed, including fractional milliseconds.
+    // Channel repeats do not start new actions, so neither spell nor attack channels use the new-action frame cap.
+    internal static double? SupportedChannelSeconds(ClientState conn, ushort skillId)
+    {
+        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        if (gem.Name is not null && SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect))
+        {
+            if (SpellTimingFor(conn, gem.Effect, skillId)?.DurationSeconds is not double duration || duration <= 0)
+                return null;
+            double seconds = duration / PlayerActionFactor(conn);
+            return double.IsFinite(seconds) && seconds > 0 ? seconds : null;
+        }
+        return SupportedAttackSecondsFor(conn, skillId, null, clampToTick: false);
+    }
 
     // The supported attack's swing time with the off-hand weapon of a dual-wielded pair: its own duration at the
     // off-hand increased speed (the main weapon's local speed taken back out), with the same supports.

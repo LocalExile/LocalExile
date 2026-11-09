@@ -156,7 +156,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     follow the client. Completed stat snapshots are retired, ordinary lockstep AI orders share each actor's sequence,
     projectile hits retain their releasing action, and tutorial creates retain their initial recipient.
     Ground-spell holds include supported cast speed; live spell pacing and cast cancellation still need validation.
-    Channel activity and replacement releases follow the same held action; full live coverage remains open.
+    Channel activity and replacement releases follow the held action; spell channels use their cast interval without
+    a new-action frame cap. Full live coverage remains open.
     Held-walk player and all-monster sync bars pass; fresh Mud Flats and charger pairs show no predictive regression.
     Broader coverage and adjusted crowd comparisons remain incomplete
     ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).

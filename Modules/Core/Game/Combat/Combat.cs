@@ -675,7 +675,7 @@ static partial class Game
         if (gem.Name is not null && !ProjectilePathAvailable(remote, conn, skillId, gem.Effect)) return false;
         if (locationInstant && (gem.Name is null || !InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))) return false;
         if (gem.Name is not null && SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect)
-            && CastMs(conn, gem.Effect) is null)
+            && CastMs(conn, gem.Effect, skillId) is null)
         {
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: invalid cast duration (no effect or mana cost)");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (invalid cast duration, cost back)");
@@ -809,7 +809,9 @@ static partial class Game
             lock (conn.Monsters)
             {
                 if (!Current()) return false;
-                conn.NextChannelHitAt = conn.Clock.Elapsed.TotalSeconds + SupportedChannelSeconds(conn, skillId);
+                if (SupportedChannelSeconds(conn, skillId) is not double interval)
+                { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; return false; }
+                conn.NextChannelHitAt = conn.Clock.Elapsed.TotalSeconds + interval;
                 _ = RunChannel(remote, stream, ciphers, conn, skillId, gem, action);
             }
         }
@@ -1216,7 +1218,9 @@ static partial class Game
                     { conn.ChannelSkill = 0; conn.ChannelGeneration++; return; }
                     gem = activeGem;
                     conn.Performance.RecordMilliseconds(LatencyPhase.ChannelLate, (now - conn.NextChannelHitAt) * 1000);
-                    conn.NextChannelHitAt = Math.Max(conn.NextChannelHitAt, now - 0.05) + SupportedChannelSeconds(conn, skillId);
+                    if (SupportedChannelSeconds(conn, skillId) is not double interval)
+                    { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; return; }
+                    conn.NextChannelHitAt = Math.Max(conn.NextChannelHitAt, now - 0.05) + interval;
                     // Payment and admission share the channel's generation check.
                     if (!PayMana(conn, skillId, out cost, out lifeCost))
                     { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; }

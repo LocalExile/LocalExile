@@ -68,4 +68,52 @@ public sealed class SpellEchoTests
             GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
     }
+
+    [Theory]
+    [InlineData(0, .22)]
+    [InlineData(2000, .22 / 21)]
+    [InlineData(-100, double.NaN)]
+    public void Spell_channels_use_cast_speed_without_the_new_action_frame_limit(int speed, double seconds)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"localexile-channel-speed-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        Saves.Open(path);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = new ClientState(new(1, "channel-speed", 1000, 1000, 100, 100, null, []), 1, 1)
+        {
+            Character = "ChannelSpeed", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
+            Experience = CharacterStats.ExperienceFor(100),
+            Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+        };
+        try
+        {
+            var wand = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!);
+            var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemFireBeam")!);
+            Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wand with
+            {
+                Sockets = [new ItemSocket(SocketColour.White, gem)],
+            });
+            foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
+                "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
+            conn.PlayerStats[Program.Stats.Key("cast_speed_+%")!.Value] = speed;
+            var skill = Game.GemSkillEffects(conn).Single();
+            foreach (bool lockstep in new[] { false, true })
+            {
+                conn.LockstepClient = lockstep;
+                if (double.IsNaN(seconds)) Assert.Null(Game.SupportedChannelSeconds(conn, skill.Id));
+                else Assert.Equal(seconds, Game.SupportedChannelSeconds(conn, skill.Id)!.Value, 6);
+                // Attack channels retain the weapon timing; cast speed must not change it.
+                Assert.Equal(Game.SupportedAttackSecondsFor(conn, SkillCatalog.FirstSkillId, null, clampToTick: false),
+                    Game.SupportedChannelSeconds(conn, SkillCatalog.FirstSkillId));
+            }
+        }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!);
+            Program.SetGameLogic(previousLogic!);
+            GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
+        }
+    }
+
 }
