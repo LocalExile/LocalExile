@@ -78,7 +78,7 @@ static partial class Game
     internal static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
-        ushort sequence = 0, double? swingAt = null)
+        ushort sequence = 0, double? swingAt = null, bool triggered = false)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -94,7 +94,8 @@ static partial class Game
                 ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject, WeaponProfileFor(conn, activeSet: true),
                 SupportedAttackSeconds(conn, skillId))
             : null;
-        double delay = thrown is { } swing ? swing
+        // A triggered spell (Cast On Critical Strike) has no cast: it leaves at once.
+        double delay = triggered ? 0 : thrown is { } swing ? swing
             : attack ? AttackReleaseDelay(AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), false))
             : cast.Value / 1000d * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
         int epoch = conn.ProjectileEpoch;

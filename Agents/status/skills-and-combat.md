@@ -1705,6 +1705,19 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Code: `SkillCatalog.IsSelfTargeted`, `SkillCatalog.IsNova`, Gateway (`SpellCentre`, `AreaSkillHit`).
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 
+- **Cast On Critical Strike Support (2026-11-08).** A crit with a supported attack (melee/area sweep or projectile
+  attack) triggers one supported spell of the same link group at the enemy it crit: no cast time, the spell's cost
+  paid. Triggers cycle through the group's spells in socket order; each spell has its own 0.15 s cooldown
+  (GrantedEffectsPerLevel 2737, with cooldown recovery), copies of one spell share it. The spell deals the support's
+  less spell damage (`support_cast_on_crit_spell_damage_+%_final`, -19% at level 1 to -10% at 20) and cannot be cast by
+  hand (`spell_uncastable_if_triggerable`). The client is told with S→C 0x1ce, triggered flag 0x80.
+  Verified live on 3.29.3c with Cyclone: Ice Nova 30 triggers, 189 hits, 6 kills; Fireball 35 triggers, 191 hits,
+  3 kills; no client crash.
+  Not done: the server-tick rounding of the cooldown (wiki: 0.15 s acts as 0.165 s), Spell Echo/Cascade repeats on
+  the triggered spell, triggered curses, totems, minions and placed skills; a trigger that cannot pay its cost still
+  spends the spell's cooldown.
+  Code: `CastOnCrit.cs`, `CastOnCritState.cs`, hooks in `AreaSkillHit` and the projectile hit. Tests: `CastOnCritTests`.
+
 ## Not working yet
 
 - Projectile spawn height on platforms and doodads: the protocol carries no player z and the server has no

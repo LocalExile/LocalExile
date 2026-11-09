@@ -339,10 +339,11 @@ public static class InstanceProtocol
     /// animation and consumes a use of the skill: that starts its cooldown on the skill bar (live 2026-10-21).
     /// </summary>
     public static byte[] InstantAction(uint objectId, ushort skillId, int targetX, int targetY, uint? targetObjectId = null,
-        ushort sequence = 0xffff)
+        ushort sequence = 0xffff, bool triggered = false)
     {
+        // triggered: the flags' low byte negative (0x80), a triggered action (Cast On Critical Strike).
         var w = new LoginWriter().U16(InstantActionId).U32(objectId).U32(0).U16(0)
-            .U16(skillId).U16(sequence).U16((ushort)(targetObjectId is null ? 0 : 0x20));
+            .U16(skillId).U16(sequence).U16((ushort)((targetObjectId is null ? 0 : 0x20) | (triggered ? 0x80 : 0)));
         if (targetObjectId is { } t) w.U32(t);
         CompactInt(w, targetX); CompactInt(w, targetY);
         return w.ToArray();

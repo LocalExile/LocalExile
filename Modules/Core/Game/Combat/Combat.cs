@@ -681,6 +681,13 @@ static partial class Game
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (invalid cast duration, cost back)");
             return false;
         }
+        // A spell supported by Cast On Critical Strike is only triggered (spell_uncastable_if_triggerable).
+        if (gem.Name is not null && CastOnCritOnly(conn, skillId))
+        {
+            Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: triggered by Cast On Critical Strike only");
+            await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (triggered-only spell, cost back)");
+            return false;
+        }
         // Shared backstop for actor restrictions and gem requirements, before cooldown/payment/effect admission.
         if (gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is { } disabled)
         {
@@ -1618,6 +1625,8 @@ static partial class Game
                 if (applied is not null)
                 {
                     if (critical) conn.RecentEvents.Record(StatConditions.Crit, at);
+                    // Cast On Critical Strike: an attack's crit triggers a linked spell (CastOnCrit.cs).
+                    if (critical && !spell) TriggerCastOnCritLocked(remote, stream, ciphers, conn, skillId, skillStats, id);
                     landed++;
                     // Item Quantity Support: the kill's loot rolls read the supported skill's share.
                     if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)

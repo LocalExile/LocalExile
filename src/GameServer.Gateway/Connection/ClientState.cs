@@ -727,6 +727,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool PlayerObjectCreated;
     // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Guarded by the Monsters lock.
     public readonly Dictionary<int, double> SkillReadyAt = [];
+    // Cast On Critical Strike's spell cooldowns and per-link rotation (CastOnCritState). Guarded by the Monsters lock.
+    public readonly CastOnCritState CastOnCrit = new();
     // Ordinary stored uses retain recharge debt and base-time progress through recovery-rate/capacity changes.
     public readonly Dictionary<int, SingleUseCooldownState> SingleUseCooldowns = [];
     // The skill ids the client has on this connection's player (SendPlayer, SendSkills): the 0x40 skill list only adds,

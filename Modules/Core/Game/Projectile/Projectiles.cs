@@ -323,6 +323,9 @@ static partial class Game
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell));
             if (hit is null) return ProjectileHitResult.Miss;
+            // Cast On Critical Strike: an attack's crit triggers a linked spell (CastOnCrit.cs).
+            if (critical && !shot.Spell)
+                TriggerCastOnCritLocked(remote, stream, ciphers, Conn, shot.SourceSkill, shot.SkillStats, contact.Target.Id);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
