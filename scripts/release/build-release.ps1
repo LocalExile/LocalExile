@@ -92,8 +92,6 @@ Get-ChildItem (Join-Path $package 'Leagues') -Recurse -Directory -Filter Binarie
 Copy-Into 'data\schema' 'data\schema'
 # The servers build data\*.db from sql\ (Agents\docs\dev\databases.md).
 Copy-Into 'sql' 'sql'
-# The owner's network settings template; localexile.conf is theirs (ServerConfig).
-Copy-Into 'localexile.conf.dist' 'localexile.conf.dist'
 Copy-Into 'scripts\re\vendor-stock\community-stock.json' 'scripts\re\vendor-stock\community-stock.json'
 Copy-Into 'scripts\re\vendor-stock\gem-layout.json' 'scripts\re\vendor-stock\gem-layout.json'
 Copy-Into 'scripts\re\vendor-stock\ids.json' 'scripts\re\vendor-stock\ids.json'
@@ -192,6 +190,14 @@ foreach ($required in 'app\GameServer.Gateway.exe', 'app\GameServer.Auth.exe', '
     $relative = if ($IsLinux) { $required -replace '\.exe$', '' } else { $required }
     if (-not (Test-Path (Join-Path $package $relative))) { throw "the package misses $required" }
 }
+
+# The checks ran the launcher, which writes Config\localexile.conf where it is missing: the player's first start writes
+# their own. Then no empty folder (left by a copy or a build) goes in the zip.
+Remove-Item (Join-Path $package 'Config\localexile.conf') -ErrorAction SilentlyContinue
+do {
+    $empty = @(Get-ChildItem $package -Recurse -Directory -Force | Where-Object { -not (Get-ChildItem $_.FullName -Force | Select-Object -First 1) })
+    $empty | Remove-Item -Force
+} while ($empty.Count)
 
 Step 'compressing ...'
 Add-Type -AssemblyName System.IO.Compression.FileSystem

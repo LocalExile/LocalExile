@@ -22,8 +22,8 @@ PathOfExile*.exe
 /data/*
 !/data/schema/
 /artifacts/
-# The owner's server settings (a copy of localexile.conf.dist).
-/localexile.conf
+# The owner's server settings: the servers write it with the defaults on their first start (ServerConfig).
+/Config/localexile.conf
 /captures/
 
 # Built mods (Mods/Source/ builds into Mods/Binaries/<id>/; Agents/docs/dev/modding.md). Mods from elsewhere go there too.

@@ -65,7 +65,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   [databases](../docs/dev/databases.md)): `auth.db`, `characters.db`, `client.db` (the client's 943 tables, 97 MB of
   SQL, and the 14 generated files the servers read, 70 MB) and `world.db` (game content) are built and updated from
   `sql/` by each server at startup, one transaction per
-  file, a changed merged file refused. `localexile.conf` holds the addresses, ports and client folder. CI builds every
+  file, a changed merged file refused. `Config/localexile.conf` (written with the defaults on the first start) holds the addresses, ports and client folder. CI builds every
   database from scratch and checks the SQL; the merge names pending updates. Verified: the Gateway starting on fresh
   databases with the former seed's counts, every client table and generated file rebuilt identically, a real `saves.db`
   migrated and played on. Not yet: the pending rename on `main` (needs the ruleset bypass), and the generated files

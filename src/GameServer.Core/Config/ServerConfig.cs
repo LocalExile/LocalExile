@@ -3,20 +3,40 @@ using System.Net;
 namespace GameServer.Core;
 
 /// <summary>
-/// The owner's network settings: <c>localexile.conf</c> in the working directory (or <c>Game_CONF</c>), a copy of the
-/// committed <c>localexile.conf.dist</c> in the TrinityCore format (<c>Key = Value</c>, <c>#</c> comments, a value
-/// optionally in double quotes). Each setting's environment variable wins over the file (live.ps1 -PortBase sets them),
-/// and the file over the default; a missing file is the defaults. Only addresses, ports and the client folder are here:
-/// game settings are world.db content (Agents/docs/dev/databases.md).
+/// The owner's network settings: <c>Config/localexile.conf</c> under the working directory (or <c>Game_CONF</c>), in the
+/// TrinityCore format (<c>Key = Value</c>, <c>#</c> comments, a value optionally in double quotes). Not committed: the
+/// first server to read it writes <see cref="ServerConfigDefaults.Text"/> when it is missing. Each setting's environment
+/// variable wins over the file (live.ps1 -PortBase sets them), and the file over the default. Only addresses, ports and
+/// the client folder are here: game settings are world.db content (Agents/docs/dev/databases.md).
 /// </summary>
 public static class ServerConfig
 {
-    public const string FileName = "localexile.conf";
+    public const string FileName = "Config/localexile.conf";
 
-    /// <summary>localexile.conf, or <c>Game_CONF</c>.</summary>
+    /// <summary>Config/localexile.conf, or <c>Game_CONF</c>.</summary>
     public static string Path => Environment.GetEnvironmentVariable("Game_CONF") is { Length: > 0 } path ? path : FileName;
 
-    static readonly Lazy<IReadOnlyDictionary<string, string>> File = new(() => Read(Path));
+    static readonly Lazy<IReadOnlyDictionary<string, string>> File = new(() =>
+    {
+        if (Path == FileName) WriteDefaults(FileName);
+        return Read(Path);
+    });
+
+    /// <summary>Writes the defaults to <paramref name="path"/> when nothing is there (several servers may start at once:
+    /// the first one's file stays). A folder it cannot write leaves the defaults in effect without the file.</summary>
+    public static void WriteDefaults(string path)
+    {
+        if (System.IO.File.Exists(path)) return;
+        string temp = $"{path}.{Environment.ProcessId}.tmp";
+        try
+        {
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path))!);
+            System.IO.File.WriteAllText(temp, ServerConfigDefaults.Text.ReplaceLineEndings());
+            System.IO.File.Move(temp, path, overwrite: false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        finally { try { System.IO.File.Delete(temp); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } }
+    }
 
     public static string PatchWebUrl => Text("Game_PATCH_URL", "Patch.WebUrl", "http://127.0.0.1:8080");
     public static int PatchPort => Port("Game_PATCH_TCP_PORT", "Patch.Port", 12995);

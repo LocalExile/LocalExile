@@ -46,15 +46,15 @@ public sealed class SaveDatabase : IDisposable
         return System.IO.Path.Combine(folder, name.Equals("characters", StringComparison.OrdinalIgnoreCase) ? "auth.db" : name + "-auth.db");
     }
 
-    /// <summary>The database from before the split (data/saves.db): a server refuses to start while it is there and not
-    /// migrated (<see cref="SavesMigration"/>).</summary>
+    /// <summary>The database from before the split (data/saves.db), migrated when a server first opens the default player
+    /// databases (<see cref="SavesMigration.MigrateIfNeeded"/>).</summary>
     public static string LegacyPath => System.IO.Path.Combine("data", "saves.db");
 
     public SaveDatabase(string path, string? authPath = null)
     {
         Path = path;
         AuthPath = authPath ?? (path == DefaultPath ? DefaultAuthPath : AuthPathFor(path));
-        SavesMigration.RefuseUnmigrated(path);
+        SavesMigration.MigrateIfNeeded(path);
         SqlUpdater.Update(AuthPath, "auth");
         _db = SqlUpdater.Open(path);
         try

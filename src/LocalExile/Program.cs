@@ -9,7 +9,8 @@ using LocalExile;
 //   check          say whether a folder holds the 3.29.3c client; changes nothing
 //   stop           stop this install's servers and client
 //   account create <name>
-//   migrate-saves  split a data\saves.db from an older release into data\auth.db and data\characters.db
+//   migrate-saves  split a data\saves.db from an older release into data\auth.db and data\characters.db (the
+//                  servers also do it on their first start)
 //   version | client-command | help
 // Options: --client <folder> --client-mode copy|link --no-client --port-base <n> --account <name> --password-stdin
 //          --no-update-check --json

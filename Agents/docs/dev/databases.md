@@ -115,9 +115,10 @@ from `sql/updates/ruthless/` (pending: `pending_ruthless/`), which applies with 
 
 ## Migrating data/saves.db
 
-Before the split, one `data/saves.db` held accounts, saves and the game-data overlay. A server refuses to open the
-default player databases while it is there. `GameServer.Auth migrate-saves [saves.db]` (a release: `LocalExile
-migrate-saves`) copies it first (`saves.db.backup-<time>`, a `VACUUM INTO`), creates `auth.db` and `characters.db`,
+Before the split, one `data/saves.db` held accounts, saves and the game-data overlay. The first server to open the
+default player databases migrates it, so an install updated by hand or by a launcher keeps its saves; the others wait on
+`data/saves.db.migrating`. `GameServer.Auth migrate-saves [saves.db]` (a release: `LocalExile migrate-saves`) does the
+same on request. The migration copies it first (`saves.db.backup-<time>`, a `VACUUM INTO`), creates `auth.db` and `characters.db`,
 copies the player tables over in one transaction, and renames `saves.db` to `saves.db.migrated`. The game-data tables are
 left behind: the other databases are built from `sql/`. It refuses to write over an existing `auth.db` or
-`characters.db`.
+`characters.db`; a server then stops, since merging them is the owner's call.

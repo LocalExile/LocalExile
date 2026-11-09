@@ -1,4 +1,4 @@
-# One run against the official client (see Agents/GettingStarted.md):
+﻿# One run against the official client (see Agents/GettingStarted.md):
 #   checks the one-time setup, stops this checkout's servers and patched client, builds Auth, Patch and Gateway,
 #   starts all three (logs in logs/live-*.log) and launches Client/Game.patched.exe through the local patching server.
 #   The previous run's logs move to logs/archive/<time>/ (the newest 10 full runs are kept), and the Gateway writes each
@@ -81,10 +81,10 @@ function Report-Wait([string]$what, [datetime]$since, [string]$log) {
     Step "  still waiting for $what ($seconds s)$(if ($last) { ": $last" })"
 }
 
-# localexile.conf (or Game_CONF) as Key = Value pairs, keys case-insensitive; empty without the file. The servers
-# read the same file themselves (GameServer.Core ServerConfig).
+# Config\localexile.conf (or Game_CONF) as Key = Value pairs, keys case-insensitive; empty without the file (the
+# defaults; the servers write the file with them on their first start). The servers read it too (ServerConfig).
 function Read-Conf {
-    $path = if ($env:Game_CONF) { $env:Game_CONF } else { Join-Path $repo 'localexile.conf' }
+    $path = if ($env:Game_CONF) { $env:Game_CONF } else { Join-Path $repo 'Config\localexile.conf' }
     $values = @{}
     if (Test-Path $path) {
         foreach ($line in Get-Content $path) {
@@ -536,9 +536,9 @@ if ($Stop) {
 
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
 Need (Test-Path (Join-Path $repo 'data\login-keys.json')) 'data\login-keys.json missing: run GameServer.Auth keygen'
-# The servers refuse a data\saves.db from before the player databases were split (Agents/docs/dev/databases.md).
-Need (-not (Test-Path (Join-Path $repo 'data\saves.db'))) ('data\saves.db is from before the player databases were split: stop the ' +
-    'servers and run dotnet run --project src\GameServer.Auth -- migrate-saves (it makes a copy first)')
+# A data\saves.db from before the player databases were split: the first server to start migrates it, after a copy
+# (Agents/docs/dev/databases.md).
+if (Test-Path (Join-Path $repo 'data\saves.db')) { Step 'data\saves.db is from before the split: the servers migrate it (a copy is made first)' }
 # Only a client needs Client\: the servers run from data\ alone (-NoClient, -Only).
 if (-not $NoClient -and -not $Only) {
     Need (Test-Path (Join-Path $repo 'Client\Game.exe')) 'Client\Game.exe missing: copy the client and its PathOfExile.exe'

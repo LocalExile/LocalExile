@@ -441,9 +441,9 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 
 ## Configuration
 
-The servers' addresses and ports, and the client folder, are in `localexile.conf` at the repository root (or the release
-folder): copy `localexile.conf.dist`, which explains each key, and change what you need. The file is yours (git-ignored);
-without it every key has its default. To accept players from other machines, set `Login.BindAddress` and
+The servers' addresses and ports, and the client folder, are in `Config\localexile.conf` under the repository root (or
+the release folder). The servers write it with every key at its default, and what each does, on their first start; change
+what you need. The file is yours (git-ignored); delete it to get the current defaults back. To accept players from other machines, set `Login.BindAddress` and
 `Gateway.BindAddress` to `0.0.0.0` and `Gateway.PublicAddress` to the address they reach you at. Each key's environment
 variable (named in the file) wins over it; `Game_CONF` names another file.
 
@@ -457,7 +457,7 @@ Environment variables, read when each server starts:
 | `Game_GATEWAY_PORT` | 6112 | instance server port (`Gateway.Port`) |
 | `Game_GATEWAY_HOST` | 127.0.0.1 | address (IP) Auth and the Gateway send the client for its first area and every area change (`Gateway.PublicAddress`) |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth ↔ Gateway control port, localhost only (`AuthControl.Port`) |
-| `Game_CONF` | `localexile.conf` | the server configuration file |
+| `Game_CONF` | `Config\localexile.conf` | the server configuration file |
 | `Game_PORT_BASE` | unset | `live.ps1`: this checkout's servers on ports base..base+4 (Patch, Patch web, Auth login, Auth control, Gateway); remembered in `data/stack.json` like `-PortBase` ([live testing](docs/dev/live-testing.md#several-stacks-and-clients)) |
 | `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly` and `client_control.py`: the named client session, like `-Session` / `--session` |
 | `Game_RANDOM_SEEDS` | unset | new instances of the areas the Gateway generates itself (`gate-baseline.json`, [re/011](docs/re/011-level-generation.md)) get random seeds, every other area seed 1; `0` = seed 1 everywhere; an area the client cannot build at seed 1 gets a seed it built instead |

@@ -8,8 +8,8 @@ Player progress is in two SQLite files under `data/` (git-ignored), built from `
 ([databases](dev/databases.md)) and shared by the Gateway, Auth and the dev host: `data/auth.db` (accounts;
 `Game_AUTH_DB`) and `data/characters.db` (everything else below; `Game_CHARACTERS_DB`). A connection opens
 `characters.db` with `auth.db` attached, so the rows written together (a deleted character and its save set aside) are in
-one file. A `data/saves.db` from before the split is moved over once by `GameServer.Auth migrate-saves`; until then the
-servers refuse to start.
+one file. A `data/saves.db` from before the split is moved over once, after a copy, by the first server
+to start ([databases](dev/databases.md)).
 
 | What | Table | Code |
 |---|---|---|

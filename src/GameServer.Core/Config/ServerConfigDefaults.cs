@@ -1,9 +1,16 @@
+namespace GameServer.Core;
+
+/// <summary>The text <see cref="ServerConfig"/> writes to a missing Config/localexile.conf: every key at its default, with
+/// what it does. Keep in step with the defaults in <see cref="ServerConfig"/>.</summary>
+static class ServerConfigDefaults
+{
+    public const string Text = """
 ###############################################################################
 # LocalExile server configuration
 #
-# Copy this file to localexile.conf (beside it: the repository root, or the
-# release folder) and change what you need. localexile.conf is yours and is
-# not committed; a missing file, or a missing key, means the default below.
+# The servers write this file with the defaults when it is missing; it is yours
+# and is not committed. Change what you need: a missing key means its default.
+# Delete the file to get the current defaults back.
 #
 # Format: Key = Value, one per line; a line starting with # is a comment; a
 # value may be in double quotes. A line that is not Key = Value stops the
@@ -11,7 +18,7 @@
 #
 # Each key's environment variable (in brackets) wins over this file:
 # scripts/dev/live.ps1 -PortBase and LocalExile --port-base set them to give
-# a second stack its own ports.
+# a second stack its own ports. Game_CONF names another file.
 #
 # Only addresses, ports and the client folder are set here. Game settings are
 # world.db content (Agents/docs/dev/databases.md).
@@ -90,8 +97,12 @@ Chat.Port = 6113
 #
 #    Client.Folder
 #        The Path of Exile 3.29.3c client folder (Content.ggpk, Game.exe),
-#        relative to this file's folder or absolute. A repository checkout's
+#        relative to the repository root (or the release
+#        folder) or absolute. A repository checkout's
 #        scripts/dev/live.ps1 always uses Client.
 #        Default: Client [Game_CLIENT_FOLDER]
 
 Client.Folder = Client
+
+""";
+}

@@ -62,7 +62,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See protocol/01-login.md.
 - **Saves in SQLite (tested, not yet checked with the real client).** Accounts are rows in `data/auth.db`; characters,
   character saves and stashes in `data/characters.db` (WAL, synchronous=FULL), both built from `sql/`
-  ([databases](../docs/dev/databases.md); `migrate-saves` splits an old `data/saves.db`); a stash is a header row and
+  ([databases](../docs/dev/databases.md); the first server start splits an old `data/saves.db`); a stash is a header row and
   one row per tab.
   Every item, stash, gold, passive, quest flag and waypoint change is saved at once in a transaction.
   Stash moves, purchases, sales, currency used on items, gold respec, the map device and character deletion save all

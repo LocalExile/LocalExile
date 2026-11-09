@@ -4,8 +4,9 @@ namespace GameServer.Storage;
 
 /// <summary>
 /// Moves the one database from before the split (data/saves.db) into the player databases: accounts into auth.db, the
-/// characters, saves, stashes and friends into characters.db (Agents/docs/dev/databases.md). It runs only when asked
-/// (<c>GameServer.Auth migrate-saves</c>, <c>LocalExile migrate-saves</c>), never at a server start. A copy of saves.db
+/// characters, saves, stashes and friends into characters.db (Agents/docs/dev/databases.md). The first server to open the
+/// default player databases runs it (<see cref="MigrateIfNeeded"/>), as do <c>GameServer.Auth migrate-saves</c> and
+/// <c>LocalExile migrate-saves</c>, so an install updated by hand or by a launcher keeps its saves. A copy of saves.db
 /// is made first; the game-data tables of saves.db (settings, catalogue, weights) are left behind, since world.db and
 /// client.db are built from sql/. saves.db is renamed to saves.db.migrated at the end.
 /// </summary>
@@ -24,14 +25,33 @@ public static class SavesMigration
         ("account_friends", "owner, friend", "main"),
     ];
 
-    /// <summary>Stops a server that would open the default player databases while data/saves.db is not migrated: it
-    /// would start with no accounts and no characters.</summary>
-    public static void RefuseUnmigrated(string charactersPath)
+    /// <summary>Migrates data/saves.db before a server opens the default player databases, so it does not start with no
+    /// accounts and no characters. Several servers start at once: the first takes data/saves.db.migrating and migrates,
+    /// the others wait for it and then find saves.db gone. A saves.db beside existing player databases stops the server
+    /// instead: merging them is the owner's call.</summary>
+    public static void MigrateIfNeeded(string charactersPath, Action<string>? log = null)
     {
         if (!File.Exists(SaveDatabase.LegacyPath)) return;
-        if (!string.Equals(Path.GetFullPath(charactersPath), Path.GetFullPath(Path.Combine("data", "characters.db")), StringComparison.OrdinalIgnoreCase)) return;
-        throw new SqlUpdateException($"{SaveDatabase.LegacyPath} is from before the player databases were split. Stop the servers and run " +
-            "`dotnet run --project src/GameServer.Auth -- migrate-saves` (a release: `LocalExile migrate-saves`); it makes a copy first", null);
+        if (!string.Equals(Path.GetFullPath(charactersPath), Path.GetFullPath(Characters), StringComparison.OrdinalIgnoreCase)) return;
+        log ??= Console.WriteLine;
+        using var claim = Claim(SaveDatabase.LegacyPath + ".migrating");
+        if (!File.Exists(SaveDatabase.LegacyPath)) return;
+        if (File.Exists(Characters) || File.Exists(Auth))
+            throw new SqlUpdateException($"{SaveDatabase.LegacyPath} is from before the player databases were split, and " +
+                $"{Characters} or {Auth} is already there. Move the new ones away to migrate " +
+                "saves.db at the next start, or move saves.db away to keep them", null);
+        log($"[migrate] {SaveDatabase.LegacyPath} is from before the player databases were split: migrating it");
+        Migrate(SaveDatabase.LegacyPath, Characters, Auth, log);
+    }
+
+    static readonly string Characters = Path.Combine("data", "characters.db"), Auth = Path.Combine("data", "auth.db");
+
+    // An exclusive handle on the claim file, waited for while another server migrates (a large saves.db takes seconds).
+    static FileStream Claim(string path)
+    {
+        for (var until = DateTime.UtcNow.AddMinutes(5); ; Thread.Sleep(200))
+            try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose); }
+            catch (IOException) when (DateTime.UtcNow < until) { }
     }
 
     public sealed record Result(string Backup, IReadOnlyDictionary<string, int> Rows);

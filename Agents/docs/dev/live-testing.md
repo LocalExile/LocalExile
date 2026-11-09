@@ -85,7 +85,7 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
 - **Ports.** `-PortBase N` (or `Game_PORT_BASE`) puts the stack on N (Patch), N+1 (Patch web), N+2 (Auth login), N+3
   (Auth control) and N+4 (Gateway). `live.ps1` remembers the base in `data\stack.json`, so later runs, `-ClientOnly` and
   the bridge in the same checkout use it without being told again; `-PortBase 0` goes back to the default ports
-  (`localexile.conf`'s, else 12995, 8080, 20493, 20495, 6112), which are also what a checkout without the file uses.
+  (`Config\localexile.conf`'s, else 12995, 8080, 20493, 20495, 6112), which are also what a checkout without the file uses.
   On the default ports a server's own variable (`Game_LOGIN_PORT`, `Game_PATCH_URL`, ...) still wins over the conf; with
   a base neither is used.
   `data\stack.json` holds every port the servers got, and the bridge reads it. Auth sends the client to its own Gateway (`Game_GATEWAY_PORT` in login 0x14, as
@@ -265,7 +265,7 @@ field, character row and Play button were near (245, 217), (375, 61) and (455, 2
 |---|---|---|
 | `Game_PORT_BASE` | unset | `live.ps1` (like `-PortBase`): every port below from one base |
 | `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly`, `client_control.py` (like `-Session` / `--session`) |
-| `Game_CONF` | `localexile.conf` | every server, `live.ps1`: addresses, ports and the client folder (`localexile.conf.dist`); each variable below wins over its key |
+| `Game_CONF` | `Config\localexile.conf` | every server, `live.ps1`: addresses, ports and the client folder (written with the defaults on the first start); each variable below wins over its key |
 | `Game_LOGIN_PORT` | 20493 | Auth |
 | `Game_GATEWAY_PORT` | 6112 | Gateway, and Auth (where Play sends the client) |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth and Gateway |
