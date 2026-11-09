@@ -62,8 +62,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64
   package; its launcher sets up and runs the servers natively. The release workflow builds it beside the Windows one. Not yet:
-  `-Walkmaps`, named clients, and the client from a Linux release.
-  Code: `scripts/dev/platform-linux.ps1`.
+  named clients and the client from a Linux release. Linux `-Walkmaps` captures the real 3.29.3c client;
+  the Strand matches in tile hash, both grids, cell heights, doodads and transitions.
+  Code: `scripts/dev/platform-linux.ps1`, `scripts/walkmaps/proton.py`.
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
   collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`; a running Gateway also

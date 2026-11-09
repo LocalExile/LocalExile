@@ -289,12 +289,18 @@ function Stop-Processes($processes) {
 # A virtual environment in the repository (.venv) wins over the python on PATH; it needs Frida (walkmaps.py,
 # nullifier.py).
 function Get-Python([string]$purpose) {
-    $venv = Join-Path $repo '.venv\Scripts\python.exe'
+    $venv = Join-Path $repo $(if ($IsLinux) { '.venv/bin/python' } else { '.venv\Scripts\python.exe' })
     $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
     if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
     Need $python "Python not found (needed for $purpose)"
-    & $python -c 'import frida' 2>$null
-    Need ($LASTEXITCODE -eq 0) 'the frida Python package is missing: python -m pip install frida'
+    if (-not ($IsLinux -and $purpose -eq '-Walkmaps')) {
+        & $python -c 'import frida' 2>$null
+        Need ($LASTEXITCODE -eq 0) 'the frida Python package is missing: python -m pip install frida'
+    }
+    if ($IsLinux -and $purpose -eq '-Walkmaps') {
+        & $python (Join-Path $repo 'scripts/walkmaps/proton.py') prepare | Out-Host
+        Need ($LASTEXITCODE -eq 0) 'could not prepare the Proton recorder (needs g++ and the official Frida GumJS development kit)'
+    }
     $python
 }
 
@@ -533,6 +539,13 @@ if ($ClientOnly) {
     $python = if ($Walkmaps) { Get-Python '-Walkmaps' } else { $null }
     $existing = @(Get-OwnClients $session)
     if ($existing.Count) {
+        if ($Walkmaps -and $IsLinux) {
+            $maps = try { [IO.File]::ReadAllText("/proc/$($existing[0].ProcessId)/maps") } catch { '' }
+            $helper = [regex]::Escape((Join-Path $repo 'Tools/frida/')) + '[^/]+/proton-recorder\.so'
+            if (-not @(Get-OwnWalkmaps).Count -or $maps -notmatch $helper) {
+                throw 'Linux capture must start with the client: stop this client with -Stop -ClientOnly, then use -ClientOnly -Walkmaps'
+            }
+        }
         if ($Walkmaps) { Start-Recorder $python }
         Write-Output "client already running: $($existing[0].ProcessId)"
         return
@@ -681,7 +694,9 @@ $serverEnv = @{
 $envBefore = @{}
 foreach ($name in $serverEnv.Keys) {
     $envBefore[$name] = [Environment]::GetEnvironmentVariable($name)
-    [Environment]::SetEnvironmentVariable($name, $serverEnv[$name])
+    # PowerShell converts $null to an empty string here; .NET on Linux preserves an empty environment value.
+    if ($null -eq $serverEnv[$name]) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value) }
+    else { [Environment]::SetEnvironmentVariable($name, $serverEnv[$name]) }
 }
 Step "starting servers: $($servers -join ', ') ..."
 try {
@@ -697,7 +712,12 @@ try {
             (Join-Path $out "live-$($s.ToLower()).log") (Join-Path $out "live-$($s.ToLower()).err")
     }
 }
-finally { foreach ($name in $envBefore.Keys) { [Environment]::SetEnvironmentVariable($name, $envBefore[$name]) } }
+finally {
+    foreach ($name in $envBefore.Keys) {
+        if ($null -eq $envBefore[$name]) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value) }
+        else { [Environment]::SetEnvironmentVariable($name, $envBefore[$name]) }
+    }
+}
 
 # A watched Gateway first builds: wait until it listens, so the client does not reach a closed port.
 if ($Watch) {
