@@ -82,6 +82,18 @@ read 0.4 s), and in memory for a few seconds for the catalogues that read the sa
 update client.db before their first read; the first build takes about 16 s, a start with nothing new about 1.5 s.
 `extract-data.ps1` still writes `data/tables/` for its other generators and for `client-sql.ps1 diff`.
 
+The files those generators write that the servers read are in client.db too, in `client_files` (`file`, `part`, `ord`,
+`value`): `area-transitions`, `room-points`, `object-types`, `item-types`, `monster-contacts`, `monster-takehit`,
+`animation-contacts`, `projectile-clips`, `hideouts`, `vendor-stock`, `passive-skill-graphs`, `delve-paths`, the HNC mask
+of `client-constants.json` and `stat-descriptions.txt` (`FILES` in `scripts/dev/client_sql.py`). A JSON file is one
+row per top-level entry, and one per entry of a top-level list or object of more than 64 (`part`: the keys leading to
+it, as a JSON array; `value`: its JSON); `stat-descriptions.txt` is one row per description block. `ClientTables`
+serves `data/<file>` from them (same data and key order as the generator wrote, without the indentation), so a server
+reads none of these from disk. `client-sql.ps1 diff` writes their changed rows (`<stamp>_file_<name>.sql`) alongside
+the tables'; after a generator change, run `extract-data.ps1`, then `diff`, and commit both. The GGPK root hash stays
+in the local `data/client-constants.json` (the Patch server's, refreshed by `live.ps1`): it describes the local
+`Content.ggpk`. `data/game-files.zip`, the client's own level and object files, still comes only from the client.
+
 ## world.db
 
 The game content that is ours rather than the client's: `system_settings`, `unique_weights` (+ `_overrides`),

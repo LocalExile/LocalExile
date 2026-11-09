@@ -63,11 +63,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Databases from SQL in git ([#734](https://github.com/LocalExile/LocalExile/issues/734),
   [databases](../docs/dev/databases.md)): `auth.db`, `characters.db`, `client.db` (the client's 943 tables, 97 MB of
-  SQL) and `world.db` (game content) are built and updated from `sql/` by each server at startup, one transaction per
+  SQL, and the 14 generated files the servers read, 70 MB) and `world.db` (game content) are built and updated from
+  `sql/` by each server at startup, one transaction per
   file, a changed merged file refused. `localexile.conf` holds the addresses, ports and client folder. CI builds every
   database from scratch and checks the SQL; the merge names pending updates. Verified: the Gateway starting on fresh
-  databases with the former seed's counts, every client table rebuilt identically, a copy of a real `saves.db` migrated.
-  Not yet: a real-client session on the new databases, and the pending rename on `main` (needs the ruleset bypass).
+  databases with the former seed's counts, every client table and generated file rebuilt identically, a real `saves.db`
+  migrated and played on. Not yet: the pending rename on `main` (needs the ruleset bypass), and the generated files
+  served from `client.db` in a real-client session.
   Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Config/ServerConfig.cs`.
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot

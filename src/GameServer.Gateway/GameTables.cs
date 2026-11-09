@@ -51,9 +51,10 @@ static class GameTables
     /// <summary>The table at <paramref name="path"/>, parsed now or shared with another user of the same file.</summary>
     public static Lease Open(string path)
     {
-        // A client table (ClientTables) is keyed by client.db's write time; another file by its own size and time.
+        // A client table or generated file (ClientTables) is keyed by client.db's write time; another file by its own size and time.
         var file = new FileInfo(path);
-        var key = ClientTables.TryTable(path, out _) ? (file.FullName, -1L, ClientTables.Written) : (file.FullName, file.Length, file.LastWriteTimeUtc);
+        var key = ClientTables.TryTable(path, out _) || ClientTables.TryFile(path, out _)
+            ? (file.FullName, -1L, ClientTables.Written) : (file.FullName, file.Length, file.LastWriteTimeUtc);
         lock (Gate)
             if (Entries.TryGetValue(key, out var shared))
             {
