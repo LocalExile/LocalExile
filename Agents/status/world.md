@@ -216,8 +216,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   A third mechanic, Portals, brings guardians until destroyed and returns the same way; the Bronze Inscription before
   his arena reads, and the Goddess's Guardians come in circles (without her yet). Checked live 2026-11-09.
   He holds the day's official weapon and uses its skills (Ground Slam, Spikes, Leap Slam, Sunder, Divine Slash, Shield
-  Bash) with their art and damage; cooldowns and hit shapes are ours. Checked live 2026-11-09. Not settled: his walk
-  through his minions, and his model can be set back after an order. Code: `IzaroSkills.cs`.
+  Bash) with their art and damage, and walks through his minions; cooldowns and hit shapes are ours. Checked live
+  2026-11-09. Not settled: his model can be set back after an order. Code: `IzaroSkills.cs`.
   Not yet: the other arena mechanics, the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
   Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,
