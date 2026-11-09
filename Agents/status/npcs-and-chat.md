@@ -71,7 +71,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Direct vendor equipment purchases validate placement, preserve payment on failure and refresh equipped items; prior 3.29.3b ring controls pass, current-client verification is pending.
+- Direct vendor equipment purchases validate placement, preserve payment on failure and refresh equipped items; 3.29.3c belt purchase/swap protocol controls pass; rendered UI checks remain open.
 
 - Faustus's Currency Exchange at official prices works through `/exchange` (orders, claims, cancelling; live 2026-11-08).
   Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written and not yet played.
