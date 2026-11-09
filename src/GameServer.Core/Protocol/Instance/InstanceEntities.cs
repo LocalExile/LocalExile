@@ -88,7 +88,9 @@ public static class InstanceEntities
     /// Winter Orb channelling art), which those behaviours read unchecked: give at least the entries the row's behaviour
     /// reads, since an empty list leaves the vector null). The buff's visual (BuffVisuals)
     /// plays while it lasts. u68 is the raw IEEE-754 f32 duration in seconds (not integer milliseconds);
-    /// f6c is the countdown rate (default 1.0).
+    /// f6c is the countdown rate (default 1.0). A duration is drawn as a countdown clock under the icon (below the
+    /// count on a row that shows one), running from the instance's creation: re-sending the same instance id keeps it,
+    /// a new instance restarts it.
     /// </summary>
     public static byte[] AddBuff(uint objectId, ushort buffInstance, ushort buffRow, uint sourceId = 0, ushort sourceSkill = 0,
         IReadOnlyList<uint>? values = null, uint? u68 = null, float? f6c = null, ushort? visual = null,

@@ -1721,8 +1721,11 @@ This is a research baseline, not new live skill acceptance or complete native/se
   `frost_fury_max_number_of_stages` (8) plus the quality's `frost_fury_additional_max_number_of_stages`, and add their
   `frost_fury_fire_speed_+%_per_stage` (20, the first stage adds none) to the frequency. The stages show in the buff
   bar as the game's own `frost_fury_stage` row (BuffDefinitions 1216, ShowCount), the count the orb's (bit2) and, after
-  the release, the duration the stages leave (bit1), re-sent with each stage that builds or goes and removed with the
-  orb (live 2026-11-09). Its three earlier crashes came from the 0x1c1 trailing u32 list, not the message fields: the
+  the release, the time the stages leave (bit1), which the client draws as a countdown clock under the count (`8` over
+  `0:05`, running down with each stage that goes, live 2026-11-09). Both ride the same 0x1c1 instance, updated in place
+  as the stages build or go and removed with the orb: a new instance for each change (0x1c2 then a fresh 0x1c1) restarts
+  the client's clock, so it never had time to be seen before. A held channel has no clock (no bit1); it runs only while
+  the stages decay. Its three earlier crashes came from the 0x1c1 trailing u32 list, not the message fields: the
   row's buff visual starts the client's Winter Orb channelling art (`0x1415d17d0` → `0x1417b6030`), which reads entries
   1 and 2 of the buff's list (buff +0x80) without a length check, so an empty list dereferenced null (`0xc0000005` at
   fault offset `0x17b6067`, the same for all three shapes). Three entries (first form, not a totem) are all it needs.

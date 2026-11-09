@@ -126,9 +126,10 @@ static partial class Game
             if (runtime is null || runtime.Stages <= 0 || runtime.PresentedStages == runtime.Stages) return;
             stages = runtime.Stages;
             double left = runtime.Channelling ? 0 : runtime.ExpiresAt - conn.Clock.Elapsed.TotalSeconds;
-            if (runtime.PresentedBuff != 0)
-                packets.Add(InstanceEntities.RemoveBuff(PlayerId, runtime.PresentedBuff));
-            ushort instance = runtime.PresentedBuff = conn.NextBuff++;
+            // The same instance is updated in place: replacing it (0x1c2 + a new 0x1c1) restarted the client's timer with
+            // every stage, so a duration it draws could never be seen running.
+            ushort instance = runtime.PresentedBuff;
+            if (instance == 0) instance = runtime.PresentedBuff = conn.NextBuff++;
             packets.Add(InstanceEntities.AddBuff(PlayerId, instance, WinterOrbStagesBuffRow, PlayerId, runtime.SkillId,
                 u68: left > 0 ? (uint?)BitConverter.SingleToUInt32Bits((float)left) : null,
                 stacks: (ushort)runtime.Stages, list: [0, 0, 0]));
