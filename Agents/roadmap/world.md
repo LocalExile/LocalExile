@@ -162,7 +162,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     a new-action frame cap. Instant replies share the player's sequence and let native execution consume cooldowns.
     Full live coverage remains open.
     The King's scripted actions share its swing sequence, and dashes carry the boss's origin in both modes.
-    Emerge timing follows the clip in both modes.
+    Emerge timing follows the clip in both modes; predictive attack pursuit uses the client's retry interval without a timeout.
     Natural Slums arrival and complete boss synchronization still need correction and validation.
     Held-walk player and all-monster sync bars pass; fresh Mud Flats and charger pairs show no predictive regression.
     Broader coverage and adjusted crowd comparisons remain incomplete

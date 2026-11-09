@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Sockets;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
+using GameServer.Modding;
 using Xunit;
 
 namespace GameServer.Gateway.Tests;
@@ -149,6 +151,46 @@ public class LockstepTests
         var sword = new SkillCatalog.Unarmed(645, 1, 2, 11);
         var (here, stop, _, atOnce) = Game.WalkUpToSwing(conn, drowned, (113, 100), sword, 0, 1);
         Assert.Equal(((100, 100), (101, 100), false), (here, stop, atOnce));
+
+        // A predictive walk-up retries every 50 ms (0x141e8eb60, 0x141e8ef50). Even after a late wake
+        // beyond three seconds, an out-of-reach target does not start a swing or end the pursuit.
+        var predictive = new ClientState(new(1, "predictive-follow", 300, 300, 100, 100, null, []), 1, 1);
+        predictive.Clock.Reset();
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var session = new Game.ProjectileSession("predictive-follow", null!, null!, predictive);
+        predictive.ProjectileRuntimeState = session;
+        try
+        {
+            Assert.True(session.Active);
+            var target = new SpawnedMonster("Drowned", new PlayerWalk(200, 100, 8, size: 2), 0, 4, 100);
+            var waits = new List<double>();
+            var followed = await Game.FollowMonsterToSwing(predictive, target, sword, () => true,
+                (next, _) =>
+                {
+                    waits.Add(next);
+                    if (waits.Count > 1) return Task.FromResult(false); // the next request cancels the pursuit
+                    session.AdvanceTo(ProjectileRuntime.Time(3.05));
+                    Assert.Equal(3.05, Game.ProjectileWorldTime(predictive), 9);
+                    return Task.FromResult(true);
+                }, (100, 100), 0, false, 0);
+            Assert.Null(followed);
+            Assert.Equal(2, waits.Count);
+            Assert.Equal(.05, waits[0], 9);
+            Assert.Equal(3.10, waits[1], 9);
+            Assert.Equal((188, 100), predictive.Walk.Destination);
+        }
+        finally
+        {
+            session.Invalidate();
+            predictive.ProjectileRuntimeState = null;
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            if (previousLogic is not null) Program.SetGameLogic(previousLogic);
+        }
 
         // On a lockstep client the attack's walk-up is the client's MoveTo (07 §5, §6): placed where its 0x1ab goes out, at
         // the start of the frame being sent, toward the monster's own cell; tested by the step pass in the player's turn of

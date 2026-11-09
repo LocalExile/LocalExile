@@ -342,8 +342,9 @@ reach (2 of 3 swings), and in none of 5 swings 3 cells or more beyond.
 
 **The player's own walk-up.** The client's action goes on until the target is in reach and needs no word from the
 server to swing. A predictive client's paths again every 0.05 s for a player (0.25 s for a monster, `0x141e8eb60`, which
-`0x141e8ef50` runs again only in that mode), and the Gateway's estimate every 100 ms, for up to 3 s
-(`FollowMonsterToSwing`; neither number is the client's). A lockstep client's is the walk-up above, set up once by its
+`0x141e8ef50` runs again only in that mode). The Gateway's predictive estimate uses the same 50 ms retry interval,
+with no pursuit deadline: an out-of-reach target stays pending until the action is replaced or the target dies
+(`FollowMonsterToSwing`). A lockstep client's is the walk-up above, set up once by its
 order (1 446 of 1 447 traced setups of the player's actions came in the frame of an order's apply). In reach means the
 walk-up's own goal: the distance less the target's size within the weapon's range less one (WeaponTypes RangeMax: a bow
 or wand 120, the Rusted Sword 11;

@@ -97,7 +97,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Channels retain activity and releases; spell channels use cast speed without a frame cap. Full validation remains open.
   Instant replies share the player's sequence, suppress local action events and let native execution consume cooldowns.
   The King's scripted actions share its swing sequence, and dashes carry the boss's origin in both modes.
-  Emerge timing follows the clip in both modes.
+  Emerge timing follows the clip in both modes; predictive attack pursuit uses the client's retry interval without a timeout.
   Slums arrival and complete boss synchronization remain incomplete.
   Held-walk player and all-monster sync bars pass; held, Mud Flats and charger checks show no reproduced predictive regression.
   Complete nonregression and coverage remain open ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).

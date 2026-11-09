@@ -187,10 +187,10 @@ static partial class Game
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0, early: !conn.LockstepClient);
     }
 
-    // How often a predictive client's walk-up estimate paths again, and when it stops following. Neither is the client's
-    // (its actor paths again every 0.05 s for the player, 0x141e8eb60, run again by 0x141e8ef50 only in that mode, and gives
-    // a walk-up no time limit): the Gateway's guesses, not yet sourced. A lockstep walk-up runs on its frames (StepWalkUp).
-    const double SwingFollowSeconds = .1, SwingFollowLimitSeconds = 3;
+    // The player's predictive walk-up retry timer (0x141e8eb60: Actor +0x278 = 0.05 s for Player;
+    // 0x141e8ef50 retries the pending walk-up in mode 1 when it expires). The action has no pursuit deadline.
+    // A lockstep walk-up runs on its frames (StepWalkUp).
+    const double SwingFollowSeconds = .05;
 
     // The projectile grid value a ranged attack's line to its target must hold, the action's precision for the walk-up and
     // the swing (0x141e8eb60 → MoveTo +0x528): 3 for the bow's and the wand's default attack, 1 for a one-hand sword's
@@ -242,7 +242,6 @@ static partial class Game
             return lockstep.Decided.IsCompleted && await lockstep.Decided is { } decided ? (decided.From, decided.Start, decided.Start) : null;
         }
         int reach = WalkUpRange(weapon);
-        double giveUp = now + SwingFollowLimitSeconds;
         if (swing) return (stop, arrive, now);
         while (true)
         {
@@ -253,7 +252,7 @@ static partial class Game
                 now = ProjectileWorldTime(conn);
                 if (!current()) return null;
                 var target = m.Walk.Position(now);
-                bool done = m.Life == 0 || now >= giveUp;
+                bool done = m.Life == 0;
                 if (now >= arrive && (done || SwingInReach(conn, m, stop, target, reach))) return (stop, arrive, now);
                 if (done) continue;
                 (_, stop, arrive, swing) = WalkUpToSwing(conn, m, target, weapon, now, precision);
