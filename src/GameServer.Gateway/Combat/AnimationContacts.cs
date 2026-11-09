@@ -222,8 +222,8 @@ sealed class AnimationContacts(string folder = "data")
     {
         string path = Path.Combine(folder, "animation-contacts.json");
         var result = new Dictionary<string, ActorAnimations>(StringComparer.OrdinalIgnoreCase);
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!GameServer.Core.ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllBytes(path));
         foreach (var ao in d.RootElement.EnumerateObject())
         {
             var positions = new Dictionary<string, ContactPoint>(StringComparer.Ordinal);

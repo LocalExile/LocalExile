@@ -9,8 +9,10 @@ namespace GameServer.Core;
 /// The client's tables, read from <c>data/client.db</c> (Agents/docs/dev/databases.md): the database the servers build from
 /// <c>sql/base/client/</c> and <c>sql/updates/client/</c> (+ <c>client_fixes/</c>). A table is still named by the path of
 /// its extracted file, <c>data/tables/&lt;Table&gt;.json</c>, and comes back as that file's JSON (an array of row objects,
-/// the columns in order), rebuilt from the table's rows and declared column types. Any other path is read from disk, so
-/// a reader can take a folder of its own (a test's) and still go through here.
+/// the columns in order), rebuilt from the table's rows and declared column types. The files the extract-data.ps1
+/// generators write that the servers read (data/area-transitions.json, data/stat-descriptions.txt, ...: client_sql.py
+/// FILES) are in its <c>client_files</c> table, one row per entry, and come back as the file. Any other path is read from
+/// disk, so a reader can take a folder of its own (a test's) and still go through here.
 /// </summary>
 public static class ClientTables
 {
@@ -31,16 +33,65 @@ public static class ClientTables
         return true;
     }
 
-    /// <summary>File.Exists for a table path: whether client.db has the table.</summary>
-    public static bool Exists(string path) => TryTable(path, out string table) ? Has(table) : File.Exists(path);
+    /// <summary>The generated file a path names: <c>data/&lt;file&gt;</c> under the working directory, kept in client.db.</summary>
+    public static bool TryFile(string path, out string file)
+    {
+        file = Path.GetFileName(path);
+        string? folder = Path.GetDirectoryName(Path.GetFullPath(path));
+        return folder is not null && string.Equals(folder, Path.GetFullPath("data"), StringComparison.OrdinalIgnoreCase)
+            && Files().Contains(file);
+    }
 
-    public static byte[] ReadAllBytes(string path) => TryTable(path, out string table) ? Json(table, path) : File.ReadAllBytes(path);
+    /// <summary>File.Exists for a table or generated file path: whether client.db has it.</summary>
+    public static bool Exists(string path) =>
+        TryTable(path, out string table) ? Has(table) : TryFile(path, out _) || File.Exists(path);
+
+    public static byte[] ReadAllBytes(string path) =>
+        TryTable(path, out string table) ? Json(table, path) : TryFile(path, out string file) ? FileBytes(file)! : File.ReadAllBytes(path);
 
     public static string ReadAllText(string path) =>
-        TryTable(path, out string table) ? Encoding.UTF8.GetString(Json(table, path)) : File.ReadAllText(path);
+        TryTable(path, out _) || TryFile(path, out _) ? Encoding.UTF8.GetString(ReadAllBytes(path)) : File.ReadAllText(path);
+
+    public static IEnumerable<string> ReadLines(string path) =>
+        TryTable(path, out _) || TryFile(path, out _) ? Lines(ReadAllText(path)) : File.ReadLines(path);
 
     public static Stream OpenRead(string path) =>
-        TryTable(path, out string table) ? new MemoryStream(Json(table, path), writable: false) : File.OpenRead(path);
+        TryTable(path, out _) || TryFile(path, out _) ? new MemoryStream(ReadAllBytes(path), writable: false) : File.OpenRead(path);
+
+    static IEnumerable<string> Lines(string text)
+    {
+        using var reader = new StringReader(text);
+        for (string? line; (line = reader.ReadLine()) is not null;) yield return line;
+    }
+
+    /// <summary>A generated file's contents from client.db (<c>client-constants.json</c>, ...), or null when it has none.</summary>
+    public static byte[]? FileBytes(string file) => Files().Contains(file) ? Cache("file:" + file, db => BuildFile(db, file)) : null;
+
+    // The generated files in client.db, read again when the database file changes.
+    static HashSet<string> Files()
+    {
+        DateTime written = Written;
+        lock (FileNamesLock)
+        {
+            if (written == FileNamesWritten) return FileNames;
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (written != default)
+            {
+                using var db = Open();
+                using var c = db.CreateCommand();
+                c.CommandText = "SELECT DISTINCT file FROM client_files";
+                try { using var r = c.ExecuteReader(); while (r.Read()) names.Add(r.GetString(0)); }
+                catch (SqliteException) { }   // a client.db from before client_files
+            }
+            // Kept once it has files: the updater may still be filling a new client.db (its WAL leaves the file's time).
+            if (names.Count > 0) (FileNames, FileNamesWritten) = (names, written);
+            return names;
+        }
+    }
+
+    static readonly object FileNamesLock = new();
+    static HashSet<string> FileNames = [];
+    static DateTime FileNamesWritten = DateTime.MinValue;
 
     /// <summary>When client.db was last written (a cache key for a parse of one of its tables).</summary>
     public static DateTime Written => File.Exists(DefaultPath) ? File.GetLastWriteTimeUtc(DefaultPath) : default;
@@ -70,18 +121,81 @@ public static class ClientTables
         if (!Has(table))
             throw new FileNotFoundException($"the client table {table} is not in {DefaultPath} (the servers build it from sql/ at startup)",
                 path ?? table);
+        return Cache(table, db => Build(db, table));
+    }
+
+    // A rebuilt table or file under its cache name: from memory, the compressed cache, or built and stored.
+    static byte[] Cache(string name, Func<SqliteConnection, byte[]> build)
+    {
+        lock (Recent)
+            if (Recent.TryGetValue(name, out var recent))
+            {
+                Recent[name] = (recent.Bytes, DateTime.UtcNow);
+                return recent.Bytes;
+            }
         byte[] bytes;
         using (var db = Open())
         {
             string version = Version(db);
-            bytes = Cached(db, table, version) ?? Store(db, table, version, Build(db, table));
+            bytes = Cached(db, name, version) ?? Store(db, name, version, build(db));
         }
         lock (Recent)
         {
-            Recent[table] = (bytes, DateTime.UtcNow);
+            Recent[name] = (bytes, DateTime.UtcNow);
             Sweeper ??= new Timer(_ => Sweep(), null, Keep, Keep);
         }
         return bytes;
+    }
+
+    // A generated file from its client_files rows (client_sql.py file_rows): a text file is its blocks' text in order; a
+    // JSON document is its top-level entries, a part of two keys being an entry of the top-level list or object it names.
+    static byte[] BuildFile(SqliteConnection db, string file)
+    {
+        using var c = db.CreateCommand();
+        c.CommandText = "SELECT part, value FROM client_files WHERE file = $f ORDER BY ord";
+        c.Parameters.AddWithValue("$f", file);
+        using var r = c.ExecuteReader();
+        if (file.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+        {
+            var text = new StringBuilder();
+            while (r.Read()) text.Append(JsonSerializer.Deserialize<string>(r.GetString(1)));
+            return Encoding.UTF8.GetBytes(text.ToString());
+        }
+        var buffer = new MemoryStream();
+        using (var w = new Utf8JsonWriter(buffer, WriterOptions))
+        {
+            bool? rootObject = null;
+            string? open = null;   // the raw key of the entry whose parts are being written
+            bool openObject = false;
+            while (r.Read())
+            {
+                using var part = JsonDocument.Parse(r.GetString(0));
+                var keys = part.RootElement;
+                var first = keys[0];
+                bool nested = keys.GetArrayLength() == 2;
+                if (rootObject is null)
+                {
+                    rootObject = first.ValueKind == JsonValueKind.String;
+                    if (rootObject.Value) w.WriteStartObject(); else w.WriteStartArray();
+                }
+                if (!nested || open != first.GetRawText())
+                {
+                    if (open is not null) { if (openObject) w.WriteEndObject(); else w.WriteEndArray(); open = null; }
+                    if (rootObject.Value) w.WritePropertyName(first.GetString()!);
+                    if (nested)
+                    {
+                        open = first.GetRawText();
+                        openObject = keys[1].ValueKind == JsonValueKind.String;
+                        if (openObject) w.WriteStartObject(); else w.WriteStartArray();
+                    }
+                }
+                if (nested && openObject) w.WritePropertyName(keys[1].GetString()!);
+                w.WriteRawValue(r.GetString(1), skipInputValidation: true);
+            }
+            if (open is not null) { if (openObject) w.WriteEndObject(); else w.WriteEndArray(); }
+            if (rootObject is true) w.WriteEndObject(); else if (rootObject is false) w.WriteEndArray();
+        }
+        return buffer.ToArray();
     }
 
     static readonly TimeSpan Keep = TimeSpan.FromSeconds(3);

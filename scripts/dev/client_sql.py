@@ -6,7 +6,9 @@
          scratch database, compares it with data/tables/*.json (extract-data.ps1's output for the new client) and writes
          one dated update per changed table with only the differing rows (INSERT / UPDATE of the changed columns /
          DELETE). A new table gets its base file and a full data file; a table whose columns changed is recreated. It
-         lists the fixes (sql/updates/client_fixes/) that touch a changed table, to check by hand.
+         lists the fixes (sql/updates/client_fixes/) that touch a changed table, to check by hand. It does the same for
+         the generated files the servers read (FILES: data/*.json and stat-descriptions.txt from extract-data.ps1's
+         generators), kept in the client_files table; the first run writes its base file and every row.
 
 Column types (the server rebuilds the JSON rows from them, GameServer.Core ClientTables):
   _row INTEGER PRIMARY KEY  the row's index in the table (other tables refer to rows by index)
@@ -30,8 +32,23 @@ SQL = os.path.join(ROOT, "sql")
 BASE = os.path.join(SQL, "base", "client")
 UPDATES = os.path.join(SQL, "updates", "client")
 FIXES = os.path.join(SQL, "updates", "client_fixes")
+DATA = os.path.join(ROOT, "data")
 BATCH = 500  # rows per INSERT statement
 CLIENT = "3.29.3c"
+
+# The files extract-data.ps1's generators write that the servers read, kept in client.db's client_files table (one row
+# per entry; GameServer.Core ClientTables rebuilds data/<file> from them). Not data/game-files.zip: the client's own files.
+FILES = ["area-transitions.json", "room-points.json", "object-types.json", "monster-contacts.json", "monster-takehit.json",
+         "item-types.json", "vendor-stock.json", "hideouts.json", "animation-contacts.json", "projectile-clips.json",
+         "passive-skill-graphs.json", "delve-paths.json", "client-constants.json", "stat-descriptions.txt"]
+# Only these keys: the GGPK root hash describes the local Content.ggpk (Patch writes it to data/client-constants.json).
+KEEP = {"client-constants.json": ["HncMask"]}
+SPLIT = 64  # a top-level list or object with more entries is one row per entry
+FILES_TABLE = "client_files"
+FILES_BASE = (f"-- The generated files (scripts/dev/client_sql.py FILES), one row per entry; ClientTables rebuilds data/<file>.\n"
+              f"-- Its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.\n"
+              f"CREATE TABLE {FILES_TABLE} (\n    file TEXT NOT NULL,\n    part TEXT NOT NULL,\n    ord INTEGER NOT NULL,\n"
+              f"    value TEXT NOT NULL,\n    PRIMARY KEY (file, part)\n);\n")
 
 
 def q(name):
@@ -109,6 +126,83 @@ def insert_sql(name, columns, types, rows):
     return "".join(out)
 
 
+def file_rows(name):
+    """A generated file as client_files rows, (part, value) in the file's order, or None without the file. A JSON
+    document's top-level entries are rows, and so is each entry of a top-level list or object bigger than SPLIT entries
+    (part: the JSON array of keys and indexes leading to it; value: its JSON). A text file is one row per block (a line
+    that does not start with whitespace and the indented lines after it), the value its exact text as a JSON string."""
+    path = os.path.join(DATA, name)
+    if not os.path.isfile(path):
+        return None
+    dump = lambda v: json.dumps(v, ensure_ascii=False, separators=(",", ":"))
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        text = f.read()
+    if name.endswith(".txt"):
+        blocks = []
+        for line in text.splitlines(keepends=True):
+            if not blocks or line[:1] not in (" ", "\t", "\r", "\n"):
+                blocks.append(line)
+            else:
+                blocks[-1] += line
+        return [(dump([i]), dump(b)) for i, b in enumerate(blocks)]
+    doc = json.loads(text)
+    if name in KEEP:
+        doc = {k: doc[k] for k in KEEP[name]}
+    rows = []
+    entries = doc.items() if isinstance(doc, dict) else enumerate(doc)
+    for key, value in entries:
+        if isinstance(value, (dict, list)) and len(value) > SPLIT:
+            inner = value.items() if isinstance(value, dict) else enumerate(value)
+            rows.extend((dump([key, k]), dump(v)) for k, v in inner)
+        else:
+            rows.append((dump([key]), dump(value)))
+    return rows
+
+
+def files_insert(name, rows):
+    """rows: (ord, part, value)."""
+    out = []
+    head = "INSERT INTO client_files (file, part, ord, value) VALUES\n"
+    for start in range(0, len(rows), BATCH):
+        chunk = rows[start:start + BATCH]
+        out.append(head + ",\n".join(f"({text(name)}, {text(p)}, {o}, {text(v)})" for o, p, v in chunk) + ";\n")
+    return "".join(out)
+
+
+def files_diff(db, when):
+    """The generated files (FILES) against client_files in the original data: the base table when it is missing, and one
+    dated update per changed file with only its differing rows."""
+    changed = []
+    if not os.path.isfile(os.path.join(BASE, FILES_TABLE + ".sql")):
+        write(os.path.join(BASE, FILES_TABLE + ".sql"), FILES_BASE)
+        db.executescript(FILES_BASE)
+    for name in FILES:
+        rows = file_rows(name)
+        if rows is None:
+            print(f"client-sql: {name}: not in data\\ (run scripts/dev/extract-data.ps1); left as it is")
+            continue
+        old = {p: (o, v) for p, o, v in db.execute("SELECT part, ord, value FROM client_files WHERE file = ?", (name,))}
+        inserts, updates = [], []
+        for o, (p, v) in enumerate(rows):
+            if p not in old:
+                inserts.append((o, p, v))
+                continue
+            sets = ([f"ord = {o}"] if old[p][0] != o else []) + ([f"value = {text(v)}"] if old[p][1] != v else [])
+            if sets:
+                updates.append(f"UPDATE client_files SET {', '.join(sets)} WHERE file = {text(name)} AND part = {text(p)};\n")
+        gone = sorted(set(old) - {p for p, _ in rows})
+        if not (inserts or updates or gone):
+            continue
+        stem = name.rsplit(".", 1)[0]
+        what = f"all {len(rows)} rows" if not old else f"{len(inserts)} new, {len(updates)} changed, {len(gone)} removed row(s)"
+        body = "".join(f"DELETE FROM client_files WHERE file = {text(name)} AND part = {text(p)};\n" for p in gone)
+        write(os.path.join(UPDATES, f"{when}_file_{stem}.sql"),
+              f"-- Generated file data/{name}: {what} ({CLIENT}). Written by scripts/dev/client-sql.ps1.\n"
+              + body + "".join(updates) + files_insert(name, inserts))
+        changed.append((name, what))
+    return changed
+
+
 def stamp():
     return datetime.now(timezone.utc).strftime("%Y_%m_%d_%H%M%S")
 
@@ -176,7 +270,7 @@ def diff(_):
     with tempfile.TemporaryDirectory() as scratch:
         db = sqlite3.connect(os.path.join(scratch, "original.db"))
         build_original(db)
-        existing = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        existing = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} - {FILES_TABLE}
         names = table_names()
         changed = []
         for name in names:
@@ -225,10 +319,12 @@ def diff(_):
                   f"-- Client table {name}: not in the {CLIENT} client any more. Written by scripts/dev/client-sql.ps1.\n"
                   + f"DROP TABLE {q(name)};\n")
             changed.append((name, "removed"))
+        files = files_diff(db, when)
         db.close()
-    for name, what in changed:
+    for name, what in changed + files:
         print(f"client-sql: {name}: {what}")
     print(f"client-sql: {len(changed)} table(s) changed ({when})" if changed else "client-sql: the client tables are unchanged")
+    print(f"client-sql: {len(files)} generated file(s) changed ({when})" if files else "client-sql: the generated files are unchanged")
     if changed and os.path.isdir(FIXES):
         touched = {n for n, _ in changed}
         for f in sorted(os.listdir(FIXES)):
