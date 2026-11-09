@@ -38,6 +38,14 @@ sealed class MonsterEmerge(string folder = "data")
     /// on screen.</summary>
     public const int Range = 24;
 
+    // Eight 3.29.3b opening-capture events support this bounded calibration; 3.29.3c parity is not yet played.
+    internal const int StrandDrownedRange = 60;
+
+    static int WakeRange(string areaId, MonsterCatalog.Variety? variety) =>
+        areaId == TutorialObjects.Strand && variety?.Id.StartsWith(
+            "Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake", StringComparison.Ordinal) == true
+            ? StrandDrownedRange : Range;
+
     /// <summary>How long a monster without a known Emerge clip takes to rise.</summary>
     public const double DefaultSeconds = 1.5;
 
@@ -135,7 +143,8 @@ sealed class MonsterEmerge(string folder = "data")
         {
             at = m.Walk.Position(now);
             double d = Math.Sqrt((double)(at.X - player.X) * (at.X - player.X) + (double)(at.Y - player.Y) * (at.Y - player.Y));
-            return d <= (m.AggroRange > 0 ? Math.Min(Range, m.AggroRange) : Range);
+            int range = WakeRange(conn.Layout.Id, m.Variety);
+            return d <= (m.AggroRange > 0 ? Math.Min(range, m.AggroRange) : range);
         }
         double SecondsOf(SpawnedMonster m) => m.Variety is { } v ? Seconds(v) : DefaultSeconds;
         foreach (var (id, m) in conn.DormantMonsters)
