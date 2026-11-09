@@ -63,14 +63,14 @@ sealed class Options
     }
 }
 
-/// <summary>The servers' ports: the defaults, or five in a row from a base, as live.ps1 gives them.</summary>
-sealed record Ports(int Patch, int PatchWeb, int Login, int Control, int Gateway)
+/// <summary>The servers' ports: localexile.conf's (the defaults without one), or five in a row from a base, as live.ps1
+/// gives them.</summary>
+sealed record Ports(int Patch, int PatchWeb, int Login, int Control, int Gateway, int Base = 0)
 {
-    public const int DefaultPatch = 12995;
-
     public static Ports From(int portBase) => portBase == 0
-        ? new(DefaultPatch, 8080, 20493, 20495, 6112)
-        : new(portBase, portBase + 1, portBase + 2, portBase + 3, portBase + 4);
+        ? new(GameServer.Core.ServerConfig.PatchPort, new Uri(GameServer.Core.ServerConfig.PatchWebUrl.Replace("0.0.0.0", "127.0.0.1")).Port,
+            GameServer.Core.ServerConfig.LoginPort, GameServer.Core.ServerConfig.ControlPort, GameServer.Core.ServerConfig.GatewayPort)
+        : new(portBase, portBase + 1, portBase + 2, portBase + 3, portBase + 4, portBase);
 
     public int[] All => [Patch, PatchWeb, Login, Control, Gateway];
 }

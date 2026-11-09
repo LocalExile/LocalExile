@@ -103,9 +103,10 @@ static async Task Serve(LoginServerKeys keys)
     var accounts = new AccountService(SqliteAccountStore.Open());
     Console.OutputEncoding = System.Text.Encoding.UTF8; // decoded wide strings
     GameServer.Core.Diagnostics.ServerLog.Install("auth");   // after the encoding: it wraps the console writer as it is
-    int port = int.TryParse(Environment.GetEnvironmentVariable("Game_LOGIN_PORT"), out var p) ? p : 20493;
-    // Local play only by default; Game_BIND=0.0.0.0 to accept other machines.
-    var bind = IPAddress.Parse(Environment.GetEnvironmentVariable("Game_BIND") ?? "127.0.0.1");
+    // localexile.conf Login.Port / Login.BindAddress (Game_LOGIN_PORT, Game_BIND): local play only by default;
+    // 0.0.0.0 accepts other machines.
+    int port = ServerConfig.LoginPort;
+    var bind = ServerConfig.LoginBind;
     var listener = new TcpListener(bind, port);
     listener.Start();
     var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));

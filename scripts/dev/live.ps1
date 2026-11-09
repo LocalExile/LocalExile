@@ -81,8 +81,25 @@ function Report-Wait([string]$what, [datetime]$since, [string]$log) {
     Step "  still waiting for $what ($seconds s)$(if ($last) { ": $last" })"
 }
 
-# This checkout's ports. Without a base, today's, where a server's own variable (Game_LOGIN_PORT, Game_PATCH_URL, ...)
-# still wins; with one, five in a row from it, whatever such variables the shell has. A base given here or in
+# localexile.conf (or Game_CONF) as Key = Value pairs, keys case-insensitive; empty without the file. The servers
+# read the same file themselves (GameServer.Core ServerConfig).
+function Read-Conf {
+    $path = if ($env:Game_CONF) { $env:Game_CONF } else { Join-Path $repo 'localexile.conf' }
+    $values = @{}
+    if (Test-Path $path) {
+        foreach ($line in Get-Content $path) {
+            $line = $line.Trim()
+            if ($line -eq '' -or $line.StartsWith('#')) { continue }
+            $at = $line.IndexOf('=')
+            if ($at -le 0) { throw "${path}: expected Key = Value, got '$line'" }
+            $values[$line.Substring(0, $at).Trim()] = $line.Substring($at + 1).Trim().Trim('"')
+        }
+    }
+    $values
+}
+
+# This checkout's ports. Without a base, localexile.conf's, where a server's own variable (Game_LOGIN_PORT,
+# Game_PATCH_URL, ...) still wins; with one, five in a row from it, whatever such variables the shell has. A base given here or in
 # Game_PORT_BASE is written to data\stack.json with its ports (0 removes it): later runs and the control bridge read it.
 function Get-Stack([int]$base) {
     $file = Join-Path $repo 'data\stack.json'
@@ -90,13 +107,17 @@ function Get-Stack([int]$base) {
     if (-not $given -and "$env:Game_PORT_BASE" -ne '') { $base = [int]$env:Game_PORT_BASE; $given = $true }
     if (-not $given) { $base = if (Test-Path $file) { [int](Get-Content $file -Raw | ConvertFrom-Json).portBase } else { 0 } }
     if ($base -ne 0 -and ($base -lt 1024 -or $base -gt 65530)) { throw "port base $base is outside 1024-65530 (0 = the default ports)" }
-    function Pick([string]$name, [int]$offset, [int]$default) {
+    # Without a base: the variable, else localexile.conf's key (ServerConfig), else the default.
+    $conf = Read-Conf
+    function Pick([string]$name, [string]$key, [int]$offset, [int]$default) {
         $value = [Environment]::GetEnvironmentVariable($name)
-        if ($base) { $base + $offset } elseif ($value) { [int]$value } else { $default }
+        if ($base) { $base + $offset } elseif ($value) { [int]$value } elseif ($conf[$key]) { [int]$conf[$key] } else { $default }
     }
-    $web = if ($base) { $base + 1 } elseif ($env:Game_PATCH_URL -match ':(\d+)') { [int]$Matches[1] } else { 8080 }
-    $ports = [ordered]@{ patch = (Pick 'Game_PATCH_TCP_PORT' 0 12995); patchWeb = $web; login = (Pick 'Game_LOGIN_PORT' 2 20493)
-        control = (Pick 'Game_AUTH_CONTROL_PORT' 3 20495); gateway = (Pick 'Game_GATEWAY_PORT' 4 6112) }
+    $url = if ($env:Game_PATCH_URL) { $env:Game_PATCH_URL } else { $conf['Patch.WebUrl'] }
+    $web = if ($base) { $base + 1 } elseif ($url -match ':(\d+)') { [int]$Matches[1] } else { 8080 }
+    $ports = [ordered]@{ patch = (Pick 'Game_PATCH_TCP_PORT' 'Patch.Port' 0 12995); patchWeb = $web
+        login = (Pick 'Game_LOGIN_PORT' 'Login.Port' 2 20493); control = (Pick 'Game_AUTH_CONTROL_PORT' 'AuthControl.Port' 3 20495)
+        gateway = (Pick 'Game_GATEWAY_PORT' 'Gateway.Port' 4 6112) }
     if ($given -and $base) { [ordered]@{ portBase = $base; ports = $ports } | ConvertTo-Json | Set-Content $file -Encoding ascii }
     elseif ($given -and (Test-Path $file)) { Remove-Item $file }
     [pscustomobject]@{ Base = $base; Ports = $ports }

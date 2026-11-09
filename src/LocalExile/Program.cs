@@ -59,7 +59,7 @@ try
             log.Value("client-command", ClientLaunch.CommandLine(ports.Patch));
             return 0;
         case "check":
-            ClientInstall.Check(options.Client ?? "Client", log);
+            ClientInstall.Check(options.Client ?? GameServer.Core.ServerConfig.ClientFolder, log);
             return 0;
         case "stop":
             Servers.StopInstall(root, log);

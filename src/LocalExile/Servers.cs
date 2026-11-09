@@ -57,12 +57,16 @@ sealed class Servers : IDisposable
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
         Tools.Prepare(start);
         // Without Game_GATEWAY_ENTER the Gateway stops after creating the player and the client never enters the area.
-        foreach (var (key, value) in new Dictionary<string, string>
-        {
-            ["Game_GATEWAY_ENTER"] = "1", ["Game_PATCH_TCP_PORT"] = $"{ports.Patch}", ["Game_LOGIN_PORT"] = $"{ports.Login}",
-            ["Game_AUTH_CONTROL_PORT"] = $"{ports.Control}", ["Game_GATEWAY_PORT"] = $"{ports.Gateway}",
-            ["Game_PATCH_URL"] = $"http://127.0.0.1:{ports.PatchWeb}", ["Game_PACKET_DUMPS"] = Path.Combine("logs", "packets"),
-        }) start.Environment[key] = value;
+        start.Environment["Game_GATEWAY_ENTER"] = "1";
+        start.Environment["Game_PACKET_DUMPS"] = Path.Combine("logs", "packets");
+        // The servers read their addresses and ports from localexile.conf; --port-base gives them their own block.
+        if (ports.Base != 0)
+            foreach (var (key, value) in new Dictionary<string, string>
+            {
+                ["Game_PATCH_TCP_PORT"] = $"{ports.Patch}", ["Game_LOGIN_PORT"] = $"{ports.Login}",
+                ["Game_AUTH_CONTROL_PORT"] = $"{ports.Control}", ["Game_GATEWAY_PORT"] = $"{ports.Gateway}",
+                ["Game_PATCH_URL"] = $"http://127.0.0.1:{ports.PatchWeb}",
+            }) start.Environment[key] = value;
         var process = new Process { StartInfo = start };
         void Write(string? line) { if (line is not null) lock (output) output.WriteLine(line); }
         process.OutputDataReceived += (_, e) => Write(e.Data);
@@ -116,7 +120,7 @@ sealed class Servers : IDisposable
     {
         int stopped = 0;
         string prefix = Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar;
-        string client = Path.GetFullPath("Client") + Path.DirectorySeparatorChar;
+        string client = Path.GetFullPath(GameServer.Core.ServerConfig.ClientFolder) + Path.DirectorySeparatorChar;
         foreach (var process in Process.GetProcesses())
             using (process)
             {

@@ -92,6 +92,8 @@ Get-ChildItem (Join-Path $package 'Leagues') -Recurse -Directory -Filter Binarie
 Copy-Into 'data\schema' 'data\schema'
 # The servers build data\*.db from sql\ (Agents\docs\dev\databases.md).
 Copy-Into 'sql' 'sql'
+# The owner's network settings template; localexile.conf is theirs (ServerConfig).
+Copy-Into 'localexile.conf.dist' 'localexile.conf.dist'
 Copy-Into 'scripts\re\vendor-stock\community-stock.json' 'scripts\re\vendor-stock\community-stock.json'
 Copy-Into 'scripts\re\vendor-stock\gem-layout.json' 'scripts\re\vendor-stock\gem-layout.json'
 Copy-Into 'scripts\re\vendor-stock\ids.json' 'scripts\re\vendor-stock\ids.json'
