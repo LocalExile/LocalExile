@@ -141,7 +141,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceItems.cs`, Gateway (`ItemStates.cs`, `ItemRolls.cs`, `CharacterSaves.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2f.
 - Game-data overrides (implemented 2026-10-30): the SQLite overlay `mod_stat_overrides`, `limit_overrides`,
-  `catalog_entries` and `system_settings` in `data/saves.db` changes mod roll ranges, item limits, catalogues and
+  `catalog_entries` and `system_settings` in `data/characters.db` changes mod roll ranges, item limits, catalogues and
   numeric settings through `/game_data`; the Gateway loads the rows at startup, keeps the reference mod/base lists in
   memory, and atomically republishes the effective snapshot after an edit, so no restart is needed. Verified live:
   setting a range and a timeless-jewel limit, listing the revision, clearing both, and the tables being empty again

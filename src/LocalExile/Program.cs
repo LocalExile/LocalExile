@@ -9,6 +9,7 @@ using LocalExile;
 //   check          say whether a folder holds the 3.29.3c client; changes nothing
 //   stop           stop this install's servers and client
 //   account create <name>
+//   migrate-saves  split a data\saves.db from an older release into data\auth.db and data\characters.db
 //   version | client-command | help
 // Options: --client <folder> --client-mode copy|link --no-client --port-base <n> --account <name> --password-stdin
 //          --no-update-check --json
@@ -16,6 +17,7 @@ using LocalExile;
 const string Usage = """
     LocalExile.exe [run|setup|check|stop|version|client-command|help] [options]
     LocalExile.exe account create <name> [--password-stdin]
+    LocalExile.exe migrate-saves            move an older release's data\saves.db into the new databases
 
       --client <folder>       the Path of Exile 3.29.3c install to use
       --client-mode <mode>    copy (a separate copy, the default) or link (use the folder itself; its data is changed)
@@ -64,6 +66,9 @@ try
             return 0;
         case "account":
             Accounts.Create(options.AccountName!, options, log);
+            return 0;
+        case "migrate-saves":
+            Accounts.MigrateSaves(log);
             return 0;
     }
 

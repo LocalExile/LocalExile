@@ -1,6 +1,6 @@
 # usage: scripts/perf/watch.ps1 [-PortBase 23010] [-IdleSeconds 60]
 # What a hot-reload Gateway costs (Agents/docs/dev/performance.md): starts `dotnet watch run` on the Gateway as live.ps1
-# does, on PortBase+2/+3/+4 with a copy of data\validation-saves.db and MSBuild node reuse off (the build's worker nodes
+# does, on PortBase+2/+3/+4 with a copy of data\validation-characters.db and MSBuild node reuse off (the build's worker nodes
 # end with it), waits until it listens, then over IdleSeconds records every process of the tree it started: private
 # bytes, working set and CPU. It stops that tree only, never a shared compiler server (VBCSCompiler) or MSBuild node.
 # The shell's environment and location are as they were afterwards. PortBase: a block of 10 ports of the worktree's own
@@ -16,7 +16,7 @@ function Tree([int] $id) {
 }
 $out = Join-Path $repo 'artifacts\perf'
 $db = Join-Path $out 'watch-saves.db'
-$vars = @{ Game_SAVES_DB = $db; Game_AUTH_CONTROL_PORT = "$($PortBase + 2)"; Game_GATEWAY_PORT = "$($PortBase + 3)"
+$vars = @{ Game_CHARACTERS_DB = $db; Game_AUTH_CONTROL_PORT = "$($PortBase + 2)"; Game_GATEWAY_PORT = "$($PortBase + 3)"
            Game_DEV_PORT = "$($PortBase + 4)"; MSBUILDDISABLENODEREUSE = '1' }
 $saved = @{}
 foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
@@ -24,7 +24,8 @@ $root = $null
 Push-Location $repo
 try {
     New-Item -ItemType Directory -Force $out | Out-Null
-    Copy-Item (Join-Path $repo 'data\validation-saves.db') $db -Force
+    Copy-Item (Join-Path $repo 'data\validation-characters.db') $db -Force
+    Copy-Item (Join-Path $repo 'data\validation-characters-auth.db') ($db -replace '\.db$', '-auth.db') -Force
     foreach ($k in $vars.Keys) { [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
     $log = Join-Path $out 'watch.log'
     Remove-Item $log, "$log.err" -ErrorAction SilentlyContinue
@@ -58,7 +59,7 @@ finally {
             Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
         }
     }
-    Remove-Item $db, "$db-wal", "$db-shm" -ErrorAction SilentlyContinue
+    Remove-Item $db, "$db-wal", "$db-shm", ($db -replace '.db$', "-auth.db*") -ErrorAction SilentlyContinue
     foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
     Pop-Location
 }

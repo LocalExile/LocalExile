@@ -90,6 +90,8 @@ Get-ChildItem (Join-Path $package 'Leagues') -Recurse -Directory -Filter Binarie
 
 # Paths the servers and tools read from their working directory, as in a checkout.
 Copy-Into 'data\schema' 'data\schema'
+# The servers build data\*.db from sql\ (Agents\docs\dev\databases.md).
+Copy-Into 'sql' 'sql'
 Copy-Into 'scripts\re\vendor-stock\community-stock.json' 'scripts\re\vendor-stock\community-stock.json'
 Copy-Into 'scripts\re\vendor-stock\gem-layout.json' 'scripts\re\vendor-stock\gem-layout.json'
 Copy-Into 'scripts\re\vendor-stock\ids.json' 'scripts\re\vendor-stock\ids.json'
@@ -182,7 +184,7 @@ $bad = @(Get-ChildItem $package -Recurse -File | Where-Object {
 })
 if ($bad.Count) { throw "the package must not hold: $(($bad | Select-Object -First 10 | ForEach-Object { $_.FullName.Substring($package.Length + 1) }) -join ', ')" }
 foreach ($required in 'app\GameServer.Gateway.exe', 'app\GameServer.Auth.exe', 'app\GameServer.Patch.exe', 'app\GgDump.exe', 'Tools\python\python.exe',
-    'Tools\node\node.exe', 'Tools\ooz\node_modules\ooz-wasm\package.json', 'Modules\Core\Game\bin\game.dll', 'scripts\re\levelgen\gate-baseline.json', 'data\schema\schema.min.json') {
+    'Tools\node\node.exe', 'Tools\ooz\node_modules\ooz-wasm\package.json', 'Modules\Core\Game\bin\game.dll', 'scripts\re\levelgen\gate-baseline.json', 'data\schema\schema.min.json', 'sql\base\auth\accounts.sql') {
     if ($IsLinux -and $required -eq 'Tools\python\python.exe') { continue }
     $relative = if ($IsLinux) { $required -replace '\.exe$', '' } else { $required }
     if (-not (Test-Path (Join-Path $package $relative))) { throw "the package misses $required" }

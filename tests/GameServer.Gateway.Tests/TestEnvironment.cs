@@ -32,6 +32,8 @@ static class TestEnvironment
     internal static void ReleaseSaves(string path)
     {
         Saves.Open(ScratchSaves);
-        foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
+        // The accounts database that goes with it (SaveDatabase.AuthPathFor) goes too.
+        foreach (string file in new[] { path, GameServer.Storage.SaveDatabase.AuthPathFor(path) })
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(file + suffix);
     }
 }

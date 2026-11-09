@@ -125,7 +125,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   one) and plays the quest order through the control bridge with `/god immune`, teleports and `/kill`; quest progress
   comes from the quest engine reacting to the real kills, pickups, object use and NPC talk. Resumable (done quests and
   steps are skipped), with diagnostics and recoveries for stuck steps; servers on its ports that are not the
-  checkout's, a missing `Game_SAVES_DB` (unless `-AllowDefaultSaves`), a Gateway on another save database and a second
+  checkout's, a missing `Game_CHARACTERS_DB` (unless `-AllowDefaultSaves`), a Gateway on another save database and a second
   run on the same session stop the run. Step files: Act 1 (a1q1-a1q9); the later acts' quests are "not implemented" until their act
   is on the quest engine. Dev commands `/state`, `/kill`, `/quest_preset`, `/god immune`; `/tp` also finds the ids
   `/state` reports and the objects quest rules watch.

@@ -125,12 +125,12 @@ try
     Saves.Open(Saves.DefaultPath);
     Saves.ImportJson(Saves.Db, "data", CharacterSaves.Opts);
     // The short-lived parsing thread releases its pooled buffers after startup.
-    GameTables.Isolated(() => GameData.Open(Saves.Db.Path));
-    Console.WriteLine($"[gateway] saves: {Saves.Db.Path}");
+    GameTables.Isolated(() => GameData.Open(GameData.DefaultPath));
+    Console.WriteLine($"[gateway] saves: {Saves.Db.Path} (accounts: {Saves.Db.AuthPath})");
 }
-catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException)
+catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException or GameServer.Storage.SqlUpdateException)
 {
-    Console.Error.WriteLine($"[gateway] the save database can't be opened: {e.Message}");
+    Console.Error.WriteLine($"[gateway] the databases can't be opened: {e.Message}");
     return 1;
 }
 

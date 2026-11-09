@@ -11,10 +11,12 @@ using GameServer.Storage;
 //   passwd <account> <password>            set a dev account's password (any length; restart Auth afterwards)
 //   accounts                               print how many accounts there are
 //   register <account>                     create an account; its password is the first line of standard input
+//   migrate-saves [saves.db]               split a database from before the split (data/saves.db) into data/auth.db and
+//                                          data/characters.db, after a copy (Agents/docs/dev/databases.md)
 //   [serve] [keys.json]                    accept logins: 0x0002 key exchange, then answer account login 0x03 with 0x04
 //                                          and log every decoded message (Agents/docs/re/009)
-// Port: Game_LOGIN_PORT (default 20493). Keys default to data/login-keys.json. Accounts: the save database
-// (Game_SAVES_DB, default data/saves.db, shared with GameServer.Host and the Gateway; register through the Host), with an
+// Port: Game_LOGIN_PORT (default 20493). Keys default to data/login-keys.json. Accounts: data/auth.db (Game_AUTH_DB) with the
+// login character list in data/characters.db (Game_CHARACTERS_DB), shared with GameServer.Host and the Gateway, with an
 // older data/accounts.json (Game_DEV_DB) imported once. Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET),
 // shared with GameServer.Gateway. Instance control for the Gateway: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495). Play sends
 // the client to the Gateway at Game_GATEWAY_HOST:Game_GATEWAY_PORT (127.0.0.1:6112, GatewayEndpoint).
@@ -42,6 +44,12 @@ switch (cmd)
         var r = new AccountService(SqliteAccountStore.Open()).Register(args[1], Console.ReadLine() ?? "");
         Console.WriteLine(r.Ok ? $"[auth] account {args[1]} created" : $"[auth] {args[1]}: {r.Error}");
         return r.Ok ? 0 : 1;
+    }
+    case "migrate-saves":
+    {
+        var result = SavesMigration.Migrate(args.Length > 1 ? args[1] : SaveDatabase.LegacyPath, SaveDatabase.DefaultPath, SaveDatabase.DefaultAuthPath);
+        Console.WriteLine($"[auth] migrated; the copy made first is {result.Backup}");
+        return 0;
     }
     case "keygen" when args.Length >= 2:
     {
@@ -81,6 +89,11 @@ catch (FormatException ex)
 catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
 {
     Console.Error.WriteLine($"[auth] file not found: {ex.Message} (run from the repository root; see Agents/GettingStarted.md)");
+    return 1;
+}
+catch (Exception ex) when (ex is SqlUpdateException or IOException)
+{
+    Console.Error.WriteLine($"[auth] {ex.Message}");
     return 1;
 }
 

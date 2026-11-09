@@ -140,7 +140,7 @@ keeps the ids of the last list it sent (`ChooserList`).
 - **Where a login starts** (Play, login 0x0e → `InstanceDirectory.AssignStart`): the spawn point of the character's
   **last town**, as in the real game, which never logs a character into a combat area or at a saved position. This
   holds after logging out, Exit to Character Selection, a crash, a server restart, or disconnecting while dead. The
-  `resolve` op records the town (`Character.LastTown`, a WorldAreas Id in `data/saves.db`) when the ticket's
+  `resolve` op records the town (`Character.LastTown`, a WorldAreas Id in `data/characters.db`) when the ticket's
   instance is a town: the Gateway resolves a ticket only once the client connects to that instance, so the town counts
   once the character is in it. `WorldAreaTowns.LoginArea` picks the area: the last town, else
   `AccountService.StartingArea`, The Twilight Strand (`1_1_1`): as in the real game, a new character washes up there,

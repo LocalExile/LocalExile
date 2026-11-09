@@ -514,6 +514,9 @@ if ($Stop) {
 
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
 Need (Test-Path (Join-Path $repo 'data\login-keys.json')) 'data\login-keys.json missing: run GameServer.Auth keygen'
+# The servers refuse a data\saves.db from before the player databases were split (Agents/docs/dev/databases.md).
+Need (-not (Test-Path (Join-Path $repo 'data\saves.db'))) ('data\saves.db is from before the player databases were split: stop the ' +
+    'servers and run dotnet run --project src\GameServer.Auth -- migrate-saves (it makes a copy first)')
 # Only a client needs Client\: the servers run from data\ alone (-NoClient, -Only).
 if (-not $NoClient -and -not $Only) {
     Need (Test-Path (Join-Path $repo 'Client\Game.exe')) 'Client\Game.exe missing: copy the client and its PathOfExile.exe'

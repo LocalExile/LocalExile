@@ -230,7 +230,7 @@ A second run prints `game data up to date`.
 
 After extraction the servers never open `Client\` or need Node: `data\` is enough to run them (`live.ps1 -NoClient`).
 Only the client, its setup steps and this extraction use `Client\`. To run servers on another machine, copy `data\`
-(`data\saves.db` holds the accounts and characters). The capture tour's debug tooling also reads the client's log.
+(`data\auth.db` and `data\characters.db` hold the accounts and characters). The capture tour's debug tooling also reads the client's log.
 
 How it decides: the manifest at the top of `scripts\dev\extract-data.ps1` gives each file its command and a version
 number. The script runs every entry whose file is missing or whose stamp (`data\extract-stamps.json`) has another
@@ -249,7 +249,7 @@ builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
 ### Game data in the save database
 
 `extract-data.ps1` writes JSON under `data\`; it does not create the SQLite file. The first Gateway start (step 10, or
-`live.ps1 -Only Gateway`) creates `data\saves.db` (or `Game_SAVES_DB`) and seeds the game-data overlay from those tables:
+`live.ps1 -Only Gateway`) creates `data\characters.db` (or `Game_CHARACTERS_DB`) and seeds the game-data overlay from those tables:
 
 | Table | Rows on 3.29.3c | From |
 |---|---:|---|
@@ -270,7 +270,7 @@ To fill the database without starting the servers (for an editor, or to check a 
 dotnet run --project src/GameServer.Gateway -- seed-game-data
 ```
 
-It creates the overlay tables in `data\saves.db` (or `Game_SAVES_DB`), prints the counts and exits. Run it while the
+It creates the overlay tables in `data\characters.db` (or `Game_CHARACTERS_DB`), prints the counts and exits. Run it while the
 Gateway is stopped; a running Gateway needs `/game_data reload` to see a change made by another process. See
 [editable game data](docs/dev/editable-game-data.md) for the overlay, its reload rules and the `/game_data` commands.
 
@@ -282,7 +282,7 @@ Start the dev account service in one terminal:
 dotnet run --project src/GameServer.Host
 ```
 
-Success: `[host] listening on 127.0.0.1:7000, db=data\saves.db`.
+Success: `[host] listening on 127.0.0.1:7000, db=data\characters.db`.
 
 In a second terminal:
 
@@ -310,7 +310,7 @@ Every reply should contain `"ok":true`; the last one lists your character.
 - Only the Witch is supported for now. Other classes can be created, but in game you appear as a Witch (with your
   character's name).
 - Then close both: an empty line quits the dev client, and Ctrl+C stops the host. You can keep `GameServer.Host`
-  running while you play: it and the login server share the accounts in `data/saves.db`, and neither caches them.
+  running while you play: it and the login server share the accounts in `data/auth.db`, and neither caches them.
 
 ## 9. (Optional) Walk maps
 
@@ -449,7 +449,7 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | "The password is not correct for this account" | wrong password, or an account created after the login server started | check the password; restart with `live.ps1` (it reloads accounts) |
 | "Account does not exist" | the name in the Email field does not match `register name=` | use the registered name |
 | Login hangs, no "Connected to login server" | gateway list not patched (step 6), or the login server is not running | redo step 6; check `logs\live-auth.log` |
-| A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data/tables` and `data/item-types.json` existed, and that empty kit was saved in `data\saves.db` | extract them, stop the Gateway, delete that character's row from `data\saves.db` (or move the whole DB aside to start over), run `live.ps1` again |
+| A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data/tables` and `data/item-types.json` existed, and that empty kit was saved in `data\characters.db` | extract them, stop the Gateway, delete that character's row from `data\characters.db` (or move the whole DB aside to start over), run `live.ps1` again |
 | Character select shows no characters | the character was created after the login server started | run `live.ps1` again |
 | `dotnet build` / `dotnet test` fails with `MSB3027` ... `locked by: ".NET Host"` | the servers `live.ps1` started are running from the same `bin\` folders | let `live.ps1` rebuild them (`-Only Gateway` …), or build and test elsewhere with a short path: `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` |
 | Stuck after Play (no area) | `Game_GATEWAY_ENTER` was set to something other than `1` | unset it; `live.ps1` sets it to `1` |
@@ -488,7 +488,8 @@ Environment variables, read when each server starts:
 | `Game_MOVE_MODE` | `echo` | `echo`, `move` or `teleport` |
 | `Game_WALK_SPEED` | 37 | walk speed in cells per second, used for position estimates |
 | `Game_DEV_DB` | `data/accounts.json` | an account store from before the save database, imported once |
-| `Game_SAVES_DB` | `data/saves.db` | character saves and stashes (Gateway, Auth) |
+| `Game_CHARACTERS_DB` | `data/characters.db` | character saves and stashes (Gateway, Auth) |
+| `Game_AUTH_DB` | `data/auth.db` (beside a characters database elsewhere: `<name>-auth.db`) | accounts (Auth, Gateway, Host) |
 | `Game_INSTANCE_SECRET` | `data/instance-secret.bin` | instance key secret (created on first start) |
 | `Game_PATCH_URL` | `http://127.0.0.1:8080/` | patch web server address |
 | `Game_TRACE` | unset | dev traces, a comma list: `move`, `latency`, `ticks`, `ai`, `packets`, or `all` ([debugging](docs/dev/debugging.md)) |
@@ -505,7 +506,7 @@ Environment variables, read when each server starts:
 | `data\login-keys.json` | your login server keys | never |
 | `data\instance-secret.bin` | instance key secret | never |
 | `data\accounts.json.imported` | the account store from before the save database, kept after its import | never |
-| `data\saves.db` (with `-wal`, `-shm` while the servers run) | accounts, characters, their saves and stashes, and the game-data overlay (catalogues, settings, `stats`/`mods`/`mod_stats`) ([saves](docs/saves.md)) | never |
+| `data\auth.db`, `data\characters.db` (with `-wal`, `-shm` while the servers run) | accounts; characters, their saves and stashes ([saves](docs/saves.md), [databases](docs/dev/databases.md)) | never |
 | `data\gateway_list.original.txt` | backup for `gateway --restore` | no need |
 | `data\tables\`, `data\*-types.json`, `data\hideouts.json` … | extracted game data (step 7) and their stamps, `data\extract-stamps.json` | no (game data) |
 | `data\walkability\` | captured walk maps | no (derived from game data) |

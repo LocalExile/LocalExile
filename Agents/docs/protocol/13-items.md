@@ -1158,10 +1158,10 @@ The kit is built once, when the character has no save, and saved at once: admiss
 (`PlayerInventories.SetClass`) and passes its read-only progress preflight first, because a kit built without the class
 would be the Witch's. Without `data/tables` (`Characters.json`,
 `SkillGems.json`) and `data/item-types.json` it is empty, the Gateway logs `start kit is empty`, and the character keeps
-the empty kit: remove its row from the `characters` table of `data/saves.db` (with the Gateway stopped) to give it the kit
+the empty kit: remove its row from the `characters` table of `data/characters.db` (with the Gateway stopped) to give it the kit
 again.
 
-**Saves.** Every inventory change writes the character's items to its row in `data/saves.db` (`CharacterSaves`,
+**Saves.** Every inventory change writes the character's items to its row in `data/characters.db` (`CharacterSaves`,
 git-ignored): per Inventories.dat row the item ids, cells and items by BaseItemTypes HASH32 with level, quality, charges,
 stack size, sockets (with their gems), links and gem experience. A saved character loads from it instead of the start
 kit, so items and equipment survive Gateway restarts and logins (live 2026-10-18). The save also holds the skill bar
@@ -1311,7 +1311,7 @@ the Ruthless uses; verifier code/review was completed after capture. Earlier 18 
 All test stock, cells and charges were restored, representative level100 relogs passed in both modes, and the
 post-run audit preserved all eight identities, both original probes, both stash banks/40 tabs and untouched level20
 saves. Only normal participant last-played timestamps changed. Source/build/input hashes held, observers detached,
-the client closed, and the normal `data/saves.db` services were restored. Source removal/zero next-use controls,
+the client closed, and the normal `data/characters.db` services were restored. Source removal/zero next-use controls,
 active-use source changes, local/magic composition, named-unique acquisition and tooltip parity remain separate.
 Local receipts are under `artifacts/issue75-completion/flask-effect2-native/` (captures, operation journal, verdicts
 and cleanup), `flask-effect2-native-assessment/` (frozen policy and reviewed verifier revisions), and
@@ -1339,7 +1339,7 @@ an official rounding claim. The separate ordinary heal/hit/use bootstrap was cap
 
 The final recovery3 session logged out/detached cleanly with 769 frozen inputs unchanged, preserved original saves
 and all six canonical full inventories, and was followed by parent-verified client closure and normal
-`data/saves.db` restoration. Earlier recovery1 binding failures, recovery2 Life-readiness failure and its vendor
+`data/characters.db` restoration. Earlier recovery1 binding failures, recovery2 Life-readiness failure and its vendor
 response failure remain recorded separately. These results do not prove every zero row, legal acquisition of the
 controlled modifier carriers, a complete on-kill engine or the full native matrix.
 

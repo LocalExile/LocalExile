@@ -19,6 +19,9 @@ static class GameData
     static Snapshot _snapshot = Empty;
     static int _revision;
 
+    /// <summary>data/world.db, or <c>Game_WORLD_DB</c>.</summary>
+    public static string DefaultPath => Environment.GetEnvironmentVariable("Game_WORLD_DB") ?? Path.Combine("data", "world.db");
+
     public static GameDataStore? Store => _store;
     public static Snapshot Current => Volatile.Read(ref _snapshot);
 
