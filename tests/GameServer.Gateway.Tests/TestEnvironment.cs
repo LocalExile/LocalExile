@@ -33,7 +33,9 @@ static class TestEnvironment
     // place (Saves.Open disposes the one before it) and the test's files go.
     internal static string ScratchWorld => Path.Combine(Path.GetTempPath(), "localexile-gateway-tests-world.db");
 
-    internal static string ScratchSaves => Path.Combine(Path.GetTempPath(), "localexile-gateway-tests.db");
+    // Not the name the tests used before the databases were built from sql/: a checkout from then leaves (and keeps
+    // writing) a file of that name with tables but no updates record, which the updater cannot bring up to date.
+    internal static string ScratchSaves => Path.Combine(Path.GetTempPath(), "localexile-gateway-tests-characters.db");
 
     internal static void ReleaseSaves(string path)
     {
