@@ -446,6 +446,8 @@ static partial class Game
                 await SocketGem(remote, stream, ciphers, conn, InstanceItems.ReadSocketGem(bytes));
             else if (id == InstanceItems.LevelUpGemId)
                 await LevelUpGem(remote, stream, ciphers, conn, InstanceItems.ReadLevelUpGem(bytes));
+            else if (id == InstanceItems.LevelUpAllGemsId)
+                await LevelUpAllGems(remote, stream, ciphers, conn);
             else if (id == InstanceItems.LockGemId)
                 await LockGem(remote, stream, ciphers, conn, InstanceItems.ReadLockGem(bytes));
             else if (id == InstanceItems.PlaceItemId)

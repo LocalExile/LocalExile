@@ -80,6 +80,49 @@ static partial class Game
         if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
+    // The gem one level up, or null with the reason it cannot level: the "+" (0x31) answers with the reason and Level Up All
+    // (0x32) skips that gem without affecting the others. A locked gem, one at its highest level, and one whose next level's
+    // requirements the character does not meet stay as they are.
+    internal static Item? NextGemLevel(ClientState conn, Item gem, out string? why)
+    {
+        why = null;
+        if (ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return null;
+        if ((gem.GemFlags & 4) != 0) { why = $"{ItemsFor(conn).GemName(gem)}'s level is locked"; return null; }
+        int level = ItemsFor(conn).GemLevel(gem);
+        // The character's level can fall below the next level's requirement after the experience was gained (/set_level, or a
+        // save from before the stall): the "+" is still there, so say what is missing rather than that the gem is at its last
+        // level. The next level is only computed while the gem is under its type's cap (ExperienceFor clamps).
+        if (level < type.MaxLevel && GemRequirementsUnmet(conn, gem with { GemExperience = type.ExperienceFor(level + 1) }) is { } missing)
+        {
+            why = missing;
+            return null;
+        }
+        int max = Math.Min(SkillsFor(conn).MaxLevelAt(type.Variant(gem.GemVariant).Effect, conn.Pools.Level), type.MaxLevel);
+        if (level >= max) { why = $"{ItemsFor(conn).GemName(gem)} is at its highest level ({max})"; return null; }
+        return gem with { GemExperience = type.ExperienceFor(level + 1) };
+    }
+
+    // Whether the client draws this gem's level-up "+": its experience has reached the point GainGemExperience stops it at,
+    // one below the next level's threshold (the client's check 0x142479880 draws the "+" for a full bar). The single "+"
+    // needs no such check because the client sends 0x31 only for a gem it draws the "+" for; the button names no gem, so the
+    // server uses this to leave gems that are not ready untouched.
+    internal static bool GemLevelUpReady(ClientState conn, Item gem)
+    {
+        if (ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return false;
+        int level = ItemsFor(conn).GemLevel(gem);
+        return level < type.MaxLevel && gem.GemExperience >= type.ExperienceFor(level + 1) - 1;
+    }
+
+    // Every ready socketed gem one level up, applied in one step: the rows that changed with each gem before and after. One
+    // pass is what makes a click level each eligible gem exactly once; a second click finds nothing ready, because each
+    // changed gem's experience is now its new level's threshold, not the next level's stall point.
+    internal static IReadOnlyList<(byte Row, InventoryItem Item, IReadOnlyList<(Item Before, Item After)> Gems)> LevelUpReadyGems(ClientState conn)
+    {
+        var items = ItemsOf(conn);
+        lock (conn.Monsters) return items.ChangeSocketedGems((itemId, gem) =>
+            GemLevelUpReady(conn, gem) ? NextGemLevel(conn, gem, out _) : null);
+    }
+
     // C→S 0x31: the "+" on a socketed gem. The client derives the level from the gem's experience on read (0x1424763d0), so
     // the server writes the next level's threshold and replaces the item; the client then derives the level and its skill.
     internal static async Task LevelUpGem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.SocketGem s)
@@ -88,20 +131,12 @@ static partial class Game
         if (PlayerInventories.Row(s.InventoryId) is not byte row) return;
         if (items.Items(row).FirstOrDefault(i => i.Id == s.ItemId) is not { Item: { } worn } ||
             s.Socket >= worn.Sockets.Count || worn.Sockets[(int)s.Socket].Gem is not { } gem) return;
-        if (ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return;
-        if ((gem.GemFlags & 4) != 0) { await conn.Commands!.Reply($"{ItemsFor(conn).GemName(gem)}'s level is locked"); return; }
-        int level = ItemsFor(conn).GemLevel(gem);
-        // The character's level can fall below the next level's requirement after the experience was gained (/set_level, or a
-        // save from before the stall): the "+" is still there, so say what is missing rather than that the gem is at its last
-        // level. The next level is only computed while the gem is under its type's cap (ExperienceFor clamps).
-        if (level < type.MaxLevel && GemRequirementsUnmet(conn, gem with { GemExperience = type.ExperienceFor(level + 1) }) is { } missing)
+        if (NextGemLevel(conn, gem, out string? why) is not { } next)
         {
-            await conn.Commands!.Reply(missing);
+            if (why is not null) await conn.Commands!.Reply(why);
             return;
         }
-        int max = Math.Min(SkillsFor(conn).MaxLevelAt(type.Variant(gem.GemVariant).Effect, conn.Pools.Level), type.MaxLevel);
-        if (level >= max) { await conn.Commands!.Reply($"{ItemsFor(conn).GemName(gem)} is at its highest level ({max})"); return; }
-        var next = gem with { GemExperience = type.ExperienceFor(level + 1) };
+        int level = ItemsFor(conn).GemLevel(gem);
         var after = items.Change(row, s.ItemId, it =>
         {
             var sockets = it.Sockets.ToList();
@@ -113,6 +148,35 @@ static partial class Game
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem to level {level + 1}");
         await SendSkills(remote, stream, ciphers, conn);
         Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(next)} levels to {level + 1}");
+    }
+
+    // C→S 0x32 (2 bytes, id only): the gem level-up panel's "Click to level up ALL". Only this message levels the batch
+    // (experience gains, logins, area changes and opening the inventory never do); one click levels every ready socketed gem
+    // by one level in the same step, and a gem that is locked, at its highest level or missing the next level's requirements
+    // is skipped without affecting the others. The client derives each new level from the experience, so the server replaces
+    // every changed item (the remove and add idiom, one per row) and re-sends the skills once, so the prompts and XP bars
+    // follow.
+    internal static async Task LevelUpAllGems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        var changed = LevelUpReadyGems(conn);
+        if (changed.Count == 0)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0032 level up all gems: no socketed gem is ready");
+            return;
+        }
+        var items = ItemsOf(conn);
+        items.SaveUnsaved();
+        foreach (var row in changed.GroupBy(c => c.Row))
+        {
+            uint[] ids = [.. row.Select(c => c.Item.Id)];
+            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
+                ids, [.. row.Select(c => c.Item)]),
+                $"0x00bf inventory {PlayerInventories.InventoryId(row.Key)}: {ids.Length} item(s) with ready gems levelled at once");
+        }
+        foreach (var (before, after) in changed.SelectMany(c => c.Gems))
+            Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(after)} levels to " +
+                $"{ItemsFor(conn).GemLevel(after)} (from {ItemsFor(conn).GemLevel(before)})");
+        await SendSkills(remote, stream, ciphers, conn);
     }
 
     // C→S 0xd7: a right-click on a socketed gem toggles its level lock (SkillGem +0x10 bit 2); the item is replaced with the
