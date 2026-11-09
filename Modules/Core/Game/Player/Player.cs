@@ -177,15 +177,22 @@ static partial class Game
         await SendVaalSouls(remote, stream, ciphers, conn);
         await SendRage(remote, stream, ciphers, conn);
         await EndAurasOnDeath(remote, stream, ciphers, conn);
-        await SendWorldCreate(conn, PlayerId, () =>
-        {
-            lock (conn.Monsters)
-                return !conn.Closed && !conn.LeavingArea && conn.PlayerLife == 0 && conn.IncomingHitEpoch == deathEpoch
-                    ? [.. InstanceProtocol.LifeUpdate(PlayerId, 0, conn.PlayerReservedLife),
-                        .. InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
-                        .. InstanceProtocol.DeathScreen(DeathScreenFlags(conn))] : null;
-        });
+        await SendPlayerDeathPresentation(remote, stream, ciphers, conn, label, deathEpoch);
     }
+
+    internal static Task SendPlayerDeathPresentation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, string label, int deathEpoch) => SendWorldBatch(conn, [], admission =>
+    {
+        lock (conn.Monsters)
+        {
+            if (conn.Closed || conn.LeavingArea || conn.PlayerLife != 0 || conn.IncomingHitEpoch != deathEpoch) return null;
+            var records = new WorldRecordBuilder(conn, admission);
+            records.World(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, 0, conn.PlayerReservedLife), label);
+            records.World(PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]));
+            records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(conn)));
+            return records.Build();
+        }
+    }, transport: (remote, stream, ciphers));
 
     internal static int ReservedMana(ClientState conn)
     {

@@ -100,6 +100,23 @@ public class WorldOutputTests : IDisposable
             conn.LockstepClient = false;
             await Game.SendWorldRecords("world-order", writer.GetStream(), ciphers, conn, 1, () => [highB, firstA]);
             await Read(highB, firstA);
+
+            // Death updates the existing player incarnation; it must never reserve a duplicate player birth.
+            conn.LockstepClient = true;
+            var player = conn.WorldOutput.ExistingObject(Program.PlayerId);
+            conn.PlayerLife = 0;
+            await Game.SendPlayerDeathPresentation("world-order", writer.GetStream(), ciphers, conn, "death", conn.IncomingHitEpoch);
+            await Read(InstanceProtocol.DeathScreen(Game.DeathScreenFlags(conn)));
+            await Program.EndWorldFrame(conn, (.132, .165));
+            await Read(InstanceProtocol.LifeUpdate(Program.PlayerId, 0, conn.PlayerReservedLife),
+                InstanceEntities.StatsUpdate(Program.PlayerId, [(StatKeys.HideMiniLifeBar, 1)]), InstanceProtocol.FrameEnd());
+            Assert.Same(player, conn.WorldOutput.PublishedObject(Program.PlayerId));
+            conn.LockstepClient = false;
+            await Game.SendPlayerDeathPresentation("world-order", writer.GetStream(), ciphers, conn, "predictive death", conn.IncomingHitEpoch);
+            await Read(InstanceProtocol.LifeUpdate(Program.PlayerId, 0, conn.PlayerReservedLife),
+                InstanceEntities.StatsUpdate(Program.PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
+                InstanceProtocol.DeathScreen(Game.DeathScreenFlags(conn)));
+
         }
         finally { conn.Closed = true; }
     }
