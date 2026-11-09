@@ -303,8 +303,12 @@ sealed class MonsterElementalAilments
     /// under 0.3 s discarded, the target's immunity. Null when it does not apply. The attacker's increase and the
     /// target's increase on itself add up (PoB CalcOffence: Enemy…Duration INC + Self…Duration INC); a positive
     /// base_self_*_duration_-% is a reduction.</summary>
+    /// <summary>No chill, freeze or shock lands while set (an encounter's grace: SpawnedMonster.EntranceGrace).</summary>
+    public bool Grace { get; set; }
+
     Effect? Apply(Effect effect, Func<string, int> attacker, Func<string, int> target)
     {
+        if (Grace) return null;
         var (kind, now) = (effect.Kind, effect.From);
         double seconds = (effect.Until - now) * Math.Max(0, 1 + (attacker($"virtual_{Name(kind)}_duration_+%")
             - target($"base_self_{Name(kind)}_duration_-%")) / 100.0);
