@@ -1719,13 +1719,14 @@ This is a research baseline, not new live skill acceptance or complete native/se
   `base_number_of_projectiles` impacts spread along a line across the nearest enemy, so a volley lands its whole spread
   on one target instead of scattering over three. Stages are counted per channel cast tick up to
   `frost_fury_max_number_of_stages` (8) plus the quality's `frost_fury_additional_max_number_of_stages`, and add their
-  `frost_fury_fire_speed_+%_per_stage` (20, the first stage adds none) to the frequency. The buff bar that shows the
-  charges and their countdown is not sent: the game's own `frost_fury_stage` row (BuffDefinitions 1216) crashed the
-  client on all three shapes tried live on 2026-11-09 — active-skill bit3 at one packet a tick, the same at five a
-  second, and the plain charges/Rage shape (row, stacks, duration, with `frost_fury_current_number_of_stages`
-  published). The last one rules out the message fields, which leaves the row itself — most likely its `ShowCount`
-  stack display with no `Maximum_StatsKey`, or BuffVisuals 978 — to check in the client's buff UI before it is sent
-  again. The orb is its own runtime, not the channel's: releasing the button does not
+  `frost_fury_fire_speed_+%_per_stage` (20, the first stage adds none) to the frequency. The stages show in the buff
+  bar as the game's own `frost_fury_stage` row (BuffDefinitions 1216, ShowCount), the count the orb's (bit2) and, after
+  the release, the duration the stages leave (bit1), re-sent with each stage that builds or goes and removed with the
+  orb (live 2026-11-09). Its three earlier crashes came from the 0x1c1 trailing u32 list, not the message fields: the
+  row's buff visual starts the client's Winter Orb channelling art (`0x1415d17d0` → `0x1417b6030`), which reads entries
+  1 and 2 of the buff's list (buff +0x80) without a length check, so an empty list dereferenced null (`0xc0000005` at
+  fault offset `0x17b6067`, the same for all three shapes). Three entries (first form, not a totem) are all it needs.
+  The orb is its own runtime, not the channel's: releasing the button does not
   stop it. It keeps firing at the released frequency (no 80% more) while its stages decay one at a time, each over the
   remaining duration divided by the stages held; the duration is `base_skill_effect_duration` (1600 ms) grown by
   `frost_fury_duration_+%_per_stage` (30 a stage) through `SkillDurationModifiers`, so 8 stages last 5.44 s at gem

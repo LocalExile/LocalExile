@@ -17,11 +17,11 @@ using GameServer.Core.Protocol.Login;
 /// The orb is its own runtime: the channel's cast ticks build stages, but the orb keeps firing after the button comes up,
 /// with the 80% more frequency gone, while its stages decay one at a time across the duration they leave (the gem's
 /// 1.6 s grown by 30% per stage). When the last stage goes the orb is removed.
-/// The stages still drive the fire rate only. The game also shows them as the <c>frost_fury_stage</c> buff
-/// (BuffDefinitions 1216, ShowCount, its icon the skill's own), but sending that buff's 0x1c1/0x1c2 crashed the client
-/// twice (live 2026-11-09), once at one packet a tick and once at five a second, so its message shape has to be checked
-/// against the client's Buffs component before it is sent again. The row sets neither <c>__col44</c> nor recovery stats,
-/// which leaves the stacks (bit2) and the active-skill icon (bit3) fields as the suspects.
+/// The stages also show in the buff bar, as the game's own <c>frost_fury_stage</c> row (BuffDefinitions 1216, ShowCount,
+/// its icon the skill's own): the count is the orb's (bit2) and, once the button is up, the icon counts down the
+/// duration the stages leave (bit1). The row's BuffVisuals carries the client's Winter Orb channelling art, which reads
+/// this buff's trailing u32 list (buff +0x80) at entries 1 and 2 with no length check: an empty list dereferenced null
+/// at 0x1417b6067 and killed the client (three live tests 2026-11-09), so every 0x1c1 here carries three entries.
 /// The orb and its impacts are the client's own art (MiscAnimated FrostFurySphere 2494 and FrostFuryExplode 2495):
 /// the sphere is an effect object attached to the player, each impact an effect object at its cell.
 /// The sphere rides the player (<c>EffectObject.Parent</c>), so the client carries it along with the player's own
@@ -61,6 +61,10 @@ static partial class Game
         public double NextDecayAt;
         /// <summary>Seconds each stage lasts after the release: the remaining duration divided by the stages it holds.</summary>
         public double DecaySeconds;
+        /// <summary>The 0x1c1 instance the buff bar shows the stages under; zero while no icon is up.</summary>
+        public ushort PresentedBuff;
+        /// <summary>The count the last 0x1c1 carried: an unchanged count sends no packet.</summary>
+        public int PresentedStages = -1;
     }
 
     static long WinterOrbOrbs;
@@ -99,6 +103,40 @@ static partial class Game
         return Math.Clamp((max > 0 ? max : 8) + Math.Max(0, extra), 1, 32);
     }
 
+    /// <summary>The game's own stage row: BuffDefinitions 1216 <c>frost_fury_stage</c> (ShowCount, the skill's icon).</summary>
+    const ushort WinterOrbStagesBuffRow = 1216;
+
+    /// <summary>
+    /// The orb's stages in the top-left buff bar. The count is the orb's own, so it never shows a stage the orb does not
+    /// hold; a changed count replaces the instance (0x1c2 for the old one, then 0x1c1, as the charge buffs do), and the
+    /// icon stays up while the released orb's stages decay. While channelling it has no timer; after the release it
+    /// counts the duration the stages leave, re-sent with every stage that goes.
+    /// The three trailing u32 entries are required: this row's visual starts the client's Winter Orb channelling art
+    /// (0x1415d17d0 → 0x1417b6030), which reads entries 1 and 2 of the buff's list without checking its length (a
+    /// non-totem, first-form visual is all zeroes). Nothing else consumes them.
+    /// </summary>
+    internal static async Task WinterOrbPresentStages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn)
+    {
+        List<byte[]> packets = [];
+        int stages;
+        lock (conn.Monsters)
+        {
+            var runtime = conn.OrbRuntime;
+            if (runtime is null || runtime.Stages <= 0 || runtime.PresentedStages == runtime.Stages) return;
+            stages = runtime.Stages;
+            double left = runtime.Channelling ? 0 : runtime.ExpiresAt - conn.Clock.Elapsed.TotalSeconds;
+            if (runtime.PresentedBuff != 0)
+                packets.Add(InstanceEntities.RemoveBuff(PlayerId, runtime.PresentedBuff));
+            ushort instance = runtime.PresentedBuff = conn.NextBuff++;
+            packets.Add(InstanceEntities.AddBuff(PlayerId, instance, WinterOrbStagesBuffRow, PlayerId, runtime.SkillId,
+                u68: left > 0 ? (uint?)BitConverter.SingleToUInt32Bits((float)left) : null,
+                stacks: (ushort)runtime.Stages, list: [0, 0, 0]));
+            runtime.PresentedStages = runtime.Stages;
+        }
+        foreach (var packet in packets) await Send(remote, stream, ciphers, packet, $"winter orb {stages} stages");
+    }
+
     /// <summary>
     /// The channel started (or started again while the orb is still up): one orb per player, not one per channel, so a
     /// second channel keeps the runtime it finds and only refreshes it — no second sphere, and the stages it already
@@ -132,10 +170,13 @@ static partial class Game
             // The first moment of channelling is the first stage; a fresh orb therefore never fires at zero.
             runtime.Stages = Math.Max(1, runtime.Stages);
             runtime.NextFireAt = now + WinterOrbFireSeconds(conn, skillId, gem.Effect, runtime.Stages);
+            // A held stage has no countdown: the release resends the icon with the duration its stages leave.
+            runtime.PresentedStages = -1;
             at = conn.Walk.Position(now);
             if (!created)
                 Console.WriteLine($"[gateway] {remote} winter orb 0x{runtime.ObjectId:x} re-channelled at {runtime.Stages} stages");
         }
+        await WinterOrbPresentStages(remote, stream, ciphers, conn);
         if (created)
         {
             await Send(remote, stream, ciphers,
@@ -188,6 +229,8 @@ static partial class Game
             double interval = WinterOrbFireSeconds(conn, runtime.SkillId, runtime.Gem.Effect, runtime.Stages,
                 channelling: false);
             runtime.NextFireAt = Math.Min(runtime.NextFireAt, now + interval);
+            // The icon now counts down, so the same count is presented again with the time left.
+            runtime.PresentedStages = -1;
             Console.WriteLine($"[gateway] winter orb released at {runtime.Stages} stages: "
                 + $"{duration:0.00}s over {runtime.DecaySeconds:0.00}s a stage");
         }
@@ -239,6 +282,8 @@ static partial class Game
                     }
                 }
                 if (expire) break;
+                // The count follows the orb: each stage that decays re-sends the icon, as does the release's timer.
+                await WinterOrbPresentStages(remote, stream, ciphers, conn);
                 if (wait > 0)
                 {
                     // A quarter of a second at most: a release, a retirement or an expiry is heard without waiting for a
@@ -267,6 +312,7 @@ static partial class Game
         finally
         {
             uint id = 0;
+            ushort buff = 0;
             bool remove;
             lock (conn.Monsters)
             {
@@ -275,6 +321,9 @@ static partial class Game
                 {
                     conn.OrbRuntime = null;
                     id = runtime.ObjectId;
+                    buff = runtime.PresentedBuff;
+                    runtime.PresentedBuff = 0;
+                    runtime.PresentedStages = -1;
                     remove = id != 0 && !conn.Closed && !conn.LeavingArea;
                 }
             }
@@ -283,6 +332,9 @@ static partial class Game
                 Console.WriteLine($"[gateway] {remote} winter orb 0x{id:x} expired");
                 await WinterOrbStop(remote, stream, ciphers, id);
             }
+            // The icon leaves with the orb: the last stage going, death, an area change or a closed connection.
+            if (buff != 0 && !conn.Closed && !conn.LeavingArea)
+                await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), null);
         }
     }
 

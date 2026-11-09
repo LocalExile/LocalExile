@@ -1263,6 +1263,7 @@ public static partial class Game
                 if (IsWinterOrb(gem.Effect))
                 {
                     WinterOrbStageStep(conn);
+                    await WinterOrbPresentStages(remote, stream, ciphers, conn);
                     continue;
                 }
                 var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
