@@ -13,7 +13,10 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
 
     /// <summary>A stat of a mod: its Stats.dat Id, the Stat{n}Min / Stat{n}Max roll range, and Stats.dat IsLocal (the
     /// stat changes the item it is on, not the character).</summary>
-    public sealed record ModStat(string Id, int Min, int Max, bool Local = false);
+    public sealed record ModStat(string Id, int Min, int Max, bool Local = false)
+    {
+        public bool Scalable { get; init; } = true;
+    }
 
     /// <summary>A Mods.dat row. GenerationType 1 prefix, 2 suffix, 3 unique / base implicit, 10 enchantment …;
     /// Domain 1 items.</summary>
@@ -30,6 +33,7 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
         /// <summary>ModType.dat's Name for ModTypeKey: the Harvest conversion groups (ColdResistance, FireDamage …).</summary>
         public string ModType { get; init; } = "";
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
+        public bool Unscalable { get; init; }
         /// <summary>What a mod does beyond its stats (monster mods: MonsterModCatalog): its BuffTemplates row (an aura or
         /// buff, BuffTemplate1), the monster it leaves on death (MonsterOnDeath) and its granted skills
         /// (GrantedEffectsPerLevelKeys).</summary>
@@ -121,9 +125,11 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
             tagsPath = Path.Combine(folder, "tables", "Tags.json"), modTypePath = Path.Combine(folder, "tables", "ModType.json");
         var rows = new List<Mod>();
         if (!ClientTables.Exists(path) || !ClientTables.Exists(statsPath)) return (rows, [], []);
-        List<(string Id, bool Local)> stats;
+        List<(string Id, bool Local, bool Scalable)> stats;
         using (var s = GameTables.Open(statsPath))
-            stats = [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("Id").GetString() ?? "", r.GetProperty("IsLocal").GetBoolean()))];
+            stats = [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("Id").GetString() ?? "",
+                r.GetProperty("IsLocal").GetBoolean(),
+                !r.TryGetProperty("IsScalable", out var scalable) || scalable.ValueKind != JsonValueKind.False))];
         List<string> modTypes = [];
         if (ClientTables.Exists(modTypePath))
             using (var t = JsonDocument.Parse(ClientTables.ReadAllBytes(modTypePath)))
@@ -146,9 +152,10 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
             {
                 if (r.GetProperty($"StatsKey{i}") is not { ValueKind: JsonValueKind.Number } k) break;
                 int key = k.GetInt32();
-                var (statId, local) = key < stats.Count ? stats[key] : ($"#{key}", false);
+                var (statId, local, scalable) = key >= 0 && key < stats.Count ? stats[key] : ($"#{key}", false, true);
                 // Explicit zero is meaningful (for example disabled boss rarity bonuses); it must not fall back.
-                modStats.Add(new(statId, r.GetProperty($"Stat{i}Min{suffix}").GetInt32(), r.GetProperty($"Stat{i}Max{suffix}").GetInt32(), local));
+                modStats.Add(new(statId, r.GetProperty($"Stat{i}Min{suffix}").GetInt32(),
+                    r.GetProperty($"Stat{i}Max{suffix}").GetInt32(), local) { Scalable = scalable });
             }
             rows.Add(new Mod(rows.Count, r.GetProperty("Id").GetString() ?? "", (ushort)r.GetProperty("HASH16").GetInt32(),
                 r.GetProperty("Name").GetString() ?? "", r.GetProperty("Domain").GetInt32(), r.GetProperty("GenerationType").GetInt32(),
@@ -159,6 +166,7 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
                 SpawnWeights = Weights(r, "SpawnWeight_TagsKeys", "SpawnWeight_Values"),
                 GenerationWeights = Weights(r, "GenerationWeight_TagsKeys", "GenerationWeight_Values"),
                 EssenceOnly = r.GetProperty("IsEssenceOnlyModifier").GetBoolean(),
+                Unscalable = r.TryGetProperty("IsUnscalable", out var unscalable) && unscalable.ValueKind == JsonValueKind.True,
                 ModType = r.TryGetProperty("ModTypeKey", out var modType) && modType.ValueKind == JsonValueKind.Number &&
                     modType.GetInt32() is int mt && mt >= 0 && mt < modTypes.Count ? modTypes[mt] : "",
                 BuffTemplate = r.TryGetProperty("BuffTemplate1", out var buff) && buff.ValueKind == JsonValueKind.Number ? buff.GetInt32() : null,

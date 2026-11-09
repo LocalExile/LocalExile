@@ -15,10 +15,11 @@ public static class ItemModStats
     public static readonly byte[] EquipmentRows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 102];
 
     /// <summary>The item-local stats that raise the effect of the item's own explicit modifiers: every explicit one,
-    /// or only that side (Simplex and Focused Amulets, the Simplex ring bases, Subsume the Source). Mods.dat carries no
-    /// damage-type tags, so the weapon-tree variants that name a damage category are not modelled here.</summary>
+    /// or only that side (Simplex and Focused Amulets, the Simplex ring bases, Subsume the Source).</summary>
     const string ExplicitEffect = "local_explicit_mod_effect_+%", PrefixEffect = "local_prefix_mod_effect_+%",
         SuffixEffect = "local_suffix_mod_effect_+%";
+
+    readonly record struct Effects(long Explicit, long Prefix, long Suffix, Dictionary<string, long>? Heist);
 
     /// <summary>The summed values of the stats on these items' mods, by Stats.dat Id: global ones, or with
     /// <paramref name="local"/> the item's own. An explicit modifier counts with the item's increased effect applied
@@ -62,8 +63,8 @@ public static class ItemModStats
     }
 
     /// <summary>One item's stats by Stats.dat Id, local or global. An explicit modifier's values include the
-    /// item's own increased effect for its list (all, prefix or suffix); the effect stats themselves stay raw, so
-    /// they never scale each other. Implicits, enchants and the other lists are unchanged.
+    /// item's own increased effect for its list (all, prefix or suffix) and matching Heist tags.
+    /// The effect stats themselves stay raw, as do the stats of implicits, enchants and the other lists.
     /// <para>A stat whose id carries a condition only counts while that condition holds (issue #504); with no
     /// <paramref name="subject"/> every condition is unmodelled and no stat changes.</para></summary>
     public static IEnumerable<(string Id, int Value)> Values(Item item, ModCatalog mods, bool local = false,
@@ -77,7 +78,7 @@ public static class ItemModStats
                 // Resistances") carries that aura's stats in the same row; they belong to the nearby enemies or allies,
                 // never to the wearer (Eye of Malice, The Admiral). No seeded unique mixes one with self stats.
                 if (row.Stats.Any(s => IsOthersAura(s.Id))) continue;
-                int percent = EffectPercent(mod, row, effect);
+                var (ordinary, heist) = EffectPercent(mod, row, effect);
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
                     if (row.Stats[s].Local == local)
                     {
@@ -89,16 +90,19 @@ public static class ItemModStats
                         if (state is StatConditions.State.Holds && statExists is not null
                             && StatConditions.Fold(id, statExists) is { } plain)
                             id = plain;
-                        yield return (id, IsEffectStat(row.Stats[s].Id) ? mod.Values[s] : Scale(mod.Values[s], percent));
+                        var stat = row.Stats[s];
+                        int value = IsEffectStat(stat.Id) ? mod.Values[s]
+                            : Scale(mod.Values[s], ordinary, stat.Scalable ? heist : 0);
+                        yield return (id, value);
                     }
             }
     }
 
-    /// <summary>The item's own increased-effect stats, summed raw: explicit (every explicit modifier), prefix and
-    /// suffix (only that side). The stats are local, so they are read here rather than from the character's list.</summary>
-    static (int Explicit, int Prefix, int Suffix) Effect(Item item, ModCatalog mods)
+    /// <summary>The item's own increased-effect stats, summed raw before applying any modifier magnitudes.</summary>
+    static Effects Effect(Item item, ModCatalog mods)
     {
-        int explicitAll = 0, prefix = 0, suffix = 0;
+        long explicitAll = 0, prefix = 0, suffix = 0;
+        Dictionary<string, long>? heist = null;
         foreach (var mod in item.Mods)
             if (mods.ByHash(mod.Hash) is { } row)
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
@@ -107,16 +111,39 @@ public static class ItemModStats
                         case ExplicitEffect: explicitAll += mod.Values[s]; break;
                         case PrefixEffect: prefix += mod.Values[s]; break;
                         case SuffixEffect: suffix += mod.Values[s]; break;
+                        case var id when mod.Section == ModSection.Enchant && HeistTag(id) is { } tag:
+                            heist ??= new(StringComparer.Ordinal);
+                            heist[tag] = heist.GetValueOrDefault(tag) + mod.Values[s];
+                            break;
                     }
-        return (explicitAll, prefix, suffix);
+        return new(explicitAll, prefix, suffix, heist);
     }
 
-    /// <summary>How much the item's effect stats raise this modifier: only explicit affixes are affected, by the
-    /// all-explicit stat plus the stat for their own side.</summary>
-    static int EffectPercent(ItemMod mod, ModCatalog.Mod row, (int Explicit, int Prefix, int Suffix) effect) =>
-        mod.Section != ModSection.Explicit ? 0
-        : effect.Explicit + (row.GenerationType == ItemRolls.Prefix ? effect.Prefix
+    static (long Ordinary, long Heist) EffectPercent(ItemMod mod, ModCatalog.Mod row, Effects effect)
+    {
+        if (mod.Section != ModSection.Explicit) return default;
+        long ordinary = effect.Explicit + (row.GenerationType == ItemRolls.Prefix ? effect.Prefix
             : row.GenerationType == ItemRolls.Suffix ? effect.Suffix : 0);
+        long heist = 0;
+        if (effect.Heist is { } byTag && !row.Unscalable && row.GrantedEffects == 0)
+            foreach (var (tag, percent) in byTag)
+                if (row.Tags.Contains(tag)) heist += percent;
+        return (ordinary, heist);
+    }
+
+    // The category in the stat id is also the native modifier tag, with two spelling differences.
+    static string? HeistTag(string id)
+    {
+        const string prefix = "heist_enchantment_", suffix = "_mod_effect_+%";
+        if (id.Length <= prefix.Length + suffix.Length || !id.StartsWith(prefix, StringComparison.Ordinal)
+            || !id.EndsWith(suffix, StringComparison.Ordinal)) return null;
+        return id[prefix.Length..^suffix.Length] switch
+        {
+            "defence" => "defences",
+            "casterdamage" => "caster_damage",
+            var tag => tag,
+        };
+    }
 
     /// <summary>Whether a stat marks its mod as an aura for other creatures. The marker is a display stat: "nearby"
     /// (enemies or allies) or a debuff the wearer puts on them.</summary>
@@ -124,12 +151,17 @@ public static class ItemModStats
         && (id.Contains("nearby", StringComparison.OrdinalIgnoreCase)
             || id.EndsWith("_debuff", StringComparison.OrdinalIgnoreCase));
 
-    static bool IsEffectStat(string id) => id is ExplicitEffect or PrefixEffect or SuffixEffect;
+    static bool IsEffectStat(string id) => id is ExplicitEffect or PrefixEffect or SuffixEffect || HeistTag(id) is not null;
 
-    /// <summary>The game's increased-effect multiplication on one integer value, rounded down like the Adorned's
-    /// jewel effect (Items.AdornedJewel).</summary>
-    static int Scale(int value, int percent) => percent == 0 ? value
-        : (int)Math.Clamp(Math.Floor((decimal)value * (100 + (long)percent) / 100), int.MinValue, int.MaxValue);
+    static int Scale(int value, long ordinary, long heist)
+    {
+        long percent = ordinary + heist;
+        if (percent == 0) return value;
+        decimal scaled = (decimal)value * (100 + percent) / 100;
+        // Heist rounds the magnitude down, retaining the sign. Ordinary effects keep their existing rounding.
+        decimal rounded = heist == 0 ? decimal.Floor(scaled) : decimal.Truncate(scaled);
+        return (int)Math.Clamp(rounded, int.MinValue, int.MaxValue);
+    }
 
     /// <summary>Wide per-key attribute totals: retain them until complete raw-key replacement and bucket scaling.</summary>
     public static Dictionary<string, long> RawAttributes(IEnumerable<Item> items, ModCatalog mods)

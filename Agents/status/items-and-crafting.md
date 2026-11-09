@@ -120,6 +120,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   damage …), the main hand's local crit, attack speed and accuracy, its local physical damage and quality,
   and its local added elemental/chaos damage (`ItemWeapons`). The third ring slot (Ring3, row 102, shown by The Unseen
   Hand's `enable_ring_slot_3`) counts like the first two.
+  Heist enchantment magnitudes feed local and global item stats ([13 §2c](../docs/protocol/13-items.md)).
   Armour/evasion/ES local flat, increased and hybrid mods and multiplicative quality feed the shared pools and panel
   (`ItemDefences`, [13](../docs/protocol/13-items.md) §2c).
   Armour, evasion and ES share a saved variable base roll, sent in the native Armour component.

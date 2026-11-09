@@ -53,4 +53,76 @@ public sealed class ItemModEffectTests
         var composite = ItemCatalog.Create(items.All.First(t => t.Name == "Composite Ring"));
         Assert.Equal((6, 0), rolls.RareMaxAffixes(composite));
     }
+
+    [Fact]
+    public void Heist_defence_magnitude_applies_to_eligible_explicit_mods_on_its_own_item()
+    {
+        var items = new ItemCatalog("data");
+        var plain = ItemCatalog.Create(items.All.First(t => t.Name == "Twilight Regalia")) with { Mods = [] };
+        plain = With(items, plain, "LocalIncreasedEnergyShield1", ModSection.Explicit, 100);
+        plain = With(items, plain, "LocalIncreasedEnergyShieldPercent1", ModSection.Explicit, 110);
+        plain = With(items, plain, "BreachBodyAllDefences1", ModSection.Explicit, 50);
+        plain = With(items, plain, "ReducedEnergyShieldPercentUniqueAmulet13", ModSection.Explicit, -50);
+        plain = With(items, plain, "FireResist1", ModSection.Explicit, 25);
+        plain = With(items, plain, "LocalIncreasedEnergyShield2", ModSection.Implicit, 10);
+        var item = With(items, plain, "ArmourEnchantmentHeistDefenceEffectAttributeRequirements1", ModSection.Enchant, 15, -25);
+
+        var local = ItemModStats.Local(item, items.Mods);
+        Assert.Equal(125, local["local_energy_shield"]); // 115 from the explicit and 10 from the implicit.
+        Assert.Equal(126, local["local_energy_shield_+%"]);
+        Assert.Equal(15, local["heist_enchantment_defence_mod_effect_+%"]);
+        Assert.Equal(-25, local["local_attribute_requirements_+%"]);
+
+        var global = ItemModStats.Sum([item], items.Mods);
+        Assert.Equal(57, global["global_defences_+%"]);
+        Assert.Equal(-57, global["maximum_energy_shield_+%"]);
+        Assert.Equal(25, global["base_fire_damage_resistance_%"]);
+        Assert.Equal(107, ItemModStats.Sum([item, plain], items.Mods)["global_defences_+%"]);
+        Assert.Equal(new[] { 100, 110, 50, -50, 25, 10, 15, -25 }, item.Mods.SelectMany(mod => mod.Values));
+    }
+
+    [Fact]
+    public void Heist_weapon_magnitudes_match_element_tags_and_combine_before_rounding()
+    {
+        var items = new ItemCatalog("data");
+        var weapon = ItemCatalog.Create(items.All.First(t => t.Name == "Driftwood Wand")) with { Mods = [] };
+        (string Element, string Affix, string Enchantment)[] variants =
+        [
+            ("fire", "LocalAddedFireDamage1", "WeaponEnchantmentHeistFireEffect1"),
+            ("cold", "LocalAddedColdDamage1", "WeaponEnchantmentHeistColdEffect1__"),
+            ("lightning", "LocalAddedLightningDamage1", "WeaponEnchantmentHeistLightningEffect1"),
+        ];
+        foreach (var (_, affix, _) in variants)
+            weapon = With(items, weapon, affix, ModSection.Explicit, 33, 47);
+
+        foreach (var (matched, _, enchantment) in variants)
+        {
+            var enchanted = With(items, weapon, enchantment, ModSection.Enchant, 8);
+            var local = ItemModStats.Local(enchanted, items.Mods);
+            foreach (var (element, _, _) in variants)
+            {
+                Assert.Equal(element == matched ? 35 : 33, local[$"local_minimum_added_{element}_damage"]);
+                Assert.Equal(element == matched ? 50 : 47, local[$"local_maximum_added_{element}_damage"]);
+            }
+        }
+
+        var caster = With(items, weapon, "SpellDamage1", ModSection.Explicit, 33);
+        caster = With(items, caster, "IncreasedCastSpeed1", ModSection.Explicit, 33);
+        caster = With(items, caster, "WeaponEnchantmentHeistCasterDamageEffect1", ModSection.Enchant, 8);
+        var casterStats = ItemModStats.Sum([caster], items.Mods);
+        Assert.Equal(35, casterStats["spell_damage_+%"]);
+        Assert.Equal(33, casterStats["base_cast_speed_+%"]);
+
+        var dual = With(items, weapon, "ChanceToAvoidIgniteEssence4", ModSection.Explicit, 43);
+        dual = With(items, dual, "WeaponEnchantmentHeistFireEffectAilmentEffect1_", ModSection.Enchant, 6, 6);
+        Assert.Equal(48, ItemModStats.Sum([dual], items.Mods)["base_avoid_ignite_%"]);
+
+        var penalty = With(items, weapon, "LocalIncreasedAttackSpeed1", ModSection.Explicit, 20);
+        penalty = With(items, penalty, "LocalReducedPhysicalDamagePercentUniqueBow8", ModSection.Explicit, -120);
+        penalty = With(items, penalty, "WeaponEnchantmentHeistSpeedEffectDamageEffectPenalty1", ModSection.Enchant, 12, -25);
+        var penalized = ItemModStats.Local(penalty, items.Mods);
+        Assert.Equal(22, penalized["local_attack_speed_+%"]);
+        Assert.Equal(24, penalized["local_minimum_added_fire_damage"]);
+        Assert.Equal(-120, penalized["local_weapon_no_physical_damage"]);
+    }
 }
