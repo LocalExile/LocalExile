@@ -342,9 +342,11 @@ static partial class Game
         {
             if (SkillsFor(conn).IsChannelled(gem.Effect)) return 0;
             // The native spell duration divides the virtual base by cast speed (0x1419eef50).
+            // The repeat counter restarts the same action (0x1419e3960); hold through every cast, not just its first.
             // Reuse the cast path's skill-specific speed and action speed; a refused cast holds no action.
             if (SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect))
-                return (SpellTimingFor(conn, gem.Effect, skill)?.DurationSeconds ?? 0) / PlayerActionFactor(conn);
+                return (SpellTimingFor(conn, gem.Effect, skill)?.DurationSeconds ?? 0)
+                    * (1d + SpellRepeats(conn, skill, gem.Effect)) / PlayerActionFactor(conn);
             if (!SkillsFor(conn).IsAttack(gem.Effect)) return SkillsFor(conn).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(conn);
         }
         return LockstepAttackCutIn(conn, skill, sequence) + conn.LockstepActionTail;
@@ -352,17 +354,25 @@ static partial class Game
 
     static GameServer.Core.World.LockstepCastWindow? LockstepSpellMoveWindow(ClientState conn, ushort skill, int effect, double start, double duration)
     {
-        // These ordinary projectile actions share the native clip gate (0x14193d400). Repeated casts have a further
-        // action-specific gate; other spell action classes keep their existing hold until their clips are established.
-        if (SkillsFor(conn).EffectId(effect) is not ("Fireball" or "FreezingPulse")
-            || SpellRepeats(conn, skill, effect) != 0 || duration <= 0) return null;
+        // These projectile actions share the clip gate (0x14193d400). Ordinary repeats allow its early window only
+        // on the first cast and its late window only on the final cast (0x1419e3a50).
+        if (SkillsFor(conn).EffectId(effect) is not ("Fireball" or "FreezingPulse") || duration <= 0) return null;
+        int repeats = SpellRepeats(conn, skill, effect);
         var own = SupportedStats(conn, skill);
-        bool cannotCancelBeforeContact = Stats.Key("cannot_cancel_skill_before_contact_point") is uint key
-            && own.GetValueOrDefault(key) != 0;
+        bool Has(string name) => Stats.Key(name) is uint key && own.GetValueOrDefault(key) != 0;
+        // These overrides bypass the repeat-stage gate; retain the full hold until their separate windows are modeled.
+        if (repeats > 0 && (Has("multistrike_damage_+%_final_on_first_repeat")
+            || Has("multistrike_damage_+%_final_on_second_repeat"))) return null;
+        bool cannotCancelBeforeContact = Has("cannot_cancel_skill_before_contact_point");
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
         var window = Animations.SpellMoveWindow(ao, WeaponProfileFor(conn, activeSet: true), CastAnimationKind.Projectile,
-            start, duration, cannotCancelBeforeContact);
-        return window is { } cast ? cast with { ActionHash = SkillsFor(conn).ActionHash(effect) } : null;
+            start, duration / (1d + repeats), cannotCancelBeforeContact);
+        return window is { } cast ? cast with
+        {
+            Duration = duration,
+            LateFrom = duration - cast.Duration + cast.LateFrom,
+            ActionHash = SkillsFor(conn).ActionHash(effect),
+        } : null;
     }
 
     // The attack time of a held attack skill, as its handler paces it (Attack, CastGemSkill).

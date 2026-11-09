@@ -156,7 +156,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     follow the client. Completed stat snapshots are retired, ordinary lockstep AI orders share each actor's sequence,
     projectile hits retain their releasing action, and tutorial creates retain their initial recipient.
     Ground/object spell holds retain fractional cast speed; Fireball/Freezing Pulse allow Move and early spell replacement.
-    Repeated casts and other action classes still need their cancellation gates verified.
+    Ordinary repeated casts retain the whole use and its first-early/final-late cancellation windows.
+    Other action classes and repeat-stage overrides still need their cancellation gates verified.
     Channel activity and replacement releases follow the held action; spell channels use their cast interval without
     a new-action frame cap. Instant replies share the player's sequence and let native execution consume cooldowns.
     Full live coverage remains open.

@@ -618,7 +618,10 @@ A new request for a different spell action may also use the early window (`0x141
 The comparison is the action hash, not the granted skill ID. The same action cannot restart early, and the late
 window only allows movement; another spell requested there waits for the full cast.
 The Witch's wand projectile clip is 1066 ms, contact 599 ms, cancellation 754 ms; these come from the rig data.
-Repeated casts and other spell action classes retain their full hold pending their additional native gates.
+The repeat counter at `+0x2d0/+0x2d4` restarts the same action (`0x1419e3960`); a held use spans all its casts.
+For ordinary repeats, `0x1419e3a50` permits the early window only before the first cast's contact and the late
+window only after the final repeat's contact. Intermediate casts cannot be cancelled.
+Other spell classes and repeat-stage overrides from the Multistrike repeat-damage stats retain their full hold.
 Channel aim updates also refresh the server's activity timeout.
 Spell channels use the supported cast interval with fractional milliseconds, without the new-action frame limit;
 FireBeam's duration slot uses the same base-time/cast-speed rule (`0x1419e7660`).
@@ -815,7 +818,7 @@ Complete nonregression, frame ordering and skill/network parity remain unverifie
 | An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |
 | Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |
 | Ordinary lockstep AI orders and projectile hits retain actor/action ownership; special producers and wrap remain unverified | Every action and hit names the matching actor sequence | The ordinary paths are corrected; this is not a complete protocol audit |
-| Other spell classes and repeated casts hold movement for their full duration | Additional action gates unverified | Ordinary Fireball/Freezing Pulse use native clip windows; broader cancellation remains open |
+| Other spell classes and Multistrike repeat-stage overrides hold movement for their full duration | Additional action gates unverified | Ordinary Fireball/Freezing Pulse repeats use first-cast early and final-cast late windows; broader cancellation remains open |
 | A skill is echoed at any key 0, from the handlers Predictive uses | From the tick, keyed by the player | As for Moves |
 | The server simulates a mortar's flight, and the player's wand bolt or arrow, and lands its hit where that lands; the client draws each from its own action | One simulation, the client's | The server is a port: the client's spread (`projectile_spread_radius`) is seeded by the order's sequence and owner (`0x141bb13a0`) |
 

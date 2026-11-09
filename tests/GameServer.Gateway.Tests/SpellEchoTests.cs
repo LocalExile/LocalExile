@@ -59,7 +59,7 @@ public sealed class SpellEchoTests
             Assert.Equal(repeats, Game.SpellRepeats(conn, skill.Id, skill.Effect));
             Assert.Equal(castMs, Game.CastMs(conn, skill.Effect, skill.Id)); // 750 and 700 ms at 40% more
             conn.LockstepClient = true;
-            Assert.Equal(effectId == "Fireball" ? .75 / 1.4 : .5,
+            Assert.Equal(effectId == "Fireball" ? 1.5 / 1.4 : .5,
                 Game.LockstepActionHold(conn, skill.Id, 0x8001), 6);
             // A target changes the aim, not the native cast duration or the held spell's repeat gate.
             foreach (uint? target in new uint?[] { null, 0x3001 })
@@ -68,6 +68,15 @@ public sealed class SpellEchoTests
                 conn.LockstepBusyUntil = 0;
                 Game.HoldLockstepSkill(conn, 0x8001, 10, 10.033);
                 Assert.Equal(10 + Game.LockstepActionHold(conn, skill.Id, 0x8001), conn.LockstepBusyUntil, 6);
+                if (effectId == "Fireball")
+                {
+                    Assert.NotNull(conn.LockstepCastWindow);
+                    conn.LockstepHold.Press((120, 100), 0x2909, 0x401);
+                    Assert.True(Game.LockstepPlayerFree(conn, 10.01)); // Before the first cast's contact.
+                    Assert.False(Game.LockstepPlayerFree(conn, 10 + .75 / 1.4 + .01)); // Early in the repeat.
+                    Assert.True(Game.LockstepPlayerFree(conn, conn.LockstepBusyUntil - .001)); // Late in the final cast.
+                    conn.LockstepHold.Clear();
+                }
             }
         }
         finally

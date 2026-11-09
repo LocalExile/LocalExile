@@ -1431,6 +1431,8 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   are equal), and its slot 0x460 thunks to the base replay; it gets no count until a trace shows how the two combine.
   Not modelled: the final-repeat and per-repeat stats (Greater and Awakened Spell Echo), and whether a repeat re-aims
   at a moving target.
+  Lockstep holds a repeated use through all casts; ordinary Fireball/Freezing Pulse cancellation uses the first
+  cast's early window and the last repeat's late window ([07](07-latency-visibility-movement.md) §6).
   Catalog instant skills retain their instant flag, zero server cast duration and no finite casts-per-second rate.
   A channelled spell's native base is preserved; its server interval uses the fractional supported cast duration
   without a new-action frame limit. This does not implement beam damage. Attack and non-spell timing are unchanged.

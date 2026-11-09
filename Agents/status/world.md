@@ -93,6 +93,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   handles pickup/attack recovery, corpse collision and ground melee/chest approach, with current background-action
   stats, actor-owned AI sequences and projectile-hit ownership; tutorial gems retain their initial recipient.
   Ground/object spells retain fractional holds; Fireball/Freezing Pulse allow Move and early spell replacement.
+  Repeated uses hold through every cast, with first-cast early and final-repeat late cancellation windows.
   Channels retain activity and releases; spell channels use cast speed without a frame cap. Full validation remains open.
   Instant replies share the player's sequence, suppress local action events and let native execution consume cooldowns.
   Held-walk player and all-monster sync bars pass; held, Mud Flats and charger checks show no reproduced predictive regression.
