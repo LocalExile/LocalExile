@@ -215,10 +215,11 @@ static class ClientInstall
             "could not change the client's login list; close every client and try again");
     }
 
-    /// <summary>The Patch server answers with this hash; the client's data may have changed since it was saved.</summary>
+    /// <summary>The Patch server answers with this hash; the client's data may have changed since it was saved. A zero hash
+    /// (left by the official patcher or a GGPK tool) is given a value first: the client never skips patching with one.</summary>
     public static void RefreshRootHash(Output log)
     {
-        var (code, _) = Tools.Capture(Tools.Patch, ["root-hash", Ggpk, "--save"]);
+        var (code, _) = Tools.Capture(Tools.Patch, ["root-hash", Ggpk, "--repair", "--save"]);
         if (code != 0) log.Warn("could not refresh the client data's hash; the saved one is used");
     }
 }

@@ -6,7 +6,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Works (verified with the real client)
 
 - The 3.29.3c client: login, characters, town, inventory and stash, cosmetics, kills, items, flasks and skills,
-  waypoints and transitions, NPCs and shops, the hideout, chat and relog (live run, 2026-11-08).
+  waypoints and transitions, NPCs and shops, the hideout, chat and relog (live run, 2026-11-08). Both 3.29.3c builds
+  work with the same code: the release (build 327984) and the 3.29.3.5 hotfix (build 328126; login, zones, combat,
+  items and waypoints live 2026-11-09).
   Port tools: `scripts/re/port`, `PortMap.java`; docs: [tooling](../docs/re/tooling.md) §11.
 - Game data extracted from the GGPK in one step: `scripts/dev/extract-data.ps1` (run by `live.ps1` on every start,
   `-NoExtract` to skip) regenerates each data file that is missing or whose manifest version changed (stamps in
@@ -22,8 +24,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
   Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
   Docs: [releases](../docs/dev/releases.md).
-- Local patching server: the client never contacts the official patch servers.
-  Code: `GameServer.Patch`.
+- Local patching server: the client never contacts the official patch servers. A GGPK whose root hash is zero (the
+  client then always patches and times out at "Checking resources") gets one on each start (`root-hash --repair`).
+  Code: `GameServer.Patch`, `GgpkMaintenance.RepairRootHash`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.
 - Dev account service: register, log in, create characters, list every account (JSON-lines over TCP).
   Code: `GameServer.Host`, `GameServer.DevClient`.

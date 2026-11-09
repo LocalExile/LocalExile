@@ -21,7 +21,8 @@ using GameServer.Data.Ggpk;
 // localexile.conf Patch.Port, or Game_PATCH_TCP_PORT (default 12995).
 //
 // Tools (run while the client is closed; these do open the GGPK):
-//   root-hash [ggpk] [--save]             print the GGPK root hash; --save also writes it to data/client-constants.json
+//   root-hash [ggpk] [--repair] [--save]  print the GGPK root hash; --repair first gives a zero root hash a value (it
+//                                         writes the GGPK), --save also writes it to data/client-constants.json
 //   gateway [ggpk]                        print the gateway list the client will use
 //   gateway [ggpk] --login <host:port>    point every gateway at <host:port>; the original
 //                                         is saved once to data/gateway_list.original.txt
@@ -163,6 +164,8 @@ static async Task ServePatchProtocol(int port, string webRoot, string backupWebR
             // wrong hash would make the client start patching.
             byte[] hash = ClientConstants.Load().GgpkRootHashBytes;
             Console.WriteLine($"[patch] {peer} hello v{version}{(version == PatchProtocol.ExpectedVersion ? "" : " (unexpected)")}; root hash {Convert.ToHexString(hash).ToLowerInvariant()}");
+            if (!hash.AsSpan().ContainsAnyExcept((byte)0))
+                Console.WriteLine($"[patch] the client's Content.ggpk has a zero root hash, so it will try to patch and time out at \"Checking resources\"; close the client and run GameServer.Patch root-hash <Content.ggpk> --repair --save (LocalExile does this on start)");
             await stream.WriteAsync(PatchProtocol.EncodeWelcome(hash, webRoot, backupWebRoot));
             // A client that still wants to patch sends more requests; log them (not implemented).
             while (true)
@@ -186,6 +189,8 @@ static int GgpkTool(string[] args)
     string ggpk = rest.Count > 0 && !rest[0].StartsWith("--") ? rest[0] : Find(GameServer.Core.ServerConfig.ClientFolder + "/Content.ggpk") ?? GameServer.Core.ServerConfig.ClientFolder + "/Content.ggpk";
     if (args[0] == "root-hash")
     {
+        if (rest.Contains("--repair") && GgpkMaintenance.RepairRootHash(ggpk) is { } repaired)
+            Console.WriteLine($"[patch] the GGPK's root hash was zero, so the client would always try to patch; it is now {Convert.ToHexString(repaired).ToLowerInvariant()}");
         Console.WriteLine(Convert.ToHexString(GgpkMaintenance.RootHash(ggpk)).ToLowerInvariant());
         if (rest.Contains("--save")) SaveRootHash(ggpk);
         return 0;

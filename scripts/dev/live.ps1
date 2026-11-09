@@ -377,7 +377,8 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$nullifier = $false) {
     $client = Join-Path $repo 'Client'
     # The Patch server answers with the hash saved in data\: another checkout's run may have changed the GGPK since.
-    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash (Join-Path $client 'Content.ggpk') --save 2>$null | Out-Null
+    # --repair gives a zero root hash a value (the client never skips patching with one).
+    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash (Join-Path $client 'Content.ggpk') --repair --save 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning 'could not refresh the GGPK root hash in data\client-constants.json; the saved one is used' }
     $folder = $client
     if ($session -ne 'default') {
