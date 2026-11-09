@@ -866,6 +866,16 @@ static partial class Game
         return true;
     }
 
+    // Lockstep instant replies join the ordinary action sequence. At 0x142195880, flag 0x100 reaches
+    // 0x141e92310 and suppresses local action-event dispatch; 0x20 is only the transported target marker.
+    internal static byte[] PlayerInstantAction(ClientState conn, ushort skill, (int X, int Y) aim, uint? target = null)
+    {
+        lock (conn.Monsters)
+            return InstanceProtocol.InstantAction(PlayerId, skill, aim.X, aim.Y, target,
+                conn.LockstepClient ? NextLockstepSequence(conn) : (ushort)0xffff,
+                conn.LockstepClient ? (ushort)0x101 : (ushort)0);
+    }
+
     // An instant skill (C→S 0x191): its effect, then S→C 0x1ce, which has the client run the skill's action without animation
     // and consume a use of it: the skill bar's cooldown starts (the tooltip showed the cooldown, the bar did not run it).
     internal static async Task UseInstantSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -889,14 +899,17 @@ static partial class Game
             true, () => { }, out var cooldownUse)) return;
         if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse))
         {
-            await Send(remote, stream, ciphers, InstanceProtocol.InstantAction(PlayerId, skillId, at.X, at.Y, targetId),
+            await Send(remote, stream, ciphers, [],
                 $"0x01ce player skill 0x{skillId:x4}: instant action (its use and cooldown)",
-                still: () =>
+                atGate: () =>
                 {
                     lock (conn.Monsters)
-                        return conn.ProjectileActive(epoch) && conn.PlayerLife > 0 && !conn.Paused
-                            && ActorSkillInstanceDisabled(conn, gem.Effect, skillId) is null
-                            && (cooldownUse?.CommitNativeUse(conn, skillId) ?? true);
+                    {
+                        if (!conn.ProjectileActive(epoch) || conn.PlayerLife <= 0 || conn.Paused
+                            || ActorSkillInstanceDisabled(conn, gem.Effect, skillId) is not null
+                            || cooldownUse?.CommitNativeUse(conn, skillId) == false) return null;
+                        return PlayerInstantAction(conn, skillId, at, targetId);
+                    }
                 });
             await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         }
@@ -964,7 +977,7 @@ static partial class Game
                     }
                     if (cooldownUse?.CommitNativeUse(conn, skillId) == false) return null;
                     accepted = true;
-                    return InstanceProtocol.InstantAction(PlayerId, skillId, rawAim.X, rawAim.Y, targetObjectId);
+                    return PlayerInstantAction(conn, skillId, rawAim, targetObjectId);
                 }
             });
         if (accepted)

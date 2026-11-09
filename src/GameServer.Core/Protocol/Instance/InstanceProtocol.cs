@@ -334,10 +334,10 @@ public static class InstanceProtocol
     /// animation and consumes a use of the skill: that starts its cooldown on the skill bar (live 2026-10-21).
     /// </summary>
     public static byte[] InstantAction(uint objectId, ushort skillId, int targetX, int targetY, uint? targetObjectId = null,
-        ushort sequence = 0xffff)
+        ushort sequence = 0xffff, ushort flags = 0)
     {
         var w = new LoginWriter().U16(InstantActionId).U32(objectId).U32(0).U16(0)
-            .U16(skillId).U16(sequence).U16((ushort)(targetObjectId is null ? 0 : 0x20));
+            .U16(skillId).U16(sequence).U16((ushort)(flags | (targetObjectId is null ? 0 : 0x20)));
         if (targetObjectId is { } t) w.U32(t);
         CompactInt(w, targetX); CompactInt(w, targetY);
         return w.ToArray();

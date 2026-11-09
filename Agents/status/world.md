@@ -94,6 +94,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   stats, actor-owned AI sequences and projectile-hit ownership; tutorial gems retain their initial recipient.
   Ground/object spells retain fractional holds; Fireball/Freezing Pulse allow Move and early spell replacement.
   Channels retain activity and releases; spell channels use cast speed without a frame cap. Full validation remains open.
+  Instant replies join the player's lockstep sequence and suppress duplicate local action-event dispatch.
   Held-walk player and all-monster sync bars pass; held, Mud Flats and charger checks show no reproduced predictive regression.
   Complete nonregression and coverage remain open ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
 - League isolation is enforced by full league for towns and instance selection.

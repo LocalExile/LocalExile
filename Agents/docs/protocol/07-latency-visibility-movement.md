@@ -599,7 +599,10 @@ walking and one per frame from the same cell while blocked. 0x195 gets no answer
 started. Sequences go up by one, top bit set. A click during a swing waits (it comes with flags 0x0001, u8 3), and the
 newest starts when the swing ends. A skill held down repeats from the player's tick, once per action, aimed at the newest
 0x192, until 0x195; an attack on an object that dies goes on at the ground. A channelled skill gets a 0x1ad for a new aim
-and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0x191, answered with 0x1ce as in Predictive.
+and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0x191, answered with 0x1ce.
+Lockstep instant replies share the player's action sequence and carry flags 0x0101 (0x0121 with a target).
+The reader removes the target marker 0x20; 0x142195880 forwards bit 8 to 0x141e92310 to suppress local action events.
+They do not replace the current cast or channel. Predictive replies retain their existing sequence and flags.
 
 Spell duration divides the virtual base cast time by the skill's cast-speed factor (`0x1419eef50`, stat `0x24b9`
 and virtual slot `+0x788` on Freezing Pulse; the getter `0x1419e7500` reads cast-speed stat `0x128`).

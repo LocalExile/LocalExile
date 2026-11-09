@@ -10,6 +10,27 @@ namespace GameServer.Gateway.Tests;
 public class LockstepTests
 {
     [Fact]
+    public void Instant_replies_share_the_lockstep_sequence_and_suppress_local_action_events()
+    {
+        var conn = new ClientState(new(1, "instant", 300, 300, 100, 100, null, []), 1, 1)
+            { LockstepClient = true, LockstepSequence = 0x575, ActionCount = 17, LockstepBusyUntil = 12.5 };
+        // The retained ground and object forms carry 0x0101 and 0x0121; their sequence joins ordinary actions.
+        Assert.Equal("01CE0000100000000000000084098576010181F78223",
+            Convert.ToHexString(Game.PlayerInstantAction(conn, 0x8409, (503, 547))));
+        Assert.Equal("01CE000010000000000000008409857701210000300181F78223",
+            Convert.ToHexString(Game.PlayerInstantAction(conn, 0x8409, (503, 547), 0x3001)));
+        Assert.Equal(0x577, conn.LockstepSequence);
+        Assert.Equal(17, conn.ActionCount); // An instant skill does not cancel an existing cast or channel.
+        Assert.Equal(12.5, conn.LockstepBusyUntil);
+        conn.LockstepSequence = 0x7fff;
+        Assert.Equal("80000101", Convert.ToHexString(Game.PlayerInstantAction(conn, 0x8409, (503, 547))[14..18]));
+        conn.LockstepClient = false;
+        Assert.Equal("01CE000010000000000000008409FFFF00200000300181F78223",
+            Convert.ToHexString(Game.PlayerInstantAction(conn, 0x8409, (503, 547), 0x3001)));
+        Assert.Equal(0, conn.LockstepSequence);
+    }
+
+    [Fact]
     public void A_walker_on_frames_starts_on_the_frame_and_stops_after_its_steps()
     {
         // 100 cells a second: one cell every 10 ms, 3.3 cells a frame.
