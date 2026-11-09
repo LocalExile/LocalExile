@@ -52,6 +52,10 @@ static partial class Game
         var speed = FlickerSpeeds.GetOrCreateValue(conn);
         int token;
         lock (conn.Monsters) token = ++speed.Token;
+        // The use's message keeps one stats snapshot for its whole flow (PlayerStatScope), taken before this bonus, and the
+        // end below runs on that flow too: both build theirs fresh, or the panel kept the old speed (live 2026-11-09:
+        // 123% after the buff had ended, until a charge change sent new stats).
+        using var fresh = new PlayerStatScope(conn, fresh: true);
         await Send(remote, stream, ciphers, [], $"0x01c1 Flicker Strike buff: +{percent}% movement speed for {seconds:0.##} s",
             atGate: () =>
             {
@@ -72,18 +76,22 @@ static partial class Game
                     return [.. bytes];
                 }
             });
-        SendAfter(seconds, () => Send(remote, stream, ciphers, [], "0x01c2 Flicker Strike buff ends", atGate: () =>
+        SendAfter(seconds, async () =>
         {
-            lock (conn.Monsters)
+            using var ended = new PlayerStatScope(conn, fresh: true);
+            await Send(remote, stream, ciphers, [], "0x01c2 Flicker Strike buff ends", atGate: () =>
             {
-                if (conn.Closed || conn.LeavingArea || conn.RageRetired || speed.Token != token || speed.Buff == 0) return null;
-                var bytes = new List<byte>(InstanceEntities.RemoveBuff(PlayerId, speed.Buff));
-                speed.Buff = 0;
-                speed.Percent = 0;
-                RecomputePoolsAndSpeed(conn);
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                return [.. bytes];
-            }
-        }));
+                lock (conn.Monsters)
+                {
+                    if (conn.Closed || conn.LeavingArea || conn.RageRetired || speed.Token != token || speed.Buff == 0) return null;
+                    var bytes = new List<byte>(InstanceEntities.RemoveBuff(PlayerId, speed.Buff));
+                    speed.Buff = 0;
+                    speed.Percent = 0;
+                    RecomputePoolsAndSpeed(conn);
+                    bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                    return [.. bytes];
+                }
+            });
+        });
     }
 }
