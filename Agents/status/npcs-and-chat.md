@@ -110,7 +110,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Party followers use ordinary player combat: compatible linked gems, connected passive builds, hostile targeting,
   damage, resurrection and persisted kill/gem experience, shared for melee, projectile and owned kills.
   Observers receive earned experience, level stats and the default level-up flash; active-party reload retains earned XP.
-  The native party-menu kick removes any selected bot.
+  The native party-menu kick removes any selected bot; `/botinvite <name>` and `/botleave` do the invite and the leave
+  from chat, and an invite also matches a bot standing in the player's town that has not been published to them yet
+  (a module reload clears that flag until the bot's next update).
   Followers stand calmly within 60 cells of an idle leader, with rare short adjustments, and enter on clear cells ahead of the entrance.
   Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
   Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.

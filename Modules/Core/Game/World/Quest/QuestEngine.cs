@@ -207,13 +207,30 @@ static partial class Game
     // ResistancePenalty's (Player/Player.cs), so their flags are left out here.
     internal static Dictionary<uint, int> WithQuestStats(ClientState conn, Dictionary<uint, int> sources)
     {
-        var rewards = QuestStaticRewards.Default.Value.Stats(conn.QuestFlagsSnapshot().Except(ResistancePenaltyAct5).Except(ResistancePenaltyAct10));
+        IReadOnlyDictionary<string, int> rewards;
+        lock (conn.Monsters)
+        {
+            var slot = QuestStatCaches.GetOrCreateValue(conn);
+            if (slot.Flags is null || !slot.Flags.SetEquals(conn.QuestFlags))
+            {
+                slot.Flags = [.. conn.QuestFlags];
+                slot.Stats = QuestStaticRewards.Default.Value.Stats(slot.Flags.Except(ResistancePenaltyAct5).Except(ResistancePenaltyAct10));
+            }
+            rewards = slot.Stats;
+        }
         if (rewards.Count == 0) return sources;
         var stats = new Dictionary<uint, int>(sources);
         foreach (var (stat, value) in rewards)
             if (Stats.Key(stat) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
     }
+
+    sealed class QuestStatCache
+    {
+        public HashSet<string>? Flags;
+        public IReadOnlyDictionary<string, int> Stats = new Dictionary<string, int>();
+    }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, QuestStatCache> QuestStatCaches = new();
 
     // Whether a flag change moves QuestStaticRewards' permanent stats (the pools and the panel follow).
     internal static bool ChangesQuestStats(IEnumerable<string> changed) =>

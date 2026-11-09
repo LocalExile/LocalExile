@@ -19,6 +19,8 @@ static partial class Game
 
     internal static SupportedGem SupportedSkillAt(ClientState conn, ushort skillId, GemRequirementSnapshot? requirements)
     {
+        using var rawSources = new GemSourceScope(conn);
+        rawSources.Enter();
         string name = CharacterName(conn);
         var equipment = requirements?.Equipment ?? ItemsOf(conn).EquipmentSnapshot();
         var places = GemRequirementSnapshot.PlacesIn(equipment);
@@ -90,15 +92,17 @@ static partial class Game
                     : own.GetValueOrDefault(key) + value;
             }
         // Machinations: its "per Keystone" stats count the character's allocated keystones. The chaos gain feeds the
-        // plain stat the damage conversion reads; the cost increase has no consumer yet (costs read player stats only).
-        int keystones = KeystoneCount(conn);
+        // plain stats read by damage conversion and resource costs, scoped to this supported skill.
+        int? keystones = null;
         foreach (string stat in new[] { "skill_cost_+%_per_keystone", "physical_damage_%_to_add_as_chaos_per_keystone" })
             if (Stats.Key(stat) is uint perKey && own.TryGetValue(perKey, out int per))
             {
-                own[perKey] = per * keystones;
+                own[perKey] = per * (keystones ??= KeystoneCount(conn));
                 if (stat == "physical_damage_%_to_add_as_chaos_per_keystone" && own[perKey] != 0
                     && Stats.Key("physical_damage_%_to_add_as_chaos") is uint plain)
                     own[plain] = own.GetValueOrDefault(plain) + own[perKey];
+                if (stat == "skill_cost_+%_per_keystone" && Stats.Key("base_cost_+%") is uint costKey)
+                    own[costKey] = own.GetValueOrDefault(costKey) + own[perKey];
             }
         double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
         foreach (string stat in new[] { "mana_cost", "base_mana_cost", "mana_cost_per_minute", "base_mana_cost_per_minute", "base_rage_cost", "total_base_rage_cost" })
@@ -157,7 +161,7 @@ static partial class Game
                 ? ArcaneMight.Combine(key, result.GetValueOrDefault(key), value) : result.GetValueOrDefault(key) + value;
         }
         if (Stats.Key("mana_cost") is uint mana && own.TryGetValue(mana, out int baseCost))
-            result[mana] = ManaRecoveryRules.Cost(baseCost, name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0);
+            result[mana] = ManaRecoveryRules.Cost(baseCost, name => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0);
         return result;
     }
 
@@ -271,9 +275,7 @@ static partial class Game
             stats[frenzyBucket] = stats.GetValueOrDefault(frenzyBucket) + skillPerFrenzy * frenzy;
         }
         // Close Combat's Combat Rush: more Attack Speed for a travel skill it does not support.
-        if (conn.CombatRushUntil > conn.Clock.Elapsed.TotalSeconds && SkillsFor(conn).IsTravel(gem.Effect)
-            && !gem.Supports.Any(s => s.Effect.Id == "SupportCloseCombat"))
-            more *= Math.Max(.01, 1 + conn.CombatRushAttackSpeed / 100.0);
+        more *= CombatRushMore(conn, skillId, gem, conn.Clock.Elapsed.TotalSeconds);
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
         // already part of this factor. Do not apply the same GEPL value again.
         int baseSpeed = offHand is null ? WeaponFor(conn).IncreasedAttackSpeed(stats)
@@ -303,7 +305,7 @@ static partial class Game
     }
 
     // Close Combat: a supported melee hit grants Combat Rush, which speeds up travel skills the support does not
-    // support. The buff ends at its listed deadline (the travel skill that uses it does not end it early here).
+    // support. A paid travel use consumes it, retaining the speed only for that use's action.
     internal static void CombatRushOnHit(ClientState conn, IReadOnlyDictionary<uint, int>? skill, double now)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
@@ -313,6 +315,23 @@ static partial class Game
         if (milliseconds <= 0 || speed <= 0) return;
         conn.CombatRushUntil = Math.Max(conn.CombatRushUntil, now + milliseconds / 1000.0);
         conn.CombatRushAttackSpeed = Math.Max(conn.CombatRushAttackSpeed, speed);
+    }
+
+    internal static double CombatRushMore(ClientState conn, ushort skillId, SupportedGem gem, double now)
+    {
+        if (!SkillsFor(conn).IsTravel(gem.Effect) || gem.Supports.Any(s => s.Effect.Id == "SupportCloseCombat")) return 1;
+        int speed = conn.CombatRushUse is { } use && use.Action == conn.ActionCount && use.Skill == skillId
+            ? use.Speed : conn.CombatRushUntil > now ? conn.CombatRushAttackSpeed : 0;
+        return Math.Max(.01, 1 + speed / 100.0);
+    }
+
+    internal static void ConsumeCombatRush(ClientState conn, ushort skillId, SupportedGem gem, double now)
+    {
+        if (!SkillsFor(conn).IsTravel(gem.Effect) || conn.CombatRushUntil <= now) return;
+        conn.CombatRushUse = (conn.ActionCount, skillId,
+            gem.Supports.Any(s => s.Effect.Id == "SupportCloseCombat") ? 0 : conn.CombatRushAttackSpeed);
+        conn.CombatRushUntil = 0;
+        conn.CombatRushAttackSpeed = 0;
     }
 
     internal static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area)

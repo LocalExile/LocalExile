@@ -369,7 +369,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>A GrantedEffects row's Id, or null.</summary>
     public string? EffectId(int effectRow) =>
-        _tables.Value?.EffectRows.FirstOrDefault(kv => kv.Value.Row == effectRow).Key;
+        _tables.Value?.EffectIds.GetValueOrDefault(effectRow);
 
     /// <summary>A GrantedEffectsPerLevel row's GrantedEffects row and level, or null.</summary>
     public (int Effect, int Level)? EffectsPerLevel(int row) =>
@@ -696,7 +696,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public (string Id, int Speed)? ProjectileFor(int effectRow)
     {
         if (_tables.Value is not { } t) return null;
-        string? effect = t.EffectRows.FirstOrDefault(kv => kv.Value.Row == effectRow).Key;
+        string? effect = t.EffectIds.GetValueOrDefault(effectRow);
         if (effect is null) return null;
         foreach (string id in ProjectileCandidates(effect))
             if (_projectiles.Value.TryGetValue(id, out int speed)) return (id, speed);
@@ -1325,6 +1325,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
         List<int> ManaPerMinute, List<int> ManaPercentPerMinute)
     {
+        public FrozenDictionary<int, string> EffectIds { get; } = EffectRows
+            .GroupBy(p => p.Value.Row).ToFrozenDictionary(g => g.Key, g => g.First().Key);
+
         // GemLevelReqs by stat set: every gem's requirement check (twice per linked gem per skill build) scanned the whole
         // table before.
         Dictionary<int, (int GemLevel, int PlayerLevelReq)[]>? _levelReqsBySet;
