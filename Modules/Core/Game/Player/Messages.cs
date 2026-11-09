@@ -273,6 +273,7 @@ static partial class Game
                     await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, flickerDestination.Landing.X, flickerDestination.Landing.Y),
                         $"0x01b7 {gem.Name} to ({flickerDestination.Landing.X}, {flickerDestination.Landing.Y}) for monster 0x{flickerDestination.Id:x} "
                         + $"at ({flickerDestination.At.X}, {flickerDestination.At.Y}) (t={at:0.000})");
+                if (flicker) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
                 // Flicker Strike strikes from where it lands, at the monster it went to (or the point, when none was in range).
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
                 if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, sequence: use.Slot,

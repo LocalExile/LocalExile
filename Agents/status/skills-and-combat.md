@@ -13,7 +13,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `MeleeAreaCentre.cs`, `AreaSkillHit`. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Flicker Strike (live 2026-11-09): the server teleports the player (S→C 0x1b7), which the client's action never does,
   to the clicked monster in range or else the one nearest the aim; with none in range it strikes in place.
-  Its 10% attack speed per Frenzy Charge counts.
+  Its 10% attack speed per Frenzy Charge counts, and each use gives its buff (20% movement speed for the skill's 3 s).
   Code: `FlickerStrike.cs`. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Cooldown bypass (live 2026-11-09: Flicker Strike with Frenzy Charges): the skill record carries GEPL
   `CooldownBypassType`, and a use during the cooldown spends a charge above the minimum.
@@ -1718,8 +1718,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   surface-height model, so a projectile on the hideout waypoint platform spawns at the terrain height below it.
   Tracked in issue #182.
 - Spirit of Utula's Leadership and Rakiata's Mark-specific trigger still need their own chieftain executors.
-- Flicker Strike's buff (`flicker_strike_buff_movement_speed_+%`, 20% for 3 s) is not given, and where it lands beside
-  the monster is the server's guess (its cell): the client leaves both to the server.
+- Where Flicker Strike lands beside the monster is the server's guess (its cell): the client leaves it to the server.
+  Its buff's movement speed does not scale with increased buff effect.
 - Holy Sweep's hammers deal no damage: the client draws them on the hits, but the server has no hammerfall hits
   (`holy_sweep_number_of_holy_bolts_to_create`, the 12-cell secondary area, `holy_sweep_hammerfall_damage_+%_final`).
 - Effects that should be attached to bones (Righteous Fire's orbs, MiscAnimated RighteousFireOrb) are not sent;

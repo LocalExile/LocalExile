@@ -1684,6 +1684,8 @@ the player less its size is within 40 cells × (1 + `flicker_strike_teleport_ran
 it strikes in place. A predictive client's 0x1ab echo snaps only at 92+ cells, so the Gateway sends S→C 0x1b7 to
 the landing (`FlickerStrike`); the action still keeps the use's sequence for the camera's smoothing (+0x11d0).
 Where GGG lands the player beside the target is not on the client; the Gateway uses the target's cell.
+Its buff (BuffDefinitions 1344 `flicker_strike_speed_boost`, `base_movement_velocity_+%`) is the server's too:
+each use gives it for the skill's duration, and its bonus is in the movement speed the Gateway sends.
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
