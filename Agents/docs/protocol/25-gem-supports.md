@@ -146,7 +146,9 @@ monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physic
 factors; Power Charge on Critical adds its more damage per power charge; Volatility scales the attack's minimum and
 maximum damage (`Volatility.cs`); Combustion's `ignites_apply_fire_resistance_+` rides on the ignite as a fire Exposure
 for its duration; Item Quantity's `base_killed_monster_dropped_item_quantity_+%` multiplies the loot of the last hit's
-kill (`ItemQuantityFactor`, a damage-over-time kill keeps no skill attribution); Iron Grip's `keystone_strong_bowman`
+kill (`ItemQuantityFactor`) and Item Rarity's `base_killed_monster_dropped_item_rarity_+%` raises that kill's rarity
+chances (`IncreasedItemRarity`); both also fill the selected skill's panel rows
+(`display_skill_increased_item_quantity_+%`/`..._rarity_+%`); a damage-over-time kill keeps no skill attribution; Iron Grip's `keystone_strong_bowman`
 adds Strength's damage bonus to projectile attack physical damage and Iron Will's `strong_casting` to spell damage
 (`DamageStats.StrengthDamageBonus`). Immolate's added fire against burning enemies, Bloodthirst's added physical from
 maximum life on low life, Bonechill's cold damage taken equal to the chill, and Coursing Current's equivalent

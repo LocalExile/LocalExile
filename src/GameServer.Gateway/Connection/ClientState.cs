@@ -241,6 +241,8 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public double ExcommunicatedUntil = double.NegativeInfinity;
     // "Killed Enemies drop X% increased Items" from the skill of the last player hit (Item Quantity Support).
     public int KilledWithItemQuantityPct;
+    // The same kill's increased rarity of dropped items from the skill of the last player hit (Item Rarity Support).
+    public int KilledWithItemRarityPct;
     // Blinded by his hits until when, one more source of his Blind (Game.Blinded), shown with its own blinded buff.
     public double BlindedUntil = double.NegativeInfinity, BlindShownUntil;
     public ushort BlindBuff;

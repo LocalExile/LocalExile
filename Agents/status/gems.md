@@ -85,8 +85,8 @@ Nothing yet.
   Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
   Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
-  Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Iron Grip and
-  Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
+  Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
+  Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
   Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Devour, Sacrifice, Spellblade, Hallow and
   Excommunicate apply too ([25](../docs/protocol/25-gem-supports.md)).
   Arcane Surge tracks each spell's mana spent and grants its buff; Inspiration gains charges on mana spent; Controlled

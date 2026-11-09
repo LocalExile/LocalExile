@@ -201,9 +201,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
 - Loot: dying monsters drop currency, gems, flasks and equipment around the corpse, rolled in stages like the game's
   with our own numbers: how many (by monster rarity, times item quantity: the league's, a mod's, the player's
-  increased quantity, no cap), the kind, for equipment the slot (armour often, jewellery seldom) and then any base the
-  level allows, and last the rarity: unique (one of that base's uniques, else rare), rare, magic, each chance raised
-  by item rarity. Bases tagged not_for_sale (unique-only bases like "Ring", Stygian Vise, Heist, Ritual, Expedition
+  increased quantity including an Item Quantity-supported last hit, no cap), the kind, for equipment the slot (armour
+  often, jewellery seldom) and then any base the level allows, and last the rarity: unique (one of that base's uniques,
+  else rare), rare, magic, each chance raised by item rarity from the player and an Item Rarity-supported last hit. Bases
+  tagged not_for_sale (unique-only bases like "Ring", Stygian Vise, Heist, Ritual, Expedition
   bases) are left out, the atlas bases kept. Currency runs from Scrolls of Wisdom down to the Mirror, each from its
   DropLevel. A unique's weight is the inverse of its disenchant value (`VillageUniqueDisenchantValues`, Ruthless has its
   own column), so a Mageblood is about 840 times as rare as a Wanderlust, and a base whose uniques add up to less than 1
