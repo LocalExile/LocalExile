@@ -57,6 +57,7 @@ public class IgniteProliferationTests
         Assert.Equal(150, near.Ignites.Advance(4.5, 1));
         Assert.False(near.Ignites.Burning);
 
+        // An intact corpse's copy holds; once the corpse shatters its aura retires and the copy ends at the next tick.
         var (shattered, close) = (At(200), At(210));
         conn.Monsters[3] = shattered;
         conn.Monsters[4] = close;
@@ -64,8 +65,12 @@ public class IgniteProliferationTests
         shattered.Dead = true;
         shattered.Life = 0;
         shattered.Ignites.Clear();
-        shattered.Ailments.Shatter();
         Game.MonsterAilmentChangesLocked(conn, now: 4.75);
+        Assert.True(close.Ignites.Burning);
+        shattered.Ailments.Shatter();
+        Game.MonsterAilmentChangesLocked(conn, now: 5);
+        Assert.Empty(shattered.Ignites.Spreads(5));
+        Assert.Equal(25, close.Ignites.Advance(6, 1));
         Assert.False(close.Ignites.Burning);
     }
 }

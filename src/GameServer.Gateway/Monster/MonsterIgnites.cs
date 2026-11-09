@@ -165,6 +165,9 @@ sealed class MonsterIgnites
         carry = 0;
     }
 
+    /// <summary>Drops a corpse's retained spreading ignites (shattered or consumed: nothing left to spread from).</summary>
+    public void RetireCorpse() => corpse = [];
+
     /// <summary>Its own live ignites that spread (a corpse's included): each an aura of its own radius in cells.</summary>
     public IEnumerable<(double DamagePerSecond, double Until, int Radius)> Spreads(double now) =>
         (active.Count > 0 ? active : corpse).Where(i => i.Spread > 0 && !i.Proliferated && i.From <= now && now < i.Until)

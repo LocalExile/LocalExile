@@ -1640,7 +1640,8 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   one (corpses included, `MonsterIgnites.Spreads`), burns with the strongest at its damage per second until it ends
   (`MonsterIgnites.Proliferated`); the copy competes with its own ignites, does not spread and is not a new ignite.
   A monster that starts burning from it gets the ignited buff (0x1c1 row 0). A killing hit's ignite is not put on
-  the corpse. A shattered monster spreads nothing.
+  the corpse. A shattered or consumed corpse spreads nothing: its retained ignites retire
+  (`MonsterIgnites.RetireCorpse`) and the copies it gave end at the next AI tick; an intact corpse keeps spreading.
 
 Presentation runs on the AI tick (`MonsterAilmentChangesLocked`), so with `/ai off` the server still applies the
 effects but sends nothing, and nothing spreads. A kind is re-sent only when its strongest magnitude changes: S→C
