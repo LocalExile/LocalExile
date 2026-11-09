@@ -82,14 +82,14 @@ public sealed partial class DelveModule
         foreach (uint blocker in state.Blockers)
         {
             world.RemoveBlocker(blocker);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(blocker), null);
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, blocker, null);
         }
         state.Blockers.Clear();
         var start = trip.At(0).At;
         state.CrawlerCell = start;
         foreach (uint id in new[] { state.Crawler }.Concat(state.Attachments))
-            await Send(remote, stream, ciphers, InstanceProtocol.Teleport(id, start.X, start.Y, 0x7fffffff), "Place Crawler at rail start");
-        await Send(remote, stream, ciphers, InstanceProtocol.Orientation(state.Crawler, trip.Heading(0), locked: true), null);
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.Teleport(id, start.X, start.Y, 0x7fffffff), "Place Crawler at rail start");
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.Orientation(state.Crawler, trip.Heading(0), locked: true), null);
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceNpcs.DelveMapUi, 0), "Close chart for Delve departure");
         Console.WriteLine($"[gateway] {remote} Delve trip armed (smooth motion + trail): {rail.Points.Count} rail points, {trip.Length:0.0} cells, cost {cost}, monster level {level}");
         _ = RunTrip(module, player, state, trip, level, rail.Encounters);
@@ -135,7 +135,7 @@ public sealed partial class DelveModule
                 if (moving != advance)
                 {
                     moving = advance;
-                    await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(state.Crawler, 0, advance ? 1u : 0u, 1), null, valid);
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.AnimationUpdate(state.Crawler, 0, advance ? 1u : 0u, 1), null, valid);
                 }
                 if (!advance) continue;
                 ushort before = 0, after = 0;
@@ -159,18 +159,18 @@ public sealed partial class DelveModule
                         $"Delve sulphite {before}->{after}; route {trip.Travelled:0.0}/{trip.Length:0.0}; Crawler {target}", valid);
                 // Positioned uses atan2(dx,-dy). Follow the current rail tangent without a delayed turn.
                 heading = trip.Heading(trip.Travelled);
-                await Send(remote, stream, ciphers, InstanceProtocol.Orientation(state.Crawler, heading, locked: true), null, valid);
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.Orientation(state.Crawler, heading, locked: true), null, valid);
                 // Bone-attached parts follow the body; separate MoveTo packets can fight their attachment transform.
-                await Send(remote, stream, ciphers, InstanceProtocol.MoveTo(state.Crawler, target.X, target.Y, .12f, 0x7fffffff), null, valid);
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.MoveTo(state.Crawler, target.X, target.Y, .12f, 0x7fffffff), null, valid);
                 while (nextLamp <= trip.Travelled)
                 {
                     var lampAt = trip.At(nextLamp).At;
                     uint lamp;
                     lock (conn.Monsters) lamp = conn.NextObjectId++;
-                    await Send(remote, stream, ciphers, InstanceEntities.CreateObject(lamp,
+                    await global::Game.SendWorldCreate(remote, stream, ciphers, conn, lamp, InstanceEntities.CreateObject(lamp,
                         InstanceEntities.ObjectTypeHash(DelveTrailLightObject.MetadataPath),
                         new DelveTrailLightObject(lampAt.X, lampAt.Y, previousLamp).Blob()), $"Delve trail lamp {lamp} at {lampAt}, link {previousLamp}", valid);
-                    await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(lamp), null, valid);
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, lamp, InstanceProtocol.EnterWakeZone(lamp), null, valid);
                     previousLamp = lamp; nextLamp += 30;
                 }
                 // Reveal authored room spawn points as the Crawler lights them, once per journey.
@@ -208,7 +208,7 @@ public sealed partial class DelveModule
                 {
                     await spawnWork;
                     await SpawnEncounters(spawnQueue);
-                    await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1), "Delve Crawler arrived", valid);
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1), "Delve Crawler arrived", valid);
                     Console.WriteLine($"[gateway] {remote} Delve trip finished at {target}, sulphite {trip.Charged}/{trip.Cost}");
                     await BlockCrawler(module, player, state, target.X, target.Y, heading);
                     // Arrival alone is not victory: finish the route's own encounter before opening its reward.
@@ -235,7 +235,7 @@ public sealed partial class DelveModule
         {
             // Keep the terminal journey on the connection so duplicate requests cannot charge the trip twice.
             if (!conn.Closed && !conn.LeavingArea)
-                try { await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1), null); }
+                try { await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1), null); }
                 catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         }
     }
@@ -265,9 +265,9 @@ public sealed partial class DelveModule
         }
         foreach (var (id, ground) in groundItems)
         {
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
                 InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)), "Delve completion reward", valid);
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null, valid);
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null, valid);
         }
         Console.WriteLine($"[gateway] {remote} Delve depth {trip.Depth} completed: {groundItems.Count} items, +{reward.QuantityPercent}% quantity, +{reward.Rarity}% rarity");
     }

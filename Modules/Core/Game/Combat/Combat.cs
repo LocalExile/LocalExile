@@ -353,7 +353,7 @@ static partial class Game
             return;
         }
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
-        byte[] actionBytes = [.. InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)];
+        byte[][] actionRecords = [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)];
         string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s";
         if (ordinaryProjectile is { } projectileId)
         {
@@ -361,9 +361,9 @@ static partial class Game
             // start, as the melee hit is); the echo follows through the gate.
             await LaunchOrdinaryRanged(remote, stream, ciphers, conn, target, duration, action, projectileEpoch, projectileId, use.Sequence,
                 criticalRoll, swingAt: started ? begun : null);
-            if (!started && !await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionBytes, actionLog, action, projectileEpoch)) return;
+            if (!started && !await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionRecords, actionLog, action, projectileEpoch)) return;
         }
-        else if (!started) await Send(remote, stream, ciphers, actionBytes, actionLog, still: () => PlayerActionCurrent(conn, action));
+        else if (!started) await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => actionRecords, actionLog, still: () => PlayerActionCurrent(conn, action));
         if (m.Life == 0) return;
         // A ranged target is an aim, not a reserved hit: the released arrow/bolt owns collision and damage.
         if (ranged) return;
@@ -379,7 +379,7 @@ static partial class Game
             (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, use.SkillId, attackEffect, ownPenetration ?? new Dictionary<uint, int>(), stop, target,
                 use.Sequence, use.TargetId, ProjectileWorldTime(conn));
         if (memoryBuff is not null)
-            await Send(remote, stream, ciphers, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{use.SkillId:x4}");
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{use.SkillId:x4}");
         // The hit lands at the attack animation's contact keyframe (data/animation-contacts.json), not a fixed half: the
         // client stretches the clip to the attack time, so the blood and the weapon impact sound line up with the swing.
         double contact = DefaultAttackContactDelay(conn, duration, here, stop, departedAt, arrive, use.Sequence);
@@ -503,7 +503,7 @@ static partial class Game
             // At 0 the client's Life tick (0x141e6a190) stops notifying its listeners, so the mini life bar would keep the last
             // value: hide it with the stat its listener watches (hide_mini_life_bar).
             if (life == 0)
-                await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(targetId, [(StatKeys.HideMiniLifeBar, 1)]),
+                await SendWorldRecord(remote, stream, ciphers, conn, targetId, InstanceEntities.StatsUpdate(targetId, [(StatKeys.HideMiniLifeBar, 1)]),
                     $"0x01b3 monster 0x{targetId:x} hide_mini_life_bar = 1");
             // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2).
             await SendFlinch(remote, stream, ciphers, conn, targetId, m, stun, log: true);
@@ -511,11 +511,10 @@ static partial class Game
             // blood, the weapon impact sound "bonk") and 0x1b1 stays authoritative on life. flags 0x4201 is the real server's
             // player-melee hit (bit 0 hit, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data, the angle drives
             // the directional blood.
-            await Send(remote, stream, ciphers,
-                InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId, flags: 0x4201, kind: 0x03,
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId, flags: 0x4201, kind: 0x03,
                     angle: HitAngle(target.X - stop.X, target.Y - stop.Y)),
                 $"0x01af player hit on monster 0x{targetId:x} (sequence 0x{use.Sequence:x4})");
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(targetId, life),
+            await SendWorldRecord(remote, stream, ciphers, conn, targetId, InstanceProtocol.LifeUpdate(targetId, life),
                 $"0x01b1 monster 0x{targetId:x} hit for {damage}{(critical ? " (critical)" : "")}" +
                 (resistance is { } note ? $", {note}" : "") +
                 (stored > 0 ? $", impale +{stored:0.#} ({impaleStacks} stack(s))" : "") +
@@ -615,8 +614,7 @@ static partial class Game
             if (started)
                 acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action));
-            else await Send(remote, stream, ciphers,
-                [.. InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)],
+            else await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)],
                 $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} on monster 0x{use.TargetId:x} ({m.Label}) from ({stop.X}, {stop.Y}) to ({target.X}, {target.Y}), flags 0x{use.Flags:x4} (t={conn.Clock.Elapsed.TotalSeconds:0.000})",
                 still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
@@ -653,8 +651,7 @@ static partial class Game
         bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect);
         if (spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim,
             use.TargetId, sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
-        await Send(remote, stream, ciphers,
-            [.. InstanceProtocol.ActionStarted(PlayerId, stand.X, stand.Y, aim.X, aim.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)],
+        await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => [InstanceProtocol.ActionStarted(PlayerId, stand.X, stand.Y, aim.X, aim.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)],
             $"0x01ab player skill 0x{use.SkillId:x4} cast on monster 0x{use.TargetId:x} ({m.Label}) from ({stand.X}, {stand.Y}) to ({aim.X}, {aim.Y}), flags 0x{use.Flags:x4} (t={castAt:0.000})",
             still: () => spellAcknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                 () => spellUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, castAction)));
@@ -898,7 +895,7 @@ static partial class Game
             true, () => { }, out var cooldownUse)) return;
         if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse))
         {
-            await Send(remote, stream, ciphers, [],
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [],
                 $"0x01ce player skill 0x{skillId:x4}: instant action (its use and cooldown)",
                 atGate: () =>
                 {
@@ -956,7 +953,7 @@ static partial class Game
         bool accepted = false;
         // Keep the raw aim: IceDash resolves it from the client's position when 0x1ce runs. Sending an already rounded
         // endpoint can normalize a short diagonal twice and move another cell. Resolve the server copy at this gate too.
-        await Send(remote, stream, ciphers, [],
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [],
             $"0x01ce player skill 0x{skillId:x4}: instant {(targetObjectId is uint id ? $"on 0x{id:x}" : $"location ({aim.X}, {aim.Y})")}, movement only", atGate: () =>
             {
                 using (ProjectileMutation(conn))
@@ -1396,7 +1393,7 @@ static partial class Game
                 (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, skillId, gem.Effect, skillStats, from, centre, sequence,
                     targetId, ProjectileWorldTime(conn));
         if (memoryBuff is not null)
-            await Send(remote, stream, ciphers, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}");
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}");
         // A channel's hits (Cyclone, C→S 0x197) land at once, where the player is. A swing that began before now
         // (swingAt) lands its contact after its start.
         if (swingAt is { } swung) delay -= conn.Clock.Elapsed.TotalSeconds - swung;
@@ -1791,11 +1788,11 @@ static partial class Game
         var (life, stageStarts) = hit;
         if (life == 0)
         {
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
                 !log ? null : $"0x01b3 monster 0x{id:x} hide_mini_life_bar = 1");
             if (m.Poisons.Buff is ushort pbuff)
             {
-                await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, pbuff), null);
+                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.RemoveBuff(id, pbuff), null);
                 m.Poisons.Buff = null;
             }
         }
@@ -1806,13 +1803,12 @@ static partial class Game
             double now = conn.Clock.Elapsed.TotalSeconds;
             var (px, py) = conn.Walk.Position(now);
             var (mx, my) = m.Walk.Position(now);
-            await Send(remote, stream, ciphers,
-                InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: 0x4201, kind: 0x03, code: hitCode, angle: HitAngle(mx - px, my - py)),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: 0x4201, kind: 0x03, code: hitCode, angle: HitAngle(mx - px, my - py)),
                 !log ? null : $"0x01af player hit on monster 0x{id:x} (skill, sequence 0x{sequence:x4})");
         }
         // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2), as in Attack.
         await SendFlinch(remote, stream, ciphers, conn, id, m, stun ?? new(damage), log);
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
             !log && life > 0 ? null : $"0x01b1 monster 0x{id:x} hit by {by} for {damage}, life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
         // One sweep's deaths (loot, experience, quests) wait until every monster of the sweep has its hit (AreaSkillHit).
         if (life == 0) { if (deaths is not null) deaths.Add((id, m)); else await MonsterKilled(remote, stream, ciphers, conn, id, m); }
@@ -1869,7 +1865,7 @@ static partial class Game
     }
 
     internal static Task SendPlayerHitRecovery(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        PlayerRecoveryIntent recovery) => Send(remote, stream, ciphers, [], "0x01d1 player TakeHit recovery", atGate: () =>
+        PlayerRecoveryIntent recovery) => SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x01d1 player TakeHit recovery", atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -1960,7 +1956,7 @@ static partial class Game
         if (index < 0) return;
         states = states.Set("boss_life_bar", 1).Set("aggro", 1);
         lock (conn.Monsters) m.States = states;
-        await Send(remote, stream, ciphers, InstanceEntities.StateMachineUpdate(id, (byte)index, states),
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StateMachineUpdate(id, (byte)index, states),
             $"0x02ba monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1");
     }
 
@@ -1971,7 +1967,7 @@ static partial class Game
     internal static void StopCorpseBlocking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
     {
         lock (conn.Monsters) conn.RetainCorpseBody(id, m, conn.LockstepFrame?.Start ?? ProjectileWorldTime(conn));
-        SendAfter(CorpseBlockDelaySeconds, () => Send(remote, stream, ciphers, [], $"0x02b0 corpse of 0x{id:x} stops blocking", atGate: () =>
+        SendAfter(CorpseBlockDelaySeconds, () => SendWorldRecord(remote, stream, ciphers, conn, id, [], $"0x02b0 corpse of 0x{id:x} stops blocking", atGate: () =>
         {
             using (ProjectileMutation(conn, phase: "send"))
             {
@@ -2096,9 +2092,9 @@ static partial class Game
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
+            await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
                 $"0x02b9 create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         }
     }
 }

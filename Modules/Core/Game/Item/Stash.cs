@@ -29,9 +29,9 @@ static partial class Game
         if (at is null || Environment.GetEnvironmentVariable("Game_STASH") == "0") return;
         uint id = conn.NextObjectId++;
         var stash = new StashObject(at.X, at.Y, at.Rotation);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(StashObject.MetadataPath), stash.Blob()),
+        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(StashObject.MetadataPath), stash.Blob()),
             $"0x02b9 create stash 0x{id:x} at ({at.X}, {at.Y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 stash 0x{id:x} enters wake zone");
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 stash 0x{id:x} enters wake zone");
         conn.StashObject = id;
         conn.StashAt = (at.X, at.Y);
         await RegisterStationaryCollision(remote, stream, ciphers, conn, id, StashObject.MetadataPath, at.X, at.Y, at.Rotation,
@@ -48,9 +48,9 @@ static partial class Game
         if (!conn.Ssf)
         {
             uint guild = conn.NextObjectId++;
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(guild, InstanceEntities.ObjectTypeHash(StashObject.GuildMetadataPath),
+            await SendWorldCreate(remote, stream, ciphers, conn, guild, InstanceEntities.CreateObject(guild, InstanceEntities.ObjectTypeHash(StashObject.GuildMetadataPath),
                 new StashObject(gx, gy, guildRotation).Blob()), $"0x02b9 create guild stash 0x{guild:x} at ({gx}, {gy})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(guild), null);
+            await SendWorldRecord(remote, stream, ciphers, conn, guild, InstanceProtocol.EnterWakeZone(guild), null);
             conn.GuildStashObject = guild;
             conn.GuildStashAt = (gx, gy);
             await RegisterStationaryCollision(remote, stream, ciphers, conn, guild, StashObject.GuildMetadataPath, gx, gy, guildRotation,

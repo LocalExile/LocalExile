@@ -200,8 +200,7 @@ static class AtlasFeature
         }
         if (leagueChanged)
         {
-            await Send(remote, stream, ciphers,
-                InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(conn.LeagueQuestFlags)),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(conn.LeagueQuestFlags)),
                 "0x02ba Atlas league flags");
             n++;
         }

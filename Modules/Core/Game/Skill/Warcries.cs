@@ -93,17 +93,17 @@ static partial class Game
             uint effect;
             lock (conn.Monsters) effect = conn.NextObjectId++;
             art.Add(effect);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()), $"0x02b9 create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb corpse 0x{id:x} ({label}) explodes (Deathrattle)");
+            await SendWorldRecord(remote, stream, ciphers, conn, effect, InstanceProtocol.EnterWakeZone(effect), null);
+            await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bb corpse 0x{id:x} ({label}) explodes (Deathrattle)");
         }
         if (art.Count > 0)
             _ = Task.Run(async () =>
             {
                 await Task.Delay(CorpseExplosionArtMs);
                 foreach (uint effect in art)
-                    if (conn.ProjectileActive(epoch)) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(effect), null);
+                    if (conn.ProjectileActive(epoch)) await Game.SendWorldRemoval(remote, stream, ciphers, conn, effect, null);
             });
         var deaths = new List<(uint Id, SpawnedMonster M)>();
         foreach (var (id, m, hit, damage) in hits)

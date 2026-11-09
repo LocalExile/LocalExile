@@ -144,7 +144,7 @@ static partial class Game
                     lock (conn.Monsters) projectileEpoch = conn.ProjectileEpoch;
                     // Release work must not block serial input dispatch: resume/move can invalidate a queued echo.
                     _ = ConfirmAndLaunchOrdinaryRanged(remote, stream, ciphers, conn,
-                        [.. InstanceProtocol.ActionStarted(PlayerId, shot.X, shot.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags), .. InstanceProtocol.ActionEnded(PlayerId)],
+                        [InstanceProtocol.ActionStarted(PlayerId, shot.X, shot.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags), InstanceProtocol.ActionEnded(PlayerId)],
                         $"0x01ab ranged attack ({ordinaryProjectile}) at ({use.X}, {use.Y}) from ({shot.X}, {shot.Y}) (t={at:0.000})",
                         (use.X, use.Y), duration, shot.Action, projectileEpoch, ordinaryProjectile, use.Slot, shot.CriticalRoll);
                     continue;
@@ -171,8 +171,7 @@ static partial class Game
                             CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
                             () => { at = Math.Max(at, ProjectileWorldTime(conn)); walkAction = Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(use.X, use.Y, at); conn.ChannelSkill = 0; },
                             out var approachTicket, reserve: false, requestedAt: at)) continue;
-                        await Send(remote, stream, ciphers,
-                            InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
+                        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
                             $"0x01ab {gem.Name}: attack-move to ({use.X}, {use.Y}) from ({here.X}, {here.Y}) (t={at:0.000})",
                             still: () => approachTicket?.Current(conn) ?? PlayerActionCurrent(conn, walkAction));
                         // The client spends the attack skill's mana when it starts a use, even a use that only walks (probe
@@ -269,12 +268,12 @@ static partial class Game
                 if (!PlayerActionCurrent(conn, action)) continue;
                 string mode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";
                 if (mode == "teleport")
-                    await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, use.X, use.Y),
+                    await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, use.X, use.Y),
                         $"0x01b7 teleport to ({use.X}, {use.Y})", still: () => PlayerActionCurrent(conn, action));
                 else if (mode == "move")
                 {
                     float speed = float.TryParse(Environment.GetEnvironmentVariable("Game_MOVE_SPEED"), System.Globalization.CultureInfo.InvariantCulture, out var sp) ? sp : 37f;
-                    await Send(remote, stream, ciphers, InstanceProtocol.MoveTo(PlayerId, use.X, use.Y, speed),
+                    await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.MoveTo(PlayerId, use.X, use.Y, speed),
                         $"0x01ba move to ({use.X}, {use.Y}) speed {speed}", still: () => PlayerActionCurrent(conn, action));
                 }
                 }

@@ -168,17 +168,17 @@ static partial class Game
             }
         }
         // GGG ends a channel with 0x1ae on the release (35 ms later).
-        if (ended != 0) await Send(remote, stream, ciphers, InstanceProtocol.ChannelFinished(PlayerId, ended), $"0x01ae channel 0x{ended:x4} ended");
+        if (ended != 0) await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ChannelFinished(PlayerId, ended), $"0x01ae channel 0x{ended:x4} ended");
         if (sequence == 0) return;
         if (skill) StartLockstepSkill(remote, stream, ciphers, conn, sequence, at);
         else if (use is not null)
         {
             // The client walks up on this 0x1ab, where a predictive client starts by itself; the server's use goes on as
             // ever from here, its own walk included.
-            await Send(remote, stream, ciphers, LockstepObjectStart(from, use, sequence), $"0x01ab lockstep use of object 0x{use.TargetId:x} from ({from.X}, {from.Y})");
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, LockstepObjectStart(from, use, sequence), $"0x01ab lockstep use of object 0x{use.TargetId:x} from ({from.X}, {from.Y})");
             _ = OnUseObject(remote, stream, ciphers, conn, use with { Sequence = sequence, Started = true }, at);
         }
-        else await Send(remote, stream, ciphers, LockstepActionStart(conn, from, target, sequence),
+        else await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, LockstepActionStart(conn, from, target, sequence),
             $"0x01ab lockstep walk from ({from.X}, {from.Y}) to ({target.X}, {target.Y})",
             still: () => PlayerActionCurrent(conn, action));
     }
@@ -216,7 +216,7 @@ static partial class Game
             conn.LockstepAttack = attack = new(action, use.TargetId, m, WalkUpRange(weapon), m.StopRange - 2, precision,
                 () => LockstepAttackCutIn(conn, use.SkillId, use.Sequence) + conn.LockstepActionTail);
         }
-        await Send(remote, stream, ciphers, [], $"0x01ab lockstep {what} 0x{use.SkillId:x4} on 0x{use.TargetId:x}",
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], $"0x01ab lockstep {what} 0x{use.SkillId:x4} on 0x{use.TargetId:x}",
             atGate: () =>
             {
                 using (ProjectileMutation(conn, phase: "send")) return LockstepAttackAtGate(remote, conn, attack, use);
@@ -293,7 +293,7 @@ static partial class Game
         try
         {
             await EndGracePeriod(remote, stream, ciphers, conn, action: true);
-            await Send(remote, stream, ciphers, [], $"0x01ab lockstep ground attack 0x{skill:x4}", atGate: () =>
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], $"0x01ab lockstep ground attack 0x{skill:x4}", atGate: () =>
             {
                 using (ProjectileMutation(conn, phase: "send"))
                 {
@@ -429,7 +429,7 @@ static partial class Game
         lock (conn.Monsters)
             channel = conn.LockstepSkill.Channel is { } sequence ? (sequence, conn.LockstepSkill.Aim) : null;
         return channel is { } c
-            ? Send(remote, stream, ciphers, InstanceProtocol.ActionTarget(PlayerId, c.Sequence, c.Aim.X, c.Aim.Y), $"0x01ad channel aims at ({c.Aim.X}, {c.Aim.Y})")
+            ? SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionTarget(PlayerId, c.Sequence, c.Aim.X, c.Aim.Y), $"0x01ad channel aims at ({c.Aim.X}, {c.Aim.Y})")
             : Task.CompletedTask;
     }
 }

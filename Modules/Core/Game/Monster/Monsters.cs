@@ -247,28 +247,28 @@ static partial class Game
             $"0x02b9 create {rarity}{(friendly ? " friendly" : "")}{(waits ? $" {emerge.ToString().ToLowerInvariant()}" : "")} monster 0x{id:x} {variety}{(name is null ? "" : $" \"{name}\"")} type=0x{type:x8} at ({x}, {y}), life {life}, speed {walkSpeed:0.##}{(speedRoll == 0 ? "" : $" (roll {speedRoll:+0;-0}%)")}, components {string.Join(", ", variety.ComponentsOrBase)}";
         if (owned is not null)
         {
-            await Send(remote, stream, ciphers, [], createLog, atGate: () =>
+            await SendWorldCreate(conn, id, () =>
             {
                 using (ProjectileMutation(conn))
                 {
                     if (!CurrentGameWork || conn.Closed || conn.LeavingArea || ownedCurrent is not null && !ownedCurrent()) return null;
                     if (ownedAdmission is not null && !ownedAdmission()) return null;
                     AddMonsterLocked(); admitted = true;
-                    return [.. create, .. InstanceProtocol.EnterWakeZone(id)];
+                    return create;
                 }
-            });
+            }, createLog, wake: true, transport: (remote, stream, ciphers));
             if (!admitted) return 0;
         }
         else
         {
-            await Send(remote, stream, ciphers, create, createLog);
+            if (!await SendWorldCreate(conn, id, () => create, createLog, transport: (remote, stream, ciphers))) return 0;
             // A boss far from the player (Dominus at the top of the Sceptre, created at the area entry) stays out of the
             // wake zone until the player comes near: KeepWakeZone wakes it there. Woken at creation, the client put its far
             // copy to sleep on its own while the server still had it awake, and the boss life bar (0x2ba boss_life_bar) for
             // it crashed the client at 0x14012946a (an Actor lookup on an object without components, live 2026-11-05).
             bool farBoss = variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
             if (farBoss) lock (conn.Monsters) conn.AsleepMonsters.Add(id);
-            else await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), !log ? null : $"0x01a9 monster 0x{id:x} enters wake zone");
+            else await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), !log ? null : $"0x01a9 monster 0x{id:x} enters wake zone");
             if (farBoss && log) Console.WriteLine($"[gateway] {remote} boss 0x{id:x} {variety} created asleep: far from the player");
         }
         // A magic or rare monster's glow is a buff of its own (MonsterRarityBuffs.cs), cancelled by the client at death.
@@ -276,7 +276,7 @@ static partial class Game
         {
             ushort buff;
             lock (conn.Monsters) buff = conn.NextBuff++;
-            await Send(remote, stream, ciphers, InstanceEntities.AddBuff(id, buff, glow), !log ? null :
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.AddBuff(id, buff, glow), !log ? null :
                 $"0x01c1 monster 0x{id:x} buff {MonsterRarityBuffs.Id(glow)} (BuffDefinitions row {glow})");
         }
         if (log && mods.Affixes.Any()) Console.WriteLine($"[gateway] {remote} monster 0x{id:x} mods: {MonsterModRolls.Value.Describe(mods)}" +
@@ -317,7 +317,7 @@ static partial class Game
         if (waits) WatchBuried(remote, stream, ciphers, conn);
         // A kept monster that was hit: its life as a hit sets it (0x1b1).
         if (damagedLife < life)
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, damagedLife.Value), !log ? null : $"0x01b1 monster 0x{id:x} life {damagedLife}/{life}");
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, damagedLife.Value), !log ? null : $"0x01b1 monster 0x{id:x} life {damagedLife}/{life}");
         if (!friendly && KingInMists.IsBoss(variety)) KingInMists.Begin(remote, stream, ciphers, conn, id);
         return id;
     }
@@ -914,7 +914,7 @@ static partial class Game
         const ushort Move = 0x2909;
         foreach (var (packet, log) in plan.Ailments) await Send(remote, stream, ciphers, packet, log);
         foreach (uint id in plan.EndedActions)
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
         // A chase is re-ordered every few ticks: its lines only with Game_TRACE=ai (the packet history keeps them).
         foreach (var (id, m, action, from, to, why) in plan.Moves)
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () => PlanMoveAtGate(conn, plan, id, m, action, from, to, why),
@@ -1029,9 +1029,9 @@ static partial class Game
         {
             lock (conn.Monsters) if (!MonsterPresent(conn, id, m) || !m.StageRunning) return;
             bool completed = false;
-            await Send(remote, stream, ciphers, [], null, atGate: () =>
+            await SendWorldRecords(remote, stream, ciphers, conn, id, () =>
             {
-                var bytes = AdvanceMonsterStage(conn, id, m, AreaTime(conn));
+                var bytes = AdvanceMonsterStageRecords(conn, id, m, AreaTime(conn));
                 completed = !m.StageRunning;
                 if (bytes is not null)
                     Console.WriteLine($"[gateway] {remote} => monster 0x{id:x} ({m.Label}) stage " +
@@ -1050,7 +1050,10 @@ static partial class Game
     }
 
     // Called only at the send gate; all one-shot state changes and their packets belong to the same guarded update.
-    internal static byte[]? AdvanceMonsterStage(ClientState conn, uint id, SpawnedMonster m, double now)
+    internal static byte[]? AdvanceMonsterStage(ClientState conn, uint id, SpawnedMonster m, double now) =>
+        AdvanceMonsterStageRecords(conn, id, m, now) is { } records ? [.. records.SelectMany(r => r)] : null;
+
+    internal static byte[][]? AdvanceMonsterStageRecords(ClientState conn, uint id, SpawnedMonster m, double now)
     {
         lock (conn.Monsters)
         {
@@ -1060,18 +1063,18 @@ static partial class Game
             if (double.IsNaN(m.StageEffectAt))
                 m.StageEffectAt = m.BusyUntil - stage.CastSeconds + stage.EffectSeconds(m.Variety is { } variety
                     ? SkillsFor(conn).MonsterContact(variety.Id, "Throw", 0xffff) : null);
-            var bytes = new List<byte>();
+            var bytes = new List<byte[]>();
             if (!m.StageEffectApplied && now >= m.StageEffectAt)
             {
                 if (m.Variety?.ComponentsOrBase.ToList().IndexOf("Transitionable") is int t and >= 0)
-                    bytes.AddRange(InstanceEntities.TransitionableUpdate(id, (byte)t, stage.TransitionTo));
-                bytes.AddRange(InstanceProtocol.LifeUpdate(id, m.MaxLife));
+                    bytes.Add(InstanceEntities.TransitionableUpdate(id, (byte)t, stage.TransitionTo));
+                bytes.Add(InstanceProtocol.LifeUpdate(id, m.MaxLife));
                 m.Life = m.MaxLife;
                 m.StageEffectApplied = true;
             }
             if (now >= m.BusyUntil)
             {
-                bytes.AddRange(InstanceProtocol.ActionEnded(id));
+                bytes.Add(InstanceProtocol.ActionEnded(id));
                 m.StageRunning = false;
             }
             return bytes.Count > 0 ? bytes.ToArray() : null;
@@ -1262,7 +1265,7 @@ static partial class Game
         while (MonsterActionCurrent(conn, id, m, action))
         {
             bool checkedAtGate = false, sent = false;
-            await Send(remote, stream, ciphers, [], log, atGate: () =>
+            await SendWorldRecord(remote, stream, ciphers, conn, id, [], log, atGate: () =>
             {
                 // The projectile runtime first, as in the AI pass: a lockstep order places its walk here, and a contact
                 // still pending before that would read the new walk's cells as the old walk's.
@@ -1309,7 +1312,7 @@ static partial class Game
                 if (!MonsterPresent(conn, id, m) || m.Invulnerable || m.HitAnimations is not { Count: > 0 }
                     || m.Effects.CannotBeStunned || HitReaction.Chance(stun, m.MaxLife) <= 0) return;
             bool checkedAtGate = false;
-            await Send(remote, stream, ciphers, [], null, atGate: () =>
+            await SendWorldRecord(remote, stream, ciphers, conn, id, [], null, atGate: () =>
             {
                 lock (conn.Monsters)
                 {
@@ -1812,9 +1815,9 @@ static partial class Game
         if (!CurrentGameWork) return;
         // At 0 the Life tick stops refreshing the overhead life bar (see Attack): hide it.
         if (hit.Life == 0)
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                 "0x01b3 player hide_mini_life_bar = 1");
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, hit.Life, conn.PlayerReservedLife),
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, hit.Life, conn.PlayerReservedLife),
             $"0x01b1 player hit by monster 0x{id:x} for {hit.Damage}{(hit.Critical ? " (critical)" : "")}" +
             $"{(hit.RawDamage != hit.Damage ? $" ({hit.RawDamage} physical before {DamageModel.ArmourReduction(hit.Armour.EffectiveArmour, hit.RawDamage)}% armour, effective rating {hit.Armour.EffectiveArmour})" : "")}" +
             $"{(hit.Blocked ? " (blocked)" : "")}, life {hit.Life}/{conn.PlayerMaxLife}{(hit.Life == 0 ? " (dies)" : "")}");
@@ -1863,7 +1866,7 @@ static partial class Game
             }
         }
         foreach (var (id, seconds, stats) in changed)
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, stats),
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, stats),
                 $"0x01b3 monster 0x{id:x} attack time {seconds:0.000} s (enemies that hit you recently)");
     }
 }

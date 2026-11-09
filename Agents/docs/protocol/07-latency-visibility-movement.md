@@ -577,6 +577,18 @@ opposite). Without both, lockstep frame ends went out 0 to 16 ms late (31 and 47
 is in game (`WindowsTimerResolution`), and `RunLockstepFrames` woken at each frame end, 77 to 93 % went out under 2 ms
 late (on loopback, in town and The Mud Flats); its earlier poll every third of a frame sent them 22 and 44 ms apart.
 
+**Explicit output records.** Game producers retain each World packet boundary and its unsigned scheduling key/checkpoint.
+The host owns copied bytes and object-incarnation tickets; it queues no Game callback. At a lockstep frame end it
+stably sorts records by key, then by checkpoint except in the whole key-zero and key-`ffffffff` phases
+(`0x142183ce0`, `0x142184680`). Creation uses `ffffffff/0000`; removal uses the final phase too. The bytes are
+recorded and encrypted only when written, followed by `0x2b5`. An admitted creation becomes ready only after that
+write succeeds. Stateful action factories await readiness before entering the existing cipher/gameplay gates;
+committed wake/buff presentation is retained for the following frame. Removal retires the incarnation before an ID
+can be reused, and connection closure cancels pending birth waits. Synchronous quest projection captures explicit
+records inside its existing admission. Shared-view metadata survives frame queuing. Predictive keeps producer order
+and the existing immediate send/batching path. Deterministic Gateway tests cover encrypted wire order, delayed
+factories, cancellation and quest capture; live nonregression and broader coverage remain pending.
+
 **Client moves** (`0x14215f700`, `0x14215fb10`, `0x14215fcb0`, `0x14215fe50` send them when `+0x984` is 2):
 
 | Id | Bytes | Fields |
@@ -824,7 +836,8 @@ and observer birth tracking are preserved.
 
 Held walks, Mud Flats and controlled chargers showed no reproduced predictive regression before the shared stop-time correction.
 That correction has native stop/restart evidence and automated coverage; its full comparison remains pending.
-Complete nonregression, frame ordering and skill/network parity remain unverified.
+Explicit frame ordering and birth dependencies have deterministic coverage. Complete live nonregression,
+producer coverage and skill/network parity remain unverified.
 
 **Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLatency`; `Lockstep.cs` and
 `LockstepHold` follow GGG):
@@ -843,10 +856,10 @@ Complete nonregression, frame ordering and skill/network parity remain unverifie
 | A monster that gives up a pursuit gets no order: it goes on with its last one as the client's does, a chase's walk-up after the player | Nothing then either, but idle orders after (131 pursuits ended with the player 60+ cells off: a Move of 3+ cells 65, a self-aimed Wait 30, a flight 9, an aimed order again 15, nothing 12) | No idle AI here |
 | A frozen monster gets no stop: its walk goes on, the estimate's too, a chase's walk-up with its goal test | Not traced | The client does not stop the player for `is_frozen` (§5) and takes no Move onto the walker's own cell; the player's freeze plays a recovery of its length (`ShowFreeze`), a monster's does not |
 | An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |
-| Moves in key 0 | Moves from a tick keyed by the player | Keys must arrive sorted, and the rest of the Gateway's sends are key 0 |
+| Moves retain key 0 | Moves from a tick keyed by the player | Record ordering is now explicit; player tick insertion points still need separate trace validation |
 | Ordinary lockstep AI orders and projectile hits retain actor/action ownership; special producers and wrap remain unverified | Every action and hit names the matching actor sequence | The ordinary paths are corrected; this is not a complete protocol audit |
 | Other spell classes and Multistrike repeat-stage overrides hold movement for their full duration | Additional action gates unverified | Ordinary Fireball/Freezing Pulse repeats use first-cast early and final-cast late windows; broader cancellation remains open |
-| A skill is echoed at any key 0, from the handlers Predictive uses | From the tick, keyed by the player | As for Moves |
+| A skill is echoed in key 0, from the handlers Predictive uses | From the tick, keyed by the player | Shared handlers retain their existing insertion point pending skill trace validation |
 | The server simulates a mortar's flight, and the player's wand bolt or arrow, and lands its hit where that lands; the client draws each from its own action | One simulation, the client's | The server is a port: the client's spread (`projectile_spread_radius`) is seeded by the order's sequence and owner (`0x141bb13a0`) |
 
 Still to do: monsters' order keys, a trace of a frozen monster, and a walk set up in a stop's own frame and Shield

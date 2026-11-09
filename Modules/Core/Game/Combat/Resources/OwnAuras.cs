@@ -115,14 +115,17 @@ static partial class Game
     // Called under the send gate and Monsters lock. Diff against what actually reached this object,
     // rather than prebuilding adds/removes across an await. Old instances end once; new ones start once.
     // Reconcile before constructing any player/Actor/mana snapshot, including another mechanic's refresh.
-    internal static byte[] WithOwnAuraChanges(ClientState conn, Func<byte[]> snapshot, bool replay = false)
+    internal static byte[] WithOwnAuraChanges(ClientState conn, Func<byte[]> snapshot, bool replay = false) =>
+        [.. WithOwnAuraRecords(conn, () => [snapshot()], replay).SelectMany(p => p)];
+
+    internal static byte[][] WithOwnAuraRecords(ClientState conn, Func<byte[][]> snapshot, bool replay = false)
     {
         ReconcileOwnAuras(conn, validateSkills: replay);
         // LoadProgress can restore intent before the object exists. Keep aura publication pending;
         // in particular never prefix a creation snapshot with buffs, Stats, Actor or Life updates.
         if (!conn.PlayerObjectCreated && !conn.PlayerSent) return snapshot();
         var packets = new List<byte[]>();
-        packets.Add(ReconcileReceivedAurasLocked(conn));
+        packets.AddRange(ReconcileReceivedAuraRecordsLocked(conn));
         ClampReservedResources(conn);
         bool Same(AuraCatalog.Aura a, AuraCatalog.Aura b) => a.Buff == b.Buff && a.SourceBuff == b.SourceBuff;
         foreach (var old in conn.PresentedAuras.Values)
@@ -160,16 +163,16 @@ static partial class Game
                     ? (petrified.SkillId, hash) : null));
             petrified.PresentedBuff = petrified.Buff;
         }
-        if (Lifetap.Presentation(conn) is { } lifetap) packets.Add(lifetap);
-        packets.Add(snapshot());
-        return [.. packets.SelectMany(p => p)];
+        if (Lifetap.PresentationRecords(conn) is { } lifetap) packets.AddRange(lifetap);
+        packets.AddRange(snapshot());
+        return [.. packets.Where(p => p.Length > 0)];
     }
 
     internal static Task SendOwnAuraChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        bool replay = false) => Send(remote, stream, ciphers, [], "own aura reconciliation", atGate: () =>
+        bool replay = false) => SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
         {
             lock (conn.Monsters)
                 return conn.Closed || conn.LeavingArea || conn.RageRetired
-                    ? null : WithOwnAuraChanges(conn, () => [], replay);
-        });
+                    ? null : WithOwnAuraRecords(conn, () => [], replay);
+        }, "own aura reconciliation");
 }

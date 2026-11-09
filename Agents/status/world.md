@@ -102,6 +102,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Slums arrival and complete boss synchronization remain incomplete.
   Earlier held-walk player and all-monster sync bars passed; the combined current changes still need those checks.
   Complete nonregression and coverage remain open ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
+  Held-walk player and all-monster sync bars pass; held, Mud Flats and charger checks show no reproduced predictive regression.
+  Explicit World records now sort at the frame delimiter; creations use the final phase and subsequent actions
+  wait for their birth delimiter. Gateway wire/lifecycle tests pass; live nonregression and coverage remain open ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
 - League isolation is enforced by full league for towns and instance selection.
   SSF wilderness instances and Gateway ground-item state additionally belong to the stable character ID.
   Another character, including one reusing a deleted name, cannot inherit or join that state.

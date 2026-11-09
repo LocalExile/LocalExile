@@ -21,7 +21,7 @@ static partial class Game
         }
         Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: league quest flag(s) {string.Join(", ", wanted)} {(on ? "set" : "cleared")}");
         if (!conn.PlayerSent) return;
-        await Send(remote, stream, ciphers, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(all)),
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(all)),
             $"0x02ba player league quest flags: {string.Join(", ", all)}");
     }
 
@@ -99,7 +99,7 @@ static partial class Game
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "current quest flags", Kind: PlayerMinions.OutputKind.QuestFlags));
         else
-            await Send(remote, stream, ciphers, [], "0x02ba player quest flags (current)", atGate: () => QuestFlagPresentation(conn));
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x02ba player quest flags (current)", atGate: () => QuestFlagPresentation(conn));
         if (ChangesResistancePenalty(change.Changed) || ChangesQuestStats(change.Changed))
             await SendCharacterStats(remote, stream, ciphers, conn, "quest static reward stats changed");
         // Quest passive and refund points (QuestStaticRewards) are in the tree's numbers.
@@ -125,14 +125,19 @@ static partial class Game
                 : InstanceEntities.PlayerQuestFlagsUpdate(PlayerId, PlayerQuestFlags(conn));
     }
 
-    static byte[]? QuestTransitionPresentation(ClientState conn, uint id, AreaTransitionObject transition)
+    static OutputBatch? QuestTransitionRecords(ClientState conn, WorldAdmission admission, uint id, AreaTransitionObject transition)
     {
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || !conn.Layout.AreaTransitions.Any(e => e.Id == id && ReferenceEquals(e.Transition, transition))) return null;
-            return TransitionShown(conn, id, transition)
-                ? [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()), .. InstanceProtocol.EnterWakeZone(id)]
-                : InstanceProtocol.RemoveObject(id);
+            var records = new WorldRecordBuilder(conn, admission);
+            if (TransitionShown(conn, id, transition))
+            {
+                records.Create(id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()));
+                records.Presentation(id, InstanceProtocol.EnterWakeZone(id));
+            }
+            else records.Remove(id);
+            return records.Build();
         }
     }
 
@@ -215,11 +220,11 @@ static partial class Game
             }
             if (shown)
             {
-                await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()),
+                await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()),
                     $"0x02b9 create area transition 0x{id:x} {transition} ({why})");
-                await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
             }
-            else await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove area transition 0x{id:x} ({why})");
+            else await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bb remove area transition 0x{id:x} ({why})");
         }
     }
 
@@ -283,8 +288,7 @@ static partial class Game
             conn.ChannelSkill = 0;
         }
         var (x, y) = target ?? here;
-        await Send(remote, stream, ciphers,
-            InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, x, y, TutorialObjects.WashedUpSkillId, sequence, flags),
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, x, y, TutorialObjects.WashedUpSkillId, sequence, flags),
             $"0x01ab player gets up on the beach at ({here.X}, {here.Y})",
             still: () =>
             {
@@ -329,7 +333,7 @@ static partial class Game
         byte state = open ? GlyphQuest.Transitioned : GlyphQuest.Untransitioned;
         foreach (var (id, what) in new[] { (conn.GlyphWallId, "Glyph Wall"), (conn.GlyphWaterId, "waterfall") })
             if (id != 0)
-                await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, GlyphQuest.TransitionableIndex, state),
+                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, GlyphQuest.TransitionableIndex, state),
                     $"0x02ba {what} 0x{id:x} Transitionable → {state}");
     }
 }

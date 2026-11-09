@@ -147,10 +147,10 @@ static partial class QuestobjectsRules
                     id = conn.NextObjectId++;
                     conn.QuestObjects[id] = (new Quests.ObjectRule(Act6Areas.Beacon, Act6Objects.BeaconPayload, BeaconCartFlag(cart.Start)), position, info);
                 }
-                await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(Act6Objects.BeaconPayload),
+                await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(Act6Objects.BeaconPayload),
                     new QuestObject(position.X, position.Y, info.Components, position.Rotation, position.Z,
                         TransitionState: (byte)(cart.Walk.Complete ? 2 : 1), Team: 4).Blob()), $"[Beacon] fuel cart at ({position.X}, {position.Y})");
-                await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
             }
             lock (conn.QuestObjects)
                 if (conn.QuestObjects.TryGetValue(id, out var shown))
@@ -216,7 +216,7 @@ static partial class QuestobjectsRules
         lock (conn.QuestObjects) component = conn.QuestObjects.TryGetValue(id, out var o) ? QuestObject.TransitionableIndex(o.Info.Components) : -1;
         if (component < 0) return;
         var (remote, stream, ciphers) = conn.Wire;
-        await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, (byte)component, state), $"[Beacon] 0x{id:x} state {state}");
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, (byte)component, state), $"[Beacon] 0x{id:x} state {state}");
         view.ShownStates[id] = state;
     }
 

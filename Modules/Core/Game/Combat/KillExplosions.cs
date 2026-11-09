@@ -57,20 +57,20 @@ static partial class Game
         }
         Console.WriteLine($"[gateway] {remote} kill explosion 0x{corpseId:x} for {amount} physical within {radius} cells:" +
             $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+        await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(at.X, at.Y, KillExplosionAo).Blob()),
             $"0x02b9 create effect 0x{effect:x} {KillExplosionAo} at ({at.X}, {at.Y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(corpseId),
+        await SendWorldRecord(remote, stream, ciphers, conn, effect, InstanceProtocol.EnterWakeZone(effect), null);
+        await Game.SendWorldRemoval(remote, stream, ciphers, conn, corpseId,
             $"0x02bb corpse 0x{corpseId:x} ({corpse.Label}) explodes");
         SendAfter(KillExplosionArtMs / 1000.0, async () =>
         {
             if (conn.Closed || conn.LeavingArea) return;
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(effect), null);
+            await Game.SendWorldRemoval(remote, stream, ciphers, conn, effect, null);
         });
         foreach (var (id, m, hit) in hits)
         {
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, hit.Life),
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, hit.Life),
                 $"0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount}, life {hit.Life}/{m.MaxLife}");
             if (hit.StageStarts) _ = RunBossStage(remote, stream, ciphers, conn, id, m);
             if (hit.Life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);

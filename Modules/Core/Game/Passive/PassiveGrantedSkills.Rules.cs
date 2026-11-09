@@ -211,16 +211,16 @@ static partial class Game
             if (art is not null) effectObject = conn.NextObjectId++;
         }
         if (effectObject is uint obj)
-            await Send(remote, stream, ciphers, [], null, atGate: () =>
+            await SendWorldCreate(conn, obj, () =>
             {
                 lock (conn.Monsters)
                 {
                     if (!CurrentSource() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return null;
                     conn.TemporarySkillEffects[obj] = AreaTime(conn) + PassiveGrantedSkills.ExplosionArtMs / 1000.0;
-                    return [.. InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                        new EffectObject(at.X, at.Y, art!).Blob()), .. InstanceProtocol.EnterWakeZone(obj)];
+                    return InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                        new EffectObject(at.X, at.Y, art!).Blob());
                 }
-            });
+            }, wake: true, transport: (remote, stream, ciphers));
         if (!CurrentSource() || targets.Count == 0) return;
 
         using (ProjectileMutation(conn))
@@ -307,7 +307,7 @@ static partial class Game
     // Polled every 50 ms: with no temporary art at all there is nothing to remove, so the send gate and the Monsters lock
     // are left alone (a racy read of the count only delays a removal to the next poll).
     internal static Task SendTemporarySkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        conn.TemporarySkillEffects.Count == 0 ? Task.CompletedTask : Send(remote, stream, ciphers, [], null, atGate: () =>
+        conn.TemporarySkillEffects.Count == 0 ? Task.CompletedTask : SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)
             {
@@ -316,7 +316,9 @@ static partial class Game
                 var due = conn.TemporarySkillEffects.Where(p => p.Value <= now).Select(p => p.Key).ToArray();
                 if (due.Length == 0) return null;
                 foreach (uint id in due) conn.TemporarySkillEffects.Remove(id);
-                return [.. due.SelectMany(InstanceProtocol.RemoveObject)];
+                var records = new WorldRecordBuilder(conn, admission);
+                foreach (uint id in due) records.Remove(id);
+                return records.Build();
             }
-        });
+        }, transport: (remote, stream, ciphers));
 }

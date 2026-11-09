@@ -21,7 +21,7 @@ static partial class CommandsRules
         }
         Console.WriteLine($"[gateway] {remote} god mode {(on ? "on" : "off")}: life {conn.Pools.Life}, mana {conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         await SendCharacterStats(remote, stream, ciphers, conn, on ? "god mode on" : "god mode off");
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), $"0x01b1 player life {conn.PlayerLife}");
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), $"0x01b1 player life {conn.PlayerLife}");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
         // UI built on entering caches the attributes (see SendPlayer): send them once more.
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,

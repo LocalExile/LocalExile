@@ -54,7 +54,7 @@ static class BrineKing
     static async Task RemoveTideBuff(ClientState conn, ushort buff)
     {
         if (conn.Closed || buff == 0) return;
-        try { var (remote, stream, ciphers) = conn.Wire; await Program.Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), null); }
+        try { var (remote, stream, ciphers) = conn.Wire; await Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), null); }
         catch (Exception e) when (e is IOException or ObjectDisposedException) { }
     }
     public static async Task Leaving(ClientState conn)
@@ -226,7 +226,7 @@ static class BrineKing
                     if (conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                         conn.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { Skills = skills, StateMachine = boss.States } };
                 }
-                await Send(remote, stream, ciphers, InstanceEntities.PlayerSkillsChange(id, skills,
+                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.PlayerSkillsChange(id, skills,
                     boss.Attack is { } old && !skills.Any(s => s.Id == old.SkillId) ? [old.SkillId] : []), "[Brine King] full actor skill list");
                 await State(conn, "rock_mode", 1);
             }
@@ -289,7 +289,7 @@ static class BrineKing
                 boss.ActionGeneration++; boss.SwingGeneration = null;
                 var (remote, stream, ciphers) = conn.Wire;
                 immunity = conn.NextBuff++;
-                await All(InstanceEntities.AddBuff(id, immunity.Value, 350, id,
+                await All(id, InstanceEntities.AddBuff(id, immunity.Value, 350, id,
                     u68: BitConverter.SingleToUInt32Bits((float)(16 + Distance(pos, center) / Math.Max(1, speed)))), monster: true);
                 await State(conn, "tide_rush", 0);
                 double travel = Distance(pos, center) / Math.Max(1, speed);
@@ -318,7 +318,7 @@ static class BrineKing
                         await WaveState((byte)(4 + 4 * Phases.Completed));
                         expandUntil = now + 3;
                     }
-                    if (immunity is { } buff) await All(InstanceEntities.RemoveBuff(id, buff), monster: true);
+                    if (immunity is { } buff) await All(id, InstanceEntities.RemoveBuff(id, buff), monster: true);
                     immunity = null;
                     lock (conn.Monsters) Phases.Finish();
                     floodAt = double.NaN;
@@ -418,7 +418,7 @@ static class BrineKing
             if (conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                 conn.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = boss.States } };
             int component = boss.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine");
-            if (component >= 0) await All(InstanceEntities.StateMachineUpdate(id, (byte)component, boss.States), monster: true);
+            if (component >= 0) await All(id, InstanceEntities.StateMachineUpdate(id, (byte)component, boss.States), monster: true);
         }
 
         async Task WaveState(byte state)
@@ -430,16 +430,16 @@ static class BrineKing
                 lock (conn.Monsters) waveId = conn.NextObjectId++;
                 foreach (var player in players) { await CreateWave(player); waveViews.Add(player); }
             }
-            else await All(InstanceEntities.TransitionableUpdate(waveId, 3, state));
+            else await All(waveId, InstanceEntities.TransitionableUpdate(waveId, 3, state));
         }
 
         async Task CreateWave(ClientState conn)
         {
             var (remote, stream, ciphers) = conn.Wire;
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(waveId, InstanceEntities.ObjectTypeHash(Wave),
+            await SendWorldCreate(remote, stream, ciphers, conn, waveId, InstanceEntities.CreateObject(waveId, InstanceEntities.ObjectTypeHash(Wave),
                 new QuestObject(center.X, center.Y, ["Positioned", "BaseEvents", "Animated", "Transitionable"], TransitionState: waveState).Blob()),
                 $"[Brine King] tidal wall {waveState} at {center}");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(waveId), null);
+            await SendWorldRecord(remote, stream, ciphers, conn, waveId, InstanceProtocol.EnterWakeZone(waveId), null);
             if (QuestObjectTypes.Find(Wave) is { } info)
                 lock (conn.QuestObjects) conn.QuestObjects[waveId] = (new Quests.ObjectRule(conn.Layout.Id, Wave, null), new(Wave, "", center.X, center.Y, 0, null, 0), info);
         }
@@ -473,7 +473,7 @@ static class BrineKing
                     (int)Math.Round(from.Item2 + (target.Y - from.Item2) / distance * radius * 1.5));
                 double seconds = Distance(from, to) / 24;
                 uint orb = await Effect(conn, from, Art + "surf_cascade/surf_cascade.ao", now + seconds);
-                await All(InstanceProtocol.MoveTo(orb, to.Item1, to.Item2, (float)seconds, InstanceProtocol.FollowTerrain));
+                await All(orb, InstanceProtocol.MoveTo(orb, to.Item1, to.Item2, (float)seconds, InstanceProtocol.FollowTerrain));
                 surfs.Add(new(orb, from, to, now, now + seconds));
             }
             foreach (var surf in surfs.ToArray())
@@ -566,8 +566,8 @@ static class BrineKing
             uint effect;
             lock (conn.Monsters) effect = conn.NextObjectId++;
             var obj = new EffectObject(at.X, at.Y, ao);
-            await All(InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()));
-            await All(InstanceProtocol.EnterWakeZone(effect));
+            await All(effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()), create: true);
+            await All(effect, InstanceProtocol.EnterWakeZone(effect));
             effects.Add((effect, expires));
             return effect;
         }
@@ -577,22 +577,24 @@ static class BrineKing
             {
                 effects.Remove(effect);
                 foreach (var player in players) lock (player.QuestObjects) player.QuestObjects.Remove(effect.Id);
-                await All(InstanceProtocol.RemoveObject(effect.Id));
+                await All(effect.Id, [], remove: true);
             }
         }
         bool Awake(ClientState conn)
         {
             lock (conn.Monsters) return conn.MonsterViews.ContainsKey(id) && !conn.AsleepMonsters.Contains(id);
         }
-        async Task All(byte[] bytes, bool monster = false)
+        async Task All(uint target, byte[] bytes, bool monster = false, bool create = false, bool remove = false)
         {
             if (stopped) return;
             foreach (var conn in players.Where(p => !p.Closed && !p.LeavingArea && (!monster || Awake(p))).ToArray())
             {
                 // Send encrypts in place: every recipient needs its own plaintext, including wave/effect broadcasts.
                 var (remote, stream, ciphers) = conn.Wire;
-                await Send(remote, stream, ciphers, [.. bytes], null,
-                    still: () => !stopped && !conn.Closed && !conn.LeavingArea && (!monster || Awake(conn)));
+                bool Current() => !stopped && !conn.Closed && !conn.LeavingArea && (!monster || Awake(conn));
+                if (create) await SendWorldCreate(remote, stream, ciphers, conn, target, [.. bytes], still: Current);
+                else if (remove) await SendWorldRemoval(remote, stream, ciphers, conn, target, still: Current);
+                else await SendWorldRecord(remote, stream, ciphers, conn, target, [.. bytes], null, still: Current);
             }
         }
         internal void Stop()

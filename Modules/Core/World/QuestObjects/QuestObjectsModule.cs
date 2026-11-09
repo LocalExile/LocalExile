@@ -70,7 +70,7 @@ public sealed class QuestObjectsModule : IModule, IDisposable
                 || CharacterSaves.Load(CharacterName(kill.Conn))?.Tutorial is not { ZombieKilled: false }) return;
             CharacterSaves.ChangeTutorial(CharacterName(kill.Conn), t => t with { ZombieKilled = true });
             var (remote, stream, ciphers) = kill.Conn.Wire;
-            if (kill.CommittedOutput is { } output) output.AddRange(CommitTutorialGem(kill.Conn, false, kill.At.X, kill.At.Y));
+            if (kill.CommittedOutput is not null) kill.Conn.Minions.OutputQueue.AddRange(CommitTutorialGem(kill.Conn, false, kill.At.X, kill.At.Y));
             else kill.Later(() => DropTutorialGem(remote, stream, ciphers, kill.Conn, false, kill.At.X, kill.At.Y));
         });
         // A trial dart's slow on the player's movement speed.

@@ -1,4 +1,7 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Buffers.Binary;
+using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 using GameServer.Core.Projectiles;
 using GameServer.Modding;
@@ -641,12 +644,43 @@ public class LockstepMonsterTests : IDisposable
     // flight, which lands the hit but creates no object; a straight shot (the King's BugSoulrend) has no row, no count on
     // its record and keeps its object.
     [Fact]
-    public void A_mortar_skill_record_carries_the_client_s_count_and_row_and_the_server_draws_no_mortar()
+    public async Task A_mortar_skill_record_carries_the_client_s_count_and_row_and_the_server_draws_no_mortar()
     {
         var skills = new SkillCatalog("data");
         foreach (bool lockstep in new[] { true, false })
         {
-            var conn = Connection(lockstep);
+            var conn = new ClientState(new(1, "mortar-goal", 300, 300, 100, 100, null, []), 1, 1)
+            {
+                Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true,
+                LockstepClient = lockstep, Instance = new(),
+            };
+            // Exercise the real create path: the selected granted record and the AI must describe the same action.
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            using var writer = new TcpClient();
+            var accepting = listener.AcceptTcpClientAsync();
+            await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+            using var reader = await accepting;
+            var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
+            string database = Path.Combine(Path.GetTempPath(), $"localexile-mortar-goal-{Guid.NewGuid():N}.db");
+            Saves.Open(database);
+            try
+            {
+                conn.Wire = ("mortar-goal", writer.GetStream(), ciphers);
+                var nativeVariety = new MonsterCatalog().Find("Metadata/Monsters/SandSpitters/SandSpitter")!;
+                uint id = await Game.SpawnMonster("mortar-goal", writer.GetStream(), ciphers, conn, nativeVariety,
+                    70, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 140, 100,
+                    log: false, mods: MonsterModSet.None, unrisen: false);
+                // Creates belong to the frame tail (0x142183ce0), after established objects have ticked.
+                int typeLength = GameServer.Core.Protocol.Instance.InstanceEntities.MonsterTypes([((ushort)nativeVariety.Row, (byte)70)]).Length;
+                var createHeader = new byte[typeLength + 12];
+                await reader.GetStream().ReadExactlyAsync(createHeader);
+                new ConnectionCiphers(new byte[64], isClient: true).Receive.Process(createHeader);
+                Assert.Equal(0x2b9, BinaryPrimitives.ReadUInt16BigEndian(createHeader.AsSpan(typeLength)));
+                Assert.Equal(lockstep ? uint.MaxValue : 0u,
+                    BinaryPrimitives.ReadUInt32BigEndian(createHeader.AsSpan(typeLength + 6)));
+            }
+            finally { TestEnvironment.ReleaseSaves(database); }
             foreach (var (effectId, row, count) in new[] { ("MMASandSpitterProjectile", 183, 1), ("MMASandSpitterProjectileLightning", 186, 1),
                 ("ScavengerThrowFire", 55, 1), ("MMASandSpitterProjectileSideArea", 183, 3) })
             {

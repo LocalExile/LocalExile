@@ -200,10 +200,10 @@ public sealed partial class DelveModule : IModule
             if (state.Crawler == 0) await SpawnCrawler(module, c.Player);
             float radians = degrees * MathF.PI / 180;
             state.CrawlerCell = (x, y);
-            await c.Player.Send(InstanceProtocol.Teleport(state.Crawler, x, y, 0x7fffffff), $"Delve Crawler to ({x}, {y})");
-            await c.Player.Send(InstanceHideoutEditing.Rotation(state.Crawler, radians), $"Delve Crawler turned {degrees}°");
+            await global::Game.SendWorldRecord(c.Player, state.Crawler, InstanceProtocol.Teleport(state.Crawler, x, y, 0x7fffffff), $"Delve Crawler to ({x}, {y})");
+            await global::Game.SendWorldRecord(c.Player, state.Crawler, InstanceHideoutEditing.Rotation(state.Crawler, radians), $"Delve Crawler turned {degrees}°");
             foreach (uint part in state.Attachments)
-                await c.Player.Send(InstanceProtocol.Teleport(part, x, y, 0x7fffffff));
+                await global::Game.SendWorldRecord(c.Player, part, InstanceProtocol.Teleport(part, x, y, 0x7fffffff));
             await BlockCrawler(module, c.Player, state, x, y, radians);
             await c.Player.Tell($"Delve Crawler at ({x}, {y}), {degrees}°");
             return;
@@ -220,14 +220,14 @@ public sealed partial class DelveModule : IModule
         uint id = world.NewObjectId();
         state.Generator = id;
         var (x, y) = GeneratorAt;
-        await player.Send(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(DelveGeneratorObject.MetadataPath),
+        await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(DelveGeneratorObject.MetadataPath),
             new DelveGeneratorObject(x, y, 5.12494f).Blob()), $"Voltaxic Generator 0x{id:x} at ({x}, {y})");
-        await player.Send(InstanceProtocol.EnterWakeZone(id));
+        await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id));
         world.SetBlocker(id, x, y, ObjectReach);
         uint cables = world.NewObjectId();
-        await player.Send(InstanceEntities.CreateObject(cables, InstanceEntities.ObjectTypeHash(DelveGeneratorCablesObject.MetadataPath),
+        await global::Game.SendWorldCreate(player, cables, InstanceEntities.CreateObject(cables, InstanceEntities.ObjectTypeHash(DelveGeneratorCablesObject.MetadataPath),
             new DelveGeneratorCablesObject(382, 370, 5.15258f).Blob()), "Voltaxic Generator cables");
-        await player.Send(InstanceProtocol.EnterWakeZone(cables));
+        await global::Game.SendWorldRecord(player, cables, InstanceProtocol.EnterWakeZone(cables));
     }
 
     async Task UseEquipment(IModuleContext module, IPlayer player, ushort id, byte[] bytes)
@@ -261,12 +261,12 @@ public sealed partial class DelveModule : IModule
         uint id = world.NewObjectId();
         state.Crawler = id;
         state.CrawlerCell = (x, y);
-        await player.Send(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(DelveMapViewerObject.MetadataPath),
+        await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(DelveMapViewerObject.MetadataPath),
             new DelveMapViewerObject(x, y, CrawlerRotation).Blob()), $"0x02b9 create the Delve Crawler map viewer 0x{id:x} at ({x}, {y})");
-        await player.Send(InstanceProtocol.EnterWakeZone(id), $"0x01a9 Delve Crawler 0x{id:x} enters wake zone");
+        await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 Delve Crawler 0x{id:x} enters wake zone");
         // DelveMapViewer's own transition callbacks select clips for its waypoint model, not this two-clip rig.
         // Explicitly select idle_01 (rig index 0), which loops the running engine's shake and sound.
-        await player.Send(InstanceProtocol.AnimationUpdate(id, 0, 0, 1), "Crawler idle_01");
+        await global::Game.SendWorldRecord(player, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 1), "Crawler idle_01");
         foreach (var (model, bone, light) in new[] {
             (DelveCrawlerAttachmentObject.LeftWheel, "aux_L_wheel_attachment", false),
             (DelveCrawlerAttachmentObject.RightWheel, "aux_R_wheel_attachment", false),
@@ -275,9 +275,9 @@ public sealed partial class DelveModule : IModule
             uint part = world.NewObjectId();
             state.Attachments.Add(part);
             string type = light ? DelveCrawlerAttachmentObject.LightType : EffectObject.TypePath;
-            await player.Send(InstanceEntities.CreateObject(part, InstanceEntities.ObjectTypeHash(type),
+            await global::Game.SendWorldCreate(player, part, InstanceEntities.CreateObject(part, InstanceEntities.ObjectTypeHash(type),
                 new DelveCrawlerAttachmentObject(x, y, id, model, bone, light).Blob()), $"Crawler attachment 0x{part:x}: {bone}");
-            await player.Send(InstanceProtocol.EnterWakeZone(part));
+            await global::Game.SendWorldRecord(player, part, InstanceProtocol.EnterWakeZone(part));
         }
         await BlockCrawler(module, player, state, x, y, CrawlerRotation);
         if (world.AreaHash == InstanceDelve.MineArea && DelveRailRoute.Load(player.AreaId, ConnOf(player).Seed) is { } rail)
@@ -285,9 +285,9 @@ public sealed partial class DelveModule : IModule
             var end = rail.Points[^1];
             uint arrival = world.NewObjectId();
             // Original Delve node art defaults to idle_on. It is scenery, not a second chart interaction.
-            await player.Send(InstanceEntities.CreateObject(arrival, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            await global::Game.SendWorldCreate(player, arrival, InstanceEntities.CreateObject(arrival, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(end.X, end.Y, "Metadata/Terrain/Doodads/Leagues/Delve/DelveWaypointObject.ao").Blob()), $"Delve destination pad at {end}");
-            await player.Send(InstanceProtocol.EnterWakeZone(arrival));
+            await global::Game.SendWorldRecord(player, arrival, InstanceProtocol.EnterWakeZone(arrival));
         }
     }
 
@@ -299,7 +299,7 @@ public sealed partial class DelveModule : IModule
         foreach (uint old in state.Blockers)
         {
             world.RemoveBlocker(old);
-            await player.Send(InstanceProtocol.RemoveObject(old), $"0x02bb remove the Crawler blocker 0x{old:x}");
+            await global::Game.SendWorldRemoval(player, old, $"0x02bb remove the Crawler blocker 0x{old:x}");
         }
         state.Blockers.Clear();
         foreach (int along in new[] { -CrawlerHalfLength, 0, CrawlerHalfLength })
@@ -308,9 +308,9 @@ public sealed partial class DelveModule : IModule
             uint id = world.NewObjectId();
             state.Blockers.Add(id);
             world.SetBlocker(id, bx, by, ObjectReach);
-            await player.Send(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WalkBlockerObject.MetadataPath),
+            await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WalkBlockerObject.MetadataPath),
                 new WalkBlockerObject(bx, by).Blob()), $"0x02b9 create the Crawler blocker 0x{id:x} at ({bx}, {by})");
-            await player.Send(InstanceProtocol.EnterWakeZone(id));
+            await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id));
         }
         await world.PushOutOfCollision();
     }

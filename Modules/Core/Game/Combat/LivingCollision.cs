@@ -159,20 +159,33 @@ static partial class Game
         var ids = conn.Instance.PlayersExcept(conn.PeerId).Select(p => p.Id)
             .Concat(conn.SeenPlayers.Keys).Distinct().ToArray();
         foreach (uint id in ids)
-            await Send(remote, stream, ciphers, [], null, atGate: () =>
+        {
+            // A resurrected peer is a new incarnation. Release the send gate while its old removal crosses the wire.
+            if (conn.LockstepClient && conn.SeenPlayers.TryGetValue(id, out var old) && old.Life == 0
+                && conn.Instance.Player(id) is { Life: > 0 })
+                await SendWorldRemoval(remote, stream, ciphers, conn, id, atGate: () =>
+                {
+                    if (!conn.SeenPlayers.TryGetValue(id, out var current) || current.Life != 0
+                        || conn.Instance.Player(id) is not { Life: > 0 }) return null;
+                    conn.SeenPlayers.Remove(id);
+                    return InstanceProtocol.RemoveObject(id);
+                });
+            await SendWorldBatch(conn, [], admission =>
             {
                 if (CombatLifetime is not null && !CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
-                var packets = new List<byte[]>();
+                var packets = new WorldRecordBuilder(conn, admission);
                 // Read after waiting: queued creation/change must not restore an older scale or departed owner.
                 if (conn.Instance.Player(id) is not { } peer)
                 {
-                    if (conn.SeenPlayers.Remove(id)) packets.Add(InstanceProtocol.RemoveObject(id));
-                    return packets.SelectMany(p => p).ToArray();
+                    if (conn.SeenPlayers.Remove(id)) packets.Remove(id);
+                    return packets.Build();
                 }
                 bool exists = conn.SeenPlayers.TryGetValue(peer.Id, out var previous);
+                if (conn.LockstepClient && exists && (previous!.Life == 0 && peer.Life > 0
+                    || !conn.WorldOutput.PublishedObject(peer.Id).IsReady)) return null;
                 if (!exists || previous!.Life == 0 && peer.Life > 0)
                 {
-                    if (exists) packets.Add(InstanceProtocol.RemoveObject(peer.Id));
+                    if (exists) packets.Remove(peer.Id);
                     // The beach wake-up is the owner's alone: observers get no action to end that stance with.
                     // Its skills, for the actions the owner's uses play on it (SharedMonsters.cs MirrorPlayerAction), all
                     // but the wake-up's.
@@ -183,12 +196,12 @@ static partial class Game
                     // the client drew every other player in its combat stance there.
                     if (InTown(conn))
                         player = player with { Stats = [.. (player.Stats ?? []).Where(s => s.Key != TownStanceStat), (TownStanceStat, 1)] };
-                    packets.Add(InstanceEntities.CreateObject(peer.Id, peer.Type, player.Blob()));
-                    packets.Add(InstanceProtocol.EnterWakeZone(peer.Id));
+                    packets.Create(peer.Id, InstanceEntities.CreateObject(peer.Id, peer.Type, player.Blob()));
+                    packets.Presentation(peer.Id, InstanceProtocol.EnterWakeZone(peer.Id));
                     // The client picks an actor's stance (animation set: "Town" in a town, else the weapon's; 0x141e97190)
                     // when its equipment changes, not when it is created: without this every other player stood in the
                     // combat stance (Frida 2026-11-01: the pick ran only for the local player, on its own 0x2ba).
-                    packets.Add(InstanceEntities.PlayerEquipmentUpdate(peer.Id, player.Equipped ?? []));
+                    packets.Presentation(peer.Id, InstanceEntities.PlayerEquipmentUpdate(peer.Id, player.Equipped ?? []));
                 }
                 else
                 {
@@ -199,44 +212,45 @@ static partial class Game
                     var destination = peer.Destination ?? (peer.X, peer.Y);
                     var heading = previous!.Destination ?? (previous.X, previous.Y);
                     if (destination != heading && destination != (peer.X, peer.Y))
-                        packets.Add(InstanceProtocol.ActionStarted(peer.Id, peer.X, peer.Y, destination.X, destination.Y, Move, 0xffff, 0x0408));
+                        packets.World(peer.Id, InstanceProtocol.ActionStarted(peer.Id, peer.X, peer.Y, destination.X, destination.Y, Move, 0xffff, 0x0408));
                     else if (destination == (peer.X, peer.Y) && (previous.X, previous.Y) != (peer.X, peer.Y)
                         && Math.Max(Math.Abs(previous.X - peer.X), Math.Abs(previous.Y - peer.Y)) > 20 && heading == (previous.X, previous.Y))
-                        packets.Add(InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
+                        packets.World(peer.Id, InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
                     else if (destination == (peer.X, peer.Y) && heading != destination)
                     {
                         // Stopped short of where it was going (a body in the way): the observers' walk stops there too.
-                        packets.Add(InstanceProtocol.ActionEnded(peer.Id));
-                        packets.Add(InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
+                        packets.World(peer.Id, InstanceProtocol.ActionEnded(peer.Id));
+                        packets.World(peer.Id, InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
                     }
                     if (previous.Life != peer.Life)
-                        packets.Add(InstanceProtocol.LifeUpdate(peer.Id, peer.Life));
+                        packets.World(peer.Id, InstanceProtocol.LifeUpdate(peer.Id, peer.Life));
                     if (previous.Template.Experience != peer.Template.Experience)
-                        packets.Add(InstanceEntities.PlayerExperienceUpdate(peer.Id, peer.Template.Experience));
+                        packets.World(peer.Id, InstanceEntities.PlayerExperienceUpdate(peer.Id, peer.Template.Experience));
                     if (Stats.Key("level") is uint levelKey)
                     {
                         int level = (peer.Template.Stats ?? []).SingleOrDefault(s => s.Key == levelKey).Value;
                         int oldLevel = (previous.Template.Stats ?? []).SingleOrDefault(s => s.Key == levelKey).Value;
-                        if (level != oldLevel) packets.Add(InstanceEntities.StatsUpdate(peer.Id, [(levelKey, level)]));
+                        if (level != oldLevel) packets.World(peer.Id, InstanceEntities.StatsUpdate(peer.Id, [(levelKey, level)]));
                     }
                     if (Progression.LevelFor(peer.Template.Experience, CharacterStats.LevelStarts)
                         > Progression.LevelFor(previous.Template.Experience, CharacterStats.LevelStarts))
                     {
                         uint effect = conn.NextObjectId++;
                         conn.TemporarySkillEffects[effect] = AreaTime(conn) + 3;
-                        packets.Add(InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                        packets.Create(effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                             new EffectObject(peer.X, peer.Y, "Metadata/Effects/misc/levelup_new/rig.ao")
                             { Parent = peer.Id }.Blob()));
-                        packets.Add(InstanceProtocol.EnterWakeZone(effect));
+                        packets.Presentation(effect, InstanceProtocol.EnterWakeZone(effect));
                     }
                     int scale = (peer.Template.Stats ?? []).SingleOrDefault(s => s.Key == ActorScale.Final).Value;
                     int before = (previous.Template.Stats ?? []).SingleOrDefault(s => s.Key == ActorScale.Final).Value;
                     if (scale != before)
-                        packets.Add(InstanceEntities.StatsUpdate(peer.Id, [(ActorScale.Final, scale)]));
+                        packets.World(peer.Id, InstanceEntities.StatsUpdate(peer.Id, [(ActorScale.Final, scale)]));
                 }
                 conn.SeenPlayers[peer.Id] = peer;
-                return packets.SelectMany(p => p).ToArray();
-            });
+                return packets.Build();
+            }, transport: (remote, stream, ciphers));
+        }
     }
 
     internal static Task CorrectMonsterCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)

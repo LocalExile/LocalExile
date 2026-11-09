@@ -73,7 +73,7 @@ static partial class Game
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 if (conn.EntryProtection.End(now, conn.Walk.Position(now), action: true) is ushort buff)
                     Automation(conn).Packets.Add(new(InstanceEntities.RemoveBuff(PlayerId, buff),
-                        "Grace Period ends: movement, action or deadline"));
+                        "Grace Period ends: movement, action or deadline", WorldId: PlayerId));
                 accepted(done);
             }
             return ([done.Id], [done]);

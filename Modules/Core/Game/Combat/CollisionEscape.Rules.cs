@@ -31,8 +31,8 @@ static partial class Game
             conn.Walk.Teleport(to.X, to.Y, now);
         }
         if (!tell) return;
-        await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(PlayerId), "stop action before collision correction");
-        await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, to.X, to.Y, 0x7fffffff),
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), "stop action before collision correction");
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y, 0x7fffffff),
             $"collision escape: ({from.X},{from.Y}) -> ({to.X},{to.Y})");
     }
 }

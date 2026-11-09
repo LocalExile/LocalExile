@@ -233,16 +233,16 @@ static partial class Game
         if (maximum != m.MaxLife)
         {
             m.Life = (uint)Math.Clamp(m.Life / (double)m.MaxLife * maximum, 1, maximum); m.MaxLife = maximum;
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id, [(StatKeys.MaximumLife, (int)maximum)]), "golem maximum life", golem.Id, m));
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id, [(StatKeys.MaximumLife, (int)maximum)]), "golem maximum life", golem.Id, m, WorldId: golem.Id));
             conn.Minions.OutputQueue.Add(new([], "golem life", golem.Id, m, PlayerMinions.OutputKind.Life));
         }
         m.Mods = GolemModifiers(golem, player);
         golem.MaximumShield = GolemShield(golem, player); golem.Shield = Math.Min(golem.Shield, golem.MaximumShield);
         golem.Abilities = GolemAbilities(conn, m.Variety!, m.Level, golem, player);
         golem.Skills = GolemNativeSkills(conn, m.Level, golem.Abilities);
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m));
+        conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
         conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id,
-            [(StatKeys.MovementVelocityPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m));
+            [(StatKeys.MovementVelocityPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m, WorldId: golem.Id));
         if (conn.MinionOrigins.TryGetValue(golem.Id, out var origin))
             conn.MinionOrigins[golem.Id] = origin with { Object = origin.Object with { Skills = golem.Skills } };
     }

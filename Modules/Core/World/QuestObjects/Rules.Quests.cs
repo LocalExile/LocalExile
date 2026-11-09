@@ -18,9 +18,9 @@ static partial class QuestobjectsRules
                 {
                     conn.TutorialChest = chest; conn.TutorialChestId = conn.NextObjectId++;
                     bool opened = CharacterSaves.Load(CharacterName(conn))?.Tutorial?.ChestOpened == true;
-                    await Send(remote,stream,ciphers,InstanceEntities.CreateObject(conn.TutorialChestId,InstanceEntities.ObjectTypeHash(chest.Type),
+                    await global::Game.SendWorldCreate(remote, stream, ciphers, conn, conn.TutorialChestId, InstanceEntities.CreateObject(conn.TutorialChestId,InstanceEntities.ObjectTypeHash(chest.Type),
                         TutorialObjects.ChestBlob(chest,opened)), $"0x02b9 tutorial support chest at ({chest.X},{chest.Y}), opened={opened}");
-                    await Send(remote,stream,ciphers,InstanceProtocol.EnterWakeZone(conn.TutorialChestId),null);
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, conn.TutorialChestId, InstanceProtocol.EnterWakeZone(conn.TutorialChestId),null);
                     await RegisterStationaryCollision(remote,stream,ciphers,conn,conn.TutorialChestId,chest.Type,chest.X,chest.Y,0);
                     if (opened) await DropTutorialGem(remote,stream,ciphers,conn,true,chest.X,chest.Y);
                     return;
@@ -46,12 +46,12 @@ static partial class QuestobjectsRules
             if(conn.Closed) return;
             double biteStarted = conn.Clock.Elapsed.TotalSeconds;
             int component=npc.Npc.Components!.ToList().IndexOf("Transitionable");
-            if(component>=0) await Send(remote,stream,ciphers,InstanceEntities.TransitionableUpdate(id,(byte)component,2),"0x02ba wounded exile bitten");
+            if(component>=0) await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id,(byte)component,2),"0x02ba wounded exile bitten");
             if(conn.TutorialSceneId!=0) await Send(remote,stream,ciphers,TutorialObjects.BiteAnimation(conn.TutorialSceneId,1),"0x01b2 opening zombie bites exile");
             while (!conn.Closed && conn.Clock.Elapsed.TotalSeconds < biteStarted+TutorialObjects.BiteSeconds)
                 await Task.Delay(50);
             if(conn.Closed) return;
-            if(conn.TutorialSceneId!=0) await Send(remote,stream,ciphers,InstanceProtocol.RemoveObject(conn.TutorialSceneId),null);
+            if(conn.TutorialSceneId!=0) await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, conn.TutorialSceneId,null);
             if(conn.TalkingTo==id) { conn.InNpcTalk=false;conn.TalkingTo=0;await Send(remote,stream,ciphers,InstanceNpcs.Talk(0),null); }
             await SpawnTutorialZombie(remote,stream,ciphers,conn);
         }
@@ -89,7 +89,7 @@ static partial class QuestobjectsRules
                 // Glyphs left on this instance's ground are not needed any more (their .it remove_flag).
                 foreach (var (gid, _) in conn.Instance.Ground.All().Where(e => GlyphIndex(e.Item.Item) is not null))
                     if (conn.Instance.Ground.Take(gid) is not null)
-                        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(gid), $"0x02bb remove glyph 0x{gid:x}: the glyphs are placed");
+                        await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, gid, $"0x02bb remove glyph 0x{gid:x}: the glyphs are placed");
             for (int i = 0; i < layout.Nests.Count && i < 0x10; i++)
             {
                 var nest = layout.Nests[i];
@@ -97,22 +97,22 @@ static partial class QuestobjectsRules
                 uint id = (opened ? OpenedNestFirstId : GlyphObjectFirstId) + (uint)i;
                 lock (conn.GlyphNests) conn.GlyphNests[id] = nest;
                 conn.SetBlocker(id, nest.At.X, nest.At.Y, GlyphQuest.NestSize);
-                await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(nest.At, opened)),
+                await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(nest.At, opened)),
                     $"0x02b9 Rhoa Nest 0x{id:x} {nest.Type} at ({nest.At.X}, {nest.At.Y}) with glyph {nest.Glyph + 1}, opened={opened}");
-                await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
             }
             if (layout.Wall is { } wall)
             {
-                await Send(remote, stream, ciphers, InstanceEntities.CreateObject(GlyphWallObjectId, InstanceEntities.ObjectTypeHash(GlyphQuest.Wall), GlyphQuest.WallBlob(wall, placed)),
+                await global::Game.SendWorldCreate(remote, stream, ciphers, conn, GlyphWallObjectId, InstanceEntities.CreateObject(GlyphWallObjectId, InstanceEntities.ObjectTypeHash(GlyphQuest.Wall), GlyphQuest.WallBlob(wall, placed)),
                     $"0x02b9 Glyph Wall 0x{GlyphWallObjectId:x} at ({wall.X}, {wall.Y}), {(placed ? "glyphs placed" : "waiting for the glyphs")}");
-                await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(GlyphWallObjectId), null);
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, GlyphWallObjectId, InstanceProtocol.EnterWakeZone(GlyphWallObjectId), null);
                 conn.GlyphWallId = GlyphWallObjectId;
             }
             if (layout.Water is { } water)
             {
-                await Send(remote, stream, ciphers, InstanceEntities.CreateObject(GlyphWaterObjectId, InstanceEntities.ObjectTypeHash(GlyphQuest.Water), GlyphQuest.WaterBlob(water.X, water.Y, water.Rotation, placed)),
+                await global::Game.SendWorldCreate(remote, stream, ciphers, conn, GlyphWaterObjectId, InstanceEntities.CreateObject(GlyphWaterObjectId, InstanceEntities.ObjectTypeHash(GlyphQuest.Water), GlyphQuest.WaterBlob(water.X, water.Y, water.Rotation, placed)),
                     $"0x02b9 waterfall 0x{GlyphWaterObjectId:x} at ({water.X}, {water.Y}), transitioned={placed}");
-                await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(GlyphWaterObjectId), null);
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, GlyphWaterObjectId, InstanceProtocol.EnterWakeZone(GlyphWaterObjectId), null);
                 conn.GlyphWaterId = GlyphWaterObjectId;
             }
         }
@@ -150,17 +150,17 @@ static partial class QuestobjectsRules
 
     internal static async Task DropTutorialGem(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,bool support,int x,int y)
     {
-        foreach (var (packet,log) in CommitTutorialGem(conn,support,x,y)) await Send(remote,stream,ciphers,packet,log);
+        foreach (var output in CommitTutorialGem(conn,support,x,y)) await SendWorldReceipt(conn, output, (remote, stream, ciphers));
     }
 
-    internal static List<(byte[] Packet, string? Log)> CommitTutorialGem(ClientState conn,bool support,int x,int y)
+    internal static List<PlayerMinions.Output> CommitTutorialGem(ClientState conn,bool support,int x,int y)
     {
         if (!LeagueFor(conn).Rules.TutorialGifts && support) return [];
         if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial || (support ? tutorial.SupportClaimed : tutorial.SkillClaimed)) return [];
         var item=CharacterSaves.FromSaved(support?tutorial.SupportGem:tutorial.SkillGem,Items);
         var ground=new WorldItemObject(x,y,item);
         if(conn.Instance.PlaceTutorialItem(TutorialObjects.DropKey(CharacterName(conn),tutorial,support),ground,conn) is not uint id) return [];
-        return [(InstanceEntities.CreateObject(id,InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),ground.Blob(justDropped: true)),
-            $"0x02b9 tutorial {(support?"support":"skill")} gem {Items.GemName(item)} at ({x},{y})"), (InstanceProtocol.EnterWakeZone(id),null)];
+        return [new(InstanceEntities.CreateObject(id,InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),ground.Blob(justDropped: true)),
+            $"0x02b9 tutorial {(support?"support":"skill")} gem {Items.GemName(item)} at ({x},{y})", WorldId: id, CreatesObject: true), new(InstanceProtocol.EnterWakeZone(id),null, WorldId: id)];
     }
 }

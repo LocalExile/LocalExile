@@ -88,9 +88,9 @@ static partial class Game
             conn.SentBloodCharges = held;
         }
         if (remove != 0)
-            await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, remove), $"0x01c2 player buff {remove}: blood_scythe_charge off");
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, remove), $"0x01c2 player buff {remove}: blood_scythe_charge off");
         if (add != 0)
-            await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, add, BloodCharges.BuffRow, PlayerId,
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, add, BloodCharges.BuffRow, PlayerId,
                 stacks: (ushort)Math.Clamp(held, 0, ushort.MaxValue)), $"0x01c1 player buff {add}: blood_scythe_charge (BuffDefinitions row {BloodCharges.BuffRow}) × {held}");
         Console.WriteLine($"[gateway] {remote} blood charges {held} ({why}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
         await SendChargeStats(remote, stream, ciphers, conn, $"blood charges {held}");

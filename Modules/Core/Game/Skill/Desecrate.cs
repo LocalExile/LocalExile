@@ -40,7 +40,7 @@ static partial class Game
                     while (conn.Summons.Corpses.Count > maximum)
                     {
                         uint expired = conn.Summons.Corpses.Dequeue();
-                        if (conn.Monsters.Remove(expired)) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(expired), "old Desecrate corpse removed"));
+                        if (conn.Monsters.Remove(expired)) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(expired), "old Desecrate corpse removed", WorldId: expired, RemovesObject: true));
                         conn.Instance.World.MonsterOrigins.TryRemove(expired, out _);
                     }
                 });

@@ -18,12 +18,12 @@ static partial class Game
     // A pause can win the send gate after an action was accepted. Keep its echo pending rather than releasing an
     // unconfirmed arrow after resume; a later action, death or transfer still cancels it with its original token.
     internal static async Task<bool> SendOrdinaryRangedAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, byte[] bytes, string? log, int action, int epoch)
+        ClientState conn, byte[][] bytes, string? log, int action, int epoch)
     {
         bool sent = false;
         while (!sent && OrdinaryRangedReleaseCurrent(conn, action, epoch))
         {
-            await Send(remote, stream, ciphers, bytes, log, still: () =>
+            await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => bytes, log, still: () =>
             {
                 lock (conn.Monsters) return sent = OrdinaryRangedReleaseCurrent(conn, action, epoch) && !conn.Paused;
             });
@@ -35,7 +35,7 @@ static partial class Game
     // The runtime schedules the release first, anchored to the accepted input rather than to the send gate; the echo
     // follows. The release guard rechecks the action token, so a cancelled or replaced action creates no projectile.
     internal static async Task ConfirmAndLaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, byte[] actionBytes, string actionLog, (int X, int Y) aim, double attackSeconds, int action, int epoch,
+        ClientState conn, byte[][] actionBytes, string actionLog, (int X, int Y) aim, double attackSeconds, int action, int epoch,
         string projectileId, ushort sequence, SkillCriticalRoll criticalRoll)
     {
         await LaunchOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll);

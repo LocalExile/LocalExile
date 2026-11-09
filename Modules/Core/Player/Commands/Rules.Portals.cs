@@ -23,17 +23,17 @@ static partial class CommandsRules
         if (old.Count == 0) return 0;
         uint type = InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath);
         foreach (var (id, _, _, _) in old)
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove map portal 0x{id:x} (rebuild)");
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bb remove map portal 0x{id:x} (rebuild)");
         // Each portal is listed a moment after its create: 0x008f in the same burst as the 0x2b9 reaches none of them (the
         // client has not built the object yet), which is why they then stay invisible.
         ushort area = MapDevice.OpenOf(CharacterName(conn))?.Area.Hash16 ?? conn.Layout.Hash;
         foreach (var (_, x, y, index) in old)
         {
             uint id = conn.NextObjectId++;
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, type,
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, type,
                     new MapPortalObject(x, y, index, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
                 $"0x02b9 create map portal 0x{id:x} (place {index}) at ({x}, {y}) rotation {conn.PortalRotationDegrees:0.#}°");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
             lock (conn.MapPortals) conn.MapPortals[id] = (x, y, index);
             await Task.Delay(MapPortalListMs);
             await SendMapPortals(remote, stream, ciphers, conn, deviceId, area);

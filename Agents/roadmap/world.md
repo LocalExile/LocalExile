@@ -168,9 +168,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     Earlier held-walk player and all-monster sync bars passed; the combined current changes still need those checks.
     Broader coverage and adjusted crowd comparisons remain incomplete
     ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
-  - **Start:** validate these corrections together in both modes, then finish frame record ordering, special action
-    producers and sequence wrap, and ranged chase behavior before the remaining skills, world interactions and
-    network validation.
+  - **Start:** validate explicit frame records and birth dependencies together in both modes. Deterministic
+    wire/lifecycle tests pass; live ordering and nonregression remain open. Then cover special action producers,
+    sequence wrap, ranged chase behavior and the remaining skills and world interactions.
   - **Done when:** on a fixed bench every sync figure is within GGG's margin. The bench is pack fights per weapon,
     natural packs and a dense area. The figures are monsters standing per order kind, monsters in a pack, monsters
     walking per speed, the player standing and walking, and snap episodes.

@@ -17,7 +17,7 @@ static partial class Game
             conn.Minions.Bodies.Remove(body);
             if (!conn.Monsters.TryGetValue(body.Id, out var dead) || !ReferenceEquals(dead, body.Monster) || !dead.Dead) continue;
             conn.Monsters.Remove(body.Id);
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(body.Id), "minion body removed", body.Id, dead, PlayerMinions.OutputKind.Remove));
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(body.Id), "minion body removed", body.Id, dead, PlayerMinions.OutputKind.Remove, WorldId: body.Id, RemovesObject: true));
         }
     }
 

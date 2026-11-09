@@ -286,7 +286,7 @@ public class DormantMonsterTests
             var origin = conn.Instance.World.MonsterOrigins[buriedEntry.Key];
             Assert.Equal(MonsterEmerge.UnrisenState, origin.Object.TransitionState);
             byte[] dormantCreate = GameServer.Core.Protocol.Instance.InstanceEntities.CreateObject(buriedEntry.Key,
-                origin.Type, (origin.Object with { Life = buriedEntry.Value.Life }).Blob());
+                origin.Type, (origin.Object with { Life = buriedEntry.Value.Life }).Blob(), headerU32: uint.MaxValue);
             await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
             Assert.Contains(sent, bytes => bytes.AsSpan().IndexOf(dormantCreate) >= 0);
             Assert.Contains(buriedEntry.Key, peer.MonsterViews.Keys);
@@ -343,7 +343,9 @@ public class DormantMonsterTests
             conn.Instance.World.Runner = conn;
             lock (conn.Monsters) Assert.True(conn.Monsters.Remove(risen.Id));
             await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
-            Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.RemoveObject(risen.Id), Assert.Single(sent));
+            var removal = GameServer.Core.Protocol.Instance.InstanceProtocol.RemoveObject(risen.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(removal.AsSpan(6), uint.MaxValue);
+            Assert.Equal(removal, Assert.Single(sent));
             Assert.DoesNotContain(risen.Id, peer.MonsterViews.Keys);
             Assert.DoesNotContain(risen.Id, peer.AwakeMonsters);
         }

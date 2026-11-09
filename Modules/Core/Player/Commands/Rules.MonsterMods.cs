@@ -52,7 +52,7 @@ static partial class CommandsRules
         var set = rolls.Roll(variety, m.Level, m.Rarity, Random.Shared, alone: true, count: forced.Count, forced: forced);
         var (x, y) = m.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         lock (conn.Monsters) conn.Monsters.Remove(id);
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove monster 0x{id:x} (/mob_mods)");
+        await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bb remove monster 0x{id:x} (/mob_mods)");
         await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, m.Rarity, x, y, friendly: !m.Hostile, mods: set);
     }
 }

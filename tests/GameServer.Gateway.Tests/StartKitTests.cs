@@ -52,6 +52,9 @@ public class StartKitTests
                     Assert.Equal(0x1a9, BinaryPrimitives.ReadUInt16BigEndian(packets[1].Packet));
                     uint id = BinaryPrimitives.ReadUInt32BigEndian(packets[0].Packet.AsSpan(2));
                     Assert.Equal(id, BinaryPrimitives.ReadUInt32BigEndian(packets[1].Packet.AsSpan(2)));
+                    Assert.True(packets[0].CreatesObject);
+                    Assert.Equal(id, packets[0].WorldId);
+                    Assert.Equal(id, packets[1].WorldId);
                     var origin = conn.Instance.Ground.Origin(id);
                     Assert.Same(conn, origin.By);
                     Assert.True(origin.Shared);

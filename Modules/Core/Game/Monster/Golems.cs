@@ -110,14 +110,14 @@ static partial class Game
         conn.Golems.IncomingHits.RemoveAll(hit => ReferenceEquals(hit.Target, golem));
         golem.Pending = null;
         foreach (var hazard in golem.Hazards) if (hazard.Object is uint art)
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(art), null));
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(art), null, WorldId: art, RemovesObject: true));
         golem.Hazards.Clear(); golem.Pulses.Clear(); golem.ReviveAt = double.PositiveInfinity;
         golem.Monster.ActionGeneration++; golem.Monster.Dead = true; golem.Monster.Life = 0;
         if (conn.Monsters.TryGetValue(golem.Id, out var held) && ReferenceEquals(held, golem.Monster))
         {
             conn.Monsters.Remove(golem.Id); conn.MinionOrigins.TryRemove(golem.Id, out _);
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(golem.Id), "golem removed", golem.Id,
-                Kind: PlayerMinions.OutputKind.Remove));
+                Kind: PlayerMinions.OutputKind.Remove, WorldId: golem.Id, RemovesObject: true));
         }
         conn.Golems.RefreshAt = 0;
     }

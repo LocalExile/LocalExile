@@ -27,12 +27,12 @@ static partial class Game
     // Every full player stat/Actor refresh shares this gate, including refreshes caused by other mechanics.
     // Otherwise a packet prepared before expiry could overwrite a newer Fortification expiry update.
     internal static Task SendPlayerStatSnapshot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        Func<byte[]> packet, string? label) => Send(remote, stream, ciphers, [], label, atGate: () =>
+        Func<byte[]> packet, string? label) => SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
         {
             using (conn.Performance.Lock(conn.Monsters, "stats"))
             {
                 if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
-                return WithOwnAuraChanges(conn, packet);
+                return WithOwnAuraRecords(conn, () => [packet()]);
             }
-        });
+        }, label);
 }

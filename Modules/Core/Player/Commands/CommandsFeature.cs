@@ -48,7 +48,7 @@ static class CommandsFeature
         int x, int y, float degrees, int blockerSize, string what)
     {
         conn.SetBlocker(id, x, y, blockerSize);
-        await Send(remote, stream, ciphers, InstanceProtocol.Teleport(id, x, y, 0x7fffffff), $"{what} 0x{id:x} to ({x}, {y})");
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.Teleport(id, x, y, 0x7fffffff), $"{what} 0x{id:x} to ({x}, {y})");
         await Send(remote, stream, ciphers, InstanceHideoutEditing.Rotation(id, degrees * MathF.PI / 180), $"{what} turned {degrees}°");
         await conn.Commands!.Reply($"{what} at ({x}, {y}), {degrees}°");
     }
@@ -69,7 +69,7 @@ static class CommandsFeature
             conn.Walk.SetSpeed(Math.Max(1, WalkSpeed * (100 + totalPct) / 100 * PlayerActionFactor(conn)),
                 conn.Clock.Elapsed.TotalSeconds);
             lock (conn.Monsters) conn.PlayerStats[StatKeys.MovementVelocityPct] = totalPct;
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.MovementVelocityPct, totalPct)]),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.MovementVelocityPct, totalPct)]),
                 $"0x01b3 stats: movement_velocity_+% (key {StatKeys.MovementVelocityPct}) = {totalPct} ({conn.Pools.MovementVelocityPct} passive + {percent - 100} dev)");
         })
         .Add("blind", "/blind [seconds] (dev: incoming Blind through normal immunity)", async args =>
@@ -234,13 +234,13 @@ static class CommandsFeature
             if (Monsters.Find(query) is not { } variety) { await conn.Commands!.Reply($"No monster matches \"{query}\"."); return; }
             var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             uint id = conn.NextObjectId++;
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
                 InstanceEntities.ObjectTypeHash(InstanceMonsterStatue.TypePath),
                 InstanceMonsterStatue.Blob(x, y, variety.Hash16, 100, variation)),
                 $"0x02b9 monster statue of {variety} at ({x}, {y})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id),
                 $"0x01a9 monster statue 0x{id:x} enters wake zone");
-            await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
                 $"0x1b2 monster statue 0x{id:x} idle");
             if (HomeHideout(conn)?.AreaHash16 == conn.Layout.Hash && CharacterName(conn) is { } character)
                 CharacterSaves.AddMonsterStatue(character, conn.Layout.Id,
@@ -374,7 +374,7 @@ static class CommandsFeature
                 throw new ArgumentException("/wp_place [x y degrees]");
             float radians = degrees * MathF.PI / 180;
             conn.MoveWaypoint(waypoint with { GridX = x, GridY = y, Rotation = radians });
-            await Send(remote, stream, ciphers, InstanceProtocol.Teleport(WaypointCatalog.ObjectId, x, y, 0x7fffffff), $"waypoint to ({x}, {y})");
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, WaypointCatalog.ObjectId, InstanceProtocol.Teleport(WaypointCatalog.ObjectId, x, y, 0x7fffffff), $"waypoint to ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceHideoutEditing.Rotation(WaypointCatalog.ObjectId, radians), $"waypoint turned {degrees}°");
             await conn.Commands!.Reply($"Waypoint at ({x}, {y}), {degrees}°");
         })
@@ -405,10 +405,10 @@ static class CommandsFeature
                 _ => throw new ArgumentException(usage),
             };
             conn.MoveWaypoint(changed);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(WaypointCatalog.ObjectId), "0x02bb remove the waypoint (/wp_state)");
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(WaypointCatalog.ObjectId,
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, WaypointCatalog.ObjectId, "0x02bb remove the waypoint (/wp_state)");
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, WaypointCatalog.ObjectId, InstanceEntities.CreateObject(WaypointCatalog.ObjectId,
                 InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), changed.Blob()), $"0x02b9 create waypoint {changed} (/wp_state)");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId), null);
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, WaypointCatalog.ObjectId, InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId), null);
             await conn.Commands!.Reply($"Waypoint recreated: active {changed.Active}, model {changed.Model}");
         })
         .Add("item_tab", $"/item_tab <stash tab name> <count> (dev: slotted tabs add up to count, at most {ItemTabMax}; Gem, Flask and Unique add one of each available missing variant, e.g. /item_tab Unique 1)", async args =>
@@ -760,10 +760,10 @@ static class CommandsFeature
             int openMs = args.Length > 2 ? int.Parse(args[2]) : -1;
             var (x, y) = conn.SpawnNear(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
             uint id = conn.NextObjectId++;
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
                 new MapPortalObject(x, y, 0, type, created, Rotation: conn.PortalRotationRadians).Blob()),
                 $"0x02b9 create test portal 0x{id:x} type {type}, transitionable {created}, at ({x}, {y})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
             lock (conn.MapPortals) conn.MapPortals[id] = (x, y, -1);
             if (openMs >= 0) OpenMapPortalLater(remote, stream, ciphers, conn, id, openMs);
             uint deviceId;
@@ -1100,9 +1100,9 @@ static class CommandsFeature
             int dealt = hit.Damage; string mitigation = hit.Mitigation; uint life = hit.Life;
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             if (life == 0)
-                await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                     "0x01b3 player hide_mini_life_bar = 1 (dev hit)");
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                 $"0x01b1 player dev {type} hit for {dealt} ({amount} before {mitigation}), life {life}/{conn.PlayerMaxLife}");
             if (hit.Mana != hit.ManaBefore)
                 await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})");
@@ -1214,9 +1214,9 @@ static class CommandsFeature
             var (chance, effect, lucky, unlucky) = hit.Suppression;
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             if (life == 0)
-                await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                     "0x01b3 player hide_mini_life_bar = 1 (dev spell hit)");
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                 $"0x01b1 player dev spell {type} hit for {dealt} ({amount} before {mitigation}, suppression {(suppressed ? "yes" : "no")}), life {life}/{conn.PlayerMaxLife}");
             if (hit.Mana != hit.ManaBefore)
                 await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})");
@@ -1274,9 +1274,9 @@ static class CommandsFeature
             bool blocked = hit.Blocked; int chance = hit.BlockChance;
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             if (life == 0)
-                await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                     "0x01b3 player hide_mini_life_bar = 1 (dev block hit)");
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                 $"0x01b1 player dev {(spell ? "spell" : "attack")} hit for {dealt} ({(blocked ? "blocked" : mitigation)}), life {life}/{conn.PlayerMaxLife}");
             if (mana != manaBefore)
                 await SendPlayerMana(remote, stream, ciphers, conn,
@@ -1305,10 +1305,10 @@ static class CommandsFeature
         .Add("heal", "/heal (full life; also revives: 0x1b1 from 0 runs the client's revive)", async _ =>
         {
             lock (conn.Monsters) { (conn.PlayerLife, conn.PlayerMana) = (conn.PlayerUnreservedLife, (uint)UnreservedMana(conn)); conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); }
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
                 $"0x01b1 player healed to {conn.PlayerMaxLife}");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 0)]),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 0)]),
                 "0x01b3 player hide_mini_life_bar = 0");
         })
         .Add("death_screen", "/death_screen [hex flags] (show the death screen; default: this league's; 2 hides it)", async args =>
@@ -1341,10 +1341,10 @@ static class CommandsFeature
             {
                 conn.ReplaceAreaTransition(id, changed);
                 at = changed;
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove area transition 0x{id:x}");
-                await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(at.Type), at.Blob()),
+                await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bb remove area transition 0x{id:x}");
+                await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(at.Type), at.Blob()),
                     $"0x02b9 create area transition {at}");
-                await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 area transition 0x{id:x} enters wake zone");
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 area transition 0x{id:x} enters wake zone");
             }
             await conn.Commands!.Reply($"Area transition 0x{id:x} at ({at.GridX}, {at.GridY}), {at.Rotation * 180 / MathF.PI:0.#} degrees, " +
                 $"height {at.Height?.ToString(inv) ?? "terrain"}, model {at.Model ?? "none"}; you at ({px}, {py}).");
@@ -1522,7 +1522,7 @@ static class CommandsFeature
             ushort Key(string s) => HideoutCatalog.Hideouts.FirstOrDefault(h => h.AreaId.Equals(s, StringComparison.OrdinalIgnoreCase)) is { } h ? h.Hash16
                 : ushort.TryParse(s.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber, null, out var k) ? k : (ushort)0;
             ushort a = args.Length > 0 ? Key(args[0]) : (ushort)0, b = args.Length > 1 ? Key(args[1]) : (ushort)0;
-            await Send(remote, stream, ciphers, InstanceEntities.PlayerHideoutsUpdate(PlayerId, a, b), $"0x02ba player hideout keys 0x{a:x4} 0x{b:x4}");
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerHideoutsUpdate(PlayerId, a, b), $"0x02ba player hideout keys 0x{a:x4} 0x{b:x4}");
             await Send(remote, stream, ciphers, InstanceChat.ChatLine($"Hideout keys 0x{a:x4} 0x{b:x4}."), "0x0017 chat line: hideout keys");
         })
         .Add("waypoints", "/waypoints [all | reset] (list the activated waypoints; dev: activate all and visit every pinned area, or keep only the towns')", async args =>
@@ -1574,7 +1574,7 @@ static class CommandsFeature
             if (found.Value is not { } npc) { await conn.Commands!.Reply($"No NPC {name} here."); return; }
             lock (conn.Npcs) conn.Npcs.Remove(found.Key);
             conn.RemoveBlocker(found.Key);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(found.Key), $"0x02bb remove npc 0x{found.Key:x} {npc.Npc.Name}");
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, found.Key, $"0x02bb remove npc 0x{found.Key:x} {npc.Npc.Name}");
             await SpawnNpc(remote, stream, ciphers, conn, npc.Npc, x, y, deg * MathF.PI / 180);
             await conn.Commands!.Reply($"{npc.Npc.Name} at ({x}, {y}), {deg}°");
         })
@@ -1588,7 +1588,7 @@ static class CommandsFeature
             if (found.Value is not { } npc) { await conn.Commands!.Reply($"No NPC {name} here."); return; }
             lock (conn.Npcs) conn.Npcs.Remove(found.Key);
             conn.RemoveBlocker(found.Key);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(found.Key), $"0x02bb remove npc 0x{found.Key:x} {npc.Npc.Name}");
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, found.Key, $"0x02bb remove npc 0x{found.Key:x} {npc.Npc.Name}");
             float rad = deg * MathF.PI / 180;
             await SpawnNpc(remote, stream, ciphers, conn, npc.Npc, npc.X, npc.Y, rad);
             await conn.Commands!.Reply($"{npc.Npc.Name} at ({npc.X}, {npc.Y}) faces {deg}° ({rad:0.###} rad).");
@@ -1902,7 +1902,7 @@ static class CommandsFeature
                 bool removed;
                 lock (conn.Monsters) removed = conn.Monsters.Remove(id) || MonsterEmerge.Buried(conn).Remove(id);
                 if (!removed) { await conn.Commands!.Reply($"No monster 0x{id:x}."); continue; }
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove monster 0x{id:x}");
+                await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bb remove monster 0x{id:x}");
             }
         })
         // Movement probes: walk (0x1ba, Positioned move with a speed) or teleport (0x1b7) a monster to a few cells from the player.
@@ -1912,7 +1912,7 @@ static class CommandsFeature
             string? sp = args.FirstOrDefault(a => !a.StartsWith("0x", StringComparison.OrdinalIgnoreCase));
             float speed = sp is null ? 20f : float.Parse(sp, System.Globalization.CultureInfo.InvariantCulture);
             var (x, y) = NextToPlayer(conn);
-            await Send(remote, stream, ciphers, InstanceProtocol.MoveTo(id, x, y, speed), $"0x01ba move monster 0x{id:x} to ({x}, {y}) speed {speed}");
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.MoveTo(id, x, y, speed), $"0x01ba move monster 0x{id:x} to ({x}, {y}) speed {speed}");
             lock (conn.Monsters)
             {
                 conn.Monsters[id].Walk = conn.NewMonsterWalk(id, x, y, conn.Monsters[id].Walk.Speed,
@@ -1929,7 +1929,7 @@ static class CommandsFeature
             var (x, y) = NextToPlayer(conn);
             (int X, int Y) from;
             lock (conn.Monsters) from = conn.Monsters[id].Walk.Order(x, y, conn.Clock.Elapsed.TotalSeconds);
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(id, from.X, from.Y, x, y, skill, 0xffff, 0x0408),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActionStarted(id, from.X, from.Y, x, y, skill, 0xffff, 0x0408),
                 $"0x01ab monster 0x{id:x} action skill 0x{skill:x4} from {from} to ({x}, {y})");
         })
         // Animation probe: play animation index `id` on the nearest living monster (0x1b2 kind 0). The Animated handler
@@ -1945,7 +1945,7 @@ static class CommandsFeature
                     .OrderBy(kv => Dist(here, kv.Value.Walk.Position(conn.Clock.Elapsed.TotalSeconds)))
                     .Select(kv => (uint?)kv.Key).FirstOrDefault();
             if (pick is not { } id) { await conn.Commands!.Reply("No living monster nearby."); return; }
-            await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, index, speed),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.AnimationUpdate(id, 0, index, speed),
                 $"0x01b2 monster 0x{id:x} play animation {index} at speed {speed}");
             await conn.Commands!.Reply($"0x1b2 anim {index} (speed {speed}) -> monster 0x{id:x}");
         })
@@ -1955,7 +1955,7 @@ static class CommandsFeature
         {
             if (MonsterArg(conn, args, 0) is not { } id) { await conn.Commands!.Reply("No such monster."); return; }
             var (x, y) = NextToPlayer(conn);
-            await Send(remote, stream, ciphers, InstanceProtocol.Teleport(id, x, y), $"0x01b7 teleport monster 0x{id:x} to ({x}, {y})");
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.Teleport(id, x, y), $"0x01b7 teleport monster 0x{id:x} to ({x}, {y})");
             lock (conn.Monsters)
             {
                 conn.Monsters[id].Walk = conn.NewMonsterWalk(id, x, y, conn.Monsters[id].Walk.Speed,

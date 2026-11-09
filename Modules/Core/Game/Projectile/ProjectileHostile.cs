@@ -146,7 +146,7 @@ static partial class Game
         if (contact.Target.Id != PlayerId || conn.PlayerLife == 0 || InGracePeriod(conn)) return ProjectileHitResult.Miss;
         var outcome = CommitHostilePlayerHitLocked(session, contact, shot);
         if (outcome is null) return ProjectileHitResult.Miss;
-        session.Packet(outcome.HitPacket, $"0x01af monster 0x{shot.MonsterId:x} projectile hit on the player ({shot.Label})");
+        session.World(shot.MonsterId, outcome.HitPacket, $"0x01af monster 0x{shot.MonsterId:x} projectile hit on the player ({shot.Label})");
         session.Enqueue(() => PresentMonsterHit(session.remote, session.stream, session.ciphers, conn, shot.MonsterId, outcome));
         return outcome.Blocked ? ProjectileHitResult.Blocked : ProjectileHitResult.Hit;
     }

@@ -39,10 +39,10 @@ static partial class Game
         {
             bool changed = conn.Summons.HolyRegenerationPerMinute != rate || now >= conn.Summons.HolyRegenerationUntil;
             conn.Summons.HolyRegenerationPerMinute = rate; conn.Summons.HolyRegenerationUntil = until;
-            if (conn.Summons.HolyBuff != 0) conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, conn.Summons.HolyBuff), null));
+            if (conn.Summons.HolyBuff != 0) conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, conn.Summons.HolyBuff), null, WorldId: PlayerId));
             conn.Summons.HolyBuff = conn.NextBuff++;
             conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, conn.Summons.HolyBuff, 1181, relic.Id,
-                u68: BitConverter.SingleToUInt32Bits((float)duration)), "Holy Relic regeneration"));
+                u68: BitConverter.SingleToUInt32Bits((float)duration)), "Holy Relic regeneration", WorldId: PlayerId));
             if (changed) conn.Minions.StatRevision++;
         }
         foreach (var ally in conn.Golems.All.Values.Concat(conn.Summons.Fighters.Values).Concat(conn.Reservations.Fighters.Values))
@@ -80,6 +80,6 @@ static partial class Game
         reaper.InputHash = 0; conn.Summons.RefreshAt = 0;
         conn.Minions.OutputQueue.Add(new([], "Reaper consumed allied minion", reaper.Id, reaper.Monster, PlayerMinions.OutputKind.Life));
         conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(reaper.Id, conn.NextBuff++, 1870, reaper.Id,
-            u68: BitConverter.SingleToUInt32Bits(6)), "Reaper consume buff"));
+            u68: BitConverter.SingleToUInt32Bits(6)), "Reaper consume buff", WorldId: reaper.Id));
     }
 }

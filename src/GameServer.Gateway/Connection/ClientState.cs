@@ -505,7 +505,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     }
 
     // Successful transfers retire all source-area workers independently of any particular carried mechanic.
-    public void Retire() { lock (Monsters) RageRetired = true; }
+    public void Retire() { lock (Monsters) RageRetired = true; WorldOutput.Close(); }
 
     /// <summary>The <see cref="Clock"/> time of a Stopwatch timestamp in the past (a socket read); now when 0 or paused.</summary>
     public double ClockAt(long timestamp)
@@ -1020,7 +1020,14 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public InstanceState Instance { get; init; } = null!;
     /// <summary>This connection placed or restored the instance's monsters, so it saves them when it closes.</summary>
     public bool MonstersPlaced;
-    public volatile bool AiEnabled = true, Closed;
+    public readonly WorldOutput WorldOutput = new();
+    public volatile bool AiEnabled = true;
+    volatile bool closed;
+    public bool Closed
+    {
+        get => closed;
+        set { closed = value; if (value) WorldOutput.Close(); }
+    }
     // The client has shown it is in lockstep, by a lag byte in a tick or by a request. A predictive client's lag byte stays
     // 0, so it is never probed and keeps its own messages. The client alone picks its Network Mode (07 §6): every
     // connection serves both, and a player switches by changing it and entering again.

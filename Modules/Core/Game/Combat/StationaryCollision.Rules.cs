@@ -13,7 +13,7 @@ static partial class Game
         else conn.RemoveBlocker(id);
         if (StationaryCollision.For(type).BlockingLeagueFlag == "HaveGuild"
             && conn.LeagueQuestFlags.Add(Quests.League.HaveGuild))
-            await Send(remote, stream, ciphers, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId,
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId,
                 Quests.League.Bits(conn.LeagueQuestFlags)), "guild storage access enables native collision");
         Console.WriteLine($"[gateway] stationary collision 0x{id:x} {type} at ({x},{y}): size {size}, hull {hull?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? "none"}");
         if (editorKey is not null) conn.HideoutEditor.Register(id, editorKey, x, y, rotation, size, hull);

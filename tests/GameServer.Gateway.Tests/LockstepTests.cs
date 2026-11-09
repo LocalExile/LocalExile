@@ -9,8 +9,23 @@ using Xunit;
 
 namespace GameServer.Gateway.Tests;
 
-public class LockstepTests
+public class LockstepTests : IDisposable
 {
+    readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
+    readonly IModuleLifetime? previousLifetime = Game.CombatLifetime;
+    readonly ModuleLifetime lifetime = new("Game");
+    public LockstepTests()
+    {
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+    }
+    public void Dispose()
+    {
+        lifetime.Stop(ex => throw ex);
+        Game.CombatLifetime = previousLifetime;
+        Program.SetGameLogic(previousLogic!);
+    }
+
     [Fact]
     public void Instant_replies_share_the_lockstep_sequence_and_suppress_local_action_events()
     {

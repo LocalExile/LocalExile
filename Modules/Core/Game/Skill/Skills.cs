@@ -1148,7 +1148,7 @@ static partial class Game
             (conn.PlayerLife, conn.PlayerMana) = (conn.PlayerUnreservedLife, (uint)mana);
             conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
         }
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), $"0x01b1 player life {conn.PlayerMaxLife}");
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), $"0x01b1 player life {conn.PlayerMaxLife}");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
         await SendPassives(remote, stream, ciphers, conn);
     }
@@ -1278,19 +1278,22 @@ static partial class Game
             foreach (var golem in conn.Golems.All.Values.Where(g => gone.Contains(g.Source)).ToArray())
                 RemoveGolemLocked(conn, golem, now);
             conn.Golems.Waiting.RemoveAll(w => gone.Contains(w.Saved.Skill));
-            var placedPackets = new List<byte>();
             foreach (var placed in conn.Placed.All.Values.Where(p => gone.Contains(p.Skill)).ToArray())
-                RemovePlacedLocked(conn, placed, placedPackets);
+            {
+                conn.Placed.All.Remove(placed.Id);
+                if (!conn.Placed.Grounds.Any(g => g.Object == placed.Id))
+                    conn.Minions.OutputQueue.Add(new([], "placed skill source removed", WorldId: placed.Id, RemovesObject: true));
+                conn.Placed.Dirty = true;
+                conn.Minions.StatRevision++;
+            }
             foreach (var ground in conn.Placed.Grounds.Where(g => gone.Contains(g.Source)).ToArray())
             {
-                placedPackets.AddRange(InstanceProtocol.RemoveObject(ground.Object));
+                conn.Minions.OutputQueue.Add(new([], "placed ground source removed", WorldId: ground.Object, RemovesObject: true));
                 conn.Placed.Grounds.Remove(ground);
             }
-            if (placedPackets.Count > 0)
-                conn.Minions.OutputQueue.Add(new([.. placedPackets], "placed skill source removed"));
             if (!conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic") && conn.Summons.HolyBuff != 0)
             {
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, conn.Summons.HolyBuff), "Holy Relic source removed"));
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, conn.Summons.HolyBuff), "Holy Relic source removed", WorldId: PlayerId));
                 conn.Summons.HolyBuff = 0;
                 conn.Summons.HolyRegenerationUntil = 0;
                 conn.Summons.HolyRegenerationPerMinute = 0;

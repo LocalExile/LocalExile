@@ -21,9 +21,10 @@ public sealed class GameModule : IModule
     }
 }
 
-sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IControlledPlayerRules, IControlledPlayerCommands
+sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IControlledPlayerRules, IControlledPlayerCommands, IWorldAdmissionRules
 {
     internal IModuleLifetime? Lifetime { get; } = lifetime ?? Rules.CombatLifetime;
+    public bool WorldAdmissionActive => Lifetime is { IsActive: true } && ReferenceEquals(Lifetime, Rules.CombatLifetime);
     public double MaximumLeaderDistance => Rules.ControlledFollowerLeash;
     public void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
     public void ClearControlledIntent(ClientState player) => Rules.ClearControlledIntent(player);
