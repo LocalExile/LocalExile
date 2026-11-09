@@ -82,14 +82,15 @@ static partial class QuestobjectsRules
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
     }
 
-    // IzaroSkeleton.ot's DiesAfterTime, outside its client block, so the server's: it goes when its time is up.
+    // IzaroSkeleton.ot's DiesAfterTime, outside its client block, so the server's: it goes when its time is up, and so does
+    // the corpse of one killed before that (the user's call: they would pile up in the arena otherwise).
     static async Task ExpireIzaroGuardian(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AreaLayout layout, uint id)
     {
         await Task.Delay(TimeSpan.FromSeconds(IzaroGoddess.GuardianSeconds));
         if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
         lock (conn.Monsters)
         {
-            if (conn.Monsters.GetValueOrDefault(id) is not { Dead: false } m || m.Life == 0) return;
+            if (conn.Monsters.GetValueOrDefault(id) is not { } m) return;
             (m.Life, m.Dead) = (0, true);
             conn.Monsters.Remove(id);
         }

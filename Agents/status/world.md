@@ -214,8 +214,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   trials (alcove and ledge) and his two end lines; no life bar while he rises, dimmed at his trial's floor; the account's
   stash in the room before each arena and the Ascendancy Chamber. Checked live 2026-11-08 on 3.29.3c.
   A third mechanic, Portals, brings guardians until destroyed and returns the same way; the Bronze Inscription before
-  his arena reads, and the Goddess's Guardians come in circles (without her yet). Portals and the inscription checked
-  live 2026-11-09; the guardians' walk out of the portals and the circles not yet.
+  his arena reads, and the Goddess's Guardians come in circles (without her yet). Checked live 2026-11-09.
   Not yet: the other arena mechanics, the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
   Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,

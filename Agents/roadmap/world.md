@@ -129,8 +129,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Start**, one pull request per step, in this order:
   1. Izaro's arenas' other mechanics (Toggle Statues, Gargoyles and Portals are done: `Rules.IzaroArena.cs` places them
      and what they leave; Normal also rolls Lieutenants and Chrono Statues), one at a time, and the Goddess of Justice.
-     Her Guardians' circles are done without her (`IzaroGoddess.cs`). As the original plays (live, the user): the
-     gargoyles' beam ends on her, above Izaro, not on him (ours ends on him: move it when she exists).
+     Her Guardians' circles are done without her (`IzaroGoddess.cs`): when she exists they become her skill, with its
+     mortars flying from her. As the original plays (live, the user): the gargoyles' beam ends on her, above Izaro, not
+     on him (ours ends on him: move it to her too).
   2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
   3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet, and the Payload room's cart `LabyrinthTrapKeyDelivery`, `pushed_by_player`, whose rail leads to the door: live, the user, it goes on while the player stands in its radius, goes back a little slower when they leave, and monsters seem to spawn round it) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
