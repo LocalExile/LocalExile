@@ -126,17 +126,15 @@ static partial class QuestobjectsRules
                 await Send(remote, stream, ciphers, InstanceProtocol.ActorAnimation(p.Id, (float)summon.CastSeconds, SummonAnimation), null);
                 await Task.Delay(TimeSpan.FromSeconds(summon.CastSeconds / 2));
                 if (Stopped()) break;
-                (int X, int Y) at;
-                lock (conn.Monsters)
-                {
-                    double now = conn.Clock.Elapsed.TotalSeconds;
-                    var (from, player) = (p.Monster.Walk.Position(now), conn.Walk.Position(now));
-                    double dx = player.X - from.X, dy = player.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy), ahead = summon.Offset / WorldUnits.PerCell;
-                    at = length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
-                }
-                await SpawnMonster(remote, stream, ciphers, conn, guardian, p.Monster.Level, MonsterRarity.Normal, at.X, at.Y, log: false,
-                    owned: (_, s) => (s.SummonerId, s.NoRewards) = (p.Id, summon.NoRewards));
-                Console.WriteLine($"[gateway] {remote} {p.Effect.Id} 0x{p.Id:x} brings {guardian.Name} at ({at.X}, {at.Y}), {living + 1} of its own alive");
+                var (at, to) = IzaroPortalWayOut(conn, arena, p, summon.Offset / WorldUnits.PerCell);
+                uint id = await SpawnMonster(remote, stream, ciphers, conn, guardian, p.Monster.Level, MonsterRarity.Normal, at.X, at.Y, log: false,
+                    placement: MonsterPlacement.Established, owned: (_, s) =>
+                    {
+                        (s.SummonerId, s.NoRewards) = (p.Id, summon.NoRewards);
+                        s.BusyUntil = double.PositiveInfinity;
+                    });
+                if (id != 0) await WalkOutOfIzaroPortal(remote, stream, ciphers, conn, id, to);
+                Console.WriteLine($"[gateway] {remote} {p.Effect.Id} 0x{p.Id:x} brings {guardian.Name} from ({at.X}, {at.Y}) to ({to.X}, {to.Y}), {living + 1} of its own alive");
                 await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.2, every - summon.CastSeconds / 2)));
             }
             bool allDead;
@@ -150,6 +148,45 @@ static partial class QuestobjectsRules
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} Izaro's portal {p.Effect.Id} stopped: {ServerLog.Describe(ex)}"); }
+    }
+
+    // A guardian comes out of its portal (the original, live): it starts at the portal's edge and walks the skill's offset
+    // towards the arena's middle, the way the portal faces, a little to one side so they do not end on one cell.
+    static ((int X, int Y) At, (int X, int Y) To) IzaroPortalWayOut(ClientState conn, IzaroArena arena, PortalSlot p, double ahead)
+    {
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            var from = p.Monster.Walk.Position(now);
+            var towards = arena.Centre is { } centre ? (centre.X, centre.Y) : conn.Walk.Position(now);
+            double dx = towards.Item1 - from.X, dy = towards.Item2 - from.Y, length = Math.Max(1, Math.Sqrt(dx * dx + dy * dy));
+            (dx, dy) = (dx / length, dy / length);
+            int edge = (p.Monster.Variety?.ObjectSize ?? 3) + 1, aside = Random.Shared.Next(-IzaroPortals.ExitSpread, IzaroPortals.ExitSpread + 1);
+            (int X, int Y) at = ((int)Math.Round(from.X + dx * edge), (int)Math.Round(from.Y + dy * edge));
+            (int X, int Y) to = ((int)Math.Round(at.X + dx * ahead - dy * aside), (int)Math.Round(at.Y + dy * ahead + dx * aside));
+            return (at, conn.Layout.WalkableFor(to.X, to.Y, 0) && !conn.Barrier.Contains(to) ? to : at);
+        }
+    }
+
+    // Until it arrives it does nothing else; then the AI has it.
+    static async Task WalkOutOfIzaroPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, (int X, int Y) to)
+    {
+        SpawnedMonster? m;
+        int action;
+        lock (conn.Monsters)
+        {
+            m = conn.Monsters.GetValueOrDefault(id);
+            if (m is null) return;
+            action = ++m.ActionGeneration;
+        }
+        await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
+        {
+            double at = conn.Clock.Elapsed.TotalSeconds;
+            var from = m.Walk.Position(at);
+            m.Walk.Order(to.X, to.Y, at);
+            m.BusyUntil = m.Walk.ArrivesAt;
+            return InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, IzaroFights.MoveSkill, conn.NextActionSequence(), conn.MonsterOrderFlags);
+        });
     }
 
     // The earlier trials' portals: their alcoves' railings lower, their buffs go on Izaro and they bring their guardians.

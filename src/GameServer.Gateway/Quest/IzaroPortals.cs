@@ -7,7 +7,7 @@
 /// secret: <c>PortalSummon2_*</c> (IzaroPortal2.ot: untargetable, cannot be damaged; 1 open), in an alcove whose railing
 /// lowers as he fights and on a ledge of the room before the arena.
 /// The original (live, the user): what rises can be hit only once it is up; each portal brings one guardian about every
-/// 5 s, 10 of its own at most, which walk the arena; when he leaves the portals stay up and bring no more, and the guardians
+/// 5 s, 10 of its own at most, which comes out of it, walks a little, then fights; when he leaves the portals stay up and bring no more, and the guardians
 /// fight on. The returning ones' interval is the skill's cooldown; the rise interval is ours, as the statues'.
 /// </summary>
 static class IzaroPortals
@@ -30,6 +30,9 @@ static class IzaroPortals
     /// <summary>How often a portal brings a guardian, and how many of its own live at most (the original, live).</summary>
     public const double SummonSeconds = 5;
     public const int SummonLimit = 10;
+
+    /// <summary>How far to either side of the portal's way a guardian's walk out may end (ours).</summary>
+    public const int ExitSpread = 4;
 
     /// <summary>The guardians a portal brings. Their skills cast within <c>spell_maximum_action_distance_+%</c> -60 of the
     /// variety's attack distance, so they walk up (the original, live), unlike a ranged spell's aggro range.</summary>
