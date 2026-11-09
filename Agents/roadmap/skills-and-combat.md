@@ -96,7 +96,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   preflight before action side effects.
   Initial Dash recovery, early raw rejection, pause and native mid-cooldown rate changes pass live alongside
   layout/send-gate checks; remaining base progress is retained without consuming another use.
-  Remaining cooldown work includes multi-use recharge, shared groups, bypass, typed/conditional/more recovery,
+  Remaining cooldown work includes multi-use recharge, shared groups, typed/conditional/more recovery,
   official tick boundaries.
   See [11](../docs/protocol/11-skills.md) §9.
 - **Spell cast timing (#192):** native base milliseconds are preserved and cast speed adjusts server waits and

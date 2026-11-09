@@ -615,9 +615,11 @@ static partial class Game
         }
         double castAt = conn.Clock.Elapsed.TotalSeconds;
         int castAction = 0;
-        (int X, int Y) aim = default, stand = default;
+        (int X, int Y) aim = default, stand = default, landing = default;
         int chargeBonus = gem.Name is null ? 0 : ShieldChargeBonusPct(conn, use.SkillId, gem.Effect), chargeToken = 0;
         bool moves = gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect);
+        // Flicker Strike's client action strikes without moving the player: the server teleports it (FlickerStrike).
+        bool flicker = moves && SkillsFor(conn).ActionHash(gem.Effect) == FlickerStrike.Action, flickers = false;
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
             gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
             () =>
@@ -629,9 +631,18 @@ static partial class Game
                 conn.Walk.Order(stand.X, stand.Y, castAt);
                 // A movement skill aimed at a monster travels as one aimed at the ground does.
                 if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
+                else if (flicker)
+                {
+                    landing = stand;
+                    if (FlickerDestination(conn, gem.Effect, use.SkillId, stand, aim, use.TargetId, castAt) is { } to)
+                    {
+                        (aim, landing, flickers) = (to.At, to.Landing, true);
+                        conn.Walk.Teleport(landing.X, landing.Y, castAt);
+                    }
+                }
                 else if (moves)
                 {
-                    var landing = MovementLanding(conn, gem.Effect, stand, aim);
+                    landing = MovementLanding(conn, gem.Effect, stand, aim);
                     conn.Walk.Teleport(landing.X, landing.Y, castAt);
                 }
             }, out var spellUse, requestedAt: requestedAt)) return;
@@ -646,10 +657,13 @@ static partial class Game
             $"0x01ab player skill 0x{use.SkillId:x4} cast on monster 0x{use.TargetId:x} ({m.Label}) from ({stand.X}, {stand.Y}) to ({aim.X}, {aim.Y}), flags 0x{use.Flags:x4} (t={castAt:0.000})",
             still: () => spellAcknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                 () => spellUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, castAction)));
+        if (flickers && spellAcknowledged)
+            await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, landing.X, landing.Y),
+                $"0x01b7 {gem.Name} to ({landing.X}, {landing.Y}) for the monster at ({aim.X}, {aim.Y}) (t={castAt:0.000})");
         if (moves) ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
-        if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim, use.TargetId, sequence: use.Sequence,
-            actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
+        if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, flicker ? landing : stand, aim, use.TargetId,
+            sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
     }
 
     // A gem skill's cast: Righteous Fire puts its buff on, any other skill launches its projectile (if it has one). False when

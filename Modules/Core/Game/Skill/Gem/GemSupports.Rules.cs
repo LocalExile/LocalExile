@@ -259,6 +259,17 @@ static partial class Game
         if (Get("current_rage") >= 10 && Get("attack_speed_+%_with_at_least_10_rage") is int rageSpeed and > 0
             && Stats.Key("main_hand_attack_speed_+%") is uint rageBucket)
             stats[rageBucket] += rageSpeed;
+        // A skill's own increased Attack Speed per Frenzy Charge (Flicker Strike's 10%): the character's per-charge stats
+        // are in its stats already (ChargeEffects), this one only on the skill. Without it the client swung faster than
+        // the server's timer allowed and some uses were ignored (live 2026-11-09, 5-6 charges).
+        if (Stats.Key("base_attack_speed_+%_per_frenzy_charge") is uint perFrenzy
+            && gem.Stats.GetValueOrDefault(perFrenzy) is int skillPerFrenzy and not 0
+            && Stats.Key("main_hand_attack_speed_+%") is uint frenzyBucket)
+        {
+            int frenzy;
+            lock (conn.Monsters) frenzy = ChargesOf(conn).Effective(ChargeType.Frenzy);
+            stats[frenzyBucket] = stats.GetValueOrDefault(frenzyBucket) + skillPerFrenzy * frenzy;
+        }
         // Close Combat's Combat Rush: more Attack Speed for a travel skill it does not support.
         if (conn.CombatRushUntil > conn.Clock.Elapsed.TotalSeconds && SkillsFor(conn).IsTravel(gem.Effect)
             && !gem.Supports.Any(s => s.Effect.Id == "SupportCloseCombat"))

@@ -68,19 +68,37 @@ static partial class Game
                     vaal.WorkGeneration = generation;
                 }
             }
+            bool bypassed = false;
             if (plan is { } cooldown)
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 state = CooldownStateLocked(conn, effect, cooldown, now);
-                if (reserve ? !state.TryUse(now, cooldown) : !state.Ready) return false;
+                if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
+                {
+                    // Cooling down: a skill with a cooldown bypass is used for a charge instead (CooldownBypass).
+                    if (CooldownBypassCharge(conn, effect, skillId) is not { } charge) return false;
+                    lock (conn.Monsters)
+                        if (reserve ? !ChargesOf(conn).Spend(charge) : !ChargesOf(conn).CanSpend(charge)) return false;
+                    bypassed = true;
+                }
                 conn.SkillReadyAt[effect] = now + state.RemainingSeconds;
             }
             sideEffects();
             if (reserve && vaal is not null) CommitVaalUse(conn, vaal, vaalAttackDeadline);
+            // A bypassed use spends no cooldown use, so its ticket follows none.
             if (plan is not null) ticket = new(effect, conn.ActionCount, conn.ProjectileEpoch, instant, reserve,
-                state, state!.UseVersion);
+                bypassed ? null : state, bypassed ? 0 : state!.UseVersion);
             return true;
         }
+    }
+
+    // The charge a skill spends to be used while it cools down (CooldownBypass), null when it has no bypass.
+    static ChargeType? CooldownBypassCharge(ClientState conn, int effect, ushort? skillId)
+    {
+        var gem = GemSkillEffects(conn).FirstOrDefault(g => skillId is ushort id ? g.Id == id : g.Effect == effect);
+        if (gem.Name is null || gem.Effect != effect) return null;
+        return CooldownBypass.Charge(SkillsFor(conn).CooldownBypassType(effect, gem.Level),
+            GolemStat(SupportedSkill(conn, gem.Id).Stats, CooldownBypass.PowerOverride) != 0);
     }
 
     internal static void RefreshSingleUseCooldowns(ClientState conn)
