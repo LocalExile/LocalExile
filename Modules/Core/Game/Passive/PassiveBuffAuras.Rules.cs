@@ -6,15 +6,24 @@ static partial class Game
 {
     // The conversion the player's passive enemy auras give this monster's hit when it stands within their radius of the
     // player at contact (Born under Fire: base_physical_damage_%_to_convert_to_fire), by the player's own conversion rules
-    // (DamageStats.Conversion); null when none applies. Call under the Monsters lock.
-    internal static DamageConversion? EnemyAuraConversionLocked(ClientState conn, SpawnedMonster m, (int X, int Y) player, double now)
+    // (DamageStats.Conversion); null when none applies. Shaper of Flames' "Enemies Ignited by you have 40% of Physical
+    // Damage converted to Fire Damage" joins it while the monster burns with the player's ignite (<paramref name="stat"/>:
+    // the player's merged stats). Call under the Monsters lock.
+    internal static DamageConversion? EnemyAuraConversionLocked(ClientState conn, SpawnedMonster m, (int X, int Y) player, double now,
+        Func<string, int>? stat = null)
     {
         if (!m.Hostile || conn.PlayerLife == 0) return null;
         var at = m.Walk.Position(now);
         var stats = new Dictionary<uint, int>();
         foreach (var aura in PassiveBuffAuras.EnemyAurasFor([.. conn.Passives, .. conn.MainAscendancy.Allocated], LeagueFor(conn).HardMode, EnemyAuraActs))
             if (aura.Stats.Count > 0 && Dist(at, player) <= aura.Radius)
-                foreach (var (stat, value) in aura.Stats) stats[stat] = stats.GetValueOrDefault(stat) + value;
+                foreach (var (key, value) in aura.Stats) stats[key] = stats.GetValueOrDefault(key) + value;
+        int ignited = stat?.Invoke("enemies_ignited_by_you_have_physical_damage_%_converted_to_fire") ?? 0;
+        if (ignited > 0 && m.Ignites.Burning && Stats.Key("base_physical_damage_%_to_convert_to_fire") is uint fireKey)
+        {
+            stats[fireKey] = stats.GetValueOrDefault(fireKey) + ignited;
+            Console.WriteLine($"[gateway] monster ({m.Label}) is ignited: {ignited}% of its physical damage converts to fire");
+        }
         var conversion = DamageStats.Conversion(stats, Stats, attack: true);
         return conversion.IsEmpty ? null : conversion;
     }

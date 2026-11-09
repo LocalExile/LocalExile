@@ -29,7 +29,8 @@ static partial class Game
     {
         if (baseFire <= 0 || MonsterElementalAilments.CannotInflict("ignite", attacker)
             || attacker("never_damaging_ailments") != 0) return null;
-        int chance = attacker("base_chance_to_ignite_%") + attacker("chance_to_ignite_%") + attacker("chance_to_freeze_shock_ignite_%");
+        int chance = attacker("base_chance_to_ignite_%") + attacker("chance_to_ignite_%") + attacker("chance_to_freeze_shock_ignite_%")
+            + (attacker("always_ignite") != 0 ? 100 : 0);
         if (!critical && !RandomRolls.Chance(chance, 100, random)) return null;
         double multiplier = 1 + (attacker("dot_multiplier_+") + attacker("fire_dot_multiplier_+") + attacker("ignite_dot_multiplier_+")
             + (critical ? attacker("critical_ailment_dot_multiplier_+") : 0)) / 100.0;
@@ -158,7 +159,7 @@ static partial class Game
     }
 
     internal static string IgnitedLog(uint id, SpawnedMonster target, bool critical, double now) =>
-        $"monster 0x{id:x} ({target.Label}) ignited{(critical ? " by a critical hit" : "")} for {target.Ignites.Until - now:0.##} s"
+        $"monster 0x{id:x} ({target.Label}) ignited{(critical ? " by a critical hit" : "")} for {target.Ignites.Until - now:0.##} s, {target.Ignites.PerSecond(now):0.#}/s"
         + (target.Ignites.SpreadRadius > 0 ? $", spreads {target.Ignites.SpreadRadius} cells" : "");
 
     internal static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
