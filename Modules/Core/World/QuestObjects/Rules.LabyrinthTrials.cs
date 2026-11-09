@@ -1338,6 +1338,10 @@ static partial class QuestobjectsRules
         return Get("cannot_gain_bleeding") != 0 || Get("virtual_immune_to_bleeding") != 0;
     }
 
+    // virtual_unaffected_by_bleeding, as the stats hold it now (Leech.WithLeechingDefences).
+    static bool UnaffectedByBleeding(ClientState conn) =>
+        Stats.Key("virtual_unaffected_by_bleeding") is uint key && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0;
+
     // The bleed a spike hit leaves on a connection: its damage a second while standing, and until when (Clock seconds).
     sealed class Bleed { public double PerSecond, Until; public ushort Buff; }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, Bleed> Bleeds = new();
@@ -1381,6 +1385,8 @@ static partial class QuestobjectsRules
                     if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) { bleed.Until = double.NegativeInfinity; break; }
                     double factor = conn.Walk.Moving(now) ? LabyrinthTrials.SpikeBleedMovingFactor : 1;
                     dealt = (int)Math.Round(bleed.PerSecond * factor * SpikeBleedTickSeconds);
+                    // Unaffected by Bleeding (Endless Hunger while leeching): the bleed stays on and deals nothing.
+                    if (UnaffectedByBleeding(conn)) dealt = 0;
                     long lifeDamage = conn.EnergyShield.Damage(dealt, false, now);
                     conn.PlayerLife = (uint)Math.Max(0, conn.PlayerLife - lifeDamage);
                     if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }

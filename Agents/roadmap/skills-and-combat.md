@@ -307,8 +307,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Duplicate-instance support context and queued ordinary acknowledgements have separate regression controls.
   Ordinary player and controlled-fighter aura sharing, Life reservation and Blasphemy hex execution are implemented;
   remaining enemy/banner/Vaal executors are separate.
-  Passive enemy auras send and apply only hit conversions so far ([11](../docs/protocol/11-skills.md) section 10e);
-  the others (Overwhelm, the Occultist's) need consumers for their stats first.
+  Passive enemy auras send and apply hit conversions and Overwhelm's crit multiplier ([11](../docs/protocol/11-skills.md)
+  section 10e); the others (the Occultist's) need consumers for their stats first.
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous
   Fire's); banners and unsupported conditional effects. Verify the complete herald combat matrix,
   retail Virulence decay and the skill-specific trap/mine payloads beyond the shared Skitterbot trigger/rearm lifecycle.
@@ -427,7 +427,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   protocol/11-skills.md §critical strikes).
   Recheck the resolved stack's shared half-up midpoint natively; the original head's native checks remain historical.
   Recheck development generic/spell increases and rounding live after the input-consistency review fixes.
-  Deliver their nodes through the separate ascendancy lifecycle; Slayer's per-nearby-enemy crit multiplier is separate.
+  Deliver their nodes through the separate ascendancy lifecycle.
   Generic conditional rolls and the unarmed melee multiplier are implemented and native-verified separately.
   Continue native spell/projectile checks and the resolved critical-hit/Fortification composition on `effb797`.
   Verify successful paid Final Blow refunds once Phrecia play has an agreed client-compatible graph.
