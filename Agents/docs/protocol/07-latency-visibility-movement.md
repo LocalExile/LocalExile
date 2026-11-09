@@ -258,6 +258,12 @@ what the Gateway's step pass adds for a lockstep client is the order within a fr
 (`StepWalkers` → `StepFrames`: whole frames, each walker's steps of the frame in ascending object id against the cells
 as moved so far, up to the start of the frame being sent).
 
+The stop accumulator rule is shared with predictive mode: twelve traced stop/tick/idle/restart sequences retained
+the same raw time through the next path setup. The predictive estimate now retains it too, at its continuous stop
+time; the client's exact frame boundary remains unknown. If retained time already covers a new step, that step is
+placed just after the order at the clock's next representable time, so its origin stays unchanged and collision
+checks see the step. Later steps keep their original due times; no lockstep frame duration is assumed.
+
 **Click timing.** The client applies a click right after its frame's tick and sends the 0x25 in the same frame: on one
 QPC clock (Frida in the client, the Gateway's `Game_MOVE_TRACE=1` log), the 0x25 reaches the Gateway's socket 0.24 ms
 (sd 0.05) after the client's sender ran, and the tick was 0.74 ms before that read (526 clicks). So the server applies a
@@ -810,7 +816,8 @@ That connection receives its one create/wake pair from the tutorial transaction;
 replace the same awake object (`0x141ebf760`). Other connections retain shared visibility, and new-drop animation
 and observer birth tracking are preserved.
 
-Held walks, Mud Flats and controlled chargers show no reproduced predictive regression.
+Held walks, Mud Flats and controlled chargers showed no reproduced predictive regression before the shared stop-time correction.
+That correction has native stop/restart evidence and automated coverage; its full comparison remains pending.
 Complete nonregression, frame ordering and skill/network parity remain unverified.
 
 **Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLatency`; `Lockstep.cs` and

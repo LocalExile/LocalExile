@@ -337,13 +337,9 @@ public class LockstepMonsterTests : IDisposable
         Assert.DoesNotContain(0x3003u, plan.Legs.Select(l => l.Id).Concat(plan.Chases.Select(c => c.Id)).Concat(plan.MoveLegs.Select(l => l.Id)));
         Assert.False(asleep.Walk.Moving(3.5));
 
-        // A predictive connection keeps the estimate it had before the lockstep rules: only the leg, walked as an order to
-        // its cell alone, from a stand a whole step after the order and under way with the step in progress carried over,
-        // also on a Gateway whose lockstep frames run for this connection (RunLockstepFrames, any served one). The estimate
-        // keeps no time after a stop there by design: PlayerWalk.FrameOf is null off lockstep (LockstepFrameOf and the
-        // plan's FrameStart ask conn.LockstepClient), as the server cannot place a predictive client's stop among that
-        // client's own ticks. Whether the predictive client keeps it is not traced; the stop and the tick (0x141e350e0,
-        // 0x141e32710) read no network mode, so it likely does (07 §5).
+        // Predictive uses its continuous clock, not another connection's lockstep frame. Its stop still keeps elapsed
+        // step time: 0x141e350e0/0x141e32710/0x141e4d180 share this rule in both modes. The next leg starts with that
+        // time unscaled, including when the temporary walk used to select the leg has a different step duration.
         var served = Connection(lockstep: false);
         SpawnedMonster Spitter(uint id, int x, int y) => new("Spitter", served.NewMonsterWalk(id, x, y, 8, 2, false), aggroRange: 120,
             stopRange: 2, maxLife: 10)
@@ -365,9 +361,22 @@ public class LockstepMonsterTests : IDisposable
         var steps = walking.Walk.Steps(2.03, 3);
         Assert.Equal(2.03 + (1 - 0.24) * (steps[1].At - steps[0].At), steps[0].At, 9);   // 0.03 s into a 0.125 s step
         steps = stopped.Walk.Steps(2.03, 3);
-        Assert.Equal(2.03 + (steps[1].At - steps[0].At), steps[0].At, 9);   // the estimate keeps none of the 0.085 s (lockstep: 0.105)
+        Assert.Equal(2.03 - 0.085 + (steps[1].At - steps[0].At), steps[0].At, 9);   // predictive stop at1.96; not the lockstep frame end1.98
         Assert.Equal((193, 140), stopped.Walk.Position(2.03));
         Assert.Equal((legs[0].To, legs[1].To), (walking.Walk.Destination, stopped.Walk.Destination));
+
+        // A diagonal stop can keep more time than the next horizontal step needs. Its due step belongs after the new
+        // order, where the collision pass can see it, never retroactively before the order or in its reported origin.
+        var due = new PlayerWalk(100, 100, 8);
+        due.Order(120, 120, 0);
+        due.Order(100, 100, 0.149);
+        Assert.Equal((100, 100), due.Order(120, 100, 1));
+        Assert.Equal((100, 100), due.Position(1));
+        var resumed = due.Steps(1, 1.05);
+        Assert.Single(resumed);
+        Assert.Equal((101, 100), resumed[0].Cell);
+        Assert.True(resumed[0].At > 1);
+        Assert.Equal(1.101, due.Steps(1.05, 1.2).Single().At, 9);
     }
 
     // On a lockstep client a walker's position reads as of the current frame's start, so the leg's end must be read

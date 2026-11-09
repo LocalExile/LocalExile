@@ -163,8 +163,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     Full live coverage remains open.
     The King's scripted actions share its swing sequence, and dashes carry the boss's origin in both modes.
     Emerge timing follows the clip in both modes; predictive attack pursuit uses the client's retry interval without a timeout.
+    Predictive stops retain elapsed step time as the client does; full comparison of this correction remains pending.
     Natural Slums arrival and complete boss synchronization still need correction and validation.
-    Held-walk player and all-monster sync bars pass; fresh Mud Flats and charger pairs show no predictive regression.
+    Earlier held-walk player and all-monster sync bars passed; the combined current changes still need those checks.
     Broader coverage and adjusted crowd comparisons remain incomplete
     ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
   - **Start:** validate these corrections together in both modes, then finish frame record ordering, special action

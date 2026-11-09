@@ -425,10 +425,12 @@ public sealed class PlayerWalk
         // A stop takes effect after the frame's steps (0x141e350e0). The caller reports here, where the client is now; the
         // walker stands where the client will, or the next start puts the client back up to two cells, and keeps the time
         // since its last step for the next walk (_kept).
-        if (path.Count < 2 && FrameOf?.Invoke(now) is { } frame && Moving(now))
+        if (path.Count < 2 && Moving(now))
         {
-            var stop = At(frame.End, out _);
-            var kept = (Phase(frame.End).Into, frame.End);
+            // Predictive uses a continuous clock: its frame boundary is unknown, but the same stop retains time.
+            double stopAt = FrameOf?.Invoke(now)?.End ?? now;
+            var stop = At(stopAt, out _);
+            var kept = (Phase(stopAt).Into, stopAt);
             Teleport(stop.X, stop.Y, now);
             // At its goal only when it was in range where it stood, not when the search found no path (ReachedGoal).
             _goalReached = reached;
@@ -487,8 +489,19 @@ public sealed class PlayerWalk
                 break;
             }
         }
-        if (due == 0 || FrameOf?.Invoke(now) is not { } frame || frame.End <= now) return walk;
-        float gap = (float)((Math.Min(next, frame.End) - now) / (due + 1));
+        if (due == 0) return walk;
+        float gap;
+        if (FrameOf?.Invoke(now) is { } frame)
+        {
+            if (frame.End <= now) return walk;
+            gap = (float)((Math.Min(next, frame.End) - now) / (due + 1));
+        }
+        else
+        {
+            // With no known client frame, retain the continuous clock. Due steps belong just after the order, so its
+            // origin stays put and the collision pass sees every step. Use clock precision, not an invented tick delay.
+            gap = Math.Max(float.Epsilon, (float)(Math.BitIncrement(now) - now));
+        }
         var placed = new List<Segment>();
         int before = 0;
         foreach (var s in walk)

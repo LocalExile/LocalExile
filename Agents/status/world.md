@@ -98,8 +98,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Instant replies share the player's sequence, suppress local action events and let native execution consume cooldowns.
   The King's scripted actions share its swing sequence, and dashes carry the boss's origin in both modes.
   Emerge timing follows the clip in both modes; predictive attack pursuit uses the client's retry interval without a timeout.
+  Predictive stops retain elapsed step time as the client does; full comparison of this correction remains pending.
   Slums arrival and complete boss synchronization remain incomplete.
-  Held-walk player and all-monster sync bars pass; held, Mud Flats and charger checks show no reproduced predictive regression.
+  Earlier held-walk player and all-monster sync bars passed; the combined current changes still need those checks.
   Complete nonregression and coverage remain open ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
 - League isolation is enforced by full league for towns and instance selection.
   SSF wilderness instances and Gateway ground-item state additionally belong to the stable character ID.
