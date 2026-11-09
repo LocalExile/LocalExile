@@ -790,6 +790,9 @@ consume a sequence. The client installs the order's sequence on its action (`0x1
 that actor and sequence (`0x141e90f50`). A projectile retains its releasing action's sequence after its owner starts
 another action. Its rig clip, contact fraction and launch point are selected together from that sequence
 (`0x141e991e0`); scripted releases retain their separate recipes. Predictive keeps its existing order-sequence choice.
+The King's direct scripted actions use that same monster counter. Its ordinary swings defer allocation to admission,
+so switching between casts and dashes neither returns to the connection's counter nor consumes two actor sequences.
+This fixes sequence ownership, not the King's movement-coordinate conventions or delayed native action starts.
 
 **Tutorial item ownership.** The initial recipient is recorded when a tutorial gem enters shared ground state.
 That connection receives its one create/wake pair from the tutorial transaction; shared synchronization must not

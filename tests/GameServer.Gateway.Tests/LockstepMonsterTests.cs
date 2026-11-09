@@ -251,6 +251,25 @@ public class LockstepMonsterTests : IDisposable
         }
         Assert.Equal(0.14, Game.LockstepOrderStart(Connection(lockstep: false), 0.14));
 
+        // Scripted dashes and ordinary casts belong to one actor. A cast chooses its sequence only at admission;
+        // asking for a sequence before that must not spend one, or interleaved King actions go backwards or skip.
+        var scripted = Connection(lockstep: true);
+        var king = Drowned(new PlayerWalk(100, 100, 8));
+        king.Sequence = 0xfffd;
+        Assert.Equal((ushort)0xfffe, KingInMists.SequenceForAction(scripted, king, swing: false));
+        Assert.Null(KingInMists.SequenceForAction(scripted, king, swing: true));
+        Assert.Equal((ushort)0xfffe, king.Sequence);
+        var cast = Game.MonsterSwingOrderLocked(scripted, king, king.Attack!, 1, generic: false, 1, 0);
+        Assert.Equal((ushort)0xffff, cast!.Value.Sequence);
+        Assert.Equal((ushort)0x8000, KingInMists.SequenceForAction(scripted, king, swing: false));
+        var scriptedPredictive = Connection(lockstep: false);
+        var predictiveKing = Drowned(new PlayerWalk(100, 100, 8));
+        ushort predictiveSequence = predictiveKing.Sequence;
+        ushort direct = KingInMists.SequenceForAction(scriptedPredictive, predictiveKing, swing: false)!.Value;
+        ushort explicitCast = KingInMists.SequenceForAction(scriptedPredictive, predictiveKing, swing: true)!.Value;
+        Assert.Equal((ushort)(direct + 1), explicitCast);
+        Assert.Equal(predictiveSequence, predictiveKing.Sequence);
+
         var predictive = Connection(lockstep: false);
         var monster = Drowned(new PlayerWalk(104, 100, 8));
         predictive.Monsters[0x3000] = monster;

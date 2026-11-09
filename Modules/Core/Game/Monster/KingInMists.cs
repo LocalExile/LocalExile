@@ -17,6 +17,11 @@ using static Game;
 /// </summary>
 static class KingInMists
 {
+    // Actor handler 0x1421940a0 stores the received sequence on the action (+0x11a), which later hits identify.
+    // Scripted actions share the actor's counter with ordinary swings; those allocate only at the send gate.
+    internal static ushort? SequenceForAction(ClientState conn, SpawnedMonster boss, bool swing) =>
+        !conn.LockstepClient ? conn.NextActionSequence() : swing ? null : boss.NextSequence();
+
     public const string Boss2 = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss2";
     public const string Boss3 = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss3";
     const string PoisonRat = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/Critters/PoisonRat";
@@ -304,7 +309,7 @@ static class KingInMists
         bool _barShown, _mazeStarted;
         Kit K => _phase == 3 ? Kit.Treant : Kit.Humanoid;
         int LifePercent => (int)((long)boss.Life * 100 / Math.Max(1u, boss.MaxLife));
-        ushort NextSeq() => conn.NextActionSequence();
+        ushort NextSeq() => SequenceForAction(conn, boss, swing: false)!.Value;
 
         public async Task Run()
         {
@@ -1068,7 +1073,8 @@ static class KingInMists
             }
             Console.WriteLine($"[gateway] {remote} King in the Mists 0x{id:x} phase {_phase}: {label}");
             var aim = conn.Walk.Position(startedAt);
-            await MonsterSwing(remote, stream, ciphers, conn, id, boss, action, attack, area, radius, NextSeq());
+            await MonsterSwing(remote, stream, ciphers, conn, id, boss, action, attack, area, radius,
+                SequenceForAction(conn, boss, swing: true));
             // The spell projectile's cast animation steps the model toward the action target until it is ~18 cells away
             // (the client's action range): every captured cast ended ~12 cells toward the player, and the next dash then
             // started from a cell the server did not share, so its settle pulled the model up to 55 cells (live
