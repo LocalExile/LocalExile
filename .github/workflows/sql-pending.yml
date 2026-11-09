@@ -1,0 +1,36 @@
+# After a merge to main: each sql/updates/pending_<db>/<name>.sql becomes sql/updates/<db>/YYYY_MM_DD_HHMMSS_<name>.sql,
+# in name order and after every merged file (the AzerothCore way; Agents/docs/dev/databases.md). The servers' updater
+# recognises a renamed file by its hash, so a database that ran it while pending only renames its record.
+# It pushes one commit to main with the workflow's token: the main ruleset must let GitHub Actions bypass it.
+name: SQL pending updates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sql/updates/pending_*/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sql-pending
+  cancel-in-progress: false
+
+jobs:
+  rename:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Name the pending updates
+        run: |
+          python3 -I .github/scripts/check-sql.py --rename-pending
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(sql): name the merged pending updates"
+          git push origin HEAD:main

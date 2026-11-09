@@ -129,9 +129,7 @@ features.
 - **Game content in world.db:** mod roll ranges, item limits, settings, unique weights, the catalogues and the drop
   tables are world.db content built from `sql/` (status: items-and-crafting). Next: item templates with custom names,
   then NPC shops/placements and the remaining drop/balance settings as world tables.
-  The client-compatibility boundary, schema and cache plan are in
-  [dev/editable-game-data.md](../docs/dev/editable-game-data.md).
-  The extracted JSON stays the reference; the database only overrides it.
+  What can be content, and what the client owns, is in [dev/editable-game-data.md](../docs/dev/editable-game-data.md).
 
 ## 5. Project
 

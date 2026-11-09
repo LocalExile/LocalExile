@@ -60,8 +60,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Local startup explicitly resets the cached login gateway to loopback before launching the client, preventing a stale
   remote endpoint from causing DSA handshake failure (General Rhoa Failure #3).
   See protocol/01-login.md.
-- **Saves in SQLite (tested, not yet checked with the real client).** Accounts, characters, character saves and
-  stashes are rows in `data/characters.db` (WAL, synchronous=FULL); a stash is a header row and one row per tab.
+- **Saves in SQLite (tested, not yet checked with the real client).** Accounts are rows in `data/auth.db`; characters,
+  character saves and stashes in `data/characters.db` (WAL, synchronous=FULL), both built from `sql/`
+  ([databases](../docs/dev/databases.md); `migrate-saves` splits an old `data/saves.db`); a stash is a header row and
+  one row per tab.
   Every item, stash, gold, passive, quest flag and waypoint change is saved at once in a transaction.
   Stash moves, purchases, sales, currency used on items, gold respec, the map device and character deletion save all
   their parts in one transaction or none; a failed save rolls back, reloads what it changed and closes the connection.

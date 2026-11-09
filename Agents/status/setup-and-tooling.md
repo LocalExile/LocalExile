@@ -58,6 +58,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Databases from SQL in git ([#734](https://github.com/LocalExile/LocalExile/issues/734),
+  [databases](../docs/dev/databases.md)): `auth.db`, `characters.db`, `client.db` (the client's 943 tables, 97 MB of
+  SQL) and `world.db` (game content) are built and updated from `sql/` by each server at startup, one transaction per
+  file, a changed merged file refused. `localexile.conf` holds the addresses, ports and client folder. CI builds every
+  database from scratch and checks the SQL; the merge names pending updates. Verified: the Gateway starting on fresh
+  databases with the former seed's counts, every client table rebuilt identically, a copy of a real `saves.db` migrated.
+  Not yet: a real-client session on the new databases, and the pending rename on `main` (needs the ruleset bypass).
+  Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Config/ServerConfig.cs`.
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64
@@ -186,7 +194,8 @@ away from unrelated catalogue-load/GC contention. Individual concurrency tests s
 
 ## Tooling
 
-Pull request checks: a scan of added lines for hidden text, and files only the maintainer approves ([docs](../docs/dev/pr-checks.md)).
+Pull request checks: a scan of added lines for hidden text, the SQL rules and a from-scratch build of every database, and
+files only the maintainer approves ([docs](../docs/dev/pr-checks.md)).
 
 Everything used to work out the protocol is in the repository: the Ghidra, Frida and Python scripts in `scripts/re/`,
 our own tools in `Tools/`, and how to install the third-party ones in [GettingStarted](../GettingStarted.md)

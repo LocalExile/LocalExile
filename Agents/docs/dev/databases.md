@@ -28,8 +28,11 @@ sql/
   updates/pending_<db>/<any name>.sql        a pull request's changes, before the merge renames them
 ```
 
-A change to a database, rows or schema, is a new file in `sql/updates/pending_<db>/`. After the merge it is renamed to
-`YYYY_MM_DD_HHMMSS_<name>.sql` and moved to `sql/updates/<db>/`. A merged file never changes and nothing is ever squashed
+A change to a database, rows or schema, is a new file in `sql/updates/pending_<db>/`; pending files apply in name
+order, so a leading number (`1_x.sql`, `2_y.sql`) orders several. After the merge the `SQL pending updates` workflow
+renames each to `YYYY_MM_DD_HHMMSS_<name>.sql` (the number dropped), after every merged file, and moves it to
+`sql/updates/<db>/`; it pushes that commit to `main`, so the main ruleset lets GitHub Actions bypass it. The client
+tables are the exception: `client-sql.ps1` writes them dated, straight to `sql/updates/client/`. A merged file never changes and nothing is ever squashed
 into `base/`: a fix is another update. `base/` changes only when a table is added (its CREATE TABLE), and a database
 that already exists gets that table from the new base file, so a new base file may only create.
 
