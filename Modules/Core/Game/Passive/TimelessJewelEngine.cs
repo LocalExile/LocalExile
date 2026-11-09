@@ -165,7 +165,7 @@ sealed class TimelessJewelEngine(string folder = "data")
         string versionsPath = Path.Combine(folder, "tables", "AlternateTreeVersions.json");
         string skillsPath = Path.Combine(folder, "tables", "AlternatePassiveSkills.json");
         string additionsPath = Path.Combine(folder, "tables", "AlternatePassiveAdditions.json");
-        if (!new[] { versionsPath, skillsPath, additionsPath }.All(File.Exists)) return null;
+        if (!new[] { versionsPath, skillsPath, additionsPath }.All(ClientTables.Exists)) return null;
 
         var versions = new Dictionary<int, TreeVersion>();
         using (var d = GameTables.Open(versionsPath))

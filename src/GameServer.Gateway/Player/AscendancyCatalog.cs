@@ -93,7 +93,7 @@ sealed class AscendancyCatalog(string folder = "data")
         string characterPath = Path.Combine(folder, "tables", "Characters.json");
         string ascendancyPath = Path.Combine(folder, "tables", "Ascendancy.json");
         string passivePath = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!new[] { graphPath, characterPath, ascendancyPath, passivePath }.All(File.Exists)) return [];
+        if (!new[] { graphPath, characterPath, ascendancyPath, passivePath }.All(ClientTables.Exists)) return [];
 
         using var graphs = GameTables.Open(graphPath);
         if (graphs.RootElement.GetProperty("revision").GetString() != Revision)
