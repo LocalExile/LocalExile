@@ -10,7 +10,7 @@ namespace GameServer.Core.Protocol.Instance;
 /// refused (<see cref="CanSerialize"/>). StateMachine: one value per shared state (<paramref name="States"/>, in the
 /// type's order), no timers.
 /// </summary>
-public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOnlyList<string> Components, HideoutDoodad Doodad,
+public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOnlyList<string> Components, HideoutDoodad? Doodad = null,
     IReadOnlyList<int>? States = null, string? Model = null)
 {
     static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "InteractionAction", "HideoutDoodad", "StateMachine", "MinimapIcon"];
@@ -29,7 +29,7 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
                 case "Positioned": w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1); break;
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "InteractionAction": w.U8(0); break;
-                case "HideoutDoodad": Doodad.Write(w); break;
+                case "HideoutDoodad": (Doodad ?? throw new ArgumentException("a HideoutDoodad component needs its doodad")).Write(w); break;
                 case "StateMachine":
                     w.U8((byte)(States?.Count ?? 0)).U8(0);
                     foreach (int v in States ?? []) w.CompactI(v).U8(0);   // value, flags
