@@ -331,4 +331,4 @@ A map's area has no MonsterPacks row of its own: its packs are the map's Maps.da
 as for any area (Beach: Glace). 21-hideouts.md §5.
 
 Strand Wake Drowned use a scoped 60-cell calibration, capped by a shorter aggro range. Eight opening events from
-the older 3.29.3b capture support that range; 3.29.3c native parity is not yet verified. Other emerge types retain 24.
+the older 3.29.3b capture support that range. Other emerge types retain 24; general AI parity remains unproven.

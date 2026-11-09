@@ -38,7 +38,7 @@ sealed class MonsterEmerge(string folder = "data")
     /// on screen.</summary>
     public const int Range = 24;
 
-    // Eight 3.29.3b opening-capture events support this bounded calibration; 3.29.3c parity is not yet played.
+    // Eight 3.29.3b opening-capture events support this bounded calibration.
     internal const int StrandDrownedRange = 60;
 
     static int WakeRange(string areaId, MonsterCatalog.Variety? variety) =>
