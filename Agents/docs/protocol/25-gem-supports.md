@@ -87,13 +87,18 @@ Ruptures on the monster, each raising its bleeding damage taken by `support_rupt
 (`MonsterRuptures`, `BleedTaken`); "bleeding expires more quickly" and the native Rupture buff are not modelled, because a
 bleed's duration is captured when it is applied. Close Combat's supported melee hit grants Combat Rush for its listed
 duration, and a travel skill the support does not support then takes
-`support_slashing_buff_attack_speed_+%_final_to_grant` as more attack speed; the buff ends at its deadline rather than
-when that travel skill is used. Block Chance Reduction's `support_reduce_enemy_block_and_spell_block_%` lowers the
+`support_slashing_buff_attack_speed_+%_final_to_grant` as more attack speed.
+A successfully paid travel use consumes the buff.
+Its speed is captured for that action, so reading release timing
+after payment keeps the bonus. A refused use preserves it, and a travel skill supported by Close Combat consumes it
+without gaining the speed bonus. Block Chance Reduction's `support_reduce_enemy_block_and_spell_block_%` lowers the
 monster's block roll and a blocked supported hit applies Overpowered
 (`apply_overpowered_on_enemy_block_reduced_block_and_spell_block_%` for `support_overpowered_base_duration_ms`); monster
 spell block does not exist, so the spell-block half has nothing to lower. Machinations counts the character's allocated
-keystones (`KeystoneCount`) for its chaos gain; its skill-cost half has no consumer, as skill costs read player stats
-only.
+keystones (`KeystoneCount`) for its chaos gain.
+Its increased cost joins the supported skill's `base_cost_+%`, additive with ordinary increased/reduced Mana cost
+before the final floor.
+The same cost is published and paid, including a cost converted to Life.
 
 Awakened supports (their 3.29 rows are kept in the data) add mechanics of their own: every `supported_<type>_skill_gem_level_+`
 raises the supported gem's level like the generic `supported_active_skill_gem_level_+`; Awakened Brutality's
@@ -179,14 +184,25 @@ too is not verified. The count is server state only;
 the client's invisible `ruthless_big_hit_counter` buff is not sent. Not built: the blow's 0.8 s stun duration, its
 more damage with bleeding, poison and ignite, and the count across Multistrike repeats.
 
+PoEDB comparisons: [Second Wind](https://poedb.tw/us/Second_Wind_Support) (200% cost multiplier,
++1 non-instant use, 24% reduced recovery at level 1, 5% at 20 and up to 5% increased recovery from quality),
+[Machinations](https://poedb.tw/us/Machinations_Support) (120% multiplier, 10% increased cost per Keystone),
+and [Close Combat](https://poedb.tw/us/Close_Combat_Support) (two-second Combat Rush, consumed by travel,
+20% more travel attack speed only without Close Combat). Values are read from the installed 3.29.3c tables;
+PoEDB is a comparison source, not a replacement for those versioned tables.
+
 ## Remaining execution gaps
 
 A native compatibility match and a displayed support letter do not prove that its special mechanic is implemented.
 Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except Ice Nova's and the final-repeat stats.
 Triggers, totems, mines, minion behaviour, attack repeats, projectile branching, leech and many conditional effects
 still require their own execution paths.
-Second Wind's extra cooldown use needs multi-use cooldown state (one stored use is all that is tracked); Momentum's
-stacks need a skill-use and movement signal; Barrage needs its own release pattern, not a stat.
+Second Wind uses the supported skill's cooldown/recovery inputs: non-instant skills gain its extra stored use,
+instant skills retain their original count, and spent uses recover in sequence on game time. Active recovery-rate
+changes preserve progress; removing the support changes capacity without refunding spent uses. Native Actor cooldown
+updates replace the complete spent-use queue. Duplicate same-effect gems and the special cooldown exclusions in
+`SingleUseCooldown` retain their existing limitations. Momentum's stacks need a skill-use and movement signal;
+Barrage needs its own release pattern, not a stat.
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
 their own mechanics or client-side geometry. Arrogance and the blessing supports need life reservation and a temporary
 aura lifecycle; Overheat needs Fortification consumption and Overexertion needs warcry exertion. Cruelty's buff adds

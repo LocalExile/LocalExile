@@ -308,6 +308,7 @@ public static class InstanceEntities
 
     /// <summary>Actor 0x40's cooldown trailer (0x14219e694..0x14219e948), without replacing any skill.
     /// Existing entries are replaced, not consumed/appended: remaining and total BASE seconds, recovery rate, flags.
+    /// The first entry retains progress; later spent uses have a full base budget and recover in sequence.
     /// A zero remaining budget clears the entry vector. Native skill base duration and cooldown group stay intact.</summary>
     public static byte[] PlayerSingleUseCooldowns(uint playerId, IReadOnlyList<SingleUseCooldownUpdate> cooldowns,
         IReadOnlyList<VaalSoulBudget>? souls = null, bool canDetonateMines = false)
@@ -321,9 +322,12 @@ public static class InstanceEntities
                 || !float.IsFinite(c.TotalBaseSeconds) || c.TotalBaseSeconds <= 0
                 || !float.IsFinite(c.RecoveryRate) || c.RecoveryRate < 0)
                 throw new ArgumentOutOfRangeException(nameof(cooldowns));
-            w.U16(c.SkillId).U32(c.RemainingBaseSeconds > 0 ? 1u : 0u);
-            if (c.RemainingBaseSeconds > 0)
-                w.F32(c.RemainingBaseSeconds).F32(c.TotalBaseSeconds).F32(c.RecoveryRate).U32(0xffffffff);
+            int count = c.RemainingBaseSeconds > 0 ? c.SpentUses : 0;
+            if (count < 0 || count > 255 || c.RemainingBaseSeconds > 0 && count == 0) throw new ArgumentOutOfRangeException(nameof(cooldowns));
+            w.U16(c.SkillId).U32((uint)count);
+            for (int i = 0; i < count; i++)
+                w.F32(i == 0 ? c.RemainingBaseSeconds : c.TotalBaseSeconds)
+                    .F32(c.TotalBaseSeconds).F32(c.RecoveryRate).U32(0xffffffff);
         }
         return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
     }
@@ -1041,7 +1045,7 @@ public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatS
 
 /// <summary>One ordinary stored-use budget; the native duration is base time, not wall time.</summary>
 public readonly record struct SingleUseCooldownUpdate(ushort SkillId, float RemainingBaseSeconds,
-    float TotalBaseSeconds, float RecoveryRate);
+    float TotalBaseSeconds, float RecoveryRate, int SpentUses = 1);
 
 /// <summary>ObjectMagicProperties rarity (flags bits 0-2 → +0x7c).</summary>
 public enum MonsterRarity : byte { Normal = 0, Magic = 1, Rare = 2, Unique = 3 }
