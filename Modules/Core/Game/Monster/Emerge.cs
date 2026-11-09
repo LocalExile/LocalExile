@@ -71,8 +71,8 @@ static partial class Game
             await Send(remote, stream, ciphers, messages[0], $"0x02ba monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
             // The others in the instance see it rise too (it is theirs to hit as well).
             ToOthers(conn, id, [.. messages[0], .. messages[1]]);
-            // A server action waits in the Actor's pending slot (+0x1b8) until 0x1ac sets its go flag (0x141e94720, looked at
-            // again every 0.25 s); only then does it move to +0x1b0 and play.
+            // Predictive mode waits for 0x1ac in the pending-action gate (0x141e94720); lockstep starts directly.
+            // Both modes complete Emerge with its clip, without an additional recovery tail (0x141e934b0).
             bool Still() { lock (conn.Monsters) return !conn.Closed && !m.Dead && conn.Monsters.GetValueOrDefault(id) == m; }
             await Send(remote, stream, ciphers, messages[1],
                 $"0x01ab monster 0x{id:x} ({m.Label}) emerges at ({at.X}, {at.Y}): Emerge action 0x{skill:x4}, {seconds:0.00} s",

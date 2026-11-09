@@ -799,6 +799,11 @@ the actor there on every lockstep mismatch and on large predictive mismatches. P
 therefore moved the boss onto the player before its dash. Both modes use the corrected field order; clip timing,
 landing estimates and delayed native action starts remain separate validation gaps.
 
+**Emerge completion.** The clip-end path (`0x141e933b0` → `0x141e934b0`) invokes Emerge's completion callback
+(`0x1413f44f0` → `0x141e8f670`) in both network modes. There is no fixed recovery tail after the clip.
+The next AI decision therefore becomes eligible at the clip duration: 866 ms for Tide Striders, while buried
+Dripping Dead use a much longer clip of about 3.67 s. The predictive pending-action gate is separate from completion.
+
 **Tutorial item ownership.** The initial recipient is recorded when a tutorial gem enters shared ground state.
 That connection receives its one create/wake pair from the tutorial transaction; shared synchronization must not
 replace the same awake object (`0x141ebf760`). Other connections retain shared visibility, and new-drop animation

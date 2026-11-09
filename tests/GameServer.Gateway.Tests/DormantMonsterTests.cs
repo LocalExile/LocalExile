@@ -90,6 +90,23 @@ public class DormantMonsterTests
             Assert.False(watching);
             Assert.Equal(4, conn.Monsters.Count);
 
+            // Emerge ends with its clip in both modes (141e933b0, 141e934b0); there is no extra idle tail.
+            var tide = Assert.IsType<MonsterCatalog.Variety>(catalog.Find("Metadata/Monsters/WaterElemental/WaterElementalTidal"));
+            foreach (bool lockstep in new[] { false, true })
+            {
+                var rising = new ClientState(new(1, "emerge-duration", 300, 300, 100, 100, null, []), 1, 1)
+                {
+                    LockstepClient = lockstep,
+                };
+                var strider = new SpawnedMonster("Tide Strider", new PlayerWalk(50, 50, 25), 60, 2, 23) { Variety = tide };
+                MonsterEmerge.AddLocked(rising, 0x3000, strider, EmergeKind.Lurking, unrisen: true);
+                var rise = Assert.Single(emerge.RiseLocked(rising, (60, 50), 1, out _));
+                Assert.Equal(.866, rise.Seconds);
+                Assert.Equal(1.866, strider.BusyUntil);
+                Assert.False(MonsterAiCadence.Due(1.865, strider.BusyUntil));
+                Assert.True(MonsterAiCadence.Due(1.866, strider.BusyUntil));
+            }
+
             first.Life = 0;
             Assert.True(conn.Monsters.Remove(0x3040));
             Assert.DoesNotContain(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);

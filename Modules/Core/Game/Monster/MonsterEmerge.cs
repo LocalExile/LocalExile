@@ -158,8 +158,9 @@ sealed class MonsterEmerge(string folder = "data")
         {
             m.Aggro = true;
             m.LastTarget = null;
-            // A little past the clip, so the client has finished the action before the AI's first order.
-            m.BusyUntil = now + seconds + 0.3;
+            // The clip-end callback completes Emerge in both modes (141e933b0 → 141e934b0 → 141e8f670).
+            // No extra idle tail follows the clip; the next AI decision may run once it ends.
+            m.BusyUntil = now + seconds;
         }
         watching = g.Watching = conn.DormantMonsters.Count + g.Lurking.Count > 0;
         return risen;

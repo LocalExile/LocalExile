@@ -339,9 +339,9 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
     2. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, aimed at itself (flags 0x0880),
        a rising sequence: the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead:
        `grasp_emerge`, 3.7 s).
-    3. S→C **0x1ac**: the action waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
-       (`0x141e94720`, looked at again every 0.25 s), and only then plays (`+0x1b0`). After the clip the monster chases
-       and attacks like any other.
+    3. S→C **0x1ac**: predictive mode waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
+       (`0x141e94720`, otherwise checked every 0.25 s). Lockstep starts directly. Both modes end Emerge with its clip
+       (`0x141e934b0`), with no additional recovery tail; the monster then becomes eligible to chase and attack.
     Which monster rises when is the official server's (its `.ais` AI files are not in the client); the Gateway raises
     one when the player comes within 24 cells, or its aggro range if shorter, or when a lurking one is hit. The clip's
     time is game time (a pause stops it). Rising does not depend on `/ai`: a `/spawn_mob` emerge monster rises next to
