@@ -161,7 +161,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     Channel activity and replacement releases follow the held action; spell channels use their cast interval without
     a new-action frame cap. Instant replies share the player's sequence and let native execution consume cooldowns.
     Full live coverage remains open.
-    The King's scripted actions share its swing sequence; natural Slums arrival and boss synchronization still fail.
+    The King's scripted actions share its swing sequence, and dashes carry the boss's origin in both modes.
+    Natural Slums arrival and complete boss synchronization still need correction and validation.
     Held-walk player and all-monster sync bars pass; fresh Mud Flats and charger pairs show no predictive regression.
     Broader coverage and adjusted crowd comparisons remain incomplete
     ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).

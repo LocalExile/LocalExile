@@ -792,7 +792,12 @@ another action. Its rig clip, contact fraction and launch point are selected tog
 (`0x141e991e0`); scripted releases retain their separate recipes. Predictive keeps its existing order-sequence choice.
 The King's direct scripted actions use that same monster counter. Its ordinary swings defer allocation to admission,
 so switching between casts and dashes neither returns to the connection's counter nor consumes two actor sequences.
-This fixes sequence ownership, not the King's movement-coordinate conventions or delayed native action starts.
+
+**Scripted move origins.** The King's dash packets carry the boss's cell first, then the aim. The action reader
+(`0x1421940a0`) preserves that origin through the pending slot (`0x141e8cf10`); promotion (`0x141e8e7e0`) places
+the actor there on every lockstep mismatch and on large predictive mismatches. Putting the player's cell first
+therefore moved the boss onto the player before its dash. Both modes use the corrected field order; clip timing,
+landing estimates and delayed native action starts remain separate validation gaps.
 
 **Tutorial item ownership.** The initial recipient is recorded when a tutorial gem enters shared ground state.
 That connection receives its one create/wake pair from the tutorial transaction; shared synchronization must not

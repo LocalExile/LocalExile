@@ -270,6 +270,15 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal((ushort)(direct + 1), explicitCast);
         Assert.Equal(predictiveSequence, predictiveKing.Sequence);
 
+        // A scripted dash's first pair is the actor's origin, then its aim. The native action start places the actor
+        // on that origin (always in lockstep; beyond the correction threshold in predictive), even with a target id.
+        // Keep the object header, player target, skill and sequence while encoding the two distinct cells in order.
+        Assert.Equal(new byte[]
+        {
+            0x01, 0xab, 0x08, 0, 0, 1, 0, 0, 0, 0, 0x70, 0x01, 0, 0x80, 0, 0, 0x10, 0,
+            0x80, 0xf3, 0x82, 0x63, 0x80, 0xfd, 0x82, 0x72, 0x40, 0x0c, 0x80, 0x05,
+        }, KingInMists.MovementAction(0x08000001, (243, 611), (253, 626), 0x400c, 0x8005, Program.PlayerId, 0x7001));
+
         var predictive = Connection(lockstep: false);
         var monster = Drowned(new PlayerWalk(104, 100, 8));
         predictive.Monsters[0x3000] = monster;

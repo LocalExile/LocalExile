@@ -22,6 +22,13 @@ static class KingInMists
     internal static ushort? SequenceForAction(ClientState conn, SpawnedMonster boss, bool swing) =>
         !conn.LockstepClient ? conn.NextActionSequence() : swing ? null : boss.NextSequence();
 
+    // Action promotion 0x141e8e7e0 places the actor on the first pair: every mismatch in lockstep, large ones in
+    // predictive. Both modes therefore need the boss's origin first, even when a target object supplies the aim.
+    internal static byte[] MovementAction(uint id, (int X, int Y) from, (int X, int Y) aim,
+        ushort skill, ushort sequence, uint? target, ushort header) =>
+        InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, skill, sequence, 0,
+            targetObjectId: target, header: header);
+
     public const string Boss2 = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss2";
     public const string Boss3 = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss3";
     const string PoisonRat = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/Critters/PoisonRat";
@@ -471,9 +478,8 @@ static class KingInMists
         }
 
         enum MoveSync { None, Glide }
-        // The official phase-1 movement: TeleportFlee sends the destination first, then the current position, and the
-        // client plays teleport_01; the three dashes send the player first, then the current position, and play
-        // move_left/move_right/move_bwd. The native clip moves the model; a trailing packet only syncs the server.
+        // Phase-1 movement carries the boss's origin, then its aim: the player for move_left/move_right/move_bwd,
+        // or the destination for teleport_01. The native clip moves the model; a trailing packet syncs the server.
         // `place` computes the landing cell from the player position at the send gate: the player can cross 10+ cells
         // during the 120 ms action-end settle, and a target computed from the older loop position made the clip and the
         // settle point in different directions (live 2026-11-01: a 40-cell backward dash correction).
@@ -502,11 +508,8 @@ static class KingInMists
                 boss.Walk.Order(fromX, fromY, startedAt);
             }
             if (!await SendMonsterAction(remote, stream, ciphers, conn, id, boss, action, () =>
-                playerFirst
-                    ? InstanceProtocol.ActionStarted(id, playerX, playerY, fromX, fromY, skill, NextSeq(), 0,
-                        targetObjectId: target, header: header)
-                    : InstanceProtocol.ActionStarted(id, toX, toY, fromX, fromY, skill, NextSeq(), 0,
-                        targetObjectId: target, header: header),
+                MovementAction(id, (fromX, fromY), playerFirst ? (playerX, playerY) : (toX, toY),
+                    skill, NextSeq(), target, header),
                 $"0x01ab King in the Mists {label}")) return;
             await Task.Delay(TimeSpan.FromSeconds(actionSeconds));
             if (!Present()) return;
