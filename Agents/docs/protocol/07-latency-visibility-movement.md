@@ -603,6 +603,7 @@ and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0
 Lockstep instant replies share the player's action sequence and carry flags 0x0101 (0x0121 with a target).
 The reader removes the target marker 0x20; 0x142195880 forwards bit 8 to 0x141e92310 to suppress local action events.
 They do not replace the current cast or channel. Predictive replies retain their existing sequence and flags.
+The native instant action consumes its cooldown; a fresh cooldown snapshot must not pre-spend that queued use.
 
 Spell duration divides the virtual base cast time by the skill's cast-speed factor (`0x1419eef50`, stat `0x24b9`
 and virtual slot `+0x788` on Freezing Pulse; the getter `0x1419e7500` reads cast-speed stat `0x128`).

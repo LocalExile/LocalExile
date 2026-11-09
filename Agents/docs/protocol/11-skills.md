@@ -1501,8 +1501,9 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Unsynchronized progress stays dirty through rate round trips such as 1 -> 2 -> 1,
   including changes before acknowledgement.
   Rejected/unacknowledged uses send nothing.
-  Instant acknowledgements request one progress snapshot even at an unchanged rate: native use consumption starts at
-  0x1ce, so its fresh full budget must align with the original server reservation after time spent queued.
+  Predictive instant acknowledgements request one progress snapshot even at an unchanged rate.
+  Lockstep 0x1ce consumes the native use itself: an immediate cooldown snapshot can arrive before its execution,
+  causing 0x141e9dc10 to reject the already-spent use. It therefore refreshes only later changed recovery progress.
   Ordinary casts keep their native predicted initial timing and refresh only changed progress.
   A refresh replaces one entry, including zero-rate transitions, rather than appending or restarting it.
   Initial ordinary prediction/network alignment and official tick boundaries are not claimed exact.

@@ -158,7 +158,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     Ground/object spell holds retain fractional cast speed; Fireball/Freezing Pulse allow Move and early spell replacement.
     Repeated casts and other action classes still need their cancellation gates verified.
     Channel activity and replacement releases follow the held action; spell channels use their cast interval without
-    a new-action frame cap. Instant replies share the player's sequence and suppress local action-event dispatch.
+    a new-action frame cap. Instant replies share the player's sequence and let native execution consume cooldowns.
     Full live coverage remains open.
     Held-walk player and all-monster sync bars pass; fresh Mud Flats and charger pairs show no predictive regression.
     Broader coverage and adjusted crowd comparisons remain incomplete

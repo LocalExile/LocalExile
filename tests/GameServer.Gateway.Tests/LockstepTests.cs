@@ -28,6 +28,21 @@ public class LockstepTests
         Assert.Equal("01CE000010000000000000008409FFFF00200000300181F78223",
             Convert.ToHexString(Game.PlayerInstantAction(conn, 0x8409, (503, 547), 0x3001)));
         Assert.Equal(0, conn.LockstepSequence);
+        foreach (bool lockstep in new[] { false, true })
+        {
+            conn.LockstepClient = lockstep;
+            conn.PlayerLife = 100;
+            var state = new SingleUseCooldownState(0, 1);
+            Assert.True(state.TryUse(0, new SingleUseCooldown(3000, 0)));
+            var use = new CooldownUseTicket(1, conn.ActionCount, conn.ProjectileEpoch, Instant: true,
+                State: state, UseVersion: state.UseVersion);
+            Assert.True(use.CommitNativeUse(conn, 0x8409));
+            // In lockstep the queued instant action must consume its still-ready native use itself.
+            Assert.Equal(!lockstep, state.NeedsNativeRefresh);
+            state.NativeRefreshed();
+            state.Refresh(1, 2);
+            Assert.True(state.NeedsNativeRefresh); // Later recovery-rate corrections still synchronize.
+        }
     }
 
     [Fact]
