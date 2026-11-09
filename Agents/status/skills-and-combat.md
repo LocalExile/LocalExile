@@ -1607,6 +1607,12 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Killing a shocked monster with Berek's Respite gives the monsters within 2 m the same shock.
   Each chill, freeze and shock spreads to living enemies within its own `virtual_*_proliferation_radius` of the
   monster or corpse it is on, like an aura.
+  An ignite with a proliferation radius (Ignite Proliferation Support, gloves, notable, flask, main hand, Elemental
+  Proliferation; the largest, grown by area) does the same: each AI tick the strongest spreading ignite in reach burns
+  a living ignitable monster at its damage per second until it ends, competing with its own ignites. Corpses keep
+  spreading. The copy does not spread or count as inflicting. Verified live 2026-11-08 (Fireball + Ignite
+  Proliferation: 536 spreads at 16 cells, 246 burn kills, no client crash). Not yet: a killing hit's ignite on the
+  corpse, the skill-less default bow attack, shatter stopping it, Berek's Respite's ignite twin.
   An area skill applies a Mirrored monster's reflected ailments after its last target, and a sweep stopped partway
   still rewards its kills.
   The buffs, the sent action speed and the frozen pose are not checked with the real client.
