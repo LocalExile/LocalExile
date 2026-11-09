@@ -1725,7 +1725,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
   `0:05`, running down with each stage that goes, live 2026-11-09). Both ride the same 0x1c1 instance, updated in place
   as the stages build or go and removed with the orb: a new instance for each change (0x1c2 then a fresh 0x1c1) restarts
   the client's clock, so it never had time to be seen before. A held channel has no clock (no bit1); it runs only while
-  the stages decay. Its three earlier crashes came from the 0x1c1 trailing u32 list, not the message fields: the
+  the stages decay. A held channel lives off the client's 10-byte aim updates, which a standing channel sends as 0x198
+  rather than Cyclone's 0x197: unregistered, they were dropped, so the one-second silence ended a held Winter Orb after
+  about five stages and its orb released while the button was still down (live 2026-11-09). Its three earlier crashes came from the 0x1c1 trailing u32 list, not the message fields: the
   row's buff visual starts the client's Winter Orb channelling art (`0x1415d17d0` → `0x1417b6030`), which reads entries
   1 and 2 of the buff's list (buff +0x80) without a length check, so an empty list dereferenced null (`0xc0000005` at
   fault offset `0x17b6067`, the same for all three shapes). Three entries (first form, not a totem) are all it needs.
