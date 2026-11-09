@@ -70,6 +70,19 @@ public static class InstanceSocial
         return r.Short ? null : r.Position;
     }
 
+    /// <summary>C→S 0xca: the Social panel's status message (sender 0x14216d6f0, writer 0x141f98140): wstr, the text the
+    /// client also keeps as its current status (instance +0xcd10). Not stored here; read so the stream goes on.</summary>
+    public const ushort StatusMessageId = 0xca;
+
+    /// <summary>Bytes of a 0xca at the start of <paramref name="m"/>, or null if it is not complete yet.</summary>
+    public static int? StatusMessageLength(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m);
+        r.U16();
+        r.WStr();
+        return r.Short ? null : r.Position;
+    }
+
     /// <summary>Bytes of a 0x80 at the start of <paramref name="m"/>, or null if it is not complete yet.</summary>
     public static int? FriendAddLength(ReadOnlySpan<byte> m)
     {
@@ -116,16 +129,20 @@ public static class InstanceSocial
     /// and the party list (0xa9) look players up in; without an entry the request is dropped silently (live 2026-10-28).
     /// Wire: wstr account (key, entry +0x30), wstr (+0x50), u8 flags (bit 0: u16 pair +0xaa/+0xae follows, bit 1: u16
     /// pair +0xb0/+0xb2 follows, bit 2 +0xba: character data, bits 3..6 +0xbb/+0xbc/+0xbd/+0xbe); with bit 2: wstr character
-    /// (+0x70), u8 (+0xb9), u8 (+0xb8, the packed class), u16 BE (+0xa8, taken as the level), u16 BE (+0xac), wstr (+0x90),
+    /// (+0x70), u8 (+0xb9, the level), u8 (+0xb8, the packed class), u16 BE (+0xa8, the WorldAreas HASH16 of the character's
+    /// area), u16 BE (+0xac), wstr (+0x90),
     /// u8 (+0xb4), then the pairs; without bit 2 a u64 (+0xa0). Read back by 0x141f96140. The bit 1 pair is the portrait
     /// frame (+0xb0) and the portrait (+0xb2), which the party portraits (0x14020b5a0) and social rows (0x140af7970) draw;
-    /// the client's own writer leaves the pair out when both are 0.
+    /// the client's own writer leaves the pair out when both are 0. The Social panel's friend rows (`0x140af7970`) read the
+    /// level from +0xb9 ("Level {1}, {0}") and look +0xa8 up in WorldAreas (`0x1422e02b0`) for the area name and its
+    /// difficulty icon.
     /// </summary>
-    public static byte[] KnownPlayer(string account, string character, int level, byte packedClass = 0, ushort frame = 0, ushort portrait = 0)
+    public static byte[] KnownPlayer(string account, string character, int level, byte packedClass = 0, ushort frame = 0, ushort portrait = 0,
+        ushort areaHash = 0)
     {
         bool look = frame != 0 || portrait != 0;
         var w = new LoginWriter().U16(KnownPlayerId).WStr(account).WStr("").U8((byte)(look ? 0x06 : 0x04))
-            .WStr(character).U8(0).U8(packedClass).U16((ushort)Math.Clamp(level, 0, ushort.MaxValue)).U16(0).WStr("").U8(0);
+            .WStr(character).U8((byte)Math.Clamp(level, 0, byte.MaxValue)).U8(packedClass).U16(areaHash).U16(0).WStr("").U8(0);
         if (look) w.U16(frame).U16(portrait);
         return w.ToArray();
     }
