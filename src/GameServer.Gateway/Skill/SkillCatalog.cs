@@ -734,6 +734,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["EtherealKnives"] = "Metadata/Projectiles/EtherealKnivesProjectile",
         ["EtherealKnivesAltX"] = "Metadata/Projectiles/EtherealKnivesProjectile",
         ["EtherealKnivesAltY"] = "Metadata/Projectiles/EtherealKnivesProjectile",
+        ["IceShot"] = "Metadata/Projectiles/IceArrow",
         ["RampageDaemonStunNova"] = "Metadata/Projectiles/RampageProjectile",
         ["RampageDaemonBlindNova"] = "Metadata/Projectiles/RampageProjectile",
         ["RampageDaemonSuperRepeatNova"] = "Metadata/Projectiles/RampageProjectile",
