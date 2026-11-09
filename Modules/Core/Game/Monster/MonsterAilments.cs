@@ -92,8 +92,12 @@ static partial class Game
         var sources = new List<(uint Id, SpawnedMonster M, (int X, int Y) At, double Dps, double Until, int Radius)>();
         foreach (var (id, m) in conn.Monsters)
         {
-            // A shattered or consumed corpse is gone: it stops spreading, and the copies it gave end below.
-            if (m.Dead && (m.Ailments.Shattered || m.CorpseConsumed)) continue;
+            // A shattered or consumed corpse is gone: its retained ignites retire, and the copies it gave end below.
+            if (m.Dead && (m.Ailments.Shattered || m.CorpseConsumed))
+            {
+                m.Ignites.RetireCorpse();
+                continue;
+            }
             foreach (var (dps, until, radius) in m.Ignites.Spreads(now)) sources.Add((id, m, m.Walk.Position(now), dps, until, radius));
         }
         foreach (var (id, m) in conn.Monsters)
