@@ -8,7 +8,28 @@ using GameServer.Core.Protocol.Login;
 // player's own (InstanceGround.Add shared: false).
 public static partial class Game
 {
-    public static async Task SyncSharedGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // Evaluate at the cipher gate: a kill's delayed output may outlive the item's auto-pickup.
+    // Creation and wake must stay together, before any competing pickup's removal can be sent.
+    public static byte[]? GroundItemPresentation(ClientState conn, uint id, bool justDropped,
+        WorldItemObject? expected = null)
+    {
+        lock (conn.Monsters)
+        {
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !GameEvents.AllowsLoot(conn)) return null;
+            if (conn.Instance.Ground.Get(id) is not { } item || expected is not null && !ReferenceEquals(item, expected)) return null;
+            var (by, shared) = conn.Instance.Ground.Origin(id);
+            if (!shared && !ReferenceEquals(by, conn)) return null;
+            conn.SeenGround.Add(id);
+            return [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),
+                item.Blob(justDropped: justDropped)), .. InstanceProtocol.EnterWakeZone(id)];
+        }
+    }
+
+    internal static Task SendGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint id, WorldItemObject item, string? log, bool justDropped = false) =>
+        Send(remote, stream, ciphers, [], log, atGate: () => GroundItemPresentation(conn, id, justDropped, item));
+
+    internal static async Task SyncSharedGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!GameEvents.AllowsLoot(conn)) return;
         var ground = conn.Instance.Ground;

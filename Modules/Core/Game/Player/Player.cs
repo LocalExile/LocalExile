@@ -656,15 +656,8 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // Gold within the configured auto-loot radius is picked up unless a league system suppresses loot.
             var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            foreach (var (id, gold) in GameEvents.AllowsLoot(conn)
-                ? conn.Instance.Ground.Within(at.X, at.Y, SystemSettings.Default.GoldAutoLootRadius, IsGold)
-                : [])
-            {
-                await PickUpGold(remote, stream, ciphers, conn, id, gold, "auto-looted");
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-                lock (conn.Monsters)
-                    if (HardcoreProgressBlocked(conn)) break;
-            }
+            await PickUpNearbyGold(remote, stream, ciphers, conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
             lock (conn.Monsters)
                 if (HardcoreProgressBlocked(conn)) continue;
             // Quests that start when the player comes near a monster (a1q1: Hillock, "Kill Hillock").

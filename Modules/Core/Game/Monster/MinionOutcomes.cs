@@ -111,9 +111,8 @@ public static partial class Game
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
-            state.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-                $"0x02bb create world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})", WorldId: id, CreatesObject: true));
-            state.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
+            state.OutputQueue.Add(new([], $"world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})",
+                TargetId: id, Kind: PlayerMinions.OutputKind.GroundItem));
         }
     }
 
