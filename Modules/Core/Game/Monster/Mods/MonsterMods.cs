@@ -117,8 +117,11 @@ static partial class Game
         double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
             * (1 + Math.Max(0, m.TakenFromPlayer.Physical) / 100.0)
             * (1 + e["physical_damage_taken_+%"] / 100.0);
+        // Its fire, cold and lightning damage taken (Izaro's statues' buffs) on those parts.
+        double typed = mitigated[DamageType.Fire].Min * e["fire_damage_taken_+%"] + mitigated[DamageType.Cold].Min * e["cold_damage_taken_+%"]
+            + mitigated[DamageType.Lightning].Min * e["lightning_damage_taken_+%"];
         return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
-            + physicalTaken * factor * (physicalFactor - 1));
+            + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor);
     }
 
     internal static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,

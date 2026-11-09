@@ -34,7 +34,7 @@ public class IgniteProliferationTests
         Assert.Equal(100, near.Ignites.Advance(1.25, 1));
     }
 
-    // A corpse keeps spreading its ignite until that ends; the copy ends with it.
+    // A corpse keeps spreading its ignite until that ends; the copy ends with it. A shattered corpse stops at once.
     [Fact]
     public void Corpse_spreads_its_ignite_until_it_ends()
     {
@@ -56,5 +56,16 @@ public class IgniteProliferationTests
         Game.MonsterAilmentChangesLocked(conn, now: 4.5);
         Assert.Equal(150, near.Ignites.Advance(4.5, 1));
         Assert.False(near.Ignites.Burning);
+
+        var (shattered, close) = (At(200), At(210));
+        conn.Monsters[3] = shattered;
+        conn.Monsters[4] = close;
+        shattered.Ignites.Add(4.5, 100, 4, spread: 15);
+        shattered.Dead = true;
+        shattered.Life = 0;
+        shattered.Ignites.Clear();
+        shattered.Ailments.Shatter();
+        Game.MonsterAilmentChangesLocked(conn, now: 4.75);
+        Assert.False(close.Ignites.Burning);
     }
 }

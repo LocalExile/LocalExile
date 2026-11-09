@@ -4,10 +4,14 @@ using GameServer.Core.Protocol.Login;
 
 static partial class Game
 {
-    internal static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality) =>
-        SkillsFor(conn).CooldownMs(effect, level) <= 0 || GemSkillEffects(conn).Count(g => g.Effect == effect) != 1 ? null :
-            WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, CharacterPlayerStats(conn),
-                SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2)));
+    internal static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality)
+    {
+        var sources = GemSkillEffects(conn).Where(g => g.Effect == effect).ToArray();
+        if (SkillsFor(conn).CooldownMs(effect, level) <= 0 || sources.Length != 1) return null;
+        var supported = SupportedSkill(conn, sources[0].Id);
+        return WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, supported.Level,
+            CharacterPlayerStats(conn), supported.Stats));
+    }
 
     internal static SingleUseCooldownState CooldownStateLocked(ClientState conn, int effect, SingleUseCooldown plan, double now)
     {
@@ -20,6 +24,7 @@ static partial class Game
             conn.SingleUseCooldowns[effect] = state;
         }
         state.Refresh(now, plan.RecoveryRate);
+        state.Capacity(plan.Uses);
         return state;
     }
 
@@ -86,10 +91,8 @@ static partial class Game
     internal static void RefreshSingleUseCooldowns(ClientState conn)
     {
         lock (conn.Monsters) if (conn.SingleUseCooldowns.Count == 0) return;
-        var player = CharacterPlayerStats(conn);
         var plans = GemSkillEffects(conn).GroupBy(g => g.Effect).ToDictionary(g => g.Key, g =>
-            g.Count() != 1 ? null : WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, g.Key, g.First().Level, player,
-                SkillsFor(conn).EffectStats(g.Key, g.First().Level, g.First().Quality).ToDictionary(s => s.Item1, s => s.Item2))));
+            g.Count() != 1 ? null : CooldownFor(conn, g.Key, g.First().Level, g.First().Quality));
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
@@ -97,6 +100,7 @@ static partial class Game
             {
                 if (!plans.TryGetValue(effect, out var plan)) continue; // Removal does not reset a spent use.
                 state.Refresh(now, plan?.RecoveryRate ?? state.Rate);
+                if (plan is { } current) state.Capacity(current.Uses);
                 conn.SkillReadyAt[effect] = now + state.RemainingSeconds;
                 if (plan is null) conn.SingleUseCooldowns.Remove(effect); // Unsupported mechanics retain the legacy path.
             }
@@ -118,8 +122,8 @@ static partial class Game
                     || state.NativeSkillId != id) continue;
                 state.Refresh(now, state.Rate);
                 if (!state.NeedsNativeRefresh) continue;
-                updates.Add(new(id, state.Ready ? 0 : (float)(state.RemainingBaseMilliseconds / 1000),
-                    state.TotalBaseMilliseconds / 1000f, (float)state.Rate));
+                updates.Add(new(id, state.FullyRecovered ? 0 : (float)(state.RemainingBaseMilliseconds / 1000),
+                    state.TotalBaseMilliseconds / 1000f, (float)state.Rate, state.SpentUses));
                 synchronized.Add(state);
             }
             if (updates.Count == 0) return null;

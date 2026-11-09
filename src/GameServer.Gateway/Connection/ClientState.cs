@@ -156,8 +156,9 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public bool FetishGrace;
     /// <summary>Pending life thresholds and immunity owned by an encounter controller.</summary>
     public LifePhaseGate? LifePhases;
-    /// <summary>An encounter's own entrance: hits do nothing until its script clears it (Izaro rising on his elevator).</summary>
-    public bool EntranceGrace;
+    /// <summary>An encounter's own entrance: hits do nothing and no chill, freeze or shock lands until its script clears it
+    /// (Izaro rising on his elevator; live, the ailments landed while hits did nothing).</summary>
+    public bool EntranceGrace { get => Ailments.Grace; set => Ailments.Grace = value; }
     // No damage, ailments, impale or hit reaction while a scripted grace runs.
     public bool Invulnerable => KingGrace || RitualGrace || FetishGrace || EntranceGrace || LifePhases?.Active == true;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
@@ -170,7 +171,10 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // Its mods (MonsterMods.cs): the rarity's own and the rolled affixes, with what they change. Kept with the instance.
     public MonsterModSet Mods { get; set; } = MonsterModSet.None;
     public readonly MonsterCurses Curses = new();
-    public MonsterModEffects Effects => Curses.Effects(Mods.Effects);
+    /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
+    /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
+    public IReadOnlyDictionary<string, int>? EncounterStats;
+    public MonsterModEffects Effects => Curses.Effects(EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects);
     // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
     public int SpeedRoll { get; init; }
     // Damage over time not yet applied (fractions of a point between ticks).
@@ -723,7 +727,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool PlayerObjectCreated;
     // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Guarded by the Monsters lock.
     public readonly Dictionary<int, double> SkillReadyAt = [];
-    // Eligible ordinary one-use cooldowns retain remaining base-time units through recovery-rate changes.
+    // Ordinary stored uses retain recharge debt and base-time progress through recovery-rate/capacity changes.
     public readonly Dictionary<int, SingleUseCooldownState> SingleUseCooldowns = [];
     // The skill ids the client has on this connection's player (SendPlayer, SendSkills): the 0x40 skill list only adds,
     // so the ones that leave are removed by id.

@@ -691,8 +691,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Combat load: message/frame and fresh projectile-release snapshots; input-checked skill/equipment caches ignore
   within-level gem XP and extended active recent windows; immutable item-local stats, condition parsers and projectile
-  recipes are reused. F1 NETWORK retains real input-queue latency; large load spikes remain under investigation.
-  Code: `PlayerStatsCache.cs`, `StatConditions.cs`.
+  recipes are reused. Aura reconciliation compares live sources, restrictions, equipment and reservation inputs;
+  support resolution shares raw gem sources, quest rewards follow flag changes, and projectile motion is reused only
+  until the next contact. F1 NETWORK retains real input-queue latency; pathfinding and load spikes remain under investigation.
+  Code: `PlayerStatsCache.cs`, `OwnAuras.cs`, `GemLevels.cs`, `ProjectileRuntime.cs`, `StatConditions.cs`.
 
 - Survivors league and three optional modules, including the seven stage gate bosses; the catalogue keeps only skills the flight/pulse presentation can play (every projectile gets a visible fallback), ground area spells land on their target, the support pool is every normal support gem whose numbers the cast pipeline reads, and enemies are 5x tougher and 4x harder-hitting (ranged shots at 30%) with a DPS threat on life, nearby experience orbs, a first window that pauses before any spawn, 25%-of-life death zones and corpse cleanup; uniques persist between runs and bosses are 5x their ladder: [client presentation and limits](../docs/game/survivors-mode.md).
 
@@ -1610,9 +1612,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
   An ignite with a proliferation radius (Ignite Proliferation Support, gloves, notable, flask, main hand, Elemental
   Proliferation; the largest, grown by area) does the same: each AI tick the strongest spreading ignite in reach burns
   a living ignitable monster at its damage per second until it ends, competing with its own ignites. Corpses keep
-  spreading. The copy does not spread or count as inflicting. Verified live 2026-11-08 (Fireball + Ignite
+  spreading until shattered or consumed. The copy does not spread or count as inflicting. Verified live 2026-11-08 (Fireball + Ignite
   Proliferation: 536 spreads at 16 cells, 246 burn kills, no client crash). Not yet: a killing hit's ignite on the
-  corpse, the skill-less default bow attack, shatter stopping it, Berek's Respite's ignite twin.
+  corpse, the skill-less default bow attack, Berek's Respite's ignite twin.
   An area skill applies a Mirrored monster's reflected ailments after its last target, and a sweep stopped partway
   still rewards its kills.
   The buffs, the sent action speed and the frozen pose are not checked with the real client.

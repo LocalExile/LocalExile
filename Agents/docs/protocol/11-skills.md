@@ -1484,7 +1484,9 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   An attack approach only checks readiness, then reserves at arrival under its original action token.
   Instant 0x191 skills preserve the current action.
   A projectile's creation gate ends action cancellation; released flights continue with their existing area lifetime.
-  Multi-use, extra-use, duplicate same-effect gem, flat/override and pause-while-active mechanics retain legacy
+  Ordinary stored uses and Second Wind share the recovery state; spent uses recover one at a time.
+  The first native queue entry retains progress, while later entries retain their full base-time budget.
+  Duplicate same-effect gems, other extra-use sources, flat/override and pause-while-active mechanics retain legacy
   `SkillReadyAt` raw deadlines.
   Shared cooldown groups, bypass, conditional/enemy recovery, typed/more recovery and official tick equivalence are
   outside this generic one-use implementation.
