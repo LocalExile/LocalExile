@@ -155,6 +155,8 @@ public sealed class QuestObjectsModule : IModule, IDisposable
                 await UseGlyphWall(remote, stream, ciphers, conn, use);
                 return true;
             }
+            // A Labyrinth room's stash: the one clicked is the stash the game opens (it knows one per area).
+            if (QuestobjectsRules.PickLabyrinthStash(conn, use.TargetId)) return false;
             return await UseTrialObject(remote, stream, ciphers, conn, use);
         });
     }

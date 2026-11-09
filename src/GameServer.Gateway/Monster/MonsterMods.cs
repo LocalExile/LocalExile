@@ -100,6 +100,20 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         return hit.Add(DamageType.Chaos, new GameServer.Core.World.DamageRange(minChaos, maxChaos).Round());
     }
 
+    /// <summary>A hit with the "gain as extra" stats of <paramref name="extra"/> added and its damage_+% (an encounter's
+    /// buffs, given after the monster's own hit was fixed at its spawn: <see cref="Hit"/>; the increase is applied on the
+    /// fixed hit, not summed with the monster's own).</summary>
+    public static DamagePacket AddedTo(DamagePacket hit, IReadOnlyDictionary<string, int> extra)
+    {
+        var gains = new DamageConversion()
+            .AddGain(DamageType.Physical, DamageType.Fire, extra.GetValueOrDefault("physical_damage_%_to_add_as_fire"))
+            .AddGain(DamageType.Physical, DamageType.Cold, extra.GetValueOrDefault("physical_damage_%_to_add_as_cold"))
+            .AddGain(DamageType.Physical, DamageType.Lightning, extra.GetValueOrDefault("physical_damage_%_to_add_as_lightning"));
+        var added = hit.Convert(gains);
+        if (extra.GetValueOrDefault("damage_+%") is int increased and not 0) added = added.Scale(Math.Max(0, 1 + increased / 100.0));
+        return added.Round();
+    }
+
     /// <summary>The attack time: the base over (1 + attack_speed_+%) and the rarity's more speed
     /// (monster_rarity_attack_cast_speed_+%_and_damage_-%_final). Every attack-speed mod of the pool gives cast speed
     /// alike, so a casting monster's skill uses the same time.</summary>
