@@ -1306,6 +1306,8 @@ static class LabyrinthTrials
         // A Door_Counter gate in a fence line, a tile wide (our estimate from the fence pieces a tile apart); a smashable
         // thin wall and a secret wall, a tile of wall each (ours).
         "ruinedtemple_smallgate.ao" or "drygarden_smallgate.ao" => (11.5, 3),
+        // Izaro's arena's alcove railing, across the alcove's three places (ours, from their spread).
+        "alcove_railing.ao" => (17, 2.5),
         "eleganthouse_thinwallstraight_smashable_openanimation_v01_01_animation.ao" => (11.5, 2.5),
         "gardendry_wall_straight_secretwall_v01_01_openanimation.ao" => (11.5, 4),
         _ => (14, 6),

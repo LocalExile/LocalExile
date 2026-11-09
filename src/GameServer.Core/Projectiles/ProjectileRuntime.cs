@@ -137,10 +137,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             long horizon = Math.Min(until, (Now / TickQuanta + 1) * TickQuanta);
             if (scheduled.TryPeek(out _, out var next)) horizon = Math.Min(horizon, next.At);
             var actors = world.Actors(Now, horizon);
+            // Every projectile used to sort the same actors and evaluate their walks repeatedly.
+            // This snapshot lasts only until the next contact/scheduled callback: deaths, new actors
+            // and motion changes from a hit are read again on the very next simulation iteration.
+            var motion = actors.OrderBy(a => a.Key.Id).ThenBy(a => a.Key.Generation)
+                .Select(a => new ActorMotion(a, a.Position(Now), a.Position(horizon))).ToArray();
             Contact? first = null;
             foreach (var p in projectiles.Values)
             {
-                var candidate = NextContact(p, horizon, actors);
+                var candidate = NextContact(p, horizon, motion);
                 if (candidate is { } c && (first is null || c.CompareTo(first.Value) < 0)) first = c;
             }
             // The upper bound is inclusive: another flight may have a contact at the same instant.
@@ -176,7 +181,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         }
     }
 
-    Contact? NextContact(ProjectileEntity p, long horizon, IReadOnlyList<ProjectileActor> actors)
+    readonly record struct ActorMotion(ProjectileActor Actor, ProjectileVector From, ProjectileVector To);
+
+    Contact? NextContact(ProjectileEntity p, long horizon, IReadOnlyList<ActorMotion> motion)
     {
         if (p.WaitUntil > Now)
             return p.ExpiresAt <= horizon ? new(p.ExpiresAt, p, null, ProjectileEndReason.Lifetime, default) : null;
@@ -207,21 +214,30 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         var directRule = DirectHitRule(p);
         bool skipDenied = p.Phase == 0 ? p.Profile.SkipDeniedContacts || p.Profile.OutboundHitLimit is not null
             : p.Profile.SkipDeniedReturnContacts || p.Profile.ReturnHitLimit is not null;
-        foreach (var actor in actors.OrderBy(a => a.Key.Id).ThenBy(a => a.Key.Generation))
+        foreach (var sweep in motion)
         {
+            var actor = sweep.Actor;
             if (actor.Team == p.Use.Team || actor.Key == p.Use.Owner || actor.Key == p.TurnaroundTarget) continue;
             // The client's contact (0x141e4b3a0, 11-skills.md): Chebyshev cells against reach + the actor's size, with
             // cells centred on integers, so the square's half-width is half a cell wider.
             int? cells = p.Profile.ContactCells;
             if (cells is not null && actor.Size < 0) continue;
             double reach = cells is int c ? c + actor.Size + .5 : p.Profile.Radius + actor.Radius;
-            var gap = p.Position - actor.Position(Now);
+            var gap = p.Position - sweep.From;
             if (p.Contacts.Contains(actor.Key) && directRule.Repeat != ProjectileRepeat.Once
                 && (cells is null ? gap.Length : Math.Max(Math.Abs(gap.X), Math.Abs(gap.Y))) > reach + .001)
                 p.Contacts.Remove(actor.Key);
             if (p.Contacts.Contains(actor.Key)) continue;
-            double? t = cells is null ? ProjectileGeometry.Contact(gap, to - actor.Position(end), reach)
-                : ProjectileGeometry.SquareContact(gap, to - actor.Position(end), reach);
+            // Near expiry/range ends can precede horizon; use that exact walk position, not an
+            // interpolation across a bend in the actor's path.
+            var endPosition = end == horizon ? sweep.To : end == Now ? sweep.From : actor.Position(end);
+            var endGap = to - endPosition;
+            // A separating axis rejects distant sweeps for both round and square footprints.
+            // Keep contact-history reset above this check and leave precise/tie rules unchanged.
+            if (Math.Min(gap.X, endGap.X) > reach || Math.Max(gap.X, endGap.X) < -reach
+                || Math.Min(gap.Y, endGap.Y) > reach || Math.Max(gap.Y, endGap.Y) < -reach) continue;
+            double? t = cells is null ? ProjectileGeometry.Contact(gap, endGap, reach)
+                : ProjectileGeometry.SquareContact(gap, endGap, reach);
             if (t is not double f) continue;
             long at = Now + (long)Math.Ceiling((end - Now) * f);
             if (skipDenied && !ledger.CanHit(directRule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId,

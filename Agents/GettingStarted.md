@@ -446,6 +446,7 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | `port 8080 is used by <program>` | another program (often a web server) holds a dev port | close it, or set `Game_PATCH_URL=http://127.0.0.1:<port>/` |
 | `patch server did not start` | `Client\Content.ggpk` missing, locked or unreadable | close every client, check the path |
 | Client shows a patching/update screen or downloads | started without `live.ps1`, or the patch server is not running | close it immediately; start only through `live.ps1` |
+| "Checking resources", then "Disconnected from patching server"; `live-patch.log` shows `root hash 0000…` | `Content.ggpk` has a zero root hash (left by the official patcher or a GGPK tool) | start again: `live.ps1` and `LocalExile.exe` repair it while the client is closed |
 | "The password is not correct for this account" | wrong password, or an account created after the login server started | check the password; restart with `live.ps1` (it reloads accounts) |
 | "Account does not exist" | the name in the Email field does not match `register name=` | use the registered name |
 | Login hangs, no "Connected to login server" | gateway list not patched (step 6), or the login server is not running | redo step 6; check `logs\live-auth.log` |

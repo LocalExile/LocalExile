@@ -691,8 +691,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Combat load: message/frame and fresh projectile-release snapshots; input-checked skill/equipment caches ignore
   within-level gem XP and extended active recent windows; immutable item-local stats, condition parsers and projectile
-  recipes are reused. F1 NETWORK retains real input-queue latency; large load spikes remain under investigation.
-  Code: `PlayerStatsCache.cs`, `StatConditions.cs`.
+  recipes are reused. Aura reconciliation compares live sources, restrictions, equipment and reservation inputs;
+  support resolution shares raw gem sources, quest rewards follow flag changes, and projectile motion is reused only
+  until the next contact. F1 NETWORK retains real input-queue latency; pathfinding and load spikes remain under investigation.
+  Code: `PlayerStatsCache.cs`, `OwnAuras.cs`, `GemLevels.cs`, `ProjectileRuntime.cs`, `StatConditions.cs`.
 
 - Survivors league and three optional modules, including the seven stage gate bosses; the catalogue keeps only skills the flight/pulse presentation can play (every projectile gets a visible fallback), ground area spells land on their target, the support pool is every normal support gem whose numbers the cast pipeline reads, and enemies are 5x tougher and 4x harder-hitting (ranged shots at 30%) with a DPS threat on life, nearby experience orbs, a first window that pauses before any spawn, 25%-of-life death zones and corpse cleanup; uniques persist between runs and bosses are 5x their ladder: [client presentation and limits](../docs/game/survivors-mode.md).
 
