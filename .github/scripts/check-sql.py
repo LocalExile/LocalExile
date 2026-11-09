@@ -32,6 +32,15 @@ STAMP = re.compile(r"^\d{4}_\d{2}_\d{2}_\d{6}_")
 # A pending file's leading number only orders it among the pending files; the merge drops it.
 ORDER = re.compile(r"^(\d{4}_\d{2}_\d{2}_\d{6}_|\d+_)")
 DATA = re.compile(r"^\s*(INSERT|UPDATE|DELETE|REPLACE)\b", re.IGNORECASE | re.MULTILINE)
+# Strings, quoted names and comments, so a statement check never matches the data's own text.
+NOT_CODE = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`[^`]*`|\[[^\]]*\]|--[^\n]*|/\*.*?\*/", re.DOTALL)
+# What reaches past the file's own database: another file on disk (ATTACH, VACUUM INTO), native code, the
+# connection's settings. No update needs them, generated ones included.
+OUTSIDE = re.compile(r"\b(ATTACH|DETACH|VACUUM|PRAGMA|load_extension)\b", re.IGNORECASE)
+# The databases of players' accounts and saves, which nothing regenerates: a statement that drops or empties
+# a table there needs the maintainer's word in the file itself.
+PLAYER_DATA = {"auth", "characters"}
+DESTRUCTIVE_OK = "-- check-sql: destructive"
 
 
 def files(folder):
@@ -79,6 +88,22 @@ def style(name, problems):
         problems.append(f"{name}: the last statement does not end with ;")
     if name.startswith("base/") and DATA.search(content):
         problems.append(f"{name}: rows in base/ (base holds CREATE statements only; rows are an update)")
+    statements(name, content, problems)
+
+
+def statements(name, content, problems):
+    code = NOT_CODE.sub(" ", content)
+    for word in sorted({m.group(1).upper() for m in OUTSIDE.finditer(code)}):
+        problems.append(f"{name}: {word} (an update reaches only its own database's tables)")
+    database = name.split("/")[1].removeprefix("pending_")
+    if database not in PLAYER_DATA or DESTRUCTIVE_OK in content:
+        return
+    for statement in code.split(";"):
+        words = statement.split()
+        first = words[0].upper() if words else ""
+        if first == "DROP" or (first in ("DELETE", "UPDATE") and not re.search(r"\bWHERE\b", statement, re.IGNORECASE)):
+            problems.append(f"{name}: {' '.join(words[:4])} ... drops or rewrites every row of player data; if that "
+                            f"is intended, the maintainer adds the line '{DESTRUCTIVE_OK}' to the file")
 
 
 def changes(base):
