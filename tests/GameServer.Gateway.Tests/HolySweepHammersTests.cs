@@ -2,7 +2,7 @@ namespace GameServer.Gateway.Tests;
 
 // Holy Sweep's hammers come from its stat set (GrantedEffectStatSets 121 Sweep, 122 SweepAltX): Holy Sweep drops
 // holy_sweep_number_of_holy_bolts_to_create hammers on different struck enemies, 35% less damage, unevadable;
-// Hammerfalls drops waves of 3 every 700 ms for 3000 ms at 50% less. Each hammer's base radius is the 12-cell secondary area.
+// Hammerfalls drops waves of 3 every 700 ms for 3000 ms at 50% less, on the monsters around the swing. Each hammer's base radius is the 12-cell secondary area.
 public sealed class HolySweepHammersTests
 {
     static HolySweepHammers.Settings? Hammers(SkillCatalog skills, StatCatalog stats, string effectId, int level)
@@ -37,7 +37,7 @@ public sealed class HolySweepHammersTests
     }
 
     [Fact]
-    public void Hammerfalls_drops_waves_for_its_duration_within_the_sweep()
+    public void Hammerfalls_drops_waves_on_the_monsters_around_the_swing()
     {
         var falls = Hammers(new SkillCatalog(), new StatCatalog(), "SweepAltX", 20);
         Assert.NotNull(falls);
@@ -50,11 +50,18 @@ public sealed class HolySweepHammersTests
         Assert.Equal(5, HolySweepHammers.WaveTimes(0.7, 3.5).Count);
         Assert.Empty(HolySweepHammers.WaveTimes(0, 3));
 
+        // A wave: one hammer per monster in reach (radius plus size), fresh ones first; with fewer monsters than hammers,
+        // the rest fall on walkable points within the radius.
         var random = new Random(11);
-        for (int i = 0; i < 200; i++)
-        {
-            var (x, y) = HolySweepHammers.PointWithin((100, 200), 29, random);
-            Assert.True(Math.Sqrt((x - 100) * (x - 100) + (y - 200) * (y - 200)) <= 29.75);
-        }
+        var taken = new Dictionary<uint, int>();
+        (uint, (int, int), int)[] monsters = [(1, (110, 200), 0), (2, (100, 220), 0), (3, (131, 200), 3), (4, (140, 200), 0)];
+        var first = HolySweepHammers.Wave(monsters, taken, (100, 200), 29, 3, (_, _) => true, random);
+        Assert.Equal([1u, 2u, 3u], first.Select(h => h.Id!.Value).Order());
+        var second = HolySweepHammers.Wave([monsters[0]], taken, (100, 200), 29, 3, (_, _) => true, random);
+        Assert.Equal(3, second.Count);
+        Assert.All(second.Where(h => h.Id is null), h => Assert.True(Math.Sqrt((h.At.X - 100) * (h.At.X - 100)
+            + (h.At.Y - 200) * (h.At.Y - 200)) <= 29.75));
+        // No walkable ground and no monster: no hammer.
+        Assert.Empty(HolySweepHammers.Wave([], taken, (100, 200), 29, 3, (_, _) => false, random));
     }
 }

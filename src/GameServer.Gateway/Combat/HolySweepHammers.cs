@@ -58,10 +58,58 @@ static class HolySweepHammers
         return times;
     }
 
-    /// <summary>Hammerfalls: a random point, uniform over the sweep's area around <paramref name="centre"/>.</summary>
-    public static (int X, int Y) PointWithin((int X, int Y) centre, int radius, Random random)
+    /// <summary>Seconds from a Hammerfalls wave to its hammers' hits: each hammer is an action of its own that hits
+    /// 0.1 s after the wave sets it (+0x348, then its hit 0x141b1a610).</summary>
+    public const double HammerfallHitSeconds = 0.1;
+
+    /// <summary>
+    /// One Hammerfalls wave, as the client's 0x141b19980 lays it out. Its candidates are the monsters whose distance from
+    /// the swing's centre is at most the area's radius plus their size, shuffled, then ordered by the hammers each took
+    /// in earlier waves of this hammerfall (fewest first). Each hammer goes to the first candidate not hammered yet this
+    /// wave whose roll of 0-99 is under 100 halved once per hammer it took (100, 50, 25 …), or else to a random point
+    /// within the radius (an angle and a distance up to the radius; up to 3 tries on walkable ground). The client seeds its
+    /// draws from the use's sequence, the wave and the hammer, but its candidates come in its own object order, so the
+    /// server draws its own. <paramref name="taken"/> counts each monster's hammers across the waves.
+    /// </summary>
+    public static List<(uint? Id, (int X, int Y) At)> Wave(IReadOnlyList<(uint Id, (int X, int Y) At, int Size)> monsters,
+        Dictionary<uint, int> taken, (int X, int Y) centre, int radius, int count, Func<int, int, bool> walkable, Random random)
     {
-        double r = Math.Max(0, radius) * Math.Sqrt(random.NextDouble()), angle = random.NextDouble() * 2 * Math.PI;
-        return (centre.X + (int)Math.Round(r * Math.Cos(angle)), centre.Y + (int)Math.Round(r * Math.Sin(angle)));
+        var candidates = monsters.Where(m =>
+        {
+            long dx = m.At.X - centre.X, dy = m.At.Y - centre.Y, reach = radius + Math.Max(0, m.Size);
+            return dx * dx + dy * dy <= reach * reach;
+        }).ToList();
+        for (int i = 0; i < candidates.Count - 1; i++)
+        {
+            int j = i + random.Next(candidates.Count - i);
+            (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
+        }
+        candidates = [.. candidates.OrderBy(m => taken.GetValueOrDefault(m.Id))];
+        var free = Enumerable.Repeat(true, candidates.Count).ToArray();
+        var hammers = new List<(uint? Id, (int X, int Y) At)>();
+        for (int h = 0; h < count; h++)
+        {
+            bool placed = false;
+            for (int i = 0; i < candidates.Count && !placed; i++)
+            {
+                if (!free[i]) continue;
+                int chance = 100;
+                for (int n = taken.GetValueOrDefault(candidates[i].Id); n > 0 && chance > 0; n--) chance /= 2;
+                if (random.Next(100) >= chance) continue;
+                free[i] = false;
+                taken[candidates[i].Id] = taken.GetValueOrDefault(candidates[i].Id) + 1;
+                hammers.Add((candidates[i].Id, candidates[i].At));
+                placed = true;
+            }
+            for (int attempt = 0; attempt < 3 && !placed; attempt++)
+            {
+                double angle = random.NextDouble() * 2 * Math.PI, distance = random.NextDouble() * Math.Max(0, radius);
+                var point = (centre.X + (int)Math.Round(distance * Math.Sin(angle)), centre.Y - (int)Math.Round(distance * Math.Cos(angle)));
+                if (!walkable(point.Item1, point.Item2)) continue;
+                hammers.Add((null, point));
+                placed = true;
+            }
+        }
+        return hammers;
     }
 }

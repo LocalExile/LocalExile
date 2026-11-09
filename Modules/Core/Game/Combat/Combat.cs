@@ -1701,8 +1701,8 @@ static partial class Game
     // Holy Sweep's hammers (HolySweepHammers): each falls on its point and slams FallSeconds later, an AreaSkillHit of
     // its own around that point (the secondary radius, grown by area of effect) for the sweep's hit with the hammers'
     // less damage. Holy Sweep's land on up to holy_sweep_number_of_holy_bolts_to_create enemies the sweep struck, at
-    // random, once each; Hammerfalls' waves land at random points of the sweep's area, one wave every rate while its
-    // duration lasts. They outlive the swing (a later action does not stop them); a death, an area change or a closed
+    // random, once each; Hammerfalls' waves fall on the monsters around where it swung (HolySweepHammers.Wave), one
+    // wave every rate while its duration lasts. They outlive the swing (a later action does not stop them); a death, an area change or a closed
     // connection does. The hammer hits send no 0x1af: the client draws a hammer for each of the sweep's own 0x1af hits
     // (23-microtransactions.md), and its own pick of struck enemies is not known, so it may draw them elsewhere.
     static async Task RunHolyHammers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -1731,12 +1731,34 @@ static partial class Game
             {
                 int Own(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
                 double duration = SkillDurationModifiers.Seconds(hammers.DurationMs, Area, Own);
-                foreach (double at in HolySweepHammers.WaveTimes(hammers.RateSeconds, duration))
-                    waves.Add((at + HolySweepHammers.FallSeconds,
-                        [.. Enumerable.Range(0, hammers.Count).Select(_ => HolySweepHammers.PointWithin(centre, sweepRadius, Random.Shared))]));
+                var times = HolySweepHammers.WaveTimes(hammers.RateSeconds, duration);
                 Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: hammerfall at ({centre.X}, {centre.Y}) "
-                    + $"within {sweepRadius} cells for {duration:0.##} s, {waves.Count} wave(s) of {hammers.Count} every "
+                    + $"within {sweepRadius} cells for {duration:0.##} s, {times.Count} wave(s) of {hammers.Count} every "
                     + $"{hammers.RateSeconds:0.##} s, {radius} cells each, {hammers.More:0.##}x damage");
+                // Each wave picks its hammers among the monsters there at that moment (HolySweepHammers.Wave), and they
+                // hit HammerfallHitSeconds later where they fell.
+                var taken = new Dictionary<uint, int>();
+                bool Walkable(int x, int y) => conn.Layout.Walkable is not { } floor || floor(x, y) && !conn.Barrier.Contains((x, y));
+                foreach (double at in times)
+                {
+                    if (!await WaitProjectileTime(conn, start + at, epoch)) return;
+                    var monsters = new List<(uint, (int, int), int)>();
+                    lock (conn.Monsters)
+                    {
+                        double now = conn.Clock.Elapsed.TotalSeconds;
+                        foreach (var (id, m) in conn.Monsters)
+                            if (m.Hostile && !m.Dead && m.Life > 0 && m.OwnerId is null)
+                                monsters.Add((id, m.Walk.Position(now), Math.Clamp((m.Variety?.ObjectSize ?? 1) - 1, -1, 127)));
+                    }
+                    var wave = HolySweepHammers.Wave(monsters, taken, centre, sweepRadius, hammers.Count, Walkable, Random.Shared);
+                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: hammer wave at {at:0.##} s: "
+                        + string.Join(", ", wave.Select(h => h.Id is uint id ? $"0x{id:x}" : $"({h.At.X}, {h.At.Y})")));
+                    if (!await WaitProjectileTime(conn, start + at + HolySweepHammers.HammerfallHitSeconds, epoch)) return;
+                    foreach (var (_, point) in wave)
+                        await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, point, point, immediate: true, sequence: sequence,
+                            melee: false, damageMore: damageMore * hammers.More, repeat: repeat, radiusOverride: radius, hammer: hammers);
+                }
+                return;
             }
             foreach (var (at, points) in waves)
             {
