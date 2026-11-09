@@ -637,8 +637,10 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
   4 untargetable; his Hide `lift_lower_*` (rig clips 40–42) is what the server's `on_transition_to_4` plays.
 - The original (live, the user): he rises on the elevator as the player comes in; his life bar is split in thirds
   carried from trial to trial (2/3, 1/3, death); at a trial's end he speaks, walks to the elevator's middle, stands and
-  goes down on it, and the doors open as he goes. His weapon is the day's and the tier's (wiki); the client does not
-  have the pick. A move order sent during his swing was lost on the client. At his trial's floor his boss bar is
+  goes down on it, and the doors open as he goes. His weapon is the day's and the tier's: not in the client, but
+  poelab.com's archived layout files (`weapon`) show the pick, `TinyMt(tier × 0x13d + seed).Pick(3)` as mace, sword and
+  shield, two swords (101 of 102 days of all tiers, 2023-2026; only its Merciless 2025-05-18 says otherwise).
+  A move order sent during his swing was lost on the client. At his trial's floor his boss bar is
   dimmed (live, as Malachai's): the bar draws `UniqueBossFrameImmuneOverlay` once the life is at the
   `cannot_drop_below_%_life` stat (client key 0xca8, checked on each life change, 3.29.3c: 0x14028f1e0), sent with 0x1b3.
   `is_hidden_monster`, `cannot_be_damaged`, `base_cannot_be_damaged` and the invisible `cannot_be_damaged` buff did not

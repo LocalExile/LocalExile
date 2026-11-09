@@ -76,6 +76,11 @@ public sealed class LabyrinthLayout
     public int AreaPick(Node node, int count) =>
         (int)new TinyMt((uint)((Difficulty + 4 * node.Row) * 0x13d + Seed)).Pick((uint)count);
 
+    /// <summary>The official server's pick of Izaro's weapon for a day and tier (0 two-handed mace, 1 sword and shield, 2 two
+    /// swords): a TinyMT seeded from difficulty × 0x13d + seed. Not in the client; it matched 101 of 102 days in poelab.com's
+    /// archived layout files of all four tiers (2023-2026).</summary>
+    public static int BossWeapon(uint seed, int difficulty) => (int)new TinyMt((uint)(difficulty * 0x13d + seed)).Pick(3);
+
     /// <summary><c>0x1424e98a0</c>: one LabyrinthSection per slot. From row 1 on, the rows whose slot range (+0x20, +0x24)
     /// holds slot + 1 and whose tier range (+0x18, +0x1c) holds the tier, without one already picked (no exclusion
     /// group, +8) or one of a picked row's group; a TinyMT seeded from seed + 0x11 + (tier + 4 × slot) × 0x13d picks.</summary>
