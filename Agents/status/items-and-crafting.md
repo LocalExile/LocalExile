@@ -140,26 +140,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   Nothing in play creates these states yet, and no mechanic reads influence.
   Code: `InstanceItems.cs`, Gateway (`ItemStates.cs`, `ItemRolls.cs`, `CharacterSaves.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2f.
-- Game-data overrides (implemented 2026-10-30): the SQLite overlay `mod_stat_overrides`, `limit_overrides`,
-  `catalog_entries` and `system_settings` in `data/characters.db` changes mod roll ranges, item limits, catalogues and
-  numeric settings through `/game_data`; the Gateway loads the rows at startup, keeps the reference mod/base lists in
-  memory, and atomically republishes the effective snapshot after an edit, so no restart is needed. Verified live:
-  setting a range and a timeless-jewel limit, listing the revision, clearing both, and the tables being empty again
-  after the check.
+- Game content in world.db (2026-11-09, [#734](https://github.com/LocalExile/LocalExile/issues/734)): `mod_stat_overrides`,
+  `limit_overrides`, `catalog_entries`, `system_settings`, `unique_weights` and the drop tables are world.db content
+  built from `sql/` (Agents/docs/dev/databases.md); a change is an update file. The Gateway loads the rows at startup
+  and atomically republishes them on `/reload`, so no restart is needed; a bad row keeps the previous snapshot.
   Limits currently cover the Historic timeless jewel, Impossible Escape, radius unique jewels and the tattoo total/group
-  caps. `catalog_entries` now seeds and reloads the unique-item, radius/threshold/unique/timeless jewel, tattoo-effect
-  and jewel-art catalogues (1,299 / 76 / 43 / 6 / 48 / 190 rows on the live database; the unique rows are the full
-  generated PoB catalogue); the code arrays are the fresh-database seed. `catalog_seed_keys` records the applied
-  defaults, so a row deleted by an admin stays deleted while a genuinely new default is added, and a new unique seed
-  revision corrects the rows nobody edited. The
-  `stats`/`mods`/`mod_stats` tables hold 23,346 / 40,355 / 60,695 reference rows and `effective_mod_stats` joins the
-  range overrides. A fresh database gets all of them on the first Gateway start; `extract-data.ps1` checks `Stats.json`,
-  `Mods.json`, `BaseItemTypes.json`, `ItemClasses.json`, `Tags.json` and `UniqueStashLayout.json` as part of its `tables`
-  entry. `system_settings` seeds 51 numeric knobs: 21 socket caps by item class (wand 3, body 6, helmet/gloves/boots 4,
+  caps. `catalog_entries` holds the unique-item, radius/threshold/unique/timeless jewel, tattoo-effect and jewel-art
+  catalogues (1,299 / 76 / 43 / 6 / 48 / 190 rows; the unique rows are the generated PoB catalogue with the 3.29
+  corrections). `system_settings` holds 53 numeric knobs, checked on load: 21 socket caps by item class (wand 3, body 6, helmet/gloves/boots 4,
   shield 3, belt 0, two-handed 6), rare prefix/suffix caps (3/3 ordinary, 2/2 jewels), passive points per level, gold
   chance/amount/auto-loot, the 150-cell projectile maximum range, six drop multipliers, pack density/size, experience
-  multiplier, maximum level, default tattoo/jewel limits and grace period; `/game_data setting` changes a number and
-  reloads it. Live: a wand set to six
+  multiplier, maximum level, default tattoo/jewel limits and grace period. Live (before world.db, through the former
+  `/game_data setting`): a wand set to six
   sockets accepted `RRGBBB` and was reduced back to three; `passive_points_per_level = 2` made the 0x33 client budget
   and server budget agree at 1198 points. The item-template schema exists, but custom item templates, custom names and
   the admin panel are not implemented yet.
@@ -207,11 +199,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   bases) are left out, the atlas bases kept. Currency runs from Scrolls of Wisdom down to the Mirror, each from its
   DropLevel. A unique's weight is the inverse of its disenchant value (`VillageUniqueDisenchantValues`, Ruthless has its
   own column), so a Mageblood is about 840 times as rare as a Wanderlust, and a base whose uniques add up to less than 1
-  mostly gives a rare instead. The 1,527 reference weights are seeded into `unique_weights`; `/game_data unique_weight`
-  and `clear_unique_weight` edit the override layer live. Schema upgrades, repeated reference rebuilds and a reopened
-  database preserve overrides; invalid or non-finite weights are rejected before writing. The extracted JSON remains the fallback before seeding.
-  The core currency weights also live in `drop_currency_weights` (seeded from the compiled table with the client's
-  DropLevels, `GameDataDrops`); `ItemDrops.Build` prefers them and keeps the compiled table as the fallback, still gated by each
+  mostly gives a rare instead. The 1,527 weights are world.db's `unique_weights`, with `unique_weight_overrides` on top; the
+  table's CHECK keeps a weight in 0..1. The client table is the fallback only while world.db is not open.
+  The core currency weights also live in `drop_currency_weights` (written from the compiled table with the client's
+  DropLevels); `ItemDrops.Build` prefers them and keeps the compiled table as the fallback, still gated by each
   base's DropLevel. Cards and scarabs follow the poedata.dev community weights (`drop_item_weights`: 422 cards, 109
   scarabs), and a map kill rolls our own base `drop_card_chance_pct`/`drop_scarab_chance_pct`; both settings are
   editable live. The boss and divination-card area tables are seeded (630 bosses, 108 boss items, 555 area/card pairs) but
@@ -296,7 +287,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   and artwork (`UniqueStashLayout` → `ItemVisualIdentity`), but not its mods, so `UniqueCatalog` holds each definition:
   1,299 generated from Path of Building with their current base, implicits and rolls (`scripts/re/unique_items.py`),
   compared with poedb's item cards, with the differences that remain on the roadmap. Divine and Blessed Orbs reroll
-  within a unique's own rolls, and an admin's `/game_data mod` range wins over them.
+  within a unique's own rolls, and a range in world.db's `mod_stat_overrides` wins over them.
   Ordinary uniques get default sockets; Tabula gets six linked whites and hidden overrides (tests; live check pending).
   Skin of the Loyal gets its six linked random-colour sockets, and the 3.29 hidden no-white-socket property is on it and
   Dialla's Malefaction (automated; live check pending).

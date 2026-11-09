@@ -1,9 +1,9 @@
 using GameServer.Storage;
 
 /// <summary>
-/// The Gateway's game-data overrides: the SQLite rows loaded at startup and after an admin command, plus the
-/// atomically published in-memory snapshot the catalogues read. Reference data stays in <c>data/tables</c>; this class
-/// only carries the overrides. A reader takes one snapshot; a writer swaps it after a successful database write.
+/// The Gateway's game content: world.db (built from <c>sql/</c>, Agents/docs/dev/databases.md) read at startup and on
+/// <c>/reload</c>, published as atomically swapped snapshots the catalogues read. A reload that fails keeps the
+/// previous snapshots.
 /// </summary>
 static class GameData
 {
@@ -25,7 +25,7 @@ static class GameData
     public static GameDataStore? Store => _store;
     public static Snapshot Current => Volatile.Read(ref _snapshot);
 
-    /// <summary>Open the overlay database and publish its rows. Called once at Gateway startup after Saves.Open.</summary>
+    /// <summary>Open world.db (bringing it up to date from sql/) and publish its rows. Called once at Gateway startup.</summary>
     public static void Open(string path)
     {
         var store = new GameDataStore(path);
@@ -39,11 +39,6 @@ static class GameData
             _ = Program.Items.Mods.All;
             if (Program.Items.Error is { } error)
                 Console.WriteLine($"[gateway] game data: item reference data unavailable: {error}");
-            GameDataReference.Seed(store);
-            var (stats, mods, modStats) = store.ReferenceCounts();
-            Console.WriteLine(stats == 0 || mods == 0 || modStats == 0
-                ? "[gateway] game data reference: empty; extract the game tables (scripts/dev/extract-data.ps1) and restart"
-                : $"[gateway] game data reference: {stats} stat(s), {mods} mod(s), {modStats} default mod stat row(s)");
         }
         catch
         {
@@ -63,12 +58,12 @@ static class GameData
         LimitSettings.Default.Replace(Empty.Limits);
         UniqueWeightProvider.Default.Reset();
         GameDataDrops.Reset();
-        GameDataCatalog.ResetToSeeds();
-        SystemSettings.ResetToSeeds();
+        GameDataCatalog.Reset();
+        SystemSettings.Reset();
         old?.Dispose();
     }
 
-    /// <summary>Read all overrides and publish them. A failed read/write leaves the previous snapshot in place.</summary>
+    /// <summary>Read the content and publish it. A failed read leaves the previous snapshot in place.</summary>
     public static void Reload(string reason)
     {
         var store = _store ?? throw new InvalidOperationException("the game-data store is not open");
@@ -79,8 +74,6 @@ static class GameData
         var snapshot = new Snapshot(Interlocked.Increment(ref _revision), ranges, limits);
 
         // Build the catalogues and settings first: a bad payload leaves the previous ranges/limits and catalogues intact.
-        GameDataWeights.Seed(store);
-        GameDataDrops.Seed(store);
         GameDataCatalog.Reload(store);
         SystemSettings.Reload(store);
         GameDataWeights.Reload(store);

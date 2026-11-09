@@ -246,33 +246,17 @@ builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
 | `extract-data: <name> failed` | read `logs\extract-<name>.log`; the tables report `schema mismatch: 0` when the client is 3.29.3c |
 | `extract-data: building <project> failed` | read `logs\extract-build-<project>.log`; a build error there is a code problem in that tool, not in the game data |
 
-### Game data in the save database
+### The databases
 
-`extract-data.ps1` writes JSON under `data\`; it does not create the SQLite file. The first Gateway start (step 10, or
-`live.ps1 -Only Gateway`) creates `data\characters.db` (or `Game_CHARACTERS_DB`) and seeds the game-data overlay from those tables:
+`extract-data.ps1` writes files under `data\`; it creates no database. Each server builds its SQLite files under `data\`
+from the SQL in `sql\` when it starts ([databases](docs/dev/databases.md)): `auth.db` and `characters.db` (accounts and
+characters), `client.db` (the client's tables, about 16 s the first time) and `world.db` (the game content: settings,
+unique weights, the item and jewel catalogues, drop tables). A pull that brings new update files applies them on the
+next start. The Gateway log shows the files applied (`[sql] world: 18 file(s) applied`) and the content it loaded
+(`[gateway] game data: revision 1, ... 1299 unique item(s), ...`).
 
-| Table | Rows on 3.29.3c | From |
-|---|---:|---|
-| `catalog_entries` | 1,299 uniques, 76 radius/threshold jewels, 43 unique jewels, 6 timeless jewels, 48 tattoo effects, 190 jewel art rows | the code arrays and the generated PoB unique catalogue |
-| `system_settings` | 51 | the code defaults |
-| `stats` / `mods` / `mod_stats` | 23,362 / 40,355 / 60,695 | `data\tables\Stats.json` and `data\tables\Mods.json` |
-| `unique_weights` | 1,527 | `data\tables\VillageUniqueDisenchantValues.json` and `Words.json` |
-| `effective_mod_stats` | view | `mod_stats` with `mod_stat_overrides` applied |
-
-The same file holds characters, accounts and stashes; deleting it resets them too. The Gateway log shows
-`[gateway] game data reference: 23362 stat(s), 40355 mod(s), 60695 default mod stat row(s)`; if that line says `empty`,
-the extraction is missing `Stats.json`/`Mods.json`: run `extract-data.ps1` and restart, or use `/game_data reference`
-while connected. `/game_data list` prints the row counts.
-
-To fill the database without starting the servers (for an editor, or to check a fresh setup), run:
-
-```powershell
-dotnet run --project src/GameServer.Gateway -- seed-game-data
-```
-
-It creates the overlay tables in `data\characters.db` (or `Game_CHARACTERS_DB`), prints the counts and exits. Run it while the
-Gateway is stopped; a running Gateway needs `/game_data reload` to see a change made by another process. See
-[editable game data](docs/dev/editable-game-data.md) for the overlay, its reload rules and the `/game_data` commands.
+To change the content, add an update file in `sql\updates\pending_world\`; `/reload` in game reads world.db again without
+a restart. See [editable game data](docs/dev/editable-game-data.md) for what can be content.
 
 ## 8. Create an account and a character
 

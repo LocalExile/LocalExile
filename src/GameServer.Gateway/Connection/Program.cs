@@ -88,33 +88,6 @@ if (args is ["values", var kind])
 
 ServerLog.Install("gateway");
 
-// dotnet run --project src/GameServer.Gateway -- seed-game-data [database]
-// Fills the SQLite game-data overlay from data/tables without starting the servers. The first Gateway start does the
-// same; this mode is for a fresh database, an editor or a check while the Gateway is stopped.
-if (args.Length > 0 && args[0].Equals("seed-game-data", StringComparison.OrdinalIgnoreCase))
-{
-    string path = args.Length > 1 ? args[1] : Saves.DefaultPath;
-    try
-    {
-        GameData.Open(path);
-        var (stats, mods, modStats) = (GameData.Store
-            ?? throw new InvalidOperationException("the game-data store did not open")).ReferenceCounts();
-        if (stats == 0 || mods == 0 || modStats == 0)
-        {
-            Console.Error.WriteLine("[gateway] game data seed: Stats.json/Mods.json are missing; run scripts/dev/extract-data.ps1 first");
-            return 1;
-        }
-        Console.WriteLine($"[gateway] game data seeded into {path}: {stats} stat(s), {mods} mod(s), " +
-            $"{modStats} default mod stat row(s)");
-        return 0;
-    }
-    catch (Exception e)
-    {
-        Console.Error.WriteLine($"[gateway] game data seed failed: {e.Message}");
-        return 1;
-    }
-}
-
 int port = GatewayEndpoint.Port;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
 

@@ -373,8 +373,8 @@ The export ties an implicit to any row with that text, often an old base's, so a
 unless a line names a unique's own row, the base has none, or the implicit is Eldritch; `Definition.Implicits` replaces
 them on 9 uniques. `Definition.Ranges` holds a roll that differs from the Mods.dat row, per list since a mod can be in
 both, and the generator's `STALE_ROLLS` drops the export's rolls where the row and poedb agree against it.
-Divine and Blessed Orbs reroll in these ranges (`UniqueCatalog.RollsOf`), and an admin's `/game_data mod` range wins over
-them. `Definition.Fractured` counts the fractured explicits, which come first (6 uniques).
+Divine and Blessed Orbs reroll in these ranges (`UniqueCatalog.RollsOf`), and a range in world.db's `mod_stat_overrides` wins
+over them. `Definition.Fractured` counts the fractured explicits, which come first (6 uniques).
 It writes no item level: a definition uses 86, and drops use their own. Item text the export has instead of a mod id
 resolves through `ModTextMap.lua` when a unique mod's roll fits; the rest is left out and listed by the run (the
 timeless jewels and Pure Talent, which have their own code, and about 25 lines of other uniques).

@@ -17,6 +17,8 @@ static class TestEnvironment
                     Directory.SetCurrentDirectory(dir.FullName);
                     // The client tables come from data/client.db (ClientTables), built from sql/ as a server does.
                     GameServer.Storage.SqlUpdater.Update(GameServer.Core.ClientTables.DefaultPath, "client", log: _ => { });
+                    // The game content (settings, catalogues, drop tables) from a scratch world.db, as the Gateway opens its own.
+                    GameData.Open(ScratchWorld);
                     return;
                 }
         throw new DirectoryNotFoundException("Gateway tests need a LocalExile checkout.");
@@ -29,6 +31,8 @@ static class TestEnvironment
     // a save (a character's inventories, loaded once per run) with a closed connection, and the collections' order
     // varies from run to run. A test that opened its own store releases it through here: the scratch store takes its
     // place (Saves.Open disposes the one before it) and the test's files go.
+    internal static string ScratchWorld => Path.Combine(Path.GetTempPath(), "localexile-gateway-tests-world.db");
+
     internal static string ScratchSaves => Path.Combine(Path.GetTempPath(), "localexile-gateway-tests.db");
 
     internal static void ReleaseSaves(string path)

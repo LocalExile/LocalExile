@@ -57,7 +57,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
                 ? Ranges?.Range(Id, index, Stats[index].Min, Stats[index].Max) ?? Normalise(Stats[index])
                 : (0, 0);
 
-        /// <summary>An admin's range (/game_data mod) applies to this stat.</summary>
+        /// <summary>A range from world.db's mod_stat_overrides applies to this stat.</summary>
         public bool RangeOverridden(int index) => Ranges?.All.ContainsKey((Id, index)) == true;
 
         /// <summary>The effective maxima, in stat order (max-roll dev items and unique definitions use these).</summary>

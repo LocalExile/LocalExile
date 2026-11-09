@@ -12,6 +12,7 @@ Every database is a SQLite file under `data/` (git-ignored), created and brought
 | `auth.db` | accounts | Auth, Host, Gateway (attached to `characters.db`) | `Game_AUTH_DB` |
 | `characters.db` | character saves, stashes, the login character list, friends, deleted characters | Gateway, Auth, Host | `Game_CHARACTERS_DB` |
 | `client.db` | the client's 943 tables (`Mods`, `Stats`, `WorldAreas`, ...), untouched rows plus our corrections | Gateway, Auth | `Game_CLIENT_DB` |
+| `world.db` | the game content: settings, unique weights, catalogues, drop tables, roll range and limit overrides | Gateway | `Game_WORLD_DB` |
 
 A connection to the player databases opens `characters.db` and attaches `auth.db` as `auth`, so a query names a table of
 either without its database. Rows that must be written together live in one file: a transaction across both files is
@@ -77,6 +78,19 @@ parse what they parsed before. Any other path is read from disk. A rebuilt table
 read 0.4 s), and in memory for a few seconds for the catalogues that read the same table in a burst. The Gateway and Auth
 update client.db before their first read; the first build takes about 16 s, a start with nothing new about 1.5 s.
 `extract-data.ps1` still writes `data/tables/` for its other generators and for `client-sql.ps1 diff`.
+
+## world.db
+
+The game content that is ours rather than the client's: `system_settings`, `unique_weights` (+ `_overrides`),
+`catalog_entries` (the unique, jewel, tattoo and jewel-art catalogues as one JSON payload per row), the `drop_*` tables,
+`mod_stat_overrides`, `limit_overrides` and `item_templates` ([editable game data](editable-game-data.md),
+[drop data](drop-data-schema.md)). The first updates hold what used to be seed arrays in code. The Gateway reads it at
+startup and on `/reload`, which publishes new in-memory snapshots without a restart; a bad row (a payload that does not
+parse, a setting out of range) fails the reload and the previous snapshots stay. Nothing writes world.db at run time.
+
+Ruthless shares world.db. Where Ruthless content differs from the normal game, a table gets a `ruthless_<table>` twin
+(or a `ruthless_` column, like `unique_weights.ruthless_weight`) when the first difference needs one, created and filled
+from `sql/updates/ruthless/` (pending: `pending_ruthless/`), which applies with the world updates in name order.
 
 ## Migrating data/saves.db
 
