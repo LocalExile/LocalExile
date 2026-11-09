@@ -260,7 +260,7 @@ static partial class Game
                     if (!channelling)
                         Console.WriteLine($"[gateway] {remote} winter orb fires after the release at {runtime.Stages} stages");
                 }
-                await WinterOrbVolley(remote, stream, ciphers, conn, runtime, channelling);
+                await WinterOrbVolley(remote, stream, ciphers, conn, runtime);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
@@ -341,16 +341,17 @@ static partial class Game
     }
 
     /// <summary>
-    /// One volley of the orb: every projectile lands around the nearest enemy (the orb pelts what is near it) and
-    /// explodes there for the skill's area hit. The volley spreads along a line across the aim, one
-    /// <c>additional_projectiles_fired_with_distance_offset</c> (10 cells) per extra projectile, as the wiki describes
-    /// multiple projectiles landing in a rough line rather than a cluster; concentrating them on one enemy means a
-    /// volley on a single target lands every projectile on it instead of scattering over three different enemies.
-    /// While the channel runs the hits keep its action and channel checks; after the release the orb still fires, so the
-    /// hits carry neither (a released orb is no longer the player's action).
+    /// One volley of the orb: each projectile is the row's own mortar
+    /// (<c>Metadata/Projectiles/FrostFuryMortar</c>), sent from the player's cell and glided to a landing cell around
+    /// the nearest enemy, where it explodes for the skill's area hit. The volley spreads along a line across the aim,
+    /// one <c>additional_projectiles_fired_with_distance_offset</c> (10 cells) per extra projectile, as the wiki
+    /// describes multiple projectiles landing in a rough line rather than a cluster; concentrating them on one enemy
+    /// means a volley on a single target lands every projectile on it instead of scattering over three different enemies.
+    /// The hit lands when the projectile does, not when the button does, so it carries neither the channel's action nor
+    /// its generation: the orb keeps firing after the release, when the player has no such action any more.
     /// </summary>
     internal static async Task WinterOrbVolley(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, WinterOrbRuntime runtime, bool channelling)
+        ClientState conn, WinterOrbRuntime runtime)
     {
         ushort skillId = runtime.SkillId;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
@@ -384,11 +385,79 @@ static partial class Game
         {
             double offset = spacing * (i - (count - 1) / 2.0);
             var landing = ((int)Math.Round(anchor.X + acrossX * offset), (int)Math.Round(anchor.Y + acrossY * offset));
-            await WinterOrbImpact(remote, stream, ciphers, conn, landing);
-            await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from, landing,
-                immediate: true, sequence: conn.ChannelSkillSequence,
-                actionToken: channelling ? runtime.Action : null,
-                channelGeneration: channelling ? runtime.ChannelGeneration : null);
+            double seconds = WinterOrbFlightSeconds(conn, runtime, from, landing);
+            uint projectile = await WinterOrbProjectile(remote, stream, ciphers, conn, from, landing, seconds);
+            if (projectile == 0) continue;
+            _ = LandWinterOrbProjectile(remote, stream, ciphers, conn, runtime, projectile, from, landing, seconds);
         }
+    }
+
+    /// <summary>The row's own mortar: its Projectiles.dat AOFiles are <c>FrostFury/projectile.ao</c>, so the client
+    /// animates the shot itself once the object names this metadata.</summary>
+    const string WinterOrbProjectileArt = "Metadata/Projectiles/FrostFuryMortar";
+
+    /// <summary>
+    /// The time a mortar spends in the air: the row's own speed through <see cref="ProjectileSpeed"/>, so projectile
+    /// speed modifiers move the landing, over the distance it has to cover. The floor keeps a shot on the player's own
+    /// cell visible and the cap keeps a far one from hanging.
+    /// </summary>
+    static double WinterOrbFlightSeconds(ClientState conn, WinterOrbRuntime runtime, (int X, int Y) from,
+        (int X, int Y) to)
+    {
+        var own = SupportedSkill(conn, runtime.SkillId).Stats;
+        var player = CharacterPlayerStats(conn);
+        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int units = Skills.ProjectileFor(runtime.Gem.Effect)?.Speed ?? 1500;
+        float cellsPerSecond = ProjectileSpeed.CellsPerSecond(units, Player, Own,
+            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        double dx = to.X - from.X, dy = to.Y - from.Y;
+        double cells = Math.Sqrt(dx * dx + dy * dy);
+        return Math.Clamp(cells / Math.Max(20, cellsPerSecond), .05, 1.5);
+    }
+
+    /// <summary>
+    /// One mortar in flight: a projectile object created at the launch cell and glided to its landing cell over
+    /// <paramref name="seconds"/> (0x1ba carries a duration, not a speed). The projectile blob wakes the object, so it
+    /// needs no 0x1a9 of its own.
+    /// </summary>
+    static async Task<uint> WinterOrbProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, (int X, int Y) from, (int X, int Y) to, double seconds)
+    {
+        uint id;
+        lock (conn.Monsters) id = conn.NextObjectId++;
+        try
+        {
+            await Send(remote, stream, ciphers,
+                CreateProjectileObject(id, new ProjectileObject(WinterOrbProjectileArt, from.X, from.Y)),
+                $"0x02bb winter orb projectile 0x{id:x} ({from.X},{from.Y})->({to.X},{to.Y}) {seconds:0.000}s");
+            await Send(remote, stream, ciphers,
+                ProjectileHeight.Terrain.MoveTo(id, to.X, to.Y, (float)seconds), null);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { return 0; }
+        return id;
+    }
+
+    /// <summary>
+    /// The mortar lands: its object goes, FrostFuryExplode plays and the skill's area hit lands at that cell. Death, an
+    /// area change and a closed connection drop a shot that is still in the air.
+    /// </summary>
+    static async Task LandWinterOrbProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, WinterOrbRuntime runtime, uint projectile, (int X, int Y) from, (int X, int Y) at,
+        double seconds)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(seconds));
+            lock (conn.Monsters)
+                if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(projectile), null);
+            await WinterOrbImpact(remote, stream, ciphers, conn, at);
+            var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == runtime.SkillId);
+            if (gem.Name is null || gem.Effect != runtime.Gem.Effect) return;
+            await AreaSkillHit(remote, stream, ciphers, conn, runtime.SkillId, gem, from, at,
+                immediate: true, sequence: conn.ChannelSkillSequence);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
     }
 }

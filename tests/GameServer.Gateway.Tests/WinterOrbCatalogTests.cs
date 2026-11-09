@@ -12,6 +12,8 @@ public sealed class WinterOrbCatalogTests
         int effect = skills.EffectRow("WinterOrb");
         Assert.True(effect >= 0 && skills.IsProjectile(effect) && skills.IsChannelled(effect));
         Assert.Equal("Metadata/Projectiles/FrostFuryMortar", skills.ProjectileFor(effect)?.Id);
+        // The flight time comes from the row's own 1500 units/s through ProjectileSpeed, not from a server constant.
+        Assert.Equal(1500, skills.ProjectileFor(effect)?.Speed);
         Assert.False(skills.HitDamage(effect, 1).IsZero);
         int Stat(int level, string name) => skills.EffectStats(effect, level)
             .FirstOrDefault(s => s.Item1 == stats.Key(name)).Item2;

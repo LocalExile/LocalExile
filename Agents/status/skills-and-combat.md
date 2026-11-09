@@ -1732,8 +1732,12 @@ This is a research baseline, not new live skill acceptance or complete native/se
   are the client's own art as effect objects, since the
   `frost_fury_stage` buff has no `BuffVisualOrbs` to draw the orb: MiscAnimated `FrostFurySphere` is created attached
   to the player when the channel starts and removed when the orb expires, and `FrostFuryExplode` at each impact,
-  removed after its 250 ms clip. Every volley lands at the aim's nearest enemy regardless of which projectile the client thinks it fired, so no
-  projectile objects are sent. The impacts are visibly the client's `projectile_impact.ao` (live 2026-11-09), but the
+  removed after its 250 ms  clip. Each projectile is a real object of the row's own metadata (`Metadata/Projectiles/FrostFuryMortar`, whose
+  Projectiles.dat AOFiles are `FrostFury/projectile.ao`, so the client animates the shot), created at the player and
+  glided to its landing cell for the distance over the row's 1500 units/s through `ProjectileSpeed` (projectile speed
+  modifiers change the flight, 0.27–0.45 s measured live 2026-11-09). The object is removed on arrival, when the
+  explosion art plays and the area hit lands there, so damage lands when the mortar does, not when the button is
+  pressed. The impacts are visibly the client's `projectile_impact.ao` (live 2026-11-09), but the
   orb object, attached to the player's `<root>`, does not show: where it hangs (the bone the game uses, or Positioned's
   fixed height) is not resolved, so it stays inside the character while channelling. Damage, crits and kills checked
   with the real client the same day.
