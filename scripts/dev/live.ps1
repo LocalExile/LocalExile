@@ -21,6 +21,14 @@
 #   -NoHotReload  start the built Gateway without `dotnet watch`. Agents/GettingStarted.md step 10.
 #   -Release    build and run Release servers and modules without hot reload (Agents/docs/dev/performance.md).
 #   -Debug      build and run Debug (default). The last configuration is remembered for -Only and -ClientOnly.
+#   -Lan        serve other machines (Agents/docs/dev/lan-play.md): the servers bind 0.0.0.0 and remote clients are
+#               told the address this PC has on its default route (the login 0x14's instance host, the patch welcome's
+#               web root). A remote player patches their client's gateway list to <address>:$($stack.Ports.login) and
+#               starts Game.patched.exe --patching-server <address>:$($stack.Ports.patch).
+#   -PublicAddress A  what remote clients are told: a LAN IP, a tunnel IP (Tailscale, ZeroTier) or a tunnel host name
+#               (frp, DDNS). Implied by nothing: use it with -Lan. Defaults to this PC's address on its default route.
+#   -PublicPort N  the port remote clients are told for the instance server when a tunnel maps another public port
+#               (Game_GATEWAY_PUBLIC_PORT). The Gateway still listens on its own.
 #   -ClientOnly open the client (of -Session) when it is closed; the servers must be running (refused without them; a
 #               running client stays). With -Walkmaps (default ports and client) also this checkout's walk-map recorder,
 #               unless it runs. Nothing is built, extracted or restarted.
@@ -51,10 +59,39 @@
 #   script stops is this checkout's own (its paths, or the client PIDs it recorded in data\clients\), never another's.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload,
     [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @(), [int]$PortBase = -1, [string]$Session = $env:Game_CLIENT_SESSION,
-    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug)
+    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug,
+    [switch]$Lan, [Alias('LanAddress')][string]$PublicAddress = '', [int]$PublicPort = 0, [int]$PublicLoginPort = 0,
+    [string]$PublicInstanceAddress = '', [string]$LocalPeers = $null)
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+# `dotnet` on PATH is not always the one with an SDK: a machine whose .NET installer could not write Program Files keeps
+# it in the user profile, and the runtime-only copy there refuses to start a net10.0 server. The first dotnet on PATH
+# that reports SDKs is used instead, once, for every child process.
+function Find-DotnetWithSdk {
+    $candidates = @()
+    if ($env:DOTNET_ROOT) { $candidates += (Join-Path $env:DOTNET_ROOT 'dotnet.exe') }
+    $candidates += (Join-Path $env:USERPROFILE '.dotnet\dotnet.exe')
+    $candidates += (Join-Path $env:ProgramFiles 'dotnet\dotnet.exe')
+    foreach ($exe in $candidates) {
+        if (-not (Test-Path $exe)) { continue }
+        $sdks = & $exe --list-sdks 2>$null
+        if ($LASTEXITCODE -eq 0 -and "$sdks".Trim()) { return (Split-Path $exe -Parent) }
+    }
+    return $null
+}
+if (-not $IsLinux) {
+    $onPath = Get-Command dotnet -ErrorAction SilentlyContinue
+    $pathHasSdk = $false
+    if ($onPath) { $pathHasSdk = [bool](& dotnet --list-sdks 2>$null | Where-Object { "$_".Trim() }) }
+    if (-not $pathHasSdk) {
+        $withSdk = Find-DotnetWithSdk
+        if ($withSdk) {
+            $env:DOTNET_ROOT = $withSdk
+            $env:PATH = $withSdk + [IO.Path]::PathSeparator + $env:PATH
+        }
+    }
+}
 # Linux runs this same script under PowerShell 7 (pwsh), with what only Windows has in platform-linux.ps1. Windows
 # PowerShell 5.1 has no $IsLinux, so on Windows this is false and that file is never read.
 if ($IsLinux) { . (Join-Path $PSScriptRoot 'platform-linux.ps1') }
@@ -345,19 +382,29 @@ function Stop-Wrapper($wrapper) {
 # files are shared by every checkout and cannot be written while any client runs, so only the default stack points it at its Auth, and only when the list
 # (read first; reading works while clients run) does not already. When it cannot be written: with -Strict (before
 # anything was stopped) the script stops; otherwise a warning, and the client's own Log In may go elsewhere.
-function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
+# The address is a host:port, not just the port: -Lan writes the public address so every player's gateway list (and so
+# their GGPK root hash, which the patch welcome compares) is identical.
+function Select-LocalGateway([string]$address, [switch]$Strict) {
     $patch = Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll"
     $ggpk = Join-Path $repo 'Client'
     $list = @(& dotnet $patch gateway $ggpk 2>$null | Where-Object { "$_" -match '^[^;]*;[^;]*;' })
-    if ($LASTEXITCODE -eq 0 -and $list.Count -and -not @($list | Where-Object { "$_" -notmatch "^[^;]*;[^;]*;127\.0\.0\.1:$loginPort;" }).Count) { return }
+    if ($LASTEXITCODE -eq 0 -and $list.Count -and -not @($list | Where-Object { "$_" -notmatch "^[^;]*;[^;]*;$([regex]::Escape($address));" }).Count) { return }
     # Windows' file lock fails this write while a client runs. Linux has no such lock: the same refusal comes from here.
     if (-not ($IsLinux -and @(Get-CimInstance Win32_Process -Filter "Name = 'Game.patched.exe'" -ErrorAction SilentlyContinue).Count)) {
-        & dotnet $patch gateway $ggpk --login "127.0.0.1:$loginPort" 2>$null | Out-Null
+        & dotnet $patch gateway $ggpk --login $address 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) { return }
     }
-    $message = 'could not select local login server (a client holds the client files); close all clients and retry'
+$message = "could not select login server $address (a client holds the GGPK); close all clients and retry"
     if ($Strict) { throw $message }
     Write-Warning "$message. The client's own Log In may go to another login server; client_control.py logs in by port."
+}
+
+# What the GGPK's gateway list must say: the address this client's Log In uses. Always loopback, -Lan included: the
+# host plays directly, and a remote player's own tool points their list at the public address (Agents/docs/dev/lan-play.md).
+# A tunnel that does not route back to itself (most do not) would otherwise lock the host out of its own server, and the
+# GGPK root hash no longer has to match anything: each player's patching handshake is answered on their own PC.
+function LoginAddress {
+    return "127.0.0.1:$($stack.Ports.login)"
 }
 
 # Starts the session's client through this stack's patching server and records its PID. A named session runs in its own
@@ -571,7 +618,7 @@ if ($ClientOnly) {
         Need (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
     }
     if ($session -eq 'default') { Assert-GlobalSlot }
-    if (-not $stack.Base) { Select-LocalGateway $stack.Ports.login -Strict }
+    if (-not $stack.Base) { Select-LocalGateway (LoginAddress) -Strict }
     if ($Walkmaps) { Start-Recorder $python }
     Start-Client $session $stack $SeedConfig $nullifierMode
     return
@@ -688,13 +735,54 @@ $bin = "bin\$configuration\net10.0"
 # A full run decides the build configuration later partial runs use.
 if (-not $Only) { Set-Content -Path $configurationFile -Value $configuration -Encoding ascii }
 $serverArgs = @{ Auth = @('serve'); Patch = @(); Gateway = @() }
+# -Lan: the servers accept remote connections and remote clients are told this address. The gateway list stays local
+# (the local client is on this PC); the remote player patches theirs once (Agents/docs/dev/lan-play.md). SSF is refused
+# between different characters, so LAN players share Standard; lockstep stays off (a predictive remote client).
+$lanHost = $null
+if ($Lan -and -not $Stop -and -not $ClientOnly) {
+    if ($PublicAddress) { $lanHost = $PublicAddress }
+    else {
+        # The address of the default route's interface: the one other machines can reach. A machine with a virtual or
+        # VPN adapter often has several IPv4 addresses (192.168.255.x beside the real WLAN one), and the first is not
+        # necessarily the network players share.
+        $route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+            Sort-Object RouteMetric | Select-Object -First 1
+        if ($route) {
+            $lanHost = @(Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.ifIndex -ErrorAction SilentlyContinue |
+                Where-Object { $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress
+        }
+        if (-not $lanHost) {
+            $lanHost = @(Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp, Manual -ErrorAction SilentlyContinue |
+                Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -notlike '192.168.255.*' } |
+                Select-Object -First 1).IPAddress
+        }
+        if (-not $lanHost) { throw '-Lan: no LAN IPv4 address found (give -PublicAddress)' }
+    }
+    $shownPort = if ($PublicPort) { $PublicPort } else { $stack.Ports.gateway }
+    $shownLogin = if ($PublicLoginPort) { $PublicLoginPort } else { $stack.Ports.login }
+    $shownHost = if ($PublicInstanceAddress) { $PublicInstanceAddress } else { $lanHost }
+    Step "LAN play: the servers bind 0.0.0.0; remote clients use login ${lanHost}:$shownLogin, instance ${shownHost}:$shownPort; patching stays on this PC's $($stack.Ports.patch)"
+}
+# Without -Lan nothing is touched: the servers keep their own defaults (loopback).
+if ($Lan) {
+    $env:Game_BIND = '0.0.0.0'
+    # The instance host 0x14 hands out may differ from the login host the gateway list names (two tunnels on two
+    # nodes); -PublicInstanceAddress covers that, and defaults to the same address.
+    $env:Game_GATEWAY_HOST = if ($PublicInstanceAddress) { $PublicInstanceAddress } else { $lanHost }
+    # A tunnel that maps another public port: clients are told it, the Gateway keeps listening on its own port.
+    if ($PublicPort) { $env:Game_GATEWAY_PUBLIC_PORT = "$PublicPort" }
+    # Which login peers count as this machine. -LocalPeers none when the tunnel's client runs on this PC: a remote
+    # player then arrives from loopback too, and only the endpoint they dial tells them apart. (An empty value would
+    # delete the variable, which reads back as the default.)
+    if ($null -ne $LocalPeers) { $env:Game_LOCAL_PEERS = if ($LocalPeers) { $LocalPeers } else { 'none' } }
+}
 # The servers inherit it: the Gateway records area loads for the recorder only beside it (AreaLayouts.Recording).
 $env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
 # The cached gateway list can point elsewhere even when the patch welcome says no download is needed.
 # Select the local Auth explicitly before the patch server or client opens the client files (the default stack only).
 if (-not $NoClient -and -not $stack.Base) {
     Step 'selecting the local login server in the client data ...'
-    Select-LocalGateway $stack.Ports.login
+    Select-LocalGateway (LoginAddress)
 }
 
 # Only for the servers (the shell keeps its own values): this stack's ports; each connection's last packets go to a file
@@ -704,8 +792,12 @@ if (-not $NoClient -and -not $stack.Base) {
 $serverEnv = @{
     Game_PATCH_TCP_PORT = "$($stack.Ports.patch)"; Game_LOGIN_PORT = "$($stack.Ports.login)"
     Game_AUTH_CONTROL_PORT = "$($stack.Ports.control)"; Game_GATEWAY_PORT = "$($stack.Ports.gateway)"
-    Game_PATCH_URL = if ($env:Game_PATCH_URL -and -not $stack.Base) { $env:Game_PATCH_URL } else { "http://127.0.0.1:$($stack.Ports.patchWeb)" }
-    Game_PATCH_WEB_ROOT = if ($stack.Base) { $null } else { $env:Game_PATCH_WEB_ROOT }
+    # With -Lan the market page listens on the network too, so the people on it can sign in and trade.
+    Game_MONITOR_BIND = if ($Lan) { '0.0.0.0' } else { $env:Game_MONITOR_BIND }
+    Game_PATCH_URL = if ($Lan) { "http://0.0.0.0:$($stack.Ports.patchWeb)" }
+        elseif ($env:Game_PATCH_URL -and -not $stack.Base) { $env:Game_PATCH_URL }
+        else { "http://127.0.0.1:$($stack.Ports.patchWeb)" }
+    Game_PATCH_WEB_ROOT = if ($Lan) { "http://${lanHost}:$($stack.Ports.patchWeb)/" } elseif ($stack.Base) { $null } else { $env:Game_PATCH_WEB_ROOT }
     Game_PACKET_DUMPS = if ($env:Game_PACKET_DUMPS) { $env:Game_PACKET_DUMPS } else { Join-Path 'logs' 'packets' }
     Game_HOT_RELOAD_LOG = if ($Watch) { Join-Path $out 'live-gateway.err' } else { $null }
 }

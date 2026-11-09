@@ -88,6 +88,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Unknown message layouts and existing 0x0099 handling remain unchanged.
   Docs: [instance framing](../docs/protocol/02-instance-connection.md#fixed-message-boundaries-across-tcp-reads).
 
+- Other machines: `live.ps1 -Lan` binds the servers to 0.0.0.0 and tells remote clients the address and ports to dial
+  (`-PublicAddress`, `-PublicLoginPort`, `-PublicPort`), while a connection from this PC keeps 127.0.0.1 and the local
+  port; the instance host a client is told may be a name, not only an IP, so a tunnel works. A tunnel whose client runs on this PC makes remote players arrive from loopback, so the peers counted as local are an
+  explicit list (`Game_LOCAL_PEERS`, `live.ps1 -LocalPeers`); an empty list makes every client dial the public endpoint.
+  The patching bind, the guide and the two player tools are a separate change.
+  Code: `scripts/dev/live.ps1`, `GatewayEndpoint.PublicPort`, `InstanceTransfer.ConnectInstance`, `LoginServerSession`.
+
 ## Partly working
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The

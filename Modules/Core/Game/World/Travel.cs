@@ -476,8 +476,12 @@ public static partial class Game
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;
         else if (!t.AtSpawn) AreaLayouts.CameFrom[r.Ticket] = conn.Layout.Hash;
-        string host = GatewayEndpoint.Host;
-        ushort port = GatewayEndpoint.Port;
+        // The same per-peer decision Auth makes for login 0x14: a connection from this PC keeps the Gateway's own address
+        // and port, anyone else gets what the tunnel publishes. Sending the local port to a remote player, or the public
+        // address to this PC, strands both: neither can dial what it was told.
+        bool localPeer = GatewayEndpoint.IsLocalPeer(remote);
+        string host = localPeer ? "127.0.0.1" : GatewayEndpoint.Host;
+        ushort port = localPeer ? GatewayEndpoint.Port : GatewayEndpoint.PublicPort;
         await Send(remote, stream, ciphers, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, conn.Keyring.Key(r.Ticket)),
             $"0x0027 connect to instance {r.Instance} of area 0x{r.Area:x4} (seed {r.Seed}) at {host}:{port}, ticket 0x{r.Ticket:x8}");
     }

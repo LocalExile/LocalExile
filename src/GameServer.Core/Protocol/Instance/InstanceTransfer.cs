@@ -71,9 +71,28 @@ public static class InstanceTransfer
     /// </summary>
     public static byte[] ConnectInstance(string host, ushort port, uint ticket, ushort areaHash16, byte[] key64)
     {
-        uint ip = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(System.Net.IPAddress.Parse(host).GetAddressBytes());
-        return new LoginWriter().U16(ConnectInstanceId).Str(host).U16(port).U32(ip).U32(0).U16(areaHash16).U32(ticket)
+        return new LoginWriter().U16(ConnectInstanceId).Str(host).U16(port).U32(HostIp(host)).U32(0).U16(areaHash16).U32(ticket)
             .U8(0).U8(0).Fixed(key64, 64).Fixed(new byte[8], 8).ToArray();
+    }
+
+    /// <summary>
+    /// The u32 at +0x30. A tunnel or DDNS name (Agents/docs/dev/lan-play.md) is resolved once: the client dials the name
+    /// itself, and the number is only carried along. 0 when it cannot be resolved, which the client ignores.
+    /// </summary>
+    static uint HostIp(string host)
+    {
+        if (System.Net.IPAddress.TryParse(host, out var literal)) return ToU32(literal);
+        try
+        {
+            var resolved = System.Net.Dns.GetHostAddresses(host)
+                .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+            if (resolved is not null) return ToU32(resolved);
+        }
+        catch (System.Net.Sockets.SocketException) { }
+        return 0;
+
+        static uint ToU32(System.Net.IPAddress address) =>
+            System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(address.GetAddressBytes());
     }
 
     /// <summary>One row of the instance chooser (ClientInstanceListEntry, 0x28 bytes in the client). Live 2026-10-16: the

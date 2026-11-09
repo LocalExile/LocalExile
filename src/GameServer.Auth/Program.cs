@@ -230,7 +230,25 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
             // Anything the client sent after its 0x0002 is already ciphertext.
             var incoming = new LoginMessageStream(LoginDirection.ClientToServer);
             InstanceDirectory.LoginLink? link = null;
-            var session = new LoginServerSession(accounts) { CharacterListClass = characterListClass.For, InstanceHost = GatewayEndpoint.Host, InstancePort = GatewayEndpoint.Port, Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
+            // A peer listed in Game_LOCAL_PEERS (loopback by default) is sent to the Gateway's own address and port; anything
+            // else gets the public address and the tunnel's port (Gateway.PublicAddress / Gateway.PublicPort). Sending
+            // everyone the public port would strand the host: its client would dial 127.0.0.1:<public port>, where nothing
+            // listens when the tunnel maps another port onto the Gateway's. A tunnel whose client runs on this PC makes a
+            // remote player arrive from loopback too, which Game_LOCAL_PEERS=none answers by treating every peer as
+            // remote (its clients dial the tunnel, the host's own client included).
+            bool local = GatewayEndpoint.IsLocalPeer(peer);
+            Console.WriteLine($"[auth] {peer} -> instance {(local ? "127.0.0.1" : GatewayEndpoint.Host)}:" +
+                $"{(local ? GatewayEndpoint.Port : GatewayEndpoint.PublicPort)} ({(local ? "local" : "remote")} peer)");
+            var session = new LoginServerSession(accounts)
+            {
+                CharacterListClass = characterListClass.For,
+                InstanceHost = local ? "127.0.0.1" : GatewayEndpoint.Host,
+                InstancePort = local ? GatewayEndpoint.Port : GatewayEndpoint.PublicPort,
+                Keyring = keyring,
+                Leagues = LeagueCatalog.Startup,
+                CharacterDeleted = SetSaveAside,
+                Assign = s => directory.AssignStart(s, link!),
+            };
             link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer);
             byte[] rest = buf[used..have];
             try
@@ -322,3 +340,8 @@ static void Dump(byte[] data)
         Console.WriteLine($"        {i:x4}  {Convert.ToHexString(row).ToLowerInvariant(),-32}  {ascii}");
     }
 }
+
+/// <summary>Whether this login connection comes from this machine (the host's own client). A tunnel in front of the
+/// server makes a remote player look like 127.0.0.1; such a player is then handed the loopback instance address, which
+/// only works if the tunnel runs on the host PC — the setup Agents/docs/dev/lan-play.md describes.</summary>
+
