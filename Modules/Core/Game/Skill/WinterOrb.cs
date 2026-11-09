@@ -10,10 +10,11 @@ using GameServer.Core.Protocol.Login;
 /// level 1), the cadence (<c>frost_fury_base_fire_interval_ms</c> 1200,
 /// <c>frost_fury_fire_speed_+%_final_while_channelling</c> 80), the stages (<c>frost_fury_max_number_of_stages</c> 8 plus
 /// the quality's <c>frost_fury_additional_max_number_of_stages</c>, <c>frost_fury_fire_speed_+%_per_stage</c> 20,
-/// <c>frost_fury_duration_+%_per_stage</c> 30, <c>base_skill_effect_duration</c> 1600) and the projectiles
-/// (<c>base_number_of_projectiles</c> 2 at level 1, 3 at 20; <c>additional_projectiles_fired_with_distance_offset</c>
-/// 100). Cast speed is additive with the frequency increases and the first stage adds none (PoE Wiki, Winter Orb,
-/// "Projectile Rate").
+/// <c>frost_fury_duration_+%_per_stage</c> 30, <c>base_skill_effect_duration</c> 1600), the projectiles
+/// (<c>base_number_of_projectiles</c> 2 up to gem level 13, 3 from level 14; <c>additional_projectiles_fired_with_distance_offset</c>
+/// 100), the critical strike chance (GESSPL SpellCritChance 750 permyriad = 7.5% at every level) and the 25% chance
+/// to freeze (<c>base_chance_to_freeze_%</c> 25, read by the hit's ailment pass). Cast speed is additive with the
+/// frequency increases and the first stage adds none (PoE Wiki, Winter Orb, "Projectile Rate").
 /// The orb is its own runtime: the channel's cast ticks build stages, but the orb keeps firing after the button comes up,
 /// with the 80% more frequency gone, while its stages decay one at a time across the duration they leave (the gem's
 /// 1.6 s grown by 30% per stage). When the last stage goes the orb is removed.
