@@ -189,7 +189,7 @@ static int GgpkTool(string[] args)
     if (args[0] == "root-hash")
     {
         if (rest.Contains("--repair") && GgpkMaintenance.RepairRootHash(ggpk) is { } repaired)
-            Console.Error.WriteLine($"[patch] the GGPK's root hash was zero, so the client would always try to patch; it is now {Convert.ToHexString(repaired).ToLowerInvariant()}");
+            Console.WriteLine($"[patch] the GGPK's root hash was zero, so the client would always try to patch; it is now {Convert.ToHexString(repaired).ToLowerInvariant()}");
         Console.WriteLine(Convert.ToHexString(GgpkMaintenance.RootHash(ggpk)).ToLowerInvariant());
         if (rest.Contains("--save")) SaveRootHash(ggpk);
         return 0;
