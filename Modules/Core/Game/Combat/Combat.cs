@@ -1304,6 +1304,16 @@ static partial class Game
         return SkillArea.Radius(SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get), Get, spell);
     }
 
+    // A gem skill's secondary radius in cells (active_skill_base_secondary_area_of_effect_radius: Holy Sweep's hammers'
+    // 12), grown by the player's area stats as the main one is; 0 for a skill without one.
+    internal static int SkillSecondaryRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell)
+    {
+        var areaStats = MergeSkillStats(AreaPlayerStats(conn), skillStats);
+        int Get(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
+        int baseRadius = Get("active_skill_base_secondary_area_of_effect_radius");
+        return baseRadius > 0 ? SkillArea.Radius(baseRadius, Get, spell) : 0;
+    }
+
     // An area spell's centre: the aimed point, but a self-targeted spell (Ice Nova, Discharge, Vaal Cold Snap) goes off
     // around the caster wherever it was aimed, as the client's action does (FUN_1419439e0). A Nova among them goes off at
     // the aim when the caster has nova_spells_cast_at_target_location (Devout of Lunaris: "Nova Spells Cast at the

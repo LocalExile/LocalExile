@@ -1670,6 +1670,17 @@ player back there (live 2026-10-23). A resync follows at the end of the action, 
 it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks there at its charge speed and hits on the way
 (§10k).
 
+**Holy Sweep's hammers** are the client's own actions. Their art (`sweep_hammer_fall`) scales to the skill's final
+`active_skill_secondary_area_of_effect_radius` over its base size (`0x1414f44b0`, `0x1414f50e0`): the client derives
+none, and until the Gateway sent it the hammers were drawn at scale 0 (live 2026-11-09).
+Holy Sweep of Hammerfalls' release (`0x141b1a270`) starts a detached action at the player's cell that drops a wave
+every `holy_sweep_hammerfall_rate_ms` / (1 + `combined_main_hand_attack_speed_+%` / 100) for `skill_effect_duration`;
+the Gateway does not send that stat, so the client waits the rate itself. A wave (`0x141b19980`) takes the monsters
+within the area's radius plus their size, shuffles them, orders them by the hammers each took (fewest first), and
+gives each hammer the first one free this wave whose roll of 0-99 is under 100 halved per earlier hammer, else a
+random walkable point within the radius (3 tries). Its draws are seeded from the use's sequence, the wave and the
+hammer, but over the client's own object order. Each hammer hits 0.1 s later in its secondary radius (`0x141b1a610`).
+
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
 2026-10-23). 0x197's cell is where the channel is aimed now (the cursor), not the player's cell: the first one, ~90 ms

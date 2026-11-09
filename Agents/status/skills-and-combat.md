@@ -11,10 +11,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Holy Sweep's area: its swings (ActionTypes Sweep, SweepAltX) hit around the player, where the client draws them,
   instead of around the aimed monster (live 2026-11-08); other melee area attacks still land on the target.
   Code: `MeleeAreaCentre.cs`, `AreaSkillHit`. Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Holy Sweep's hammers hit: up to `holy_sweep_number_of_holy_bolts_to_create` struck enemies get one each, and
-  Hammerfalls drops waves of 3 every 700 ms for its duration over the sweep's area (live 2026-11-08, both gems).
-  Each hits its 12-cell secondary area 0.25 s later for 35% (Hammerfalls 50%) less; Holy Sweep's cannot be evaded.
-  Not modelled: the client's own pick of hammer targets (its art may fall elsewhere). Code: `HolySweepHammers.cs`.
+- Holy Sweep's hammers (live 2026-11-09: drawn and hitting): up to `holy_sweep_number_of_holy_bolts_to_create` struck
+  enemies get one each; Hammerfalls' waves of 3 every 700 ms fall on the monsters around the swing, fewest-hit first.
+  Each hits its secondary area (12 cells, with area) for 35% (Hammerfalls 50%) less; Holy Sweep's cannot be evaded.
+  The skills send their final secondary radius, which the hammers' art scales to (at 0 they were never seen).
+  The client draws from its own draws, so a drawn hammer may fall on another monster than the one hit.
+  Code: `HolySweepHammers.cs`. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Fortification: qualifying melee hits build temporary protection through an explicit LocalExile generation model.
   Native checks confirmed the buff component, expiry, 20/30-stack limits, attack speed and actual hit protection.
   Elapsed Life regeneration, stopping at expiry, area carry, death and relog were also verified.

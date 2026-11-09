@@ -620,6 +620,11 @@ static partial class Game
             // nothing (live 2026-10-30). The radius the server's hit uses (SkillRadius, AreaSkillHit).
             else if (Get("active_skill_base_area_of_effect_radius") > 0 && Stats.Key("active_skill_area_of_effect_radius") is uint finalRadius)
                 stats[finalRadius] = SkillRadius(conn, own, SkillsFor(conn).IsSpell(effect), effect);
+            // The final secondary radius too (0x4879): Holy Sweep's hammer art scales to it over its base size
+            // (0x1414f44b0, 0x1414f50e0), and at 0 the hammers were drawn at scale 0, never seen (live 2026-11-09).
+            if (Get("active_skill_base_secondary_area_of_effect_radius") > 0
+                && Stats.Key("active_skill_secondary_area_of_effect_radius") is uint secondaryRadius)
+                stats[secondaryRadius] = SkillSecondaryRadius(conn, own, SkillsFor(conn).IsSpell(effect));
             // A trap or herald that deals secondary damage (Bear Trap carries the Spell type but no spell base damage,
             // Herald of Ice's shatter): its own secondary rows, before the attack/spell hit rows.
             if (!SkillsFor(conn).IsAttack(effect) && Get("display_skill_deals_secondary_damage") != 0
