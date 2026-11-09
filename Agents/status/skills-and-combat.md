@@ -1711,6 +1711,32 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Ice Nova drew nothing (live 2026-10-30).
   Code: `SkillCatalog.IsSelfTargeted`, `SkillCatalog.IsNova`, Gateway (`SpellCentre`, `AreaSkillHit`).
   Docs: [11](../docs/protocol/11-skills.md) §9a.
+- **Winter Orb (2026-11-09).** The channel is admitted again: its orb fires `Metadata/Projectiles/FrostFuryMortar`,
+  while the effect's own name has no Projectiles row, so every use was refused and the skill dealt no damage.
+  While channelling, each volley lands the skill's cold-damage area hit on nearby enemies every
+  `frost_fury_base_fire_interval_ms` (1200 ms), scaled by the 80% more while channelling and by cast speed (additive,
+  as the data's `display_frost_fury_additive_cast_speed_modifiers_apply_to_fire_speed` says), with
+  `base_number_of_projectiles` impacts spread along a line across the nearest enemy, so a volley lands its whole spread
+  on one target instead of scattering over three. Stages are counted per channel cast tick up to
+  `frost_fury_max_number_of_stages` (8) plus the quality's `frost_fury_additional_max_number_of_stages`, and add their
+  `frost_fury_fire_speed_+%_per_stage` (20, the first stage adds none) to the frequency; the buff bar that shows the
+  charges and their countdown is not sent, because the `frost_fury_stage` buff's 0x1c1/0x1c2 crashed the client twice
+  (live 2026-11-09, once per tick and once at five a second): its message shape needs checking against the client's
+  Buffs component first, and the row sets neither `__col44` nor recovery stats, which leaves the stacks (bit2) and the
+  active-skill icon (bit3) as the suspects. The orb is its own runtime, not the channel's: releasing the button does not
+  stop it. It keeps firing at the released frequency (no 80% more) while its stages decay one at a time, each over the
+  remaining duration divided by the stages held; the duration is `base_skill_effect_duration` (1600 ms) grown by
+  `frost_fury_duration_+%_per_stage` (30 a stage) through `SkillDurationModifiers`, so 8 stages last 5.44 s at gem
+  level 1. The sphere is removed when the last stage goes, and re-channelling inside that window keeps the orb and the
+  stages it already built rather than creating a second one; death, an area change and a reload retire it. The visuals
+  are the client's own art as effect objects, since the
+  `frost_fury_stage` buff has no `BuffVisualOrbs` to draw the orb: MiscAnimated `FrostFurySphere` is created attached
+  to the player when the channel starts and removed when the orb expires, and `FrostFuryExplode` at each impact,
+  removed after its 250 ms clip. Every volley lands at the aim's nearest enemy regardless of which projectile the client thinks it fired, so no
+  projectile objects are sent. The impacts are visibly the client's `projectile_impact.ao` (live 2026-11-09), but the
+  orb object, attached to the player's `<root>`, does not show: where it hangs (the bone the game uses, or Positioned's
+  fixed height) is not resolved, so it stays inside the character while channelling. Damage, crits and kills checked
+  with the real client the same day.
 
 ## Not working yet
 

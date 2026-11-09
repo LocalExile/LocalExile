@@ -1,0 +1,394 @@
+using System.IO;
+using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
+
+/// <summary>
+/// Winter Orb (effect <c>WinterOrb</c>, ActiveSkillType Channel): channelling conjures an orb above the player that
+/// pelts nearby enemies with mortar projectiles that impact the ground and explode. The exported stats (3.29.3c,
+/// GrantedEffectStatSets "WinterOrb") carry the damage (<c>spell_minimum/maximum_base_cold_damage</c> 39–59 at gem
+/// level 1), the cadence (<c>frost_fury_base_fire_interval_ms</c> 1200,
+/// <c>frost_fury_fire_speed_+%_final_while_channelling</c> 80), the stages (<c>frost_fury_max_number_of_stages</c> 8 plus
+/// the quality's <c>frost_fury_additional_max_number_of_stages</c>, <c>frost_fury_fire_speed_+%_per_stage</c> 20,
+/// <c>frost_fury_duration_+%_per_stage</c> 30, <c>base_skill_effect_duration</c> 1600) and the projectiles
+/// (<c>base_number_of_projectiles</c> 2 at level 1, 3 at 20; <c>additional_projectiles_fired_with_distance_offset</c>
+/// 100). Cast speed is additive with the frequency increases and the first stage adds none (PoE Wiki, Winter Orb,
+/// "Projectile Rate").
+/// The orb is its own runtime: the channel's cast ticks build stages, but the orb keeps firing after the button comes up,
+/// with the 80% more frequency gone, while its stages decay one at a time across the duration they leave (the gem's
+/// 1.6 s grown by 30% per stage). When the last stage goes the orb is removed.
+/// The stages still drive the fire rate only. The game also shows them as the <c>frost_fury_stage</c> buff
+/// (BuffDefinitions 1216, ShowCount, its icon the skill's own), but sending that buff's 0x1c1/0x1c2 crashed the client
+/// twice (live 2026-11-09), once at one packet a tick and once at five a second, so its message shape has to be checked
+/// against the client's Buffs component before it is sent again. The row sets neither <c>__col44</c> nor recovery stats,
+/// which leaves the stacks (bit2) and the active-skill icon (bit3) fields as the suspects.
+/// The orb and its impacts are the client's own art (MiscAnimated FrostFurySphere 2494 and FrostFuryExplode 2495):
+/// the sphere is an effect object attached to the player, each impact an effect object at its cell.
+/// The sphere rides the player (<c>EffectObject.Parent</c>), so the client carries it along with the player's own
+/// predicted position. Attaching it to <c>&lt;root&gt;</c> draws it inside the body: the game's own attach point for this
+/// art is still unknown, as are the three float offset fields of the attachment record (one orb per axis, 24 units,
+/// showed nothing).
+/// </summary>
+static partial class Game
+{
+    const string WinterOrbSphereArt = "Metadata/Effects/Spells/FrostFury/sphere.ao";
+    const string WinterOrbImpactArt = "Metadata/Effects/Spells/FrostFury/projectile_impact.ao";
+
+    // FrostFuryExplode's clip is 250 ms (MiscAnimated __col4 250): the object goes when it has played.
+    const int WinterOrbImpactMilliseconds = 250;
+
+    /// <summary>
+    /// One orb, from its channel until the duration its stages leave runs out. It outlives the channel that made it, so
+    /// the firing loop (and not the channel's) owns both the interval and the deadline.
+    /// </summary>
+    internal sealed class WinterOrbRuntime
+    {
+        /// <summary>Identifies this orb against a later one on the same connection: its loop stops when it changes.</summary>
+        public long Generation;
+
+        public uint ObjectId;
+        public ushort SkillId;
+        public (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem;
+        public int Action;
+        /// <summary>The channel generation that last held the orb: an older channel's end must not release a newer one.</summary>
+        public int ChannelGeneration;
+        public int Stages;
+        /// <summary>True while the button is held: stages build and the frequency keeps its 80% more.</summary>
+        public bool Channelling;
+        public double NextFireAt;
+        /// <summary>When the stages left at the release have all decayed; zero while channelling.</summary>
+        public double ExpiresAt;
+        public double NextDecayAt;
+        /// <summary>Seconds each stage lasts after the release: the remaining duration divided by the stages it holds.</summary>
+        public double DecaySeconds;
+    }
+
+    static long WinterOrbOrbs;
+
+    internal static bool IsWinterOrb(int effect) =>
+        Skills.EffectId(effect) is "WinterOrb" or "WinterOrbAltX" or "WinterOrbAltY";
+
+    static int WinterOrbStat(ClientState conn, ushort skillId, string name) =>
+        Stats.Key(name) is uint key ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(key) : 0;
+
+    /// <summary>
+    /// Seconds between the orb's volleys: the base fire interval divided by the frequency increases. Cast speed is
+    /// additive with them and the first stage adds none, then the 80% more while channelling multiplies the result
+    /// (PoE Wiki: 1/1.2 × (1 + 0.2 × stages past the first + cast speed) × 1.8). That multiplier belongs to the channel,
+    /// so the caller passes the stages alone and the interval is slower once the button is up.
+    /// </summary>
+    internal static double WinterOrbFireSeconds(ClientState conn, ushort skillId, int effect, int stages,
+        bool channelling = true)
+    {
+        int Stat(string name) => WinterOrbStat(conn, skillId, name);
+        double baseSeconds = Math.Max(.05,
+            (Stat("frost_fury_base_fire_interval_ms") is > 0 and var milliseconds ? milliseconds : 1200) / 1000.0);
+        double castMs = CastMs(conn, effect, skillId) is int supported and > 0 ? supported : 250;
+        double increased = 250.0 / castMs - 1
+            + Stat("frost_fury_fire_speed_+%_per_stage") * Math.Max(0, stages - 1) / 100.0;
+        double more = channelling
+            ? Math.Max(.01, 1 + Stat("frost_fury_fire_speed_+%_final_while_channelling") / 100.0) : 1;
+        return baseSeconds / (Math.Max(.01, 1 + increased) * more);
+    }
+
+    /// <summary>The gem's 8 stages plus what quality adds, both from the data rather than from a constant.</summary>
+    static int WinterOrbMaxStages(ClientState conn, ushort skillId)
+    {
+        int max = WinterOrbStat(conn, skillId, "frost_fury_max_number_of_stages");
+        int extra = WinterOrbStat(conn, skillId, "frost_fury_additional_max_number_of_stages");
+        return Math.Clamp((max > 0 ? max : 8) + Math.Max(0, extra), 1, 32);
+    }
+
+    /// <summary>
+    /// The channel started (or started again while the orb is still up): one orb per player, not one per channel, so a
+    /// second channel keeps the runtime it finds and only refreshes it — no second sphere, and the stages it already
+    /// built are kept instead of being dropped.
+    /// </summary>
+    internal static async Task<uint> WinterOrbStart(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action)
+    {
+        WinterOrbRuntime runtime;
+        bool created = false;
+        (int X, int Y) at;
+        lock (conn.Monsters)
+        {
+            runtime = conn.OrbRuntime ?? new WinterOrbRuntime();
+            if (runtime.ObjectId == 0)
+            {
+                runtime.ObjectId = conn.NextObjectId++;
+                runtime.Generation = ++WinterOrbOrbs;
+                conn.OrbRuntime = runtime;
+                created = true;
+            }
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            runtime.SkillId = skillId;
+            runtime.Gem = gem;
+            runtime.Action = action;
+            runtime.ChannelGeneration = conn.ChannelGeneration;
+            runtime.Channelling = true;
+            runtime.ExpiresAt = 0;
+            runtime.NextDecayAt = 0;
+            // The first moment of channelling is the first stage; a fresh orb therefore never fires at zero.
+            runtime.Stages = Math.Max(1, runtime.Stages);
+            runtime.NextFireAt = now + WinterOrbFireSeconds(conn, skillId, gem.Effect, runtime.Stages);
+            at = conn.Walk.Position(now);
+            if (!created)
+                Console.WriteLine($"[gateway] {remote} winter orb 0x{runtime.ObjectId:x} re-channelled at {runtime.Stages} stages");
+        }
+        if (created)
+        {
+            await Send(remote, stream, ciphers,
+                InstanceEntities.CreateObject(runtime.ObjectId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                    new EffectObject(at.X, at.Y, WinterOrbSphereArt) { Parent = PlayerId }.Blob()),
+                $"0x02bb winter orb 0x{runtime.ObjectId:x} {WinterOrbSphereArt} attached to the player");
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(runtime.ObjectId), null);
+            // The loop outlives this channel and this call: it must not inherit the channel's output delegates.
+            using (ExecutionContext.SuppressFlow())
+                _ = Task.Run(() => RunWinterOrb(conn, runtime, runtime.Generation));
+        }
+        return runtime.ObjectId;
+    }
+
+    /// <summary>
+    /// One more stage for this channel's cast tick, up to the maximum; the cast tick paces it, so a faster caster charges
+    /// the orb sooner. The channel does not stop at the maximum.
+    /// </summary>
+    internal static int WinterOrbStageStep(ClientState conn)
+    {
+        lock (conn.Monsters)
+        {
+            var runtime = conn.OrbRuntime;
+            if (runtime is null) return 0;
+            int max = WinterOrbMaxStages(conn, runtime.SkillId);
+            if (runtime.Stages < max) runtime.Stages++;
+            return runtime.Stages;
+        }
+    }
+
+    /// <summary>
+    /// The channel ended. The orb stays: the stages it holds then decay one at a time over the duration they leave
+    /// (<c>base_skill_effect_duration</c> grown by <c>frost_fury_duration_+%_per_stage</c> per stage and by the player's
+    /// duration stats), and the loop keeps firing all the while, without the while-channelling multiplier. <paramref
+    /// name="generation"/> is the ending channel's: a newer channel that already took the orb keeps it.
+    /// </summary>
+    internal static void WinterOrbRelease(ClientState conn, int generation)
+    {
+        lock (conn.Monsters)
+        {
+            var runtime = conn.OrbRuntime;
+            if (runtime is null || !runtime.Channelling || runtime.ChannelGeneration != generation) return;
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            double duration = WinterOrbDuration(conn, runtime);
+            runtime.Channelling = false;
+            runtime.ExpiresAt = now + duration;
+            runtime.DecaySeconds = duration / Math.Max(1, runtime.Stages);
+            runtime.NextDecayAt = now + runtime.DecaySeconds;
+            // The next volley comes at the released frequency, not the channelled one.
+            double interval = WinterOrbFireSeconds(conn, runtime.SkillId, runtime.Gem.Effect, runtime.Stages,
+                channelling: false);
+            runtime.NextFireAt = Math.Min(runtime.NextFireAt, now + interval);
+            Console.WriteLine($"[gateway] winter orb released at {runtime.Stages} stages: "
+                + $"{duration:0.00}s over {runtime.DecaySeconds:0.00}s a stage");
+        }
+    }
+
+    /// <summary>
+    /// The orb's own loop, one per orb: fire when due, decay after the release, and end when the last stage or the
+    /// duration goes. It holds no channel reference, so moving, releasing or aiming elsewhere cannot end it early; death,
+    /// an area change, a pause-menu reload or a connection close can.
+    /// </summary>
+    static async Task RunWinterOrb(ClientState conn, WinterOrbRuntime runtime, long generation)
+    {
+        var (remote, stream, ciphers) = conn.Wire;
+        bool Current()
+        {
+            lock (conn.Monsters)
+                return CurrentGameRules && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
+                    && ReferenceEquals(conn.OrbRuntime, runtime) && runtime.Generation == generation;
+        }
+        try
+        {
+            while (true)
+            {
+                double wait;
+                bool fire = false, expire = false;
+                lock (conn.Monsters)
+                {
+                    if (!Current()) return;
+                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    if (conn.Paused) wait = .1;
+                    else
+                    {
+                        if (!runtime.Channelling)
+                        {
+                            while (runtime.Stages > 0 && now >= runtime.NextDecayAt)
+                            {
+                                runtime.Stages--;
+                                runtime.NextDecayAt += runtime.DecaySeconds;
+                            }
+                            expire = runtime.Stages <= 0 || now >= runtime.ExpiresAt;
+                        }
+                        if (expire) wait = 0;
+                        else
+                        {
+                            fire = now >= runtime.NextFireAt;
+                            wait = runtime.NextFireAt - now;
+                            if (!runtime.Channelling) wait = Math.Min(wait, runtime.NextDecayAt - now);
+                        }
+                    }
+                }
+                if (expire) break;
+                if (wait > 0)
+                {
+                    // A quarter of a second at most: a release, a retirement or an expiry is heard without waiting for a
+                    // long interval to pass.
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(wait, .25)));
+                    continue;
+                }
+                if (!fire) continue;
+                bool channelling;
+                lock (conn.Monsters)
+                {
+                    if (!Current()) return;
+                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    // Fixed cadence: a late volley must not stretch every later one.
+                    double interval = WinterOrbFireSeconds(conn, runtime.SkillId, runtime.Gem.Effect, runtime.Stages,
+                        runtime.Channelling);
+                    do runtime.NextFireAt += interval; while (runtime.NextFireAt <= now);
+                    channelling = runtime.Channelling;
+                    if (!channelling)
+                        Console.WriteLine($"[gateway] {remote} winter orb fires after the release at {runtime.Stages} stages");
+                }
+                await WinterOrbVolley(remote, stream, ciphers, conn, runtime, channelling);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        finally
+        {
+            uint id = 0;
+            bool remove;
+            lock (conn.Monsters)
+            {
+                remove = ReferenceEquals(conn.OrbRuntime, runtime) && runtime.Generation == generation;
+                if (remove)
+                {
+                    conn.OrbRuntime = null;
+                    id = runtime.ObjectId;
+                    remove = id != 0 && !conn.Closed && !conn.LeavingArea;
+                }
+            }
+            if (remove)
+            {
+                Console.WriteLine($"[gateway] {remote} winter orb 0x{id:x} expired");
+                await WinterOrbStop(remote, stream, ciphers, id);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The seconds the stages left at the release are worth: the gem's <c>base_skill_effect_duration</c> with each stage's
+    /// <c>frost_fury_duration_+%_per_stage</c> (30) as an increase, which is additive with the player's duration stats the
+    /// way the game's duration system is, not a multiplication of the whole.
+    /// </summary>
+    static double WinterOrbDuration(ClientState conn, WinterOrbRuntime runtime)
+    {
+        var supported = SupportedSkill(conn, runtime.SkillId);
+        int Own(string name) => Stats.Key(name) is uint key ? supported.Stats.GetValueOrDefault(key) : 0;
+        var player = CharacterPlayerStats(conn);
+        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int perStage = Math.Max(0, Own("frost_fury_duration_+%_per_stage"));
+        int stages = Math.Max(0, runtime.Stages);
+        return Math.Max(.1, SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player,
+            name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? perStage * stages : 0)));
+    }
+
+    /// <summary>The channel ended or the orb expired: the sphere goes.</summary>
+    internal static async Task WinterOrbStop(string remote, NetworkStream stream, ConnectionCiphers ciphers, uint id)
+    {
+        if (id == 0) return;
+        try
+        {
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
+                $"0x02bd winter orb 0x{id:x} removed");
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+    }
+
+    /// <summary>An impact's art at its landing cell, removed once FrostFuryExplode has played.</summary>
+    internal static async Task WinterOrbImpact(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, (int X, int Y) at)
+    {
+        uint id;
+        lock (conn.Monsters) id = conn.NextObjectId++;
+        try
+        {
+            await Send(remote, stream, ciphers,
+                InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                    new EffectObject(at.X, at.Y, WinterOrbImpactArt).Blob()), null);
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { return; }
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(WinterOrbImpactMilliseconds);
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
+        });
+    }
+
+    /// <summary>
+    /// One volley of the orb: every projectile lands around the nearest enemy (the orb pelts what is near it) and
+    /// explodes there for the skill's area hit. The volley spreads along a line across the aim, one
+    /// <c>additional_projectiles_fired_with_distance_offset</c> (10 cells) per extra projectile, as the wiki describes
+    /// multiple projectiles landing in a rough line rather than a cluster; concentrating them on one enemy means a
+    /// volley on a single target lands every projectile on it instead of scattering over three different enemies.
+    /// While the channel runs the hits keep its action and channel checks; after the release the orb still fires, so the
+    /// hits carry neither (a released orb is no longer the player's action).
+    /// </summary>
+    internal static async Task WinterOrbVolley(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, WinterOrbRuntime runtime, bool channelling)
+    {
+        ushort skillId = runtime.SkillId;
+        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        if (gem.Name is null || gem.Effect != runtime.Gem.Effect) return;
+        int Stat(string name) => WinterOrbStat(conn, skillId, name);
+        (int X, int Y) from;
+        List<(uint Id, (int X, int Y) At)> targets;
+        lock (conn.Monsters)
+        {
+            double now = ProjectileWorldTime(conn);
+            from = conn.Walk.Position(now);
+            targets = [.. conn.Monsters
+                .Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null)
+                .Select(e => (e.Key, At: e.Value.Walk.Position(now)))
+                .Select(e => (e.Key, e.At, Distance: Dist(e.At, from)))
+                .Where(e => e.Distance <= SystemSettings.Default.ProjectileMaximumRangeCells)
+                .OrderBy(e => e.Distance)
+                .Select(e => (e.Key, e.At))];
+            if (targets.Count == 0) return;
+            if (runtime.Stages <= 0) return;
+        }
+        var anchor = targets[0].At;
+        int count = Math.Clamp(Stat("base_number_of_projectiles") is > 0 and var baseCount ? baseCount : 1, 1, 16);
+        // The offset stat is in 1/100 m; cells are 1/10 m (GroundSlamWave.CellsPerSecond).
+        int spacing = Math.Max(0, Stat("additional_projectiles_fired_with_distance_offset") / 10);
+        double dx = anchor.X - from.X, dy = anchor.Y - from.Y;
+        double length = Math.Sqrt(dx * dx + dy * dy);
+        // A line across the aim; a target on the caster's own cell has no direction, so the line runs east-west.
+        double acrossX = length < 1e-6 ? 0 : -dy / length, acrossY = length < 1e-6 ? 1 : dx / length;
+        for (int i = 0; i < count; i++)
+        {
+            double offset = spacing * (i - (count - 1) / 2.0);
+            var landing = ((int)Math.Round(anchor.X + acrossX * offset), (int)Math.Round(anchor.Y + acrossY * offset));
+            await WinterOrbImpact(remote, stream, ciphers, conn, landing);
+            await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from, landing,
+                immediate: true, sequence: conn.ChannelSkillSequence,
+                actionToken: channelling ? runtime.Action : null,
+                channelGeneration: channelling ? runtime.ChannelGeneration : null);
+        }
+    }
+}

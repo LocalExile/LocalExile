@@ -226,9 +226,16 @@ public static partial class Game
     }
 
     // Channelling repeats are not limited by the one-new-action-per-frame cap (Action speed, PoE Wiki): they use the
-    // speed-only interval so a very fast channel can hit more than 30 times a second.
-    static double SupportedChannelSeconds(ClientState conn, ushort skillId) =>
-        SupportedAttackSecondsFor(conn, skillId, null, clampToTick: false);
+    // speed-only interval so a very fast channel can hit more than 30 times a second. A channelled attack swings on its
+    // weapon's attack time (Cyclone); a channelled spell pays and stages on its cast time (Winter Orb's 0.25 s, not the
+    // caster's weapon), so the two must not share the weapon timer.
+    static double SupportedChannelSeconds(ClientState conn, ushort skillId)
+    {
+        var gem = SupportedSkill(conn, skillId);
+        return SkillsFor(conn).IsAttack(gem.Effect)
+            ? SupportedAttackSecondsFor(conn, skillId, null, clampToTick: false)
+            : Math.Max(TickSeconds, (CastMs(conn, gem.Effect, skillId) ?? 0) / 1000.0);
+    }
 
     // The supported attack's swing time with the off-hand weapon of a dual-wielded pair: its own duration at the
     // off-hand increased speed (the main weapon's local speed taken back out), with the same supports.
