@@ -665,8 +665,8 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
   cast). It comes out of the portal and walks a little before it fights (live: the skill's offset, 114 units). The
   guardians walk the arena: their skills' `spell_maximum_action_distance_+%` -60 keeps them from casting at their
   200-cell aggro range. When he leaves the portals stay up and bring no more, and the guardians fight on (live).
-  The Goddess's Guardians (`IzaroSummonSkeletonGhostflame`): five circles at random places every 20 s, two in each
-  (live; the skill says `skill_repeat_count` 6, 20 s, two). They die after 30 s (IzaroSkeleton.ot `time_until_death`), not
+  The Goddess's Guardians (`IzaroSummonSkeletonGhostflame`): six circles at random places every 20 s, two in each
+  (`skill_repeat_count` 6, 20 s cooldown, two monsters). They die after 30 s (IzaroSkeleton.ot `time_until_death`), not
   by a cap; the casters' .ot has no such time. Ours removes them then, with no death clip.
   `PortalSummon1_*` have no tier and no buff; the "…2" ones (IzaroPortal2.ot, untargetable, `base_cannot_be_damaged`)
   give Izaro `izaro_buff_loot_bonus`. A new IzaroPortal2 is in state 3, whose create event plays the closing clip, so the
