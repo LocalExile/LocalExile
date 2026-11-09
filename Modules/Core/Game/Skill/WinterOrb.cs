@@ -105,6 +105,9 @@ static partial class Game
     /// <summary>The game's own stage row: BuffDefinitions 1216 <c>frost_fury_stage</c> (ShowCount, the skill's icon).</summary>
     const ushort WinterOrbStagesBuffRow = 1216;
 
+    // The trailing u32 list every stage buff carries; an empty one makes the client's art dereference null.
+    static readonly uint[] WinterOrbStagesList = [0, 0, 0];
+
     /// <summary>
     /// The orb's stages in the top-left buff bar. The count is the orb's own, so it never shows a stage the orb does not
     /// hold; a changed count replaces the instance (0x1c2 for the old one, then 0x1c1, as the charge buffs do), and the
@@ -117,7 +120,7 @@ static partial class Game
     internal static async Task WinterOrbPresentStages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn)
     {
-        List<byte[]> packets = [];
+        byte[] packet;
         int stages;
         lock (conn.Monsters)
         {
@@ -129,12 +132,12 @@ static partial class Game
             // every stage, so a duration it draws could never be seen running.
             ushort instance = runtime.PresentedBuff;
             if (instance == 0) instance = runtime.PresentedBuff = conn.NextBuff++;
-            packets.Add(InstanceEntities.AddBuff(PlayerId, instance, WinterOrbStagesBuffRow, PlayerId, runtime.SkillId,
+            packet = InstanceEntities.AddBuff(PlayerId, instance, WinterOrbStagesBuffRow, PlayerId, runtime.SkillId,
                 u68: left > 0 ? (uint?)BitConverter.SingleToUInt32Bits((float)left) : null,
-                stacks: (ushort)runtime.Stages, list: [0, 0, 0]));
+                stacks: (ushort)runtime.Stages, list: WinterOrbStagesList);
             runtime.PresentedStages = runtime.Stages;
         }
-        foreach (var packet in packets) await Send(remote, stream, ciphers, packet, $"winter orb {stages} stages");
+        await Send(remote, stream, ciphers, packet, $"winter orb {stages} stages");
     }
 
     /// <summary>
@@ -306,10 +309,15 @@ static partial class Game
         {
             uint id = 0;
             ushort buff = 0;
-            bool remove;
+            bool remove = false, resume = false;
             lock (conn.Monsters)
             {
-                remove = ReferenceEquals(conn.OrbRuntime, runtime) && runtime.Generation == generation;
+                bool current = ReferenceEquals(conn.OrbRuntime, runtime) && runtime.Generation == generation;
+                // A re-channel that lands between the loop's last expiry check and this cleanup sets the orb live again,
+                // and a re-channel never starts a second loop: the orb must keep this one rather than be torn down.
+                resume = current && runtime.Channelling && CurrentGameRules && !conn.Closed && !conn.LeavingArea
+                    && !conn.RageRetired && conn.PlayerLife > 0;
+                remove = current && !resume;
                 if (remove)
                 {
                     conn.OrbRuntime = null;
@@ -320,11 +328,19 @@ static partial class Game
                     remove = id != 0 && !conn.Closed && !conn.LeavingArea;
                 }
             }
-            if (remove)
-                Console.WriteLine($"[gateway] {remote} winter orb 0x{id:x} expired");
-            // The icon leaves with the orb: the last stage going, death, an area change or a closed connection.
-            if (buff != 0 && !conn.Closed && !conn.LeavingArea)
-                await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), null);
+            if (resume)
+            {
+                using (ExecutionContext.SuppressFlow())
+                    _ = Task.Run(() => RunWinterOrb(conn, runtime, generation));
+            }
+            else
+            {
+                if (remove)
+                    Console.WriteLine($"[gateway] {remote} winter orb 0x{id:x} expired");
+                // The icon leaves with the orb: the last stage going, death, an area change or a closed connection.
+                if (buff != 0 && !conn.Closed && !conn.LeavingArea)
+                    await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), null);
+            }
         }
     }
 
@@ -343,18 +359,6 @@ static partial class Game
         int stages = Math.Max(0, runtime.Stages);
         return Math.Max(.1, SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player,
             name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? perStage * stages : 0)));
-    }
-
-    /// <summary>The channel ended or the orb expired: the sphere goes.</summary>
-    internal static async Task WinterOrbStop(string remote, NetworkStream stream, ConnectionCiphers ciphers, uint id)
-    {
-        if (id == 0) return;
-        try
-        {
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
-                $"0x02bd winter orb 0x{id:x} removed");
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
     }
 
     /// <summary>An impact's art at its landing cell, removed once FrostFuryExplode has played.</summary>
@@ -423,11 +427,13 @@ static partial class Game
         double length = Math.Sqrt(dx * dx + dy * dy);
         // A line across the aim; a target on the caster's own cell has no direction, so the line runs east-west.
         double acrossX = length < 1e-6 ? 0 : -dy / length, acrossY = length < 1e-6 ? 1 : dx / length;
+        // One stat sheet for the whole volley: its shots leave together, so its speed cannot change between them.
+        float cellsPerSecond = WinterOrbProjectileSpeed(conn, runtime);
         for (int i = 0; i < count; i++)
         {
             double offset = spacing * (i - (count - 1) / 2.0);
             var landing = ((int)Math.Round(anchor.X + acrossX * offset), (int)Math.Round(anchor.Y + acrossY * offset));
-            double seconds = WinterOrbFlightSeconds(conn, runtime, from, landing);
+            double seconds = WinterOrbFlightSeconds(cellsPerSecond, from, landing);
             uint projectile = await WinterOrbProjectile(remote, stream, ciphers, conn, from, landing, seconds);
             if (projectile == 0) continue;
             _ = LandWinterOrbProjectile(remote, stream, ciphers, conn, runtime, projectile, from, landing, seconds);
@@ -439,20 +445,26 @@ static partial class Game
     const string WinterOrbProjectileArt = "Metadata/Projectiles/FrostFuryMortar";
 
     /// <summary>
-    /// The time a mortar spends in the air: the row's own speed through <see cref="ProjectileSpeed"/>, so projectile
-    /// speed modifiers move the landing, over the distance it has to cover. The floor keeps a shot on the player's own
-    /// cell visible and the cap keeps a far one from hanging.
+    /// The row's own speed through <see cref="ProjectileSpeed"/>, so projectile speed modifiers move the landing.
+    /// Resolved once per volley: the player's stat sheet and the skill's row are the same for every mortar in it.
     /// </summary>
-    static double WinterOrbFlightSeconds(ClientState conn, WinterOrbRuntime runtime, (int X, int Y) from,
-        (int X, int Y) to)
+    static float WinterOrbProjectileSpeed(ClientState conn, WinterOrbRuntime runtime)
     {
         var own = SupportedSkill(conn, runtime.SkillId).Stats;
         var player = CharacterPlayerStats(conn);
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int units = Skills.ProjectileFor(runtime.Gem.Effect)?.Speed ?? 1500;
-        float cellsPerSecond = ProjectileSpeed.CellsPerSecond(units, Player, Own,
+        return ProjectileSpeed.CellsPerSecond(units, Player, Own,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+    }
+
+    /// <summary>
+    /// The time a mortar spends in the air over the distance it has to cover. The floor keeps a shot on the player's own
+    /// cell visible and the cap keeps a far one from hanging.
+    /// </summary>
+    static double WinterOrbFlightSeconds(float cellsPerSecond, (int X, int Y) from, (int X, int Y) to)
+    {
         double dx = to.X - from.X, dy = to.Y - from.Y;
         double cells = Math.Sqrt(dx * dx + dy * dy);
         return Math.Clamp(cells / Math.Max(20, cellsPerSecond), .05, 1.5);
