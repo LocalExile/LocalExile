@@ -133,8 +133,12 @@ static partial class Game
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
         var weapon = WeaponProfileFor(conn, activeSet: true);
+        // A transfigured gem (Id + AltX / AltY) swings its base gem's clip: Holy Sweep of Hammerfalls (SweepAltX) shares
+        // Sweep's Animation row (173) and its sweep_maul, whose contact is 350 of 1375 ms; without it the hit fell back
+        // to attack1's 0.69 and landed long after the swing (live 2026-11-09).
         if (SkillsFor(conn).EffectId(effect) is { } effectId
-            && Animations.SkillAttackContact(ao, weapon, SkillClipName(effectId)) is { } found)
+            && (Animations.SkillAttackContact(ao, weapon, SkillClipName(effectId))
+                ?? (TransfiguredBase(effectId) is { } baseId ? Animations.SkillAttackContact(ao, weapon, SkillClipName(baseId)) : null)) is { } found)
         {
             (clip, fraction) = (found.Name, found.Contact);
             return AttackTiming.ContactDelay(attackSeconds, found.Contact, 0);
@@ -146,6 +150,11 @@ static partial class Game
 
     // The rig clip a skill is named by: its GrantedEffects Id without separators ("GroundSlam" → "groundslam",
     // "Cleave" → "cleave"), which is how the rigs name groundslam_maul and cleave_maul.
+    // A transfigured gem's base GrantedEffects Id ("SweepAltX" → "Sweep"), null for any other.
+    internal static string? TransfiguredBase(string effectId) =>
+        effectId.Length > 4 && (effectId.EndsWith("AltX", StringComparison.Ordinal) || effectId.EndsWith("AltY", StringComparison.Ordinal))
+            ? effectId[..^4] : null;
+
     internal static string SkillClipName(string effectId) =>
         new([.. effectId.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant)]);
 
@@ -1498,8 +1507,9 @@ static partial class Game
                     }
             }
         }
-        // One simultaneous sweep, independent of notification latency; a holy hammer's hits leave both to its sweep.
-        bool fortificationGranted = hammer is not null;
+        // One simultaneous sweep, independent of notification latency. A holy hammer's hits are melee area hits that can
+        // grant Fortification (the wiki's Holy Sweep of Hammerfalls); Rage stays with its sweep.
+        bool fortificationGranted = false;
         bool rageGranted = hammer is not null; // Only a positive gain takes this sweep's latch.
         // The enemies this sweep struck and where, for Holy Sweep's hammers (RunHolyHammers).
         var hammerTargets = new List<(uint Id, (int X, int Y) At)>();

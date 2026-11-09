@@ -15,7 +15,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   enemies get one each; Hammerfalls' waves of 3 every 700 ms fall on the monsters around the swing, fewest-hit first.
   Each hits its secondary area (12 cells, with area) for 35% (Hammerfalls 50%) less; Holy Sweep's cannot be evaded.
   The skills send their final secondary radius, which the hammers' art scales to (at 0 they were never seen).
-  The client draws from its own draws, so a drawn hammer may fall on another monster than the one hit.
+  The client draws from its own draws, so a drawn hammer may fall on another monster than the one hit, and some
+  hits land early, late or outside the drawn hammers (live 2026-11-09). The waves do not follow attack speed yet: the
+  client reads `combined_main_hand_attack_speed_+%`, which the server does not send.
   Code: `HolySweepHammers.cs`. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Fortification: qualifying melee hits build temporary protection through an explicit LocalExile generation model.
   Native checks confirmed the buff component, expiry, 20/30-stack limits, attack speed and actual hit protection.

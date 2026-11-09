@@ -1670,6 +1670,10 @@ player back there (live 2026-10-23). A resync follows at the end of the action, 
 it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks there at its charge speed and hits on the way
 (§10k).
 
+A transfigured gem (`AltX`, `AltY`) swings its base gem's rig clip: Holy Sweep of Hammerfalls shares Sweep's
+Animation row 173 and `sweep_maul` (contact 350 of 1375 ms), so `GemAttackContactDelay` falls back to the base Id
+(`TransfiguredBase`); with `sweepaltx`, which no rig has, the hit fell to attack1's 0.69 (live 2026-11-09).
+
 **Holy Sweep's hammers** are the client's own actions. Their art (`sweep_hammer_fall`) scales to the skill's final
 `active_skill_secondary_area_of_effect_radius` over its base size (`0x1414f44b0`, `0x1414f50e0`): the client derives
 none, and until the Gateway sent it the hammers were drawn at scale 0 (live 2026-11-09).
