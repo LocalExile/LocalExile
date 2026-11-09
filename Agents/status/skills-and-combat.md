@@ -1737,10 +1737,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   `frost_fury_duration_+%_per_stage` (30 a stage) through `SkillDurationModifiers`, so 8 stages last 5.44 s at gem
   level 1. The sphere is removed when the last stage goes, and re-channelling inside that window keeps the orb and the
   stages it already built rather than creating a second one; death, an area change and a reload retire it. The visuals
-  are the client's own art as effect objects, since the
-  `frost_fury_stage` buff has no `BuffVisualOrbs` to draw the orb: MiscAnimated `FrostFurySphere` is created attached
-  to the player when the channel starts and removed when the orb expires, and `FrostFuryExplode` at each impact,
-  removed after its 250 ms  clip. Each projectile is a real object of the row's own metadata (`Metadata/Projectiles/FrostFuryMortar`, whose
+  are the client's own art: the buff plays the skill's channelling effect, which draws the orb and its swirl at the
+  caster, so no effect object is created for the orb — one was, at the player's cell, and showed as a second orb under
+  the player's feet (live 2026-11-09). Each impact is MiscAnimated `FrostFuryExplode`, an effect object at its cell
+  removed after its 250 ms clip. Each projectile is a real object of the row's own metadata (`Metadata/Projectiles/FrostFuryMortar`, whose
   Projectiles.dat AOFiles are `FrostFury/projectile.ao`, so the client animates the shot), created at the player and
   glided to its landing cell for the distance over the row's 1500 units/s through `ProjectileSpeed` (projectile speed
   modifiers change the flight, 0.27–0.45 s measured live 2026-11-09). The object is removed on arrival, when the

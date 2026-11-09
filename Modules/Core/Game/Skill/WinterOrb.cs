@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -22,16 +22,14 @@ using GameServer.Core.Protocol.Login;
 /// duration the stages leave (bit1). The row's BuffVisuals carries the client's Winter Orb channelling art, which reads
 /// this buff's trailing u32 list (buff +0x80) at entries 1 and 2 with no length check: an empty list dereferenced null
 /// at 0x1417b6067 and killed the client (three live tests 2026-11-09), so every 0x1c1 here carries three entries.
-/// The orb and its impacts are the client's own art (MiscAnimated FrostFurySphere 2494 and FrostFuryExplode 2495):
-/// the sphere is an effect object attached to the player, each impact an effect object at its cell.
-/// The sphere rides the player (<c>EffectObject.Parent</c>), so the client carries it along with the player's own
-/// predicted position. Attaching it to <c>&lt;root&gt;</c> draws it inside the body: the game's own attach point for this
-/// art is still unknown, as are the three float offset fields of the attachment record (one orb per axis, 24 units,
-/// showed nothing).
+/// The orb itself is the client's own art: the buff above plays the skill's channelling effect, which draws the orb and
+/// its swirl at the caster (live 2026-11-09, seen with no effect object of the player's). An effect object of
+/// MiscAnimated FrostFurySphere 2494 at the player's cell was a second, ground-level orb beside it, so none is created.
+/// Each impact is still an effect object of FrostFuryExplode 2495 at its cell.
 /// </summary>
 static partial class Game
 {
-    const string WinterOrbSphereArt = "Metadata/Effects/Spells/FrostFury/sphere.ao";
+    // The orb's own art comes from the client (see the class summary); only its impacts are objects of ours.
     const string WinterOrbImpactArt = "Metadata/Effects/Spells/FrostFury/projectile_impact.ao";
 
     // FrostFuryExplode's clip is 250 ms (MiscAnimated __col4 250): the object goes when it has played.
@@ -149,7 +147,6 @@ static partial class Game
     {
         WinterOrbRuntime runtime;
         bool created = false;
-        (int X, int Y) at;
         lock (conn.Monsters)
         {
             runtime = conn.OrbRuntime ?? new WinterOrbRuntime();
@@ -173,18 +170,12 @@ static partial class Game
             runtime.NextFireAt = now + WinterOrbFireSeconds(conn, skillId, gem.Effect, runtime.Stages);
             // A held stage has no countdown: the release resends the icon with the duration its stages leave.
             runtime.PresentedStages = -1;
-            at = conn.Walk.Position(now);
             if (!created)
                 Console.WriteLine($"[gateway] {remote} winter orb 0x{runtime.ObjectId:x} re-channelled at {runtime.Stages} stages");
         }
         await WinterOrbPresentStages(remote, stream, ciphers, conn);
         if (created)
         {
-            await Send(remote, stream, ciphers,
-                InstanceEntities.CreateObject(runtime.ObjectId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                    new EffectObject(at.X, at.Y, WinterOrbSphereArt) { Parent = PlayerId }.Blob()),
-                $"0x02bb winter orb 0x{runtime.ObjectId:x} {WinterOrbSphereArt} attached to the player");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(runtime.ObjectId), null);
             // The loop outlives this channel and this call: it must not inherit the channel's output delegates.
             using (ExecutionContext.SuppressFlow())
                 _ = Task.Run(() => RunWinterOrb(conn, runtime, runtime.Generation));
@@ -329,10 +320,7 @@ static partial class Game
                 }
             }
             if (remove)
-            {
                 Console.WriteLine($"[gateway] {remote} winter orb 0x{id:x} expired");
-                await WinterOrbStop(remote, stream, ciphers, id);
-            }
             // The icon leaves with the orb: the last stage going, death, an area change or a closed connection.
             if (buff != 0 && !conn.Closed && !conn.LeavingArea)
                 await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), null);
