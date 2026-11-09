@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Modding;
 
 namespace GameServer.Modules.PlayerBots;
 
@@ -6,24 +7,37 @@ namespace GameServer.Modules.PlayerBots;
 /// everywhere (towns and maps), wandering within FollowRange cells of them. Leaving or disbanding the party (or kicking
 /// the bot) sends it to the nearest way out, where it goes and takes up its quests again. Party ids are this module's
 /// own (from PartyIdBase), apart from the Social module's.</summary>
+/// <summary>What an invite from the party panel did: no bot by that name was reachable, the leader's party is full,
+/// or the bot joined.</summary>
+enum BotInvite : byte { NotFound, Refused, Joined }
+
 sealed partial class BotDirector
 {
     const int FollowRange = 50, CatchUp = 150, PartyIdBase = 0x7b000000;
     static readonly TimeSpan LeaderGrace = TimeSpan.FromSeconds(30);
     static int _nextParty = PartyIdBase;
 
-    // C→S 0x93 "Invite to Party" with a bot's name: true when a bot the player sees took it.
-    public async Task<bool> Invite(ClientState conn, string name)
+    // C→S 0x93 "Invite to Party" with a bot's name: NotFound when no bot the player can reach has that name, Refused when
+    // their party is already full (the invite is still consumed, so it does not reach the Social module), Joined
+    // otherwise.
+    public async Task<BotInvite> Invite(ClientState conn, string name)
     {
         Bot? bot;
         uint party;
         lock (_bots)
         {
             bot = _bots.FirstOrDefault(b => string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase)
-                && b.Leader is null && b.Shown.Contains(conn.Instance));
-            if (bot is null) return false;
+                && b.Leader is null
+                // Visible to this player, or else standing in the town they are in: a module reload clears Shown until
+                // the bot's next publish, which otherwise refuses an invite for a bot the player can see. Town alone
+                // is not presence — BeginQuest hides the bot and then sets Town to the quest's town — so the fallback
+                // asks for a town phase too.
+                && (b.Shown.Contains(conn.Instance)
+                    || (string.Equals(b.Town, conn.Layout.Id, StringComparison.OrdinalIgnoreCase)
+                        && b.Phase is BotPhase.Arriving or BotPhase.Walking or BotPhase.Idling)));
+            if (bot is null) return BotInvite.NotFound;
             if (_bots.Count(b => ReferenceEquals(b.Leader, conn) && b.Phase == BotPhase.Following) >= 5)
-                return true;
+                return BotInvite.Refused;
             // Select from the inviting town once. Later area changes preserve earned levels and experience.
             int level = LevelForTown(bot.Level, bot.Town, _random);
             if (level != bot.Level) { bot.Level = level; Dress(bot); }
@@ -36,7 +50,7 @@ sealed partial class BotDirector
             _log.Write(bot.Account, bot.Name, $"принял приглашение в группу от {Program.CharacterName(conn)}: идёт следом");
         }
         await SendParty(conn, party);
-        return true;
+        return BotInvite.Joined;
     }
 
     // C→S 0x96 "Leave Party" on a bot party: the party goes, its bots leave.
@@ -128,6 +142,18 @@ sealed partial class BotDirector
     const byte PartyMemberByte = 1, PartyLeaderByte = 2;
 
     static Task Send(ClientState conn, byte[] bytes, string? log) => conn.Outbox is { } outbox ? outbox(bytes, log) : Task.CompletedTask;
+
+    /// <summary>A chat line back to the player who ran a bot command.</summary>
+    public Task Tell(IPlayer player, string text) =>
+        Send(Program.ConnOf(player), InstanceChat.ChatLine(text), $"0x0017 {text}");
+
+    /// <summary>'/botleave': every bot following this player leaves and goes back to its quests.</summary>
+    public async Task<bool> LeaveAny(ClientState conn)
+    {
+        uint? party;
+        lock (_bots) party = _bots.FirstOrDefault(b => ReferenceEquals(b.Leader, conn))?.Party;
+        return party is uint p && await Leave(conn, p);
+    }
 
     // A party bot's step (under the bots' lock): beside its leader wherever they are, wandering within FollowRange and
     // catching up when further; leaving, to its way out. A leader gone takes it back to its quests.
