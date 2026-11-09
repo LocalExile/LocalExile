@@ -169,8 +169,9 @@ static partial class Game
             runtime.Channelling = true;
             runtime.ExpiresAt = 0;
             runtime.NextDecayAt = 0;
-            // The first moment of channelling is the first stage; a fresh orb therefore never fires at zero.
-            runtime.Stages = Math.Max(1, runtime.Stages);
+            // The first moment of channelling is the first stage; a fresh orb therefore never fires at zero. A count
+            // carried from an earlier orb never exceeds this gem's maximum, which another gem or quality can lower.
+            runtime.Stages = Math.Clamp(runtime.Stages, 1, WinterOrbMaxStages(conn, skillId));
             runtime.NextFireAt = now + WinterOrbFireSeconds(conn, skillId, gem.Effect, runtime.Stages);
             // A held stage has no countdown: the release resends the icon with the duration its stages leave.
             runtime.PresentedStages = -1;
@@ -206,15 +207,18 @@ static partial class Game
     /// <summary>
     /// The channel ended. The orb stays: the stages it holds then decay one at a time over the duration they leave
     /// (<c>base_skill_effect_duration</c> grown by <c>frost_fury_duration_+%_per_stage</c> per stage and by the player's
-    /// duration stats), and the loop keeps firing all the while, without the while-channelling multiplier. <paramref
-    /// name="generation"/> is the ending channel's: a newer channel that already took the orb keeps it.
+    /// duration stats), and the loop keeps firing all the while, without the while-channelling multiplier. The ending
+    /// channel's generation and action both identify it: the client repeats the use while the button is held, and those
+    /// repeats share the connection's channel generation (only a release or another action bumps it), so an older repeat
+    /// ending must not release the orb the newest one has just taken.
     /// </summary>
-    internal static void WinterOrbRelease(ClientState conn, int generation)
+    internal static void WinterOrbRelease(ClientState conn, int generation, int action)
     {
         lock (conn.Monsters)
         {
             var runtime = conn.OrbRuntime;
-            if (runtime is null || !runtime.Channelling || runtime.ChannelGeneration != generation) return;
+            if (runtime is null || !runtime.Channelling || runtime.ChannelGeneration != generation
+                || runtime.Action != action) return;
             double now = conn.Clock.Elapsed.TotalSeconds;
             double duration = WinterOrbDuration(conn, runtime);
             runtime.Channelling = false;
@@ -229,6 +233,28 @@ static partial class Game
             runtime.PresentedStages = -1;
             Console.WriteLine($"[gateway] winter orb released at {runtime.Stages} stages: "
                 + $"{duration:0.00}s over {runtime.DecaySeconds:0.00}s a stage");
+        }
+    }
+
+    /// <summary>
+    /// Death: the orb ends with the connection's combat work, but its stage icon is owned by the runtime, and
+    /// <c>RetireOwnedCombat</c> drops that runtime without touching the client. The loop's own cleanup then finds the orb
+    /// already detached and removes nothing, so the icon stayed — with the stages the player died with and the orb art
+    /// the buff draws, but no orb and no loop behind it (live 2026-11-09). Queue the instance for removal before the
+    /// runtime goes: the combat worker flushes it after the respawn, when the client will accept it.
+    /// </summary>
+    internal static void WinterOrbRetire(ClientState conn)
+    {
+        lock (conn.Monsters)
+        {
+            var runtime = conn.OrbRuntime;
+            if (runtime is null) return;
+            if (runtime.PresentedBuff != 0) conn.RetiredCombatBuffs.Add((PlayerId, runtime.PresentedBuff));
+            runtime.PresentedBuff = 0;
+            runtime.PresentedStages = -1;
+            runtime.Channelling = false;
+            conn.OrbRuntime = null;
+            Console.WriteLine($"[gateway] winter orb 0x{runtime.ObjectId:x} retired at {runtime.Stages} stages");
         }
     }
 
@@ -317,10 +343,17 @@ static partial class Game
                 // and a re-channel never starts a second loop: the orb must keep this one rather than be torn down.
                 resume = current && runtime.Channelling && CurrentGameRules && !conn.Closed && !conn.LeavingArea
                     && !conn.RageRetired && conn.PlayerLife > 0;
-                remove = current && !resume;
-                if (remove)
+                bool retire = !resume;
+                if (current && retire)
                 {
                     conn.OrbRuntime = null;
+                    runtime.Channelling = false;
+                }
+                if (retire)
+                {
+                    // The icon belongs to this loop even when something else already detached the runtime (death retires
+                    // the orb from the hit handler before PlayerDiedAtEpoch): remove it here rather than leave the stages
+                    // the player died with on the client until the next orb replaces them.
                     id = runtime.ObjectId;
                     buff = runtime.PresentedBuff;
                     runtime.PresentedBuff = 0;

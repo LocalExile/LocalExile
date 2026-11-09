@@ -1277,7 +1277,7 @@ public static partial class Game
             // Winter Orb's orb outlives its channel (WinterOrb.cs): it keeps firing on its decaying stages until the
             // duration they leave runs out, and death or an area change retires it with the connection. It has no object
             // of its own to remove: the client draws the orb from the stage buff.
-            if (orbEffect != 0) WinterOrbRelease(conn, generation);
+            if (orbEffect != 0) WinterOrbRelease(conn, generation, action);
         }
     }
 
