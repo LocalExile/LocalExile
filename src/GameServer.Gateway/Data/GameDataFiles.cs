@@ -86,7 +86,7 @@ static class GameDataFiles
         Dictionary<string, int> stamps = [];
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllText(file).TrimStart('﻿'));
+            using var doc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllText(file).TrimStart('\uFEFF'));
             foreach (var e in doc.RootElement.EnumerateObject())
                 if (e.Value.ValueKind == System.Text.Json.JsonValueKind.Object && e.Value.TryGetProperty("version", out var v) && v.TryGetInt32(out int n))
                     stamps[e.Name] = n;

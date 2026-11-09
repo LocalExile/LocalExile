@@ -15,7 +15,7 @@ INSERT INTO "HeistChestRewardTypes" ("_row", "Id", "Art", "RewardTypeName", "__c
 (12, 'Essences', 'Art/2DArt/UIImages/InGame/Heist/Blueprints/Rewards/HeistRewardEssences', 'Essences', 0, 'Essences Reward Room', 5, 100, 250, 'Essences Reward Room', '[6,8]', 250, 1),
 (13, 'Fragments', 'Art/2DArt/UIImages/InGame/Heist/Blueprints/Rewards/HeistRewardFragments', 'Fragments', 0, 'Fragments Reward Room', 68, 100, 250, 'Fragments Reward Room', '[0,1]', 250, 1),
 (14, 'Fossils', 'Art/2DArt/UIImages/InGame/Heist/Blueprints/Rewards/HeistRewardFossils', 'Fossils', 0, 'Fossils Reward Room', 34, 100, 0, 'Fossils Reward Room', '[]', 0, 1),
-(15, 'Prophecies', 'Art/2DArt/UIImages/InGame/Heist/Blueprints/Rewards/HeistRewardCurrency', 'Currency', 0, '', 8, 100, 0, 'Currency Reward Room', '[2]', 0, 1),
+(15, 'Prophecies', 'Art/2DArt/UIImages/InGame/Heist/Blueprints/Rewards/HeistRewardCurrency', 'Currency', 0, '' || char(2) || '', 8, 100, 0, 'Currency Reward Room', '[2]', 0, 1),
 (16, 'DivinationCards', 'Art/2DArt/UIImages/InGame/Heist/Blueprints/Rewards/HeistRewardDivination', 'Divination Cards', 0, 'Divination Cards Reward Room', 36, 100, 300, 'Divination Cards Reward Room', '[2,7]', 300, 1),
 (17, 'Generic', 'Art/2DArt/UIImages/InGame/Heist/Blueprints/Rewards/HeistRewardGeneric', 'Generic', 0, 'Generic Reward Room', 1, 67, 100, 'Generic Reward Room', '[3]', 100, 1),
 (18, 'Talismans', 'Art/2DArt/UIImages/InGame/Heist/Blueprints/Rewards/HeistRewardTalismans', 'Talismans', 0, 'Talismans Reward Room', 1, 100, 0, 'Talismans Reward Room', '[]', 0, 1),

@@ -21,6 +21,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+import unicodedata
 from datetime import datetime, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -52,11 +53,27 @@ def column_type(values):
     return "JSON"
 
 
+def unseen(char):
+    """A character a reviewer would not see (the rule of .github/scripts/scan-docs.py), or a carriage return, which git
+    and the updater would drop from a SQL file kept with LF line ends."""
+    code = ord(char)
+    if char in "\t\n":
+        return False
+    return (unicodedata.category(char) in ("Cf", "Cc", "Zl", "Zp", "Co", "Cn")
+            or 0xFE00 <= code <= 0xFE0E or 0xE0100 <= code <= 0xE01EF
+            or code in (0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0))
+
+
+def text(value):
+    """A SQL string literal; characters a reviewer would not see are written as char(n)."""
+    return "'" + "".join(f"' || char({ord(c)}) || '" if unseen(c) else c for c in value.replace("'", "''")) + "'"
+
+
 def literal(value, kind):
     if value is None:
         return "NULL"
     if kind == "JSON":
-        return "'" + json.dumps(value, ensure_ascii=False, separators=(",", ":")).replace("'", "''") + "'"
+        return text(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
     if kind == "BOOLEAN":
         return "1" if value else "0"
     if kind == "INTEGER":
@@ -65,9 +82,7 @@ def literal(value, kind):
         if isinstance(value, float) and not math.isfinite(value):
             raise ValueError(f"{value} is not a finite number")
         return repr(float(value)) if isinstance(value, float) else str(value)
-    # A carriage return is written as char(13): git and the updater keep SQL files with LF line ends, which would drop
-    # it from inside a string.
-    return "'" + value.replace("'", "''").replace("\r", "' || char(13) || '") + "'"
+    return text(value)
 
 
 def read_table(name):

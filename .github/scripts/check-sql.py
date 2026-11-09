@@ -59,7 +59,7 @@ def style(name, problems):
     except UnicodeDecodeError as e:
         problems.append(f"{name}: not UTF-8 ({e})")
         return
-    if content.startswith("﻿"):
+    if content.startswith("\ufeff"):
         problems.append(f"{name}: starts with a byte order mark")
     if "\r" in content:
         problems.append(f"{name}: CR line ends (LF only; .gitattributes keeps sql/ LF)")
