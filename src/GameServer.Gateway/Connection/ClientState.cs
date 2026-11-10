@@ -541,13 +541,23 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
             List<ClientPathfinder.Blocker>? all = null;
+            // Another player stands where this client's own copy of it does (PeerWalks), else on its published pose.
+            var copies = new Dictionary<uint, (int X, int Y)>();
             lock (Monsters)
+            {
                 foreach (var (id, m) in CollisionMonsters)
                 {
                     if (MonsterBody(id, m, now) is { } body) (all ??= [.. fixedOnes]).Add(body);
                 }
+                // A copy moves only in this client's frames: its cell is the one the frame being sent starts on.
+                double frameStart = LockstepFrame is { } sending ? sending.Start : now;
+                foreach (var (id, copy) in PeerWalks) copies[id] = copy.Position(frameStart);
+            }
             foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
-                if (peer.Life > 0 && peer.Owner is not null) (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+                if (peer.Life > 0 && peer.Owner is not null && !copies.ContainsKey(peer.Id))
+                    (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+            foreach (var (id, at) in copies)
+                if (Instance?.Player(id) is not { Life: 0 }) (all ??= [.. fixedOnes]).Add(new(at.X, at.Y, LivingCollision.PlayerSize));
             return all is null ? fixedOnes : new GameServer.Core.World.BlockerSet(all);
         }
     }

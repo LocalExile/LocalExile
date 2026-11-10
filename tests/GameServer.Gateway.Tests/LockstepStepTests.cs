@@ -106,6 +106,11 @@ public class LockstepStepTests
             Game.StepWalkers(conn, now: 1);
             Assert.Equal((60, 50), conn.Walk.Position(0.990));
             Assert.False(conn.Walk.Moving(0.990));
+            // His own search for a way past sees the copy's cell too, and goes round it.
+            conn.Walk.Order(70, 50, now: 0.990);
+            conn.LockstepFrame = (2.970, 3.003);
+            Game.StepWalkers(conn, now: 2.98);
+            Assert.Equal((70, 50), conn.Walk.Position(2.970));
         }
     }
 
