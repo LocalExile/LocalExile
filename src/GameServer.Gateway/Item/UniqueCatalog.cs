@@ -66,7 +66,13 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 
     readonly Lazy<Dictionary<string, UniqueName>> _names = new(() => LoadNames(folder));
 
-    public IReadOnlyList<Definition> All => GameDataCatalog.Uniques;
+    public IReadOnlyList<Definition> All => JewelGrantPolicy.Current.Enabled
+        ? [.. GameDataCatalog.Uniques,
+            .. new Definition[] {
+                new(ForbiddenJewelCatalogue.Flame, "Metadata/Items/Jewels/JewelStr", [], 85, true),
+                new(ForbiddenJewelCatalogue.Flesh, "Metadata/Items/Jewels/JewelInt", [], 85, true)
+            }.Where(entry => !GameDataCatalog.Uniques.Any(existing => existing.Name == entry.Name && existing.BaseTypeId == entry.BaseTypeId))]
+        : GameDataCatalog.Uniques;
 
     /// <summary>Creatable collection entries include the named-map catalogue as well as equipment and jewels.</summary>
     public IReadOnlyList<(string Name, Item? Item)> CollectionItems(Random random)
@@ -103,6 +109,12 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     /// <summary>The item of one definition, which tells apart the bases of a unique with several.</summary>
     public Item? Create(Definition definition, Random random)
     {
+        if (definition.Name is ForbiddenJewelCatalogue.Flame or ForbiddenJewelCatalogue.Flesh)
+        {
+            var variants = ForbiddenJewelCatalogue.All;
+            return variants.Count == 0 ? null : ForbiddenJewelCatalogue.Create(items, definition.Name,
+                variants[random.Next(variants.Count)].Id);
+        }
         if (items.Find(definition.BaseTypeId) is not { Supported: true } type) return null;
         if (!_names.Value.TryGetValue(NameKey(definition.Name), out var unique)) return null;
         var item = ItemCatalog.Create(type) with

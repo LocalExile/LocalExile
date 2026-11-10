@@ -99,7 +99,7 @@ public static partial class Game
             Sent(FlaskGrounds.ProfaneLingerStat));
         // So do the player's debuffs on monsters (EnemyDebuffsTick): his passives' enemy auras and his taunt's increase.
         ushort[] nodes;
-        lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+        lock (conn.Monsters) nodes = PassiveEffectNodes(conn);
         conn.EnemyDebuffs = new(Sent("taunted_enemies_damage_taken_+%"));
         return stats;
     }
@@ -382,7 +382,7 @@ public static partial class Game
         int Get(string name) => RageStat(stats, name);
         var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get), Get,
             conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingWand: weapon.WieldingWand);
-        return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(GamblerFor(stats).DamageFactor);
+        return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(SkillDamageContext.CasterDamageFactor(stats));
     }
 
     public static double AddedEffectiveness(ClientState conn, int effect, int level) => SkillsFor(conn).DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;

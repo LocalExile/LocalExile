@@ -15,7 +15,7 @@ public static partial class Game
         if (!m.Hostile || conn.PlayerLife == 0) return null;
         var at = m.Walk.Position(now);
         var stats = new Dictionary<uint, int>();
-        foreach (var aura in PassiveBuffAuras.EnemyAurasFor([.. conn.Passives, .. conn.MainAscendancy.Allocated], LeagueFor(conn).HardMode, EnemyAuraActs))
+        foreach (var aura in PassiveBuffAuras.EnemyAurasFor(PassiveEffectNodes(conn), LeagueFor(conn).HardMode, EnemyAuraActs))
             if (aura.Stats.Count > 0 && Dist(at, player) <= aura.Radius)
                 foreach (var (key, value) in aura.Stats) stats[key] = stats.GetValueOrDefault(key) + value;
         int ignited = stat?.Invoke("enemies_ignited_by_you_have_physical_damage_%_converted_to_fire") ?? 0;

@@ -24,5 +24,12 @@ public readonly record struct SkillDamageContext(SkillHitKind Kind, IReadOnlyDic
         return DamageStats.Prohibited(type, Get, attack: Kind == SkillHitKind.Attack);
     }
 
-    double DamageFactor => Game.GamblerFor(ActualCaster).DamageFactor;
+    double DamageFactor => CasterDamageFactor(ActualCaster);
+
+    internal static double CasterDamageFactor(IReadOnlyDictionary<uint, int> caster)
+    {
+        double carnage = JewelGrantPolicy.Current.Enabled && Program.Stats.Key("berserker_damage_+%_final") is uint key
+            ? Math.Max(0, 1 + caster.GetValueOrDefault(key) / 100.0) : 1;
+        return Game.GamblerFor(caster).DamageFactor * carnage;
+    }
 }

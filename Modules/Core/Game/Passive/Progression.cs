@@ -164,7 +164,8 @@ public static partial class Game
         AscendancyIdentity? selection;
         lock (conn.Monsters)
         {
-            nodes = (nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated).ToArray();
+            var ordinary = (nodes ?? conn.Passives).ToArray();
+            nodes = ordinary.Concat(conn.MainAscendancy.Allocated).Concat(ForbiddenPassiveNodes(conn, ordinary, level)).Distinct().ToArray();
             masteries = conn.MasteryEffects;
             tattoos = new(conn.Tattoos);
             tattooKeystones = new(conn.TattooKeystones);
@@ -617,21 +618,21 @@ public static partial class Game
         {
             if (conn.PlayerStats.TryGetValue(key, out int set)) return set;
             var tree = PassivesFor(conn);
+            ushort[] nodes = PassiveEffectNodes(conn);
             if (AttributeRequirementSources.TryGetValue(conn, out var last)
                 && ReferenceEquals(tree, last.Tree)
-                && conn.Passives.SequenceEqual(last.Ordinary) && conn.MainAscendancy.Allocated.SequenceEqual(last.Ascendancy)
+                && nodes.SequenceEqual(last.Nodes)
                 && conn.MasteryEffects.Count == last.Masteries.Count
                 && conn.MasteryEffects.All(kv => last.Masteries.TryGetValue(kv.Key, out ushort value) && value == kv.Value))
                 return last.Value;
-            ushort[] ordinary = [.. conn.Passives], ascendancy = [.. conn.MainAscendancy.Allocated];
             var masteries = new Dictionary<ushort, ushort>(conn.MasteryEffects);
-            int value = tree.Stats([.. ordinary, .. ascendancy], masteries).GetValueOrDefault(key);
-            AttributeRequirementSources.AddOrUpdate(conn, new(tree, ordinary, ascendancy, masteries, value));
+            int value = tree.Stats(nodes, masteries).GetValueOrDefault(key);
+            AttributeRequirementSources.AddOrUpdate(conn, new(tree, nodes, masteries, value));
             return value;
         }
     }
 
-    sealed record AttributeRequirementSource(PassiveTree Tree, ushort[] Ordinary, ushort[] Ascendancy,
+    sealed record AttributeRequirementSource(PassiveTree Tree, ushort[] Nodes,
         Dictionary<ushort, ushort> Masteries, int Value);
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, AttributeRequirementSource> AttributeRequirementSources = new();
 
