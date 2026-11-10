@@ -1235,10 +1235,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   ([11](../docs/protocol/11-skills.md) 13).
 - Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
 - Hexes/marks have limits and combat effects; reflection and special payloads remain partial (`MonsterCurses`).
-- Totems: Rejuvenation aura and supported projectile Spell Totems execute with native skins and proxy spells.
-  Spell Totem uses a native skin and proxy Actor spell, casts from its own entity, and rejects unimplemented payloads.
-  Life, duration, replacement, damage redirection and source removal are covered by Gateway tests; enemy targeting of
-  totems and placement range remain open ([11](../docs/protocol/11-skills.md) §10g).
+- Totems: Rejuvenation, adopted projectile spells and bow/wand ballistas execute ([11](../docs/protocol/11-skills.md) §10g).
 - Passive self buffs (`PassiveBuffAuras`): a passive's BuffTemplates buff on the player adds its stats to the
   passives' sum and is sent with 0x1c1 after an allocation and on area entry, and taken off with 0x1c2 on a refund
   (Surfcaster's Ghost of the Deep).

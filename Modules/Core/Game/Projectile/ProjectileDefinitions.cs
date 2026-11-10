@@ -82,6 +82,12 @@ static partial class Game
         var definitions = new Dictionary<string, ProjectileSkillDefinition>(StringComparer.Ordinal);
         bool requireExplicit = false;
         RegisterProjectileSkillDefinitions(definitions, ref requireExplicit);
+        // Native TotemSnipe/TotemShotgun actions do not expose their projectile through the generic skill lookup.
+        foreach (var (effect, metadata) in new[] {
+            ("SiegeBallista", "Metadata/Projectiles/CrossbowSnipeProjectile"),
+            ("ShrapnelBallista", "Metadata/Projectiles/CrossbowShotgunProjectile") })
+            definitions.TryAdd(effect, new(metadata, new((get, speed, _) =>
+                GatewayProjectileDefaults.Resolve(metadata, get, speed, attack: true, arrows: true))));
         return (definitions, requireExplicit);
     }
 

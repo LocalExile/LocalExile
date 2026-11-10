@@ -532,7 +532,7 @@ static partial class Game
         if (gem.Name is not null && !ProjectilePathAvailable(remote, conn, use.SkillId, gem.Effect)) return;
         // A movement attack (Flicker Strike, Leap Slam) closes the distance itself, and an attack used with "always attack
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
-        if (gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
+        if (gem.Name is not null && !IsTotemSkill(conn, use.SkillId) && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
         {
             if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
             {
@@ -747,7 +747,7 @@ static partial class Game
         // the right mouse button, twelve swings a second at 6 mana each). The timer is shared with the default attack, so
         // two attacks cannot start at once either.
         // Paid Vaal admission already reserved this swing atomically with its cost, before the native echo.
-        if (vaalUse is null && gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect))
+        if (vaalUse is null && gem.Name is not null && !IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect))
         {
             double duration = SupportedAttackSeconds(conn, skillId);
             double now = swingAt ?? conn.Clock.Elapsed.TotalSeconds, next;

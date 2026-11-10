@@ -2500,17 +2500,20 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   Ward, Energy Shield and Life, to the nearest living totem's Life, capped by its Life (PoB `reducePoolsByDamage`).
   The client never reads that stat, nor `base_presence_radius` (0x3ee0): both are server-side.
 
-Spell Totem currently executes Fireball through the existing projectile runtime, using a proxy Actor skill `0x4000`
-with `Parent = (PlayerId, sourceSkill)`. Fireball's `SkillTotemId = 22` has no dedicated variation; the generic
-intelligence skin is `SkillTotemVariations` key 3, skin 0, variety 2272. The proxy carries the underlying Fireball
+Projectile totems use a proxy Actor skill `0x4000` with `Parent = (PlayerId, sourceSkill)`.
+Fireball's `SkillTotemId = 22` has no dedicated variation; generic intelligence/dexterity skins are
+`SkillTotemVariations` keys 3/2, skin 0, varieties 2272/2273. The proxy carries the underlying skill's
 GEPL/statset and clears placement flags; its own entity sends the action and owns/emits the projectile.
 The installed support statset supplies 8000 ms duration, -40% final cast speed and level-one -55% final damage.
 Its `totem_support_gem_level` supplies the monster level. Only placement pays player costs. The actual caster inherits
 owner offensive stats and type prohibitions, with the owner's `spell_skills_deal_no_damage` removed (Ancestral Bond).
 The existing tick selects enemies and queues cancellable casts; source item/host removal, death, replacement, expiry,
-transfer and module retirement stop pending releases. Native client visual acceptance remains pending.
-Other totem payloads are refused before action/cost admission. Enemy targeting of totems, placement range
-(`base_totem_range`) and the aura buff's totem source remain unimplemented.
+transfer and module retirement stop pending releases.
+Siege/Shrapnel Ballista's native `TotemSnipe`/`TotemShotgun` actions bypass the generic projectile lookup;
+their projectile rows are `CrossbowSnipeProjectile`/`CrossbowShotgunProjectile`, with skins 2373/8203.
+Ranged placement is 0.5 s since 3.28, despite older Totem references listing 0.35 s; `base_totem_range` is targeting range.
+Unimplemented payloads, including Artillery's mortar sequence and Focused Ballista's owner-attack gate, are refused
+before action/cost admission. Enemy targeting of totems, placement range and the aura buff's totem source remain open.
 
 ## 10h. Player minions that fight
 

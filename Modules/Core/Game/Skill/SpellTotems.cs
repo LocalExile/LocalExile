@@ -33,6 +33,7 @@ static partial class Game
     internal static double? TotemCastSeconds(ClientState conn, ushort skill)
     {
         var gem = SupportedSkill(conn, skill);
+        if (SkillsFor(conn).IsAttack(gem.Effect)) return TotemAttackSeconds(conn, skill);
         var stats = MergeSkillStats(CharacterPlayerStats(conn), gem.Stats);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         // is_totem describes the placement skill. The proxy casts the underlying spell with its support penalty.
@@ -53,8 +54,17 @@ static partial class Game
             ("base_spell_cast_time_ms", SkillsFor(conn).CastTimeMs(gem.Effect)),
             ("virtual_base_spell_cast_time_ms", SkillsFor(conn).CastTimeMs(gem.Effect)) })
             if (Stats.Key(name) is uint key) payload[key] = value;
-        if (TotemCastSeconds(conn, skill) is double seconds && Stats.Key("cast_speed_+%") is uint speed)
+        if (!SkillsFor(conn).IsAttack(gem.Effect) && TotemCastSeconds(conn, skill) is double seconds && Stats.Key("cast_speed_+%") is uint speed)
             payload[speed] = (int)Math.Round(100 * (SkillsFor(conn).CastTimeMs(gem.Effect) / (seconds * 1000) - 1));
+        if (SkillsFor(conn).IsAttack(gem.Effect))
+        {
+            foreach (var (key, value) in WeaponStats(conn, WeaponFor(conn), CharacterPlayerStats(conn))) payload[key] = value;
+            double attackSeconds = TotemAttackSeconds(conn, skill);
+            payload[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round(100 * (WeaponFor(conn).AttackMs / (attackSeconds * 1000) - 1));
+            payload[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / attackSeconds);
+            if (Stats.Key("main_hand_weapon_type") is uint weaponType)
+                payload[weaponType] = WeaponTypeStats.Of(ActiveMainHand(conn)?.Type?.Class);
+        }
         var proxy = SkillsFor(conn).FindByRow(0x4000, gem.Effect, gem.Level, [.. payload.Select(p => (p.Key, p.Value))]);
         return proxy is null ? null : proxy with { Parent = (PlayerId, skill) };
     }
@@ -69,6 +79,7 @@ static partial class Game
             && supported.SourceGem is not null && totem.SourceItem is not null
             && ReferenceEquals(PlayerInventories.GemIdentity(supported.SourceGem), PlayerInventories.GemIdentity(totem.SourceItem))
             && (!TotemSources.TryGetValue(totem, out var captured) || SameTotemSource(captured, supported))
+            && GemSkillInstanceDisabled(conn, totem.Effect, totem.SkillId) is null
             && TotemPathAvailable(conn, totem.SkillId, totem.Effect)
             && IsTotemSkill(conn, totem.SkillId);
     }
@@ -81,8 +92,9 @@ static partial class Game
         {
             if (!SpellTotemCurrent(conn, totem)) { totem.DiedAt = now; continue; }
             if (conn.Paused || now < totem.NextCast) continue;
+            double range = TotemTargetRange(conn, totem.SkillId);
             var target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
-                && Dist(p.Value.Walk.Position(now), totem.At) <= 60)
+                && Dist(p.Value.Walk.Position(now), totem.At) <= range)
                 .OrderBy(p => Dist(p.Value.Walk.Position(now), totem.At)).FirstOrDefault();
             if (target.Value is null || TotemCastSeconds(conn, totem.SkillId) is not double seconds) continue;
             var aim = target.Value.Walk.Position(now);

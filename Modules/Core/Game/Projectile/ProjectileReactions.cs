@@ -45,7 +45,7 @@ static partial class Game
             // Live also sends skill index 2 and a filled object header; their meanings are unknown, so they stay zero.
             var direction = contact.Projectile.Direction;
             ushort flags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
-            session.Packet(InstanceProtocol.ActionHit(PlayerId, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
+            session.Packet(InstanceProtocol.ActionHit(contact.Projectile.Use.Emitter.Id, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
                 code: HitCode(shot.Hit), angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000))));
         }
         session.Packet(InstanceProtocol.LifeUpdate(id, hit.Life),
