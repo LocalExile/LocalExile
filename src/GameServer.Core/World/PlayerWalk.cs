@@ -201,7 +201,12 @@ public sealed class PlayerWalk
     /// (<see cref="StopAfter"/>); without frames it stands where it is. Returns where it stands.</summary>
     public (int X, int Y) Cancel(double now)
     {
-        if (FrameOf?.Invoke(now) is { } frame) StopAfter(frame.End, frame.Start);
+        if (FrameOf?.Invoke(now) is { } frame)
+        {
+            // A walker already standing has no step time for the stop to act on (0x141e350e0 does nothing then): the
+            // time an earlier stop left it stays for its next walk.
+            if (Moving(frame.Start)) StopAfter(frame.End, frame.Start);
+        }
         else
         {
             var here = At(now, out _);

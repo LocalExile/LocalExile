@@ -167,6 +167,15 @@ public class LockstepTests : IDisposable
         start = .099; walk.Order(100, 0, .099);
         start = .165; Assert.Equal((5, 0), walk.Position(.165));
 
+        // A cancelled action on a walker that already stands (a hit's recovery on a monster between walks) changes
+        // nothing: the time the earlier stop kept is still there for the next walk.
+        start = 0; walk = Walker(40);
+        walk.Order(100, 0, 0);
+        start = .033; walk.Order(1, 0, .04);
+        start = .066; walk.Cancel(.07);
+        start = .099; walk.Order(100, 0, .099);
+        start = .165; Assert.Equal((5, 0), walk.Position(.165));
+
         // The same through a walk-up found in reach where the walker stands, which stops where the frame's steps leave it,
         // and a forced set at the stand keeps it.
         start = 0; walk = Walker(40);
