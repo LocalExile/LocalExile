@@ -25,25 +25,6 @@ public sealed class MonsterContagionTests
         Assert.Equal(600, contagion.Advance(6, 1));
         Assert.Null(contagion.Active);
         Assert.Equal(0, contagion.Advance(7, 1));
-    }
-
-    [Fact]
-    public void Contagion_lethal_final_tick_spreads_and_recast_after_expiry_takes_the_new_cast()
-    {
-        // The final tick's damage kills it (the tick calls Died): the cast that dealt it still spreads.
-        var lethal = new MonsterContagion();
-        lethal.Apply(0, new(100, 1, 18));
-        Assert.Equal(100, lethal.Advance(1, 1));
-        Assert.Null(lethal.Active);
-        lethal.Died();
-        Assert.Equal(new MonsterContagion.Cast(100, 1, 18), lethal.TakeSpread());
-
-        // A nonlethal expiry leaves nothing to spread if the monster dies later.
-        var expired = new MonsterContagion();
-        expired.Apply(0, new(100, 1, 18));
-        Assert.Equal(100, expired.Advance(1, 1));
-        expired.Clear();
-        Assert.Null(expired.TakeSpread());
 
         // A weaker recast after the old one expired (no Advance between) replaces it; the old one's owed second is kept.
         var recast = new MonsterContagion();
@@ -72,5 +53,20 @@ public sealed class MonsterContagionTests
         killedByDot.Clear();
         Assert.Equal(18, killedByDot.TakeSpread()?.Radius);
         Assert.Null(killedByDot.TakeSpread());
+
+        // The final tick's damage kills it (the tick calls Died): the cast that dealt it still spreads.
+        var lethal = new MonsterContagion();
+        lethal.Apply(0, new(100, 1, 18));
+        Assert.Equal(100, lethal.Advance(1, 1));
+        Assert.Null(lethal.Active);
+        lethal.Died();
+        Assert.Equal(new MonsterContagion.Cast(100, 1, 18), lethal.TakeSpread());
+
+        // A nonlethal expiry leaves nothing to spread if the monster dies later.
+        var expired = new MonsterContagion();
+        expired.Apply(0, new(100, 1, 18));
+        Assert.Equal(100, expired.Advance(1, 1));
+        expired.Clear();
+        Assert.Null(expired.TakeSpread());
     }
 }
