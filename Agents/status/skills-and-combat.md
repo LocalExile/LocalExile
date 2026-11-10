@@ -689,6 +689,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Ice Shot primary projectile resolution uses IceArrow; 3.29.3c protocol-driven primary-hit controls pass; cone splash remains open.
+
 - Combat load: message/frame and fresh projectile-release snapshots; input-checked skill/equipment caches ignore
   within-level gem XP and extended active recent windows; immutable item-local stats, condition parsers and projectile
   recipes are reused. Aura reconciliation compares live sources, restrictions, equipment and reservation inputs;
