@@ -5,6 +5,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Optional 20-slot backpack Mod with safe unload recovery ([05](../docs/protocol/05-inventories-and-ui.md) §2).
+
 - Ground items belong to the area instance: dropped items and loot stay where they lay across logouts, disconnects and
   client crashes until the instance expires; ids from 0x100000; one pickup per item.
   Fresh drops play native item/filter audio; existing-ground replay stays quiet (Divine, Mirror and quest alerts traced with NeverSink).
