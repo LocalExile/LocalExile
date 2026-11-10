@@ -571,6 +571,12 @@ static partial class Game
             foreach (var (key, worn) in skillCosmetics)
                 if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Resolve(worn) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
                     foreach (var (k, v) in fx.Stats) stats[k] = v;
+            // A Crucible weapon's "Flicker Strike and Vigilant Strike's Cooldown can be bypassed by Power Charges": the client
+            // reads only the skill's own override (CooldownBypass.FlickerVigilantPowerOverride), so it goes on these skills.
+            if (Stats.Key(CooldownBypass.FlickerVigilantPowerOverride) is uint crucibleKey && playerStats.GetValueOrDefault(crucibleKey) != 0
+                && CooldownBypass.FlickerVigilantOverride(SkillsFor(conn).EffectId(effect), SkillsFor(conn).CooldownBypassType(effect, level))
+                && Stats.Key(CooldownBypass.PowerOverride) is uint overrideKey)
+                stats[overrideKey] = 1;
             // The worn effect's skill_art_variation counts from the skill's own (SkillArtBase: Holy Sweep's is 2).
             if (Stats.Key("skill_art_variation") is uint artKey
                 && SkillArtBase.Variation(SkillsFor(conn).EffectId(effect), stats.GetValueOrDefault(artKey)) is int art and not 0)
