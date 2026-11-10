@@ -321,13 +321,19 @@ public static class InstanceItems
 {
     public const ushort InventoryChangeId = 0xbf, PickUpItemId = 0x28, DropItemId = 0x29, PlaceItemId = 0x2a, InventoryRequestId = 0x2d,
         ItemActionId = 0x4a, SplitStackId = 0x7c, CommandId = 0x16, SocketGemId = 0x30, UnsocketGemId = 0x2f,
-        LevelUpGemId = 0x31, LockGemId = 0xd7;
+        LevelUpGemId = 0x31, LevelUpAllGemsId = 0x32, LockGemId = 0xd7;
 
     /// <summary>
     /// C→S 0x31 (14 bytes, live 2026-10-23): the level-up arrow on a socketed gem with experience one below its next
     /// level's threshold (the client's "+", 19-gems.md §4). u32 inventory id, u32 item id, u32 socket index.
     /// </summary>
     public static SocketGem ReadLevelUpGem(ReadOnlySpan<byte> m) => ReadSocketGem(m);
+
+    /// <summary>
+    /// C→S 0x32 (2 bytes, id only, captured 2026-11-09): the gem level-up panel's "Click to level up ALL" button. It names
+    /// no gem: the server levels every socketed gem that is ready, with the same rules as the individual "+" (0x31).
+    /// </summary>
+    public const int LevelUpAllGemsLength = 2;
 
     /// <summary>
     /// C→S 0xd7 (15 bytes, live 2026-10-23): the gem's level lock toggled by a right-click. u32 inventory id, u32 item

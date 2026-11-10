@@ -1601,9 +1601,13 @@ static partial class Game
             var changed = items.ChangeSocketedGems((itemId, gem) =>
             {
                 if (IsInactive(conn, itemId) || ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return null;
-                // -1 is a corrupted gem over its cap (GemType.Level), and at its last level's threshold a gem gains no more.
-                int lastLevel = Math.Min(SkillsFor(conn).MaxLevelAt(type.Variant(gem.GemVariant).Effect, conn.Pools.Level), type.MaxLevel);
-                int cap = lastLevel < type.MaxLevel ? type.ExperienceFor(lastLevel + 1) - 1 : type.ExperienceFor(type.MaxLevel);
+                // The experience stops one point below the next level's threshold, where the client draws the "+", so a
+                // kill never levels a gem: only the player's click (0x31, or Level Up All's 0x32) writes the threshold.
+                // A gem already above the highest level the character meets keeps its experience and gains nothing.
+                int level = ItemsFor(conn).GemLevel(gem);
+                if (level < 0) return null; // -1 is a corrupted gem over its cap (GemType.Level)
+                int allowed = Math.Min(SkillsFor(conn).MaxLevelAt(type.Variant(gem.GemVariant).Effect, conn.Pools.Level), type.MaxLevel);
+                int cap = type.ExperienceFor(Math.Min(level + 1, allowed + 1)) - 1;
                 if (gem.GemExperience < 0 || gem.GemExperience >= cap) return null;
                 return gem with { GemExperience = (int)Math.Min((long)gem.GemExperience + share, cap) };
             });
