@@ -1,11 +1,11 @@
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>Host-owned, callback-free golem state survives Game replacement; guarded by the area's Monsters lock.</summary>
-sealed class GolemState
+public sealed class GolemState
 {
-    internal sealed record Saved(string Effect, ushort Skill, double Life = 1, double ReviveSeconds = 0);
-    internal sealed record Awaiting(Saved Saved, double At);
-    internal sealed class Golem(uint id, SpawnedMonster monster, GolemCatalog.Definition definition, ushort source)
+    public sealed record Saved(string Effect, ushort Skill, double Life = 1, double ReviveSeconds = 0);
+    public sealed record Awaiting(Saved Saved, double At);
+    public sealed class Golem(uint id, SpawnedMonster monster, GolemCatalog.Definition definition, ushort source)
     {
         public uint Id = id;
         public SpawnedMonster Monster = monster;
@@ -35,15 +35,15 @@ sealed class GolemState
         public readonly List<Pulse> Pulses = [];
         public readonly MonsterIgnites Burns = new();
     }
-    internal sealed record Ability(int Effect, ushort Skill, string Id, MonsterAttack Attack,
+    public sealed record Ability(int Effect, ushort Skill, string Id, MonsterAttack Attack,
         IReadOnlyDictionary<uint, int> Stats, double Radius, double Cooldown, int Uses, double Contact,
         SkillCatalog.MonsterProjectileInfo? Projectile = null, int Crit = 0);
-    internal sealed record Action(Ability Ability, uint Target, SpawnedMonster? Victim, (int X, int Y) Aim, double ContactAt, int Generation)
+    public sealed record Action(Ability Ability, uint Target, SpawnedMonster? Victim, (int X, int Y) Aim, double ContactAt, int Generation)
     {
         public bool Started;
         public double At = ContactAt;
     }
-    internal sealed record Hazard(int Effect, (int X, int Y) At, double Until, double Radius, double DamagePerSecond,
+    public sealed record Hazard(int Effect, (int X, int Y) At, double Until, double Radius, double DamagePerSecond,
         GameServer.Core.World.DamageType Type, bool Follows = false, bool Wither = false)
     {
         public double LastAt;
@@ -51,13 +51,13 @@ sealed class GolemState
         public readonly Dictionary<uint, double> Carry = [];
         public readonly Dictionary<uint, double> DamageCarry = [];
     }
-    internal sealed record Incoming(uint Enemy, SpawnedMonster Monster, Golem Target, MonsterAttack Attack, int Generation)
+    public sealed record Incoming(uint Enemy, SpawnedMonster Monster, Golem Target, MonsterAttack Attack, int Generation)
     {
         public bool Started;
         public double ContactAt;
     }
 
-    internal sealed record Pulse(Ability Ability, (int X, int Y) At, double Until, double Interval, bool Follows = false, bool Once = false)
+    public sealed record Pulse(Ability Ability, (int X, int Y) At, double Until, double Interval, bool Follows = false, bool Once = false)
     {
         public double Next;
         public readonly HashSet<uint> Hit = [];
@@ -73,11 +73,11 @@ sealed class GolemState
     public long Version;
     public double RefreshAt;
 
-    internal Golem? Replacement(string kind, int limit) => All.Values.Count(g => !g.Monster.Dead) < limit ? null
+    public Golem? Replacement(string kind, int limit) => All.Values.Count(g => !g.Monster.Dead) < limit ? null
         : All.Values.Where(g => !g.Monster.Dead).OrderBy(g => g.Definition.Kind == kind ? 0 : 1).ThenBy(g => g.SummonedAt).FirstOrDefault();
 }
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     GolemState? golems;
     public GolemState Golems => System.Threading.LazyInitializer.EnsureInitialized(ref golems);

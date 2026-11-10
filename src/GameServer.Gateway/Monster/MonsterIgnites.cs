@@ -7,7 +7,7 @@ using GameServer.Core.World;
 /// adds here: a hit's chance (<see cref="TryApply"/>) or an ignite a granted skill worked out itself (<see cref="Add"/>,
 /// Abberath's Fury).
 /// </summary>
-sealed class MonsterIgnites
+public sealed class MonsterIgnites
 {
     /// <summary>What a hit can ignite with, captured at release: the chance, the ignite's fire damage per second for a
     /// non-critical and a critical hit (the panel's ignite rows, <see cref="AilmentPanelStats"/>, already scaled by the

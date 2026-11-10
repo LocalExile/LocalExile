@@ -7,7 +7,7 @@ using GameServer.Core.Protocol.Instance;
 /// saved whole or not at all, so an item is never lost between its two places, nor counted in both. Checks come before
 /// the first change; the handlers in Program.cs send the client what changed afterwards.
 /// </summary>
-static class ItemMoves
+public static class ItemMoves
 {
     const byte Cursor = PlayerInventories.Cursor, Main = PlayerInventories.MainInventory;
 

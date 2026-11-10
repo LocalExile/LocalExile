@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>Outgoing skill damage from the actual caster's stats, never an implicit owner's stats.</summary>
-readonly record struct SkillDamageContext(SkillHitKind Kind, IReadOnlyDictionary<uint, int> ActualCaster)
+public readonly record struct SkillDamageContext(SkillHitKind Kind, IReadOnlyDictionary<uint, int> ActualCaster)
 {
     public bool Suppressed => Kind == SkillHitKind.Spell
         && ActualCaster.GetValueOrDefault(StatKeys.SpellSkillsDealNoDamage) != 0;

@@ -2,7 +2,7 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>Persistent generated offers; local generation assumptions are documented in protocol/17-npcs.md.</summary>
-static class VendorStock
+public static class VendorStock
 {
     public sealed record Cost(uint Currency, uint Amount);
     public sealed record Entry(Guid Token, int RefreshAt, CharacterSaves.SavedItem Item, bool Sold = false,

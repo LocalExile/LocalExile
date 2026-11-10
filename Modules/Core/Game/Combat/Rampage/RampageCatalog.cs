@@ -7,7 +7,7 @@ using GameServer.Core;
 /// granted effect, GEPL and stat-set level rows. Animated weapons retain their own variety/mod/skill records.
 /// Production data always defaults to the repository's data/; a fixture may supply a different folder explicitly.
 /// </summary>
-sealed class RampageCatalog(string folder = "data")
+public sealed class RampageCatalog(string folder = "data")
 {
     public const ushort BuffDefinitionRow = 328;
     // Native Game.exe: HUD constructor 0x14024b810, row328 observer 0x14024c6c0 (ID 0x149),

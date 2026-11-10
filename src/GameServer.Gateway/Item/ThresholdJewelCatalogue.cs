@@ -5,7 +5,7 @@
 /// <c>local_unique_jewel_..._with_40_&lt;attribute&gt;_in_radius</c> (or the 50-attribute variants); the
 /// client applies them to the passive tree, while the server's flat stat model only consumes the
 /// unconditional global mods. ReadConversion therefore returns null for these items.</summary>
-static class ThresholdJewelCatalogue
+public static class ThresholdJewelCatalogue
 {
     public static RadiusJewelCatalogue.Entry[] All => GameDataCatalog.ThresholdJewels;
 }

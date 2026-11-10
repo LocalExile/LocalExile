@@ -3,7 +3,7 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Handles the framed messages of one read, ticks taken out (OnClientData):
     // 0x7d (area generated) → the local player id (0x22), the player object (0x2bb), inventories, passive slots, the area transitions,
@@ -33,7 +33,7 @@ static partial class Game
     static long ThreadCpuMilliseconds() =>
         GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user) ? (kernel + user) / 10_000 : 0;
 
-    internal static async Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt = 0)
     {
         foreach (var (id, bytes) in messages)

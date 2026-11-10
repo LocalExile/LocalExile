@@ -7,15 +7,15 @@ using GameServer.Storage;
 using GameServer.Core.Diagnostics;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
-partial class Program
+public partial class Program
 {
     static readonly Lazy<PacketLogQueue> PacketSummaries = new(() => new(Console.WriteLine));
-    internal static string CharacterName(ClientState conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
+    public static string CharacterName(ClientState conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
 
     // Set while a projectile's output is sent: false drops it (Send).
-    internal static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
+    public static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
 
-    internal static void SaveUnsavedProgressNow(string? why)
+    public static void SaveUnsavedProgressNow(string? why)
     {
         try
         {
@@ -31,14 +31,14 @@ partial class Program
         }
     }
 
-    internal static string? FindUp(string relative)
+    public static string? FindUp(string relative)
     {
         for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir is not null; dir = dir.Parent)
             if (File.Exists(Path.Combine(dir.FullName, relative))) return Path.Combine(dir.FullName, relative);
         return null;
     }
 
-    internal static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
+    public static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
     {
         string remote = client.Client.RemoteEndPoint?.ToString() ?? "?";
         // Nagle off: it would hold a small 0x1c back until the previous write is acknowledged (up to ~200 ms, issue #46).
@@ -240,7 +240,7 @@ partial class Program
     // The read loop's part: decrypts one read, frames it (InstanceProtocol.SplitClientMessages), answers its 0x1b ticks with
     // 0x1c at once and queues the rest for RunHandlers. readAt is when the read completed: a tick answered more than
     // ClientInbox.SlowAfter later is logged.
-    internal static async Task OnClientData(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] data, ClientState conn,
+    public static async Task OnClientData(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] data, ClientState conn,
         ClientInbox inbox, long readAt)
     {
         ciphers.Receive.Process(data);
@@ -277,7 +277,7 @@ partial class Program
 
     // The connection's handler task: every message but the ticks, one read at a time and in order (ClientInbox). A handler
     // that runs longer than ClientInbox.SlowAfter is logged. An error or 0x153 closes the connection by cancelling the read.
-    internal static async Task RunHandlers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task RunHandlers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ClientInbox inbox, CancellationTokenSource reading)
     {
         await Task.Yield();   // the read loop starts at once; the handlers run beside it
@@ -325,7 +325,7 @@ partial class Program
     // cells) of the player starts chasing: it walks (Move action 0x1ab, skill 0x2909; the client paths it) to its own cell
     // around the player (MonsterSurround), re-ordered when that cell has moved by 3+ cells. Beyond twice the range it gives up and stops.
     // Positions are the server's estimates (PlayerWalk at MonsterVarieties MovementSpeed cells/s).
-    internal static async Task WhilePaused(ClientState conn)
+    public static async Task WhilePaused(ClientState conn)
     {
         while (conn.Paused && !conn.Closed) await Task.Delay(100);
     }
@@ -338,13 +338,13 @@ partial class Program
     // A factory samples clock-sensitive state and constructs its packet after earlier sends; null sends nothing.
     /// <summary>Sees every message before it is encrypted and written (the module's mirror of shared monsters to the other
     /// clients); it must copy what it keeps.</summary>
-    internal static Action<ConnectionCiphers, byte[]>? Outgoing;
+    public static Action<ConnectionCiphers, byte[]>? Outgoing;
 
     // How often a state sync that an update loop offers every 16-32 ms may take the send gate. The packets are
     // idempotent snapshots, so a skipped step publishes nothing lost, and the input handlers stop queueing behind them.
-    internal const double SyncPublishMilliseconds = 100;
+    public const double SyncPublishMilliseconds = 100;
 
-    internal static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
+    public static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
         Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
     {
         var gate = SendGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
@@ -424,7 +424,7 @@ partial class Program
     /// <summary>Runs <paramref name="body"/>, whose sends to this connection take the send gate together at its end.
     /// Its result is the body's. A send inside returns before it is published, so the body must not rely on one having
     /// gone out.</summary>
-    internal static async Task<bool> SendBatched(string remote, NetworkStream stream, ConnectionCiphers ciphers, Func<Task<bool>> body)
+    public static async Task<bool> SendBatched(string remote, NetworkStream stream, ConnectionCiphers ciphers, Func<Task<bool>> body)
     {
         if (CurrentSendBatch.Value is not null) return await body();
         var batch = new SendBatch(ciphers);
@@ -496,7 +496,7 @@ partial class Program
 
     // The wire itself: the keystream must be applied and written in one order, so encryption and the write share this
     // short gate. Send's gate orders the packets and runs their state callbacks; it never holds this one while waiting.
-    internal static async Task Write(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes)
+    public static async Task Write(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes)
     {
         if (ControlledPlayers.IsTransport(ciphers)) return;
         var wire = WireGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
@@ -517,11 +517,11 @@ partial class Program
 
     // A tick's answer (0x1c) only reports that the server is there: it needs no game state, so it takes the wire alone
     // and goes out between two other packets instead of waiting behind their state callbacks (combat, Rage, stats).
-    internal static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
+    public static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
 
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();
-    internal static ConnectionPerformance MetricsFor(ConnectionCiphers ciphers) => ConnectionMetrics.GetValue(ciphers, _ => new());
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, PacketHistory> PacketHistories = new();
-    internal static PacketHistory HistoryFor(ConnectionCiphers ciphers) => PacketHistories.GetValue(ciphers, _ => new());
+    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
+    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();
+    public static ConnectionPerformance MetricsFor(ConnectionCiphers ciphers) => ConnectionMetrics.GetValue(ciphers, _ => new());
+    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, PacketHistory> PacketHistories = new();
+    public static PacketHistory HistoryFor(ConnectionCiphers ciphers) => PacketHistories.GetValue(ciphers, _ => new());
 }

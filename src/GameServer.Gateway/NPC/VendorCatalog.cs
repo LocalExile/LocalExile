@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-sealed class VendorCatalog
+public sealed class VendorCatalog
 {
     public sealed record Shop(string Kind, int Act, int TownLevel);
     public sealed record GemRule(string Vendor, int Class, string Base, int[] Offers);

@@ -2,28 +2,28 @@ using GameServer.Core.Accounts;
 using System.Collections.Concurrent;
 using GameServer.Core.Diagnostics;
 
-static partial class Game
+public static partial class Game
 {
     // The game files' two sets of data; a league picks one (league.json "dataSet").
-    internal static readonly Lazy<ItemCatalog> HardModeItems = new(() => new("data", hardMode: true));
-    internal static readonly Lazy<SkillCatalog> HardModeSkills = new(() => new("data", hardMode: true));
-    internal static readonly Lazy<PassiveTree> HardModePassives = new(() => new("data", hardMode: true));
-    internal static readonly Lazy<ItemRolls> HardModeRolls = new(() => new(HardModeItems.Value));
-    internal static readonly Lazy<UniqueCatalog> HardModeUniques = new(() => new(HardModeItems.Value));
-    internal static readonly Lazy<EssenceCrafting> HardModeEssences = new(() => new(HardModeItems.Value, HardModeRolls.Value));
+    public static readonly Lazy<ItemCatalog> HardModeItems = new(() => new("data", hardMode: true));
+    public static readonly Lazy<SkillCatalog> HardModeSkills = new(() => new("data", hardMode: true));
+    public static readonly Lazy<PassiveTree> HardModePassives = new(() => new("data", hardMode: true));
+    public static readonly Lazy<ItemRolls> HardModeRolls = new(() => new(HardModeItems.Value));
+    public static readonly Lazy<UniqueCatalog> HardModeUniques = new(() => new(HardModeItems.Value));
+    public static readonly Lazy<EssenceCrafting> HardModeEssences = new(() => new(HardModeItems.Value, HardModeRolls.Value));
     // Drops read the league's gem rules when they are built, so each HardMode league has its own.
-    internal static readonly ConcurrentDictionary<string, Lazy<ItemDrops>> HardModeDrops = new();
+    public static readonly ConcurrentDictionary<string, Lazy<ItemDrops>> HardModeDrops = new();
 
-    internal static ItemCatalog ItemsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeItems.Value : Items;
-    internal static SkillCatalog SkillsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeSkills.Value : Skills;
-    internal static PassiveTree PassivesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModePassives.Value : Passives;
-    internal static ItemRolls RollsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeRolls.Value : Rolls;
-    internal static UniqueCatalog UniquesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeUniques.Value : Uniques;
-    internal static EssenceCrafting EssencesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeEssences.Value : Essences;
-    internal static ItemDrops DropsFor(ClientState conn) => LeagueFor(conn) is { HardMode: true } league
+    public static ItemCatalog ItemsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeItems.Value : Items;
+    public static SkillCatalog SkillsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeSkills.Value : Skills;
+    public static PassiveTree PassivesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModePassives.Value : Passives;
+    public static ItemRolls RollsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeRolls.Value : Rolls;
+    public static UniqueCatalog UniquesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeUniques.Value : Uniques;
+    public static EssenceCrafting EssencesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeEssences.Value : Essences;
+    public static ItemDrops DropsFor(ClientState conn) => LeagueFor(conn) is { HardMode: true } league
         ? HardModeDrops.GetOrAdd(league.Id, _ => new(() => new(HardModeItems.Value, HardModeRolls.Value, hardMode: true, uniques: HardModeUniques.Value, league: league.Rules))).Value : Drops;
 
-    internal sealed class VitalsAdmission
+    public sealed class VitalsAdmission
     {
         public readonly Lock Gate = new();
         public Guid Latest;
@@ -31,11 +31,11 @@ static partial class Game
 
     // Registration precedes expensive progress preparation. An older preparation cannot claim resources after a
     // newer connection was admitted. Entries are removed when their latest connection finishes, including refusals.
-    internal static readonly ConcurrentDictionary<(string Database, Guid Character), VitalsAdmission> VitalsAdmissions = new();
-    internal static (string, Guid)? VitalsAdmissionKey(ClientState conn) => conn.CharacterId is { } id
+    public static readonly ConcurrentDictionary<(string Database, Guid Character), VitalsAdmission> VitalsAdmissions = new();
+    public static (string, Guid)? VitalsAdmissionKey(ClientState conn) => conn.CharacterId is { } id
         ? (Path.GetFullPath(Saves.Db.Path).ToUpperInvariant(), id) : null;
 
-    internal static void RegisterVitalsAdmission(ClientState conn)
+    public static void RegisterVitalsAdmission(ClientState conn)
     {
         if (!LeagueFor(conn).Rules.PersistsVitals) return;
         lock (conn.Monsters)
@@ -55,7 +55,7 @@ static partial class Game
         }
     }
 
-    internal static void InitializeCharacterVitals(ClientState conn)
+    public static void InitializeCharacterVitals(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -82,7 +82,7 @@ static partial class Game
         }
     }
 
-    internal static void ForgetVitalsAdmission(ClientState conn)
+    public static void ForgetVitalsAdmission(ClientState conn)
     {
         if (!LeagueFor(conn).Rules.PersistsVitals || VitalsAdmissionKey(conn) is not { } key
             || !VitalsAdmissions.TryGetValue(key, out var admission)) return;
@@ -91,7 +91,7 @@ static partial class Game
                 VitalsAdmissions.TryRemove(new KeyValuePair<(string, Guid), VitalsAdmission>(key, admission));
     }
 
-    internal static void PersistVitals(ClientState conn, bool bestEffort = false)
+    public static void PersistVitals(ClientState conn, bool bestEffort = false)
     {
         if (!LeagueFor(conn).Rules.PersistsVitals) return;
         try
@@ -109,7 +109,7 @@ static partial class Game
 
     // Save and retire before Auth can issue the destination ticket. Neither periodic nor disconnect saves from the
     // source may follow that handoff. An Auth refusal can resume only this same retired token, never a newer owner.
-    internal static bool RetireVitalsForTransfer(ClientState conn)
+    public static bool RetireVitalsForTransfer(ClientState conn)
     {
         if (!LeagueFor(conn).Rules.PersistsVitals) return true;
         if (conn.CharacterId is not { } id) return false;
@@ -118,7 +118,7 @@ static partial class Game
                 conn.PlayerLife, conn.PlayerMana, retire: true);
     }
 
-    internal static void ResumeVitalsAfterFailedTransfer(ClientState conn)
+    public static void ResumeVitalsAfterFailedTransfer(ClientState conn)
     {
         if (!LeagueFor(conn).Rules.PersistsVitals || conn.CharacterId is not { } id) return;
         lock (conn.Monsters)
@@ -126,7 +126,7 @@ static partial class Game
                 conn.PlayerLife, conn.PlayerMana);
     }
 
-    internal static (uint Life, uint Mana) InitialVitals(bool persists, CharacterSaves.Save? saved, uint maxLife, uint maxMana)
+    public static (uint Life, uint Mana) InitialVitals(bool persists, CharacterSaves.Save? saved, uint maxLife, uint maxMana)
     {
         // New and legacy saves have no pools. A softcore death/relogin revives; HC death is refused before this point.
         bool alive = saved?.Life is > 0;
@@ -134,7 +134,7 @@ static partial class Game
             : (maxLife, maxMana);
     }
 
-    internal static IReadOnlyList<(uint Id, uint Life)> RecoverBossesOnDeath(ClientState conn)
+    public static IReadOnlyList<(uint Id, uint Life)> RecoverBossesOnDeath(ClientState conn)
     {
         lock (conn.Monsters)
         {

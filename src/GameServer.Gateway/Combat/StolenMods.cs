@@ -6,7 +6,7 @@
 /// Stats that act on a monster but not on a player here (no consumer on the character) do nothing, as any unread stat from
 /// gear does. One per connection: like a flask's effect, they end with an area change or death.
 /// </summary>
-sealed class StolenMods
+public sealed class StolenMods
 {
     /// <summary>BuffDefinitions row of <c>stolen_mods_buff</c> ("Headhunter", no stats of its own, cancelled on death).</summary>
     public const ushort BuffRow = 269;

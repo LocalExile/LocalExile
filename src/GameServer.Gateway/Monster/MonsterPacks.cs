@@ -12,7 +12,7 @@ using GameServer.Core;
 /// area (Maps.dat Regular_WorldAreasKey) also gets the map's own packs (Maps.dat MonsterPacksKeys: Beach → atlas-crab1),
 /// which no MonsterPacks row lists by area. Agents/docs/protocol/14-monster-packs.md.
 /// </summary>
-sealed class PackCatalog(string folder = "data")
+public sealed class PackCatalog(string folder = "data")
 {
     public sealed record Pack(int Row, string Id, int MinCount, int MaxCount, int BossChance, int BossCount,
         IReadOnlyList<int> BossVarieties, IReadOnlyList<(int Variety, int Weight)> Entries, IReadOnlyDictionary<int, int> AreaWeights)
@@ -147,7 +147,7 @@ sealed class PackCatalog(string folder = "data")
 /// packs an area has and how often a pack is magic or has a rare are decided by the official server and are not in the
 /// client, so the numbers here are our own (<see cref="CellsPerPack"/>, <see cref="MagicChance"/>, <see cref="RareChance"/>).
 /// </summary>
-static class AreaPopulation
+public static class AreaPopulation
 {
     // Local population seed derivation. HashCode.Combine has a process-random salt and cannot reproduce instances.
     public static int PopulationSeed(ushort areaHash, uint areaSeed) => unchecked((int)InstanceEntities.ObjectTypeHash(
@@ -540,7 +540,7 @@ static class AreaPopulation
     /// <see cref="MercyMission.BoatRooms"/>) for their points, quest rooms for their objects. With
     /// <paramref name="generated"/>, the Gateway's own generation of the seed is used even where a capture exists (the
     /// capture tour's records compare the two fits).</summary>
-    internal static (List<RoomPoint> Points, List<RoomObject> Objects, List<string> Captured) FitRooms(string areaId, uint seed, List<string> notes,
+    public static (List<RoomPoint> Points, List<RoomObject> Objects, List<string> Captured) FitRooms(string areaId, uint seed, List<string> notes,
         string folder, bool generated = false, List<PlacedRoom>? placedRooms = null)
     {
         string walkability = Path.Combine(folder, "walkability");

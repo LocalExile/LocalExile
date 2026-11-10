@@ -8,18 +8,18 @@ using GameServer.Core.Protocol.Login;
 //   run when the row is chosen);
 // - DoNPCChat(n), FinishNPCChat(), SendOpenScreen(screen), AreaTransitionTo(area, index, delay) (+ FadeToBlack in
 //   Script2): what happens when the row's talk ends (or at once for a row without text).
-static partial class Game
+public static partial class Game
 {
     // S→C 0x7b kinds of the screens the scripts open (the client's screen table at 0x142fd89f0, campaign/pantheon.md §3).
-    internal static readonly Dictionary<string, byte> ScriptScreens = new(StringComparer.Ordinal) { ["PantheonScreen"] = 0x14 };
+    public static readonly Dictionary<string, byte> ScriptScreens = new(StringComparer.Ordinal) { ["PantheonScreen"] = 0x14 };
 
     /// <summary>Whether the row does something when its talk ends (or at once without a talk).</summary>
-    internal static bool EndsWithScript(NpcCatalog.Talk talk) =>
+    public static bool EndsWithScript(NpcCatalog.Talk talk) =>
         talk.NextChat is not null || talk.FinishesChat || talk.AreaTransition is not null || talk.OpensScreen is not null;
 
     // The row's world changes, when it is chosen: the NPC's own Transitionable steps on (Dialla withers, NPCTalk 534) and the
     // objects of the named types transition (Quests.OnScriptTransition: transitions a quest shows, objects it changes).
-    internal static async Task RunTalkWorldScript(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcId,
+    public static async Task RunTalkWorldScript(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcId,
         SpawnedNpc npc, NpcCatalog.Talk talk)
     {
         if (talk.TransitionsSelf) await StepNpcTransition(remote, stream, ciphers, conn, npcId, npc, $"{talk.Option} (NPCTalk {talk.Row})");
@@ -28,7 +28,7 @@ static partial class Game
     }
 
     // An NPC's Transitionable one state further (no further than its last state).
-    internal static async Task StepNpcTransition(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcId, SpawnedNpc npc, string why)
+    public static async Task StepNpcTransition(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcId, SpawnedNpc npc, string why)
     {
         int component = npc.Npc.Components?.ToList().IndexOf("Transitionable") ?? -1;
         if (component < 0) return;
@@ -40,11 +40,11 @@ static partial class Game
     }
 
     // The NPC type's Transitionable num_states (object-types.json; 2 when the type does not say).
-    internal static byte NpcTransitionStates(NpcCatalog.Npc npc) => npc.TransitionStates is > 1 and var n ? n : (byte)2;
+    public static byte NpcTransitionStates(NpcCatalog.Npc npc) => npc.TransitionStates is > 1 and var n ? n : (byte)2;
 
     // Every object of the type in this instance steps on: NPCs (their Transitionable), and what the quests manage
     // (QuestScriptObjects: quest transitions shown, quest objects' states).
-    internal static async Task TransitionObjectsOfType(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string type, string why)
+    public static async Task TransitionObjectsOfType(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string type, string why)
     {
         List<(uint Id, SpawnedNpc Npc)> npcs;
         lock (conn.Npcs) npcs = [.. conn.Npcs.Where(n => n.Value.Npc.Id == type).Select(n => (n.Key, n.Value))];
@@ -55,7 +55,7 @@ static partial class Game
     // A script's Transition of a quest type: an area transition of that tile type that its quest flag still hides opens on
     // this instance (Dialla's 521 → AscentTransition, 535 → RaptureTransition; the row's own flag opens it for good,
     // Quests.ExitRule), and the quest objects the engine created of that type step on (QuestObjectTransition).
-    internal static async Task TransitionQuestObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string type, string why)
+    public static async Task TransitionQuestObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string type, string why)
     {
         bool opened = false;
         foreach (var (id, transition) in conn.Layout.AreaTransitions.Where(t => t.Transition.SourceType == type))
@@ -64,7 +64,7 @@ static partial class Game
         await QuestObjectTransition(remote, stream, ciphers, conn, type, why);
     }
 
-    internal static async Task ApplyQuestConversationStart(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task ApplyQuestConversationStart(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk, bool applyRowRules)
     {
         if (TalkStartFlag(conn, talk) is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
@@ -76,7 +76,7 @@ static partial class Game
     /// <summary>When a row's talk ends (C→S 0x85 after it, or at once for a row without text): its next page
     /// (DoNPCChat), or the end of the dialogue (FinishNPCChat) with the screen it opens or the area it moves to. True when
     /// the script decided what comes next (the option list does not come back).</summary>
-    internal static async Task<bool> EndTalkScript(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcId,
+    public static async Task<bool> EndTalkScript(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcId,
         SpawnedNpc npc, NpcCatalog.Talk talk)
     {
         if (talk.NextChat is int next && Npcs.Value.TalkOf(npc.Npc, next) is { } page)
@@ -118,7 +118,7 @@ static partial class Game
 
     // The quest objects the engine created of this type (Quests.ObjectRule) go to their last Transitionable state on this
     // instance (the Rapture Device, NPCTalk 534); their rule's own flag keeps that state on later visits.
-    internal static async Task QuestObjectTransition(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string type, string why)
+    public static async Task QuestObjectTransition(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string type, string why)
     {
         List<(uint Id, QuestObjectTypes.Info Info)> objects;
         lock (conn.QuestObjects) objects = [.. conn.QuestObjects.Where(o => o.Value.Rule.ObjectType == type).Select(o => (o.Key, o.Value.Info))];

@@ -4,10 +4,10 @@ using GameServer.Core;
 
 /// <summary>The ordinary and Legacy of Phrecia trees are separate choices, even when they share a table row/start.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<AscendancyFamily>))]
-enum AscendancyFamily { Normal, Phrecia }
+public enum AscendancyFamily { Normal, Phrecia }
 
 /// <summary>A durable choice. Table rows and the client's packed class byte are deliberately not save identifiers.</summary>
-sealed record AscendancyIdentity(AscendancyFamily Family, string Id, string Revision)
+public sealed record AscendancyIdentity(AscendancyFamily Family, string Id, string Revision)
 {
     [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
 }
@@ -16,7 +16,7 @@ sealed record AscendancyIdentity(AscendancyFamily Family, string Id, string Revi
 /// Main ascendancies in the exact extracted client. Membership and links come from its two PSG files; the table alone
 /// contains both families and is insufficient to authorise an allocation. Scavenger is one choice, not three Scion aliases.
 /// </summary>
-sealed class AscendancyCatalog(string folder = "data")
+public sealed class AscendancyCatalog(string folder = "data")
 {
     public const string Revision = "3.29.3c";
     public const string GraphFile = "passive-skill-graphs.json";

@@ -3,7 +3,7 @@ using GameServer.Core.World;
 
 /// <summary>Per-event roll policies read from actual passive stats. These do not change the character's ordinary
 /// resistance caps or turn a random chance into an average bonus. The caller rolls them once for each hit.</summary>
-readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int EnemyDamageExtraRolls = 0,
+public readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int EnemyDamageExtraRolls = 0,
     int TripleDamageChance = 0, int DamageMorePct = 0, int InvertElementalResistanceChance = 0, int EnemyHitsNinetyResistanceChance = 0,
     int DoubleDamageChance = 0, int SpellDoubleDamageChance = 0)
 {

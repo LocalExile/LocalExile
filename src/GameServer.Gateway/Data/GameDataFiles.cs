@@ -5,7 +5,7 @@ using GameServer.Core;
 /// feature turns itself off without its file; this lists the missing ones in
 /// one startup warning. Keep in step with extract-data.ps1's manifest.
 /// </summary>
-static class GameDataFiles
+public static class GameDataFiles
 {
     public static readonly (string File, string Feature)[] All =
     [

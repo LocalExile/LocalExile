@@ -2,9 +2,9 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal static (uint Id, int X, int Y, bool Campaign)? MapDeviceHere(ClientState conn)
+    public static (uint Id, int X, int Y, bool Campaign)? MapDeviceHere(ClientState conn)
     {
         if (conn.Layout.Id == MapDevice.CampaignDeviceArea)
             lock (conn.QuestObjects)
@@ -18,7 +18,7 @@ static partial class Game
     }
     // Lists the portals already standing again, so a portal cosmetic takes effect without reopening the map device: 0x008f
     // carries the variation of every entry and the client re-applies the visual. False when nothing stands.
-    internal static async Task<bool> ResendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task<bool> ResendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         uint deviceId = MapDeviceHere(conn)?.Id ?? 0;
         lock (conn.MapPortals)
@@ -30,7 +30,7 @@ static partial class Game
 
     // S→C 0x8f: the device's portals and where they lead (21-hideouts.md §5). Without it the client never draws them; a
     // portal listed with area 0 (one just taken) closes.
-    internal static async Task SendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint deviceId, ushort area, uint closed = 0)
+    public static async Task SendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint deviceId, ushort area, uint closed = 0)
     {
         byte style = conn.MapPortalStyle;
         List<uint> ids;

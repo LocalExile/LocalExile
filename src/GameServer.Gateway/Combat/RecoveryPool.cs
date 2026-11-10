@@ -1,5 +1,5 @@
 /// <summary>Continuous recovery in whole resource points, preserving the fraction between updates.</summary>
-static class RecoveryPool
+public static class RecoveryPool
 {
     public static uint Advance(uint current, uint maximum, double amount, ref double carry, uint minimum = 0)
     {

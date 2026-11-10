@@ -1,29 +1,29 @@
-sealed partial class ClientState
+public sealed partial class ClientState
 {
-    internal RampageSession Rampage { get; } = new();
-    internal SoulEaterState SoulEater { get; } = new();
+    public RampageSession Rampage { get; } = new();
+    public SoulEaterState SoulEater { get; } = new();
     // "Gain Physical Damage Immunity for X seconds on Rampage" and "Phasing for X seconds on Rampage" thresholds.
-    internal double PhysicalImmunityUntil;
-    internal double PhasingUntil;
-    internal bool IsPhasing => Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds;
-    internal ITransientCombatState? OwnedCombatState;
-    internal ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
-    internal HashSet<uint> RetiredCombatObjects { get; } = [];
-    internal HashSet<(uint Actor, ushort Buff)> RetiredCombatBuffs { get; } = [];
-    internal RampageState.Value SentRampage { get; set; }
-    internal ushort RampageBuff { get; set; }
-    internal double? RampageTransferAt;
-    internal double VaalPreventionUntil;
-    internal bool SentVaalPrevention;
-    internal object? VaalUseState;
+    public double PhysicalImmunityUntil;
+    public double PhasingUntil;
+    public bool IsPhasing => Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds;
+    public ITransientCombatState? OwnedCombatState;
+    public ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
+    public HashSet<uint> RetiredCombatObjects { get; } = [];
+    public HashSet<(uint Actor, ushort Buff)> RetiredCombatBuffs { get; } = [];
+    public RampageState.Value SentRampage { get; set; }
+    public ushort RampageBuff { get; set; }
+    public double? RampageTransferAt;
+    public double VaalPreventionUntil;
+    public bool SentVaalPrevention;
+    public object? VaalUseState;
     // Close Combat's Combat Rush: more Attack Speed for a travel skill (GemSupports.Rules.CombatRushOnHit).
-    internal double CombatRushUntil;
-    internal int CombatRushAttackSpeed;
-    internal (int Action, ushort Skill, int Speed)? CombatRushUse;
+    public double CombatRushUntil;
+    public int CombatRushAttackSpeed;
+    public (int Action, ushort Skill, int Speed)? CombatRushUse;
     // Fist of War: per skill, when its next use counts as the big hit (ClientState.cs).
-    internal readonly Dictionary<ushort, double> FistOfWarAt = [];
+    public readonly Dictionary<ushort, double> FistOfWarAt = [];
 
-    internal void RetireOwnedCombat()
+    public void RetireOwnedCombat()
     {
         lock (Monsters)
         {
@@ -57,7 +57,7 @@ sealed partial class ClientState
         }
     }
 
-    internal void ApplyMovementSpeedAt(double at)
+    public void ApplyMovementSpeedAt(double at)
     {
         lock (Monsters)
             Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100L + Pools.MovementVelocityPct

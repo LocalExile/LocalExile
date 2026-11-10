@@ -12,7 +12,7 @@ using GameServer.Core;
 /// generator's gate (scripts/re/levelgen/gate-baseline.json, committed with each generator change), or whose seed-1
 /// failure the port reproduces (the client cannot build it either), and whose logged loads all match. Needs the game
 /// files extracted to data/game-files.zip (<see cref="GamePack"/>); Game_SERVER_LEVELS=0 turns it off.</summary>
-static class ServerLevels
+public static class ServerLevels
 {
     public const string UnsupportedMessage = "This map is generated on client-side and is not supported yet by the Server.";
 
@@ -114,10 +114,10 @@ static class ServerLevels
     }
 
     /// <summary>Drops the lists read from the baseline, so the next check reads <see cref="BaselineFile"/> again (tests).</summary>
-    internal static void Reload() { lock (SupportedGate) { _supported = null; _inPlaceOfOne = null; } }
+    public static void Reload() { lock (SupportedGate) { _supported = null; _inPlaceOfOne = null; } }
 
     /// <summary>The supported areas of a gate baseline (<see cref="GameServer.Core.World.ServerLevelAreas.Load"/>).</summary>
-    internal static HashSet<string> LoadSupported(string file) =>
+    public static HashSet<string> LoadSupported(string file) =>
         GameServer.Core.World.ServerLevelAreas.Load(file, m => Console.WriteLine($"[gateway] server levels: {m}"));
 
     /// <summary>The generated layout of (area, seed), or null when the area is not supported or generation failed
@@ -214,7 +214,7 @@ static class ServerLevels
     }
 
     /// <summary>The seeds tried in place of one the port cannot generate, in order (1 … int.MaxValue, as Auth's).</summary>
-    internal static IEnumerable<uint> Replacements(uint seed)
+    public static IEnumerable<uint> Replacements(uint seed)
     {
         for (uint k = 1; k <= 8; k++)
         {
@@ -301,5 +301,5 @@ static class ServerLevels
     });
 
     // The WorldAreas row's area level (the generator's AreaInfo reads level-dependent rows); 1 without the table.
-    internal static int AreaLevel(string areaId) => Math.Max(1, Levels.Value.GetValueOrDefault(areaId, 1));
+    public static int AreaLevel(string areaId) => Math.Max(1, Levels.Value.GetValueOrDefault(areaId, 1));
 }

@@ -2,7 +2,7 @@ using GameServer.Core.Trade;
 
 /// <summary>What a mod gives the Currency Exchange: how it trades (<c>IModContext.UseExchangeOptions</c>) and the rates (<c>PublishExchangeRates</c>), saved in
 /// <see cref="File"/> for the module to read. The Gateway itself contacts nothing for them.</summary>
-static class ExchangeRateStore
+public static class ExchangeRateStore
 {
     public const string File = "data/currency-exchange-rates.json";
 

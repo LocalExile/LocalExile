@@ -1,11 +1,11 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // The original action guards release only. Once created, an arrow or wand bolt owns the area's flight lifetime.
     // A frozen player (PlayerElementalAilments) or hit recovery cancels an unreleased shot, as a newer action does.
-    internal static bool OrdinaryRangedReleaseCurrent(ClientState conn, int action, int epoch)
+    public static bool OrdinaryRangedReleaseCurrent(ClientState conn, int action, int epoch)
     {
         lock (conn.Monsters)
         {
@@ -17,7 +17,7 @@ static partial class Game
 
     // A pause can win the send gate after an action was accepted. Keep its echo pending rather than releasing an
     // unconfirmed arrow after resume; a later action, death or transfer still cancels it with its original token.
-    internal static async Task<bool> SendOrdinaryRangedAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task<bool> SendOrdinaryRangedAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, byte[] bytes, string? log, int action, int epoch)
     {
         bool sent = false;
@@ -34,7 +34,7 @@ static partial class Game
 
     // The runtime schedules the release first, anchored to the accepted input rather than to the send gate; the echo
     // follows. The release guard rechecks the action token, so a cancelled or replaced action creates no projectile.
-    internal static async Task ConfirmAndLaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task ConfirmAndLaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, byte[] actionBytes, string actionLog, (int X, int Y) aim, double attackSeconds, int action, int epoch,
         string projectileId, ushort sequence, SkillCriticalRoll criticalRoll)
     {
@@ -44,7 +44,7 @@ static partial class Game
 
     // A bow or wand releases at the contact of the clip the class ACT's stance pool gives this use: a wand's is the one
     // the native selector picks for the input's sequence (AnimationVariantSelector), a bow's attack1_bow (the item's own).
-    internal static double OrdinaryRangedContactDelay(ClientState conn, double attackSeconds, string projectileId,
+    public static double OrdinaryRangedContactDelay(ClientState conn, double attackSeconds, string projectileId,
         ushort sequence) => OrdinaryRangedContact(conn, attackSeconds, projectileId, sequence).Delay;
 
     /// <summary>When and from where an ordinary bow or wand shot leaves: the delay to the releasing clip's contact
@@ -52,7 +52,7 @@ static partial class Game
     /// 127.5 up; the ACT-selected wand clip's tip), or null without rig data for the class or weapon. With
     /// <paramref name="clientClock"/> (a lockstep client), the delay is the client's clip clock's
     /// (<see cref="DefaultAttackClip.ReleaseSeconds"/>), which <c>LockstepShotAt</c> puts on its frame tick.</summary>
-    internal static (double Delay, ContactPoint? Point) OrdinaryRangedContact(ClientState conn, double attackSeconds,
+    public static (double Delay, ContactPoint? Point) OrdinaryRangedContact(ClientState conn, double attackSeconds,
         string projectileId, ushort sequence, bool clientClock = false)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? Skills.ClassFor(conn.ClassRow).AnimatedObject;
@@ -75,7 +75,7 @@ static partial class Game
     // at the weapon's contact and resolved there (Projectiles/Program.ProjectileRanged.cs). The use's critical roll was
     // captured at acceptance and travels with the shot. The contact counts from swingAt when the swing began before now
     // (a lockstep walk-up's goal frame), else from now.
-    internal static Task LaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task LaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence,
         SkillCriticalRoll criticalRoll, double? swingAt = null) =>
         ScheduleOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll,

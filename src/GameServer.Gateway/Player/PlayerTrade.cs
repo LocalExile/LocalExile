@@ -8,7 +8,7 @@ using GameServer.Core.Protocol.Login;
 /// item stays reserved in its owner's inventory (PlayerInventories.Offer, hidden from that client like a sale) until the
 /// trade completes or ends. Guarded by its own lock; the sends happen outside it.
 /// </summary>
-sealed class PlayerTrade(ClientState a, ClientState b)
+public sealed class PlayerTrade(ClientState a, ClientState b)
 {
     public readonly ClientState A = a, B = b;
     public readonly object Lock = new();

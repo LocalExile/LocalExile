@@ -2,14 +2,14 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
 
-enum LatencyPhase
+public enum LatencyPhase
 {
     InputQueue, Handler, SendWait, SendHold, WireWait, WireHold, SocketWrite,
     CombatWait, CombatHold, ChannelLate, Surround, BlockerBuild, Message, Count,
 }
 
 /// <summary>Monotonic server timings, independent of the client's tick/latency display. No account/character tags.</summary>
-sealed class ConnectionPerformance
+public sealed class ConnectionPerformance
 {
     static readonly Meter Meter = new("LocalExile.Gateway", "1.0");
     static readonly Histogram<double> Milliseconds = Meter.CreateHistogram<double>("localexile.gateway.duration", "ms");
@@ -33,7 +33,7 @@ sealed class ConnectionPerformance
         public long Count, Total, Maximum, IntervalMaximum;
     }
 
-    internal readonly record struct Snapshot(long Count, double TotalMilliseconds, double MaximumMilliseconds);
+    public readonly record struct Snapshot(long Count, double TotalMilliseconds, double MaximumMilliseconds);
 
     public void Elapsed(LatencyPhase phase, long start, string operation = "all") =>
         RecordTicks(phase, Math.Max(0, Stopwatch.GetTimestamp() - start), operation);
@@ -96,7 +96,7 @@ sealed class ConnectionPerformance
         readonly object gate;
         readonly string operation;
         readonly long enteredAt;
-        internal LockScope(ConnectionPerformance owner, object gate, string operation)
+        public LockScope(ConnectionPerformance owner, object gate, string operation)
         {
             this.owner = owner; this.gate = gate; this.operation = operation;
             long start = Stopwatch.GetTimestamp();

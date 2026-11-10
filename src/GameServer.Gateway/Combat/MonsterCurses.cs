@@ -1,7 +1,7 @@
 /// <summary>Recipient-owned curse slots. No module callbacks or catalogue mutations survive a reload.</summary>
-sealed class MonsterCurses
+public sealed class MonsterCurses
 {
-    internal sealed record Curse(uint Caster, string Effect, ushort Skill, ushort Row, ushort Buff,
+    public sealed record Curse(uint Caster, string Effect, ushort Skill, ushort Row, ushort Buff,
         double Applied, double Until, bool Aura, bool Mark, IReadOnlyDictionary<string, int> Stats);
     public readonly Dictionary<(uint Caster, string Effect), Curse> All = [];
     public readonly Dictionary<(uint Caster, string Effect), Curse> Presented = [];
@@ -56,9 +56,9 @@ sealed class MonsterCurses
     }
 }
 
-static class CurseCatalog
+public static class CurseCatalog
 {
-    internal sealed record Definition(ushort Buff, bool Mark = false);
+    public sealed record Definition(ushort Buff, bool Mark = false);
     public static readonly IReadOnlyDictionary<string, Definition> All = new Dictionary<string, Definition>
     {
         ["TemporalChains"] = new(69), ["ElementalWeakness"] = new(70), ["Flammability"] = new(71),

@@ -7,7 +7,7 @@ using GameServer.Core;
 /// (Agents/docs/protocol/13-items.md §2a). The client identifies a mod by its HASH16 and counts its stats itself
 /// (StatsKey1..8 up to the first empty one), so every <see cref="ItemMod"/> is built here with exactly that many values.
 /// </summary>
-sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeProvider? ranges = null)
+public sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeProvider? ranges = null)
 {
     public ModRangeProvider Ranges { get; } = ranges ?? ModRangeProvider.Default;
 
@@ -22,7 +22,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
     public sealed record Mod(int Row, string Id, ushort Hash, string Name, int Domain, int GenerationType, int Level,
         IReadOnlyList<ModStat> Stats)
     {
-        internal ModRangeProvider? Ranges { get; init; }
+        public ModRangeProvider? Ranges { get; init; }
         public IReadOnlyList<int> Families { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> SpawnWeights { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> GenerationWeights { get; init; } = [];

@@ -8,7 +8,7 @@ using GameServer.Core;
 /// that last only while the player stays: they are not saved). The server does not send the log; this mirrors it for the
 /// oracle tests (<see cref="QuestSimulator"/>).
 /// </summary>
-sealed class QuestStates
+public sealed class QuestStates
 {
     public sealed record State(int Order, IReadOnlyList<string> Present, IReadOnlyList<string> Missing, string Text, string Message)
     {
