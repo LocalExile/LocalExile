@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>
@@ -37,8 +38,8 @@ static class JourneyMakanuiCatalogue
     {
         var result = new List<Entry>();
         string path = Path.Combine("data", "tables", "PassiveSkillOverrides.json");
-        if (!File.Exists(path)) return result;
-        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var row in document.RootElement.EnumerateArray())
         {
             if (row.GetProperty("Type").GetInt32() != 15) continue;

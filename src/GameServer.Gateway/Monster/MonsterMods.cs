@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 using DamageModel = GameServer.Core.World.DamageModel;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageConversion = GameServer.Core.World.DamageConversion;
@@ -427,8 +428,8 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     static List<string> LoadTagNames(string folder)
     {
         string path = Path.Combine(folder, "tables", "Tags.json");
-        if (!File.Exists(path)) return [];
-        using var t = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var t = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
     }
 
@@ -436,7 +437,7 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     {
         string path = Path.Combine(folder, "tables", "MonsterVarieties.json");
         var result = new Dictionary<int, IReadOnlySet<string>>();
-        if (!File.Exists(path)) return result;
+        if (!ClientTables.Exists(path)) return result;
         var tags = LoadTagNames(folder);
         using var d = GameTables.Open(path);
         int row = 0;
@@ -449,9 +450,9 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     static List<ItemRolls.Word> LoadWords(string folder)
     {
         string path = Path.Combine(folder, "tables", "Words.json");
-        if (!File.Exists(path)) return [];
+        if (!ClientTables.Exists(path)) return [];
         var tags = LoadTagNames(folder);
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. d.RootElement.EnumerateArray()
             .Where(r => r.GetProperty("Wordlist").GetInt32() is MonsterPrefixWords or MonsterSuffixWords)
             .Select(r => new ItemRolls.Word(r.GetProperty("HASH32").GetUInt32(), r.GetProperty("Text").GetString() ?? "",
@@ -465,8 +466,8 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         int[] Table(string name)
         {
             string path = Path.Combine(folder, "tables", name + ".json");
-            if (!File.Exists(path)) return [];
-            using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+            if (!ClientTables.Exists(path)) return [];
+            using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
             return [.. d.RootElement.EnumerateArray().OrderBy(r => r.GetProperty("Level").GetInt32()).Select(r => r.GetProperty("Life").GetInt32())];
         }
         return (Table("MagicMonsterLifeScalingPerLevel"), Table("RareMonsterLifeScalingPerLevel"));
@@ -475,8 +476,8 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     static (int, int)[] LoadRarity(string folder)
     {
         string path = Path.Combine(folder, "tables", "Rarity.json");
-        if (!File.Exists(path)) return [];
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. d.RootElement.EnumerateArray().Select(r => (r.GetProperty("MaxPrefix").GetInt32(), r.GetProperty("MaxSuffix").GetInt32()))];
     }
 }

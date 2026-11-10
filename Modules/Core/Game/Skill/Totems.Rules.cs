@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core;
 
 static partial class Game
 {
@@ -28,8 +29,8 @@ static partial class Game
     {
         var result = new Dictionary<ushort, uint[]>();
         string path = System.IO.Path.Combine("data/tables", "BuffDefinitions.json");
-        if (!File.Exists(path)) return result;
-        using var definitions = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var definitions = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var (row, _) in TotemAuras.Values)
             if (row < definitions.RootElement.GetArrayLength()
                 && definitions.RootElement[row].TryGetProperty("StatsKeys", out var keys) && keys.ValueKind == JsonValueKind.Array)
@@ -41,10 +42,10 @@ static partial class Game
     {
         string Path(string name) => System.IO.Path.Combine(tables, name + ".json");
         var result = new Dictionary<int, int>();
-        if (!File.Exists(Path("GrantedEffects")) || !File.Exists(Path("ActiveSkills")) || !File.Exists(Path("SkillTotemVariations"))) return result;
-        using var effects = JsonDocument.Parse(File.ReadAllBytes(Path("GrantedEffects")));
-        using var active = JsonDocument.Parse(File.ReadAllBytes(Path("ActiveSkills")));
-        using var variations = JsonDocument.Parse(File.ReadAllBytes(Path("SkillTotemVariations")));
+        if (!ClientTables.Exists(Path("GrantedEffects")) || !ClientTables.Exists(Path("ActiveSkills")) || !ClientTables.Exists(Path("SkillTotemVariations"))) return result;
+        using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("GrantedEffects")));
+        using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("ActiveSkills")));
+        using var variations = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("SkillTotemVariations")));
         var skins = new Dictionary<int, int>();
         foreach (var v in variations.RootElement.EnumerateArray())
             if (v.GetProperty("TotemSkinId").GetInt32() == 0 && v.GetProperty("MonsterVarietiesKey") is { ValueKind: JsonValueKind.Number } row)

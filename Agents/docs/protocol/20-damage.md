@@ -221,7 +221,7 @@ and socket mutations have full payload acknowledgements. The original account, t
 stash banks and forty tabs retain exact UTF-8 payload hashes; the two fixture inventories persist with their complete
 canonical contents. All 714 frozen source/runtime/helper/oracle inputs match at session end. The supplemental sparse
 policy, verifier and normal-source wrapper have separate recorded freezes and are not included in that 714 count.
-The copied test client is closed and the normal Gateway uses `data/saves.db` again.
+The copied test client is closed and the normal Gateway uses `data/characters.db` again.
 
 The full test run also retained six existing `MonsterKilled` cleanup writes to disposed streams, with no targeted
 conversion fault in the filtered diagnostic capture. The native log retained four remote-host connection closures;
@@ -1364,7 +1364,7 @@ The parent completed with 918 input hashes held; the stopped-child audit checked
 Both canonical inventories, exact item/gem IDs, full charges, empty host, saved bar intent, account, probes, stash and
 metadata payloads were preserved apart from both LastPlayed values and Ruthless current Mana 750→655.
 Its native trace shows a 700→650 clamp, higher capacity without refill, then recovery through 654; the later save is 655,
-without a captured event for that final tick. Only the disposable child was used; normal `data/saves.db` was restored.
+without a captured event for that final tick. Only the disposable child was used; normal `data/characters.db` was restored.
 The three live service stderr files are empty, but the Gateway stdout log retains one remote-closure IOException;
 this is not a fault-free-run claim. Earlier automated diagnostic faults above remain separate and preserved.
 Evidence: `artifacts/issue75-completion/attribute-defence3-native/final-fourteen-controls-summary.json` and the adjacent

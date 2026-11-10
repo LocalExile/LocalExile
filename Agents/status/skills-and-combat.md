@@ -864,7 +864,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   ordinary-bow sparse-zero controls. The first sparse Standard baseline is retrospective; the next seven are
   prospective. Actual natural getter zeros are distinct from explicit wire zeros or hidden-row rendering.
   Four restoration/relog controls, 184 full item/socket acknowledgements, original-save preservation and 714 unchanged
-  source/runtime inputs pass. The client is closed and normal `data/saves.db` restored. Native publication does not
+  source/runtime inputs pass. The client is closed and normal `data/characters.db` restored. Native publication does not
   certify authoritative hit contact, critical-weighted DPS, conditional/endpoints/ailment/DoT or official rounding.
   Existing disposed-stream cleanup faults and separate native connection closures remain recorded in the evidence.
   Code: `ItemWeaponStats.cs`, `DamageStats.cs`, `SkillCatalog.cs`, `SupportedAttackDamage.cs`.

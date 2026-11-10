@@ -18,7 +18,7 @@ using GameServer.Data.Ggpk;
 // skips patching and goes straight to the login screen. The welcome's web roots are always
 // this server (default http://127.0.0.1:8080/, Game_PATCH_WEB_ROOT to override), never the CDN.
 // The hash comes from data/client-constants.json: the server never opens the client's files.
-// Env: Game_PATCH_TCP_PORT (default 12995).
+// localexile.conf Patch.Port, or Game_PATCH_TCP_PORT (default 12995).
 //
 // Tools (run while the client is closed; these do open the GGPK):
 //   root-hash [ggpk] [--repair] [--save]  print the GGPK root hash; --repair first gives a zero root hash a value (it
@@ -52,7 +52,8 @@ builder.Logging.SetMinimumLevel(LogLevel.Warning);
 string? pfx = Environment.GetEnvironmentVariable("Game_TLS_PFX");
 bool useTls = pfx is not null && File.Exists(pfx);
 string defaultUrl = useTls ? "https://0.0.0.0:443" : PatchServerConfig.DefaultListenUrl;
-string listenUrl = Environment.GetEnvironmentVariable("Game_PATCH_URL") ?? defaultUrl;
+// localexile.conf Patch.WebUrl (Game_PATCH_URL) when given; otherwise the default, https on 443 with a certificate.
+string listenUrl = GameServer.Core.ServerConfig.Text("Game_PATCH_URL", "Patch.WebUrl", defaultUrl);
 builder.WebHost.UseUrls(listenUrl);
 if (useTls)
 {
@@ -62,7 +63,7 @@ if (useTls)
 
 var app = builder.Build();
 
-int patchTcpPort = int.TryParse(Environment.GetEnvironmentVariable("Game_PATCH_TCP_PORT"), out var ptp) ? ptp : 12995;
+int patchTcpPort = GameServer.Core.ServerConfig.PatchPort;
 var config = PatchServerConfig.From(Environment.GetEnvironmentVariable, listenUrl, passthroughFlag);
 _ = Task.Run(() => ServePatchProtocol(patchTcpPort, config.WebRoot, config.BackupWebRoot));
 
@@ -185,7 +186,7 @@ static async Task ServePatchProtocol(int port, string webRoot, string backupWebR
 static int GgpkTool(string[] args)
 {
     var rest = args.Skip(1).ToList();
-    string ggpk = rest.Count > 0 && !rest[0].StartsWith("--") ? rest[0] : Find("Client/Content.ggpk") ?? "Client/Content.ggpk";
+    string ggpk = rest.Count > 0 && !rest[0].StartsWith("--") ? rest[0] : Find(GameServer.Core.ServerConfig.ClientFolder + "/Content.ggpk") ?? GameServer.Core.ServerConfig.ClientFolder + "/Content.ggpk";
     if (args[0] == "root-hash")
     {
         if (rest.Contains("--repair") && GgpkMaintenance.RepairRootHash(ggpk) is { } repaired)

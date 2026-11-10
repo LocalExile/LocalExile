@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// The gem families the passive tree's family gem-level stats raise, from the current client's own metadata (never
@@ -33,10 +34,10 @@ sealed class SkillGemFamilies(string folder = "data")
         string Table(string n) => Path.Combine(folder, "tables", n + ".json");
         string[] needed = ["GemTags", "GemEffects", "SkillGems"];
         var members = new Dictionary<int, HashSet<int>>();
-        if (needed.Any(n => !File.Exists(Table(n)))) return members;
-        using var tags = JsonDocument.Parse(File.ReadAllBytes(Table("GemTags")));
-        using var effects = JsonDocument.Parse(File.ReadAllBytes(Table("GemEffects")));
-        using var gems = JsonDocument.Parse(File.ReadAllBytes(Table("SkillGems")));
+        if (needed.Any(n => !ClientTables.Exists(Table(n)))) return members;
+        using var tags = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("GemTags")));
+        using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("GemEffects")));
+        using var gems = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("SkillGems")));
         static int Int(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
         // A GemTags row's stat rows (Stat1..Stat4): the family stats whose gems carry the tag.
         var tagStats = new Dictionary<int, int[]>();

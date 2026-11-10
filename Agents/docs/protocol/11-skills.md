@@ -694,7 +694,7 @@ All eight identities, original account/probes, both stash banks, all 40 tabs/met
 Participant last-played timestamps and the saved slot2 Fireball intent changed normally; Ruthless current Life
 1345 → 1245 retained the temporary qualifier-removal maximum clamp, and restoration did not heal it.
 Cleanup passed with all 774 frozen hashes unchanged; the post-run audit matched 773 source hashes.
-Observers/client were detached/closed, and normal `data/saves.db` services were restored.
+Observers/client were detached/closed, and normal `data/characters.db` services were restored.
 Evidence is under `artifacts/issue75-completion/selected-crit-native/`, its sibling assessment directory and
 `artifacts/issue75-completion/selected-crit-native-preservation/post-run-audit.json`.
 These controls establish selected publication, not native critical hits, rendered zero, legal carrier acquisition,
@@ -2745,7 +2745,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
   socketed again did not get its slot back either. `SendSkills` therefore sends the saved bar (0x53) after every
   update, unless it adds a skill whose GrantedEffects Id the saved bar does not have: the client binds such a new
   skill to a free slot itself (0x4e), and a bar sent then would clear it.
-- **The Gateway** saves each 0x4e (`CharacterSaves`, `data/saves.db`) as slot → a GrantedEffects Id for gems and the default
+- **The Gateway** saves each 0x4e (`CharacterSaves`, `data/characters.db`) as slot → a GrantedEffects Id for gems and the default
   attack (skill ids change with the socketed gems), `Action/<ActionTypes Id>` for a basic action (Move 0x2909 =
   "Move only"), or "" for a cleared slot. It sends 0x53 right after the player and area messages, no delay needed,
   with the default attack on slot 0 only when nothing was saved there. Live 2026-10-18: Fireball on the right mouse

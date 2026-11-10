@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>The ordinary bench's live client recipes, costs, class filters and guaranteed modifiers.</summary>
 sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
@@ -166,9 +167,9 @@ sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder =
     static IReadOnlyList<Recipe> Load(ItemCatalog catalog, string folder)
     {
         string options = Path.Combine(folder, "tables/CraftingBenchOptions.json"), categories = Path.Combine(folder, "tables/CraftingItemClassCategories.json");
-        if (!File.Exists(options) || !File.Exists(categories)) return [];
-        using var cats = JsonDocument.Parse(File.ReadAllBytes(categories));
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(options));
+        if (!ClientTables.Exists(options) || !ClientTables.Exists(categories)) return [];
+        using var cats = JsonDocument.Parse(ClientTables.ReadAllBytes(categories));
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(options));
         ModCatalog.Mod? Mod(JsonElement r, string key) => r.GetProperty(key).ValueKind == JsonValueKind.Number ? catalog.Mods.Row(r.GetProperty(key).GetInt32()) : null;
         var result = new List<Recipe>();
         int row = -1;

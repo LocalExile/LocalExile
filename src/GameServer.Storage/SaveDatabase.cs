@@ -4,11 +4,15 @@ using Microsoft.Data.Sqlite;
 namespace GameServer.Storage;
 
 /// <summary>
-/// The saves of player progress in one SQLite file: one row per character and per account stash, the save as JSON.
+/// The player databases (Agents/docs/dev/databases.md): <c>characters.db</c> (character saves, stashes, the login
+/// character list, friends) with <c>auth.db</c> (accounts) attached as <c>auth</c>, so a table of either is named
+/// without its database. Both are built and updated from <c>sql/</c> (<see cref="SqlUpdater"/>) when opened.
 /// Write-ahead log with synchronous=FULL: a committed transaction survives a crash or a power cut, and one that did not
 /// commit leaves nothing behind. Every write runs in a transaction (<see cref="Atomically{T}"/>), so changes that belong
-/// together (an item leaving the stash and entering the inventory) are saved together or not at all.
-/// <para>Several processes may open the file (the Gateway saves, Auth sets deleted characters aside); a write waits for
+/// together (an item leaving the stash and entering the inventory) are saved together or not at all. The rows written
+/// together (a deleted character and its save set aside) are in one file; a transaction across both files is atomic in
+/// each of them only.
+/// <para>Several processes may open the files (the Gateway saves, Auth sets deleted characters aside); a write waits for
 /// another process's transaction to end.</para>
 /// </summary>
 public sealed class SaveDatabase : IDisposable
@@ -22,34 +26,43 @@ public sealed class SaveDatabase : IDisposable
     SqliteTransaction? _tx;
     List<Action>? _undo;
 
+    /// <summary>The characters database.</summary>
     public string Path { get; }
 
-    /// <summary>data/saves.db, or <c>Game_SAVES_DB</c>.</summary>
-    public static string DefaultPath => Environment.GetEnvironmentVariable("Game_SAVES_DB") ?? System.IO.Path.Combine("data", "saves.db");
+    public string AuthPath { get; }
 
-    public SaveDatabase(string path)
+    /// <summary>data/characters.db, or <c>Game_CHARACTERS_DB</c>.</summary>
+    public static string DefaultPath => Environment.GetEnvironmentVariable("Game_CHARACTERS_DB") ?? System.IO.Path.Combine("data", "characters.db");
+
+    /// <summary>data/auth.db, or <c>Game_AUTH_DB</c>.</summary>
+    public static string DefaultAuthPath => Environment.GetEnvironmentVariable("Game_AUTH_DB") ?? AuthPathFor(DefaultPath);
+
+    /// <summary>The accounts database that goes with a characters database: auth.db beside a characters.db, else
+    /// &lt;name&gt;-auth.db (a copied or scratch database keeps its accounts beside it).</summary>
+    public static string AuthPathFor(string charactersPath)
+    {
+        string folder = System.IO.Path.GetDirectoryName(charactersPath) ?? "";
+        string name = System.IO.Path.GetFileNameWithoutExtension(charactersPath);
+        return System.IO.Path.Combine(folder, name.Equals("characters", StringComparison.OrdinalIgnoreCase) ? "auth.db" : name + "-auth.db");
+    }
+
+    /// <summary>The database from before the split (data/saves.db), migrated when a server first opens the default player
+    /// databases (<see cref="SavesMigration.MigrateIfNeeded"/>).</summary>
+    public static string LegacyPath => System.IO.Path.Combine("data", "saves.db");
+
+    public SaveDatabase(string path, string? authPath = null)
     {
         Path = path;
-        if (System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path)) is { Length: > 0 } folder) Directory.CreateDirectory(folder);
-        // No pooling: closing lets go of the file (Auth opens it for one deletion, tests delete it).
-        _db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
-        _db.Open();
+        AuthPath = authPath ?? (path == DefaultPath ? DefaultAuthPath : AuthPathFor(path));
+        SavesMigration.MigrateIfNeeded(path);
+        SqlUpdater.Update(AuthPath, "auth");
+        _db = SqlUpdater.Open(path);
         try
         {
-            if (Scalar("PRAGMA journal_mode=WAL") is not "wal") throw new IOException($"{path}: SQLite's write-ahead log is not available here");
-            Execute("PRAGMA synchronous=FULL");
-            Execute("PRAGMA busy_timeout=10000");
-            Execute("""
-                CREATE TABLE IF NOT EXISTS characters (name TEXT PRIMARY KEY COLLATE NOCASE, save TEXT NOT NULL) STRICT;
-                CREATE TABLE IF NOT EXISTS stashes (account TEXT PRIMARY KEY COLLATE NOCASE, save TEXT NOT NULL) STRICT;
-                CREATE TABLE IF NOT EXISTS stash_tabs (account TEXT NOT NULL COLLATE NOCASE, tab INTEGER NOT NULL, items TEXT NOT NULL,
-                    PRIMARY KEY (account, tab)) STRICT;
-                CREATE TABLE IF NOT EXISTS deleted_characters (name TEXT NOT NULL, deleted_utc TEXT NOT NULL, save TEXT NOT NULL) STRICT;
-                CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
-                CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, account TEXT NOT NULL) STRICT;
-                CREATE TABLE IF NOT EXISTS account_characters (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                    created_utc TEXT NOT NULL, character TEXT NOT NULL) STRICT;
-                """);
+            SqlUpdater.Update(_db, "characters");
+            using (var attach = Command("ATTACH DATABASE $path AS auth", ("$path", AuthPath))) attach.ExecuteNonQuery();
+            if (Scalar("PRAGMA auth.journal_mode=WAL") is not "wal") throw new IOException($"{AuthPath}: SQLite's write-ahead log is not available here");
+            Execute("PRAGMA auth.synchronous=FULL");
         }
         catch
         {
