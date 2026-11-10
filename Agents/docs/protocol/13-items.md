@@ -969,12 +969,13 @@ See [the game rules](../re/fracturing-mirror-mechanics.md).
 
 ### Mirror of Kalandra (2026-10-21, verified live; rules rechecked 2026-10-30)
 
-`CurrencyDuplicate`, same 0x71 / 0x72 messages (`MirrorItem`). As the official mirror: a non-unique equipment item
-that is neither corrupted nor mirrored, on a supported non-`Unmodifiable` base whose `ItemClasses` equipment flag is
-set, is copied with every property (mods and values, fractured mods, quality, sockets, links, socketed gems, rarity,
+`CurrencyDuplicate`, same 0x71 / 0x72 messages (`MirrorItem`). Non-unique equipment, flasks and maps of tiers 1–16
+are eligible. Flask/map admission extends the native equipment-class rule; map tiers come from `MapKeys` or `Maps`.
+The target must be neither corrupted nor mirrored, on a supported non-`Unmodifiable` base with `Mods`.
+It is copied with every property (mods and values, fractured mods, quality, sockets, links, socketed gems, rarity,
 identification and name); the copy is **mirrored** and goes onto the cursor (S→C 0xbf on the cursor inventory) for
 the player to place, the original stays unchanged. A held item, a corrupted or mirrored target, a unique item, a
-non-equipment item (flask, jewel, map, currency), an unmodifiable base, or an item without mods is refused and
+different item class (including jewels and currency), a map outside tiers 1–16, an unmodifiable base or an item without mods is refused and
 nothing is spent. A mirrored item takes no currency at all, including a Scroll of Wisdom; Reflective Oil is not
 modelled. Using a Mirror from a stash tab is a local limitation, not a game rule.
 

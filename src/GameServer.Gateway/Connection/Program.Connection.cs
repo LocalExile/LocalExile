@@ -129,6 +129,7 @@ public partial class Program
                 int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
                 prepared = true;
                 var moduleHeader = GameEvents.RunAreaHeader(conn);
+                areaLevel = moduleHeader?.Level ?? areaLevel;
                 // A room of today's Labyrinth names its node (LabyrinthDay): the client then builds the day's layout and
                 // applies the room's overrides and secrets, as the server's own generation of it does (ServerLevels).
                 var labyrinthNode = moduleHeader?.Terrain is null ? LabyrinthDay.NodeFor(layout.Id, seed) : null;

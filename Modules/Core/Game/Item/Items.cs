@@ -1253,7 +1253,7 @@ public static partial class Game
     {
         if (CurrencyEffects.Mirror(target.Item, rolls) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / non-equipment / unmodifiable / no mods / cursor not empty)");
+            Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / unsupported class or map tier / unmodifiable / no mods / cursor not empty)");
             return;
         }
         var done = Saves.Atomically<(PlayerInventories.Consumption, InventoryItem)?>(() =>
