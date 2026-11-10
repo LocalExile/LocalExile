@@ -323,6 +323,10 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         ModCatalog.Mod? guaranteed = null, int? maxModLevel = null, bool respectMetamods = false) =>
         RollCore(item, rarity, rng, shape, guaranteed, maxModLevel, respectMetamods, null, null)!;
 
+    /// <summary>New equipment loot only; ordinary crafting keeps Roll's original distribution.</summary>
+    public Item RollEquipmentDrop(Item item, ItemRarity rarity, Random rng, DropAffixSelector? selectEquipmentAffix = null) =>
+        RollCore(item, rarity, rng, null, null, null, false, null, null, selectEquipmentAffix)!;
+
     /// <summary>A Harvest reforge that must include one modifier with this Tags.dat tag (fire, life, attack �?�). Null when
     /// the base has no room for one at this item level.</summary>
     public Item? RollRequiredTag(Item item, ItemRarity rarity, Random rng, string tag) =>
@@ -335,7 +339,8 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         rarity == ItemRarity.Rare ? RollCore(item, rarity, rng, null, null, null, false, null, percent) : null;
 
     Item? RollCore(Item item, ItemRarity rarity, Random rng, (int Count, int MaxEach)? shape,
-        ModCatalog.Mod? guaranteed, int? maxModLevel, bool respectMetamods, string? requiredTag, int? affinityPercent)
+        ModCatalog.Mod? guaranteed, int? maxModLevel, bool respectMetamods, string? requiredTag, int? affinityPercent,
+        DropAffixSelector? selectEquipmentAffix = null)
     {
         var fractured = item.FracturedIndexes();
         var rules = new MetacraftRules(item, catalog.Mods);
@@ -376,7 +381,12 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
                 allowed = [.. allowed.Select(p => (p.Mod, Weight: affinityTags.Overlaps(p.Mod.Tags)
                     ? Math.Max(1, p.Weight * (100 + percent) / 100) : p.Weight))];
             if (allowed.Count == 0 || allowed.All(p => p.Weight <= 0)) break;
-            chosen.Add(Pick(allowed, rng));
+            var selected = Pick(allowed, rng);
+            if (selectEquipmentAffix is not null && ItemDrops.EquipmentClasses.Contains(t.Class)
+                && selectEquipmentAffix(selected, allowed.AsReadOnly(), rng) is ushort replacement
+                && allowed.FirstOrDefault(p => p.Mod.Hash == replacement && p.Mod.GenerationType == selected.GenerationType).Mod is { } eligible)
+                selected = eligible;
+            chosen.Add(selected);
         }
         // Prefixes first, as the tooltip lists them.
         var explicits = chosen.Skip(keptCount).OrderBy(m => m.GenerationType).Select(m => m.Roll(ModSection.Explicit, rng));

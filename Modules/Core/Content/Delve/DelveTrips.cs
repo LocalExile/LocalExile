@@ -246,7 +246,8 @@ public sealed partial class DelveModule
         var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
         var reward = DelveRewards.Current().Roll(trip.Depth, Random.Shared);
         var drops = Environment.GetEnvironmentVariable("Game_DROPS") == "0" ? []
-            : DropsFor(conn).Container(level, reward.Count, reward.Rarity, Random.Shared);
+            : DropsFor(conn).Container(level, reward.Count, reward.Rarity, Random.Shared,
+                GameEvents.RunDropGeneration(conn, ItemDropSource.Container).SelectEquipmentAffix);
         var groundItems = new List<(uint Id, WorldItemObject Ground)>();
         lock (conn.Monsters)
         {
