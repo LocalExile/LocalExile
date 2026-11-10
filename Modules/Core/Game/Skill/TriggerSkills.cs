@@ -8,13 +8,11 @@ static partial class Game
         internal readonly int Epoch = epoch;
         internal readonly object? Rules = rules;
         internal readonly Dictionary<ushort, TriggerCounter> Counters = [];
-        internal readonly Dictionary<int, double> SharedReadyAt = [];
         internal readonly Queue<(ushort Skill, TriggerCounter Counter, (int X, int Y) Aim, double At)> Pending = [];
     }
-    sealed class TriggerCounter(SupportedGem gem, Item? host)
+    sealed class TriggerCounter(SupportedGem gem)
     {
         internal readonly SupportedGem Gem = gem;
-        internal readonly Item? Host = host;
         internal long Damage;
         internal double ReadyAt;
         internal bool Pending;
@@ -25,20 +23,20 @@ static partial class Game
     {
         if (gem.Supports.Any(s => s.Effect.Id == "SupportCastWhenDamageTaken"))
             return "this skill can only trigger when damage is taken";
+        if (GolemStat(gem.Stats, "cast_spell_on_linked_attack_crit") != 0)
+            return "this skill can only trigger on a linked attack critical strike";
         if (GolemStat(gem.Stats, "spell_uncastable_if_triggerable") != 0
             || gem.Supports.Any(s => s.Effect.Added.Contains(36)))
             return "this trigger has no server executor; manual use is unavailable";
         return null;
     }
     static bool SameTriggerSource(SupportedGem a, SupportedGem b) => a.Effect == b.Effect && a.Level == b.Level
-        && a.Quality == b.Quality && a.Host == b.Host && a.Group == b.Group && ReferenceEquals(a.SourceGem, b.SourceGem)
+        && a.Quality == b.Quality && a.Host == b.Host && a.Group == b.Group && (a.SourceGem is null ? b.SourceGem is null
+            : b.SourceGem is not null && ReferenceEquals(PlayerInventories.GemIdentity(a.SourceGem), PlayerInventories.GemIdentity(b.SourceGem)))
         && a.Supports.Select(s => s.Gem).SequenceEqual(b.Supports.Select(s => s.Gem));
 
-    static Item? TriggerHost(ClientState conn, SupportedGem gem) => ItemsOf(conn).EquipmentSnapshot()
-        .FirstOrDefault(e => e.Item.Id == gem.Host).Item?.Item;
-
     // Every payload needs an independent executor; unsupported mechanics stay unavailable.
-    static bool DamageTriggerExecutable(ClientState conn, ushort id, SupportedGem gem) => SkillsFor(conn).IsSpell(gem.Effect)
+    static bool TriggeredSpellExecutable(ClientState conn, ushort id, SupportedGem gem) => SkillsFor(conn).IsSpell(gem.Effect)
         && !SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsTravel(gem.Effect)
         && Supports.Of(gem.Effect)?.Types.Contains(47) != true && PlacedKind(gem) is (false, false)
         && gem.Supports.Count(s => s.Effect.Added.Contains(36)) == 1
@@ -65,15 +63,13 @@ static partial class Game
             {
                 var gem = SupportedSkill(conn, skill.Id);
                 var support = gem.Supports.FirstOrDefault(s => s.Effect.Id == "SupportCastWhenDamageTaken");
-                if (support is null || !DamageTriggerExecutable(conn, skill.Id, gem)
+                if (support is null || !TriggeredSpellExecutable(conn, skill.Id, gem)
                     || GemSkillInstanceDisabled(conn, gem.Effect, skill.Id, triggered: true) is not null) continue;
                 live.Add(skill.Id);
-                var host = TriggerHost(conn, gem);
-                if (!state.Counters.TryGetValue(skill.Id, out var counter) || !SameTriggerSource(counter.Gem, gem)
-                    || !ReferenceEquals(counter.Host, host))
-                    state.Counters[skill.Id] = counter = new(gem, host);
+                if (!state.Counters.TryGetValue(skill.Id, out var counter) || !SameTriggerSource(counter.Gem, gem))
+                    state.Counters[skill.Id] = counter = new(gem);
                 if (TriggerGuardSpell(conn, gem) && !TriggerGuardReady(conn, at)) continue;
-                if (counter.Pending || at < counter.ReadyAt || at < state.SharedReadyAt.GetValueOrDefault(gem.Effect)) continue;
+                if (counter.Pending || at < counter.ReadyAt || at < LinkedTriggersOf(conn).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
                 int threshold = GolemStat(gem.Stats, "cast_on_damage_taken_threshold");
                 if (threshold <= 0) continue;
                 threshold = (int)Math.Clamp((long)threshold * Math.Max(0L, 100L
@@ -107,9 +103,9 @@ static partial class Game
                 var counter = request.Counter; counter.Pending = false;
                 var gem = SupportedSkill(conn, request.Skill);
                 double now = Math.Max(request.At, conn.Clock.Elapsed.TotalSeconds);
-                if (now < state.SharedReadyAt.GetValueOrDefault(gem.Effect)) continue;
+                if (now < LinkedTriggersOf(conn).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
                 if (!state.Counters.TryGetValue(request.Skill, out var current) || !ReferenceEquals(current, counter)
-                    || !SameTriggerSource(counter.Gem, gem) || !ReferenceEquals(counter.Host, TriggerHost(conn, gem))
+                    || !SameTriggerSource(counter.Gem, gem)
                     || GemSkillInstanceDisabled(conn, gem.Effect, request.Skill, triggered: true) is not null
                     || !TriggerPayloadAvailable(conn, gem)) continue;
                 var skill = GemSkillEffects(conn).FirstOrDefault(g => g.Id == request.Skill);
@@ -125,12 +121,11 @@ static partial class Game
                 bool Current() => state.Epoch == conn.ProjectileEpoch && CurrentGameRules
                     && ReferenceEquals(state.Rules, CombatLifetime) && session.Active && !conn.Paused
                     && conn.PlayerLife > 0 && !conn.LeavingArea && conn.PendingTransfer is null
-                    && SameTriggerSource(gem, SupportedSkill(conn, skillId))
-                    && ReferenceEquals(counter.Host, TriggerHost(conn, gem));
+                    && SameTriggerSource(gem, SupportedSkill(conn, skillId));
                 var release = PrepareTriggeredPayload(conn, session, skillId, request.Aim, Current);
                 if (release is null || !PayMana(conn, request.Skill, out uint cost, out uint lifeCost)) continue;
                 counter.ReadyAt = rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;
-                state.SharedReadyAt[gem.Effect] = counter.ReadyAt;
+                LinkedTriggersOf(conn).ReadyAt[gem.Effect] = counter.ReadyAt;
                 release();
                 if (cost > 0 || lifeCost > 0) session.Enqueue(() => SendSkillCost(session.remote, session.stream, session.ciphers, conn, lifeCost, "CWDT cost"));
             }

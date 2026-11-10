@@ -1346,6 +1346,7 @@ static partial class Game
                 || paidVaal is not null && VaalAdmissionCurrent(conn, paidVaal))
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
         if (!Current()) return;
+        var criticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId);
         var skillStats = SupportedSkill(conn, skillId).Stats;
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
         int effectiveness = SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level);
@@ -1619,6 +1620,8 @@ static partial class Game
                     cull: Cull.Of(player, skillStats, critical, spell));
                 if (applied is not null)
                 {
+                    if (!spell) ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
+                        criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
                     if (critical) conn.RecentEvents.Record(StatConditions.Crit, at);
                     landed++;
                     // Item Quantity Support: the kill's loot rolls read the supported skill's share.
