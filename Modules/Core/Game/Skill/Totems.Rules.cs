@@ -70,8 +70,10 @@ static partial class Game
         if (SkillsFor(conn).EffectId(effect) is { } id && TotemAuras.ContainsKey(id)
             && TotemVarieties.Value.TryGetValue(effect, out int native))
             return Monsters.Find(native.ToString()) is { Supported: true } aura ? aura : null;
-        if (SkillsFor(conn).EffectId(effect) != "Fireball") return null;
-        // Generic intelligence skin, SkillTotemVariations key 3, skin 0. Fireball's 22 has no dedicated skin.
+        if (!SpellTotemEffect(conn, effect)) return null;
+        // Prefer a dedicated native skin when the tables have one; other spell totems use intelligence skin 3.
+        if (TotemVarieties.Value.TryGetValue(effect, out int specific)
+            && Monsters.Find(specific.ToString()) is { Supported: true } nativeSpell) return nativeSpell;
         using var variations = GameTables.Open("data/tables/SkillTotemVariations.json");
         var skin = variations.RootElement.EnumerateArray().FirstOrDefault(v => v.GetProperty("SkillTotemsKey").GetInt32() == 3
             && v.GetProperty("TotemSkinId").GetInt32() == 0);
@@ -83,7 +85,8 @@ static partial class Game
         || PlacedKind(SupportedSkill(conn, skill)) is (false, false)
             && TotemVariety(conn, effect) is not null && BaseTotemsAllowed
             + GolemStat(SupportedStats(conn, skill), "number_of_additional_totems_allowed") > 0
-            && (SkillsFor(conn).EffectId(effect) != "Fireball" || TotemCastSeconds(conn, skill) is not null);
+            && (TotemAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "")
+                || SpellTotemEffect(conn, effect) && TotemCastSeconds(conn, skill) is not null);
 
     // A totem skill's use, after its mana: the totem rises at the aimed point once the summon ends (GrantedEffects
     // CastTime, 0.6 s, over totem placement speed and action speed; wiki Totem: cast speed does not apply).
@@ -93,12 +96,12 @@ static partial class Game
         double factor, speed;
         lock (conn.Monsters) factor = conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds);
         speed = Stats.Key("summon_totem_cast_speed_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0;
-        double basis = SkillsFor(conn).EffectId(effect) == "Fireball" ? .6 : SkillsFor(conn).CastTimeMs(effect) / 1000.0;
+        double basis = SpellTotemEffect(conn, effect) ? .6 : SkillsFor(conn).CastTimeMs(effect) / 1000.0;
         double seconds = basis / Math.Max(.01, 1 + speed / 100) / Math.Max(.01, factor);
         var lifetime = CombatLifetime;
         var source = SupportedSkill(conn, skillId);
         bool SourceCurrent() => SupportedSkill(conn, skillId) is var live && live.Host == source.Host
-            && ReferenceEquals(live.SourceGem, source.SourceGem) && IsTotemSkill(conn, skillId);
+            && SameTotemSource(source, live) && IsTotemSkill(conn, skillId);
         double release = conn.Clock.Elapsed.TotalSeconds + seconds;
         while (conn.Paused || conn.Clock.Elapsed.TotalSeconds < release)
         {
@@ -146,7 +149,7 @@ static partial class Game
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
         (int X, int Y) place = (Math.Clamp(at.X, 0, Math.Max(0, conn.Layout.GridW - 1)), Math.Clamp(at.Y, 0, Math.Max(0, conn.Layout.GridH - 1)));
         var playerStats = CharacterPlayerStats(conn);
-        bool spellTotem = SkillsFor(conn).EffectId(effect) == "Fireball" && IsTotemSkill(conn, skillId);
+        bool spellTotem = SpellTotemEffect(conn, effect) && IsTotemSkill(conn, skillId);
         var sourceGem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Gem;
         var proxy = spellTotem ? TotemProxy(conn, skillId) : null;
         if (spellTotem && proxy is null) return null;
@@ -168,6 +171,7 @@ static partial class Game
                 var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura)
                 { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
                     SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem };
+                if (spellTotem) BindTotemSource(conn, placed);
                 var replaced = conn.Totems.Place(placed, limit, now);
                 if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
                 // A totem blocks paths on the client as any body does.
