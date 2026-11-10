@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using System.Text.Json.Nodes;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core;
 using Progression = GameServer.Core.World.Progression;
 
 static partial class CommandsRules
@@ -77,7 +78,7 @@ static partial class CommandsRules
         var list = new List<(string, int)>();
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes("data/tables/WorldAreas.json"));
+            using var doc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/WorldAreas.json"));
             foreach (var r in doc.RootElement.EnumerateArray())
             {
                 string id = r.GetProperty("Id").GetString() ?? "";

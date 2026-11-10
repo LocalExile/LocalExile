@@ -52,6 +52,7 @@ static partial class Game
     // Release still resolves again: equipment/stats may change during the ordinary cancellable windup.
     internal static bool ProjectilePathAvailable(string remote, ClientState conn, ushort skillId, int effect)
     {
+        if (!TotemPathAvailable(conn, skillId, effect)) return false;
         if (!UsesProjectileRuntime(effect)) return true;
         try
         {
@@ -134,7 +135,7 @@ static partial class Game
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
         int Get(string key) => Player(key) + Own(key);
-        use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft) };
+        use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
         if (SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow")
         {
             double thrown = use.Profile.Speed;
@@ -153,14 +154,16 @@ static partial class Game
         // The client's life is the skill record's skill_effect_duration, in whole milliseconds.
         double life = Math.Round(1000 * SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own)) / 1000;
         int randomDuration = Get("spark_random_duration_%");
-        var at = conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
+        var sparkOrigin = use.Emitter.Id == PlayerId
+            ? ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
+            : use.Origin;
         double speed = use.Profile.Speed;
         return use with
         {
-            Origin = ProjectileSession.Vector(at),
+            Origin = sparkOrigin,
             Profile = use.Profile with
             {
-                Legs = i => new SparkLegs(sequence, i, PlayerId, life, randomDuration, speed, repeatsLeft),
+                Legs = i => new SparkLegs(sequence, i, use.Emitter.Id, life, randomDuration, speed, repeatsLeft),
                 // 0x141b38c00: a spark ends 150 cells from where it started.
                 LegLeash = 150
             }
@@ -174,7 +177,7 @@ static partial class Game
     // its volley: 0x141bb3e30 picks parallel (0x141bbb460) and random directions (0x141bbbd10) before nova and fan.
     // shortcut: parallel keeps the server's fan until it is ported.
     internal static ProjectileProfile ClientDrawnProfile(ClientState conn, ProjectileProfile profile, Func<string, int> get,
-        ushort sequence, ProjectileVector aim, uint repeatsLeft = 0)
+        ushort sequence, ProjectileVector aim, uint repeatsLeft = 0, uint? emitter = null)
     {
         double range = get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
             : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
@@ -182,7 +185,7 @@ static partial class Game
         if (profile.ReturnChancePercent is > 0 and < 100)
             profile = profile with { ReturnRolls = ReturnRolls(sequence, profile.Count, PlayerId, repeatsLeft) };
         if (get("support_parallel_projectile_number_of_points_per_side") == 0 && get("random_projectile_direction") != 0)
-            return profile with { NativeVolley = new() { Angles = RandomVolleyAngles(sequence, profile.Count, PlayerId, aim, repeatsLeft) } };
+            return profile with { NativeVolley = new() { Angles = RandomVolleyAngles(sequence, profile.Count, emitter ?? PlayerId, aim, repeatsLeft) } };
         // 0x141bb5e80 (the Disgorge nova and the action's own flags are not tracked here).
         return NativeVolley(profile, get);
     }
@@ -220,7 +223,7 @@ static partial class Game
 
     internal static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0)
+        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0, TotemState.Totem? totem = null)
     {
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
         // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
@@ -240,7 +243,7 @@ static partial class Game
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
         var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(conn, gem.Effect));
-        var at = conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
+        var at = totem?.At ?? conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
         var origin = ProjectileSession.Vector(at);
         if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
             throw new InvalidOperationException("Projectile recipe requires a projectile terrain mask");
@@ -258,7 +261,7 @@ static partial class Game
             WeaponProfileFor(conn, activeSet: true));
         double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
         // A point closer than the muzzle must not end up behind the released projectile.
-        origin += direction * Math.Min(ahead, (target - origin).Length / 2);
+        if (totem is null) origin += direction * Math.Min(ahead, (target - origin).Length / 2);
         profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range,
             (target - origin).Length, toTarget: rain) };
         // Arrow Nova's payload takes the rig's fixed timeline, not the arrow's speed: the official landing rig came
@@ -281,8 +284,10 @@ static partial class Game
             AreaHit = SupportedProjectileHit(conn, skillId, area: true),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             VsProfaneCriticalChance = SupportedCriticalChanceVsProfane(conn, skillId, release: true),
+            ActualCaster = totem is null ? null : TotemCasterStats(player),
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
             SkillStats = new Dictionary<uint, int>(own),
+            CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId),
             Penetration = Penetration.Of(player, Stats, !spell, own, local), ResistanceMods = HitResistMods(player, own),
             ImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local),
             CriticalImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local, critical: true),
@@ -290,7 +295,8 @@ static partial class Game
             Leech = HitLeechSources(player, !spell, own, local),
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
-            Ignite = MonsterIgnites.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get),
+            Ignite = WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get), player, own,
+                spell, spell ? "spell" : "main_hand"),
             Poison = MonsterPoisons.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get, local),
             Bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,
                 bow: WeaponProfileFor(conn, activeSet: true).Bow),
@@ -306,7 +312,7 @@ static partial class Game
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
             // Arrow Nova's volley is drawn by the client (the 18 SplitArrowDefault children were client objects), but
             // its payload arrow is not, so the server still sends that one object.
-            ClientPredicted = spell || SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow",
+            ClientPredicted = totem is not null || spell || SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow",
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
             Presentation = rain
                 // Arrow Nova's payload is the support's rain rig: the official server sends no payload object, only
@@ -335,8 +341,19 @@ static partial class Game
                 }
                 : release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };
-        var use = new ProjectileUse(profile, new(PlayerId, conn.ProjectileEpoch), new(PlayerId, conn.ProjectileEpoch), 1, origin, target)
-            { Payload = shot, ReturnAnchor = new(PlayerId, conn.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
+        if (totem is not null)
+        {
+            double totemMore = Math.Max(0, 1 + Get("support_totem_damage_+%_final") / 100d);
+            shot = shot with { Hit = shot.Hit.Scale(totemMore), AreaHit = shot.AreaHit?.Scale(totemMore),
+                Ignite = shot.Ignite with { Min = shot.Ignite.Min * totemMore, Max = shot.Ignite.Max * totemMore,
+                    CriticalMin = shot.Ignite.CriticalMin * totemMore, CriticalMax = shot.Ignite.CriticalMax * totemMore },
+                Poison = shot.Poison with { Min = shot.Poison.Min * totemMore, Max = shot.Poison.Max * totemMore,
+                    CriticalMin = shot.Poison.CriticalMin * totemMore, CriticalMax = shot.Poison.CriticalMax * totemMore },
+                Valid = () => SpellTotemCurrent(conn, totem), Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
+        }
+        uint emitter = totem?.Id ?? PlayerId;
+        var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)
+            { Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
         var context = new ProjectileReleaseContext(conn, session, skillId, gem, variation, Get, Player, Own);
         return definition.SpecializeRelease?.Invoke(context, use) ?? use;
     }

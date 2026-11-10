@@ -165,7 +165,7 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
 
 ## 6. The server's stash
 
-`AccountStash` (Gateway): per account (Auth's resolve now returns `Account`), saved as its row in `data/saves.db` the way
+`AccountStash` (Gateway): per account (Auth's resolve now returns `Account`), saved as its row in `data/characters.db` the way
 character saves are ([saves](../saves.md)): a stash that can't be read stops what needed it instead of becoming the
 starter tabs, and every move between the stash and a character's items is one transaction.
 Tab i's inventory id is 0x800 + i. A new account gets two normal tabs, two premium tabs, a quad tab and Currency,

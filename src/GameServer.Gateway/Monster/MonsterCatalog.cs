@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The monsters /spawn_mob can create: MonsterVarieties rows from the extracted tables
@@ -65,7 +66,7 @@ sealed class MonsterCatalog(string folder = "data")
     static Dictionary<string, HitAnimation[]> LoadTakeHit(string folder)
     {
         string path = Path.Combine(folder, "monster-takehit.json");
-        if (!File.Exists(path)) return [];
+        if (!ClientTables.Exists(path)) return [];
         using var doc = GameTables.Open(path);
         var result = new Dictionary<string, HitAnimation[]>();
         foreach (var p in doc.RootElement.EnumerateObject())
@@ -192,9 +193,9 @@ sealed class MonsterCatalog(string folder = "data")
         {
             string boss = Path.Combine(folder, "tables", "MonsterMapBossDifficulty.json"),
                 map = Path.Combine(folder, "tables", "MonsterMapDifficulty.json");
-            if (!File.Exists(boss) || !File.Exists(map)) return null;
-            using var b = JsonDocument.Parse(File.ReadAllBytes(boss));
-            using var m = JsonDocument.Parse(File.ReadAllBytes(map));
+            if (!ClientTables.Exists(boss) || !ClientTables.Exists(map)) return null;
+            using var b = JsonDocument.Parse(ClientTables.ReadAllBytes(boss));
+            using var m = JsonDocument.Parse(ClientTables.ReadAllBytes(map));
             var bossRows = b.RootElement.EnumerateArray()
                 .Select(r => (Level: r.GetProperty("MapLevel").GetInt32(), Life: r.GetProperty("BossLifePercentIncrease").GetDouble(),
                     Damage: r.GetProperty("BossDamagePercentIncrease").GetDouble())).ToArray();
@@ -216,9 +217,9 @@ sealed class MonsterCatalog(string folder = "data")
         public static LifeTables? Load(string folder)
         {
             string stats = Path.Combine(folder, "tables", "DefaultMonsterStats.json"), types = Path.Combine(folder, "tables", "MonsterTypes.json");
-            if (!File.Exists(stats) || !File.Exists(types)) return null;
-            using var s = JsonDocument.Parse(File.ReadAllBytes(stats));
-            using var t = JsonDocument.Parse(File.ReadAllBytes(types));
+            if (!ClientTables.Exists(stats) || !ClientTables.Exists(types)) return null;
+            using var s = JsonDocument.Parse(ClientTables.ReadAllBytes(stats));
+            using var t = JsonDocument.Parse(ClientTables.ReadAllBytes(types));
             return new LifeTables(
                 [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("MonsterLife").GetInt32(), r.GetProperty("MinionLife").GetInt32(),
                     r.GetProperty("AltLife1").GetInt32(), r.GetProperty("AltLife2").GetInt32(), r.GetProperty("Damage").GetDouble(),
@@ -257,14 +258,14 @@ sealed class MonsterCatalog(string folder = "data")
     private static (List<Variety>, string?) Load(string folder)
     {
         string varieties = Path.Combine(folder, "tables", "MonsterVarieties.json");
-        if (!File.Exists(varieties)) return ([], $"{varieties} is missing: extract the game tables (Tools/PoEDataExtractor)");
+        if (!ClientTables.Exists(varieties)) return ([], $"{varieties} is missing: extract the game tables (Tools/PoEDataExtractor)");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var stateMachines = new Dictionary<string, StateMachineData>();
         var transitionStates = new Dictionary<string, byte>();
         var lifeData = new Dictionary<string, MonsterLifeData>();
         var blocking = new Dictionary<string, bool>();
         string types = Path.Combine(folder, "object-types.json");
-        if (File.Exists(types))
+        if (ClientTables.Exists(types))
         {
             using var doc = GameTables.Open(types);
             foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
@@ -340,7 +341,7 @@ sealed class MonsterCatalog(string folder = "data")
     {
         string classes = Path.Combine(folder, "tables", "ItemClasses.json");
         string bases = Path.Combine(folder, "tables", "BaseItemTypes.json");
-        if (!File.Exists(classes) || !File.Exists(bases)) return [];
+        if (!ClientTables.Exists(classes) || !ClientTables.Exists(bases)) return [];
         using var c = GameTables.Open(classes);
         using var b = GameTables.Open(bases);
         var rangedClasses = c.RootElement.EnumerateArray().Select((row, index) => (row, index))

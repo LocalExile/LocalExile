@@ -21,8 +21,8 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
     {
         string graphFile = Path.Combine(folder, "delve-paths.json");
         string roomsFile = Path.Combine(folder, "walkability", $"{area}_seed{seed}.rooms.json");
-        if (!File.Exists(graphFile) || !File.Exists(roomsFile)) return null;
-        using var graphs = JsonDocument.Parse(File.ReadAllBytes(graphFile));
+        if (!GameServer.Core.ClientTables.Exists(graphFile) || !File.Exists(roomsFile)) return null;
+        using var graphs = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllBytes(graphFile));
         using var rooms = JsonDocument.Parse(File.ReadAllBytes(roomsFile));
         var capture = rooms.RootElement;
         if (capture.GetProperty("area").GetString() != area || capture.GetProperty("seed").GetUInt32() != seed) return null;

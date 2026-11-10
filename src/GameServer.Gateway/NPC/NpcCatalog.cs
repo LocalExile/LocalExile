@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// NPCs (Agents/docs/protocol/17-npcs.md): NPCs.dat rows from the extracted tables with their object type's deserialized
@@ -258,12 +259,12 @@ sealed class NpcCatalog
     static NpcCatalog Read(string folder)
     {
         string table = Path.Combine(folder, "tables", "NPCs.json");
-        if (!File.Exists(table)) return new([], $"{table} is missing: extract the game tables (Tools/PoEDataExtractor)");
+        if (!ClientTables.Exists(table)) return new([], $"{table} is missing: extract the game tables (Tools/PoEDataExtractor)");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var stateMachines = new Dictionary<string, StateMachineData>();
         var transitionStates = new Dictionary<string, byte>();
         string types = Path.Combine(folder, "object-types.json");
-        if (File.Exists(types))
+        if (ClientTables.Exists(types))
         {
             using var doc = GameTables.Open(types);
             foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
@@ -281,15 +282,15 @@ sealed class NpcCatalog
         var shopOfSet = new List<int>();
         var hardModeShopOfSet = new List<int>();
         string sets = Path.Combine(folder, "tables", "NPCShopSets.json");
-        if (File.Exists(sets))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(sets)))
+        if (ClientTables.Exists(sets))
+            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(sets)))
             {
                 shopOfSet = [.. doc.RootElement.EnumerateArray().Select(s => s.GetProperty("Shop").ValueKind == JsonValueKind.Number ? s.GetProperty("Shop").GetInt32() : -1)];
                 hardModeShopOfSet = [.. doc.RootElement.EnumerateArray().Select(s => s.TryGetProperty("ShopRuthless", out var shop)
                     && shop.ValueKind == JsonValueKind.Number ? shop.GetInt32() : -1)];
             }
         var rows = new List<Npc>();
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(table)))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(table)))
             foreach (var r in doc.RootElement.EnumerateArray())
             {
                 string id = r.GetProperty("Id").GetString() ?? "";
@@ -316,18 +317,18 @@ sealed class NpcCatalog
     static List<Talk> ReadTalk(string folder)
     {
         string table = Path.Combine(folder, "tables", "NPCTalk.json"), categories = Path.Combine(folder, "tables", "NPCTalkCategory.json");
-        if (!File.Exists(table) || !File.Exists(categories)) return [];
+        if (!ClientTables.Exists(table) || !ClientTables.Exists(categories)) return [];
         List<string> names;
         using (var doc = GameTables.Open(categories))
             names = [.. doc.RootElement.EnumerateArray().Select(c => c.GetProperty("Id").GetString() ?? "")];
         string flagsFile = Path.Combine(folder, "tables", "QuestFlags.json");
         List<string> flags = [];
-        if (File.Exists(flagsFile))
+        if (ClientTables.Exists(flagsFile))
             using (var doc = GameTables.Open(flagsFile))
                 flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
         string? Flag(int row) => row >= 0 && row < flags.Count && flags[row] != "NEVER_SET" ? flags[row] : null;
         var talk = new List<Talk>();
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(table)))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(table)))
             foreach (var r in doc.RootElement.EnumerateArray())
             {
                 int Int(string name) => r.GetProperty(name).ValueKind == JsonValueKind.Number ? r.GetProperty(name).GetInt32() : -1;

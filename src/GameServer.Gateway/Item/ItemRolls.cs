@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Magic and rare items (Agents/docs/protocol/13-items.md §2b). Affixes come from Mods.dat: the base's ModDomain,
@@ -530,9 +531,9 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     {
         var result = new Dictionary<(int, int), string>();
         string path = Path.Combine(folder, "tables", "InfluenceTags.json"), tagsPath = Path.Combine(folder, "tables", "Tags.json");
-        if (!File.Exists(path) || !File.Exists(tagsPath)) return result;
-        using var tags = JsonDocument.Parse(File.ReadAllBytes(tagsPath));
-        using var rows = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path) || !ClientTables.Exists(tagsPath)) return result;
+        using var tags = JsonDocument.Parse(ClientTables.ReadAllBytes(tagsPath));
+        using var rows = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in rows.RootElement.EnumerateArray())
             result[(r.GetProperty("ItemClass").GetInt32(), r.GetProperty("Influence").GetInt32())] =
                 tags.RootElement[r.GetProperty("Tag").GetInt32()].GetProperty("Id").GetString() ?? "";
@@ -542,11 +543,11 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     static List<Word> LoadWords(string folder)
     {
         string path = Path.Combine(folder, "tables", "Words.json"), tagsPath = Path.Combine(folder, "tables", "Tags.json");
-        if (!File.Exists(path) || !File.Exists(tagsPath)) return [];
+        if (!ClientTables.Exists(path) || !ClientTables.Exists(tagsPath)) return [];
         List<string> tags;
-        using (var t = JsonDocument.Parse(File.ReadAllBytes(tagsPath)))
+        using (var t = JsonDocument.Parse(ClientTables.ReadAllBytes(tagsPath)))
             tags = [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. d.RootElement.EnumerateArray().Select(r => new Word(r.GetProperty("HASH32").GetUInt32(), r.GetProperty("Text").GetString() ?? "",
             r.GetProperty("Wordlist").GetInt32(),
             [.. r.GetProperty("SpawnWeight_Tags").EnumerateArray().Zip(r.GetProperty("SpawnWeight_Values").EnumerateArray(),

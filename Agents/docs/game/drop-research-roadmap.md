@@ -131,8 +131,8 @@ is not in the client tables needs a source and a confidence note.
 - [~] Add tests (at most 2 per PR, Gateway only): seed and publication, empty
   fallback done; source filtering, card area/tier/DropLevel filter and King in
   the Mists distribution next.
-- [~] Move the tables to editable data (SQLite, `game_data_meta`/`drop_seeded`);
-  the `/game_data` edit commands and a re-seed on schema change are next.
+- [x] Move the tables to data: world.db's `drop_*` tables, built from `sql/`; a
+  change is an update file ([databases](../dev/databases.md)).
 
 ## Phase 6. Verification and data collection
 
@@ -159,7 +159,7 @@ is not in the client tables needs a source and a confidence note.
 5. **Next:** currency baseline recalibration + missing core types (one code PR,
    two tests at most).
 6. **Next:** drop penalty (one code PR, one test).
-7. **Next:** `/game_data` edit commands, source rows and re-seeding.
+7. **Next:** source rows (`drop_currency_sources`) as world updates.
 8. **Later:** collector and MLE recalibration from live samples.
 
 ## Open questions

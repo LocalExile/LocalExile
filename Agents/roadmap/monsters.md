@@ -30,7 +30,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   and `KingInMists.cs` the two-form Ritual pinnacle), pack
   `Grounds`, the varieties with ControlZone / BlightTower / Mercenary … components (each needs its deserializer,
   schema.md; NPC, InteractionAction and Timer are written), the bandit lords' help-or-kill dialogue, bosses' later
-  forms (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) created by their fight, tile spawner bosses
+  forms (Abberath2, Shakari2, Malachai's second form) created by their fight, tile spawner bosses
   (Marceus).
   Emerge monsters: the official emerge distance and whether a pack rises together are unknown (the server's `.ais`
   files); types whose Transitionable lists more states (SpiderBoss: 3) are still created risen.

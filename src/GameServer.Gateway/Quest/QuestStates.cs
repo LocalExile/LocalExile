@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// The quest log as the client derives it from the flags (Agents/docs/protocol/12-quests.md §1): QuestStates rows per quest,
@@ -49,20 +50,20 @@ sealed class QuestStates
     {
         var result = new QuestStates();
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!File.Exists(Table("QuestFlags")) || !File.Exists(Table("Quest"))) return result;
+        if (!ClientTables.Exists(Table("QuestFlags")) || !ClientTables.Exists(Table("Quest"))) return result;
         string[] flags, ids;
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(Table("QuestFlags"))))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("QuestFlags"))))
             flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
         string? Flag(JsonElement e) => e.ValueKind == JsonValueKind.Number && e.GetInt32() is >= 0 and var i && i < flags.Length ? flags[i] : null;
         string[] Flags(JsonElement r, string name) => r.TryGetProperty(name, out var v) ? [.. v.EnumerateArray().Select(Flag).OfType<string>()] : [];
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(Table("Quest"))))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("Quest"))))
         {
             ids = [.. doc.RootElement.EnumerateArray().Select(q => q.GetProperty("Id").GetString() ?? "")];
             foreach (var q in doc.RootElement.EnumerateArray())
                 result.quests.TryAdd(q.GetProperty("Id").GetString() ?? "", (q.GetProperty("Act").GetInt32(), q.GetProperty("Name").GetString() ?? ""));
         }
-        if (File.Exists(Table("QuestStates")))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(Table("QuestStates"))))
+        if (ClientTables.Exists(Table("QuestStates")))
+            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("QuestStates"))))
                 foreach (var s in doc.RootElement.EnumerateArray())
                 {
                     if (s.GetProperty("Quest") is not { ValueKind: JsonValueKind.Number } qv || qv.GetInt32() is not (>= 0 and var q) || q >= ids.Length) continue;
@@ -70,8 +71,8 @@ sealed class QuestStates
                     list.Add(new(s.GetProperty("Order").GetInt32(), Flags(s, "FlagsPresent"), Flags(s, "FlagsMissing"),
                         s.GetProperty("Text").GetString() ?? "", s.TryGetProperty("Message", out var m) ? m.GetString() ?? "" : ""));
                 }
-        if (File.Exists(Table("CharacterStartQuestState")))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(Table("CharacterStartQuestState"))))
+        if (ClientTables.Exists(Table("CharacterStartQuestState")))
+            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("CharacterStartQuestState"))))
                 foreach (var p in doc.RootElement.EnumerateArray())
                 {
                     string id = p.GetProperty("Id").GetString() ?? "";
@@ -79,8 +80,8 @@ sealed class QuestStates
                         [.. p.GetProperty("QuestKeys").EnumerateArray().Select(k => k.GetInt32()).Where(k => k >= 0 && k < ids.Length).Select(k => ids[k])],
                         Flags(p, "QuestFlags")));
                 }
-        if (File.Exists(Table("SessionQuestFlags")))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(Table("SessionQuestFlags"))))
+        if (ClientTables.Exists(Table("SessionQuestFlags")))
+            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("SessionQuestFlags"))))
                 foreach (var s in doc.RootElement.EnumerateArray())
                     if (Flag(s.GetProperty("QuestFlag")) is { } f) result.session.Add(f);
         return result;

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 static class KiracProgress
 {
@@ -7,7 +8,7 @@ static class KiracProgress
         public int Tier => Math.Clamp(MapAreaLevelOffered - 67,1,16);
     }
     static readonly Lazy<Level[]> Levels = new(() => JsonSerializer.Deserialize<Level[]>(
-        File.ReadAllText("data/tables/KiracLevels.json"))!);
+        ClientTables.ReadAllText("data/tables/KiracLevels.json"))!);
     public static Level For(AccountStash? account)
     {
         int count = Completed(account).Count;

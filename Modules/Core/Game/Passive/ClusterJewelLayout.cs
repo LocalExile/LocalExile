@@ -1,5 +1,6 @@
 using GameServer.Core.Protocol.Instance;
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>
@@ -33,8 +34,8 @@ static class ClusterJewelLayout
     {
         var templates = new Dictionary<int, Template>();
         string path = Path.Combine("data", "tables", "PassiveTreeExpansionJewels.json");
-        if (!File.Exists(path)) return templates;
-        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return templates;
+        using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var row in document.RootElement.EnumerateArray())
         {
             int size = row.GetProperty("PassiveTreeExpansionJewelSizesKey").GetInt32();

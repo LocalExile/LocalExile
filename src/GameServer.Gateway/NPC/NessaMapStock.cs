@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>The map catalogue Nessa's development shop sells, independent of ambiguous display-name lookup: one
 /// generic "Map (Tier N)" key for every tier 1-16, the tier-17 Nightmare Map, the Originator-influenced entries and
@@ -15,8 +16,8 @@ static class NessaMapStock
     public static List<Entry> Build(ItemCatalog items, string folder = "data")
     {
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!File.Exists(Table("Maps"))) return [];
-        using var maps = JsonDocument.Parse(File.ReadAllBytes(Table("Maps")));
+        if (!ClientTables.Exists(Table("Maps"))) return [];
+        using var maps = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("Maps")));
         var rows = maps.RootElement.EnumerateArray().ToArray();
         // The generic map keys name their tier themselves (MapKey component); the client reads the tier from the base.
         var result = new List<Entry>();
@@ -43,7 +44,7 @@ static class NessaMapStock
                 }, name, tier) { Originator = true });
             }
         }
-        if (!File.Exists(Table("UniqueMaps")) || !File.Exists(Table("Words")) || !File.Exists(Table("ItemVisualIdentity"))) return result;
+        if (!ClientTables.Exists(Table("UniqueMaps")) || !ClientTables.Exists(Table("Words")) || !ClientTables.Exists(Table("ItemVisualIdentity"))) return result;
         using var uniques = GameTables.Open(Table("UniqueMaps"));
         using var words = GameTables.Open(Table("Words"));
         using var visuals = GameTables.Open(Table("ItemVisualIdentity"));
