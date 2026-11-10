@@ -831,6 +831,7 @@ static partial class Game
             SpellBlockChance = bonus.SpellBlockChance + (activeWeapon.Shield
                 ? auras.Where(a => a.EffectId == "TempestShield").Select(a => ReservationStat(conn, a, "shield_spell_block_%")).DefaultIfEmpty(0).Max() : 0),
             MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(conn)
+                + FlickerMovementPct(conn)
         };
         // Running utility flasks and Mageblood's permanent ones combined before one strongest-per-effect pass: the same
         // effect never counts twice.
@@ -1023,6 +1024,10 @@ static partial class Game
             + (weapons.Staff ? Get("staff_critical_strike_multiplier_+") + Get("global_critical_strike_multiplier_+_while_holding_staff") : 0);
         int spellCriticalMultiplier = Get("base_critical_strike_multiplier_+")
             + Get("base_spell_critical_strike_multiplier_+") + Get("spell_critical_strike_multiplier_+");
+        // Overwhelm's per-nearby-enemy multiplier joins the generic one (client 0x14276e1f0), for attacks and spells.
+        int nearbyMultiplier = (int)Slayer.CritMultiplierFromNearby(Get);
+        criticalMultiplier += nearbyMultiplier;
+        spellCriticalMultiplier += nearbyMultiplier;
         // Accuracy passives: generic flat and increased, the weapon-specific flat and increased stats, and the Accuracy
         // Mastery's conversions, plus its two target-conditional "more" effects (below; TargetAccuracy applies them to
         // the hit's own target at the roll). Other conditional accuracy stays unmodelled. Unarmed attacks count as dual

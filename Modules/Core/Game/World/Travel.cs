@@ -31,6 +31,11 @@ static partial class Game
     {
         lock (conn.Monsters)
             if (PlayerActionBlocked(conn, requestedAt, conn.Clock.Elapsed.TotalSeconds)) return;
+        if (SkillsFor(conn).IsGemSkill(use.SkillId))
+        {
+            var requested = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
+            if (requested.Name is not null && GemSkillInstanceDisabled(conn, requested.Effect, use.SkillId) is not null) return;
+        }
         if (LyingOnBeach(conn))
         {
             await WakeUpOnBeach(remote, stream, ciphers, conn, null, TutorialObjects.GetUpSequence, 0, requestedAt);

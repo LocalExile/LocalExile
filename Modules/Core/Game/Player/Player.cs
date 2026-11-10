@@ -300,6 +300,54 @@ static partial class Game
     internal static uint ManaCost(StatCatalog stats, SkillCatalog skills, int effect, int level, int quality) =>
         stats.Key("mana_cost") is uint k ? (uint)skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
 
+    // What a use of the skill costs now (PayMana's rules), and whether the player can pay it. Called under Monsters.
+    static bool SkillCostLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
+        out Dictionary<uint, int> player)
+    {
+        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        cost = 0;
+        life = 0;
+        player = [];
+        if (CombatLifetime is not null && !CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0)
+            return false;
+        player = SupportedStats(conn, skillId);
+        cost = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
+        // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
+        if (cost > 0 && BloodCharges.Uses(Own))
+            cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
+        // Inspiration: "Supported Skills have (25-42)% reduced Mana Cost".
+        int inspirationCost = Own("support_inspiration_mana_cost_+%_final");
+        if (cost > 0 && inspirationCost != 0)
+            cost = (uint)Math.Max(0, Math.Round(cost * Math.Max(0, 1 + inspirationCost / 100.0),
+                MidpointRounding.AwayFromZero));
+        // Blood Magic (the keystone, or an item that grants it): every skill's Mana cost becomes a Life cost.
+        // Lifetap Support's conversion and Petrified Blood's share do not stack on top of it, since the Mana cost
+        // it would divide no longer exists.
+        bool bloodMagic = Stats.Key("keystone_blood_magic") is uint bloodKey && player.GetValueOrDefault(bloodKey) != 0;
+        if (bloodMagic)
+        {
+            life = (int)Math.Min(cost, int.MaxValue);
+            cost = 0;
+        }
+        else if (Lifetap.ConvertsCostToLife(own))
+        {
+            // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
+            // therefore zero: the two conversions do not stack into 140%.
+            life = (int)Math.Min(cost, int.MaxValue);
+            cost = 0;
+        }
+        else life = PetrifiedBlood.LifeCost(conn, (int)Math.Min(cost, int.MaxValue));
+        return conn.PlayerMana >= cost && !(life > 0 && conn.PlayerLife <= (uint)life);
+    }
+
+    // Whether the player can pay a use of the skill now: checked before a use's admission spends a cooldown use or a
+    // bypass charge, or moves the player (TryBeginCooldownUseCore), so a refused payment leaves them as they were.
+    internal static bool CanPaySkillCost(ClientState conn, ushort skillId)
+    {
+        var own = SupportedSkill(conn, skillId).Stats;
+        lock (conn.Monsters) return SkillCostLocked(conn, skillId, own, out _, out _, out _);
+    }
+
     // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts, plus Petrified
     // Blood's base life cost while it runs and the player is not on Low Life. Lifetap Support replaces the whole
     // mana cost with Life. False when the player lacks the pool it actually uses.
@@ -307,42 +355,10 @@ static partial class Game
     {
         var supported = SupportedSkill(conn, skillId);
         var own = supported.Stats;
-        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
-        cost = (uint)Math.Max(0, Own("mana_cost"));
         lifeCost = 0;
         lock (conn.Monsters)
         {
-            if (CombatLifetime is not null && !CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0)
-            { cost = 0; return false; }
-            var player = SupportedStats(conn, skillId);
-            cost = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
-            // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
-            if (cost > 0 && BloodCharges.Uses(Own))
-                cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
-            // Inspiration: "Supported Skills have (25-42)% reduced Mana Cost".
-            int inspirationCost = Own("support_inspiration_mana_cost_+%_final");
-            if (cost > 0 && inspirationCost != 0)
-                cost = (uint)Math.Max(0, Math.Round(cost * Math.Max(0, 1 + inspirationCost / 100.0),
-                    MidpointRounding.AwayFromZero));
-            int life;
-            // Blood Magic (the keystone, or an item that grants it): every skill's Mana cost becomes a Life cost.
-            // Lifetap Support's conversion and Petrified Blood's share do not stack on top of it, since the Mana cost
-            // it would divide no longer exists.
-            bool bloodMagic = Stats.Key("keystone_blood_magic") is uint bloodKey && player.GetValueOrDefault(bloodKey) != 0;
-            if (bloodMagic)
-            {
-                life = (int)Math.Min(cost, int.MaxValue);
-                cost = 0;
-            }
-            else if (Lifetap.ConvertsCostToLife(own))
-            {
-                // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
-                // therefore zero: the two conversions do not stack into 140%.
-                life = (int)Math.Min(cost, int.MaxValue);
-                cost = 0;
-            }
-            else life = PetrifiedBlood.LifeCost(conn, (int)Math.Min(cost, int.MaxValue));
-            if (conn.PlayerMana < cost || life > 0 && conn.PlayerLife <= (uint)life) return false;
+            if (!SkillCostLocked(conn, skillId, own, out cost, out int life, out var player)) return false;
             conn.PlayerMana -= cost;
             if (life > 0)
             {
@@ -557,6 +573,7 @@ static partial class Game
                 await SendRecentEnemyHits(remote, stream, ciphers, conn);
                 await SendAttackerSlows(remote, stream, ciphers, conn);
                 await SendLifetap(remote, stream, ciphers, conn);
+                lock (conn.Monsters) _ = CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds);
                 await SendSupportGemBuffs(remote, stream, ciphers, conn);
                 await SendLeechBuffs(remote, stream, ciphers, conn);
                 await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);

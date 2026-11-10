@@ -1631,8 +1631,17 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   as inflicting, and goes as soon as the monster is out of range or the source ends. The receiving monster's immunity
   to the kind counts; its own `shocked_effect_on_self_+%` or `chill_effectiveness_on_self_+%` does not change the
   copy (not verified). A spread chill keeps Glacial Wave's effects, as the wiki says effects built into an ailment
-  spread with it (not verified for Glacial Wave). Ignite proliferation is not modelled, nor a reflected ailment
-  spreading from the player. A shattered monster spreads nothing.
+  spread with it (not verified for Glacial Wave). A reflected ailment spreading from the player is not modelled.
+  Ignite proliferation (`ProliferateIgnitesLocked`, same AI tick): an ignite takes the largest of
+  `support_ignite_proliferation_radius`, `ignite_proliferation_radius`, `gloves_`, `passive_notable_`, `flask_`,
+  `main_hand_` (attacks in that hand) `ignite_proliferation_radius` and the elemental aura radius
+  (`MonsterIgnites.Settings.Spread`, cells, × area like `SpreadRadius`); the client has no virtual ignite radius, so
+  "largest" follows the shock calculator (not verified). Every living hostile monster that can be ignited, in reach of
+  one (corpses included, `MonsterIgnites.Spreads`), burns with the strongest at its damage per second until it ends
+  (`MonsterIgnites.Proliferated`); the copy competes with its own ignites, does not spread and is not a new ignite.
+  A monster that starts burning from it gets the ignited buff (0x1c1 row 0). A killing hit's ignite is not put on
+  the corpse. A shattered or consumed corpse spreads nothing: its retained ignites retire
+  (`MonsterIgnites.RetireCorpse`) and the copies it gave end at the next AI tick; an intact corpse keeps spreading.
 
 Presentation runs on the AI tick (`MonsterAilmentChangesLocked`), so with `/ai off` the server still applies the
 effects but sends nothing, and nothing spreads. A kind is re-sent only when its strongest magnitude changes: S→C

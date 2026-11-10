@@ -20,11 +20,21 @@ public sealed class GameModule : IModule
         module.OnPlayerLeaving((player, _) => global::DoedreSewers.Leaving(Program.ConnOf(player)));
         module.OnTick((player, _) => global::BrineKing.Tick(Program.ConnOf(player)));
         module.OnTick((player, _) => global::VaalOversoul.Tick(Program.ConnOf(player)));
+        module.OnTick((player, _) => global::DepravedTrinity.Tick(Program.ConnOf(player)));
+        module.Lifetime.Own(global::DepravedTrinity.CleanupOnUnload());
+        module.Lifetime.Own(GameEvents.ObjectUse.Add("Game", global::DepravedTrinity.Use));
+        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("RottingCore", global::DepravedTrinity.PlayerStats));
+        module.OnPlayerLeaving((player, _) => global::DepravedTrinity.Leaving(Program.ConnOf(player)));
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
         module.OnPlayerLeaving((player, _) => global::VaalOversoul.Leaving(Program.ConnOf(player)));
-        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("BrineKing", global::BrineKing.PlayerStats));
+        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game",global::BrineKing.PlayerStats));
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
         module.Lifetime.Own(GameEvents.Kill.Add("Game", Rules.ReservationKill));
+        module.OnTick((player, _) => global::Slayer.Tick(Program.ConnOf(player)));
+        module.Lifetime.Own(GameEvents.Kill.Add("Game", global::Slayer.Kill));
+        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game", global::Slayer.PlayerStats));
+        module.Lifetime.Own(GameEvents.OutgoingDamage.Add("Game", global::Slayer.OutgoingDamage));
+        module.OnPlayerLeaving((player, _) => global::Slayer.Leaving(Program.ConnOf(player)));
         module.OnPlayerLeaving((player, _) => global::BrineKing.Leaving(Program.ConnOf(player)));
     }
 }

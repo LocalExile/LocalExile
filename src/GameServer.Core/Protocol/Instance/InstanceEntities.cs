@@ -1033,6 +1033,10 @@ public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatS
     IReadOnlyList<(uint Key, int Value)>? Stats = null, uint CooldownMs = 0)
 {
     public (uint Object, ushort Skill)? Parent { get; init; }
+    /// <summary>The record's u8 → skill +0xcc: the charge the client lets the skill spend while it cools down
+    /// (GrantedEffectsPerLevel CooldownBypassType: 1 Endurance, 2 Frenzy, 3 Power; 0x141ea4290, 0x141ea4560). At 0
+    /// the client never used Flicker Strike during its cooldown, whatever the Frenzy Charges (live 2026-11-09).</summary>
+    public byte CooldownBypassType { get; init; }
     /// <summary>Skill-record bit1 (0x02): retain native GEPL Vaal soul inputs, regardless of current cost or balance.</summary>
     public bool VaalResourcesEnabled { get; init; }
     /// <summary>Native support references (GEPL row and source metadata), read by 0x14219d650.</summary>
@@ -1240,7 +1244,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          // → skill +0xc0, +0xc4, +0xc8, +0xcc (0x141eedc30). +0xc8 is the cooldown in ms: with it and the stat
          // virtual_total_cooldown_count the client keeps the skill's cooldown and shows it on the skill bar
          // (0x141ef0f00 creates the cooldown record only when it is not 0; live 2026-10-21).
-         .U32(0).U32(0).U32(s.CooldownMs).U8(0)
+         .U32(0).U32(0).U32(s.CooldownMs).U8(s.CooldownBypassType)
          .Stats(s.Stats);                      // the skill's own stats
         foreach (var (_, stats) in s.ExtraStatSets) w.Stats(stats);   // and one stat list per additional set
     }
