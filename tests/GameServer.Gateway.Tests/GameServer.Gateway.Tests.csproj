@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsRewards\SurvivorsRewards.csproj" />
     <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsSkills\SurvivorsSkills.csproj" />
     <ProjectReference Include="..\..\Modules\Legacy\PhreciaAscendancies\PhreciaAscendancies.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Item\Cosmetics\Cosmetics.csproj" />
     <!-- The campaign oracle plays the act tables the QuestObjects module registers (QuestEngineTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\QuestObjects\QuestObjects.csproj" />
     <!-- The Atlas's completed maps (AtlasProgressTests). -->

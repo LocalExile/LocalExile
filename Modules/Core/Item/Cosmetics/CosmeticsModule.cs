@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -12,7 +13,14 @@ public sealed class CosmeticsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn =>
+        string id = module.Manifest.Id;
+        var controls = new ConditionalWeakTable<ClientState, CosmeticPetControls>();
+        CosmeticPetControls For(ClientState conn) => controls.GetValue(conn, c => new(c, module.Lifetime));
+        GameEvents.PetControls.Add(id, conn => module.Lifetime.IsActive ? For(conn) : null);
+        GameEvents.PetCollector.Add(id, (conn, pet, owner) => For(conn).Collector(pet, owner));
+        GameEvents.TransientClosing.Add(id, PetControl.Clear);
+        GameEvents.Tick.Add(id, (conn, _) => For(conn).Follow());
+        GameEvents.AreaGenerated.Add(id, conn =>
         {
             return CosmeticsFeature.SpawnPets(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         });
@@ -131,11 +139,11 @@ static class CosmeticsFeature
     }
 
     // The worn pets (Pet slots 18 and 19): one PetObject each beside the player, owned by it (PetAi). A pick removes the
-    // old ones first. RunPetFollow walks them after the player.
+    // old ones first. The cosmetic player tick walks them after the player.
     internal static async Task SpawnPets(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         List<uint> old;
-        lock (conn.Pets) { old = [.. conn.Pets.Keys]; conn.Pets.Clear(); }
+        lock (conn.Pets) { PetControl.Clear(conn); old = [.. conn.Pets.Keys]; conn.Pets.Clear(); }
         foreach (uint id in old)
             await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x{InstanceProtocol.RemoveObjectId:x4} remove pet 0x{id:x}");
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -156,7 +164,6 @@ static class CosmeticsFeature
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
             lock (conn.Pets) conn.Pets[id] = new SpawnedPet(conn.NewWalk(x, y, conn.Walk.Speed), worn.Slot == 18 ? 1 : -1);
         }
-        if (!conn.PetFollowRunning) { conn.PetFollowRunning = true; _ = RunPetFollow(remote, stream, ciphers, conn); }
     }
 
     // Where a pet stands by the player: PetDistance cells to the player's side (side +1 or −1, the two Pet slots), on the
@@ -167,38 +174,4 @@ static class CosmeticsFeature
         return conn.Layout.Walkable is { } w && !w(spot.X, spot.Y) ? player : spot;
     }
 
-    // Pets follow the player: when one is farther than PetFollowRange from the player it walks (0x1ab Move, as monsters do)
-    // to its spot beside the player, which keeps it near but never on top of the player. Ends with the connection.
-    internal static async Task RunPetFollow(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
-    {
-        const ushort Move = 0x2909;
-        try
-        {
-            while (!conn.Closed)
-            {
-                await Task.Delay(PlayerTickMs);
-                if (conn.Paused) continue;
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                var player = conn.Walk.Position(now);
-                var orders = new List<(uint Id, (int X, int Y) From, (int X, int Y) To)>();
-                lock (conn.Pets)
-                    foreach (var (id, pet) in conn.Pets)
-                    {
-                        var here = pet.Walk.Position(now);
-                        if (Dist(here, player) <= PetFollowRange) continue;
-                        var to = PetSpot(conn, player, pet.Side);
-                        if (pet.Target is { } last && Dist(last, to) < 3) continue;   // already on its way there
-                        pet.Target = to;
-                        pet.Walk.SetSpeed(Math.Max(conn.Walk.Speed, 1), now);
-                        orders.Add((id, pet.Walk.Order(to.X, to.Y, now), to));
-                    }
-                foreach (var (id, from, to) in orders)
-                    await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, Move, 0xffff, 0x0408), null);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        {
-            // The connection closed while sending.
-        }
-    }
 }

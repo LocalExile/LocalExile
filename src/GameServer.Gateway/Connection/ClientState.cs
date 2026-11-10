@@ -621,9 +621,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// A key lives only while its full target remains present; retired keys are never reassigned on this connection.</summary>
     public Dictionary<uint, InstanceMicrotransactions.SkillSlot> SkillSlots = [];
     public uint NextSkillCosmeticKey = InstanceMicrotransactions.SlotCount;
-    /// <summary>The worn pets by object id (SpawnPets), replaced when a Pet slot changes; RunPetFollow walks them.</summary>
+    /// <summary>The worn pets by object id (SpawnPets), replaced when a Pet slot changes; the cosmetic player tick walks them.</summary>
     public readonly Dictionary<uint, SpawnedPet> Pets = [];
-    public bool PetFollowRunning;
     /// <summary>How map portals are turned around the vertical axis (degrees; Positioned rotation). Dev: /portal_rotation,
     /// which rebuilds the portals that already stand.</summary>
     public float PortalRotationDegrees;
@@ -1124,11 +1123,17 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     }
 }
 
-/// <summary>A worn pet the server walks after the player (RunPetFollow): its walk estimate, which side of the player it
+/// <summary>A worn pet the server walks after the player (the cosmetic player tick): its walk estimate, which side of the player it
 /// keeps (+1 or −1) and where it was last sent.</summary>
 public sealed class SpawnedPet(WalkEstimator walk, int side)
 {
     public WalkEstimator Walk { get; } = walk;
     public int Side { get; } = side;
     public (int X, int Y)? Target { get; set; }
+    public GameServer.Modding.IModuleLifetime? ControlOwner { get; set; }
+    public IDisposable? ControlHandle { get; set; }
+    public GameServer.Modding.IModuleLifetime? ControlProvider { get; set; }
+    public IDisposable? ControlProviderHandle { get; set; }
+    public double ControlUntil { get; set; }
+    public bool ReturnToOwner { get; set; }
 }

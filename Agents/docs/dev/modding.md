@@ -187,6 +187,19 @@ also tells the player. It does not stop the connection or the other owners.
 Subscribers run on the players' connection tasks, several at once: keep shared state thread-safe, and keep the modifiers
 cheap (`Stats` runs on every stat rebuild).
 
+## Ground items and pets
+
+`GameEvents.GroundLootFor(conn)` is optional: null when the game's rules do not expose loot controls. `Nearby(radius)` returns
+snapshots; `Metadata` is the stable BaseItemTypes id, and `PlayerDropped` and `Quest` let mods exclude refused drops.
+`GameEvents.WornPetsFor(conn)` is separately optional: cosmetic rules provide it only in leagues that enable them. Its `Nearby`
+returns worn-pet snapshots. `MovePet(id, x, y, mod.Lifetime)` grants a one-game-second lease; repeating the same
+current target only renews it. `ReleasePet` or stopping either the mod or cosmetic rules returns the pet to following.
+These operations do not start a pickup loop or choose items. `Loot.PickUp(id, mod.Lifetime, petId)` uses the shared
+saved gold/stacking path only when the cosmetic rules confirm that owner's worn pet within two cells (omit petId
+for the player's own reach). It refuses hand drops, quest items, private items of other players, retired owners,
+dead/paused/leaving players and a full inventory. The player must remain within 80 cells. No control bypasses an
+obstructed walk. Put policy and filters in the mod.
+
 ## Reloading
 
 The Gateway watches `Mods/Binaries/` and `data/mods/`. A change in a mod's folder (a build, an edited `mod.json` or

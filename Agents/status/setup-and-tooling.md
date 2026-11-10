@@ -102,6 +102,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   `IPlayer`, `IPlayerWorld` (`Program.WorldOf`) and build imports (`CharacterBuildApi.For(mod)`) are the Gateway's. A subscriber that throws is logged and skipped.
   The dev chat commands are the `gm-commands` mod in LocalExile-Mods; `/reload` and `/lastpackets` are the Gateway's.
   Not tried in the client yet.
+  Mods can inspect visible drops, control worn cosmetic pets and request guarded gold or stack pickups.
   `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
   Live: the running Gateway loaded the example mod by itself when it was first built.
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a

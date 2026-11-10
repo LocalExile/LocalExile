@@ -14,6 +14,9 @@ public sealed class GameModule : IModule
         Rules.CombatLifetime = module.Lifetime;
         Program.SetGameLogic(new GameLogic(module.Lifetime));
         string id = module.Manifest.Id;
+        var loot = new System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, Rules.ModLoot>();
+        GameEvents.GroundLoot.Add(id, conn => module.Lifetime.IsActive
+            ? loot.GetValue(conn, c => new(c, module.Lifetime)) : null);
         GameEvents.Tick.Add(id, (conn, _) => global::DoedreSewers.Tick(conn));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DoedreSewers.PlayerStats);
