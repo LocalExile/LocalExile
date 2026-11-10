@@ -2083,6 +2083,9 @@ public static partial class Game
         // phase 2 trigger), while the treant's emergence grace refuses all damage. A Mystic Fetish is immune until the
         // King's ritual reaches it.
         if (m.Invulnerable) return (m.Life, false);
+        // The Maven and her Nucleus take at most 8% of a maximum life per hit (MavenNucleus.CapHit), so a burst cannot
+        // skip a phase or the orb rings the phases are there to show.
+        damage = MavenNucleus.CapHit(m.Variety?.Id, m.MaxLife, damage);
         if (m.LifePhases is { } phases) return (phases.Damage(m.Life, m.MaxLife, damage), false);
         if (m.StageRunning || m.KingPhaseLocked)
             return ((uint)Math.Max(m.KingPhaseLocked ? (long)m.MaxLife * 50 / 100 : 1,
