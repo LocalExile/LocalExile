@@ -135,7 +135,7 @@ static partial class Game
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
         int Get(string key) => Player(key) + Own(key);
-        use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft) };
+        use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
         if (SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow")
         {
             double thrown = use.Profile.Speed;
@@ -154,14 +154,16 @@ static partial class Game
         // The client's life is the skill record's skill_effect_duration, in whole milliseconds.
         double life = Math.Round(1000 * SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own)) / 1000;
         int randomDuration = Get("spark_random_duration_%");
-        var at = conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
+        var sparkOrigin = use.Emitter.Id == PlayerId
+            ? ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
+            : use.Origin;
         double speed = use.Profile.Speed;
         return use with
         {
-            Origin = ProjectileSession.Vector(at),
+            Origin = sparkOrigin,
             Profile = use.Profile with
             {
-                Legs = i => new SparkLegs(sequence, i, PlayerId, life, randomDuration, speed, repeatsLeft),
+                Legs = i => new SparkLegs(sequence, i, use.Emitter.Id, life, randomDuration, speed, repeatsLeft),
                 // 0x141b38c00: a spark ends 150 cells from where it started.
                 LegLeash = 150
             }
@@ -175,7 +177,7 @@ static partial class Game
     // its volley: 0x141bb3e30 picks parallel (0x141bbb460) and random directions (0x141bbbd10) before nova and fan.
     // shortcut: parallel keeps the server's fan until it is ported.
     internal static ProjectileProfile ClientDrawnProfile(ClientState conn, ProjectileProfile profile, Func<string, int> get,
-        ushort sequence, ProjectileVector aim, uint repeatsLeft = 0)
+        ushort sequence, ProjectileVector aim, uint repeatsLeft = 0, uint? emitter = null)
     {
         double range = get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
             : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
@@ -183,7 +185,7 @@ static partial class Game
         if (profile.ReturnChancePercent is > 0 and < 100)
             profile = profile with { ReturnRolls = ReturnRolls(sequence, profile.Count, PlayerId, repeatsLeft) };
         if (get("support_parallel_projectile_number_of_points_per_side") == 0 && get("random_projectile_direction") != 0)
-            return profile with { NativeVolley = new() { Angles = RandomVolleyAngles(sequence, profile.Count, PlayerId, aim, repeatsLeft) } };
+            return profile with { NativeVolley = new() { Angles = RandomVolleyAngles(sequence, profile.Count, emitter ?? PlayerId, aim, repeatsLeft) } };
         // 0x141bb5e80 (the Disgorge nova and the action's own flags are not tracked here).
         return NativeVolley(profile, get);
     }

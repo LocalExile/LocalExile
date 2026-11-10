@@ -16,6 +16,15 @@ sealed class PlayerInventories
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
+    // Persistent gem edits replace immutable records without replacing the physical socketed gem.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, object> GemIdentities = new();
+    internal static object GemIdentity(Item gem) => GemIdentities.GetValue(gem, _ => new());
+    internal static Item PreserveGemIdentity(Item before, Item after)
+    {
+        if (!ReferenceEquals(before, after)) GemIdentities.Add(after, GemIdentity(before));
+        return after;
+    }
+
     private readonly Dictionary<byte, List<InventoryItem>> _items = [];
     private readonly Dictionary<byte, uint> _revisions = [];
     private uint _nextItemId = 1;
@@ -392,6 +401,7 @@ sealed class PlayerInventories
                     for (int socket = 0; socket < sockets.Length; socket++)
                         if (sockets[socket].Gem is { } gem && change(items[at].Id, gem) is { } after)
                         {
+                            after = PreserveGemIdentity(gem, after);
                             gems.Add((gem, after));
                             sockets[socket] = sockets[socket] with { Gem = after };
                         }

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -5,6 +6,22 @@ using GameServer.Core.Projectiles;
 
 static partial class Game
 {
+    static readonly ConditionalWeakTable<TotemState.Totem, SupportedGem> TotemSources = new();
+    internal static bool SpellTotemEffect(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect)
+        && !SkillsFor(conn).IsAttack(effect) && !SkillsFor(conn).IsTravel(effect)
+        && Supports.Of(effect)?.Types.Contains(47) != true && UsesProjectileRuntime(effect)
+        && ResolveProjectileDefinition(effect) is not null
+        && SkillHitPlan.ForSkill(SkillsFor(conn), effect, 1).CanHit;
+    static bool SameTotemSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
+        && a.Effect == b.Effect && a.Level == b.Level && a.Quality == b.Quality
+        && a.SourceGem is not null && b.SourceGem is not null
+        && ReferenceEquals(PlayerInventories.GemIdentity(a.SourceGem), PlayerInventories.GemIdentity(b.SourceGem))
+        && a.Supports.Select(s => s.Gem).SequenceEqual(b.Supports.Select(s => s.Gem));
+    internal static void BindTotemSource(ClientState conn, TotemState.Totem totem)
+    {
+        TotemSources.Remove(totem); TotemSources.Add(totem, SupportedSkill(conn, totem.SkillId));
+    }
+
     internal static Dictionary<uint, int> TotemCasterStats(IReadOnlyDictionary<uint, int> owner)
     {
         var caster = new Dictionary<uint, int>(owner);
@@ -49,7 +66,11 @@ static partial class Game
         var source = GemSkillEffects(conn).FirstOrDefault(g => g.Id == totem.SkillId);
         return source.Name is not null && source.Effect == totem.Effect && source.Gem == totem.SourceGem
             && SupportedSkill(conn, totem.SkillId) is var supported && supported.Host == totem.SourceHost
-            && ReferenceEquals(supported.SourceGem, totem.SourceItem) && IsTotemSkill(conn, totem.SkillId);
+            && supported.SourceGem is not null && totem.SourceItem is not null
+            && ReferenceEquals(PlayerInventories.GemIdentity(supported.SourceGem), PlayerInventories.GemIdentity(totem.SourceItem))
+            && (!TotemSources.TryGetValue(totem, out var captured) || SameTotemSource(captured, supported))
+            && TotemPathAvailable(conn, totem.SkillId, totem.Effect)
+            && IsTotemSkill(conn, totem.SkillId);
     }
 
     internal static void TickSpellTotemsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
@@ -74,8 +95,12 @@ static partial class Game
             var lifetime = CombatLifetime;
             session.Schedule(ProjectileRuntime.Time(totem.NextCast),
                 () => ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(conn, totem),
-                () => CaptureGemProjectile(conn, session, totem.SkillId, gem, aim,
-                    CaptureSkillCriticalRoll(conn, totem.SkillId), sequence, totem: totem));
+                () =>
+                {
+                    var use = CaptureGemProjectile(conn, session, totem.SkillId, gem, aim,
+                        CaptureSkillCriticalRoll(conn, totem.SkillId), sequence, totem: totem);
+                    return ClientDrawnVolley(conn, session, totem.SkillId, gem, use, sequence, 0);
+                });
         }
     }
 }

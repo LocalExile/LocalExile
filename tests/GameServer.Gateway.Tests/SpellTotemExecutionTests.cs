@@ -42,6 +42,8 @@ public sealed class SpellTotemExecutionTests
     {
         string path = Path.Combine(Path.GetTempPath(), $"spell-totem-{Guid.NewGuid():N}.db");
         var previous = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game"); Game.CombatLifetime = lifetime;
         Saves.Open(path); Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var conn = Connection("SpellTotem");
         try
@@ -50,6 +52,13 @@ public sealed class SpellTotemExecutionTests
             var gem = Game.SupportedSkill(conn, skill);
             Assert.NotNull(Game.TotemVariety(conn, gem.Effect));
             Assert.True(Game.ProjectilePathAvailable("test", conn, skill, gem.Effect));
+            foreach (string active in new[] { "SkillGemFreezingPulse", "SkillGemSpark", "SkillGemIceSpear", "SkillGemFrostBolt" })
+            {
+                skill = Equip(conn, active, "SupportGemSpellTotem");
+                gem = Game.SupportedSkill(conn, skill);
+                Assert.NotNull(Game.TotemVariety(conn, gem.Effect));
+                Assert.True(Game.ProjectilePathAvailable("test", conn, skill, gem.Effect));
+            }
             skill = Equip(conn, "SkillGemArc", "SupportGemSpellTotem");
             gem = Game.SupportedSkill(conn, skill);
             Assert.False(Game.ProjectilePathAvailable("test", conn, skill, gem.Effect));
@@ -59,8 +68,30 @@ public sealed class SpellTotemExecutionTests
             Assert.NotNull(Game.TotemVariety(conn, Game.SupportedSkill(conn, skill).Effect));
             Assert.True(Game.ProjectilePathAvailable("test", conn, skill, Game.SupportedSkill(conn, skill).Effect));
             Assert.Equal(1000u, conn.PlayerMana);
+            skill = Equip(conn, "SkillGemSpark", "SupportGemSpellTotem");
+            conn.Clock.Start();
+            using var wire = new Wire();
+            var session = Game.ProjectilesFor("spark-totem", wire.Stream, wire.Ciphers, conn);
+            try
+            {
+                var spark = Game.GemSkillEffects(conn).Single();
+                var source = Game.SupportedSkill(conn, skill);
+                var totem = new TotemState.Totem(777, skill, (100, 20), 100, 100, null)
+                { Effect = spark.Effect, SourceGem = spark.Gem, SourceHost = source.Host, SourceItem = source.SourceGem };
+                conn.Totems.Place(totem, 1, 0);
+                conn.Monsters[900] = new("spark-target", new(120, 20, 0), 0, 0, 10000);
+                var actions = new List<byte>();
+                Game.TickSpellTotemsLocked("spark-totem", wire.Stream, wire.Ciphers, conn, actions);
+                session.AdvanceTo(ProjectileRuntime.Time(2));
+                var emitted = session.Runtime.Projectiles.Where(p => p.Use.Emitter.Id == 777).ToArray();
+                Assert.NotEmpty(emitted);
+                Assert.All(emitted, p => { Assert.NotNull(p.Profile.Legs); Assert.Equal(150, p.Profile.LegLeash);
+                    Assert.Equal(100, p.Use.Origin.X); Assert.Equal(20, p.Use.Origin.Y); });
+            }
+            finally { session.Invalidate(); }
         }
-        finally { conn.Closed = true; PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path); }
+        finally { conn.Closed = true; lifetime.Stop(_ => { }); Game.CombatLifetime = previousLifetime;
+            PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path); }
     }
     [Fact]
     public async Task Totem_release_uses_its_entity_position_supported_damage_and_source_lifetime()
@@ -87,6 +118,11 @@ public sealed class SpellTotemExecutionTests
             Assert.Equal((150, 80), placed.At); Assert.True(placed.MaxLife > 1);
             Assert.Equal(8, placed.Until - conn.Clock.Elapsed.TotalSeconds, 3);
             Assert.True(Game.SpellTotemCurrent(conn, placed));
+            var sourceHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
+            Game.ItemsOf(conn).Change(PlayerInventories.Weapon1, sourceHost.Id, item => item with
+            { Sockets = [.. item.Sockets.Select(s => s with { Gem = PlayerInventories.PreserveGemIdentity(s.Gem!, s.Gem! with { GemExperience = 1 }) })] });
+            Assert.True(Game.SpellTotemCurrent(conn, placed)); // Ordinary XP updates keep the bound physical source.
+
             var totem = new TotemState.Totem(700, skill, (100, 20), 100, 8, null)
                 { Effect = gem.Effect, SourceGem = gem.Gem, SourceHost = Game.SupportedSkill(conn, skill).Host, SourceItem = Game.SupportedSkill(conn, skill).SourceGem };
             conn.PlayerStats[StatKeys.SpellSkillsDealNoDamage] = 1;
