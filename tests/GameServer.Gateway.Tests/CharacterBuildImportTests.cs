@@ -77,7 +77,7 @@ public sealed class CharacterBuildImportTests
                 host.Reload();
                 Assert.True(host.IsLoaded("probe"), string.Join("; ", host.Mods().Select(m => m.Error)));
                 Assert.True(await Commands().RunAsync("/capture"));
-                Assert.Contains(player.Messages, m => JsonSerializer.Deserialize<Character>(m) == record);
+                Assert.Contains(player.Messages, m => m.StartsWith('{') && JsonSerializer.Deserialize<Character>(m) == record);
                 Assert.True(host.SetEnabled("probe", false));
                 Assert.False(host.IsLoaded("probe"));
                 // Unloading released its subscription: nobody answers /capture any more.
