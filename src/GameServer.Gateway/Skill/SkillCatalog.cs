@@ -757,6 +757,13 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["SplitArrowAltX"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltY"] = "Metadata/Projectiles/SplitArrowDefault",
         ["VaalSplitArrow"] = "Metadata/Projectiles/VaalSplitArrowDefault",
+        // Splitting Steel has no Projectiles.dat row of its own (3.25+ rework fires the shard from code, not
+        // from a dat reference). Its visual is a thrown shard like the other steel skills; ImpactingSteel is
+        // Impaling Steel's shard, the closest existing row. Without a mapping every release was refused
+        // ("no available projectile recipe/metadata", live 2026-11-08).
+        ["SplittingSteel"] = "Metadata/Projectiles/ImpactingSteelProjectile",
+        ["SplittingSteelAltX"] = "Metadata/Projectiles/ImpactingSteelProjectile",
+        ["SplittingSteelAltY"] = "Metadata/Projectiles/ImpactingSteelProjectile",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>

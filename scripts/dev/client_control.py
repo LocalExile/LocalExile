@@ -397,6 +397,16 @@ def lockstep_interact_packet(target, skill=0x266):
     return list(struct.pack(">HIHHB", 0x18f, target, skill, 0x400, 0))
 
 
+def instant_skill_packet(target, skill):
+    """C→S 0x191: an instant skill on an object (the player's own 0x1000 for a self-cast); captured Haste:
+    0191 00001000 0105 (InstanceProtocol.UseInstantSkillId)."""
+    if isinstance(target, bool) or not isinstance(target, int) or not 0 < target <= 0xffffffff:
+        raise ValueError("Object id must be a positive uint32")
+    if isinstance(skill, bool) or not isinstance(skill, int) or not 0 < skill <= 0xffff:
+        raise ValueError("Skill id must be a positive uint16")
+    return list(struct.pack(">HIH", 0x191, target, skill))
+
+
 def in_area(status):
     return status.get("screen") == "game" and status.get("instanceState") == 3
 
@@ -773,6 +783,8 @@ class ClientControl:
             if not 0 < skill <= 0xffff:
                 raise ValueError("Skill id must be a positive uint16")
             packet = lockstep_interact_packet if request.get("lockstep") else interact_packet
+            if request.get("instant"):
+                packet = lambda t, s: instant_skill_packet(t, s)
             return self.rpc("interaction", bytes=packet(target, skill))
         if command == "item:pickup":
             return {**self.rpc("interaction", bytes=interact_packet(request.get("id"))), "id": request["id"]}

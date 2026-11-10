@@ -116,12 +116,23 @@ static partial class Game
         if (conn.Auras.Count > 0 && (validateSkills || conn.AuraStatsDirty || conn.PresentedAuras.Count > 0))
         {
             var available = GemSkillEffects(conn).ToDictionary(g => g.Id, g => g.Effect);
-            var gone = conn.Auras.Values.Where(a => InTown(conn)
+            // Dev auras (/aura_on) have no socketed gem behind them: their SkillId is a virtual 0x7000+ id and their
+            // stored record already carries the reservation ToggleAura computed. Reprice them from their own record
+            // instead of dropping them as "no gem".
+            var dev = conn.Auras.Values.Where(a => a.SkillId >= 0x7000).ToDictionary(a => a.SkillId);
+            var gone = conn.Auras.Values.Where(a => a.SkillId < 0x7000 && (InTown(conn)
                 || !available.TryGetValue(a.SkillId, out int effect) || effect != a.Effect
-                || GemSkillInstanceDisabled(conn, a.Effect, a.SkillId) is not null).ToArray();
+                || GemSkillInstanceDisabled(conn, a.Effect, a.SkillId) is not null)).ToArray();
             foreach (var aura in gone) { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
             foreach (var aura in conn.Auras.Values.ToArray())
             {
+                if (aura.SkillId >= 0x7000)
+                {
+                    // Same pool guard as the socketed path: an out-of-budget dev aura ends like a real one.
+                    if (!ReservationBudgetFits(conn))
+                    { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); conn.AuraStatsDirty = true; }
+                    continue;
+                }
                 var reservation = SupportedReservation(conn, aura.SkillId);
                 if (reservation is null)
                 {

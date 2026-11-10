@@ -1180,8 +1180,7 @@ static class CommandsFeature
                 if (args.Length < 2 || !args[0].Equals("off", StringComparison.OrdinalIgnoreCase))
                     throw new ArgumentException("/auras off <name|effectId|all>");
                 await DisableReservations(remote, stream, ciphers, conn, string.Join(' ', args.Skip(1)));
-            }
-            List<AuraCatalog.Aura> auras;
+            }            List<AuraCatalog.Aura> auras;
             int reserved;
             int maxMana;
             int efficiency;
@@ -1199,6 +1198,33 @@ static class CommandsFeature
             await conn.Commands!.Reply($"Auras: {list}. Mana {conn.PlayerMana}/{maxMana}, {reserved} reserved " +
                 $"({maxMana - reserved} unreserved); Life {conn.PlayerLife}/{conn.PlayerMaxLife}, {conn.PlayerReservedLife} reserved. " +
                 $"Reservation efficiency mana {efficiency}%, life {conn.Pools.LifeReservationEfficiencyPct}%, aura effect {auraEffect}%.");
+        })
+        .Add("aura_on", "/aura_on <name|effectId> [level] (dev: activate a supported aura by name without a socketed gem, e.g. /aura_on Determination 20; it reserves and shows like a real cast)", async args =>
+        {
+            if (args.Length < 1) throw new ArgumentException("which aura? /aura_on <name|effectId> [level]");
+            if (!int.TryParse(args.Length > 1 ? args[1] : "", out int level) || level < 1) level = 20;
+            level = Math.Clamp(level, 1, 30);
+            string name = args[0];
+            var skills = SkillsFor(conn);
+            // A GrantedEffects id ("Determination") or a display name; the gem list resolves the display names.
+            int effect = skills.EffectRow(name);
+            string? effectId = effect >= 0 ? name : null;
+            if (effect < 0)
+                foreach (var gem in GemSkillEffects(conn))
+                    if (skills.EffectId(gem.Effect)?.Equals(name, StringComparison.OrdinalIgnoreCase) == true
+                        || gem.Name?.Equals(name, StringComparison.OrdinalIgnoreCase) == true)
+                    { effect = gem.Effect; effectId = skills.EffectId(gem.Effect); break; }
+            if (effect < 0 || effectId is null || !AuraCatalog.Supported(effectId))
+                throw new ArgumentException($"no supported aura named {name} (AuraCatalog.BuffRows lists the set)");
+            if (InTown(conn)) throw new ArgumentException("towns disable skills; travel to a combat area first");
+            var reservation = skills.Reservation(effect, level)
+                ?? throw new ArgumentException($"{name} has no reservation at level {level} (not an aura?)");
+            // A virtual dev skill id above the real ones: it never collides with a socketed gem id.
+            ushort skillId;
+            lock (conn.Monsters)
+                skillId = conn.Auras.Keys.Count == 0 ? (ushort)0x7001 : (ushort)Math.Min(0x7fff, conn.Auras.Keys.Max() + 1);
+            bool started = await ToggleAura(remote, stream, ciphers, conn, skillId, effect, effectId, reservation, level, 0);
+            if (!started) await conn.Commands!.Reply($"{name}: the aura did not start (refused, see the gateway log)");
         })
         .Add("spellhit", "/spellhit <fire|cold|lightning|chaos|physical> <damage> (dev: spell hit through resistance and Spell Suppression)", async args =>
         {
