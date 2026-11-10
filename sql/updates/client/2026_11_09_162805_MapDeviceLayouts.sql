@@ -1,0 +1,13 @@
+-- Client table MapDeviceLayouts: all 11 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "MapDeviceLayouts" ("_row", "Id", "Slots", "__col2", "Receptacle_DDSFile", "__col4", "__col5", "MapKey", "__col7", "__col8", "__col9", "__col10", "__col11", "__col12", "__col13") VALUES
+(0, 'Map', 4, '[6,7]', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapDeviceBacking', '[0,-178,-89,0,89,178]', '[238,84,84,84,84,84]', NULL, 1, 'apBackingSpecial1x1', 0, 196, 0, '[5,235,517,160,186,77,163,155,172,378,184,58]', -53),
+(1, 'ShaperGuardian', 4, '[6,7]', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapDeviceBacking', '[0,-178,-89,0,89,178]', '[238,84,84,84,84,84]', 18, 769, 'apBackingSpecial1x1', 0, 196, 0, '[5,235,517,160,186,77,163,155,172,378,184,58]', -53),
+(2, 'VaalTemple', 4, '[6,7]', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapDeviceBacking', '[0,-178,-89,0,89,178]', '[238,84,84,84,84,84]', 17, 769, 'apBackingSpecial1x1', 0, 196, 0, '[5,235,517,160,186,77,163,155,172,378,184,58]', -53),
+(3, 'NightmareBoss', 4, '[6,7]', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapDeviceBacking', '[0,-178,-89,0,89,178]', '[238,84,84,84,84,84]', 19, 769, 'apBackingSpecial1x1', 0, 196, 0, '[5,235,517,160,186,77,163,155,172,378,184,58]', -53),
+(4, 'BlightedMap', 4, '[6,7]', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapDeviceBacking', '[0,-178,-89,0,89,178]', '[238,84,84,84,84,84]', NULL, 513, 'apBackingSpecial1x1', 0, 196, 0, '[5,235,517,160,186,77,163,155,172,378,184,58]', -53),
+(5, 'ReliquaryMap', 1, '[]', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingSpecial1x1', '[1]', '[109]', 16, 768, 'apBackingSpecial1x1', 0, 562, 0, '[130,123,216,241]', 0),
+(6, 'UniqueMap', 1, '[]', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingSpecial1x1', '[1]', '[109]', NULL, 256, 'apBackingSpecial1x1', 0, 562, 0, '[130,123,216,241]', 0),
+(7, 'SingleItemRecipe', 1, '[]', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingSpecial1x1', '[1]', '[109]', NULL, 1024, 'apBackingSpecial1x1', 0, 562, 0, '[130,123,216,241]', 0),
+(8, 'FourSlotRecipe', 4, '[]', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingSpecial4x1', '[-49,-49,46,46]', '[193,99,193,99]', NULL, 1024, 'apBackingSpecial1x1', 0, 838, 0, '[124,131,224,322]', 0),
+(9, 'FiveSlotRecipe', 5, '[]', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingSpecial5x1', '[-96,101,101,-96,3]', '[258,258,74,74,167]', NULL, 1024, 'apBackingSpecial1x1', 0, 1064, 0, '[71,121,334,323]', 0),
+(10, 'NoSlotRecipe', 0, '[]', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingSpecialNoSlot', '[]', '[]', NULL, 1024, 'apBackingSpecial1x1', 0, 196, 0, '[130,123,216,241]', -106);

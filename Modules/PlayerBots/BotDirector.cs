@@ -296,7 +296,7 @@ sealed partial class BotDirector
 
     static void DeleteAccount(Guid id)
     {
-        using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={SaveDatabase.DefaultPath}");
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Saves.Db.AuthPath}");
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM accounts WHERE id = $id";

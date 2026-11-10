@@ -101,7 +101,7 @@ static partial class Game
         }
         int max = Math.Min(SkillsFor(conn).MaxLevelAt(type.Variant(gem.GemVariant).Effect, conn.Pools.Level), type.MaxLevel);
         if (level >= max) { await conn.Commands!.Reply($"{ItemsFor(conn).GemName(gem)} is at its highest level ({max})"); return; }
-        var next = gem with { GemExperience = type.ExperienceFor(level + 1) };
+        var next = PlayerInventories.PreserveGemIdentity(gem, gem with { GemExperience = type.ExperienceFor(level + 1) });
         var after = items.Change(row, s.ItemId, it =>
         {
             var sockets = it.Sockets.ToList();
@@ -127,7 +127,7 @@ static partial class Game
         var after = items.Change(row, s.ItemId, it =>
         {
             var sockets = it.Sockets.ToList();
-            sockets[(int)s.Socket] = sockets[(int)s.Socket] with { Gem = gem with { GemFlags = flags } };
+            sockets[(int)s.Socket] = sockets[(int)s.Socket] with { Gem = PlayerInventories.PreserveGemIdentity(gem, gem with { GemFlags = flags }) };
             return it with { Sockets = sockets };
         });
         if (after is null) return;

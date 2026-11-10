@@ -1,0 +1,20 @@
+-- Client table SkillMineVariations: all 18 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "SkillMineVariations" ("_row", "SkillMinesKey", "__col1", "MiscObject") VALUES
+(0, 1, 0, 65),
+(1, 1, 1, 328),
+(2, 1, 2, 335),
+(3, 2, 0, 322),
+(4, 2, 1, 329),
+(5, 3, 0, 323),
+(6, 3, 1, 330),
+(7, 4, 0, 324),
+(8, 4, 1, 331),
+(9, 5, 0, 325),
+(10, 5, 1, 332),
+(11, 5, 2, 580),
+(12, 6, 0, 326),
+(13, 6, 1, 333),
+(14, 6, 2, 581),
+(15, 7, 0, 327),
+(16, 7, 1, 334),
+(17, 7, 2, 582);

@@ -1,0 +1,20 @@
+-- Client table RelicInventoryLayout: all 18 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "RelicInventoryLayout" ("_row", "__col0", "__col1", "__col2", "Requirement") VALUES
+(0, 0, 0, 1024, 'Complete the Sanctum Bellum room in the Sanctum Cathedral'),
+(1, 1, 0, 1013, 'Complete the Sanctum Archives'),
+(2, 2, 0, 1014, 'Complete the Sanctum Archives'),
+(3, 3, 0, 1015, 'Complete the Sanctum Vaults'),
+(4, 0, 1, 1016, 'Complete the Sanctum Vaults'),
+(5, 1, 1, 1011, 'Unlocked'),
+(6, 2, 1, 1011, 'Unlocked'),
+(7, 3, 1, 1011, 'Unlocked'),
+(8, 4, 1, 1018, 'Complete the Sanctum Cathedral'),
+(9, 0, 2, 1017, 'Complete the Sanctum Cathedral'),
+(10, 1, 2, 1011, 'Unlocked'),
+(11, 2, 2, 1011, 'Unlocked'),
+(12, 3, 2, 1011, 'Unlocked'),
+(13, 4, 2, 1020, 'Complete the Sanctum Necropolis'),
+(14, 1, 3, 1021, 'Complete the Sanctum Necropolis'),
+(15, 2, 3, 1022, 'Complete the Scriptorium room in the Sanctum Archives'),
+(16, 3, 3, 1023, 'Complete the Reliquary room in the Sanctum Vaults'),
+(17, 4, 3, 1025, 'Complete the Mausoleum room in the Sanctum Necropolis');

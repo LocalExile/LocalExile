@@ -1,0 +1,108 @@
+namespace GameServer.Core;
+
+/// <summary>The text <see cref="ServerConfig"/> writes to a missing Config/localexile.conf: every key at its default, with
+/// what it does. Keep in step with the defaults in <see cref="ServerConfig"/>.</summary>
+static class ServerConfigDefaults
+{
+    public const string Text = """
+###############################################################################
+# LocalExile server configuration
+#
+# The servers write this file with the defaults when it is missing; it is yours
+# and is not committed. Change what you need: a missing key means its default.
+# Delete the file to get the current defaults back.
+#
+# Format: Key = Value, one per line; a line starting with # is a comment; a
+# value may be in double quotes. A line that is not Key = Value stops the
+# server with its line number.
+#
+# Each key's environment variable (in brackets) wins over this file:
+# scripts/dev/live.ps1 -PortBase and LocalExile --port-base set them to give
+# a second stack its own ports. Game_CONF names another file.
+#
+# Only addresses, ports and the client folder are set here. Game settings are
+# world.db content (Agents/docs/dev/databases.md).
+###############################################################################
+
+###############################################################################
+# PATCH SERVER
+#
+#    Patch.Port
+#        The patching protocol port the client contacts first. The client's
+#        own setting names 12995: change it only for a second stack.
+#        Default: 12995 [Game_PATCH_TCP_PORT]
+#
+#    Patch.WebUrl
+#        The address and port of the patch web server (gateway_list.txt).
+#        Default: http://127.0.0.1:8080 [Game_PATCH_URL]
+
+Patch.Port = 12995
+Patch.WebUrl = http://127.0.0.1:8080
+
+###############################################################################
+# AUTH SERVER
+#
+#    Login.BindAddress
+#        The address the login server listens on: 127.0.0.1 for this machine
+#        only, 0.0.0.0 to accept other machines.
+#        Default: 127.0.0.1 [Game_BIND]
+#
+#    Login.Port
+#        The login port the client's login list names.
+#        Default: 20493 [Game_LOGIN_PORT]
+#
+#    AuthControl.Port
+#        The Gateway-to-Auth control port, on 127.0.0.1 only.
+#        Default: 20495 [Game_AUTH_CONTROL_PORT]
+
+Login.BindAddress = 127.0.0.1
+Login.Port = 20493
+AuthControl.Port = 20495
+
+###############################################################################
+# GATEWAY (GAME SERVER)
+#
+#    Gateway.BindAddress
+#        The address the Gateway listens on: 127.0.0.1 for this machine only,
+#        0.0.0.0 to accept other machines.
+#        Default: 127.0.0.1 [Game_BIND]
+#
+#    Gateway.Port
+#        The Gateway's port.
+#        Default: 6112 [Game_GATEWAY_PORT]
+#
+#    Gateway.PublicAddress
+#        The IP address clients are sent to reach the Gateway (at login and on
+#        every area change): this machine's address as the players see it.
+#        Default: 127.0.0.1 [Game_GATEWAY_HOST]
+
+Gateway.BindAddress = 127.0.0.1
+Gateway.Port = 6112
+Gateway.PublicAddress = 127.0.0.1
+
+###############################################################################
+# CHAT SERVER (optional, shared between Gateways)
+#
+#    Chat.BindAddress
+#        Default: 0.0.0.0 [Game_CHAT_BIND]
+#
+#    Chat.Port
+#        Default: 6113 [Game_CHAT_PORT]
+
+Chat.BindAddress = 0.0.0.0
+Chat.Port = 6113
+
+###############################################################################
+# CLIENT
+#
+#    Client.Folder
+#        The Path of Exile 3.29.3c client folder (Content.ggpk, Game.exe),
+#        relative to the repository root (or the release
+#        folder) or absolute. A repository checkout's
+#        scripts/dev/live.ps1 always uses Client.
+#        Default: Client [Game_CLIENT_FOLDER]
+
+Client.Folder = Client
+
+""";
+}

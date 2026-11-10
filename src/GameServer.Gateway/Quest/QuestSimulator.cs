@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.World;
+using GameServer.Core;
 
 /// <summary>
 /// Plays quest events through the engine without a client (Agents/docs/protocol/12-quests.md §5, "The oracle"): the quests'
@@ -52,8 +53,8 @@ sealed class QuestSimulator
         offers = QuestRewardCatalog.Load(folder);
         visits = AreaVisitFlags.Load(Path.Combine(folder, "tables", "WorldAreas.json"), Path.Combine(folder, "tables", "MapPins.json"));
         areaFlags = [];
-        var flagNames = Quests.ParseRows(File.ReadAllText(Path.Combine(folder, "tables", "QuestFlags.json"))).ToDictionary(kv => kv.Value, kv => kv.Key);
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables", "WorldAreas.json")));
+        var flagNames = Quests.ParseRows(ClientTables.ReadAllText(Path.Combine(folder, "tables", "QuestFlags.json"))).ToDictionary(kv => kv.Value, kv => kv.Key);
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "tables", "WorldAreas.json")));
         foreach (var w in doc.RootElement.EnumerateArray())
         {
             string[] Names(string column) => [.. w.GetProperty(column).EnumerateArray().Select(e => flagNames.GetValueOrDefault(e.GetInt32())).OfType<string>()];

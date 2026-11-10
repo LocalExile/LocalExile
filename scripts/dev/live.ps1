@@ -1,12 +1,12 @@
-# One run against the official client (see Agents/GettingStarted.md):
+﻿# One run against the official client (see Agents/GettingStarted.md):
 #   checks the one-time setup, stops this checkout's servers and patched client, builds Auth, Patch and Gateway,
 #   starts all three (logs in logs/live-*.log) and launches Client/Game.patched.exe through the local patching server.
 #   The previous run's logs move to logs/archive/<time>/ (the newest 10 full runs are kept), and the Gateway writes each
 #   connection's last packets to logs/packets/ when it closes (Game_PACKET_DUMPS; scripts/dev/bugreport.ps1 bundles both).
 #   -NoClient   keep a running client (it drops to the login screen; log in again)
 #   -NoBuild    skip the builds
-#   -NoExtract  skip scripts/dev/extract-data.ps1, which otherwise first extracts any missing or outdated game data into
-#               data/ (a quick check when nothing is missing)
+#   -NoExtract  skip scripts/dev/extract-data.ps1 -Servers, which otherwise first extracts the missing or outdated game
+#               data the servers read from the client into data/ (a quick check when nothing is missing)
 #   -Walkmaps   also run scripts/walkmaps/walkmaps.py (needs Python + `pip install frida`): captures the walk map of every
 #               area the client generates into data/walkability/, and lets the Gateway announce each load to it and run
 #               capture tours (Game_WALKMAPS=1). Without it nothing is recorded. Default ports and client session only
@@ -81,8 +81,25 @@ function Report-Wait([string]$what, [datetime]$since, [string]$log) {
     Step "  still waiting for $what ($seconds s)$(if ($last) { ": $last" })"
 }
 
-# This checkout's ports. Without a base, today's, where a server's own variable (Game_LOGIN_PORT, Game_PATCH_URL, ...)
-# still wins; with one, five in a row from it, whatever such variables the shell has. A base given here or in
+# Config\localexile.conf (or Game_CONF) as Key = Value pairs, keys case-insensitive; empty without the file (the
+# defaults; the servers write the file with them on their first start). The servers read it too (ServerConfig).
+function Read-Conf {
+    $path = if ($env:Game_CONF) { $env:Game_CONF } else { Join-Path $repo 'Config\localexile.conf' }
+    $values = @{}
+    if (Test-Path $path) {
+        foreach ($line in Get-Content $path) {
+            $line = $line.Trim()
+            if ($line -eq '' -or $line.StartsWith('#')) { continue }
+            $at = $line.IndexOf('=')
+            if ($at -le 0) { throw "${path}: expected Key = Value, got '$line'" }
+            $values[$line.Substring(0, $at).Trim()] = $line.Substring($at + 1).Trim().Trim('"')
+        }
+    }
+    $values
+}
+
+# This checkout's ports. Without a base, localexile.conf's, where a server's own variable (Game_LOGIN_PORT,
+# Game_PATCH_URL, ...) still wins; with one, five in a row from it, whatever such variables the shell has. A base given here or in
 # Game_PORT_BASE is written to data\stack.json with its ports (0 removes it): later runs and the control bridge read it.
 function Get-Stack([int]$base) {
     $file = Join-Path $repo 'data\stack.json'
@@ -90,13 +107,17 @@ function Get-Stack([int]$base) {
     if (-not $given -and "$env:Game_PORT_BASE" -ne '') { $base = [int]$env:Game_PORT_BASE; $given = $true }
     if (-not $given) { $base = if (Test-Path $file) { [int](Get-Content $file -Raw | ConvertFrom-Json).portBase } else { 0 } }
     if ($base -ne 0 -and ($base -lt 1024 -or $base -gt 65530)) { throw "port base $base is outside 1024-65530 (0 = the default ports)" }
-    function Pick([string]$name, [int]$offset, [int]$default) {
+    # Without a base: the variable, else localexile.conf's key (ServerConfig), else the default.
+    $conf = Read-Conf
+    function Pick([string]$name, [string]$key, [int]$offset, [int]$default) {
         $value = [Environment]::GetEnvironmentVariable($name)
-        if ($base) { $base + $offset } elseif ($value) { [int]$value } else { $default }
+        if ($base) { $base + $offset } elseif ($value) { [int]$value } elseif ($conf[$key]) { [int]$conf[$key] } else { $default }
     }
-    $web = if ($base) { $base + 1 } elseif ($env:Game_PATCH_URL -match ':(\d+)') { [int]$Matches[1] } else { 8080 }
-    $ports = [ordered]@{ patch = (Pick 'Game_PATCH_TCP_PORT' 0 12995); patchWeb = $web; login = (Pick 'Game_LOGIN_PORT' 2 20493)
-        control = (Pick 'Game_AUTH_CONTROL_PORT' 3 20495); gateway = (Pick 'Game_GATEWAY_PORT' 4 6112) }
+    $url = if ($env:Game_PATCH_URL) { $env:Game_PATCH_URL } else { $conf['Patch.WebUrl'] }
+    $web = if ($base) { $base + 1 } elseif ($url -match ':(\d+)') { [int]$Matches[1] } else { 8080 }
+    $ports = [ordered]@{ patch = (Pick 'Game_PATCH_TCP_PORT' 'Patch.Port' 0 12995); patchWeb = $web
+        login = (Pick 'Game_LOGIN_PORT' 'Login.Port' 2 20493); control = (Pick 'Game_AUTH_CONTROL_PORT' 'AuthControl.Port' 3 20495)
+        gateway = (Pick 'Game_GATEWAY_PORT' 'Gateway.Port' 4 6112) }
     if ($given -and $base) { [ordered]@{ portBase = $base; ports = $ports } | ConvertTo-Json | Set-Content $file -Encoding ascii }
     elseif ($given -and (Test-Path $file)) { Remove-Item $file }
     [pscustomobject]@{ Base = $base; Ports = $ports }
@@ -356,7 +377,8 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$nullifier = $false) {
     $client = Join-Path $repo 'Client'
     # The Patch server answers with the hash saved in data\: another checkout's run may have changed the GGPK since.
-    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash (Join-Path $client 'Content.ggpk') --save 2>$null | Out-Null
+    # --repair gives a zero root hash a value (the client never skips patching with one).
+    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash (Join-Path $client 'Content.ggpk') --repair --save 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning 'could not refresh the GGPK root hash in data\client-constants.json; the saved one is used' }
     $folder = $client
     if ($session -ne 'default') {
@@ -514,6 +536,9 @@ if ($Stop) {
 
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
 Need (Test-Path (Join-Path $repo 'data\login-keys.json')) 'data\login-keys.json missing: run GameServer.Auth keygen'
+# A data\saves.db from before the player databases were split: the first server to start migrates it, after a copy
+# (Agents/docs/dev/databases.md).
+if (Test-Path (Join-Path $repo 'data\saves.db')) { Step 'data\saves.db is from before the split: the servers migrate it (a copy is made first)' }
 # Only a client needs Client\: the servers run from data\ alone (-NoClient, -Only).
 if (-not $NoClient -and -not $Only) {
     Need (Test-Path (Join-Path $repo 'Client\Game.exe')) 'Client\Game.exe missing: copy the client and its PathOfExile.exe'
@@ -561,10 +586,11 @@ if ($Walkmaps -and ($stack.Base -or $session -ne 'default')) {
 }
 if ($Walkmaps) { $python = Get-Python '-Walkmaps' }
 
-# Game data from the GGPK (data/tables, object-types.json, ...): before the servers start, since they read it once.
+# The game data the servers read from the GGPK (data/game-files.zip, the local root hash): before they start. The client
+# tables and generated files come from client.db, built from sql/; the full extraction is extract-data.ps1 on its own.
 if (-not $NoExtract) {
-    Step 'checking game data (a first run extracts all of it from the client, which can take a long time) ...'
-    & (Join-Path $PSScriptRoot 'extract-data.ps1')
+    Step 'checking game data (a first run extracts it from the client, which takes a few minutes) ...'
+    & (Join-Path $PSScriptRoot 'extract-data.ps1') -Servers
 }
 
 # Without this the Gateway stops after creating the player and the client never enters the area.

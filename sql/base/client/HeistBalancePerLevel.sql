@@ -1,0 +1,25 @@
+-- Client table HeistBalancePerLevel (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "HeistBalancePerLevel" (
+    "_row" INTEGER PRIMARY KEY,
+    "Level" INTEGER,
+    "__col1" INTEGER,
+    "__col2" INTEGER,
+    "__col3" INTEGER,
+    "__col4" INTEGER,
+    "__col5" INTEGER,
+    "__col6" INTEGER,
+    "HeistValueScalingKey1" INTEGER,
+    "HeistValueScalingKey2" INTEGER,
+    "HeistValueScalingKey3" INTEGER,
+    "HeistValueScalingKey4" INTEGER,
+    "HeistValueScalingKey5" INTEGER,
+    "__col12" INTEGER,
+    "__col13" INTEGER,
+    "__col14" INTEGER,
+    "__col15" INTEGER,
+    "HeistValueScalingKey6" INTEGER,
+    "HeistValueScalingKey7" INTEGER,
+    "__col18" INTEGER,
+    "__col19" INTEGER,
+    "__col20" INTEGER
+);

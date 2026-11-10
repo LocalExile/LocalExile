@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// Stat names and the client's stat keys: key = Stats.dat row + 1 (Agents/docs/protocol/11-skills.md §5). Reads
@@ -9,7 +10,7 @@ sealed class StatCatalog(string folder = "data")
     private readonly Lazy<List<string>> _names = new(() =>
     {
         string path = Path.Combine(folder, "tables", "Stats.json");
-        if (!File.Exists(path)) return [];
+        if (!ClientTables.Exists(path)) return [];
         using var d = GameTables.Open(path);
         return [.. d.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
     });

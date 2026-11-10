@@ -1,0 +1,26 @@
+-- Client table GraphicalItemReceptacle (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "GraphicalItemReceptacle" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "BackgroundArt" TEXT,
+    "HoverMessage" INTEGER,
+    "__col3" BOOLEAN,
+    "__col4" BOOLEAN,
+    "SoundEffect" JSON,
+    "__col6" TEXT,
+    "ErrorMessage" INTEGER,
+    "Script" TEXT,
+    "__col9" BOOLEAN,
+    "AreaName" INTEGER,
+    "Icon" TEXT,
+    "Description" INTEGER,
+    "__col13" INTEGER,
+    "__col14" INTEGER,
+    "__col15" INTEGER,
+    "__col16" INTEGER,
+    "__col17" INTEGER,
+    "__col18" INTEGER,
+    "__col19" BOOLEAN,
+    "SoundEffect1" INTEGER,
+    "SoundEffect2" INTEGER
+);

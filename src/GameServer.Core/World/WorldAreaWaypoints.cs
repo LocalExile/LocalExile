@@ -38,10 +38,10 @@ public sealed class WorldAreaWaypoints
     /// <summary>Loads the order from a WorldAreas.json; empty when the file is missing or unreadable.</summary>
     public static WorldAreaWaypoints Load(string worldAreasJson)
     {
-        if (!File.Exists(worldAreasJson)) return new([]);
+        if (!ClientTables.Exists(worldAreasJson)) return new([]);
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(worldAreasJson));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(worldAreasJson));
             var entries = new List<Entry>();
             foreach (var r in doc.RootElement.EnumerateArray())
             {

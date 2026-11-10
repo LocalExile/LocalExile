@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>
@@ -18,11 +19,11 @@ sealed class AreaModCatalog(Dictionary<string, Dictionary<string, int>> stats)
     {
         string areas = Path.Combine(folder, "tables", "WorldAreas.json"), mods = Path.Combine(folder, "tables", "Mods.json"),
             statsFile = Path.Combine(folder, "tables", "Stats.json");
-        if (!File.Exists(areas) || !File.Exists(mods) || !File.Exists(statsFile)) return new([]);
+        if (!ClientTables.Exists(areas) || !ClientTables.Exists(mods) || !ClientTables.Exists(statsFile)) return new([]);
         try
         {
             // On a thread of its own, so the parse buffers (Mods.json) do not stay pooled (GameTables.Isolated).
-            return GameTables.Isolated(() => Parse(File.ReadAllText(areas), File.ReadAllText(mods), File.ReadAllText(statsFile)));
+            return GameTables.Isolated(() => Parse(ClientTables.ReadAllText(areas), ClientTables.ReadAllText(mods), ClientTables.ReadAllText(statsFile)));
         }
         catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
         {

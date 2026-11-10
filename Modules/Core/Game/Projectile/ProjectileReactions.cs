@@ -17,10 +17,13 @@ static partial class Game
     {
         var conn = session.Conn;
         double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
-        conn.LastEnemyHitAt = now;
-        // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
-        conn.RecentEvents.Record(StatConditions.HitEnemy, now);
-        if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
+        if (shot.ActualCaster is null)
+        {
+            conn.LastEnemyHitAt = now;
+            // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
+            conn.RecentEvents.Record(StatConditions.HitEnemy, now);
+            if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
+        }
         uint id = contact.Target.Id;
         var random = contact.Projectile.ReactionRandomSource;
         if (hit.Life == 0)
@@ -42,15 +45,15 @@ static partial class Game
             // Live also sends skill index 2 and a filled object header; their meanings are unknown, so they stay zero.
             var direction = contact.Projectile.Direction;
             ushort flags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
-            session.Packet(InstanceProtocol.ActionHit(PlayerId, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
+            session.Packet(InstanceProtocol.ActionHit(contact.Projectile.Use.Emitter.Id, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
                 code: HitCode(shot.Hit), angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000))));
         }
         session.Packet(InstanceProtocol.LifeUpdate(id, hit.Life),
             $"projectile {shot.Label} {contact.Stage} t={now:0.000000} use={contact.Projectile.UseId} entity={contact.Projectile.Id}"
             + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
             + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
-        if (critical) CommitProjectileCritFlasks(session, now, random);
-        if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource);
+        if (critical && shot.ActualCaster is null) CommitProjectileCritFlasks(session, now, random);
+        if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource, playerKill: shot.ActualCaster is null);
         if (hit.StageStarts) CommitProjectileBossStage(session, id, target, contact.At);
         // Charges affect the next chronological hit/use, rather than waiting for the presentation ticker.
         var charges = ChargesOf(conn);

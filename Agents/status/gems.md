@@ -103,6 +103,7 @@ Nothing yet.
   20 degrees apart for Split Arrow in the same capture); the official rain rig stands at the caster's cell and plays
   its up-cast there, then its landing at the target, with the skill's arrow art riding `aux_projectile_attach`,
   documented in [25](../docs/protocol/25-gem-supports.md).
+  CWDT projectile spells execute; other trigger payloads refuse manual use ([25](../docs/protocol/25-gem-supports.md)).
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
 - **Culling Strike.** Melee, area and projectile hits cull at 10% Life; Cull the Weak culls normal and magic enemies at

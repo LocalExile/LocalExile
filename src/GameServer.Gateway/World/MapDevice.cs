@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The hideout's map device (Agents/docs/protocol/21-hideouts.md §5): what its slots (Inventories row 13 <c>Map1</c>)
@@ -63,7 +64,7 @@ sealed class MapDevice
         var byType = new Dictionary<uint, MapArea>();
         var byFragment = new Dictionary<uint, MapArea>();
         string maps = Path.Combine(folder, "tables", "Maps.json"), areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (File.Exists(maps) && File.Exists(areas))
+        if (ClientTables.Exists(maps) && ClientTables.Exists(areas))
         {
             using var m = GameTables.Open(maps);
             using var a = GameTables.Open(areas);
@@ -103,7 +104,7 @@ sealed class MapDevice
     static List<MapArea?> LoadWorldAreas(string folder)
     {
         string areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!File.Exists(areas)) return [];
+        if (!ClientTables.Exists(areas)) return [];
         using var a = GameTables.Open(areas);
         var list = new List<MapArea?>(a.RootElement.GetArrayLength());
         foreach (var wa in a.RootElement.EnumerateArray())

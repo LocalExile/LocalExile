@@ -17,6 +17,13 @@ For a review finding, the maintainer reads the lines, approves that commit and r
 A new push needs a new approval.
 A clean scan does not show that a doc is true: plain false statements pass.
 
+## SQL
+
+`.github/workflows/sql.yml` runs `.github/scripts/check-sql.py` on a pull request that touches `sql/`: a new update only
+in `sql/updates/pending_<db>/`, no change to a merged file, no rows in `base/`, LF line ends, no tabs or trailing spaces,
+a final `;`. Then it builds every database from scratch in the updater's order ([databases](databases.md)); a file
+that fails names itself and the error.
+
 ## Protected files
 
 `.github/CODEOWNERS` lists what only the maintainer can approve: agent instructions and guides, repository controls,

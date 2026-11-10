@@ -90,6 +90,8 @@ Get-ChildItem (Join-Path $package 'Leagues') -Recurse -Directory -Filter Binarie
 
 # Paths the servers and tools read from their working directory, as in a checkout.
 Copy-Into 'data\schema' 'data\schema'
+# The servers build data\*.db from sql\ (Agents\docs\dev\databases.md).
+Copy-Into 'sql' 'sql'
 Copy-Into 'scripts\re\vendor-stock\community-stock.json' 'scripts\re\vendor-stock\community-stock.json'
 Copy-Into 'scripts\re\vendor-stock\gem-layout.json' 'scripts\re\vendor-stock\gem-layout.json'
 Copy-Into 'scripts\re\vendor-stock\ids.json' 'scripts\re\vendor-stock\ids.json'
@@ -130,7 +132,8 @@ Copy-Into 'Tools\ooz\package.json' 'Tools\ooz\package.json'
 Copy-Into 'Tools\ooz\node_modules' 'Tools\ooz\node_modules'
 
 $exported = Join-Path $out 'extract-manifest.exported.json'
-& $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\dev\extract-data.ps1') -ExportManifest $exported
+# Only what the servers read: the client tables and generated files are in client.db, built from sql\.
+& $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\dev\extract-data.ps1') -ExportManifest $exported -Servers
 Check-Exit 'extract-data.ps1 -ExportManifest'
 # Parsed first: Windows PowerShell's ConvertFrom-Json passes a whole array down a pipeline as one object.
 $parsed = Get-Content $exported -Raw | ConvertFrom-Json
@@ -182,11 +185,19 @@ $bad = @(Get-ChildItem $package -Recurse -File | Where-Object {
 })
 if ($bad.Count) { throw "the package must not hold: $(($bad | Select-Object -First 10 | ForEach-Object { $_.FullName.Substring($package.Length + 1) }) -join ', ')" }
 foreach ($required in 'app\GameServer.Gateway.exe', 'app\GameServer.Auth.exe', 'app\GameServer.Patch.exe', 'app\GgDump.exe', 'Tools\python\python.exe',
-    'Tools\node\node.exe', 'Tools\ooz\node_modules\ooz-wasm\package.json', 'Modules\Core\Game\bin\game.dll', 'scripts\re\levelgen\gate-baseline.json', 'data\schema\schema.min.json') {
+    'Tools\node\node.exe', 'Tools\ooz\node_modules\ooz-wasm\package.json', 'Modules\Core\Game\bin\game.dll', 'scripts\re\levelgen\gate-baseline.json', 'data\schema\schema.min.json', 'sql\base\auth\accounts.sql') {
     if ($IsLinux -and $required -eq 'Tools\python\python.exe') { continue }
     $relative = if ($IsLinux) { $required -replace '\.exe$', '' } else { $required }
     if (-not (Test-Path (Join-Path $package $relative))) { throw "the package misses $required" }
 }
+
+# The checks ran the launcher, which writes Config\localexile.conf where it is missing: the player's first start writes
+# their own. Then no empty folder (left by a copy or a build) goes in the zip.
+Remove-Item (Join-Path $package 'Config\localexile.conf') -ErrorAction SilentlyContinue
+do {
+    $empty = @(Get-ChildItem $package -Recurse -Directory -Force | Where-Object { -not (Get-ChildItem $_.FullName -Force | Select-Object -First 1) })
+    $empty | Remove-Item -Force
+} while ($empty.Count)
 
 Step 'compressing ...'
 Add-Type -AssemblyName System.IO.Compression.FileSystem

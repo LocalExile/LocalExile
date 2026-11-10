@@ -25,7 +25,7 @@ How to run the patched 3.29.3b client against our servers safely and repeatably.
    the connection and Log In works again. In the client the password field needs a click before typing; Enter does not
    submit, click Log In.
 4. The dev account is `devtester` (password in `data/dev-login.txt`, untracked). Its characters live in
-   `data/saves.db` ([saves](../saves.md)).
+   `data/characters.db` ([saves](../saves.md)).
 
 ## One-time setup
 
@@ -85,8 +85,9 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
 - **Ports.** `-PortBase N` (or `Game_PORT_BASE`) puts the stack on N (Patch), N+1 (Patch web), N+2 (Auth login), N+3
   (Auth control) and N+4 (Gateway). `live.ps1` remembers the base in `data\stack.json`, so later runs, `-ClientOnly` and
   the bridge in the same checkout use it without being told again; `-PortBase 0` goes back to the default ports
-  (12995, 8080, 20493, 20495, 6112), which are also what a checkout without the file uses. On the default ports a
-  server's own variable (`Game_LOGIN_PORT`, `Game_PATCH_URL`, ...) still wins; with a base the shell's are not used.
+  (`Config\localexile.conf`'s, else 12995, 8080, 20493, 20495, 6112), which are also what a checkout without the file uses.
+  On the default ports a server's own variable (`Game_LOGIN_PORT`, `Game_PATCH_URL`, ...) still wins over the conf; with
+  a base neither is used.
   `data\stack.json` holds every port the servers got, and the bridge reads it. Auth sends the client to its own Gateway (`Game_GATEWAY_PORT` in login 0x14, as
   the Gateway does in 0x27). The levelgen server (`lg.ps1`) needs no port: its named pipe is per checkout.
 - **What is stopped.** `live.ps1` stops only this checkout's processes: servers whose command line, executable or cmd
@@ -137,7 +138,7 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
 - **Shared by everyone:** `Client\` (the executable and `Content.ggpk`, which every client opens read-only), the shader,
   pipeline and minimap caches in `%LOCALAPPDATA%\Path of Exile`, crash dumps in `Documents\My Games\Path of
   Exile\release`, and, in worktrees made by linking, whatever they link (`data\tables`, `data\walkability`). **Per
-  checkout:** the ports, `logs\`, the save database (`Game_SAVES_DB`), `data\stack.json`. **Per session:** the working
+  checkout:** the ports, `logs\`, the save database (`Game_CHARACTERS_DB`), `data\stack.json`. **Per session:** the working
   folder, `Client.txt`, settings, saved login and PID record.
 - **Walk maps** (`-Walkmaps`) only on the default ports and client session (elsewhere `live.ps1` warns and starts
   without the recorder): the recorder meets the Gateway in the shared `data\walkability\current.json`. It attaches to
@@ -264,11 +265,14 @@ field, character row and Play button were near (245, 217), (375, 61) and (455, 2
 |---|---|---|
 | `Game_PORT_BASE` | unset | `live.ps1` (like `-PortBase`): every port below from one base |
 | `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly`, `client_control.py` (like `-Session` / `--session`) |
+| `Game_CONF` | `Config\localexile.conf` | every server, `live.ps1`: addresses, ports and the client folder (written with the defaults on the first start); each variable below wins over its key |
 | `Game_LOGIN_PORT` | 20493 | Auth |
 | `Game_GATEWAY_PORT` | 6112 | Gateway, and Auth (where Play sends the client) |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth and Gateway |
 | `Game_GATEWAY_ENTER` | unset | Gateway: `1` sends 0x21 |
 | `Game_INSTANCE_SECRET` | `data/instance-secret.bin` | Auth and Gateway (must match) |
-| `Game_SAVES_DB` | `data/saves.db` | Gateway, Auth, Host |
+| `Game_CHARACTERS_DB` | `data/characters.db` | Gateway, Auth, Host |
+| `Game_AUTH_DB` | `data/auth.db` (beside another characters database: `<name>-auth.db`) | Gateway, Auth, Host |
+| `Game_SQL_DIR` | `sql` | Gateway, Auth, Host |
 | `Game_PATCH_TCP_PORT`, `Game_PATCH_URL`, `Game_PATCH_WEB_ROOT` | 12995, http://0.0.0.0:8080, http://127.0.0.1:8080/ | Patch |
 | `Game_CDN_PASSTHROUGH` | unset | Patch: `1` proxies to the real CDN (only to repair data on purpose, with a backup of `Client/`) |

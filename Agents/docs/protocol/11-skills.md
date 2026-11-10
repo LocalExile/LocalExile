@@ -84,7 +84,7 @@ GEPL reference (0x1424a7890):
 u8   flags: bit0 → u32 parent object id ("Skill parent object did not exist" if unknown) + u16
             bit1 (0x02) → retain native Vaal soul inputs; bit2 → constructor parameter13 bit1
 u8   n supports, n × (GEPL reference, u32)
-u32, u32, u32 cooldown ms, u8                       → skill +0xc0, +0xc4, +0xc8, +0xcc (0x141eedc30)
+u32, u32, u32 cooldown ms, u8 bypass type          → skill +0xc0, +0xc4, +0xc8, +0xcc (0x141eedc30; §9 bypass)
 compact n × (compact stat key, compact value)      the skill's own stats
 per additional stat set: the same stats list
 ```
@@ -694,7 +694,7 @@ All eight identities, original account/probes, both stash banks, all 40 tabs/met
 Participant last-played timestamps and the saved slot2 Fireball intent changed normally; Ruthless current Life
 1345 → 1245 retained the temporary qualifier-removal maximum clamp, and restoration did not heal it.
 Cleanup passed with all 774 frozen hashes unchanged; the post-run audit matched 773 source hashes.
-Observers/client were detached/closed, and normal `data/saves.db` services were restored.
+Observers/client were detached/closed, and normal `data/characters.db` services were restored.
 Evidence is under `artifacts/issue75-completion/selected-crit-native/`, its sibling assessment directory and
 `artifacts/issue75-completion/selected-crit-native-preservation/post-run-audit.json`.
 These controls establish selected publication, not native critical hits, rendered zero, legal carrier acquisition,
@@ -1542,6 +1542,12 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   [PoB](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/dev/src/Modules/CalcOffence.lua)
   also divides base duration by recovery, then rounds ordinary one-use durations to its server tick.
   This server keeps its existing continuous game clock and does not claim that tick boundary behavior.
+- **Cooldown bypass.** The skill record's u8 after the cooldown ms (skill +0xcc, §3) is the GEPL `CooldownBypassType`:
+  1 Endurance, 2 Frenzy (Flicker Strike), 3 Power; `active_skill_cooldown_bypass_type_override_to_power_charge` on the
+  skill makes it Power. While the skill cools down, `0x141ea4560` allows a use when the player's
+  `current_removable_*_charges` of that type is above 0, and `0x141ea4290` takes one off the charges it counts in its
+  buffs; the cooldown keeps running. At 0 (what the Gateway sent) the client never used Flicker Strike during its
+  cooldown, whatever the charges (live 2026-11-09). `CooldownBypass` sends it and spends the server's charge.
 - **Mana.** The server keeps the player's mana (`PlayerMana`): a cast pays the skill's `mana_cost` first (refused
   without enough), and `RunPlayerTick` regenerates 1.75% of maximum mana per second (Character.ot
   `mana_regeneration_rate_per_minute_%` 105) plus `base_mana_regeneration_rate_per_minute`, raised by
@@ -1669,6 +1675,17 @@ cell when the skill starts (`Game.LandsAtAim`); it kept the starting cell before
 player back there (live 2026-10-23). A resync follows at the end of the action, and aimed at a monster the skill lands on
 it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks there at its charge speed and hits on the way
 (§10k).
+
+**Flicker Strike** (ActionTypes `FlickerStrike` 0x6352, base class `0x141a5f640`) does not move the player on the
+client: in 17 started Flicker actions with a target, nothing set the player's position (Frida, live 2026-11-09).
+The action only picks its target (`0x141a5fa50`) and strikes. The pick: the clicked monster when its distance from
+the player less its size is within 40 cells × (1 + `flicker_strike_teleport_range_+%` / 100) (`0x141a60380`; 60 with
+`apply_cut_debuff_on_hit`), else the hostile monster in range nearest the aimed point (`0x141a60180`), else none and
+it strikes in place. A predictive client's 0x1ab echo snaps only at 92+ cells, so the Gateway sends S→C 0x1b7 to
+the landing (`FlickerStrike`); the action still keeps the use's sequence for the camera's smoothing (+0x11d0).
+Where GGG lands the player beside the target is not on the client; the Gateway uses the target's cell.
+Its buff (BuffDefinitions 1344 `flicker_strike_speed_boost`, `base_movement_velocity_+%`) is the server's too:
+each use gives it for the skill's duration, and its bonus is in the movement speed the Gateway sends.
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
@@ -2413,8 +2430,9 @@ Only templates whose stats have a consumer are applied, through three views:
 
 - **Enemy auras** (`EnemyAurasFor`, `Program.EnemyAuraActs`): Light of Divinity (672, Augury of Penitence 2551:
   `elemental_damage_taken_+%`), any template whose every stat is a hit conversion (Born under Fire: 674,
-  BuffDefinitions 2552, 60 cells, `base_physical_damage_%_to_convert_to_fire` 50) and `SaboteurBlind` (below).
-  The others, such as Overwhelm's crit multiplier, the Occultist's resistances and Kaom's Binding's
+  BuffDefinitions 2552, 60 cells, `base_physical_damage_%_to_convert_to_fire` 50), `SaboteurBlind` (below) and
+  Overwhelm (`SlayerCritMultiplier`, 1343: -30 to a monster's crits on the player, `EnemyAuraStatLocked`).
+  The others, such as the Occultist's resistances and Kaom's Binding's
   `base_from_enemy_physical_damage_%_to_convert_to_fire`, wait for consumers: their buff would show an effect that
   does not happen. The player tick shows them on monsters (`TickPassiveAuras` → `EnemyDebuffsTick`, §12 "The
   player's debuffs on monsters"). The stats act on the monster's hits at contact, by the radius at that moment:
@@ -2482,9 +2500,20 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   Ward, Energy Shield and Life, to the nearest living totem's Life, capped by its Life (PoB `reducePoolsByDamage`).
   The client never reads that stat, nor `base_presence_radius` (0x3ee0): both are server-side.
 
-Not modelled: the other totem skills (their gem use stays as before: a totem that does not use its skill is not
-placed), monsters attacking totems, placement range (`base_totem_range`), the totem's collision on the server's paths,
-and the totem as the aura buff's source.
+Projectile totems use a proxy Actor skill `0x4000` with `Parent = (PlayerId, sourceSkill)`.
+Fireball's `SkillTotemId = 22` has no dedicated variation; generic intelligence/dexterity skins are
+`SkillTotemVariations` keys 3/2, skin 0, varieties 2272/2273. The proxy carries the underlying skill's
+GEPL/statset and clears placement flags; its own entity sends the action and owns/emits the projectile.
+The installed support statset supplies 8000 ms duration, -40% final cast speed and level-one -55% final damage.
+Its `totem_support_gem_level` supplies the monster level. Only placement pays player costs. The actual caster inherits
+owner offensive stats and type prohibitions, with the owner's `spell_skills_deal_no_damage` removed (Ancestral Bond).
+The existing tick selects enemies and queues cancellable casts; source item/host removal, death, replacement, expiry,
+transfer and module retirement stop pending releases.
+Siege/Shrapnel Ballista's native `TotemSnipe`/`TotemShotgun` actions bypass the generic projectile lookup;
+their projectile rows are `CrossbowSnipeProjectile`/`CrossbowShotgunProjectile`, with skins 2373/8203.
+Ranged placement is 0.5 s since 3.28, despite older Totem references listing 0.35 s; `base_totem_range` is targeting range.
+Unimplemented payloads, including Artillery's mortar sequence and Focused Ballista's owner-attack gate, are refused
+before action/cost admission. Enemy targeting of totems, placement range and the aura buff's totem source remain open.
 
 ## 10h. Player minions that fight
 
@@ -2745,7 +2774,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
   socketed again did not get its slot back either. `SendSkills` therefore sends the saved bar (0x53) after every
   update, unless it adds a skill whose GrantedEffects Id the saved bar does not have: the client binds such a new
   skill to a free slot itself (0x4e), and a bar sent then would clear it.
-- **The Gateway** saves each 0x4e (`CharacterSaves`, `data/saves.db`) as slot → a GrantedEffects Id for gems and the default
+- **The Gateway** saves each 0x4e (`CharacterSaves`, `data/characters.db`) as slot → a GrantedEffects Id for gems and the default
   attack (skill ids change with the socketed gems), `Action/<ActionTypes Id>` for a basic action (Move 0x2909 =
   "Move only"), or "" for a cleared slot. It sends 0x53 right after the player and area messages, no delay needed,
   with the default attack on slot 0 only when nothing was saved there. Live 2026-10-18: Fireball on the right mouse
@@ -2773,6 +2802,9 @@ failed I/O, allocation limits, actual official values and every skill's successf
   by +0x82 percent. The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435e8418`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2bc update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
+  Guard backends also require additional-data element 0: the remaining absorption capacity (or Immortal Call's
+  consumed charge count). Getter `0x141f84000` dereferences Buff `+0x80` without a null check; an empty list
+  crashes the HUD. Guard definitions are not `IsRecovery`, so no inline stat values precede that list.
   The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and
   Anticipation repeat backends consume retained Buff `+40/+42/+28` as count, last sequence and a consumed-count
   cache. Existing-instance partial updates copy decoded `+70/+60/+64` into those fields; omitted bit2 count
