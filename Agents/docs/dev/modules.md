@@ -107,7 +107,7 @@ mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
 `IModuleContext` includes a host-issued `Lifetime` for each load. Stopping cancels its token and releases
 resources registered through `Own`; it does not drain arbitrary tasks already running.
 The optional [Phrecia Ascendancies](../game/phrecia-modules.md) family uses this ownership for admission and reload.
-`IModuleContext` is what a mod has, and `ProvideLeagueRules`, `World(player)`, `OnHideoutReady`, `OnEnterMessages`, `OnAreaHeader`, `OnNpcOption`.
+`IModuleContext` is what a mod has (manifest, settings, log, folder), and `ProvideLeagueRules` and `World(player)`.
 `IPlayerWorld` is objects, blockers, walking up, hideout stations, windows, stats, travel, NPC actions, crafting in a slot (with payment), item rules
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
 A module can alter the game fully: it compiles against the Gateway and the Game module, both public, with `using static Program`, `using static Game` (both global in a module) and `ConnOf(player)`. A mod reaches the same ([modding](modding.md)). Per-player state in a module's own
@@ -116,6 +116,6 @@ Another module's internal extension members (an `extension(...)` block, such as 
 the 10.0.1xx SDKs, the ones Linux distributions ship, reject them with CS0570, though newer SDKs build them. Read what
 they wrap instead, or call a static method.
 
-A Core module reaches the framework through the hooks and `GameEvents` (`Modding/GameEvents.cs`), the Gateway's own hand-over points, with `GameEvent.For(conn)` running only the modules of that connection's league. Add a new hand-over there, in general terms, instead of naming a module in the framework.
+A module reaches the framework through `GameEvents` (`Modding/GameEvents.cs`), the one hook system for modules and mods ([modding](modding.md), "Hooks"). It subscribes with its id as the owner, `GameEvent.For(conn)` runs only the modules of that connection's league, and the host releases everything the id holds when the module unloads. Add a new hand-over there, in general terms, instead of naming a module in the framework.
 
-Code: `GameEvents.cs`, `ModHost.cs` (one class, three instances in `Program.Mods.cs`), `ServerHooks.cs`, `ServerLeagues.cs`, `Program.ModuleWorld.cs`, `LeagueCatalog.cs`.
+Code: `GameEvents.cs`, `ModHost.cs` (one class, three instances in `Program.Mods.cs`), `ServerLeagues.cs`, `Program.ModuleWorld.cs`, `LeagueCatalog.cs`.

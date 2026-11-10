@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Net.Sockets;
 using GameServer.Core.Projectiles;
-using ChatCommand = GameServer.Modding.ChatCommand;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -242,12 +241,10 @@ static partial class SurvivorsRunRules
         $"{(int)(seconds / 60):00}:{(int)(seconds % 60):00}";
 
     /// <summary>The /survivors command: start, stop, pick a choice without the window, or report the run.</summary>
-    internal static async Task SurvivorsCommand(ChatCommand command)
+    internal static async Task SurvivorsCommand(ClientState conn, string[] args)
     {
-        var conn = ConnOf(command.Player);
         var (remote, stream, ciphers) = conn.Wire;
-        var args = command.Args;
-        string what = args.Count == 0 ? "status" : args[0].ToLowerInvariant();
+        string what = args.Length == 0 ? "status" : args[0].ToLowerInvariant();
         if (what == "start") { await StartSurvivors(remote, stream, ciphers, conn); return; }
         // Dev: restart the run with one named gem only, so each gem and its supports can be verified in isolation.
         if (what == "test")
@@ -302,7 +299,7 @@ static partial class SurvivorsRunRules
                 await conn.Commands!.Reply("No survivors run is active.");
                 return;
             }
-            int rank = args.Count > 1 && int.TryParse(args[1], out int wantedRank)
+            int rank = args.Length > 1 && int.TryParse(args[1], out int wantedRank)
                 ? Math.Clamp(wantedRank, 1, SurvivorsRules.MaxRank) : SurvivorsRules.MaxRank;
             foreach (int index in devRun.Skills.Keys.ToList()) devRun.SetRank(index, rank);
             await SendSkills(remote, stream, ciphers, conn);
@@ -459,7 +456,7 @@ static partial class SurvivorsRunRules
                 await conn.Commands!.Reply("No skill is waiting right now.");
                 return;
             }
-            int index = args.Count > 1 ? int.Parse(args[1]) : 0;
+            int index = args.Length > 1 ? int.Parse(args[1]) : 0;
             if (index < 1 || index > picking.Offer.Count
                 || !await ApplySurvivorsChoice(remote, stream, ciphers, conn, picking.Offer[index - 1]))
             {

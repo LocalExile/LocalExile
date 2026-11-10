@@ -22,8 +22,6 @@ public partial class Program
                 foreach (string line in text.Split('\n').Select(l => l.Length == 0 ? " " : l))
                     await Send(remote, stream, ciphers, InstanceChat.ChatLine(line), $"0x0017 chat line \"{line}\"");
             },
-            ModCommand = (name, args) => ServerHooks.RunCommand(PlayerOf(conn), name, args),
-            ModUsages = () => ServerHooks.Commands,
         }
         .Add("module", "/module (the modules loaded when the Gateway started, from the folders in Modules/: version, kind and hooks, and why others did not load)", async _ =>
         {

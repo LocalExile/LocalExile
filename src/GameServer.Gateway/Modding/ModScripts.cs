@@ -41,7 +41,10 @@ public static class ModScripts
         string runtime = RuntimeEnvironment.GetRuntimeDirectory();
         return [.. Directory.GetFiles(runtime, "*.dll").Where(IsFramework).Where(IsManaged)
             .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
-            .Append(MetadataReference.CreateFromFile(typeof(IMod).Assembly.Location))];
+            .Append(MetadataReference.CreateFromFile(typeof(IMod).Assembly.Location))
+            // The server itself, as a project mod or module compiles against it: GameEvents, the connection, the client protocol.
+            .Concat(new[] { typeof(GameEvents).Assembly, typeof(GameServer.Core.Protocol.Instance.Item).Assembly }
+                .Where(a => a.Location.Length > 0).Select(a => (MetadataReference)MetadataReference.CreateFromFile(a.Location)))];
     });
 
     // In a release the runtime's folder is the server's own (self-contained), with the server's assemblies and packages in it.
@@ -59,13 +62,13 @@ public static class ModScripts
     }
 
     /// <summary>Compiles the files; <paramref name="references"/> are the images of the other assemblies they may use.</summary>
-    public static (byte[] Dll, byte[] Pdb) Compile(string id, IReadOnlyList<string> files, IEnumerable<byte[]> references, bool module = false)
+    public static (byte[] Dll, byte[] Pdb) Compile(string id, IReadOnlyList<string> files, IEnumerable<byte[]> references)
     {
         var options = new CSharpParseOptions(LanguageVersion.Latest);
         var trees = files.Select(path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), options, path, Encoding.UTF8))
             .Append(CSharpSyntaxTree.ParseText(Usings, options)).ToList();
         var compilation = CSharpCompilation.Create(id + ".scripts", trees,
-            [.. Platform.Value, .. module ? [MetadataReference.CreateFromFile(typeof(GameServer.Core.Protocol.Instance.Item).Assembly.Location)] : Array.Empty<MetadataReference>(), .. references.Select(image => MetadataReference.CreateFromImage(image))],
+            [.. Platform.Value, .. references.Select(image => MetadataReference.CreateFromImage(image))],
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable,
                 optimizationLevel: OptimizationLevel.Debug));
         using var dll = new MemoryStream();

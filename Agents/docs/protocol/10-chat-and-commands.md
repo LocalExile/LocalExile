@@ -423,7 +423,7 @@ Global, trade and whisper lines leave the Gateway for a chat server, GGG's split
 it across its areas, so players of separate Gateways can talk. Local lines stay in the Gateway.
 
 The Chat module runs a chat server on a free loopback port, so each Gateway has chat alone. A mod moves the players to
-another server with `UseChatServer(host, port)`, at once and until it unloads ([modding](../dev/modding.md)). A character says
+another server with `ChatRoutes.Use(id, host, port)`, at once and until it unloads ([modding](../dev/modding.md)). A character says
 `Failed to connect to host:port chat channel, switching back to local chat server.` in chat when that server fails or the
 connection drops, each reason once, and tries again at an area change after 60 s.
 

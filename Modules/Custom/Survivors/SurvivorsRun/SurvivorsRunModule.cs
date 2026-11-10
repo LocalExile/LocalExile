@@ -8,12 +8,10 @@ public sealed class SurvivorsRunModule : IModule
     public void Load(IModuleContext module)
     {
         SurvivorsRunRules.Lifetime = module.Lifetime;
-        module.OnChatCommand("survivors", "/survivors [start | stop | pick <1-6> | status] (Survivors league)",
-            SurvivorsRunRules.SurvivorsCommand);
-        module.OnAreaGenerated(player => SurvivorsRunRules.EnterArea(ConnOf(player)));
-        module.OnPlayerLeaving((player, reason) =>
+        GameEvents.Command(module.Manifest.Id, "survivors", "/survivors [start | stop | pick <1-6> | status] (Survivors league)", SurvivorsRunRules.SurvivorsCommand);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => SurvivorsRunRules.EnterArea(conn));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, reason) =>
         {
-            var conn = ConnOf(player);
             if (conn.Closed) SurvivorsRunRules.PendingRuns.TryRemove(conn, out _);
             SurvivorsRunRules.Release(conn);
             return Task.CompletedTask;

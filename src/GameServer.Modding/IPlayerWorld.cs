@@ -62,8 +62,9 @@ public interface IPlayerWorld
     /// <summary>The item rules of the player's data set.</summary>
     IItemCrafting Crafting { get; }
 
-    /// <summary>The NPC dialogue plays this option's text and audio; Continue returns to the options.</summary>
-    Task NpcSay(NpcOption option);
+    /// <summary>The NPC dialogue plays this option's text and audio (its index among the NPC's options, its <c>NPCTalk</c> row and text,
+    /// for the log); Continue returns to the options.</summary>
+    Task NpcSay(string npc, string option, int index, int row);
 
     /// <summary>Ends the dialogue state without closing the window: another screen takes over.</summary>
     void NpcEndTalk();

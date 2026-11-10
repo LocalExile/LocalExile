@@ -19,12 +19,12 @@ public sealed class SurvivorsSkillsModule : IModule
                 ids[free] = skill.Id;
             }
         }));
-        module.OnPacket(InstanceProtocol.UseSkillAtLocationId, packet =>
-            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(ConnOf(packet.Player),
-                InstanceProtocol.ReadUseSkillAtLocation(packet.Bytes.Span).SkillId)));
-        module.OnPacket(InstanceTransfer.UseSkillOnObjectId, packet =>
-            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(ConnOf(packet.Player),
-                InstanceTransfer.ReadUseSkillOnObject(packet.Bytes.Span).SkillId)));
+        GameEvents.Packet(InstanceProtocol.UseSkillAtLocationId).Add(module.Manifest.Id, (conn, bytes) =>
+            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(conn,
+                InstanceProtocol.ReadUseSkillAtLocation(bytes.AsSpan()).SkillId)));
+        GameEvents.Packet(InstanceTransfer.UseSkillOnObjectId).Add(module.Manifest.Id, (conn, bytes) =>
+            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(conn,
+                InstanceTransfer.ReadUseSkillOnObject(bytes.AsSpan()).SkillId)));
     }
 }
 

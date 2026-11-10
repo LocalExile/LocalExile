@@ -41,14 +41,14 @@ public sealed class AtlasModule : IModule, IDisposable
     public void Load(IModuleContext module)
     {
         ExtraPlayerMessages = conn => AtlasFeature.Restore(module, conn);
-        module.OnAreaGenerated(player => AtlasFeature.EnsureUnlocked(ConnOf(player)));
-        module.OnTick((player, _) => AtlasFeature.EnsureUnlocked(ConnOf(player)));
-        module.OnChatCommand("atlas_unlock", "/atlas_unlock (dev: grant Atlas beacons, invitations and primordial keys)", async command =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => AtlasFeature.EnsureUnlocked(conn));
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => AtlasFeature.EnsureUnlocked(conn));
+        GameEvents.Command(module.Manifest.Id, "atlas_unlock", "/atlas_unlock (dev: grant Atlas beacons, invitations and primordial keys)", async (conn, args) =>
         {
-            int n = await AtlasFeature.EnsureUnlocked(ConnOf(command.Player));
-            await command.Player.Tell(n == 0 ? "Atlas: beacons and invitations already unlocked." : $"Atlas: granted {n} beacon/invitation flag(s).");
+            int n = await AtlasFeature.EnsureUnlocked(conn);
+            await PlayerOf(conn).Tell(n == 0 ? "Atlas: beacons and invitations already unlocked." : $"Atlas: granted {n} beacon/invitation flag(s).");
         });
-        module.OnMonsterKilled(async kill =>
+        GameEvents.MonsterKilled.Add(module.Manifest.Id, async kill =>
         {
             if (AtlasProgress.OfArea(kill.Player.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, kill.Monster)
                 || !AtlasProgress.Complete(module.World(kill.Player).CharacterData, [node])) return;
@@ -58,64 +58,60 @@ public sealed class AtlasModule : IModule, IDisposable
             await kill.Player.Tell($"Atlas: {node.Name} completed.");
             await AwardMapPoints(conn, kill.Player, 1, "Atlas map completed");
         });
-        module.OnChatCommand("atlas_complete", "/atlas_complete <map name or AtlasNode id | all> (dev: mark Atlas maps completed, saved)",
-            async command =>
+        GameEvents.Command(module.Manifest.Id, "atlas_complete", "/atlas_complete <map name or AtlasNode id | all> (dev: mark Atlas maps completed, saved)",
+            async (conn, args) =>
             {
-                string what = string.Join(' ', command.Args);
+                string what = string.Join(' ', args);
                 IReadOnlyList<AtlasProgress.Node> nodes = what.Equals("all", StringComparison.OrdinalIgnoreCase) ? AtlasProgress.Maps
                     : AtlasProgress.Find(what) is { } found ? [found] : [];
                 if (nodes.Count == 0)
                 {
-                    await command.Player.Tell($"No Atlas map '{what}'. Usage: /atlas_complete <map name or AtlasNode id | all>");
+                    await PlayerOf(conn).Tell($"No Atlas map '{what}'. Usage: /atlas_complete <map name or AtlasNode id | all>");
                     return;
                 }
-                var data = module.World(command.Player).CharacterData;
+                var data = module.World(PlayerOf(conn)).CharacterData;
                 var before = AtlasProgress.Completed(data);
                 AtlasProgress.Complete(data, nodes);
                 int earned = nodes.Count(n => !before.Contains(n.Id));
                 if (nodes.Count == 1)
-                    await command.Player.Send(AtlasProgress.NodeMessage(nodes[0]),
+                    await PlayerOf(conn).Send(AtlasProgress.NodeMessage(nodes[0]),
                         $"0x01a4 /atlas_complete {nodes[0].Name} ({nodes[0].Id})");
-                await command.Player.Tell(nodes.Count == 1 ? $"Atlas: {nodes[0].Name} completed." : $"Atlas: {nodes.Count} maps completed.");
-                await AwardMapPoints(ConnOf(command.Player), command.Player, earned, "/atlas_complete");
+                await PlayerOf(conn).Tell(nodes.Count == 1 ? $"Atlas: {nodes[0].Name} completed." : $"Atlas: {nodes.Count} maps completed.");
+                await AwardMapPoints(conn, PlayerOf(conn), earned, "/atlas_complete");
             });
-        module.OnChatCommand("atlas_reset", "/atlas_reset (dev: clear the Atlas's completed maps)", async command =>
+        GameEvents.Command(module.Manifest.Id, "atlas_reset", "/atlas_reset (dev: clear the Atlas's completed maps)", async (conn, args) =>
         {
-            AtlasProgress.Reset(module.World(command.Player).CharacterData);
-            var slots = AtlasFeature.SlotsOf(command.Player);
-            await command.Player.Send(AtlasProgress.EmptyMessage(AtlasProgress.VoidstoneMask(slots), (byte)slots.Count),
+            AtlasProgress.Reset(module.World(PlayerOf(conn)).CharacterData);
+            var slots = AtlasFeature.SlotsOf(PlayerOf(conn));
+            await PlayerOf(conn).Send(AtlasProgress.EmptyMessage(AtlasProgress.VoidstoneMask(slots), (byte)slots.Count),
                 "0x01a3 /atlas_reset");
-            await command.Player.Tell("Atlas: progress cleared.");
+            await PlayerOf(conn).Tell("Atlas: progress cleared.");
         });
-        module.OnPacket(InstanceEntities.AtlasAllocateId, async p =>
+        GameEvents.Packet(InstanceEntities.AtlasAllocateId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            var (preset, node) = InstanceEntities.ReadAtlasAllocate(p.Bytes.ToArray());
+            var (preset, node) = InstanceEntities.ReadAtlasAllocate(bytes);
             await AtlasFeature.ChangeAtlasPassive(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, preset, node, allocate: true);
             return true;
         });
-        module.OnPacket(InstanceEntities.AtlasRefundId, async p =>
+        GameEvents.Packet(InstanceEntities.AtlasRefundId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            var (preset, node, _) = InstanceEntities.ReadAtlasRefund(p.Bytes.ToArray());
+            var (preset, node, _) = InstanceEntities.ReadAtlasRefund(bytes);
             await AtlasFeature.ChangeAtlasPassive(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, preset, node, allocate: false);
             return true;
         });
-        module.OnPacket(InstanceMapDevice.SocketId, async p =>
+        GameEvents.Packet(InstanceMapDevice.SocketId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
             await AtlasFeature.SocketVoidstone(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, module,
-                InstanceMapDevice.ReadSocket(p.Bytes.ToArray()).ItemId);
+                InstanceMapDevice.ReadSocket(bytes).ItemId);
             return true;
         });
         // Taking a socketed stone off is C→S 0x28 from inventory 40, not 0xf6. Clicking a Voidstone in the bag
         // (without Ctrl) is also 0x28; the Atlas window does not send 0xf6 unless Ctrl is held, so that click
         // has to socket the stone itself. Dropping onto a socket is C→S 0x2a into inventory 40.
-        module.OnPacket(InstanceItems.PickUpItemId, async p =>
+        GameEvents.Packet(InstanceItems.PickUpItemId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
             return await AtlasFeature.PickVoidstone(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, module,
-                InstanceItems.ReadPickUpItem(p.Bytes.ToArray()));
+                InstanceItems.ReadPickUpItem(bytes));
         });
         On(GameEvents.InventoryPlace, async (conn, place) =>
         {

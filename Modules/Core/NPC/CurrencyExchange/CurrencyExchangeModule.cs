@@ -31,14 +31,14 @@ public sealed class CurrencyExchangeModule : IModule
     public void Load(IModuleContext module)
     {
         _module = module;
-        module.OnNpcOption(async talk =>
+        GameEvents.NpcOption.Add(module.Manifest.Id, async talk =>
         {
             if (!talk.Script.Contains("CurrencyExchangeWindow", StringComparison.Ordinal)) return false;
             await module.World(talk.Player).NpcClose("0x0084 close NPC dialogue for the Currency Exchange");
             await Open(talk.Player);
             return true;
         });
-        module.OnChatCommand("exchange", "/exchange (opens the Currency Exchange)", command => Open(command.Player));
+        GameEvents.Command(module.Manifest.Id, "exchange", "/exchange (opens the Currency Exchange)", (conn, args) => Open(PlayerOf(conn)));
         Handle(Wire.RequestOrdersId, (player, _) => SendOrders(player));
         Handle(Wire.RequestFeeId, (player, m) => SendFee(player, Wire.ReadU32(m.Span)));
         Handle(Wire.RequestPartnersId, (player, m) => SendPartners(player, Wire.ReadU32(m.Span)));
@@ -46,8 +46,9 @@ public sealed class CurrencyExchangeModule : IModule
         Handle(Wire.PlaceOrderId, (player, m) => Place(player, Wire.ReadPlaceOrder(m.Span)));
         Handle(Wire.CloseOrderId, (player, m) => Close(player, Wire.ReadU32(m.Span)));
         Handle(Wire.ClaimId, (player, m) => Claim(player, Wire.ReadClaim(m.Span)));
-        module.OnTick(async (player, seconds) =>
+        GameEvents.Tick.Add(module.Manifest.Id, async (conn, seconds) =>
         {
+            var player = PlayerOf(conn);
             var timer = _timers.GetOrCreateValue(player);
             if ((timer.Seconds += seconds) < SettleEverySeconds) return;
             timer.Seconds = 0;
@@ -61,9 +62,9 @@ public sealed class CurrencyExchangeModule : IModule
         });
     }
 
-    void Handle(ushort opcode, Func<IPlayer, ReadOnlyMemory<byte>, Task> run) => _module.OnPacket(opcode, async packet =>
+    void Handle(ushort opcode, Func<IPlayer, ReadOnlyMemory<byte>, Task> run) => GameEvents.Packet(opcode).Add(_module.Manifest.Id, async (conn, bytes) =>
     {
-        await run(packet.Player, packet.Bytes);
+        await run(PlayerOf(conn), bytes);
         return true;
     });
 

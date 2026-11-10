@@ -56,7 +56,7 @@ public static partial class Game
             // A terminal Hardcore owner may only leave for character selection.
             if (HardcoreProgressBlocked(conn) && id != 0x0153) continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
-            if (Program.ServerHooks.WantsPacket(id) && await Program.ServerHooks.Packet(PlayerOf(conn), id, bytes)) continue;
+            if (GameEvents.WantsPacket(id) && await GameEvents.AnyPacket(conn, id, bytes)) continue;
             // Immediate transfer ingress cuts the old epoch off instead of replaying overdue old-world damage.
             // Movement/combat handlers also advance atomically inside their mutation boundaries.
             bool transferIngress = id is InstanceTransfer.ChooseInstanceId or InstanceTransfer.LeaveAreaAckId
@@ -704,7 +704,7 @@ public static partial class Game
                     // An area the Gateway does not generate itself (ServerLevels) runs on the client's layout alone.
                     if (!ServerLevels.IsSupported(conn.Layout.Id) && !CaptureTour.Active(CharacterName(conn)))
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
-                    await Program.ServerHooks.AreaGenerated(PlayerOf(conn));
+                    await GameEvents.RunAreaGenerated(conn);
                     ActivateResourceEffects(conn, ProjectileWorldTime(conn));
                     _ = RunLockstepFrames(remote, stream, ciphers, conn);
                     Program.ActivatePlayerUpdates(conn);
@@ -747,7 +747,7 @@ public static partial class Game
                     $"0x02a0 foresight preview key {key} for item {targetId}: {(preview is null ? "refused" : "preview")}");
             }
             // Unframed messages have the hooks too.
-            if (Program.ServerHooks.WantsPacket(uid)) await Program.ServerHooks.Packet(PlayerOf(conn), uid, unknown);
+            if (GameEvents.WantsPacket(uid)) await GameEvents.AnyPacket(conn, uid, unknown);
         }
     }
 }
