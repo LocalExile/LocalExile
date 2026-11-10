@@ -1353,7 +1353,7 @@ public static partial class Game
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
         if (!Current()) return;
         var criticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId);
-        sacrifice ??= new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
+        sacrifice ??= new SacrificeUse(conn, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         var skillStats = SupportedSkill(conn, skillId).Stats;
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
         int effectiveness = SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level);
