@@ -555,6 +555,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         GameEventOwners.Release(mod.Manifest.Id, Rank);
         if (mod.ProvidesRules) ServerLeagues.RemoveRules(mod.Manifest.Id);
         if (leagues) ServerLeagues.RemoveCode(mod.Manifest.Id);
+        Program.ForgetCommands();
     }
 
     void Fail(string id, string error)
