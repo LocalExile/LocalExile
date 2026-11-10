@@ -117,7 +117,7 @@ public partial class Program
     /// <summary>What a module or mod can do with this connection's world.</summary>
     public static IPlayerWorld WorldOf(ClientState conn) => Logic.WorldFor(conn);
 
-    public static IPlayer PlayerOf(ClientState conn) => ModPlayers.GetValue(conn, Logic.PlayerFor);
+    public static IPlayer PlayerOf(ClientState conn) => ModPlayers.GetValue(conn, static c => Logic.PlayerFor(c));
 
     /// <summary>The connection behind a player, for what the Gateway gives modules.</summary>
     public static ClientState ConnOf(IPlayer player) => ((IConnectionPlayer)player).Conn;

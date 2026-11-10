@@ -19,7 +19,8 @@ public static partial class Game
 
     // GrantedEffects row → MonsterVarieties row of its default skin: ActiveSkills.SkillTotemId is SkillTotemVariations'
     // SkillTotemsKey, TotemSkinId 0 (Rejuvenation Totem: 4 → Metadata/Monsters/Totems/LifeRegenTotem).
-    static readonly Lazy<Dictionary<int, int>> TotemVarieties = new(() => LoadTotemVarieties("data/tables"));
+    static readonly Lazy<(Dictionary<int, int> Effects, Dictionary<int, int> Skins)> TotemVarieties =
+        new(() => LoadTotemVarieties("data/tables"));
 
     // The totem auras' BuffDefinitions stats (172: base_life_regeneration_rate_per_minute and five more); the totem's
     // skill gives their values.
@@ -36,11 +37,11 @@ public static partial class Game
         return result;
     });
 
-    static Dictionary<int, int> LoadTotemVarieties(string tables)
+    static (Dictionary<int, int> Effects, Dictionary<int, int> Skins) LoadTotemVarieties(string tables)
     {
         string Path(string name) => System.IO.Path.Combine(tables, name + ".json");
         var result = new Dictionary<int, int>();
-        if (!ClientTables.Exists(Path("GrantedEffects")) || !ClientTables.Exists(Path("ActiveSkills")) || !ClientTables.Exists(Path("SkillTotemVariations"))) return result;
+        if (!ClientTables.Exists(Path("GrantedEffects")) || !ClientTables.Exists(Path("ActiveSkills")) || !ClientTables.Exists(Path("SkillTotemVariations"))) return (result, []);
         using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("GrantedEffects")));
         using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("ActiveSkills")));
         using var variations = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("SkillTotemVariations")));
@@ -58,7 +59,7 @@ public static partial class Game
                 result[i] = variety;
             i++;
         }
-        return result;
+        return (result, skins);
     }
 
     /// <summary>The totem variety a gem skill with a totem executor summons, or null.</summary>
@@ -68,17 +69,14 @@ public static partial class Game
     public static MonsterCatalog.Variety? TotemVariety(ClientState conn, int effect)
     {
         if (SkillsFor(conn).EffectId(effect) is { } id && TotemAuras.ContainsKey(id)
-            && TotemVarieties.Value.TryGetValue(effect, out int native))
+            && TotemVarieties.Value.Effects.TryGetValue(effect, out int native))
             return Monsters.Find(native.ToString()) is { Supported: true } aura ? aura : null;
         if (!SpellTotemEffect(conn, effect) && !BallistaEffect(conn, effect)) return null;
         // Prefer a dedicated native skin; generic spell/ballista proxies use intelligence/dexterity skins 3/2.
-        if (TotemVarieties.Value.TryGetValue(effect, out int specific)
+        if (TotemVarieties.Value.Effects.TryGetValue(effect, out int specific)
             && Monsters.Find(specific.ToString()) is { Supported: true } nativeSpell) return nativeSpell;
-        using var variations = GameTables.Open("data/tables/SkillTotemVariations.json");
-        var skin = variations.RootElement.EnumerateArray().FirstOrDefault(v => v.GetProperty("SkillTotemsKey").GetInt32() == (BallistaEffect(conn, effect) ? 2 : 3)
-            && v.GetProperty("TotemSkinId").GetInt32() == 0);
-        return skin.ValueKind == JsonValueKind.Object
-            && Monsters.Find(skin.GetProperty("MonsterVarietiesKey").GetInt32().ToString()) is { Supported: true } spell ? spell : null;
+        return TotemVarieties.Value.Skins.TryGetValue(BallistaEffect(conn, effect) ? 2 : 3, out int generic)
+            && Monsters.Find(generic.ToString()) is { Supported: true } spell ? spell : null;
     }
 
     public static bool TotemPathAvailable(ClientState conn, ushort skill, int effect) => !IsTotemSkill(conn, skill)
@@ -174,7 +172,8 @@ public static partial class Game
                 var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura)
                 { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
                     SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem };
-                int ordinaryLimit = (int)Math.Clamp((long)BaseTotemsAllowed + GolemStat(playerStats, "number_of_additional_totems_allowed"), 0, int.MaxValue);
+                int ordinaryLimit = (int)Math.Clamp((long)BaseTotemsAllowed + GolemStat(playerStats, "number_of_additional_totems_allowed")
+                    + (GolemStat(playerStats, "keystone_ancestral_bond") != 0 ? 1 : 0), 0, int.MaxValue);
                 placed.Ballista = ballista;
                 placed.BonusSlots = ballista ? Math.Max(0, limit - ordinaryLimit) : 0;
                 if (spellTotem) BindTotemSource(conn, placed);

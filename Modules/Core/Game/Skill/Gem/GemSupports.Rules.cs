@@ -355,11 +355,13 @@ public static partial class Game
         bool WieldingWand = false);
 
     public static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
-        SkillCatalog.Unarmed? weapon = null)
+        SkillCatalog.Unarmed? weapon = null, bool totem = false)
     {
         var gem = SupportedSkill(conn, skillId);
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, gem.Stats);
+        if (totem && Stats.Key("damage_+%") is uint damage)
+            stats[damage] = stats.GetValueOrDefault(damage) + GolemStat(stats, "totem_damage_+%");
         int Get(string name) => name == "is_area_damage" && area is bool isArea ? isArea ? 1 : 0
             : Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         bool attack = SkillsFor(conn).IsAttack(gem.Effect);

@@ -276,12 +276,14 @@ public static partial class Game
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         var local = spell ? null : WeaponFor(conn).LocalSources;
-        var ailmentRows = SupportedAilmentRows(conn, skillId, spell ? "spell" : "main_hand");
-        var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, PlayerAccuracy(conn, player),
+        var hitInputs = SupportedHitInputsFor(conn, skillId, area: false, totem: totem is not null)!;
+        var areaInputs = SupportedHitInputsFor(conn, skillId, area: true, totem: totem is not null)!;
+        var ailmentRows = SupportedAilmentRowsFrom(hitInputs, spell ? "spell" : "main_hand");
+        var shot = new ProjectileOffense(SupportedHitFrom(hitInputs, suppress: false), spell, PlayerAccuracy(conn, player),
             SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
             // Child stages and release specialization can introduce areas after this root is resolved.
-            AreaHit = SupportedProjectileHit(conn, skillId, area: true),
+            AreaHit = SupportedHitFrom(areaInputs, suppress: false),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             VsProfaneCriticalChance = SupportedCriticalChanceVsProfane(conn, skillId, release: true),
             ActualCaster = totem is null ? null : TotemCasterStats(player),
@@ -349,7 +351,10 @@ public static partial class Game
                     CriticalMin = shot.Ignite.CriticalMin * totemMore, CriticalMax = shot.Ignite.CriticalMax * totemMore },
                 Poison = shot.Poison with { Min = shot.Poison.Min * totemMore, Max = shot.Poison.Max * totemMore,
                     CriticalMin = shot.Poison.CriticalMin * totemMore, CriticalMax = shot.Poison.CriticalMax * totemMore },
-                Valid = () => SpellTotemCurrent(conn, totem), Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
+                Bleed = shot.Bleed with { Min = shot.Bleed.Min * totemMore, Max = shot.Bleed.Max * totemMore,
+                    CriticalMin = shot.Bleed.CriticalMin * totemMore, CriticalMax = shot.Bleed.CriticalMax * totemMore },
+                // Pending casts still require their source; released projectiles live with the area session.
+                Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
         }
         uint emitter = totem?.Id ?? PlayerId;
         var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)
