@@ -700,6 +700,14 @@ tolerance -1 and precision 1 (`0x141e7b530`): live, an aim 17 cells right and 9 
 The tutorial support chest's Interaction uses MoveTo max range 6, tolerance 3, precision 1. Its blocking footprint
 is only 1; using that footprint for interaction makes the server walk four cells past the native stopping point.
 
+**A walk under an in-place action.** An in-place action (a Sand Spitter's shot) does not touch the walker: a Move
+under way goes on under it, path pieces and searches included. When the Actor ends the action it stops that walk with
+the stop that waits for the tick, from its own tick, after Positioned's, so the walk ends with the next frame's steps.
+A 0.99 s attack ordered in frame n was ended in n + 30 and its walker stood from n + 31 (tick trace 2026-11-10, two of
+two): the action's own frame counts toward its time, unlike a hit's recovery. A standing walker gets no stop. The
+Gateway dates the stop at the order (`ClientActionWalkStop`) and the step pass applies it; before, the estimate
+walked on until the next order, a cell or two past the client's monster. Only that one duration is traced.
+
 **Corpses.** A killed monster's Positioned body stays in the client's path searches and step checks after its death,
 so a Move in that time can take another route even when it never touches the corpse. The client's monster lives until
 the death reaches it: it walks on, and the death handler (`0x141e95960`, run when the 0x1b1 with life 0 is applied)

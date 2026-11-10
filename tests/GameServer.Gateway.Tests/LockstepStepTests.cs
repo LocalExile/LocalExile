@@ -57,6 +57,32 @@ public class LockstepStepTests
         Assert.Equal((50, 56), b.Walk.Position(0.132));
         Assert.False(b.Walk.Moving(0.132));
 
+        // An in-place attack leaves a walk going under it, and the client's Actor stops that walk when it ends the
+        // attack: a 0.99 s attack ordered in the frame from 0.132 uses up 31 frames' time with its own frame, so the
+        // walk (a cell each 0.1 s) is stopped in the frame from 1.155, 31 after it, and stands on its 11th cell with
+        // the step due at 1.2 never taken. A predictive client's walk is left as it is.
+        foreach (bool lockstep in new[] { true, false })
+        {
+            var shooting = Connection(lockstep, sending: (0.132, 0.165));
+            var spitter = Monster(50, 50, 10);
+            var spit = new MonsterAttack(0x1535, 0.99, 30, DamagePacket.Empty) { Ranged = true };
+            spitter.Walk.Order(50, 90, now: 0);
+            shooting.Monsters[0x3000] = spitter;
+            lock (shooting.Monsters)
+            {
+                Assert.NotNull(Game.MonsterSwingOrderLocked(shooting, spitter, spit, action: 1, generic: false, seconds: 0.99, now: 0.14));
+                Assert.Equal(lockstep ? 0.132 + 31 * 0.033 : null, spitter.ClientActionWalkStop);
+                shooting.LockstepFrame = (1.155, 1.188);
+                Game.StepWalkers(shooting, now: 1.16);
+                Assert.True(spitter.Walk.Moving(1.155));
+                shooting.LockstepFrame = (1.188, 1.221);
+                Game.StepWalkers(shooting, now: 1.19);
+            }
+            Assert.Equal(lockstep, !spitter.Walk.Moving(1.19));
+            Assert.Equal(lockstep ? (50, 61) : (50, 64), spitter.Walk.Position(1.45));
+            Assert.Null(spitter.ClientActionWalkStop);
+        }
+
         // A predictive client's steps are replayed in time order: 0x3001's at 0.100 goes first and 0x3000's is blocked.
         var predictive = Connection(lockstep: false, sending: (0.132, 0.165));
         a = Monster(50, 50, 1 / 0.105);

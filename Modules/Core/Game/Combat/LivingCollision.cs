@@ -388,6 +388,13 @@ static partial class Game
                     continue;
                 }
                 if (!walks.TryGetValue(id, out var walk)) continue;
+                // The client's Actor ended an in-place action in the frame before: its stop ends the walk that was left
+                // going under the action, with this tick's steps (SpawnedMonster.ClientActionWalkStop).
+                if (conn.Monsters.GetValueOrDefault(id) is { ClientActionWalkStop: { } stopAt } acting && start >= stopAt - 1e-6)
+                {
+                    acting.ClientActionWalkStop = null;
+                    if (walk.Moving(start)) walk.StopAfter(end, start);
+                }
                 for (int round = 0; round < 8; round++)
                 {
                     bool stopped = false;

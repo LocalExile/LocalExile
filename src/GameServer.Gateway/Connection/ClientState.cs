@@ -297,6 +297,10 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // action generation the swing belongs to, for the AI to take as its own (Game.PlanMonsterAi); null when none.
     public double? ClientSwingAt;
     public int ClientSwingAction;
+    // Lockstep: the start of the frame in whose tick the client ends a walk that an in-place action left going under it
+    // (Game.MonsterSwingOrderLocked), the frame after its Actor ends that action; null when none is pending. The step
+    // pass applies it (Game.StepFrames), and an order the client takes drops it (Game.LockstepOrderFrom).
+    public double? ClientActionWalkStop;
     public double NextChaseRetryAt;
     // The cell a Move chase's current walk was cut to (Game.LegCells along its way), or null when the walk goes the whole
     // way: a walk at its leg's end is still on its way for the chase cadence.

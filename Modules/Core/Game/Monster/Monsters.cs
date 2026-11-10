@@ -1246,6 +1246,7 @@ static partial class Game
                 + $"{(m.ClientSwingAt is { } at ? $" at {at:0.000}" : "")} before the frame from {frame.Start:0.000}");
             return null;
         }
+        m.ClientActionWalkStop = null;   // the order replaces the action whose end would have stopped the walk
         return place(frame.Start);
     }
 
@@ -1368,17 +1369,21 @@ static partial class Game
     // frames after it were seen still waiting after their own frame's step, none of 114 sent 31 after). Not traced: the
     // rate the countdown multiplies the frame's time by (+0x1a0's +0x1f8; a chill may slow it) and a TakeHit the
     // client refuses (0x141e95e60 returns early during some actions), for which the AI waits all the same.
-    internal static double LockstepRecoveryEnds((double Start, double End) frame, float seconds)
+    internal static double LockstepRecoveryEnds((double Start, double End) frame, float seconds) =>
+        LockstepCountdownFrames(seconds) is { } frames ? frame.Start + (frames + 1) * (frame.End - frame.Start) : double.PositiveInfinity;
+
+    // How many frames' time (33 ms as float seconds each) uses up a duration the client counts down in its ticks; null
+    // for a count the frame's time no longer changes (an infinite or huge duration), which never ends on the client.
+    internal static int? LockstepCountdownFrames(float seconds)
     {
         float left = seconds, length = FrameMs / 1000f;
         int frames = 0;
         for (; left > 0; frames++)
         {
-            // A count the frame's time no longer changes (an infinite or huge duration) never ends, on the client either.
-            if (left - length == left) return double.PositiveInfinity;
+            if (left - length == left) return null;
             left -= length;
         }
-        return frame.Start + (frames + 1) * (frame.End - frame.Start);
+        return frames;
     }
 
     // "Gain X% of Missing Unreserved Life before being Hit by an Enemy" (PoB CalcDefence: only while alive, capped at the
@@ -1413,6 +1418,13 @@ static partial class Game
         if (a.Summon is { } summoning) m.SummonReadyAt = startedAt + summoning.CooldownSeconds;
         m.SwingGeneration = action;
         m.SwingOrderedAt = startedAt;
+        // An in-place action does not touch a lockstep client's walker: a walk under way goes on under it. The Actor
+        // stops that walk when it ends the action, with the stop that waits for the tick, so the walk ends with the
+        // next frame's steps. The action's own frame counts toward its time here (unlike a hit's recovery): a 0.99 s
+        // attack ordered in frame n was ended in n + 30 and its walk stood from n + 31 (tick trace 2026-11-10, two of
+        // two; only that duration is traced).
+        m.ClientActionWalkStop = conn.LockstepClient && (!generic || a.InPlace) && m.Walk.Moving(startedAt)
+            && LockstepCountdownFrames((float)seconds) is { } frames ? startedAt + frames * (FrameMs / 1000d) : null;
         // The accepted action owns the sequence that its later hit must name (0x1421940a0, 0x141e90f50).
         // Assign it after admission and carry it with the order, including through a projectile's flight.
         if (conn.LockstepClient && a.Summon is null) sequence = m.NextSequence();
