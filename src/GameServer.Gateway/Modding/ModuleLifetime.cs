@@ -38,6 +38,17 @@ sealed class ModuleLifetime : IModuleLifetime
         return ownership;
     }
 
+    // Only Gateway-owned transitions run here, never callbacks into a mod.
+    internal bool TryCommit(Action commit)
+    {
+        lock (_gate)
+        {
+            if (!IsActive) return false;
+            commit();
+            return true;
+        }
+    }
+
     internal void Stop(Action<Exception> failed)
     {
         Ownership[] owned;

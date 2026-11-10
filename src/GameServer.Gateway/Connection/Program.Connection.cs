@@ -204,12 +204,12 @@ partial class Program
                             conn.BuildFinalized = true;
                             CharacterBuildImports.Apply(build);
                             imported = true;
-                            Console.WriteLine($"[pob] {CharacterName(conn)}: committed {build.Class} level {build.Level}");
+                            Console.WriteLine($"[character-build] {CharacterName(conn)}: committed {build.Class} level {build.Level}");
                         }
                         catch (Exception e)
                         {
-                            Console.WriteLine($"[pob] {CharacterName(conn)}: import failed: {e.Message}");
-                            try { await conn.Commands!.Reply("PoB не применён: " + e.Message); }
+                            Console.WriteLine($"[character-build] {CharacterName(conn)}: import failed: {e.Message}");
+                            try { await conn.Commands!.Reply("Билд не применён: " + e.Message); }
                             catch (Exception send) when (send is IOException or ObjectDisposedException) { }
                         }
                         if (imported)

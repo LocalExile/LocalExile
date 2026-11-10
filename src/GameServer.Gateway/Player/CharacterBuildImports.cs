@@ -4,9 +4,36 @@ using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Storage;
 
-// Shared transaction boundary for a module-prepared character build after the old session has saved.
+// Shared transaction boundary for a mod-prepared character build after the old session has saved.
 static class CharacterBuildImports
 {
+    internal const int MaxJsonLength = 8 * 1024 * 1024;
+
+    internal static CharacterBuildImports.Prepared Validate(string text, Character record)
+    {
+        if (text.Length > MaxJsonLength) throw new InvalidDataException("Ответ внешнего конвертера слишком большой.");
+        using var json = JsonDocument.Parse(text);
+        var root = json.RootElement;
+        if (root.GetProperty("Version").GetInt32() != 1)
+            throw new InvalidDataException("Неподдерживаемая версия формата импорта.");
+        var converted = root.GetProperty("Record").Deserialize<Character>()
+            ?? throw new InvalidDataException("Нет персонажа в результате импорта.");
+        var save = root.GetProperty("Save").Deserialize<CharacterSaves.Save>()
+            ?? throw new InvalidDataException("Нет сохранения в результате импорта.");
+        if (converted.Id != record.Id || converted.AccountId != record.AccountId || converted.Name != record.Name
+            || converted.League != record.League || converted.Level is < 1 or > 100 || !Enum.IsDefined(converted.Class)
+            || save.Inventories is null || save.Inventories.Keys.Any(r => !CharacterBuildImports.Replaced.Contains(r))
+            || save.Inventories.Values.Any(v => v is null) || save.Inventories.Values.Sum(v => v.Count) > 1024)
+            throw new InvalidDataException("Некорректный результат внешнего конвертера.");
+        foreach (var item in save.Inventories.Values.SelectMany(v => v))
+            _ = CharacterSaves.FromSaved(item.Item, Program.Items).Payload();
+        string summary = root.GetProperty("Summary").GetString() ?? "";
+        string[] warnings = root.GetProperty("Warnings").Deserialize<string[]>() ?? [];
+        if (summary.Length > 800 || warnings.Length > 100 || warnings.Any(w => w is null || w.Length > 800))
+            throw new InvalidDataException("Слишком длинное описание результата импорта.");
+        return new(record.Id, record.AccountId, record.League, converted.Class, converted.Level, save, summary, warnings);
+    }
+
     internal sealed record Prepared(Guid CharacterId, Guid AccountId, string League, CharacterClass Class,
         int Level, CharacterSaves.Save Save, string Summary, string[] Warnings);
 
@@ -50,7 +77,7 @@ static class CharacterBuildImports
                 throw new InvalidDataException("Владелец, лига или состояние персонажа изменились.");
             var current = CharacterSaves.Load(record.Name) ?? new CharacterSaves.Save([]);
             var merged = Merge(current, plan.Save);
-            Saves.Db.SetMeta($"pob-backup/{record.Id:N}/{Guid.NewGuid():N}", JsonSerializer.Serialize(new { Record = record, Save = current }));
+            Saves.Db.SetMeta($"character-build-backup/{record.Id:N}/{Guid.NewGuid():N}", JsonSerializer.Serialize(new { Record = record, Save = current }));
             CharacterSaves.Write(record.Name, merged);
             accounts.UpdateCharacter(record with { Class = plan.Class, Level = plan.Level });
             replaced = record.Name;

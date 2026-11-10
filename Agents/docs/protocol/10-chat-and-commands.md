@@ -35,7 +35,7 @@ Party and guild lines are not sent. A whisper is typed `@Name text`.
 
 The unmodified 3.29.3b chat submitter `0x14017ca30` clamps input to 512 UTF-16 units, even when the editor holds a
 longer paste. Its final truncation is at `0x14017db95`; the packet writer `0x141f91120` also clamps at `0x141f9117e`.
-Longer PoB share codes therefore cannot be supplied as one typed command; the POB module accepts a server-side
+Longer PoB share codes therefore cannot be supplied as one typed command; the optional POB mod accepts a server-side
 inbox filename instead. Raising only the server's packet limit does not change these client limits.
 
 ## 2. Server → client text

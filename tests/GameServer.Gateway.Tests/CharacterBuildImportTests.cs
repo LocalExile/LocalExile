@@ -5,35 +5,104 @@ using System.Text.Json;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class PobImportTests
+public sealed class CharacterBuildImportTests
 {
     [Fact]
-    public async Task External_bridge_rejects_other_identities_versions_and_unbounded_output_before_staging()
+    public async Task Public_mod_imports_validate_identity_expiry_lifetime_and_single_use_confirmation()
     {
-        var record = new Character(Guid.NewGuid(), Guid.NewGuid(), "PobBridge", CharacterClass.Witch, 1,
+        string path = Path.Combine(Path.GetTempPath(), $"mod-build-api-{Guid.NewGuid():N}.db");
+        string mods = Path.Combine(Path.GetTempPath(), $"mod-build-probe-{Guid.NewGuid():N}");
+        Saves.Open(path);
+        var record = new Character(Guid.NewGuid(), Guid.NewGuid(), "ModBuild", CharacterClass.Witch, 1,
             "Standard", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var conn = new ClientState(new(1, "mod-build", 1000, 1000, 100, 100, null, []), 1, 1)
+        { CharacterId = record.Id, Character = record.Name, Account = record.AccountId.ToString(), PlayerLife = 1000 };
+        var player = new ImportPlayer(conn);
+        var lifetime = new ModuleLifetime("probe");
+        var clock = new Clock();
+        var api = new CharacterBuildApi(lifetime, clock);
         string Payload(Character character, int version = 1) => JsonSerializer.Serialize(new
         {
             Version = version, Record = character, Save = new CharacterSaves.Save([]), Summary = "Prepared", Warnings = Array.Empty<string>(),
         });
-        var plan = PobBridge.Validate(Payload(record with { Level = 90 }), record);
-        Assert.Equal(90, plan.Level);
-        Assert.Equal(record.Id, plan.CharacterId);
-        Assert.Throws<InvalidDataException>(() => PobBridge.Validate(Payload(record, 2), record));
-        Assert.Throws<InvalidDataException>(() => PobBridge.Validate(Payload(record with { Id = Guid.NewGuid() }), record));
-        Assert.Throws<InvalidDataException>(() => PobBridge.Validate(Payload(record with { AccountId = Guid.NewGuid() }), record));
-        Assert.Throws<InvalidDataException>(() => PobBridge.Validate(Payload(record with { Name = "Other" }), record));
-        Assert.Throws<InvalidDataException>(() => PobBridge.Validate(Payload(record with { League = "Other" }), record));
-        Assert.Throws<InvalidDataException>(() => PobBridge.Validate(Payload(record with { Level = 101 }), record));
-        Assert.Equal("1234", await PobBridge.ReadLimited(new StringReader("1234"), 4, CancellationToken.None));
-        await Assert.ThrowsAsync<InvalidDataException>(() => PobBridge.ReadLimited(new StringReader("12345"), 4, CancellationToken.None));
-        var previous = PobBridge.Settings;
         try
         {
-            PobBridge.Settings = new();
-            await Assert.ThrowsAsync<InvalidDataException>(() => PobBridge.Convert("code", record, null, CancellationToken.None));
+            new SqliteAccountStore(Saves.Db).AddCharacter(record);
+            Assert.Equal(record, JsonSerializer.Deserialize<Character>(api.Capture(player)));
+            foreach (var invalid in new[] { record with { Id = Guid.NewGuid() }, record with { AccountId = Guid.NewGuid() },
+                record with { Name = "Other" }, record with { League = "Other" }, record with { Level = 101 } })
+                Assert.Throws<InvalidDataException>(() => api.Prepare(player, Payload(invalid)));
+            Assert.Throws<InvalidDataException>(() => api.Prepare(player, Payload(record, 2)));
+            Assert.Throws<InvalidDataException>(() => api.Prepare(player, new string(' ', CharacterBuildImports.MaxJsonLength + 1)));
+            using (var cancelled = api.Prepare(player, Payload(record)))
+            { cancelled.Dispose(); Assert.False(cancelled.Confirm()); }
+            using (var expired = api.Prepare(player, Payload(record)))
+            { clock.Now = 300; Assert.False(expired.Confirm()); }
+            using (var dead = api.Prepare(player, Payload(record)))
+            { conn.PlayerLife = 0; Assert.False(dead.Confirm()); conn.PlayerLife = 1000; }
+            using (var moved = api.Prepare(player, Payload(record)))
+            { conn.LeavingArea = true; Assert.False(moved.Confirm()); conn.LeavingArea = false; }
+            using (var disconnected = api.Prepare(player, Payload(record)))
+            { conn.Closed = true; Assert.False(disconnected.Confirm()); conn.Closed = false; }
+            var stopped = api.Prepare(player, Payload(record));
+            lifetime.Stop(e => throw e);
+            Assert.False(stopped.Confirm()); stopped.Dispose();
+            Assert.Throws<InvalidOperationException>(() => api.Capture(player));
+            Assert.Null(conn.BuildImport.Confirmed);
+
+            Directory.CreateDirectory(Path.Combine(mods, "probe"));
+            File.WriteAllText(Path.Combine(mods, "probe", "probe.cs"), """
+                public sealed class Probe : IMod
+                {
+                    public void Load(IModContext mod) => mod.OnChatCommand("capture", "/capture",
+                        c => c.Player.Tell(mod.CharacterBuilds.Capture(c.Player)));
+                }
+                """);
+            using (var host = new ModHost(mods, _ => { }))
+            {
+                host.Reload();
+                Assert.True(host.IsLoaded("probe"), string.Join("; ", host.Mods().Select(m => m.Error)));
+                Assert.True(await host.RunCommand(player, "capture", []));
+                Assert.Contains(player.Messages, m => JsonSerializer.Deserialize<Character>(m) == record);
+                Assert.True(host.SetEnabled("probe", false));
+                Assert.False(host.IsLoaded("probe"));
+                Assert.False(await host.RunCommand(player, "capture", []));
+            }
+            var acceptedLifetime = new ModuleLifetime("accepted");
+            using var accepted = new CharacterBuildApi(acceptedLifetime, clock).Prepare(player, Payload(record with { Level = 90 }));
+            Assert.Equal("Prepared", accepted.Summary); Assert.Empty(accepted.Warnings);
+            Assert.True(accepted.Confirm()); Assert.False(accepted.Confirm());
+            Assert.True(conn.Closed); Assert.True(CharacterBuildImports.IsApplying(record.Id));
+            Assert.Equal(90, conn.BuildImport.Confirmed!.Level);
+            acceptedLifetime.Stop(e => throw e); accepted.Dispose();
+            Assert.NotNull(conn.BuildImport.Confirmed); // Acceptance belongs to the server's old-session drain.
         }
-        finally { PobBridge.Settings = previous; }
+        finally
+        {
+            CharacterBuildImports.Release(conn);
+            TestEnvironment.ReleaseSaves(path);
+            if (Directory.Exists(mods)) Directory.Delete(mods, recursive: true);
+        }
+    }
+
+    sealed class ImportPlayer(ClientState conn) : IConnectionPlayer
+    {
+        public ClientState Conn => conn;
+        public List<string> Messages { get; } = [];
+        public string Character => conn.Character!;
+        public string? Account => conn.Account;
+        public string League => "Standard";
+        public string LeagueId => "Standard";
+        public bool Hardcore => false;
+        public bool SoloSelfFound => false;
+        public bool Uses(string module) => true;
+        public int Level => 1;
+        public string AreaId => "1_1_town";
+        public uint Seed => 1;
+        public (int X, int Y) Position => (1, 1);
+        public bool Closed => conn.Closed;
+        public Task Tell(string text) { Messages.Add(text); return Task.CompletedTask; }
+        public Task Send(byte[] bytes, string? log = null) => Task.CompletedTask;
     }
 
     sealed class Clock : TimeProvider

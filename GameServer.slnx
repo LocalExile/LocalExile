@@ -34,7 +34,6 @@
     <Project Path="Modules/Core/NPC/NpcDialogue/NpcDialogue.csproj" />
     <Project Path="Modules/Ruthless/Ruthless.csproj" />
     <Project Path="Modules/NessaDevelopmentTabs/NessaDevelopmentTabs.csproj" />
-    <Project Path="Modules/POB/POB.csproj" />
     <Project Path="Modules/Survivors/SurvivorsSkills/SurvivorsSkills.csproj" />
     <Project Path="Modules/Survivors/SurvivorsRewards/SurvivorsRewards.csproj" />
     <Project Path="Modules/Survivors/SurvivorsRun/SurvivorsRun.csproj" />
