@@ -174,8 +174,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   is the quest engine's: Merveil's `BossMerveil2`, Dominus' `Dominusdemon` and Malachai's `MalachaiBoss2` appear
   where the first one falls (`QuestEngine` SecondForm), and each gets its own controller from this same table. Damage
   comes from each effect's own stat set at the area's level (the variety's physical damage when the stat set names
-  none, scaled for the slams). Not yet: the acts' add-spawning skills are markers (Avarius' statues and templars,
-  Shavronne's summons, Daresso's clones, the eye spawners of Piety the Abomination, Malachai's heart), Arakaali's
+  none, scaled for the slams). The acts' summon rows raise their monsters too, owned by the boss and retired with
+  it: Avarius (and Innocence) raises Guardians of Eternity, Kaom his archer daemon, Piety her blood elementals, Piety
+  the Abomination her eye, Shavronne her lightning skeletons and Daresso his arena statues — each a variety the blob
+  can serialize, standing in where the row's real monster carries a component the write cannot
+  (AvariusCasticusStatue's TriggerableBlockage, DaressoStatueMaleSword, SkeletonMeleeLightningShavronne), and past
+  six live adds a summon raises nothing. Not yet: the rows the data leaves unnamed (Dominus' lightning souls,
+  Malachai's hearts, his flayed ones and Maligaro's blades), Arakaali's
   laser turret daemons and Abberath's spawner daemons as separate
   casters (their beams and fireballs play from the boss's own rows), Garukhan's charged-dash shadow clones, the
   Tukohama map variants' extra rows (3561/3562), and the arena controllers' own objects (`RyslathaFightManager`'s

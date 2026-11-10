@@ -56,7 +56,9 @@ public class PantheonBossSkillTests
         // The monsters the fights raise are real varieties too: a summon the catalog cannot create is a skill that
         // silently does nothing (MonsterSummon logs exactly that).
         foreach (string raised in new[] { CampaignBosses.TotemVariety, CampaignBosses.EggVariety,
-            CampaignBosses.SpiderHatch, CampaignBosses.GarukhanMinion })
+            CampaignBosses.SpiderHatch, CampaignBosses.GarukhanMinion, CampaignBosses.AvariusStatue,
+            CampaignBosses.KaomArcher, CampaignBosses.BloodElemental, CampaignBosses.PietyEye,
+            CampaignBosses.ShavronneSkeleton, CampaignBosses.DaressoStatue })
         {
             var variety = monsters.Find(raised);
             Assert.NotNull(variety);
@@ -71,6 +73,7 @@ public class PantheonBossSkillTests
             CampaignBosses.Weaver, CampaignBosses.Piety, CampaignBosses.Dominus, CampaignBosses.DominusAscendant,
             CampaignBosses.Kaom, CampaignBosses.Daresso, CampaignBosses.PietyBeast, CampaignBosses.Malachai,
             CampaignBosses.Malachai2, CampaignBosses.Avarius, CampaignBosses.AvariusReassembled,
+            CampaignBosses.AvariusDivine,
             CampaignBosses.ShavronneTower,
             CampaignBosses.BruteTower, CampaignBosses.Maligaro, CampaignBosses.GeneralAdus, CampaignBosses.Vilenta })
         {
