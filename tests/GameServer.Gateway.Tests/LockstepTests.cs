@@ -396,9 +396,18 @@ public class LockstepTests : IDisposable
         // No server setting: a connection becomes lockstep only when its client shows it is, and at any round trip.
         var conn = new ClientState(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1);
         Assert.False(conn.LockstepClient);
+        // A resync (a stun's, a freeze's, a movement skill's) puts a predictive client's monsters on the server's cells.
+        var near = new SpawnedMonster("Drowned", new PlayerWalk(110, 100, 8), aggroRange: 60, stopRange: 2, maxLife: 23);
+        near.Walk.Order(100, 100, now: 0);
+        conn.Monsters[0x3000] = near;
+        lock (conn.Monsters)
+            Assert.Equal(InstanceProtocol.Teleport(0x3000, 110, 100, 0x7fffffff), Game.ResyncPacketLocked(conn, 0));
         conn.NoteLockstepClient("test");
         conn.NoteLockstepClient("test");
         Assert.True(conn.LockstepClient);
+        // A lockstep client skips GGG's resync message, and a teleport would cost its walkers their step's fraction.
+        lock (conn.Monsters) Assert.Empty(Game.ResyncPacketLocked(conn, 0));
+        conn.Monsters.Clear();
 
         var slow = new LockstepLatency();
         Assert.True(double.IsNaN(slow.Lowest));
