@@ -81,7 +81,11 @@ static partial class Game
             lock (Conn.Monsters)
             {
                 if (!Active) { Invalidate(); return; }
-                if (!Conn.Paused) Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(Conn.Clock.Elapsed.TotalSeconds)));
+                if (!Conn.Paused)
+                {
+                    TickChannelTriggers(Conn, this, Conn.Clock.Elapsed.TotalSeconds);
+                    Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(Conn.Clock.Elapsed.TotalSeconds)));
+                }
             }
         }
 

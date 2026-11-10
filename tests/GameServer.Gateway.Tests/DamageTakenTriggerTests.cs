@@ -144,6 +144,7 @@ public class DamageTakenTriggerTests
             finally { session.Invalidate(); }
         });
         VerifyCriticalTrigger();
+        VerifyChannelTrigger();
     }
     static void VerifyNonProjectile(ClientState conn, Game.ProjectileSession session)
     {
@@ -219,7 +220,7 @@ public class DamageTakenTriggerTests
         WithCharacter(conn =>
         {
             conn.Clock.Start();
-            EquipCriticalLinks(conn);
+            EquipLinkedSpells(conn);
             var attack = Game.GemSkillEffects(conn).Single(s => s.Name == "Kinetic Blast");
             var fireball = Game.GemSkillEffects(conn).Single(s => s.Name == "Fireball");
             var pulse = Game.GemSkillEffects(conn).Single(s => s.Name == "Freezing Pulse");
@@ -271,7 +272,7 @@ public class DamageTakenTriggerTests
         });
         WithCharacter(conn =>
         {
-            conn.Clock.Start(); EquipCriticalLinks(conn);
+            conn.Clock.Start(); EquipLinkedSpells(conn);
             conn.PlayerStats[Program.Stats.Key("global_always_hit")!.Value] = 1;
             var attack = Game.GemSkillEffects(conn).Single(s => s.Name == "Kinetic Blast");
             Assert.True(Game.SupportedCriticalChance(conn, attack.Id) > 0);
@@ -293,14 +294,69 @@ public class DamageTakenTriggerTests
             finally { session.Invalidate(); }
         });
     }
-    static void EquipCriticalLinks(ClientState conn)
+    static void VerifyChannelTrigger()
     {
-        var names = new[] { "SkillGemKineticBlast", "SkillGemFireball", "SkillGemFreezingPulse", "SupportGemCastOnCrit" };
+        WithCharacter(conn =>
+        {
+            conn.Clock.Start(); EquipLinkedSpells(conn, channel: true);
+            var channel = Game.GemSkillEffects(conn).Single(s => s.Name == "Cyclone");
+            var fireball = Game.GemSkillEffects(conn).Single(s => s.Name == "Fireball");
+            Assert.Equal(400, Game.SupportedSkill(conn, channel.Id).Stats[Program.Stats.Key("cast_while_channelling_time_ms")!.Value]);
+            conn.PlayerStats[Program.Stats.Key("virtual_cooldown_speed_+%")!.Value] = 900;
+            conn.ChannelSkill = channel.Id; conn.ChannelGeneration = 1; conn.LastChannelUpdateAt = 10000;
+            conn.PaidChannel = new(channel.Id, channel.Effect, conn.ActionCount, 1, Game.CombatLifetime!);
+            using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
+            using var writer = new System.Net.Sockets.TcpClient(); writer.Connect((System.Net.IPEndPoint)listener.LocalEndpoint);
+            using var reader = listener.AcceptTcpClient();
+            var session = new Game.ProjectileSession("cwc-test", writer.GetStream(), new ConnectionCiphers(new byte[64], false), conn);
+            try
+            {
+                int action = conn.ActionCount; uint mana = conn.PlayerMana;
+                Game.BeginChannelTriggers(conn, session, channel.Id, action, 1, (20, 0), 10);
+                Game.TickChannelTriggers(conn, session, 10.399); session.AdvanceTo(0);
+                Assert.Empty(session.Runtime.Projectiles); Assert.Equal(mana, conn.PlayerMana);
+                Game.TickChannelTriggers(conn, session, 10.401); session.AdvanceTo(0);
+                var first = Assert.IsType<ProjectileOffense>(Assert.Single(session.Runtime.Projectiles).Use.Payload);
+                Assert.Equal(fireball.Id, first.SourceSkill);
+                Assert.True(conn.PlayerMana < mana);
+                var inputs = Game.SupportedHitInputsFor(conn, fireball.Id, area: false)!;
+                var full = Game.SupportedHitFrom(inputs with { Modifiers = inputs.Modifiers
+                    .Where(m => m.Name != "support_cast_while_channelling_triggered_skill_damage_+%_final").ToList() }, suppress: false);
+                Assert.Equal(full[GameServer.Core.World.DamageType.Fire].Min * .8,
+                    first.Hit[GameServer.Core.World.DamageType.Fire].Min, 5);
+                Game.AimChannelTriggers(conn, (60, 20));
+                Game.TickChannelTriggers(conn, session, 10.801); session.AdvanceTo(0);
+                Assert.Equal(2, session.Runtime.Projectiles.Count);
+                Assert.Contains(session.Runtime.Projectiles, p => p.Use.Aim.X == 60 && p.Use.Aim.Y == 20);
+                conn.Clock.Stop(); uint paid = conn.PlayerMana;
+                Game.TickChannelTriggers(conn, session, 11.201);
+                Assert.Equal(paid, conn.PlayerMana);
+                conn.Clock.Start();
+                Game.TickChannelTriggers(conn, session, 11.201); session.AdvanceTo(0);
+                Assert.Equal(3, session.Runtime.Projectiles.Count);
+                conn.PlayerMana = 0;
+                Game.TickChannelTriggers(conn, session, 11.601); session.AdvanceTo(0);
+                Assert.Equal(3, session.Runtime.Projectiles.Count);
+                Assert.Equal(channel.Id, conn.ChannelSkill);
+                conn.PlayerMana = paid;
+                Game.ChannelReleased(conn, 0);
+                Game.TickChannelTriggers(conn, session, 12.001); session.AdvanceTo(0);
+                Assert.Equal(3, session.Runtime.Projectiles.Count); Assert.Equal(paid, conn.PlayerMana);
+                Assert.Equal(action, conn.ActionCount);
+            }
+            finally { session.Invalidate(); }
+        });
+    }
+    static void EquipLinkedSpells(ClientState conn, bool channel = false)
+    {
+        var names = channel
+            ? new[] { "SkillGemCyclone", "SkillGemFireball", "SkillGemFreezingPulse", "SupportGemCastWhileChannelling" }
+            : new[] { "SkillGemKineticBlast", "SkillGemFireball", "SkillGemFreezingPulse", "SupportGemCastOnCrit" };
         var robe = ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
         { Sockets = [.. names.Select(n => new ItemSocket(SocketColour.White,
             ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + n)!)))], Links = [4] };
         Game.ItemsOf(conn).Add(PlayerInventories.BodyArmour, 0, 0, robe);
-        Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
+        Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find(channel ? "Rusted Sword" : "Driftwood Wand")!));
     }
     static void Equip(ClientState conn, string support, string active = "SkillGemFireball")
     {

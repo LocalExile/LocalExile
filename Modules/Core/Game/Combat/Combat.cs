@@ -799,6 +799,9 @@ static partial class Game
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
                     conn.PaidChannel = CombatLifetime is { IsActive: true } rules
                         ? new(skillId, gem.Effect, action, conn.ChannelGeneration, rules) : null;
+                    if (GolemStat(SupportedSkill(conn, skillId).Stats, "cast_while_channelling_time_ms") > 0)
+                        BeginChannelTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId,
+                            action, conn.ChannelGeneration, to, conn.Clock.Elapsed.TotalSeconds);
                 }
                 // Capture at paid admission, before output or release scheduling can catch up other hits.
                 recoveryGeneration = conn.ActionInterruptionGeneration;
@@ -1268,6 +1271,7 @@ static partial class Game
     // A channel that stands keeps the player where it is.
     internal static void ChannelAimedAt(ClientState conn, int x, int y, double at)
     {
+        AimChannelTriggers(conn, (x, y));
         if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill) conn.Walk.Order(x, y, at);
     }
 

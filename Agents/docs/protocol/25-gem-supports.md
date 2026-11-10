@@ -226,7 +226,9 @@ Adopted projectile spells, Ice Nova, native curses and QuickGuard/ImmortalCall/M
 Reservations, minions, placements and unimplemented non-projectile recipes stay unavailable.
 Guard cooldown recovery begins when the buff ends; guard damage absorption precedes CWDT observation.
 CoC alternates linked executable spells after an accepted attack critical hit, with native per-effect cooldown
-and separate spell payment; attacks retain manual use. CwC and other generic triggers remain unavailable.
+and separate spell payment; attacks retain manual use. CwC uses its native interval on the projectile pump,
+independently of the channel's hit/payment cadence, and drops future work when the paid channel becomes invalid.
+Other generic triggers remain unavailable.
 Queued triggers retain stable source gem identity and the support configuration. XP/lock edits retain identity;
 actual gem swaps or changed levels/links cancel queued work. Reused skill IDs alone are insufficient identity. Pause freezes pending work without erasing the counter.
 Triggered roots use server projectile objects because there is no local input action to predict them.
