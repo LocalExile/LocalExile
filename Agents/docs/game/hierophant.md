@@ -64,5 +64,6 @@ Live 2026-11-10 confirmed Arcane Blessing from the player's and a spell totem's 
 870 with both effect nodes), Illuminated Devotion's +30% area, Sanctuary of Thought's area and Energy Shield, Divine
 Guidance's mana and damage (no double count in the tooltip), Pursuit of Faith (2 totems, 8 s to 16 s, faster
 placement), Ritual of Awakening's regeneration and more damage per totem (tooltip 645, 664, 683 DPS with 0, 1, 2
-totems), Illuminated Devotion's spell leech (0.5% of each spell hit: 23987 leeching 119.9 Life)
-and Conviction of Power. Not observed, so only tested: the halved chill and shock while Arcane Surge runs.
+totems), Illuminated Devotion's spell leech (0.5% of each spell hit: 23987 leeching 119.9 Life),
+Conviction of Power, and Illuminated Devotion's halved chill (12-14% on a cold monster's hits, 6-7% during Arcane
+Surge). Not observed, so only tested: the halved shock.
