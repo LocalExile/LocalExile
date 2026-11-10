@@ -52,8 +52,8 @@ public static partial class Game
     static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
         b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
         && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving && a.Golems == b.Golems
-        && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge;
-            ResistancePenalty = Game.ResistancePenalty(conn),
+        && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
+        && a.ResistancePenalty == b.ResistancePenalty;
 
     public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {
