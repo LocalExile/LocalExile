@@ -167,9 +167,19 @@ public class WorldOutputTests : IDisposable
         output.Admit(new(OutputRecord.Remove(born, WorldOrder.Last, removal)), removing, framed: true);
         Assert.False(await output.AwaitBirths([born]));
         Assert.False(born.Removed.IsCompleted);
+        // A second producer that notices the same object leave (a view's synchronisation after its taker) repeats that
+        // removal: admitted as nothing, while the removal waits for its frame and once it is written. An update of the
+        // leaving incarnation is still refused.
+        Assert.Empty(output.Admit(new(OutputRecord.Remove(born, WorldOrder.Last, removal)), new WorldAdmission(output, []), framed: true));
+        Assert.Throws<ArgumentException>(() => output.Admit(new(OutputRecord.World(born, WorldOrder.First, InstanceProtocol.LifeUpdate(20, 4))),
+            new WorldAdmission(output, []), framed: true));
         frame = output.TakeFrame();
+        Assert.Same(born, Assert.Single(frame.Removals));
+        Assert.Single(frame.Packets);
         output.Written(frame.Births, frame.Removals, frameEnded: true);
         Assert.True(await born.Removed);
+        Assert.Empty(output.Admit(new(OutputRecord.Remove(born, WorldOrder.Last, removal)), new WorldAdmission(output, []), framed: true));
+        Assert.Empty(output.TakeFrame().Packets);
         var replacement = output.NewObject(20);
         Assert.NotSame(born, replacement);
         var closing = output.AwaitBirths([replacement]);

@@ -261,9 +261,15 @@ sealed class WorldOutput
                     || batch.Records.Count(r => r.Kind == OutputRecord.RecordKind.Create && ReferenceEquals(r.Object, birth)) != 1)
                     throw new ArgumentException("Every reserved birth needs exactly one create in its admitted batch.");
             }
+            // Two producers can each notice one object leave (its taker, and a view's synchronisation of what is left).
+            // A Remove of an incarnation whose removal is already admitted or written repeats that removal and adds
+            // nothing; the rest of its batch is admitted. Any other record for a leaving incarnation is still refused.
+            var repeated = new HashSet<WorldObject>();
+            var records = batch.Records.Where(r => r.Kind != OutputRecord.RecordKind.Remove || r.Object is not { } leaving
+                || !(leaving.State == WorldObject.BirthState.Retired || leaving.RemovalRequested || !repeated.Add(leaving))).ToArray();
             var precedingCreates = new HashSet<WorldObject>();
             var removing = new HashSet<WorldObject>();
-            foreach (var record in batch.Records)
+            foreach (var record in records)
             {
                 if (record.Object is not { } target) continue;
                 CheckOwner(target);
@@ -295,7 +301,7 @@ sealed class WorldOutput
             foreach (var birth in births) { birth.State = WorldObject.BirthState.Admitted; birth.CreationFrame = framed ? number : null; }
             foreach (var target in removing) { target.RemovalRequested = true; target.Invalidated.TrySetResult(false); }
             List<Packet> immediate = [];
-            foreach (var record in batch.Records)
+            foreach (var record in records)
             {
                 if (framed && (record.Kind is OutputRecord.RecordKind.AfterBirth or OutputRecord.RecordKind.Remove)
                     && !Published(record.Object!))
