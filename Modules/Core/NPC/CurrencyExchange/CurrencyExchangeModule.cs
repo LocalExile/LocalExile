@@ -34,7 +34,7 @@ public sealed class CurrencyExchangeModule : IModule
         GameEvents.NpcOption.Add(module.Manifest.Id, async talk =>
         {
             if (!talk.Script.Contains("CurrencyExchangeWindow", StringComparison.Ordinal)) return false;
-            await module.World(talk.Player).NpcClose("0x0084 close NPC dialogue for the Currency Exchange");
+            await WorldOf(talk.Player).NpcClose("0x0084 close NPC dialogue for the Currency Exchange");
             await Open(talk.Player);
             return true;
         });
@@ -54,7 +54,7 @@ public sealed class CurrencyExchangeModule : IModule
             timer.Seconds = 0;
             await Settle(player);
             // Faustus's bag does not outlast an area: it is lit again on arriving, if anything waits.
-            if (timer.Arrived || !_module.World(player).PlayerReady) return;
+            if (timer.Arrived || !WorldOf(player).PlayerReady) return;
             timer.Arrived = true;
             if (!BookOf(player).HasClaims) return;
             await SendOrders(player);
@@ -70,9 +70,9 @@ public sealed class CurrencyExchangeModule : IModule
 
     Task Light(IPlayer player) => player.Send(Wire.OrdersWaiting(), "0x02fa orders wait to be claimed");
 
-    Task Open(IPlayer player) => _module.World(player).OpenWindow(Window, Wire.WindowUi, "0x007b open the Currency Exchange");
+    Task Open(IPlayer player) => WorldOf(player).OpenWindow(Window, Wire.WindowUi, "0x007b open the Currency Exchange");
 
-    ExchangeItems ItemsOf(IPlayer player) => ExchangeItems.For(_module.World(player).Crafting);
+    ExchangeItems ItemsOf(IPlayer player) => ExchangeItems.For(WorldOf(player).Crafting);
 
     ExchangeRates? Rates()
     {
@@ -107,9 +107,9 @@ public sealed class CurrencyExchangeModule : IModule
                 options.PatientRange, options.PatientSpeed, options.CatchUpHours) : null;
     }
 
-    ExchangeBook BookOf(IPlayer player) => ExchangeBook.Parse(_module.World(player).AccountData.Get(SaveKey));
+    ExchangeBook BookOf(IPlayer player) => ExchangeBook.Parse(WorldOf(player).AccountData.Get(SaveKey));
 
-    bool Save(IPlayer player, Action<ExchangeBook> change) => _module.World(player).AccountData.Change(SaveKey, json =>
+    bool Save(IPlayer player, Action<ExchangeBook> change) => WorldOf(player).AccountData.Change(SaveKey, json =>
     {
         var book = ExchangeBook.Parse(json);
         change(book);
@@ -175,7 +175,7 @@ public sealed class CurrencyExchangeModule : IModule
 
         ExchangeOrder? placed = null;
         var filled = new List<ExchangeOrder>();
-        bool paid = await _module.World(player).PayCurrency(request.Have, (int)request.HaveCount, (uint)gold, () => Save(player, book =>
+        bool paid = await WorldOf(player).PayCurrency(request.Have, (int)request.HaveCount, (uint)gold, () => Save(player, book =>
         {
             // It meets this hour's market at once, with what the book's other orders left of it.
             placed = new ExchangeOrder
@@ -264,7 +264,7 @@ public sealed class CurrencyExchangeModule : IModule
         uint item = bought ? order.Want : order.Have, amount = bought ? order.ClaimWant : order.ClaimHave;
         if (amount == 0) return;
         ExchangeOrder? changed = null;
-        int placed = await _module.World(player).ReceiveCurrency(item, (int)amount, into => Save(player, book =>
+        int placed = await WorldOf(player).ReceiveCurrency(item, (int)amount, into => Save(player, book =>
         {
             if (book.Orders.Find(o => o.Id == claim.Order) is not { } saved) return;
             if (bought) saved.ClaimWant -= (uint)into;
@@ -279,7 +279,7 @@ public sealed class CurrencyExchangeModule : IModule
     /// <summary>A listed order fills when the prices come to it, wherever the player is, and through the hours they were away.</summary>
     async Task Settle(IPlayer player)
     {
-        if (!_module.World(player).PlayerReady || MarketOf(player) is not { } market) return;
+        if (!WorldOf(player).PlayerReady || MarketOf(player) is not { } market) return;
         if (!BookOf(player).SettleDue(market, Now)) return;
         var filled = new List<ExchangeOrder>();
         Save(player, saved => filled = saved.Settle(market, Now));

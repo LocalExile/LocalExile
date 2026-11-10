@@ -619,8 +619,10 @@ public static partial class Game
                 {
                     // A preceding slash command can finish a Game + Commands reload in this same batch.
                     // Resolve the current league's builders after that wave, retaining Gateway sinks/mod fallback.
-                    conn.Commands = Program.Commands(remote, stream, ciphers, conn);
-                    await conn.Commands.RunAsync(chat.Text);
+                    // Run this table: an unload while the command runs empties conn.Commands (Program.ForgetCommands).
+                    var commands = Program.Commands(remote, stream, ciphers, conn);
+                    conn.Commands = commands;
+                    await commands.RunAsync(chat.Text);
                 }
             }
             else if (id == InstanceTransfer.ChooseInstanceId)

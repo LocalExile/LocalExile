@@ -9,7 +9,7 @@ public sealed class NpcDialogueModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module) => GameEvents.NpcOption.Add(module.Manifest.Id, async talk =>
     {
-        var world = module.World(talk.Player);
+        var world = WorldOf(talk.Player);
         switch (talk.Category)
         {
             case "SelectHideout":

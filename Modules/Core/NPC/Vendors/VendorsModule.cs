@@ -9,27 +9,18 @@ using static VendorsFeature;
 namespace GameServer.Modules.M_vendors;
 
 /// <summary>NPC shops: buying, and selling to a vendor.</summary>
-public sealed class VendorsModule : IModule, IDisposable
+public sealed class VendorsModule : IModule
 {
-    readonly List<IDisposable> _events = [];
-    void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("Vendors", run));
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        foreach (var e in _events) e.Dispose();
-    }
-
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        On(GameEvents.NpcTalk,(conn,_,_) => { conn.Shop = null; return Task.FromResult(false); });
+        GameEvents.NpcTalk.Add(module.Manifest.Id, (conn,_,_) => { conn.Shop = null; return Task.FromResult(false); });
         GameEvents.Command(module.Manifest.Id, "vendor_refresh", "/vendor_refresh (refresh the open Kirac shop for its progression-based Gold cost)",
             (conn, args) => RefreshKirac(conn));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
         {
             var conn = ConnOf(kill.Player);
-            if (kill.Monster.Rarity == GameServer.Modding.MonsterRarity.Unique
+            if (kill.Monster.Rarity == GameServer.Core.Protocol.Instance.MonsterRarity.Unique
                 && MapDevice.OpenOf(CharacterName(conn)) is { } map && map.Area.Hash16 == conn.Layout.Hash)
                 KiracProgress.Complete(PersonalStashOf(conn),map.Area.Id,map.Area.Tier);
             return Task.CompletedTask;
@@ -46,20 +37,20 @@ public sealed class VendorsModule : IModule, IDisposable
             else return false;
             return true;
         });
-        On(GameEvents.NpcDialogueClosing, async conn =>
+        GameEvents.NpcDialogueClosing.Add(module.Manifest.Id, async conn =>
         {
             conn.Shop = null;
             var (remote, stream, ciphers) = conn.Wire;
             if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);
         });
-        On(GameEvents.InventoryPick, async (conn, pick) =>
+        GameEvents.InventoryPick.Add(module.Manifest.Id, async (conn, pick) =>
         {
             if (conn.Sale is not { } sale || pick.InventoryId != sale.Mine) return false;
             var (remote, stream, ciphers) = conn.Wire;
             await TakeFromSale(remote, stream, ciphers, conn, sale, pick.ItemId);
             return true;
         });
-        On(GameEvents.InventoryPlace, async (conn, place) =>
+        GameEvents.InventoryPlace.Add(module.Manifest.Id, async (conn, place) =>
         {
             if (conn.Sale is not { } sale || place.InventoryId != sale.Mine) return false;
             var (remote, stream, ciphers) = conn.Wire;

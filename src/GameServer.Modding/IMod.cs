@@ -45,15 +45,3 @@ public enum ModKind
 /// <param name="Enabled">Whether it loads until /mod_enable or /mod_disable says otherwise; true by default.</param>
 public sealed record ModManifest(string Id, string Version, ModKind Kind, IReadOnlyList<string> Depends, string Assembly, bool Enabled = true);
 
-/// <summary>A monster's rarity.</summary>
-public enum MonsterRarity
-{
-    /// <summary>White.</summary>
-    Normal,
-    /// <summary>Blue.</summary>
-    Magic,
-    /// <summary>Yellow.</summary>
-    Rare,
-    /// <summary>Orange (bosses).</summary>
-    Unique,
-}

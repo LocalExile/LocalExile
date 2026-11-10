@@ -10,6 +10,14 @@ public partial class Program
 {
     public static IEnumerable<(string Name, string Usage, string[] Arguments)> CommandUsages() => Commands("", null!, null!, null!).Usages;
 
+    // Every in-game connection's last command table, emptied: one built while a module or mod was loaded holds its handlers,
+    // which would keep the unloaded code in memory until the player's next command.
+    public static void ForgetCommands()
+    {
+        foreach (var conn in InGame.Keys)
+            if (conn.Commands is { } commands) conn.Commands = commands.Emptied();
+    }
+
     // The chat commands of one connection (ChatCommands.cs).
     public static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
