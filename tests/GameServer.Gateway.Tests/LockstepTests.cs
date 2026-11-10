@@ -348,6 +348,21 @@ public class LockstepTests : IDisposable
         Assert.Equal(((102, 100), .033, .033), await Game.FollowMonsterToSwing(conn, drowned, sword, () => true,
             (_, _) => Task.FromResult(false), (0, 0), 0, false, .04, lockstep: attack));
 
+        // Asked with flag 0x0001 (attack in place) of one 41 cells behind him: no walk-up. The swing begins in the order's
+        // frame all the same, from where the frame's steps leave him, and he stands there through it.
+        drowned = new SpawnedMonster("Drowned", new PlayerWalk(60, 100, 8, size: 2), 0, 4, 100);
+        conn = Lockstep(drowned);
+        conn.Walk.Order(200, 100, 0);
+        attack = new(++conn.ActionCount, 0x3000, drowned, 10, 2, 1, hold: () => hold) { InPlace = true };
+        conn.LockstepAttack = attack;
+        Assert.Equal(Start(101, 100, 60, 100), Gate(conn, attack, .033));
+        Assert.False(attack.Open);
+        Assert.Equal(new LockstepAttack.Swing(.033, .066, (102, 100)), await attack.Decided);
+        Replay(conn, .066);
+        Replay(conn, .099);
+        Assert.False(conn.Walk.Moving(.099));
+        Assert.Equal((102, 100), conn.Walk.Position(.099));
+
         // Asked in the frame from 0.033, its 0x1ab goes out a frame later (a frame end overtook it at the send gate):
         // the walk-up is placed at that frame's start, from the cell the player's steps have reached by then, and its
         // search timer starts there. The target then moves off: out of reach at the path's end, the walk-up searches

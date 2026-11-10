@@ -645,7 +645,7 @@ no 0x2b6. A click gets its 0x1ab with key 0 at the next frame start. Its target 
 (dx, dy), that is, where the cursor was, not the server's cell by then. 0x192 only
 updates a held target: the player's own tick starts the Move (key = the player, u16 0x9001), about one per 0x192 while
 walking and one per frame from the same cell while blocked. 0x195 gets no answer and does not cancel a target not yet
-started. Sequences go up by one, top bit set. A click during a swing waits (it comes with flags 0x0001, u8 3), and the
+started. Sequences go up by one, top bit set. A click during a swing waits (it comes with u8 3), and the
 newest starts when the swing ends. A skill held down repeats from the player's tick, once per action, aimed at the newest
 0x192, until 0x195; an attack on an object that dies goes on at the ground. A channelled skill gets a 0x1ad for a new aim
 and a 0x1ae (the sequence, u8 1) on the release. Instant skills keep 0x190 and 0x191, answered with 0x1ce.
@@ -790,7 +790,15 @@ reads none of them. The client reads:
   returns before that test.
 - 0x8000: the gate starts the action at once, before its tests of the current and queued actions. 0x0001, for an actor
   without a Monster component: start with no reach or path check (the same gate). 0x1000: a queued action nothing
-  replaces (the offer). 0x0800: a Player-owned action skips the `virtual_action_speed_+%` block (`0x14193c9e0`).
+  replaces (the offer).
+- 0x0001 is attack in place. The client sets it on its request (`0x140121190`: the attack-in-place key, a skill slot
+  set to always attack without moving, or a held use the input handler goes on with; a lockstep ground use always has
+  it unless the skill's row clears it). The Actor's start (`0x141e8eb60`) then asks MoveTo for the actor's own cell
+  with ranges 0 instead of the target with the weapon's range: in goal at once at any distance, so a walk under way
+  stops after the frame's steps and the swing begins in that frame. The Gateway does the same for a lockstep attack
+  on a monster (`PlaceLockstepAttack`) and on the ground (`LockstepGroundMelee`); the hit still asks the reach. Live
+  2026-11-10: requests 0x0408 and 0x0409 with u8 0, 0x0008 and 0x0009 with u8 3 in one fight; after the 0x0009 one,
+  27 cells from its monster, the client's player took the frame's step and stood through the swing. 0x0800: a Player-owned action skips the `virtual_action_speed_+%` block (`0x14193c9e0`).
   0x0100 has readers (`0x141942c60`, `0x141942160`) whose effect is not traced.
 - 0x0008: read by no decompiled function (8 functions did not decompile, among them `0x141ec7790` and
   `0x141947e70`). The client sets it on its own requests when its `auto_equip` option is on (`0x14011e950`), so an echo

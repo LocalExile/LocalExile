@@ -329,6 +329,9 @@ sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? target, i
     public SpawnedMonster? Target { get; } = target;
     public (int X, int Y) GroundTarget { get; init; }
     public (int X, int Y) AimAt(double at) => Target?.Walk.Position(at) ?? GroundTarget;
+    // The request's flag 0x0001, attack in place: the player swings where the frame's steps leave him and walks nowhere
+    // (Game.PlaceLockstepAttack).
+    public bool InPlace { get; init; }
     // MoveTo's max range (+0x524, the weapon's range less one), the target's size (+0x52d) and the precision (+0x528).
     public int Reach { get; } = reach;
     public int Tolerance { get; } = tolerance;

@@ -141,8 +141,9 @@ public static class InstanceProtocol
     /// an object, instead of 0x24. C→S 0x0196 (u16 skill): release that skill.</summary>
     public const ushort LockstepUseOnObjectId = 0x018f, LockstepSkillStopId = 0x0196;
 
-    /// <summary>C→S 0x018f. Flags 0x0401 and u8 0 on a free player; flags 0x0001 and u8 3 for a request made during a swing,
-    /// which GGG serves when the swing ends.</summary>
+    /// <summary>C→S 0x018f. u8 0 on a free player, 3 for a request made during a swing, which GGG serves when the swing
+    /// ends. Flags: 0x0400 on a new press, 0x0001 attack in place (07 §6, "Action flags"), 0x0008 the client's
+    /// auto_equip option.</summary>
     public static (uint ObjectId, ushort SkillId, ushort Flags, byte Extra) ReadLockstepUseOnObject(byte[] b) =>
         (BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(2)), BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(6)),
          BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(8)), b[10]);

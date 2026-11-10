@@ -10,7 +10,7 @@ static partial class Game
     // for: everything starts in the frame pass, as on GGG's server, which answers a click at the next frame start and the
     // rest from the player's own tick. The offsets are from the client's cell, and GGG's target is that cell plus the
     // offset: where the cursor is (median 0.8 cells off over 5 300 requests, moving or not). The newest request wins. A request made during a
-    // swing comes with flags 0x0001 and u8 3, and is served like any other.
+    // swing comes with u8 3, and is served like any other.
     internal static void OnLockstepRequest(string remote, ClientState conn, ushort id, byte[] bytes)
     {
         lock (conn.Monsters)
@@ -214,7 +214,10 @@ static partial class Game
         {
             conn.LockstepAttack?.Fails();
             conn.LockstepAttack = attack = new(action, use.TargetId, m, WalkUpRange(weapon), m.StopRange - 2, precision,
-                () => LockstepAttackCutIn(conn, use.SkillId, use.Sequence) + conn.LockstepActionTail);
+                () => LockstepAttackCutIn(conn, use.SkillId, use.Sequence) + conn.LockstepActionTail)
+            {
+                InPlace = (use.Flags & 1) != 0,
+            };
         }
         await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], $"0x01ab lockstep {what} 0x{use.SkillId:x4} on 0x{use.TargetId:x}",
             atGate: () =>
@@ -253,9 +256,24 @@ static partial class Game
     // 0x141e7b260): met, the swing begins in this frame, from where the frame's steps leave a walking player
     // (0x141e7bc20 → 0x141e350e0 tests that same cell, then stops after the steps, even when they carry him out of reach);
     // nothing found ends the action (0x141e7b920 → 0x141e7bc20); else the step pass runs the walk-up. Under conn.Monsters.
+    // Flag 0x0001 is attack in place: the client sets it on its request (0x140121190: the attack-in-place key, a skill
+    // set to always attack in place, or a use the input handler goes on with) and the 0x1ab echoes it. The Actor's start
+    // then asks MoveTo for the actor's own cell, ranges 0 (0x141e8eb60), instead of the target with the weapon's range:
+    // in goal at once whatever the distance, so the walk under way ends with the stop that waits for the tick and the
+    // swing begins in this frame from where its steps leave the player. The hit asks the reach as ever. Live 2026-11-10:
+    // after such a request 27 cells from the monster the client's player took the frame's step and stood through the
+    // swing, while an estimate that walked up went 11 cells on and its next order put the client's player there.
     internal static ((int X, int Y) Here, (int X, int Y) Aim) PlaceLockstepAttack(ClientState conn, LockstepAttack attack, double at)
     {
         var aim = attack.AimAt(at);
+        if (attack.InPlace)
+        {
+            var stand = conn.Walk.Position(at);
+            conn.Walk.Cancel(at);
+            attack.TimerFrom = at;
+            LockstepAttackSwings(conn, attack, at, conn.LockstepFrame?.End ?? at);
+            return (stand, aim);
+        }
         var here = conn.Walk.Approach(aim.X, aim.Y, attack.Reach, at, attack.Tolerance, attack.Precision).Here;
         attack.TimerFrom = at;
         if (conn.Walk.InReachOf(here, aim, attack.Reach, attack.Tolerance))
