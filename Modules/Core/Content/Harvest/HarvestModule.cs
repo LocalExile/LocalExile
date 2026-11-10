@@ -19,22 +19,23 @@ public sealed class HarvestModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnHideoutReady(async player =>
+        GameEvents.HideoutReady.Add(module.Manifest.Id, async conn =>
         {
+            var player = PlayerOf(conn);
             if (await module.World(player).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
                 _states.GetOrCreateValue(player).Station = id;
         });
-        module.OnObjectUsed(async use =>
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
         {
-            if (!_states.TryGetValue(use.Player, out var state) || state.Station == 0 || use.ObjectId != state.Station) return false;
-            var world = module.World(use.Player);
-            if (await world.WalkUpToStation(state.Station, use.RequestedAt))
+            if (!_states.TryGetValue(PlayerOf(conn), out var state) || state.Station == 0 || use.TargetId != state.Station) return false;
+            var world = module.World(PlayerOf(conn));
+            if (await world.WalkUpToStation(state.Station, at))
                 await world.OpenWindow(Window, InstanceWaypoints.HorticraftingUi, "0x007b open Horticrafting Station recipe browser");
             return true;
         });
-        module.OnPacket(InstanceHarvest.CraftId, async packet =>
+        GameEvents.Packet(InstanceHarvest.CraftId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            await Craft(module, packet.Player, InstanceHarvest.ReadCraft(packet.Bytes.ToArray()));
+            await Craft(module, PlayerOf(conn), InstanceHarvest.ReadCraft(bytes));
             return true;
         });
     }

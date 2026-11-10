@@ -50,23 +50,32 @@ public sealed class CharacterBuildImportTests
             Assert.Throws<InvalidOperationException>(() => api.Capture(player));
             Assert.Null(conn.BuildImport.Confirmed);
 
+            // The probe's commands, as a connection builds them; PlayerOf(conn) is this test's player.
+            Program.ModPlayers.AddOrUpdate(conn, player);
+            ChatCommands Commands()
+            {
+                var commands = new ChatCommands { Send = (_, _) => Task.CompletedTask, Reply = player.Tell };
+                foreach (var build in GameEvents.CommandsBuilding.All) commands = build(commands, "", null!, null!, conn);
+                return commands;
+            }
             Directory.CreateDirectory(Path.Combine(mods, "probe"));
             File.WriteAllText(Path.Combine(mods, "probe", "probe.cs"), """
                 public sealed class Probe : IMod
                 {
-                    public void Load(IModContext mod) => mod.OnChatCommand("capture", "/capture",
-                        c => c.Player.Tell(mod.CharacterBuilds.Capture(c.Player)));
+                    public void Load(IModContext mod) => GameEvents.Command(mod.Manifest.Id, "capture", "/capture",
+                        (conn, _) => Program.PlayerOf(conn).Tell(mod.CharacterBuilds.Capture(Program.PlayerOf(conn))));
                 }
                 """);
             using (var host = new ModHost(mods, _ => { }))
             {
                 host.Reload();
                 Assert.True(host.IsLoaded("probe"), string.Join("; ", host.Mods().Select(m => m.Error)));
-                Assert.True(await host.RunCommand(player, "capture", []));
+                Assert.True(await Commands().RunAsync("/capture"));
                 Assert.Contains(player.Messages, m => JsonSerializer.Deserialize<Character>(m) == record);
                 Assert.True(host.SetEnabled("probe", false));
                 Assert.False(host.IsLoaded("probe"));
-                Assert.False(await host.RunCommand(player, "capture", []));
+                // Unloading released its subscription: nobody answers /capture any more.
+                Assert.False(await Commands().RunAsync("/capture"));
             }
             var acceptedLifetime = new ModuleLifetime("accepted");
             using var accepted = new CharacterBuildApi(acceptedLifetime, clock).Prepare(player, Payload(record with { Level = 90 }));

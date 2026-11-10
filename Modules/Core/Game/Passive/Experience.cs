@@ -20,8 +20,8 @@ public static partial class Game
             partyMultiplier: partyMultiplier);
         uint beforePenalty = Progression.MonsterExperience(baseExperience, multiplierPercent, rarity, playerLevel,
             monsterLevel, levelPenalty: false, partyMultiplier: partyMultiplier);
-        return (Program.ServerHooks.Experience(player, monster, character),
-            Program.ServerHooks.Experience(player, monster, beforePenalty));
+        return (GameEvents.RunExperience(ConnOf(player), monster, character),
+            GameEvents.RunExperience(ConnOf(player), monster, beforePenalty));
     }
 
     public sealed class CharacterLevelUpdates

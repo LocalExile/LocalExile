@@ -88,7 +88,7 @@ public static partial class Game
         state.FlaskRewards.Add(new(monster.Rarity));
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
         var balance = LeagueFor(conn).Rules;
-        var modded = Program.ServerHooks.Drops(killer, modMonster);
+        var modded = GameEvents.RunDrops(ConnOf(killer), modMonster);
         var drops = new List<ItemDrops.Drop>();
         if (modded is not { Cancel: true })
         {
@@ -161,7 +161,7 @@ public static partial class Game
                         || !ReferenceEquals(state.OutputQueue[0], output)) return;
                     state.OutputQueue.RemoveAt(0);
                     // Start exactly once while claimed by the current owner. No Game callback is stored in the receipt.
-                    notification = Program.ServerHooks.MonsterKilled(new(PlayerOf(conn), output.Kill!));
+                    notification = GameEvents.RunMonsterKilled(new(conn, output.Kill!));
                 }
                 await notification;
                 continue;

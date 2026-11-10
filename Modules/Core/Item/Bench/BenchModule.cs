@@ -13,33 +13,28 @@ public sealed class BenchModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnHideoutReady(player =>
+        GameEvents.HideoutReady.Add(module.Manifest.Id, conn =>
         {
-            var conn = ConnOf(player);
             return BenchFeature.SpawnBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         });
-        module.OnAreaGenerated(player =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn =>
         {
-            var conn = ConnOf(player);
             return BenchFeature.SpawnTownBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         });
-        module.OnObjectUsed(async use =>
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
         {
-            var conn = ConnOf(use.Player);
-            if (conn.CraftingBenchObject == 0 || use.ObjectId != conn.CraftingBenchObject) return false;
-            await BenchFeature.OpenCraftingBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, use.ObjectId, use.RequestedAt);
+            if (conn.CraftingBenchObject == 0 || use.TargetId != conn.CraftingBenchObject) return false;
+            await BenchFeature.OpenCraftingBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, use.TargetId, at);
             return true;
         });
-        module.OnPacket(InstanceBench.MoveId, async p =>
+        GameEvents.Packet(InstanceBench.MoveId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            await BenchFeature.MoveToBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceBench.ReadMove(p.Bytes.ToArray()));
+            await BenchFeature.MoveToBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceBench.ReadMove(bytes));
             return true;
         });
-        module.OnPacket(InstanceBench.CraftId, async p =>
+        GameEvents.Packet(InstanceBench.CraftId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            await BenchFeature.CraftBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceBench.ReadCraft(p.Bytes.ToArray()));
+            await BenchFeature.CraftBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceBench.ReadCraft(bytes));
             return true;
         });
     }

@@ -14,7 +14,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [10](../docs/protocol/10-chat-and-commands.md).
 - Chat lines and channels (the `Chat` module): local lines go to the players of the instance, `#` global, `$` trade and
   `@Name` whispers go through a chat server, so players of separate Gateways can talk.
-  Each Gateway runs a local chat server; a mod (`UseChatServer`: `globalchat` in LocalExile-Mods) moves its players to another server, and
+  Each Gateway runs a local chat server; a mod (`ChatRoutes.Use`: `globalchat` in LocalExile-Mods) moves its players to another server, and
   disabling the mod moves them back. When that server fails a player is told in chat and stays local, trying again at an area change a minute later.
   `src/GameServer.Chat` is the server to host; it stores nothing.
   An item linked with Ctrl+Alt+click from an inventory or the stash shows as a link in the line (C→S 0x12, S→C 0x17).

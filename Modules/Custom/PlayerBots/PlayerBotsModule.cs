@@ -24,29 +24,29 @@ public sealed class PlayerBotsModule : IModule
         module.Lifetime.Own(new StopOnDispose(director.Stop));
         director.Start();
         // Parties with bots (BotParty): the Social module passes on the invites and parties that are not its own.
-        module.OnPacket(InstanceSocial.PartyInviteId, async p =>
-            await director.Invite(Program.ConnOf(p.Player), InstanceSocial.ReadPartyInvite(p.Bytes.ToArray())) != BotInvite.NotFound);
-        module.OnPacket(InstanceSocial.PartyLeaveId, p => director.Leave(Program.ConnOf(p.Player), InstanceSocial.ReadPartyAccept(p.Bytes.ToArray())));
-        module.OnPacket(InstanceSocial.PartyKickId, p => director.Kick(Program.ConnOf(p.Player), InstanceSocial.ReadPartyKick(p.Bytes.Span)));
+        GameEvents.Packet(InstanceSocial.PartyInviteId).Add(module.Manifest.Id, async (conn, bytes) =>
+            await director.Invite(conn, InstanceSocial.ReadPartyInvite(bytes)) != BotInvite.NotFound);
+        GameEvents.Packet(InstanceSocial.PartyLeaveId).Add(module.Manifest.Id, (conn, bytes) => director.Leave(conn, InstanceSocial.ReadPartyAccept(bytes)));
+        GameEvents.Packet(InstanceSocial.PartyKickId).Add(module.Manifest.Id, (conn, bytes) => director.Kick(conn, InstanceSocial.ReadPartyKick(bytes.AsSpan())));
         // The party panel's invite box reaches a bot by name (C→S 0x93 is passed on to this module), but a player who
         // types a command instead needs the same path: '/botinvite' takes the invite, '/botleave' takes the party away,
         // so a bot can be tried out without opening the social panel.
-        module.OnChatCommand("botinvite", "/botinvite <bot name> (invite a bot you can see into your party)", async cmd =>
+        GameEvents.Command(module.Manifest.Id, "botinvite", "/botinvite <bot name> (invite a bot you can see into your party)", async (conn, args) =>
         {
-            string name = string.Join(' ', cmd.Args).Trim();
-            if (name.Length == 0) { await director.Tell(cmd.Player, "Usage: /botinvite <bot name>"); return; }
-            var result = await director.Invite(Program.ConnOf(cmd.Player), name);
-            await director.Tell(cmd.Player, result switch
+            string name = string.Join(' ', args).Trim();
+            if (name.Length == 0) { await director.Tell(Program.PlayerOf(conn), "Usage: /botinvite <bot name>"); return; }
+            var result = await director.Invite(conn, name);
+            await director.Tell(Program.PlayerOf(conn), result switch
             {
                 BotInvite.Joined => $"{name} joined your party.",
                 BotInvite.Refused => $"Five bots already follow you, so {name} stayed behind.",
                 _ => $"No bot you can see is called \"{name}\" (names are in Modules/Custom/PlayerBots/state/bots.json).",
             });
         });
-        module.OnChatCommand("botleave", "/botleave (the bots following you leave and go back to their quests)", async cmd =>
+        GameEvents.Command(module.Manifest.Id, "botleave", "/botleave (the bots following you leave and go back to their quests)", async (conn, args) =>
         {
-            bool left = await director.LeaveAny(Program.ConnOf(cmd.Player));
-            await director.Tell(cmd.Player, left ? "The bots left your party and went back to their quests." : "No bots are following you.");
+            bool left = await director.LeaveAny(conn);
+            await director.Tell(Program.PlayerOf(conn), left ? "The bots left your party and went back to their quests." : "No bots are following you.");
         });
     }
 

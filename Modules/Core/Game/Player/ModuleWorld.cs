@@ -83,10 +83,10 @@ public static partial class Game
             lock (conn.Npcs) return conn.Npcs.GetValueOrDefault(conn.TalkingTo);
         }
 
-        public Task NpcSay(NpcOption option)
+        public Task NpcSay(string npc, string option, int index, int row)
         {
             conn.InNpcTalk = true;
-            return Send(InstanceNpcs.Talk(conn.TalkingTo, (byte)option.Index), $"0x0084 npc 0x{conn.TalkingTo:x} {option.Npc} talks: NPCTalk row {option.Row} \"{option.Option}\" (index {option.Index})");
+            return Send(InstanceNpcs.Talk(conn.TalkingTo, (byte)index), $"0x0084 npc 0x{conn.TalkingTo:x} {npc} talks: NPCTalk row {row} \"{option}\" (index {index})");
         }
 
         public void NpcEndTalk() => conn.InNpcTalk = false;
