@@ -1693,8 +1693,11 @@ static partial class Game
             ? $", contact {contactFraction:0.###} of the attack ({(contactClip is null ? "the attack1 fallback" : contactClip)})"
             : "";
         Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) {shape}{contact} (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
-        if (discharge is not null)
-            SpendDischargedCharges(remote, conn, gem.Name, gem.Gem, discharge, Stat("discharge_chance_not_to_consume_charges_%"), targets.Count);
+        // An immediate (triggered) spell has no cast clip to draw Discharge's explosion: the server draws it.
+        if (discharge is not null
+            && SpendDischargedCharges(remote, conn, gem.Name, gem.Gem, discharge, Stat("discharge_chance_not_to_consume_charges_%"), targets.Count)
+            && immediate && spell)
+            await ShowTriggeredDischarge(remote, stream, ciphers, conn, gem.Gem, discharge, centre, radius);
         if (BloodCharges.Uses(Stat) && player is not null)
         {
             bool changed;
