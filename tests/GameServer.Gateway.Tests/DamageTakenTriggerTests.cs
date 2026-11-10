@@ -70,6 +70,8 @@ public class DamageTakenTriggerTests
                 uint paid = conn.PlayerMana;
                 var shot = Assert.IsType<ProjectileOffense>(session.Runtime.Projectiles.Single().Use.Payload);
                 Assert.Equal(skill.Id, shot.SourceSkill);
+                Assert.False(shot.ClientPredicted);
+                Assert.Single(conn.ProjectileObjects);
                 var inputs = Game.SupportedHitInputsFor(conn, skill.Id, area: false)!;
                 var withoutTriggerPenalty = Game.SupportedHitFrom(inputs with
                 { Modifiers = inputs.Modifiers.Where(m => m.Name != "cast_on_damage_taken_damage_+%_final").ToList() }, suppress: false);
@@ -122,6 +124,16 @@ public class DamageTakenTriggerTests
                 Game.ReleaseDamageTakenTriggers(conn, session); session.AdvanceTo(0);
                 Assert.Equal(3, session.Runtime.Projectiles.Count);
                 Assert.Equal(paid, conn.PlayerMana);
+                // Triggered Spark still needs the native wander/duration profile, even though the server draws it.
+                Equip(conn, "SupportGemCastOnDamageTaken", "SkillGemSpark");
+                var spark = Game.GemSkillEffects(conn).Single(g => g.Name == "Spark");
+                Game.RecordDamageTakenTriggers(conn, threshold, 1005);
+                Game.ReleaseDamageTakenTriggers(conn, session); session.AdvanceTo(0);
+                var sparkShot = session.Runtime.Projectiles.First(p => ((ProjectileOffense)p.Use.Payload!).SourceSkill == spark.Id);
+                Assert.False(((ProjectileOffense)sparkShot.Use.Payload!).ClientPredicted);
+                Assert.NotNull(sparkShot.Profile.Legs);
+                Assert.Equal(150, sparkShot.Profile.LegLeash);
+                paid = conn.PlayerMana;
                 conn.Clock.Stop();
                 Game.RecordDamageTakenTriggers(conn, threshold, 1);
                 Game.ReleaseDamageTakenTriggers(conn, session);
@@ -130,9 +142,9 @@ public class DamageTakenTriggerTests
             finally { session.Invalidate(); }
         });
     }
-    static void Equip(ClientState conn, string support)
+    static void Equip(ClientState conn, string support, string active = "SkillGemFireball")
     {
-        var fireball = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemFireball")!);
+        var fireball = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + active)!);
         var trigger = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + support)!);
         var wand = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with
         { Sockets = [new(SocketColour.White, fireball), new(SocketColour.White, trigger)], Links = [2] };

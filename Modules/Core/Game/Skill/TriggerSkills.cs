@@ -124,6 +124,10 @@ static partial class Game
                     + (Stats.Key("base_cooldown_speed_+%") is uint baseRecovery ? gem.Stats.GetValueOrDefault(baseRecovery) : 0)
                     + (Stats.Key("virtual_cooldown_speed_+%") is uint ownRecovery ? gem.Stats.GetValueOrDefault(ownRecovery) : 0)) / 100d);
                 var use = CaptureGemProjectile(conn, session, request.Skill, skill, request.Aim, CaptureSkillCriticalRoll(conn, request.Skill));
+                // Keep the spell's native volley and Spark legs before selecting server-owned presentation.
+                use = ClientDrawnVolley(conn, session, request.Skill, skill, use, 0, 0);
+                // Triggered spells have no local cast action predicting their primary projectiles.
+                use = use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false } };
                 if (!PayMana(conn, request.Skill, out uint cost, out uint lifeCost)) continue;
                 counter.ReadyAt = rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;
                 state.SharedReadyAt[gem.Effect] = counter.ReadyAt;

@@ -227,4 +227,6 @@ CoC/CwC/other generic triggers still have no independent executor and refuse man
 Queued triggers retain the actual immutable source gem and equipment object references. Any host replacement
 (including gem XP/level edits and support swaps) cancels accumulated or queued work; identical type hashes and
 reused skill IDs are insufficient identity. Pause freezes pending work without erasing the counter.
-Native presentation, targeting and threshold timing require client verification.
+Triggered roots use server projectile objects because there is no local input action to predict them.
+The existing spell volley and Spark wander/duration specialization still runs before server presentation is selected.
+Native targeting, visual parity and threshold timing require client verification.
