@@ -11,26 +11,26 @@ static class CharacterBuildImports
 
     internal static CharacterBuildImports.Prepared Validate(string text, Character record)
     {
-        if (text.Length > MaxJsonLength) throw new InvalidDataException("Ответ внешнего конвертера слишком большой.");
+        if (text.Length > MaxJsonLength) throw new InvalidDataException("The external converter response is too large.");
         using var json = JsonDocument.Parse(text);
         var root = json.RootElement;
         if (root.GetProperty("Version").GetInt32() != 1)
-            throw new InvalidDataException("Неподдерживаемая версия формата импорта.");
+            throw new InvalidDataException("Unsupported character build import version.");
         var converted = root.GetProperty("Record").Deserialize<Character>()
-            ?? throw new InvalidDataException("Нет персонажа в результате импорта.");
+            ?? throw new InvalidDataException("The import result does not contain a character.");
         var save = root.GetProperty("Save").Deserialize<CharacterSaves.Save>()
-            ?? throw new InvalidDataException("Нет сохранения в результате импорта.");
+            ?? throw new InvalidDataException("The import result does not contain a save.");
         if (converted.Id != record.Id || converted.AccountId != record.AccountId || converted.Name != record.Name
             || converted.League != record.League || converted.Level is < 1 or > 100 || !Enum.IsDefined(converted.Class)
             || save.Inventories is null || save.Inventories.Keys.Any(r => !CharacterBuildImports.Replaced.Contains(r))
             || save.Inventories.Values.Any(v => v is null) || save.Inventories.Values.Sum(v => v.Count) > 1024)
-            throw new InvalidDataException("Некорректный результат внешнего конвертера.");
+            throw new InvalidDataException("Invalid character build import result.");
         foreach (var item in save.Inventories.Values.SelectMany(v => v))
             _ = CharacterSaves.FromSaved(item.Item, Program.Items).Payload();
         string summary = root.GetProperty("Summary").GetString() ?? "";
         string[] warnings = root.GetProperty("Warnings").Deserialize<string[]>() ?? [];
         if (summary.Length > 800 || warnings.Length > 100 || warnings.Any(w => w is null || w.Length > 800))
-            throw new InvalidDataException("Слишком длинное описание результата импорта.");
+            throw new InvalidDataException("The import result description is too long.");
         return new(record.Id, record.AccountId, record.League, converted.Class, converted.Level, save, summary, warnings);
     }
 
@@ -72,9 +72,9 @@ static class CharacterBuildImports
         Saves.Atomically(() =>
         {
             var accounts = new SqliteAccountStore(Saves.Db);
-            var record = accounts.GetCharacter(plan.CharacterId) ?? throw new InvalidDataException("Персонаж удалён.");
+            var record = accounts.GetCharacter(plan.CharacterId) ?? throw new InvalidDataException("The character no longer exists.");
             if (record.AccountId != plan.AccountId || record.League != plan.League || record.HardcoreDeath is not null)
-                throw new InvalidDataException("Владелец, лига или состояние персонажа изменились.");
+                throw new InvalidDataException("The character's owner, league, or state has changed.");
             var current = CharacterSaves.Load(record.Name) ?? new CharacterSaves.Save([]);
             var merged = Merge(current, plan.Save);
             Saves.Db.SetMeta($"character-build-backup/{record.Id:N}/{Guid.NewGuid():N}", JsonSerializer.Serialize(new { Record = record, Save = current }));

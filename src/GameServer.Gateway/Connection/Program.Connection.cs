@@ -209,12 +209,12 @@ partial class Program
                         catch (Exception e)
                         {
                             Console.WriteLine($"[character-build] {CharacterName(conn)}: import failed: {e.Message}");
-                            try { await conn.Commands!.Reply("Билд не применён: " + e.Message); }
+                            try { await conn.Commands!.Reply("Build import failed: " + e.Message); }
                             catch (Exception send) when (send is IOException or ObjectDisposedException) { }
                         }
                         if (imported)
                         {
-                            try { await conn.Commands!.Reply("Билд применён. Войдите персонажем снова."); }
+                            try { await conn.Commands!.Reply("Build applied. Select your character again."); }
                             catch (Exception send) when (send is IOException or ObjectDisposedException) { }
                         }
                     }
