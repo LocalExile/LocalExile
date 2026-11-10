@@ -44,9 +44,9 @@ public static partial class Game
     }
 
     static async Task<bool> CastGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current)
+        ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current, bool triggered = false)
     {
-        double release = AreaTime(conn) + (CastMs(conn, definition.Effect, source) ?? 1000) / 1000.0;
+        double release = AreaTime(conn) + (triggered ? 0 : (CastMs(conn, definition.Effect, source) ?? 1000) / 1000.0);
         var lifetime = CombatLifetime;
         while (true)
         {

@@ -5,10 +5,10 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     public static async Task<bool> Desecrate(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort source, (int X, int Y) aim, Func<bool> current)
+        ushort source, (int X, int Y) aim, Func<bool> current, bool triggered = false)
     {
         var gem = SupportedSkill(conn, source);
-        double release = AreaTime(conn) + (CastMs(conn, gem.Effect, source) ?? 1000) / 1000d;
+        double release = AreaTime(conn) + (triggered ? 0 : (CastMs(conn, gem.Effect, source) ?? 1000) / 1000d);
         var lifetime = CombatLifetime;
         while (AreaTime(conn) < release || conn.Paused)
         {

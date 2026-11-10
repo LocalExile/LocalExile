@@ -50,10 +50,10 @@ public static partial class Game
     }
 
     static async Task<bool> CastSummon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target, int recovery, Func<bool> current)
+        ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target, int recovery, Func<bool> current, bool triggered = false)
     {
         var gem = SupportedSkill(conn, source);
-        double release = AreaTime(conn) + (CastMs(conn, gem.Effect, source) ?? 1000) / 1000d;
+        double release = AreaTime(conn) + (triggered ? 0 : (CastMs(conn, gem.Effect, source) ?? 1000) / 1000d);
         var lifetime = CombatLifetime;
         while (true)
         {
@@ -77,7 +77,7 @@ public static partial class Game
                         GolemReserveLocked(conn, reaper, ultimate, target, conn.Monsters.GetValueOrDefault(target), aim, AreaTime(conn));
                         return true;
                     }
-            await SummonFighter(remote, stream, ciphers, conn, source, definition, aim, target, current: current);
+            await SummonFighter(remote, stream, ciphers, conn, source, definition, aim, target, current: current, triggered: triggered);
         }
         SaveSummons(conn);
         return true;
@@ -86,7 +86,7 @@ public static partial class Game
     public static async Task<uint> SummonFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
-        Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null)
+        Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null, bool triggered = false)
     {
         var gem = SupportedSkill(conn, source);
         if (!gem.RequirementsMet || SkillsFor(conn).EffectId(gem.Effect) != definition.Id) return 0;
@@ -140,7 +140,7 @@ public static partial class Game
             ownedLooks: SummonLooks(fighter),
             ownedAdmission: () => animated?.Ground is not { } item || conn.Instance.Ground.Take(animated.Id, item) is not null,
             ownedCurrent: () => conn.PlayerLife > 0 && (current?.Invoke() ?? true) && (consumed is null || !consumed.CorpseConsumed)
-                && GemSkillInstanceDisabled(conn, gem.Effect, source) is null,
+                && GemSkillInstanceDisabled(conn, gem.Effect, source, triggered: triggered || restoredVariety is not null) is null,
             owned: (id, monster) =>
             {
                 if (consumed is not null) consumed.CorpseConsumed = true;

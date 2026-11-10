@@ -1069,6 +1069,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   on hits against rares and uniques, behind its cooldown, in Ruthless too.
   Used by the Paladin Aura options (Determination, Grace, Discipline); automated coverage only, not checked with the
   real client. See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
+- CWDT, CoC and CwC release summons, golems and Desecrate through their own executors with one paid trigger.
 - Owned minions: relics and chieftains remain timed; all 17 playable golem gems summon, fight and take generic hostile
   hits/projectiles. Golems follow, scale with gem level/quality and supports, grant their distinct owner buffs and save
   activation across areas. Local rule: each activated golem returns two game seconds after death while its source is
